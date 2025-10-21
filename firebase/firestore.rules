@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+      allow delete: if false; // Users can't delete their own document
+    }
+    
+    // Plant identifications
+    match /plant_identifications/{identificationId} {
+      allow read: if isOwner(resource.data.user_id);
+      allow create: if isAuthenticated() 
+                    && request.resource.data.user_id == request.auth.uid;
+      allow update: if isOwner(resource.data.user_id);
+      allow delete: if isOwner(resource.data.user_id);
+    }
+    
+    // User plants
+    match /user_plants/{plantId} {
+      allow read: if isOwner(resource.data.user_id) 
+                  || resource.data.is_public == true;
+      allow create: if isAuthenticated() 
+                    && request.resource.data.user_id == request.auth.uid;
+      allow update: if isOwner(resource.data.user_id);
+      allow delete: if isOwner(resource.data.user_id);
+    }
+    
+    // Disease diagnoses
+    match /disease_diagnoses/{diagnosisId} {
+      allow read: if isOwner(resource.data.user_id);
+      allow create: if isAuthenticated() 
+                    && request.resource.data.user_id == request.auth.uid;
+      allow update: if isOwner(resource.data.user_id);
+      allow delete: if isOwner(resource.data.user_id);
+    }
+    
+    // User preferences
+    match /user_preferences/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+    
+    // Sync queue (only backend can write)
+    match /sync_queue/{syncId} {
+      allow read: if isOwner(resource.data.user_id);
+      allow create: if isAuthenticated();
+      allow update: if false; // Only cloud functions update
+      allow delete: if false; // Only cloud functions delete
+    }
+    
+    // Deny all other paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

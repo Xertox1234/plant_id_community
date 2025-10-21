@@ -1,0 +1,13 @@
+# Firebase credentials file (SERVICE ACCOUNT KEY)
+firebase-adminsdk-credentials.json
+
+# Firebase debug files
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Firebase cache
+.firebase/
+
+# Emulator data
+*-debug.log

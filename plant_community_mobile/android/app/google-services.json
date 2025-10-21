@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "190351417275",
+    "project_id": "plant-community-prod",
+    "storage_bucket": "plant-community-prod.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:190351417275:android:b0ff3bc42c952da769ae9e",
+        "android_client_info": {
+          "package_name": "com.plantcommunity.plant_community_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDpRChSGfwYei1xfyjxcCNWjjnVJN2mBEA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

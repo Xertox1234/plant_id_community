@@ -1,0 +1,63 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+    
+    function isValidSize() {
+      return request.resource.size < 10 * 1024 * 1024; // 10MB
+    }
+    
+    // Plant identification images
+    match /plant-identifications/{userId}/{imageId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId) 
+                   && isImage() 
+                   && isValidSize();
+      allow delete: if isOwner(userId);
+    }
+    
+    // Disease diagnosis images
+    match /disease-diagnoses/{userId}/{imageId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId) 
+                   && isImage() 
+                   && isValidSize();
+      allow delete: if isOwner(userId);
+    }
+    
+    // User plant photos
+    match /user-plants/{userId}/{imageId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId) 
+                   && isImage() 
+                   && isValidSize();
+      allow delete: if isOwner(userId);
+    }
+    
+    // User avatars
+    match /avatars/{userId}/{imageId} {
+      allow read: if true; // Public avatars
+      allow write: if isOwner(userId) 
+                   && isImage() 
+                   && isValidSize();
+      allow delete: if isOwner(userId);
+    }
+    
+    // Deny all other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,181 @@
+# ===================================
+# Environment & Secrets
+# ===================================
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
+
+# ===================================
+# Node.js / JavaScript / React
+# ===================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm
+.eslintcache
+.yarn-integrity
+*.tgz
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.vite/
+.cache/
+
+# Testing
+coverage/
+.nyc_output
+*.lcov
+
+# ===================================
+# Python / Django Backend
+# ===================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Django
+*.log
+db.sqlite3
+db.sqlite3-journal
+plant_id.db
+plant_id.db-journal
+/staticfiles/
+/mediafiles/
+/media/
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# ===================================
+# Flutter / Dart Mobile App
+# ===================================
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+
+# Flutter/Dart specific
+*.iml
+*.class
+*.dex
+*.ap_
+*.aab
+
+# IntelliJ / Android Studio
+.idea/
+*.iws
+*.ipr
+*.iml
+.gradle/
+local.properties
+
+# Xcode / iOS
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+*.xcworkspace
+*.xcscmblueprint
+*.xccheckout
+Pods/
+.symlinks/
+
+# ===================================
+# Firebase
+# ===================================
+.firebase/
+firebase-debug.log*
+firebase-debug.*.log*
+.firebaserc.local
+
+# Firebase config (uncomment to exclude)
+# .firebaserc
+
+# dataconnect generated files
+.dataconnect
+
+# ===================================
+# Operating System
+# ===================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# ===================================
+# IDEs & Editors
+# ===================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+.settings/
+
+# ===================================
+# Temporary & Misc
+# ===================================
+*.tmp
+*.temp
+*.bak
+*.backup
+.cache
+logs/
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# ===================================
+# Reference / Old Implementation
+# ===================================
+# Keep existing_implementation for reference, but ignore its artifacts
+existing_implementation/backend/venv/
+existing_implementation/backend/__pycache__/
+existing_implementation/backend/*.db
+existing_implementation/backend/*.log
+existing_implementation/backend/staticfiles/
+existing_implementation/backend/mediafiles/
+existing_implementation/backend/.env
+existing_implementation/frontend/node_modules/
+existing_implementation/frontend/dist/
+existing_implementation/frontend/.env
