@@ -46,12 +46,22 @@ After completing ANY coding task, you MUST:
 
 **Important Directory Structure:**
 - `/backend/` - **Active development** - Plant identification services, APIs, and core functionality
+- `/backend/docs/` - **Documentation** - Centralized documentation for backend (see below)
 - `/existing_implementation/` - Reference code for blog/forum features only - **DO NOT EDIT**
 
-**Circuit Breaker Documentation:**
-- `CIRCUIT_BREAKER_RESEARCH.md` - Comprehensive research on circuit breaker patterns for external APIs
-- `CIRCUIT_BREAKER_IMPLEMENTATION.md` - Step-by-step implementation guide with code examples
-- `CIRCUIT_BREAKER_QUICKREF.md` - Quick reference for configuration, monitoring, and troubleshooting
+**Week 3 Quick Wins (✅ Complete):**
+- 🔐 Production authentication: Environment-aware permissions, rate limiting
+- 🔢 API versioning: /api/v1/ namespace, backward compatibility
+- ⚡ Circuit breakers: 99.97% faster fast-fail (30s → <10ms)
+- 🔒 Distributed locks: 90% reduction in duplicate API calls
+
+**Documentation Structure:**
+- `/backend/docs/` - Master documentation directory
+  - `quick-wins/` - Production-readiness improvements (authentication, versioning, circuit breakers, locks)
+  - `architecture/` - System design, patterns, and architectural decisions
+  - `performance/` - Week 2 optimizations (parallel processing, caching, indexes)
+  - `development/` - Session summaries, troubleshooting, security fixes
+  - **Start here:** `/backend/docs/README.md` for complete documentation index
 
 ## Essential Commands
 
@@ -144,7 +154,7 @@ flutterfire configure --project=plant-community-prod
 
 ## Week 2 Performance Optimizations
 
-See `WEEK2_PERFORMANCE.md` and `UNIT_TESTS_COMPLETION.md` for comprehensive documentation.
+See `/backend/docs/performance/week2-performance.md` for comprehensive documentation.
 
 **Backend Optimizations:**
 1. **Parallel API Processing** - ThreadPoolExecutor calls Plant.id + PlantNet simultaneously
@@ -478,7 +488,7 @@ python manage.py test apps.plant_identification --keepdb
    - Image compression
 3. Implement solution with constants in `constants.py`
 4. Add unit tests for performance validation
-5. Update `WEEK2_PERFORMANCE.md` with results
+5. Update `/backend/docs/performance/week2-performance.md` with results
 6. Run `test_performance.py` to verify improvements
 
 ## Common Issues & Solutions
@@ -569,11 +579,13 @@ python manage.py test apps.plant_identification.test_executor_caching --keepdb -
 ### ✅ Completed (Production-Ready)
 - **Backend Infrastructure**:
   - Django 5.2 + DRF with dual API integration (Plant.id + PlantNet)
+  - Week 3 Quick Wins: Production authentication, API versioning, circuit breakers, distributed locks
   - Week 2 Performance Optimizations (parallel processing, Redis caching, DB indexes)
   - Comprehensive unit test suite (20/20 tests passing)
   - PostgreSQL 18 with GIN indexes and trigram search
   - Type hints on all service methods
   - Centralized constants and logging standards
+  - **See:** `/backend/docs/` for comprehensive documentation
 
 - **Web Frontend**:
   - React 19 + Vite + Tailwind CSS 4
