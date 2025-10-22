@@ -188,24 +188,29 @@ lib/
 └── widgets/                # Reusable UI components
 ```
 
-### Backend (`/existing_implementation/backend`)
+### Backend (`/backend/`) ⚠️ ACTIVE DEVELOPMENT
 ```
 backend/
 ├── apps/
 │   ├── plant_identification/    # Plant ID API endpoints
 │   │   ├── services/
-│   │   │   ├── plant_id_service.py        # Plant.id API integration
-│   │   │   └── combined_identification_service.py  # Dual API orchestration
-│   │   └── api/
-│   │       └── simple_views.py            # API endpoints
-│   ├── blog/               # Wagtail CMS blog
-│   ├── forum_integration/  # Django Machina forums
+│   │   │   ├── plant_id_service.py                    # Plant.id API + Redis caching
+│   │   │   ├── combined_identification_service.py     # Parallel dual API (Week 2)
+│   │   │   ├── plantnet_service.py                    # PlantNet API
+│   │   │   └── ...
+│   │   ├── api/
+│   │   │   └── simple_views.py                        # API endpoints
+│   │   └── migrations/
+│   │       └── 0012_add_performance_indexes.py        # Week 2 DB indexes
 │   ├── users/              # User management
 │   └── core/               # Shared utilities
 ├── manage.py
+├── simple_server.py        # Development server with Redis health check
 ├── requirements.txt
-└── .env                    # API keys (Plant.id, PlantNet)
+└── .env                    # API keys (see .env.example)
 ```
+
+**Note**: `/existing_implementation/backend/` contains reference code for blog/forum features. DO NOT EDIT that directory.
 
 ## Backend API Integration
 
@@ -278,7 +283,7 @@ CombinedPlantIdentificationService
 Merged Results
 ```
 
-**API Keys (configured in `/existing_implementation/backend/.env`):**
+**API Keys (configured in `/backend/.env`):**
 - `PLANT_ID_API_KEY` - Plant.id (Kindwise) for primary identification
 - `PLANTNET_API_KEY` - PlantNet for supplemental care data
 
@@ -311,7 +316,7 @@ Merged Results
 VITE_API_URL=http://localhost:8000
 ```
 
-### Backend (`existing_implementation/backend/.env`)
+### Backend (`backend/.env` - copy from .env.example)
 ```bash
 # Django
 SECRET_KEY=your-secret-key
@@ -339,9 +344,10 @@ PLANTNET_API_KEY=2b10XCJNMzrPYiojVsddjK0n
 
 **Terminal 1 - Backend:**
 ```bash
-cd existing_implementation/backend
+cd backend
 source venv/bin/activate
-python manage.py runserver
+python simple_server.py  # Includes Redis health check
+# OR: python manage.py runserver
 # Backend running at http://localhost:8000
 ```
 
@@ -380,17 +386,18 @@ flutter run -d ios  # or -d android
 
 ### Backend won't start
 ```bash
-cd existing_implementation/backend
+cd backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env  # Then edit .env with your API keys
 python manage.py migrate
 ```
 
 ### CORS errors from frontend
-Check `existing_implementation/backend/.env`:
+Check `backend/.env`:
 ```bash
-CORS_ALLOWED_ORIGINS=http://localhost:5173
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
 ```
 
 ### API returns "Plant.id API key not configured"
@@ -467,9 +474,10 @@ npm run build        # Verify production build works
 
 ### Backend
 ```bash
-cd existing_implementation/backend
+cd backend
 source venv/bin/activate
 python manage.py test apps.plant_identification
+pytest apps/plant_identification/tests/  # Alternative with pytest
 ```
 
 ### Flutter Mobile

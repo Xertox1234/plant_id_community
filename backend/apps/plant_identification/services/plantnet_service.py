@@ -5,6 +5,7 @@ PlantNet API provides AI-powered plant identification from images.
 Documentation: https://my.plantnet.org/
 """
 
+import hashlib
 import requests
 import logging
 from typing import Dict, List, Optional, Union
@@ -25,7 +26,8 @@ class PlantNetAPIService:
     """
     
     BASE_URL = "https://my-api.plantnet.org/v2"
-    CACHE_TIMEOUT = 1800  # 30 minutes (shorter than Trefle due to image-based results)
+    API_VERSION = "v2"  # Include in cache key for version-specific caching
+    CACHE_TIMEOUT = 86400  # 24 hours (match Plant.id caching strategy)
     
     # PlantNet project types - using actual project IDs from API
     # These are the valid project IDs returned by the /v2/projects endpoint
@@ -131,14 +133,15 @@ class PlantNetAPIService:
         # Prepare request
         project_key = self.PROJECTS.get(project, self.PROJECTS['world'])
         url = f"{self.BASE_URL}/identify/{project_key}"
-        
+
         # Only API key goes in query params
         params = {'api-key': self.api_key}
-        
+
         try:
             # Prepare multipart form data according to PlantNet API v2 specification
             files = []
-            
+            image_bytes_list = []  # Store for cache key generation
+
             # Add images - all use the same 'images' field name
             for i, image in enumerate(images):
                 if hasattr(image, 'read'):
@@ -148,8 +151,25 @@ class PlantNetAPIService:
                     with open(image, 'rb') as f:
                         image_bytes = self._prepare_image(f)
                     filename = f"image_{i}.jpg"
-                
+
                 files.append(('images', (filename, image_bytes, 'image/jpeg')))
+                image_bytes_list.append(image_bytes)
+
+            # Generate cache key from image data and parameters
+            # Combine all image bytes for consistent hashing
+            combined_image_data = b''.join(image_bytes_list)
+            image_hash = hashlib.sha256(combined_image_data).hexdigest()
+            organs_str = ':'.join(sorted(organs) if organs else ['none'])
+            modifiers_str = ':'.join(sorted(modifiers) if modifiers else ['none'])
+            cache_key = f"plantnet:{self.API_VERSION}:{project}:{image_hash}:{organs_str}:{modifiers_str}:{include_related_images}"
+
+            # Check cache first
+            cached_result = cache.get(cache_key)
+            if cached_result:
+                logger.info(f"[CACHE] HIT for PlantNet image {image_hash[:8]}... (instant response)")
+                return cached_result
+
+            logger.info(f"[CACHE] MISS for PlantNet image {image_hash[:8]}... - calling API")
             
             # Prepare multipart form data exactly like the working TypeScript implementation
             # Each organ is added separately, not as an array
@@ -170,8 +190,14 @@ class PlantNetAPIService:
             # Make request using requests.post with files and data tuples
             response = self.session.post(url, params=params, files=files, data=data, timeout=60)
             response.raise_for_status()
-            
-            return response.json()
+
+            result = response.json()
+
+            # Cache the result for 24 hours (match Plant.id caching strategy)
+            cache.set(cache_key, result, timeout=self.CACHE_TIMEOUT)
+            logger.info(f"[CACHE] Stored PlantNet result for image {image_hash[:8]}... (TTL: {self.CACHE_TIMEOUT}s)")
+
+            return result
             
         except requests.exceptions.RequestException as e:
             logger.error(f"PlantNet API request failed: {str(e)}")

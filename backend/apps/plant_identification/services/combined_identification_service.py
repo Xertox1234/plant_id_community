@@ -7,7 +7,10 @@ Integrates Plant.id (Kindwise) and PlantNet APIs to provide:
 3. Comprehensive care instructions (PlantNet)
 """
 
+import atexit
 import logging
+import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from io import BytesIO
@@ -18,6 +21,79 @@ from .plant_id_service import PlantIDAPIService
 from .plantnet_service import PlantNetAPIService
 
 logger = logging.getLogger(__name__)
+
+# Module-level thread pool executor (shared across all instances)
+# This prevents resource leaks and ensures proper cleanup on shutdown
+_EXECUTOR: Optional[ThreadPoolExecutor] = None
+_EXECUTOR_LOCK = threading.Lock()
+_CLEANUP_REGISTERED = False
+
+
+def get_executor() -> ThreadPoolExecutor:
+    """
+    Get or create the shared ThreadPoolExecutor for parallel API calls.
+
+    Thread pool is initialized lazily and shared across all service instances
+    to prevent resource exhaustion. Cleanup is guaranteed via atexit hook.
+
+    Environment Variables:
+        PLANT_ID_MAX_WORKERS (int, optional): Maximum worker threads for parallel API calls.
+            Default: 2x CPU cores (capped at 10). Must be positive integer.
+
+    Returns:
+        ThreadPoolExecutor: Shared executor with configurable max_workers
+    """
+    global _EXECUTOR, _CLEANUP_REGISTERED
+
+    # Fast path: executor already exists (avoid lock in common case)
+    if _EXECUTOR is not None:
+        return _EXECUTOR
+
+    # Slow path: need to create executor (use lock for thread safety)
+    with _EXECUTOR_LOCK:
+        # Double-check inside lock to prevent race condition
+        if _EXECUTOR is None:
+            # Get max_workers from environment or calculate based on CPU cores
+            # For I/O-bound tasks (API calls), use 2x CPU cores
+            try:
+                max_workers_env = os.getenv('PLANT_ID_MAX_WORKERS')
+                if max_workers_env:
+                    max_workers = int(max_workers_env)
+                    if max_workers < 1:
+                        logger.warning(f"Invalid PLANT_ID_MAX_WORKERS={max_workers} (must be positive), using default")
+                        max_workers = os.cpu_count() * 2 if os.cpu_count() else 2
+                else:
+                    max_workers = os.cpu_count() * 2 if os.cpu_count() else 2
+            except (ValueError, TypeError) as e:
+                logger.error(f"Invalid PLANT_ID_MAX_WORKERS value: {e}, using default")
+                max_workers = os.cpu_count() * 2 if os.cpu_count() else 2
+
+            # Cap at reasonable maximum to prevent API rate limit issues
+            max_workers = max(1, min(max_workers, 10))
+
+            _EXECUTOR = ThreadPoolExecutor(
+                max_workers=max_workers,
+                thread_name_prefix='plant_api_'
+            )
+
+            # Register cleanup on process exit (only once)
+            if not _CLEANUP_REGISTERED:
+                atexit.register(_cleanup_executor)
+                _CLEANUP_REGISTERED = True
+
+            logger.info(f"[INIT] ThreadPoolExecutor initialized with {max_workers} workers")
+
+        return _EXECUTOR
+
+
+def _cleanup_executor() -> None:
+    """Cleanup executor on process shutdown."""
+    global _EXECUTOR
+    if _EXECUTOR is not None:
+        logger.info("[SHUTDOWN] Cleaning up ThreadPoolExecutor")
+        _EXECUTOR.shutdown(wait=True, cancel_futures=False)
+        _EXECUTOR = None
+        logger.info("[SHUTDOWN] ThreadPoolExecutor cleanup complete")
 
 
 class CombinedPlantIdentificationService:
@@ -35,8 +111,9 @@ class CombinedPlantIdentificationService:
         self.plant_id = None
         self.plantnet = None
 
-        # Initialize thread pool executor for parallel API calls
-        self.executor = ThreadPoolExecutor(max_workers=2)
+        # Use shared thread pool executor for parallel API calls
+        # This prevents resource leaks and improves performance
+        self.executor = get_executor()
 
         # Initialize Plant.id (Kindwise) service
         try:
@@ -56,11 +133,6 @@ class CombinedPlantIdentificationService:
 
         if not self.plant_id and not self.plantnet:
             logger.error("No plant identification APIs available")
-
-    def __del__(self):
-        """Cleanup thread pool executor on instance destruction."""
-        if hasattr(self, 'executor'):
-            self.executor.shutdown(wait=False)
 
     def identify_plant(self, image_file, user=None) -> Dict:
         """

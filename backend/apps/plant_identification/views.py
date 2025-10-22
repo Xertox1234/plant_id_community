@@ -131,22 +131,13 @@ class PlantIdentificationRequestViewSet(viewsets.ModelViewSet):
             user=self.request.user
         ).order_by('-created_at')
     
-    # TEMPORARILY DISABLED RATE LIMITING FOR DEBUGGING
-    # @ratelimit(key='user', rate='10/m', method='POST', block=True)  # 10 requests per minute per user
+    @ratelimit(key='user', rate='10/m', method='POST', block=True)  # 10 requests per minute per user
     def create(self, request, *args, **kwargs):
-        """Create plant identification request."""
+        """Create plant identification request with rate limiting."""
         try:
-            # Debug: Log what we're receiving  
-            print(f"PLANT ID DEBUG - Files: {list(request.FILES.keys())}")
-            print(f"PLANT ID DEBUG - Data: {dict(request.data)}")
-            logger.error(f"PLANT ID DEBUG - Files: {list(request.FILES.keys())}")
-            logger.error(f"PLANT ID DEBUG - Data: {dict(request.data)}")
-            
             return super().create(request, *args, **kwargs)
         except Exception as e:
-            logger.error(f"Error creating plant identification request: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Error creating plant identification request: {e}", exc_info=True)
             raise
     
     def perform_create(self, serializer):
