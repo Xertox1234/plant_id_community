@@ -76,9 +76,29 @@ if not settings.configured:
                 'LOCATION': os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/1'),
                 'OPTIONS': {
                     'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+
+                    # Connection pool settings (prevent exhaustion)
+                    'CONNECTION_POOL_KWARGS': {
+                        'max_connections': int(os.getenv('REDIS_MAX_CONNECTIONS', '50')),
+                        'retry_on_timeout': True,
+                    },
+
+                    # Timeouts (prevent hanging on Redis failure)
+                    'SOCKET_CONNECT_TIMEOUT': int(os.getenv('REDIS_TIMEOUT', '5')),
+                    'SOCKET_TIMEOUT': int(os.getenv('REDIS_TIMEOUT', '5')),
+
+                    # Serialization (explicit for clarity)
+                    'SERIALIZER': 'django_redis.serializers.json.JSONSerializer',
+
+                    # Compression for large cache values (plant ID results)
+                    'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+
+                    # Ignore exceptions (gracefully degrade to no cache)
+                    'IGNORE_EXCEPTIONS': True,
                 },
                 'KEY_PREFIX': 'plant_id',
-                'TIMEOUT': 86400,  # 24 hours default
+                'TIMEOUT': int(os.getenv('CACHE_TIMEOUT', '86400')),  # 24 hours default
+                'VERSION': 1,  # Bump this to invalidate all cache keys
             }
         },
 

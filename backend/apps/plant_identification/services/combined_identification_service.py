@@ -14,7 +14,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from io import BytesIO
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
+from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 from django.conf import settings
 
 from .plant_id_service import PlantIDAPIService
@@ -106,7 +107,7 @@ class CombinedPlantIdentificationService:
     3. Merge results to provide comprehensive plant information
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize both API services and thread executor for parallel processing."""
         self.plant_id = None
         self.plantnet = None
@@ -134,7 +135,11 @@ class CombinedPlantIdentificationService:
         if not self.plant_id and not self.plantnet:
             logger.error("No plant identification APIs available")
 
-    def identify_plant(self, image_file, user=None) -> Dict:
+    def identify_plant(
+        self,
+        image_file: Union[BytesIO, InMemoryUploadedFile, TemporaryUploadedFile, bytes],
+        user: Optional[Any] = None
+    ) -> Dict[str, Any]:
         """
         Identify a plant using both APIs in parallel and combine results.
 
@@ -201,7 +206,7 @@ class CombinedPlantIdentificationService:
 
         return results
 
-    def _identify_parallel(self, image_data: bytes) -> tuple:
+    def _identify_parallel(self, image_data: bytes) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """
         Execute Plant.id and PlantNet API calls in parallel.
 
@@ -289,7 +294,7 @@ class CombinedPlantIdentificationService:
 
         return plant_id_results, plantnet_results
     
-    def _extract_care_info(self, plantnet_results: Dict) -> Dict:
+    def _extract_care_info(self, plantnet_results: Dict[str, Any]) -> Dict[str, Any]:
         """
         Extract care instructions from PlantNet results.
         
@@ -327,9 +332,9 @@ class CombinedPlantIdentificationService:
     
     def _merge_suggestions(
         self,
-        plant_id_results: Optional[Dict],
-        plantnet_results: Optional[Dict]
-    ) -> List[Dict]:
+        plant_id_results: Optional[Dict[str, Any]],
+        plantnet_results: Optional[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         """
         Combine suggestions from both APIs, prioritizing Plant.id.
         
@@ -402,7 +407,7 @@ class CombinedPlantIdentificationService:
         
         return combined
     
-    def get_identification_summary(self, results: Dict) -> str:
+    def get_identification_summary(self, results: Dict[str, Any]) -> str:
         """
         Generate a human-readable summary of identification results.
         
