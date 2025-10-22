@@ -1,10 +1,22 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Upload, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { compressImage, formatFileSize, shouldCompressImage } from '../../utils/imageCompression'
 
 export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 }) {
   const [dragActive, setDragActive] = useState(false)
   const [error, setError] = useState(null)
   const [preview, setPreview] = useState(null)
+  const [isCompressing, setIsCompressing] = useState(false)
+  const [compressionStats, setCompressionStats] = useState(null)
+
+  // Cleanup Object URL when component unmounts or preview changes
+  useEffect(() => {
+    return () => {
+      if (preview && preview.startsWith('blob:')) {
+        URL.revokeObjectURL(preview)
+      }
+    }
+  }, [preview])
 
   const validateFile = (file) => {
     // Check file type
@@ -23,19 +35,48 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
     return true
   }
 
-  const handleFile = (file) => {
+  const handleFile = useCallback(async (file) => {
     if (validateFile(file)) {
-      // Create preview
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        setPreview(e.target.result)
+      let finalFile = file
+      const originalSize = file.size
+
+      // Compress if file > 2MB
+      if (shouldCompressImage(file)) {
+        setIsCompressing(true)
+        setCompressionStats(null)
+
+        try {
+          const compressedFile = await compressImage(file)
+          const compressedSize = compressedFile.size
+          const reduction = Math.round(((originalSize - compressedSize) / originalSize) * 100)
+
+          finalFile = compressedFile
+          setCompressionStats({
+            originalSize,
+            compressedSize,
+            reduction,
+          })
+        } catch (compressionError) {
+          setError('Image compression failed. Using original file.')
+          // Continue with original file
+        } finally {
+          setIsCompressing(false)
+        }
       }
-      reader.readAsDataURL(file)
+
+      // Create preview using Object URL (more memory-efficient than base64)
+      try {
+        const objectUrl = URL.createObjectURL(finalFile)
+        setPreview(objectUrl)
+      } catch (previewError) {
+        setError('Failed to load image preview')
+        return
+      }
 
       // Pass file to parent
-      onFileSelect(file)
+      onFileSelect(finalFile)
     }
-  }
+  }, [onFileSelect, maxSize])
 
   const handleDrag = useCallback((e) => {
     e.preventDefault()
@@ -55,7 +96,7 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFile(e.dataTransfer.files[0])
     }
-  }, [])
+  }, [handleFile])
 
   const handleChange = (e) => {
     e.preventDefault()
@@ -64,11 +105,16 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
     }
   }
 
-  const clearPreview = () => {
+  const clearPreview = useCallback(() => {
+    // Cleanup Object URL before clearing preview
+    if (preview && preview.startsWith('blob:')) {
+      URL.revokeObjectURL(preview)
+    }
     setPreview(null)
     setError(null)
+    setCompressionStats(null)
     onFileSelect(null)
-  }
+  }, [preview, onFileSelect])
 
   return (
     <div className="w-full">
@@ -79,6 +125,8 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
               ? 'border-green-500 bg-green-50'
               : error
               ? 'border-red-300 bg-red-50'
+              : isCompressing
+              ? 'border-blue-300 bg-blue-50'
               : 'border-gray-300 hover:border-green-400'
           }`}
           onDragEnter={handleDrag}
@@ -92,25 +140,45 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
             accept="image/*"
             onChange={handleChange}
             className="hidden"
+            aria-label="Upload plant image, maximum 10MB, PNG, JPG, or WebP formats supported"
           />
 
           <label
             htmlFor="file-upload"
             className="flex flex-col items-center justify-center cursor-pointer"
           >
-            <div className="w-16 h-16 mb-4 bg-green-100 rounded-full flex items-center justify-center">
-              <Upload className="w-8 h-8 text-green-600" />
-            </div>
+            {isCompressing ? (
+              <>
+                <div className="w-16 h-16 mb-4 bg-blue-100 rounded-full flex items-center justify-center">
+                  <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+                </div>
+                <p className="text-lg font-medium text-gray-900 mb-2">
+                  Compressing image...
+                </p>
+                <p className="text-sm text-gray-600">
+                  Optimizing for faster upload
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="w-16 h-16 mb-4 bg-green-100 rounded-full flex items-center justify-center">
+                  <Upload className="w-8 h-8 text-green-600" />
+                </div>
 
-            <p className="text-lg font-medium text-gray-900 mb-2">
-              Drop your plant photo here
-            </p>
-            <p className="text-sm text-gray-600 mb-4">
-              or click to browse your files
-            </p>
-            <p className="text-xs text-gray-500">
-              PNG, JPG, WebP up to 10MB
-            </p>
+                <p className="text-lg font-medium text-gray-900 mb-2">
+                  Drop your plant photo here
+                </p>
+                <p className="text-sm text-gray-600 mb-4">
+                  or click to browse your files
+                </p>
+                <p className="text-xs text-gray-500">
+                  PNG, JPG, WebP up to 10MB
+                </p>
+                <p className="text-xs text-gray-400 mt-2">
+                  Large files auto-compressed for faster upload
+                </p>
+              </>
+            )}
           </label>
 
           {error && (
@@ -124,7 +192,10 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
         <div className="relative">
           <img
             src={preview}
-            alt="Plant preview"
+            alt={compressionStats
+              ? `Plant preview (compressed from ${formatFileSize(compressionStats.originalSize)} to ${formatFileSize(compressionStats.compressedSize)})`
+              : "Plant preview - ready for identification"
+            }
             className="w-full h-96 object-cover rounded-xl"
           />
           <button
@@ -134,6 +205,20 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
           >
             <X className="w-5 h-5 text-gray-700" />
           </button>
+
+          {compressionStats && (
+            <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-lg">
+              <div className="flex items-center gap-2 text-sm">
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                <span className="font-medium text-gray-900">
+                  Compressed {compressionStats.reduction}%
+                </span>
+              </div>
+              <p className="text-xs text-gray-600 mt-1">
+                {formatFileSize(compressionStats.originalSize)} → {formatFileSize(compressionStats.compressedSize)}
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>
