@@ -226,7 +226,7 @@ class CombinedPlantIdentificationService:
         """
         api_start_time = time.time()
 
-        def call_plant_id():
+        def call_plant_id() -> Optional[Dict[str, Any]]:
             """Call Plant.id API in a thread."""
             try:
                 plant_id_start = time.time()
@@ -243,7 +243,7 @@ class CombinedPlantIdentificationService:
                 logger.error(f"[ERROR] Plant.id failed: {e}")
                 return None
 
-        def call_plantnet():
+        def call_plantnet() -> Optional[Dict[str, Any]]:
             """Call PlantNet API in a thread."""
             try:
                 plantnet_start = time.time()

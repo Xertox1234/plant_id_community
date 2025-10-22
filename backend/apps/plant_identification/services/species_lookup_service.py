@@ -53,7 +53,7 @@ class SpeciesLookupService:
         self.monitor = None
         self._monitor_initialized = False
     
-    def _get_monitor(self):
+    def _get_monitor(self) -> Optional['APIMonitoringService']:
         """Lazy initialization of monitoring service to avoid circular imports."""
         if not self._monitor_initialized:
             try:
@@ -197,7 +197,7 @@ class SpeciesLookupService:
         cache_key = f"species:api:{scientific_name.lower().replace(' ', '_')}"
         return cache.get(cache_key)
     
-    def _cache_species_data(self, scientific_name: str, data: Dict, timeout: int = 86400):
+    def _cache_species_data(self, scientific_name: str, data: Dict, timeout: int = 86400) -> None:
         """Cache species data in Redis."""
         cache_key = f"species:api:{scientific_name.lower().replace(' ', '_')}"
         cache.set(cache_key, data, timeout)
@@ -279,7 +279,7 @@ class SpeciesLookupService:
             identification_count__gt=0
         ).order_by('-identification_count', '-confidence_score')[:limit]
     
-    def warm_cache_for_popular_species(self):
+    def warm_cache_for_popular_species(self) -> None:
         """Pre-populate cache with data for popular species."""
         if not self._can_call_api():
             logger.info("Cannot warm cache - API rate limited")
