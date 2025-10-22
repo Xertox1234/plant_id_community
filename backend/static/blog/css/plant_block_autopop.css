@@ -1,0 +1,262 @@
+/**
+ * Plant Block Auto-Population CSS
+ * 
+ * Styles for the auto-population interface elements in Wagtail admin.
+ */
+
+/* Auto-complete dropdown */
+.plant-autocomplete-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #ddd;
+    border-top: none;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    font-family: 'Open Sans', sans-serif;
+}
+
+.plant-autocomplete-dropdown .autocomplete-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+    transition: background-color 0.2s ease;
+}
+
+.plant-autocomplete-dropdown .autocomplete-item:last-child {
+    border-bottom: none;
+}
+
+.plant-autocomplete-dropdown .autocomplete-item:hover {
+    background-color: #f5f5f5;
+}
+
+.plant-autocomplete-dropdown .autocomplete-item:active {
+    background-color: #e8f5e8;
+}
+
+/* Loading indicator */
+.plant-loading-indicator {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: #666;
+    z-index: 999;
+    animation: pulse 1.5s infinite;
+    font-family: 'Open Sans', sans-serif;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+/* Success message */
+.plant-population-success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+    padding: 8px 12px;
+    margin: 8px 0;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'Open Sans', sans-serif;
+    transition: opacity 0.3s ease;
+}
+
+.plant-population-success:before {
+    content: "✅ ";
+    margin-right: 4px;
+}
+
+/* Error message */
+.plant-population-error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+    padding: 8px 12px;
+    margin: 8px 0;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'Open Sans', sans-serif;
+    transition: opacity 0.3s ease;
+}
+
+.plant-population-error:before {
+    content: "❌ ";
+    margin-right: 4px;
+}
+
+/* Auto-population enabled field indicator */
+input[data-plant-autopop="true"],
+textarea[data-plant-autopop="true"] {
+    border-left: 3px solid #28a745 !important;
+    position: relative;
+}
+
+input[data-plant-autopop="true"]:focus,
+textarea[data-plant-autopop="true"]:focus {
+    border-left-color: #1e7e34 !important;
+    box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25);
+}
+
+/* Auto-populated field animation */
+.plant-field-populated {
+    background-color: #f0f8f0 !important;
+    transition: background-color 2s ease;
+}
+
+/* Wagtail admin integration styles */
+.w-field--plant-autocomplete {
+    position: relative;
+}
+
+.w-field--plant-autocomplete .w-field__input {
+    position: relative;
+}
+
+/* StreamField block enhancements */
+[data-streamfield-stream-container] [data-contentpath*="plant_spotlight"],
+[data-streamfield-stream-container] [data-contentpath*="care_instructions"] {
+    position: relative;
+}
+
+/* Plant data source indicator */
+.plant-data-source {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: rgba(40, 167, 69, 0.9);
+    color: white;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 12px;
+    pointer-events: none;
+    z-index: 10;
+    font-family: 'Open Sans', sans-serif;
+    font-weight: 500;
+}
+
+.plant-data-source.source-local {
+    background: rgba(40, 167, 69, 0.9);
+}
+
+.plant-data-source.source-api {
+    background: rgba(255, 193, 7, 0.9);
+    color: #212529;
+}
+
+.plant-data-source.source-ai {
+    background: rgba(106, 90, 205, 0.9);
+}
+
+/* Tooltip for auto-population fields */
+.plant-autopop-tooltip {
+    position: relative;
+}
+
+.plant-autopop-tooltip:after {
+    content: "🌱 Auto-population enabled - type plant name and press Tab";
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    z-index: 1000;
+    font-family: 'Open Sans', sans-serif;
+}
+
+.plant-autopop-tooltip:hover:after {
+    opacity: 1;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .plant-autocomplete-dropdown {
+        font-size: 14px;
+    }
+    
+    .plant-autocomplete-dropdown .autocomplete-item {
+        padding: 10px 12px;
+    }
+    
+    .plant-loading-indicator,
+    .plant-population-success,
+    .plant-population-error {
+        font-size: 11px;
+        padding: 6px 10px;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .plant-autocomplete-dropdown {
+        background: #2d3748;
+        border-color: #4a5568;
+        color: #e2e8f0;
+    }
+    
+    .plant-autocomplete-dropdown .autocomplete-item {
+        border-bottom-color: #4a5568;
+    }
+    
+    .plant-autocomplete-dropdown .autocomplete-item:hover {
+        background-color: #4a5568;
+    }
+    
+    .plant-loading-indicator {
+        background: #2d3748;
+        border-color: #4a5568;
+        color: #a0aec0;
+    }
+}
+
+/* Animation for field updates */
+@keyframes fieldUpdate {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+
+.plant-field-updated {
+    animation: fieldUpdate 0.3s ease;
+}
+
+/* Confidence indicator */
+.plant-confidence-indicator {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.plant-confidence-indicator.high {
+    background: #28a745;
+}
+
+.plant-confidence-indicator.medium {
+    background: #ffc107;
+}
+
+.plant-confidence-indicator.low {
+    background: #dc3545;
+}

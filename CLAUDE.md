@@ -1,6 +1,25 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Development Workflow
+After completing ANY coding task, you MUST:
+
+Automatically invoke the code-review-specialist sub-agent to review changes
+Wait for the review to complete
+Address any blockers identified
+Only then consider the task complete
+Code Review Process
+The code-review-specialist agent reviews ALL modified files
+Reviews check for: debug code, security issues, accessibility, testing, best practices
+ALL BLOCKERS must be fixed before proceeding
+This is NON-NEGOTIABLE for production code
+Standard Task Pattern
+1. Plan the implementation
+2. Write the code
+3. **USE code-review-specialist agent to review** ← ALWAYS DO THIS
+4. Fix any issues found
+5. Confirm task complete
+Important: Never skip the code review step. It is part of "done".
 
 ## Project Overview
 

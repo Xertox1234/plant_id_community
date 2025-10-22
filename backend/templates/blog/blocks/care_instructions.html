@@ -1,0 +1,57 @@
+{% load wagtailcore_tags %}
+
+<div class="block-care-instructions">
+    <h3>{{ value.care_title }}</h3>
+    
+    <div class="care-grid">
+        <div class="care-item">
+            <h4>Watering</h4>
+            <div class="care-content">
+                {{ value.watering|richtext }}
+            </div>
+        </div>
+        
+        <div class="care-item">
+            <h4>Lighting</h4>
+            <div class="care-content">
+                {{ value.lighting|richtext }}
+            </div>
+        </div>
+        
+        {% if value.temperature %}
+        <div class="care-item">
+            <h4>Temperature</h4>
+            <div class="care-content">
+                <p>{{ value.temperature }}</p>
+            </div>
+        </div>
+        {% endif %}
+        
+        {% if value.humidity %}
+        <div class="care-item">
+            <h4>Humidity</h4>
+            <div class="care-content">
+                <p>{{ value.humidity }}</p>
+            </div>
+        </div>
+        {% endif %}
+        
+        {% if value.fertilizing %}
+        <div class="care-item">
+            <h4>Fertilizing</h4>
+            <div class="care-content">
+                {{ value.fertilizing|richtext }}
+            </div>
+        </div>
+        {% endif %}
+        
+        {% if value.special_notes %}
+        <div class="care-item special-notes">
+            <h4>Special Notes</h4>
+            <div class="care-content">
+                {{ value.special_notes|richtext }}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>

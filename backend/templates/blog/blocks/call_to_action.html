@@ -1,0 +1,17 @@
+{% load wagtailcore_tags %}
+
+<div class="block-cta">
+    <div class="cta-content">
+        <h3>{{ value.cta_title }}</h3>
+        {% if value.cta_description %}
+            <div class="cta-description">
+                {{ value.cta_description|richtext }}
+            </div>
+        {% endif %}
+        {% if value.button_text and value.button_url %}
+            <a href="{{ value.button_url }}" class="cta-button">
+                {{ value.button_text }}
+            </a>
+        {% endif %}
+    </div>
+</div>

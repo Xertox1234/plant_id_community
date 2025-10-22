@@ -1,0 +1,291 @@
+{% extends "emails/base.html" %}
+
+{% block title %}🍂 {{ season|title }} Plant Care Tips - Plant Community{% endblock %}
+
+{% block preheader %}Essential {{ season }} care tips for your {{ plant_count }} plants{% endblock %}
+
+{% block header_subtitle %}
+<p style="margin: 8px 0 0 0; color: #ffffff; opacity: 0.9; font-size: 16px;">
+    {{ season|title }} Care Guide - {{ current_date|date:"F Y" }}
+</p>
+{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-bottom: 32px;">
+    <div style="font-size: 64px; margin-bottom: 16px;">
+        {% if season == 'spring' %}🌸
+        {% elif season == 'summer' %}☀️
+        {% elif season == 'fall' or season == 'autumn' %}🍂
+        {% elif season == 'winter' %}❄️
+        {% else %}🌱{% endif %}
+    </div>
+    <h1 style="color: #10B981; font-size: 32px; font-weight: 700; margin: 0;">
+        {{ season|title }} Plant Care Guide
+    </h1>
+    <p style="color: #6B7280; font-size: 16px; margin: 12px 0 0 0;">
+        Seasonal care tips tailored for your plant collection
+    </p>
+</div>
+
+<p style="margin-bottom: 24px;">Hi {{ user.first_name|default:user.username }},</p>
+
+<p style="margin-bottom: 24px;">
+    As {{ season }} arrives, it's time to adjust your plant care routine! We've prepared personalized care tips 
+    {% if plant_count %}for your {{ plant_count }} {{ plant_count|pluralize:"plant,plants" }}{% endif %} 
+    to help them thrive during this season.
+</p>
+
+<!-- Seasonal Overview -->
+<div style="background: linear-gradient(135deg, {{ season_gradient_start|default:'#F0FDF4' }} 0%, {{ season_gradient_end|default:'#ECFDF5' }} 100%); border-radius: 16px; padding: 28px; margin: 32px 0; text-align: center;">
+    <h2 style="color: {{ season_color|default:'#059669' }}; font-size: 22px; font-weight: 600; margin: 0 0 16px 0;">
+        What to Expect This {{ season|title }}
+    </h2>
+    <p style="color: {{ season_text_color|default:'#047857' }}; font-size: 16px; margin: 0; line-height: 1.6;">
+        {{ season_description|default:'A season of growth and change for your plant friends!' }}
+    </p>
+</div>
+
+<!-- Key Care Tasks -->
+<div style="background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 28px; margin: 32px 0;">
+    <h2 style="color: #1F2937; font-size: 20px; font-weight: 600; margin: 0 0 20px 0; display: flex; align-items: center; gap: 8px;">
+        📋 Essential {{ season|title }} Tasks
+    </h2>
+    
+    {% if seasonal_tasks %}
+    <div style="display: grid; gap: 16px;">
+        {% for task in seasonal_tasks %}
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; background-color: #F9FAFB; border-radius: 8px;">
+            <div style="background-color: #10B981; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">
+                {{ forloop.counter }}
+            </div>
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">
+                    {{ task.title }}
+                </h3>
+                <p style="margin: 0 0 8px 0; color: #4B5563; line-height: 1.5;">
+                    {{ task.description }}
+                </p>
+                {% if task.timing %}
+                <div style="display: flex; align-items: center; gap: 6px; color: #059669; font-size: 14px; font-weight: 500;">
+                    <span>⏰</span>
+                    <span>{{ task.timing }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <!-- Default seasonal tasks based on season -->
+    <div style="display: grid; gap: 16px;">
+        {% if season == 'spring' %}
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; background-color: #F9FAFB; border-radius: 8px;">
+            <div style="background-color: #10B981; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">1</div>
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">Repotting & Fresh Soil</h3>
+                <p style="margin: 0; color: #4B5563; line-height: 1.5;">Check if plants need larger pots and refresh soil for the growing season</p>
+            </div>
+        </div>
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; background-color: #F9FAFB; border-radius: 8px;">
+            <div style="background-color: #10B981; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">2</div>
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">Increase Watering</h3>
+                <p style="margin: 0; color: #4B5563; line-height: 1.5;">As plants wake up from winter dormancy, gradually increase watering frequency</p>
+            </div>
+        </div>
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; background-color: #F9FAFB; border-radius: 8px;">
+            <div style="background-color: #10B981; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">3</div>
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">Start Fertilizing</h3>
+                <p style="margin: 0; color: #4B5563; line-height: 1.5;">Begin monthly feeding with balanced fertilizer to support new growth</p>
+            </div>
+        </div>
+        {% elif season == 'summer' %}
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; background-color: #F9FAFB; border-radius: 8px;">
+            <div style="background-color: #F59E0B; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">1</div>
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">Monitor Water Needs</h3>
+                <p style="margin: 0; color: #4B5563; line-height: 1.5;">Check soil moisture daily; most plants need more frequent watering in summer heat</p>
+            </div>
+        </div>
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; background-color: #F9FAFB; border-radius: 8px;">
+            <div style="background-color: #F59E0B; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">2</div>
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">Provide Shade</h3>
+                <p style="margin: 0; color: #4B5563; line-height: 1.5;">Protect plants from intense afternoon sun with sheer curtains or moving them slightly</p>
+            </div>
+        </div>
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; background-color: #F9FAFB; border-radius: 8px;">
+            <div style="background-color: #F59E0B; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">3</div>
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">Increase Humidity</h3>
+                <p style="margin: 0; color: #4B5563; line-height: 1.5;">Use humidity trays or group plants together to combat dry indoor air</p>
+            </div>
+        </div>
+        {% elif season == 'fall' or season == 'autumn' %}
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; background-color: #F9FAFB; border-radius: 8px;">
+            <div style="background-color: #DC2626; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">1</div>
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">Reduce Watering</h3>
+                <p style="margin: 0; color: #4B5563; line-height: 1.5;">As growth slows, decrease watering frequency and let soil dry more between waterings</p>
+            </div>
+        </div>
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; background-color: #F9FAFB; border-radius: 8px;">
+            <div style="background-color: #DC2626; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">2</div>
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">Stop Fertilizing</h3>
+                <p style="margin: 0; color: #4B5563; line-height: 1.5;">Most plants enter dormancy; avoid fertilizing until spring to prevent weak growth</p>
+            </div>
+        </div>
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; background-color: #F9FAFB; border-radius: 8px;">
+            <div style="background-color: #DC2626; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">3</div>
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">Prepare for Indoor Time</h3>
+                <p style="margin: 0; color: #4B5563; line-height: 1.5;">Gradually transition outdoor plants inside before first frost</p>
+            </div>
+        </div>
+        {% else %}
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; background-color: #F9FAFB; border-radius: 8px;">
+            <div style="background-color: #6B7280; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">1</div>
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">Minimal Watering</h3>
+                <p style="margin: 0; color: #4B5563; line-height: 1.5;">Water sparingly as most plants are dormant and using less water</p>
+            </div>
+        </div>
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; background-color: #F9FAFB; border-radius: 8px;">
+            <div style="background-color: #6B7280; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">2</div>
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">Maximize Light</h3>
+                <p style="margin: 0; color: #4B5563; line-height: 1.5;">Move plants closer to windows to capture precious winter sunlight</p>
+            </div>
+        </div>
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; background-color: #F9FAFB; border-radius: 8px;">
+            <div style="background-color: #6B7280; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">3</div>
+            <div style="flex: 1;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">Watch for Dry Air</h3>
+                <p style="margin: 0; color: #4B5563; line-height: 1.5;">Indoor heating can create dry conditions; use humidifiers or pebble trays</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Plant-Specific Tips -->
+{% if plant_specific_tips %}
+<div style="background-color: #FFF7ED; border-left: 4px solid #F97316; padding: 24px; margin: 32px 0; border-radius: 8px;">
+    <h2 style="color: #C2410C; font-size: 18px; font-weight: 600; margin: 0 0 16px 0;">
+        🌿 Tips for Your Plants
+    </h2>
+    {% for tip in plant_specific_tips %}
+    <div style="margin-bottom: 16px; {% if not forloop.last %}padding-bottom: 16px; border-bottom: 1px solid #FED7AA;{% endif %}">
+        <h3 style="color: #9A3412; font-size: 16px; font-weight: 600; margin: 0 0 8px 0;">
+            {{ tip.plant_name }}
+        </h3>
+        <p style="color: #9A3412; margin: 0; line-height: 1.5;">
+            {{ tip.care_advice }}
+        </p>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Weather Considerations -->
+{% if weather_notes %}
+<div style="background-color: #F0F9FF; border: 1px solid #7DD3FC; border-radius: 12px; padding: 24px; margin: 32px 0;">
+    <h2 style="color: #0369A1; font-size: 18px; font-weight: 600; margin: 0 0 16px 0;">
+        🌤️ Weather Considerations
+    </h2>
+    <p style="color: #0C4A6E; margin: 0; line-height: 1.6;">
+        {{ weather_notes }}
+    </p>
+</div>
+{% endif %}
+
+<!-- Common Issues -->
+<div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; border-radius: 12px; padding: 24px; margin: 32px 0;">
+    <h2 style="color: #DC2626; font-size: 18px; font-weight: 600; margin: 0 0 16px 0;">
+        ⚠️ Watch Out For
+    </h2>
+    {% if seasonal_issues %}
+    <ul style="margin: 0; padding-left: 20px; color: #991B1B;">
+        {% for issue in seasonal_issues %}
+        <li style="margin-bottom: 8px; line-height: 1.5;">{{ issue }}</li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <ul style="margin: 0; padding-left: 20px; color: #991B1B;">
+        {% if season == 'spring' %}
+        <li style="margin-bottom: 8px;">Overwatering as plants slowly wake up from dormancy</li>
+        <li style="margin-bottom: 8px;">Pest infestations from increased humidity and warmth</li>
+        <li>Shock from too-rapid environmental changes</li>
+        {% elif season == 'summer' %}
+        <li style="margin-bottom: 8px;">Heat stress and sunburn from intense sunlight</li>
+        <li style="margin-bottom: 8px;">Root rot from overcompensating with water</li>
+        <li>Spider mites in dry, hot conditions</li>
+        {% elif season == 'fall' or season == 'autumn' %}
+        <li style="margin-bottom: 8px;">Overwatering as growth slows down</li>
+        <li style="margin-bottom: 8px;">Cold shock from temperature fluctuations</li>
+        <li>Pest problems when bringing plants indoors</li>
+        {% else %}
+        <li style="margin-bottom: 8px;">Overwatering dormant plants</li>
+        <li style="margin-bottom: 8px;">Cold drafts near windows and doors</li>
+        <li>Low light stress and leaf drop</li>
+        {% endif %}
+    </ul>
+    {% endif %}
+</div>
+
+<!-- Action Buttons -->
+<div style="text-align: center; margin: 32px 0;">
+    <table cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+        <tr>
+            <td style="padding: 0 8px;">
+                <a href="{{ app_url }}{% url 'users:care_reminders' %}" 
+                   style="background-color: #10B981; color: white; padding: 16px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+                    📱 Set Reminders
+                </a>
+            </td>
+            <td style="padding: 0 8px;">
+                <a href="{{ app_url }}{% url 'forum:category' 'seasonal-care' %}" 
+                   style="background-color: #3B82F6; color: white; padding: 16px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+                    💬 Ask Questions
+                </a>
+            </td>
+        </tr>
+    </table>
+</div>
+
+<!-- Community Highlight -->
+<div style="text-align: center; padding: 24px; background-color: #F9FAFB; border-radius: 12px; margin: 32px 0;">
+    <h3 style="color: #374151; font-size: 16px; font-weight: 600; margin: 0 0 12px 0;">
+        🌟 Community Highlight
+    </h3>
+    <p style="color: #6B7280; font-size: 14px; margin: 0 0 16px 0; font-style: italic;">
+        "{{ season|title }} is a wonderful time to observe how plants adapt and change with the seasons. 
+        Each season teaches us something new about plant care and resilience!"
+    </p>
+    <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
+        - Plant Community Expert Team
+    </p>
+</div>
+
+<p style="margin-top: 32px; margin-bottom: 16px; color: #6B7280; font-size: 14px;">
+    Remember, every plant is unique! Use these tips as guidelines, but always observe your individual plants' needs and adjust accordingly.
+</p>
+
+<p style="margin-bottom: 8px; color: #10B981; font-weight: 600;">
+    Happy {{ season }} gardening! 🌱<br>
+    The Plant Community Team
+</p>
+
+<hr style="border: none; border-top: 1px solid #E5E7EB; margin: 32px 0;">
+
+<div style="text-align: center;">
+    <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
+        You're receiving seasonal care tips because you're subscribed to plant care notifications.<br>
+        <a href="{{ preferences_url }}" style="color: #6B7280; text-decoration: none;">Manage your email preferences</a> | 
+        <a href="{{ unsubscribe_url }}" style="color: #6B7280; text-decoration: none;">Unsubscribe from seasonal tips</a>
+    </p>
+</div>
+{% endblock %}

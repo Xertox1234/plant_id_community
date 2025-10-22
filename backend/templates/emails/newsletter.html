@@ -1,0 +1,126 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ newsletter_type|title }} Plant Community Digest - {{ site_name }}{% endblock %}
+
+{% block preheader %}Your {{ newsletter_type }} dose of plant care tips, community highlights, and growing wisdom{% endblock %}
+
+{% block header_subtitle %}
+<p style="margin: 8px 0 0 0; color: #e8f5e8; font-size: 16px; opacity: 0.9;">
+    {{ newsletter_type|title }} Digest
+</p>
+{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-bottom: 32px;">
+    <span style="font-size: 48px;">📧</span>
+    <h2 style="margin: 16px 0 8px 0; color: #2c5f41;">
+        Your {{ newsletter_type|title }} Plant Digest
+    </h2>
+    <p style="font-size: 16px; color: #6c757d; margin: 0;">
+        {% if user_first_name %}Hi {{ user_first_name }}! {% endif %}Here's what's growing in the community
+    </p>
+</div>
+
+{% for item in content_items %}
+<div style="border: 1px solid #e9ecef; border-radius: 8px; padding: 24px; margin: 24px 0; background-color: #ffffff;">
+    {% if item.image_url %}
+    <img src="{{ item.image_url }}" alt="{{ item.title }}" style="width: 100%; max-width: 500px; height: auto; border-radius: 6px; margin-bottom: 16px;">
+    {% endif %}
+    
+    <div style="margin-bottom: 8px;">
+        {% if item.category %}
+        <span style="background-color: #e7f3ff; color: #0066cc; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; text-transform: uppercase;">
+            {{ item.category }}
+        </span>
+        {% endif %}
+    </div>
+    
+    <h3 style="margin: 12px 0; color: #2c5f41;">
+        <a href="{{ item.url }}" style="color: #2c5f41; text-decoration: none;">
+            {{ item.title }}
+        </a>
+    </h3>
+    
+    <p style="margin: 0 0 16px 0; color: #333;">{{ item.excerpt }}</p>
+    
+    {% if item.plant_types %}
+    <div style="margin: 16px 0;">
+        <span style="font-size: 14px; color: #6c757d; font-weight: 600;">Plants: </span>
+        {% for plant_type in item.plant_types %}
+        <span style="background-color: #f8fffe; color: #2c5f41; padding: 2px 6px; border-radius: 3px; font-size: 12px; margin-right: 4px;">
+            {{ plant_type }}
+        </span>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    <div style="text-align: left; margin-top: 16px;">
+        <a href="{{ item.url }}" class="btn btn-primary" style="font-size: 14px; padding: 10px 20px;">
+            {% if item.action_text %}{{ item.action_text }}{% else %}Read More{% endif %}
+        </a>
+    </div>
+</div>
+{% endfor %}
+
+{% if featured_plants %}
+<div style="background-color: #f8fffe; border: 1px solid #c3f4d6; border-radius: 8px; padding: 24px; margin: 32px 0;">
+    <h3 style="margin: 0 0 16px 0; color: #2c5f41; text-align: center;">🌟 Featured Plants This Week</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px;">
+        {% for plant in featured_plants %}
+        <div style="text-align: center; padding: 12px;">
+            <span style="font-size: 32px; display: block; margin-bottom: 8px;">{{ plant.emoji|default:"🌱" }}</span>
+            <h4 style="margin: 0 0 4px 0; color: #2c5f41; font-size: 14px;">{{ plant.name }}</h4>
+            <p style="margin: 0; font-size: 12px; color: #6c757d;">{{ plant.care_tip }}</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if community_stats %}
+<div style="background-color: #e7f3ff; border-radius: 8px; padding: 24px; margin: 32px 0; text-align: center;">
+    <h3 style="margin: 0 0 16px 0; color: #0066cc;">📊 Community Highlights</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 16px;">
+        {% if community_stats.plants_identified %}
+        <div>
+            <h4 style="margin: 0; color: #0066cc; font-size: 24px;">{{ community_stats.plants_identified }}</h4>
+            <p style="margin: 0; font-size: 12px; color: #0066cc;">Plants Identified</p>
+        </div>
+        {% endif %}
+        {% if community_stats.new_members %}
+        <div>
+            <h4 style="margin: 0; color: #0066cc; font-size: 24px;">{{ community_stats.new_members }}</h4>
+            <p style="margin: 0; font-size: 12px; color: #0066cc;">New Members</p>
+        </div>
+        {% endif %}
+        {% if community_stats.forum_posts %}
+        <div>
+            <h4 style="margin: 0; color: #0066cc; font-size: 24px;">{{ community_stats.forum_posts }}</h4>
+            <p style="margin: 0; font-size: 12px; color: #0066cc;">Forum Posts</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<div style="text-align: center; margin: 32px 0;">
+    <h3 style="color: #2c5f41;">Keep Growing with Us!</h3>
+    <p style="color: #6c757d;">Join thousands of plant enthusiasts sharing their growing journey</p>
+    
+    <div style="margin: 24px 0;">
+        <a href="{{ site_url }}" class="btn btn-primary" style="margin-right: 16px;">
+            Visit Community
+        </a>
+        <a href="{{ forum_url }}" class="btn btn-secondary">
+            Join Discussion
+        </a>
+    </div>
+</div>
+
+<div style="text-align: center; margin-top: 32px; padding-top: 24px; border-top: 1px solid #e9ecef;">
+    <p style="font-size: 14px; color: #6c757d;">
+        <a href="{{ preferences_url }}" style="color: #2c5f41; text-decoration: none;">Update Newsletter Preferences</a>
+        | <a href="{{ unsubscribe_url }}" style="color: #6c757d; text-decoration: none;">Unsubscribe</a>
+    </p>
+</div>
+{% endblock %}

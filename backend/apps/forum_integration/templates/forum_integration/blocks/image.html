@@ -1,0 +1,8 @@
+{% load wagtailimages_tags %}
+
+<div class="mb-6">
+    {% image value fill-800x400 class="w-full rounded-lg shadow-md" %}
+    {% if value.title %}
+        <p class="text-sm text-gray-600 mt-2 text-center">{{ value.title }}</p>
+    {% endif %}
+</div>

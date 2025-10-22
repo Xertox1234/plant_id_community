@@ -1,0 +1,6 @@
+{% load wagtailimages_tags %}
+
+<div class="block-image">
+    {% image value width-800 as img %}
+    <img src="{{ img.url }}" alt="{{ img.alt }}" />
+</div>

@@ -1,0 +1,236 @@
+{% extends 'blog/admin/base.html' %}
+
+{% block content %}
+<!-- Filter Tabs -->
+<div class="row mb-3">
+    <div class="col-12">
+        <ul class="nav nav-tabs">
+            <li class="nav-item">
+                <a class="nav-link {% if status_filter == 'pending' %}active{% endif %}" 
+                   href="?status=pending&q={{ search_query }}">
+                    Pending Comments
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if status_filter == 'approved' %}active{% endif %}" 
+                   href="?status=approved&q={{ search_query }}">
+                    Approved Comments
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if status_filter == 'all' %}active{% endif %}" 
+                   href="?status=all&q={{ search_query }}">
+                    All Comments
+                </a>
+            </li>
+        </ul>
+    </div>
+</div>
+
+<!-- Search Form -->
+<div class="row mb-3">
+    <div class="col-md-6">
+        <form method="GET" class="d-flex">
+            <input type="hidden" name="status" value="{{ status_filter }}">
+            <input type="text" name="q" class="form-control me-2" 
+                   placeholder="Search comments, authors, or posts..." 
+                   value="{{ search_query }}">
+            <button type="submit" class="btn btn-outline-primary">
+                <i class="bi bi-search"></i>
+            </button>
+        </form>
+    </div>
+    <div class="col-md-6 text-end">
+        {% if status_filter == 'pending' and page_obj.paginator.count > 0 %}
+            <button class="btn btn-success" onclick="approveAllVisible()">
+                <i class="bi bi-check-all me-2"></i>Approve All Visible
+            </button>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Comments List -->
+<div class="row">
+    <div class="col-12">
+        {% for comment in page_obj %}
+            <div class="card mb-3 comment-card" data-comment-id="{{ comment.id }}">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ comment.author.username }}</strong> 
+                        commented on 
+                        <a href="/cms/pages/{{ comment.post.id }}/" target="_blank">
+                            {{ comment.post.title|truncatechars:50 }}
+                        </a>
+                    </div>
+                    <div>
+                        <small class="text-muted">{{ comment.created_at|date:"M j, Y H:i" }}</small>
+                        {% if comment.is_approved %}
+                            <span class="badge bg-success ms-2">Approved</span>
+                        {% else %}
+                            <span class="badge bg-warning ms-2">Pending</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p>{{ comment.content }}</p>
+                    
+                    {% if not comment.is_approved %}
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-success btn-sm" 
+                                    onclick="approveComment({{ comment.id }})">
+                                <i class="bi bi-check-circle me-1"></i>Approve
+                            </button>
+                            <button type="button" class="btn btn-danger btn-sm" 
+                                    onclick="rejectComment({{ comment.id }})">
+                                <i class="bi bi-x-circle me-1"></i>Reject
+                            </button>
+                        </div>
+                    {% else %}
+                        <div class="btn-group" role="group">
+                            <a href="{% url 'blog_admin:post_comments' comment.post.id %}" 
+                               class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-eye me-1"></i>View Post Comments
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% empty %}
+            <div class="card">
+                <div class="card-body text-center">
+                    <i class="bi bi-chat-dots text-muted" style="font-size: 3rem;"></i>
+                    <h5 class="mt-2">No comments found</h5>
+                    <p class="text-muted">
+                        {% if status_filter == 'pending' %}
+                            There are no pending comments to moderate.
+                        {% elif search_query %}
+                            No comments match your search criteria.
+                        {% else %}
+                            No comments have been posted yet.
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Pagination -->
+{% if page_obj.has_other_pages %}
+    <nav aria-label="Comments pagination" class="mt-4">
+        <ul class="pagination justify-content-center">
+            {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}&status={{ status_filter }}&q={{ search_query }}">
+                        Previous
+                    </a>
+                </li>
+            {% endif %}
+            
+            {% for num in page_obj.paginator.page_range %}
+                {% if page_obj.number == num %}
+                    <li class="page-item active">
+                        <span class="page-link">{{ num }}</span>
+                    </li>
+                {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ num }}&status={{ status_filter }}&q={{ search_query }}">
+                            {{ num }}
+                        </a>
+                    </li>
+                {% endif %}
+            {% endfor %}
+            
+            {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.next_page_number }}&status={{ status_filter }}&q={{ search_query }}">
+                        Next
+                    </a>
+                </li>
+            {% endif %}
+        </ul>
+    </nav>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function approveComment(commentId) {
+    if (confirm('Are you sure you want to approve this comment?')) {
+        fetch(`/blog-admin/comments/approve/${commentId}/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                'Content-Type': 'application/json',
+            }
+        }).then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Error approving comment');
+            }
+        });
+    }
+}
+
+function rejectComment(commentId) {
+    if (confirm('Are you sure you want to reject and delete this comment? This action cannot be undone.')) {
+        fetch(`/blog-admin/comments/reject/${commentId}/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                'Content-Type': 'application/json',
+            }
+        }).then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Error rejecting comment');
+            }
+        });
+    }
+}
+
+function approveAllVisible() {
+    if (confirm('Are you sure you want to approve all visible pending comments?')) {
+        const commentCards = document.querySelectorAll('.comment-card');
+        const promises = [];
+        
+        commentCards.forEach(card => {
+            const commentId = card.dataset.commentId;
+            const badge = card.querySelector('.badge');
+            
+            if (badge && badge.textContent.trim() === 'Pending') {
+                promises.push(
+                    fetch(`/blog-admin/comments/approve/${commentId}/`, {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                            'Content-Type': 'application/json',
+                        }
+                    })
+                );
+            }
+        });
+        
+        Promise.all(promises).then(() => {
+            location.reload();
+        }).catch(() => {
+            alert('Error approving some comments');
+        });
+    }
+}
+
+// Add CSRF token to all requests
+document.addEventListener('DOMContentLoaded', function() {
+    // Create hidden CSRF token input if it doesn't exist
+    if (!document.querySelector('[name=csrfmiddlewaretoken]')) {
+        const csrfInput = document.createElement('input');
+        csrfInput.type = 'hidden';
+        csrfInput.name = 'csrfmiddlewaretoken';
+        csrfInput.value = '{{ csrf_token }}';
+        document.body.appendChild(csrfInput);
+    }
+});
+</script>
+{% endblock %}

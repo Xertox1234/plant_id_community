@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }} - Plant Community Forum</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Breadcrumbs -->
+        <nav class="mb-6 text-sm">
+            <ol class="flex items-center space-x-2 text-gray-500">
+                <li><a href="{% url 'forum_integration:forum_index' %}" class="hover:text-green-600">Forum Home</a></li>
+                <li>/</li>
+                <li><a href="{% url 'forum_integration:forum_category' forum.id %}" class="hover:text-green-600">{{ forum.name }}</a></li>
+                <li>/</li>
+                <li class="text-gray-800">New Topic</li>
+            </ol>
+        </nav>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="mb-4 p-4 rounded-lg {% if message.tags == 'error' %}bg-red-100 border border-red-400 text-red-700{% else %}bg-green-100 border border-green-400 text-green-700{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <div class="bg-white rounded-lg shadow-md">
+            <div class="p-6 border-b border-gray-200">
+                <h1 class="text-2xl font-bold text-gray-800">{{ page_title }}</h1>
+                <p class="text-gray-600 mt-2">Share your thoughts and start a new discussion in {{ forum.name }}</p>
+            </div>
+
+            <form method="POST" class="p-6">
+                {% csrf_token %}
+                
+                <div class="mb-6">
+                    <label for="subject" class="block text-sm font-medium text-gray-700 mb-2">Topic Subject</label>
+                    <input type="text" 
+                           id="subject" 
+                           name="subject" 
+                           required
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                           placeholder="What would you like to discuss?">
+                </div>
+
+                <div class="mb-6">
+                    <label for="content" class="block text-sm font-medium text-gray-700 mb-2">Message</label>
+                    <textarea id="content" 
+                              name="content" 
+                              rows="8" 
+                              required
+                              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                              placeholder="Share your thoughts, ask questions, or provide helpful information..."></textarea>
+                </div>
+
+                <div class="flex items-center justify-between">
+                    <div class="text-sm text-gray-500">
+                        <p>💡 Tips:</p>
+                        <ul class="list-disc list-inside text-xs mt-1 space-y-1">
+                            <li>Be descriptive in your topic subject</li>
+                            <li>Include photos for plant identification requests</li>
+                            <li>Be respectful and helpful to other community members</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="flex space-x-3">
+                        <a href="{% url 'forum_integration:forum_category' forum.id %}" 
+                           class="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                            Cancel
+                        </a>
+                        <button type="submit" 
+                                class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                            Create Topic
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Forum Guidelines -->
+        <div class="mt-6 bg-blue-50 rounded-lg p-6">
+            <h3 class="font-semibold text-blue-800 mb-3">Posting Guidelines for {{ forum.name }}</h3>
+            <div class="text-sm text-blue-700">
+                {% if forum.slug == 'plant-identification' %}
+                    <ul class="space-y-1">
+                        <li>• Include clear photos of the plant from multiple angles</li>
+                        <li>• Mention your location/climate zone if relevant</li>
+                        <li>• Describe where you found or obtained the plant</li>
+                        <li>• Note any distinctive features (flowers, leaves, growth pattern)</li>
+                    </ul>
+                {% elif forum.slug == 'plant-care-growing' %}
+                    <ul class="space-y-1">
+                        <li>• Specify the plant species you're asking about</li>
+                        <li>• Include details about your growing conditions</li>
+                        <li>• Mention your experience level with this plant</li>
+                        <li>• Share photos if you're troubleshooting problems</li>
+                    </ul>
+                {% elif forum.slug == 'community-trading' %}
+                    <ul class="space-y-1">
+                        <li>• Clearly state what you're offering or looking for</li>
+                        <li>• Include your general location for local trades</li>
+                        <li>• Be honest about plant condition and health</li>
+                        <li>• Follow safe trading practices</li>
+                    </ul>
+                {% else %}
+                    <ul class="space-y-1">
+                        <li>• Stay on topic for this category</li>
+                        <li>• Be respectful and constructive</li>
+                        <li>• Search for existing topics before posting</li>
+                        <li>• Include relevant details and context</li>
+                    </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

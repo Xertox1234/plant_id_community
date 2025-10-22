@@ -1,0 +1,40 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ notification_title|default:"Notification" }} - {{ site_name }}{% endblock %}
+
+{% block preheader %}{{ notification_message|truncatewords:10 }}{% endblock %}
+
+{% block header_subtitle %}
+<p style="margin: 8px 0 0 0; color: #e8f5e8; font-size: 16px; opacity: 0.9;">
+    Notification
+</p>
+{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-bottom: 32px;">
+    <span style="font-size: 48px;">🔔</span>
+    <h2 style="margin: 16px 0 8px 0; color: #2c5f41;">
+        {{ notification_title|default:"Notification" }}
+    </h2>
+</div>
+
+<div style="background-color: #f8f9fa; border-radius: 8px; padding: 24px; margin: 24px 0;">
+    <p style="margin: 0; color: #333; line-height: 1.6;">
+        {{ notification_message|default:"You have a new notification from Plant Community." }}
+    </p>
+</div>
+
+{% if action_url %}
+<div style="text-align: center; margin: 32px 0;">
+    <a href="{{ action_url }}" class="btn btn-primary">
+        View Details
+    </a>
+</div>
+{% endif %}
+
+<div style="text-align: center; margin-top: 32px;">
+    <p style="font-size: 14px; color: #6c757d;">
+        This notification was sent because you're subscribed to updates from {{ site_name }}.
+    </p>
+</div>
+{% endblock %}

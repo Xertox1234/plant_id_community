@@ -1,0 +1,103 @@
+[run]
+# Source code to analyze for coverage
+source = apps
+
+# Omit files/patterns from coverage analysis
+omit = 
+    */migrations/*
+    */venv/*
+    */env/*
+    */virtualenv/*
+    */.venv/*
+    manage.py
+    */settings/*
+    */tests.py
+    */test_*.py
+    */*_test.py
+    */conftest.py
+    */node_modules/*
+    */static/*
+    */media/*
+    */templates/*
+    */locale/*
+    */__pycache__/*
+    */\.git/*
+    */\.tox/*
+    */\.cache/*
+    */build/*
+    */dist/*
+    */htmlcov/*
+    backend/asgi.py
+    backend/wsgi.py
+    backend/urls.py
+
+# Include branch coverage analysis
+branch = True
+
+# Parallel processing for faster coverage collection
+parallel = True
+
+[report]
+# Minimum coverage percentage required
+fail_under = 70
+
+# Show missing line numbers in terminal report
+show_missing = True
+
+# Skip covered files in report (shows only files with missing coverage)
+skip_covered = False
+
+# Skip empty files
+skip_empty = True
+
+# Precision for coverage percentages
+precision = 2
+
+# Sort coverage report by name
+sort = Name
+
+# Exclude lines from coverage analysis
+exclude_lines =
+    # Have to re-enable the standard pragma
+    pragma: no cover
+    
+    # Don't complain about missing debug-only code
+    def __repr__
+    if self\.debug
+    
+    # Don't complain if tests don't hit defensive assertion code
+    raise AssertionError
+    raise NotImplementedError
+    
+    # Don't complain if non-runnable code isn't run
+    if 0:
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    
+    # Don't complain about abstract methods
+    @(abc\.)?abstractmethod
+    
+    # Skip Django-specific patterns
+    def get_absolute_url
+    def __str__
+    def __unicode__
+    
+    # Skip testing utilities
+    def setUp
+    def tearDown
+
+[html]
+# HTML report configuration
+directory = htmlcov
+title = Plant Community Backend Coverage Report
+
+[xml]
+# XML report for CI/CD integration
+output = coverage.xml
+
+[paths]
+# Map different paths to the same source (useful for CI)
+source = 
+    apps/
+    /app/apps/
+    backend/apps/

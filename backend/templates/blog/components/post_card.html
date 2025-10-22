@@ -1,0 +1,73 @@
+{% load static %}
+{% load wagtailcore_tags %}
+{% load wagtailimages_tags %}
+
+<article class="post-card {% if featured %}featured{% endif %} {% if compact %}compact{% endif %}">
+    {% if post.featured_image %}
+        <div class="post-image">
+            {% if compact %}
+                {% image post.featured_image fill-300x200 as card_image %}
+            {% else %}
+                {% image post.featured_image fill-400x300 as card_image %}
+            {% endif %}
+            <a href="{{ post.url }}">
+                <img src="{{ card_image.url }}" alt="{{ card_image.alt }}">
+            </a>
+        </div>
+    {% endif %}
+
+    <div class="post-content">
+        <header class="post-header">
+            {% if post.categories.all %}
+                <div class="post-categories">
+                    {% for category in post.categories.all %}
+                        <span class="category-tag">
+                            {{ category.name }}
+                        </span>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <h3 class="post-title">
+                <a href="{{ post.url }}">{{ post.title }}</a>
+            </h3>
+
+            <div class="post-meta">
+                <span class="author">{{ post.author.get_full_name|default:post.author.username }}</span>
+                <span class="date">{{ post.publish_date|date:"M j, Y" }}</span>
+                {% if post.reading_time %}
+                    <span class="reading-time">{{ post.reading_time }} min</span>
+                {% endif %}
+            </div>
+        </header>
+
+        {% if post.introduction and not compact %}
+            <div class="post-excerpt">
+                {{ post.introduction|richtext|truncatewords:25 }}
+            </div>
+        {% endif %}
+
+        <footer class="post-footer">
+            {% if post.is_featured %}
+                <span class="featured-badge">Featured</span>
+            {% endif %}
+            
+            {% if post.difficulty_level %}
+                <span class="difficulty-badge difficulty-{{ post.difficulty_level }}">
+                    {{ post.get_difficulty_level_display }}
+                </span>
+            {% endif %}
+
+            {% if post.tags.all and not compact %}
+                <div class="post-tags">
+                    {% for tag in post.tags.all|slice:":3" %}
+                        <span class="tag">{{ tag.name }}</span>
+                    {% endfor %}
+                    {% if post.tags.count > 3 %}
+                        <span class="tag-more">+{{ post.tags.count|add:"-3" }}</span>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </footer>
+    </div>
+</article>

@@ -1,0 +1,76 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Your plant has been identified as {{ plant_name }} - {{ site_name }}{% endblock %}
+
+{% block preheader %}Great news! Your plant identification request has a new result{% endblock %}
+
+{% block header_subtitle %}
+<p style="margin: 8px 0 0 0; color: #e8f5e8; font-size: 16px; opacity: 0.9;">
+    Plant Identification Result
+</p>
+{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-bottom: 32px;">
+    <span style="font-size: 48px;">{{ plant_emoji|default:"🔍" }}</span>
+    <h2 style="margin: 16px 0 8px 0; color: #2c5f41;">
+        Plant Identified!
+    </h2>
+    <p style="font-size: 16px; color: #6c757d; margin: 0;">
+        We found a match for your plant photo
+    </p>
+</div>
+
+<div style="background-color: #f8fffe; border: 1px solid #c3f4d6; border-radius: 8px; padding: 24px; margin: 24px 0;">
+    <div style="text-align: center; margin-bottom: 20px;">
+        {% if plant_image_url %}
+        <img src="{{ plant_image_url }}" alt="Your plant photo" style="max-width: 200px; height: auto; border-radius: 8px; margin-bottom: 16px;">
+        {% endif %}
+        <h3 style="margin: 0 0 8px 0; color: #2c5f41;">{{ plant_name }}</h3>
+        {% if scientific_name and scientific_name != plant_name %}
+        <p style="margin: 0; font-style: italic; color: #6c757d;">{{ scientific_name }}</p>
+        {% endif %}
+    </div>
+    
+    <div style="text-align: center; margin: 20px 0;">
+        <div class="confidence-bar">
+            <div class="confidence-fill" style="width: {{ confidence|floatformat:0 }}%;"></div>
+        </div>
+        <p style="margin: 8px 0 0 0; font-weight: 600; color: #2c5f41;">
+            {{ confidence_text }}
+        </p>
+    </div>
+    
+    {% if identifier_name %}
+    <p style="text-align: center; font-size: 14px; color: #6c757d; margin: 16px 0 0 0;">
+        Identified by: <strong>{{ identifier_name }}</strong>
+    </p>
+    {% endif %}
+</div>
+
+<div style="text-align: center; margin: 32px 0;">
+    <a href="{{ result_url }}" class="btn btn-primary" style="margin-right: 16px;">
+        View Full Results
+    </a>
+    <a href="{{ care_guide_url }}" class="btn btn-success">
+        Get Care Instructions
+    </a>
+</div>
+
+<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 20px; margin: 24px 0;">
+    <h4 style="margin: 0 0 12px 0; color: #856404;">🎯 What's Next?</h4>
+    <ul style="margin: 0; padding-left: 20px; color: #856404;">
+        <li>Review the full identification results and photos</li>
+        <li>Save care instructions to your plant collection</li>
+        <li>Ask questions in our community forum</li>
+        <li>Share your experience with other plant enthusiasts</li>
+    </ul>
+</div>
+
+<div style="text-align: center; margin-top: 32px;">
+    <p style="font-size: 14px; color: #6c757d;">
+        Not sure about this identification? 
+        <a href="{{ forum_url }}" style="color: #2c5f41; text-decoration: none;">Ask the community</a> for more opinions!
+    </p>
+</div>
+{% endblock %}

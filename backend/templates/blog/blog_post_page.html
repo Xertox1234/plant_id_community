@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% load static %}
+{% load wagtailcore_tags %}
+
+{% block title %}{{ page.title }}{% endblock %}
+
+{% block content %}
+<article class="blog-post">
+    <header class="post-header">
+        {% if page.featured_image %}
+            <div class="featured-image">
+                {% image page.featured_image fill-800x400 as hero_image %}
+                <img src="{{ hero_image.url }}" alt="{{ hero_image.alt }}">
+            </div>
+        {% endif %}
+
+        <h1>{{ page.title }}</h1>
+        
+        <div class="post-meta">
+            <span class="author">
+                By <a href="/blog/author/{{ page.author.username }}/">{{ page.author.get_full_name|default:page.author.username }}</a>
+            </span>
+            <span class="date">{{ page.publish_date|date:"F j, Y" }}</span>
+            {% if reading_time %}
+                <span class="reading-time">{{ reading_time }} min read</span>
+            {% endif %}
+            {% if page.difficulty_level %}
+                <span class="difficulty">{{ page.get_difficulty_level_display }}</span>
+            {% endif %}
+        </div>
+
+        {% if page.categories.all %}
+            <div class="post-categories">
+                {% for category in page.categories.all %}
+                    <a href="/blog/category/{{ category.slug }}/" class="category-tag">
+                        {{ category.name }}
+                    </a>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </header>
+
+    <div class="post-content">
+        {% if page.introduction %}
+            <div class="post-introduction">
+                {{ page.introduction|richtext }}
+            </div>
+        {% endif %}
+
+        <div class="post-body">
+            {% for block in page.content_blocks %}
+                {% include_block block %}
+            {% endfor %}
+        </div>
+    </div>
+
+    <footer class="post-footer">
+        {% if page.tags.all %}
+            <div class="post-tags">
+                <strong>Tags:</strong>
+                {% for tag in page.tags.all %}
+                    <span class="tag">{{ tag.name }}</span>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% if page.related_plant_species.all %}
+            <div class="related-plants">
+                <strong>Related Plants:</strong>
+                {% for species in page.related_plant_species.all %}
+                    <span class="plant-species">{{ species.common_names|default:species.scientific_name }}</span>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% if page.series %}
+            <div class="series-info">
+                <strong>Part of series:</strong>
+                <a href="/blog/series/{{ page.series.slug }}/">{{ page.series.title }}</a>
+                {% if page.series_order %}(Part {{ page.series_order }}){% endif %}
+            </div>
+        {% endif %}
+    </footer>
+
+    {% if related_posts %}
+        <section class="related-posts">
+            <h3>Related Posts</h3>
+            <div class="related-grid">
+                {% for post in related_posts %}
+                    {% include "blog/components/post_card.html" with post=post compact=True %}
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
+
+    {% if page.allow_comments %}
+        <section class="comments-section">
+            <h3>Comments</h3>
+            <div id="blog-comments">
+                <!-- Comments will be loaded via JavaScript/API -->
+                <p>Loading comments...</p>
+            </div>
+        </section>
+    {% endif %}
+</article>
+
+<script>
+// Load comments via API
+document.addEventListener('DOMContentLoaded', function() {
+    if (document.getElementById('blog-comments')) {
+        fetch(`/api/blog/posts/{{ page.pk }}/comments/`)
+            .then(response => response.json())
+            .then(comments => {
+                const commentsContainer = document.getElementById('blog-comments');
+                if (comments.length === 0) {
+                    commentsContainer.innerHTML = '<p>No comments yet. Be the first to comment!</p>';
+                } else {
+                    // Render comments (simplified)
+                    commentsContainer.innerHTML = comments.map(comment => `
+                        <div class="comment">
+                            <strong>${comment.author.display_name}</strong>
+                            <time>${new Date(comment.created_at).toLocaleDateString()}</time>
+                            <p>${comment.content}</p>
+                        </div>
+                    `).join('');
+                }
+            })
+            .catch(error => {
+                console.error('Error loading comments:', error);
+                document.getElementById('blog-comments').innerHTML = '<p>Error loading comments.</p>';
+            });
+    }
+});
+</script>
+{% endblock %}

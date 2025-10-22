@@ -1,0 +1,49 @@
+{% extends "emails/base.html" %}
+
+{% block title %}You've been mentioned in a forum discussion{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-bottom: 32px;">
+    <h1 style="color: #3B82F6; font-size: 28px; font-weight: 700; margin: 0;">
+        💬 You've been mentioned!
+    </h1>
+</div>
+
+<p style="margin-bottom: 24px;">Hi {{ mentioned_user.first_name|default:mentioned_user.username }},</p>
+
+<p style="margin-bottom: 24px;">
+    <strong>{{ mentioning_user.username }}</strong> mentioned you in a forum discussion!
+</p>
+
+<div style="background-color: #F0F9FF; border-left: 4px solid #3B82F6; padding: 20px; margin: 24px 0; border-radius: 0 8px 8px 0;">
+    <h2 style="color: #1E40AF; font-size: 18px; font-weight: 600; margin: 0 0 12px 0;">
+        📝 {{ topic_title }}
+    </h2>
+    <div style="color: #374151; font-style: italic; margin-bottom: 16px;">
+        "{{ post_content_excerpt }}"
+    </div>
+    <p style="color: #6B7280; font-size: 14px; margin: 0;">
+        — {{ mentioning_user.username }}
+    </p>
+</div>
+
+<div style="text-align: center; margin: 32px 0;">
+    <a href="{{ topic_url }}" style="background-color: #3B82F6; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+        💬 View Discussion
+    </a>
+</div>
+
+<p style="margin-bottom: 24px;">
+    <strong>Can't click the button?</strong> Copy and paste this link into your browser:<br>
+    <span style="word-break: break-all; color: #6B7280;">{{ topic_url }}</span>
+</p>
+
+<div style="background-color: #F3F4F6; padding: 16px; border-radius: 8px; margin: 24px 0;">
+    <p style="margin: 0; font-size: 14px; color: #6B7280;">
+        💡 <strong>Tip:</strong> Join the conversation and share your plant knowledge with the community!
+    </p>
+</div>
+
+<p style="margin-bottom: 8px;">Happy discussing! 🌿</p>
+<p style="font-weight: 600; color: #10B981;">The Plant Community Team</p>
+{% endblock %}

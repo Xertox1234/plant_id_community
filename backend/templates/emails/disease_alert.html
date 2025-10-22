@@ -1,0 +1,178 @@
+{% extends "emails/base.html" %}
+
+{% block title %}⚠️ Plant Health Alert - {{ plant_name }}{% endblock %}
+
+{% block preheader %}Important: Your {{ plant_name }} may need immediate attention{% endblock %}
+
+{% block header_subtitle %}
+<p style="margin: 8px 0 0 0; color: #ffffff; opacity: 0.9; font-size: 16px;">
+    Plant Health Alert System
+</p>
+{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-bottom: 32px;">
+    <div style="background-color: #FEF2F2; border: 2px solid #FCA5A5; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+        <div style="font-size: 48px; margin-bottom: 12px;">⚠️</div>
+        <h1 style="color: #DC2626; font-size: 24px; font-weight: 700; margin: 0 0 8px 0;">
+            Health Alert for {{ plant_name }}
+        </h1>
+        <p style="color: #991B1B; font-size: 16px; margin: 0; font-weight: 500;">
+            {{ alert_severity|title }} Priority - Action {{ action_timeframe|default:"Soon" }}
+        </p>
+    </div>
+</div>
+
+<p style="margin-bottom: 24px;">Hi {{ user.first_name|default:user.username }},</p>
+
+<p style="margin-bottom: 24px;">
+    We've detected potential health concerns with your <strong>{{ plant_name }}</strong> 
+    {% if plant_location %}in {{ plant_location }}{% endif %}. 
+    {% if identified_issue %}Based on our analysis, this appears to be <strong>{{ identified_issue }}</strong>.{% endif %}
+</p>
+
+<!-- Issue Details Card -->
+<div style="background-color: #FFF7ED; border-left: 4px solid #F97316; padding: 24px; margin: 32px 0; border-radius: 8px;">
+    <h2 style="color: #C2410C; font-size: 18px; font-weight: 600; margin: 0 0 16px 0;">
+        🔍 What We Detected
+    </h2>
+    <div style="color: #9A3412;">
+        {% if symptoms_detected %}
+        <p style="margin-bottom: 12px;"><strong>Symptoms:</strong> {{ symptoms_detected }}</p>
+        {% endif %}
+        {% if confidence_level %}
+        <div style="margin-bottom: 16px;">
+            <p style="margin-bottom: 8px;"><strong>Confidence Level:</strong></p>
+            <div class="confidence-bar">
+                <div class="confidence-fill" style="width: {{ confidence_level }}%;"></div>
+            </div>
+            <p style="font-size: 12px; margin-top: 4px;">{{ confidence_level }}% confident in this assessment</p>
+        </div>
+        {% endif %}
+        {% if risk_factors %}
+        <p style="margin: 0;"><strong>Risk Factors:</strong> {{ risk_factors }}</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Immediate Actions -->
+<div style="background-color: #F0F9FF; border: 1px solid #7DD3FC; border-radius: 12px; padding: 24px; margin: 32px 0;">
+    <h2 style="color: #0369A1; font-size: 18px; font-weight: 600; margin: 0 0 16px 0;">
+        ⚡ Immediate Actions Needed
+    </h2>
+    <div style="color: #0C4A6E;">
+        {% if immediate_actions %}
+        <ol style="margin: 0; padding-left: 20px;">
+            {% for action in immediate_actions %}
+            <li style="margin-bottom: 8px; line-height: 1.5;">{{ action }}</li>
+            {% endfor %}
+        </ol>
+        {% else %}
+        <ul style="margin: 0; padding-left: 20px;">
+            <li style="margin-bottom: 8px;">Isolate the plant from other plants to prevent spread</li>
+            <li style="margin-bottom: 8px;">Remove any visibly affected leaves or stems</li>
+            <li style="margin-bottom: 8px;">Adjust watering schedule - avoid overwatering</li>
+            <li>Improve air circulation around the plant</li>
+        </ul>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Treatment Recommendations -->
+{% if treatment_plan %}
+<div style="background-color: #F0FDF4; border: 1px solid #86EFAC; border-radius: 12px; padding: 24px; margin: 32px 0;">
+    <h2 style="color: #059669; font-size: 18px; font-weight: 600; margin: 0 0 16px 0;">
+        🌿 Treatment Plan
+    </h2>
+    <div style="color: #047857;">
+        {{ treatment_plan|linebreaks }}
+    </div>
+</div>
+{% endif %}
+
+<!-- Prevention Tips -->
+<div style="background-color: #FFFBEB; border-left: 4px solid #F59E0B; padding: 20px; margin: 32px 0; border-radius: 8px;">
+    <h3 style="color: #92400E; font-size: 16px; font-weight: 600; margin: 0 0 12px 0;">💡 Prevention Tips</h3>
+    <div style="color: #92400E; font-size: 14px;">
+        {% if prevention_tips %}
+        {{ prevention_tips|linebreaks }}
+        {% else %}
+        <ul style="margin: 0; padding-left: 16px;">
+            <li>Monitor humidity levels ({{ plant_name }} prefers 40-60%)</li>
+            <li>Ensure proper drainage to prevent root rot</li>
+            <li>Regularly inspect leaves for early signs of issues</li>
+            <li>Maintain consistent watering schedule</li>
+        </ul>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Action Buttons -->
+<div style="text-align: center; margin: 32px 0;">
+    <table cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+        <tr>
+            <td style="padding: 0 8px;">
+                <a href="{{ app_url }}{% url 'plant_identification:diagnosis' %}?plant={{ plant_id }}&alert={{ alert_id }}" 
+                   style="background-color: #DC2626; color: white; padding: 16px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+                    📱 Open in App
+                </a>
+            </td>
+            <td style="padding: 0 8px;">
+                <a href="{{ site_url }}/care-guides/{{ plant_slug }}-health" 
+                   style="background-color: #059669; color: white; padding: 16px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+                    📚 Care Guide
+                </a>
+            </td>
+        </tr>
+    </table>
+</div>
+
+<!-- Community Help -->
+<div style="text-align: center; padding: 20px; background-color: #F9FAFB; border-radius: 12px; margin: 32px 0;">
+    <h3 style="color: #374151; font-size: 16px; font-weight: 600; margin: 0 0 12px 0;">
+        🤝 Need Expert Help?
+    </h3>
+    <p style="color: #6B7280; font-size: 14px; margin: 0 0 16px 0;">
+        Connect with our community of plant experts and experienced growers
+    </p>
+    <a href="{{ app_url }}{% url 'forum:category' 'plant-health' %}?plant={{ plant_name|urlencode }}" 
+       style="background-color: #3B82F6; color: white; padding: 12px 20px; text-decoration: none; border-radius: 6px; font-weight: 500; display: inline-block; font-size: 14px;">
+        Ask the Community
+    </a>
+</div>
+
+<!-- Emergency Contact -->
+{% if alert_severity == 'critical' %}
+<div style="border: 2px solid #DC2626; border-radius: 12px; padding: 20px; margin: 32px 0; background-color: #FEF2F2;">
+    <h3 style="color: #DC2626; font-size: 16px; font-weight: 600; margin: 0 0 12px 0; text-align: center;">
+        🚨 Critical Alert
+    </h3>
+    <p style="color: #991B1B; font-size: 14px; margin: 0; text-align: center;">
+        This issue requires immediate attention. If your plant shows rapid deterioration, 
+        consider consulting a local plant specialist or agricultural extension office.
+    </p>
+</div>
+{% endif %}
+
+<!-- Footer Message -->
+<p style="margin-top: 32px; margin-bottom: 16px; color: #6B7280; font-size: 14px;">
+    <strong>Remember:</strong> Early detection and quick action are key to plant recovery. 
+    Don't hesitate to reach out to our community if you need additional guidance.
+</p>
+
+<p style="margin-bottom: 8px; font-size: 14px; color: #059669;">
+    Best regards,<br>
+    The Plant Community Health Team 🌿
+</p>
+
+{% if alert_id %}
+<hr style="border: none; border-top: 1px solid #E5E7EB; margin: 32px 0;">
+<div style="text-align: center;">
+    <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
+        Alert ID: {{ alert_id }} | 
+        <a href="{{ site_url }}/alerts/{{ alert_id }}" style="color: #6B7280; text-decoration: none;">View Full Details</a> |
+        <a href="{{ unsubscribe_url }}" style="color: #6B7280; text-decoration: none;">Unsubscribe from Health Alerts</a>
+    </p>
+</div>
+{% endif %}
+{% endblock %}

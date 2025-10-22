@@ -1,0 +1,47 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Welcome to Plant Community!{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-bottom: 32px;">
+    <h1 style="color: #10B981; font-size: 28px; font-weight: 700; margin: 0;">
+        Welcome to Plant Community! 🌱
+    </h1>
+</div>
+
+<p style="margin-bottom: 24px;">Hello {{ user.display_name }},</p>
+
+<p style="margin-bottom: 24px;">
+    Thank you for signing up for our plant identification and care community! To complete your registration and start identifying plants, please verify your email address.
+</p>
+
+<div style="text-align: center; margin: 32px 0;">
+    <a href="{{ activate_url }}" style="background-color: #10B981; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+        Verify Email Address
+    </a>
+</div>
+
+<p style="margin-bottom: 24px;">Once you verify your email, you'll be able to:</p>
+
+<ul style="margin-bottom: 24px; padding-left: 20px;">
+    <li style="margin-bottom: 8px;">🔍 Identify plants using our AI-powered tools</li>
+    <li style="margin-bottom: 8px;">📚 Save plant care instructions to your collection</li>
+    <li style="margin-bottom: 8px;">💬 Join our community forums to ask questions and share knowledge</li>
+    <li style="margin-bottom: 8px;">⏰ Set up personalized plant care reminders</li>
+    <li style="margin-bottom: 8px;">🌿 Connect with fellow plant enthusiasts</li>
+</ul>
+
+<p style="margin-bottom: 24px;">
+    <strong>Can't click the button?</strong> Copy and paste this link into your browser:<br>
+    <span style="word-break: break-all; color: #6B7280;">{{ activate_url }}</span>
+</p>
+
+<div style="background-color: #F3F4F6; padding: 16px; border-radius: 8px; margin: 24px 0;">
+    <p style="margin: 0; font-size: 14px; color: #6B7280;">
+        If you didn't create an account with Plant Community, you can safely ignore this email.
+    </p>
+</div>
+
+<p style="margin-bottom: 8px;">Happy gardening!</p>
+<p style="font-weight: 600; color: #10B981;">The Plant Community Team</p>
+{% endblock %}

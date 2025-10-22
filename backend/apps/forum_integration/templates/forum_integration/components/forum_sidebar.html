@@ -1,0 +1,55 @@
+<!-- Specific forum sidebar with additional context -->
+{% if current_forum %}
+    <!-- Forum-specific information -->
+    <div class="card p-4 mb-6">
+        <h3 class="font-semibold text-gray-900 mb-3">{{ current_forum.name }}</h3>
+        {% if current_forum.description %}
+            <p class="text-sm text-gray-600 mb-3">{{ current_forum.description }}</p>
+        {% endif %}
+        
+        <dl class="space-y-2 text-sm">
+            <div class="flex justify-between">
+                <dt class="text-gray-600">Topics</dt>
+                <dd class="font-medium text-gray-900">{{ current_forum.topics_count|default:0 }}</dd>
+            </div>
+            <div class="flex justify-between">
+                <dt class="text-gray-600">Posts</dt>
+                <dd class="font-medium text-gray-900">{{ current_forum.posts_count|default:0 }}</dd>
+            </div>
+            {% if current_forum.last_post %}
+                <div class="pt-2 border-t border-gray-200">
+                    <dt class="text-gray-600 text-xs">Latest Post</dt>
+                    <dd class="text-xs text-gray-900 mt-1">
+                        <a href="{% url 'forum_conversation:topic' current_forum.last_post.topic.slug current_forum.last_post.topic.pk %}" 
+                           class="hover:text-green-600 transition-colors">
+                            {{ current_forum.last_post.topic.subject|truncatechars:25 }}
+                        </a>
+                        <br>
+                        <span class="text-gray-500">{{ current_forum.last_post.created|timesince }} ago</span>
+                    </dd>
+                </div>
+            {% endif %}
+        </dl>
+    </div>
+
+    <!-- Forum Moderators -->
+    {% if current_forum.moderators.exists %}
+        <div class="card p-4 mb-6">
+            <h3 class="font-semibold text-gray-900 mb-3">Forum Moderators</h3>
+            <div class="space-y-2">
+                {% for moderator in current_forum.moderators.all %}
+                    <div class="flex items-center space-x-2">
+                        <div class="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
+                            <span class="text-blue-600 text-xs font-medium">{{ moderator.username|slice:":1"|upper }}</span>
+                        </div>
+                        <span class="text-sm text-gray-900">{{ moderator.username }}</span>
+                        <span class="user-badge moderator">Mod</span>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+{% endif %}
+
+<!-- Include default sidebar -->
+{% include "forum_integration/components/sidebar.html" %}

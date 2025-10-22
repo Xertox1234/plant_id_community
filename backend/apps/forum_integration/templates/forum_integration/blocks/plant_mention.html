@@ -1,0 +1,27 @@
+{# Render a plant mention as a link to the chosen PlantSpeciesPage #}
+{% load wagtailcore_tags %}
+
+{% with page=self.plant_page %}
+  {% if page %}
+    {% comment %}
+      Prefer explicit display_text when provided; otherwise fall back to:
+      - page.specific.plant_species.display_name if available,
+      - else page.title
+    {% endcomment %}
+    {% with specific=page.specific %}
+      {% with species=getattr(specific, 'plant_species', None) %}
+        {% if self.display_text %}
+          {% with text=self.display_text %}
+            <a href="{{ page.url }}" class="plant-mention" data-plant-page-id="{{ page.id }}">🌱 {{ text }}</a>
+          {% endwith %}
+        {% elif species %}
+          <a href="{{ page.url }}" class="plant-mention" data-plant-page-id="{{ page.id }}">🌱 {{ species.display_name }}</a>
+        {% else %}
+          <a href="{{ page.url }}" class="plant-mention" data-plant-page-id="{{ page.id }}">🌱 {{ page.title }}</a>
+        {% endif %}
+      {% endwith %}
+    {% endwith %}
+  {% else %}
+    <span class="plant-mention missing">[Plant not selected]</span>
+  {% endif %}
+{% endwith %}

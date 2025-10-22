@@ -1,0 +1,28 @@
+{% load wagtailcore_tags %}
+{% load wagtailimages_tags %}
+
+<div class="block-plant-spotlight">
+    <div class="plant-spotlight-card">
+        {% if value.image %}
+            <div class="plant-image">
+                {% image value.image fill-300x200 as plant_img %}
+                <img src="{{ plant_img.url }}" alt="{{ plant_img.alt }}">
+            </div>
+        {% endif %}
+        
+        <div class="plant-info">
+            <h3 class="plant-name">{{ value.plant_name }}</h3>
+            {% if value.scientific_name %}
+                <p class="scientific-name"><em>{{ value.scientific_name }}</em></p>
+            {% endif %}
+            
+            <div class="plant-description">
+                {{ value.description|richtext }}
+            </div>
+            
+            <div class="care-difficulty difficulty-{{ value.care_difficulty }}">
+                <strong>Care Level:</strong> {{ value.care_difficulty|title }}
+            </div>
+        </div>
+    </div>
+</div>

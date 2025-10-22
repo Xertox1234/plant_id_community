@@ -1,0 +1,226 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ digest_type|title }} Forum Digest - Plant Community{% endblock %}
+
+{% block preheader %}{{ summary_stats.total_posts }} new posts, {{ summary_stats.active_topics }} active discussions{% endblock %}
+
+{% block header_subtitle %}
+<p style="margin: 8px 0 0 0; color: #ffffff; opacity: 0.9; font-size: 16px;">
+    {{ digest_type|title }} Community Roundup - {{ digest_date|date:"F d, Y" }}
+</p>
+{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-bottom: 32px;">
+    <h1 style="color: #10B981; font-size: 28px; font-weight: 700; margin: 0;">
+        💬 Your {{ digest_type|title }} Forum Digest
+    </h1>
+    <p style="color: #6B7280; font-size: 16px; margin: 12px 0 0 0;">
+        Catch up on the latest discussions in the Plant Community
+    </p>
+</div>
+
+<p style="margin-bottom: 24px;">Hi {{ user.first_name|default:user.username }},</p>
+
+<!-- Stats Summary -->
+<div style="background: linear-gradient(135deg, #F0FDF4 0%, #ECFDF5 100%); border-radius: 16px; padding: 24px; margin: 32px 0; text-align: center;">
+    <h2 style="color: #059669; font-size: 20px; font-weight: 600; margin: 0 0 20px 0;">
+        📊 Community Activity
+    </h2>
+    <div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 16px;">
+        <div style="text-align: center; min-width: 120px;">
+            <div style="font-size: 28px; font-weight: 700; color: #059669; margin-bottom: 4px;">
+                {{ summary_stats.total_posts|default:0 }}
+            </div>
+            <div style="font-size: 14px; color: #047857;">New Posts</div>
+        </div>
+        <div style="text-align: center; min-width: 120px;">
+            <div style="font-size: 28px; font-weight: 700; color: #0369A1; margin-bottom: 4px;">
+                {{ summary_stats.active_topics|default:0 }}
+            </div>
+            <div style="font-size: 14px; color: #0C4A6E;">Active Topics</div>
+        </div>
+        <div style="text-align: center; min-width: 120px;">
+            <div style="font-size: 28px; font-weight: 700; color: #7C3AED; margin-bottom: 4px;">
+                {{ summary_stats.new_members|default:0 }}
+            </div>
+            <div style="font-size: 14px; color: #5B21B6;">New Members</div>
+        </div>
+    </div>
+</div>
+
+<!-- Popular Topics -->
+{% if popular_topics %}
+<div style="background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 24px; margin: 32px 0;">
+    <h2 style="color: #1F2937; font-size: 20px; font-weight: 600; margin: 0 0 20px 0; display: flex; align-items: center; gap: 8px;">
+        🔥 Trending Discussions
+    </h2>
+    {% for topic in popular_topics %}
+    <div style="border-bottom: 1px solid #F3F4F6; padding: 16px 0;">
+        {% if forloop.last %}<div style="border-bottom: none; padding-bottom: 0;">{% endif %}
+        <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <div style="background-color: #F3F4F6; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <span style="font-size: 18px;">{{ topic.category_emoji|default:"💬" }}</span>
+            </div>
+            <div style="flex: 1; min-width: 0;">
+                <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #1F2937;">
+                    <a href="{{ app_url }}{% url 'forum:topic' topic.id %}" style="color: #1F2937; text-decoration: none;">
+                        {{ topic.subject|truncatechars:80 }}
+                    </a>
+                </h3>
+                <div style="display: flex; align-items: center; gap: 16px; font-size: 14px; color: #6B7280; margin-bottom: 8px;">
+                    <span>👤 {{ topic.poster.get_display_name }}</span>
+                    <span>💬 {{ topic.posts_count }} {{ topic.posts_count|pluralize:"reply,replies" }}</span>
+                    <span>👀 {{ topic.views_count }} {{ topic.views_count|pluralize:"view,views" }}</span>
+                </div>
+                {% if topic.latest_post_excerpt %}
+                <p style="margin: 0; font-size: 14px; color: #4B5563; line-height: 1.4;">
+                    {{ topic.latest_post_excerpt|truncatechars:120 }}
+                </p>
+                {% endif %}
+            </div>
+        </div>
+        {% if forloop.last %}</div>{% endif %}
+    </div>
+    {% endfor %}
+    
+    <div style="text-align: center; margin-top: 20px;">
+        <a href="{{ app_url }}{% url 'forum:index' %}" 
+           style="background-color: #10B981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 500; display: inline-block;">
+            📱 Browse All Topics
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<!-- Your Activity -->
+{% if user_activity %}
+<div style="background-color: #FFF7ED; border-left: 4px solid #F97316; padding: 24px; margin: 32px 0; border-radius: 8px;">
+    <h2 style="color: #C2410C; font-size: 18px; font-weight: 600; margin: 0 0 16px 0;">
+        📈 Your Activity This {{ digest_type|title }}
+    </h2>
+    <div style="color: #9A3412;">
+        {% if user_activity.posts_made %}
+        <p style="margin-bottom: 8px;">✍️ You made <strong>{{ user_activity.posts_made }}</strong> {{ user_activity.posts_made|pluralize:"post,posts" }}</p>
+        {% endif %}
+        {% if user_activity.topics_started %}
+        <p style="margin-bottom: 8px;">🆕 You started <strong>{{ user_activity.topics_started }}</strong> new {{ user_activity.topics_started|pluralize:"topic,topics" }}</p>
+        {% endif %}
+        {% if user_activity.replies_received %}
+        <p style="margin-bottom: 8px;">💬 You received <strong>{{ user_activity.replies_received }}</strong> {{ user_activity.replies_received|pluralize:"reply,replies" }}</p>
+        {% endif %}
+        {% if user_activity.reputation_gained %}
+        <p style="margin: 0;">⭐ You gained <strong>{{ user_activity.reputation_gained }}</strong> reputation points</p>
+        {% endif %}
+        {% if not user_activity.posts_made and not user_activity.topics_started %}
+        <p style="margin: 0;">You haven't been active in the forums lately. Check out what's happening and join the conversation!</p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- New Members Spotlight -->
+{% if new_members %}
+<div style="background-color: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 12px; padding: 24px; margin: 32px 0;">
+    <h2 style="color: #475569; font-size: 18px; font-weight: 600; margin: 0 0 16px 0;">
+        👋 Welcome New Members
+    </h2>
+    <p style="color: #64748B; font-size: 14px; margin-bottom: 16px;">
+        Let's give a warm welcome to our newest plant enthusiasts:
+    </p>
+    <div style="display: flex; flex-wrap: wrap; gap: 12px;">
+        {% for member in new_members %}
+        <div style="background-color: #FFFFFF; border-radius: 8px; padding: 12px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid #E2E8F0;">
+            <div style="background-color: #10B981; color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600;">
+                {{ member.username|first|upper }}
+            </div>
+            <span style="font-size: 14px; color: #1F2937; font-weight: 500;">{{ member.get_display_name }}</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Helpful Posts -->
+{% if helpful_posts %}
+<div style="background-color: #F0F9FF; border: 1px solid #7DD3FC; border-radius: 12px; padding: 24px; margin: 32px 0;">
+    <h2 style="color: #0369A1; font-size: 18px; font-weight: 600; margin: 0 0 16px 0;">
+        💡 Most Helpful Posts
+    </h2>
+    <p style="color: #0C4A6E; font-size: 14px; margin-bottom: 16px;">
+        Community-voted posts that helped solve problems:
+    </p>
+    {% for post in helpful_posts %}
+    <div style="background-color: #FFFFFF; border-radius: 8px; padding: 16px; margin-bottom: 12px; border: 1px solid #BFDBFE;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <span style="background-color: #10B981; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">
+                +{{ post.helpful_votes }} Helpful
+            </span>
+            <span style="color: #6B7280; font-size: 14px;">by {{ post.poster.get_display_name }}</span>
+        </div>
+        <h4 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: #1F2937;">
+            <a href="{{ app_url }}{% url 'forum:topic' post.topic.id %}#post-{{ post.id }}" style="color: #1F2937; text-decoration: none;">
+                {{ post.topic.subject|truncatechars:60 }}
+            </a>
+        </h4>
+        <p style="margin: 0; font-size: 14px; color: #4B5563; line-height: 1.4;">
+            {{ post.content_excerpt|truncatechars:100 }}
+        </p>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Quick Actions -->
+<div style="background: linear-gradient(135deg, #DBEAFE 0%, #BFDBFE 100%); border-radius: 16px; padding: 24px; margin: 32px 0; text-align: center;">
+    <h2 style="color: #1E40AF; font-size: 18px; font-weight: 600; margin: 0 0 20px 0;">
+        🚀 Quick Actions
+    </h2>
+    <div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 12px;">
+        <a href="{{ app_url }}{% url 'forum:create_topic' %}" 
+           style="background-color: #10B981; color: white; padding: 12px 20px; text-decoration: none; border-radius: 8px; font-weight: 500; display: inline-block; font-size: 14px;">
+            ✏️ Start Discussion
+        </a>
+        <a href="{{ app_url }}{% url 'forum:recent_topics' %}" 
+           style="background-color: #3B82F6; color: white; padding: 12px 20px; text-decoration: none; border-radius: 8px; font-weight: 500; display: inline-block; font-size: 14px;">
+            🔍 Browse Recent
+        </a>
+        <a href="{{ app_url }}{% url 'users:email_preferences' %}" 
+           style="background-color: #6B7280; color: white; padding: 12px 20px; text-decoration: none; border-radius: 8px; font-weight: 500; display: inline-block; font-size: 14px;">
+            ⚙️ Email Settings
+        </a>
+    </div>
+</div>
+
+<!-- Footer Motivation -->
+<div style="text-align: center; padding: 20px; background-color: #F9FAFB; border-radius: 12px; margin: 32px 0;">
+    {% if digest_type == 'daily' %}
+    <p style="color: #374151; font-size: 16px; margin: 0; font-style: italic;">
+        "Every day brings new opportunities to learn and share in our plant community!" 🌱
+    </p>
+    {% else %}
+    <p style="color: #374151; font-size: 16px; margin: 0; font-style: italic;">
+        "A week of growth, learning, and community connection in the plant world!" 🌿
+    </p>
+    {% endif %}
+</div>
+
+<p style="margin-top: 32px; margin-bottom: 16px; color: #6B7280; font-size: 14px;">
+    Thanks for being part of our thriving plant community! Your participation makes our forums a welcoming and helpful space for all plant enthusiasts.
+</p>
+
+<p style="margin-bottom: 8px; color: #10B981; font-weight: 600;">
+    Happy growing! 🌱<br>
+    The Plant Community Team
+</p>
+
+<hr style="border: none; border-top: 1px solid #E5E7EB; margin: 32px 0;">
+
+<div style="text-align: center;">
+    <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
+        You're receiving this {{ digest_type }} digest because you're subscribed to forum notifications.<br>
+        <a href="{{ preferences_url }}" style="color: #6B7280; text-decoration: none;">Manage your email preferences</a> | 
+        <a href="{{ unsubscribe_url }}" style="color: #6B7280; text-decoration: none;">Unsubscribe from digests</a>
+    </p>
+</div>
+{% endblock %}

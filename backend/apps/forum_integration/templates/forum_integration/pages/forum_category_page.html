@@ -1,0 +1,298 @@
+{% extends "forum_integration/base/forum_base.html" %}
+{% load wagtailcore_tags %}
+
+{% block title %}{{ page.title }} - {{ forum.name }}{% endblock %}
+
+{% block meta_description %}
+    {% if page.meta_description %}
+        {{ page.meta_description }}
+    {% else %}
+        Browse topics in {{ forum.name }} - {{ forum.description|default:"Join the discussion in our plant community forum" }}
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <!-- Forum Header -->
+    <div class="card p-6 mb-8">
+        <div class="flex items-start justify-between">
+            <div class="flex-1">
+                <div class="flex items-center space-x-3 mb-3">
+                    <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-900">{{ forum.name }}</h1>
+                        {% if forum.description %}
+                            <p class="text-gray-600 mt-1">{{ forum.description }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <!-- Forum Stats -->
+                {% if show_topic_stats %}
+                    <div class="flex space-x-6 text-sm text-gray-500">
+                        <span><strong>{{ forum.topics_count|default:0 }}</strong> topics</span>
+                        <span><strong>{{ forum.posts_count|default:0 }}</strong> posts</span>
+                        {% if forum.last_post %}
+                            <span>Last post {{ forum.last_post.created|timesince }} ago</span>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
+            
+            <!-- Action Buttons -->
+            <div class="flex items-center space-x-2">
+                {% if user.is_authenticated and allow_new_topics %}
+                    <a href="{% url 'forum_conversation:topic_create' forum.slug forum.pk %}" 
+                       class="btn-primary">
+                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                        </svg>
+                        New Topic
+                    </a>
+                {% endif %}
+                
+                {% if user.is_staff %}
+                    <a href="/admin/forum/forum/{{ forum.pk }}/change/" 
+                       class="btn-secondary text-sm">
+                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                        </svg>
+                        Edit Forum
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Page Content Blocks -->
+    {% if page.content_blocks %}
+        <div class="mb-8">
+            {% for block in page.content_blocks %}
+                {% include_block block %}
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <!-- Forum Announcement (if any) -->
+    {% if require_approval and not user.is_staff %}
+        <div class="forum-announcement warning p-4 mb-6 rounded-lg">
+            <div class="flex items-start">
+                <svg class="w-5 h-5 text-yellow-600 mt-0.5 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                </svg>
+                <div>
+                    <h3 class="font-medium text-yellow-900">Moderated Forum</h3>
+                    <p class="text-sm text-yellow-700 mt-1">New topics in this forum require moderator approval before appearing to other users.</p>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <!-- Topics List -->
+    <div class="card">
+        <!-- Topics Header -->
+        <div class="bg-gray-50 px-6 py-3 border-b border-gray-200">
+            <div class="flex items-center justify-between">
+                <h2 class="text-lg font-semibold text-gray-900">Topics</h2>
+                
+                <!-- Sort Options -->
+                <div class="flex items-center space-x-4">
+                    <select onchange="window.location.href=this.value" 
+                            class="text-sm border border-gray-300 rounded-md px-3 py-1 bg-white">
+                        <option value="?sort=last_post">Sort by Latest Activity</option>
+                        <option value="?sort=created" {% if request.GET.sort == 'created' %}selected{% endif %}>Sort by Date Created</option>
+                        <option value="?sort=replies" {% if request.GET.sort == 'replies' %}selected{% endif %}>Sort by Replies</option>
+                        <option value="?sort=views" {% if request.GET.sort == 'views' %}selected{% endif %}>Sort by Views</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        {% if topics %}
+            <div class="divide-y divide-gray-200">
+                {% for topic in topics %}
+                    <div class="topic-row p-4 transition-colors">
+                        <div class="flex items-start space-x-4">
+                            <!-- Topic Status Icon -->
+                            <div class="flex-shrink-0 mt-1">
+                                {% if topic.is_sticky %}
+                                    <div class="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
+                                        <svg class="w-4 h-4 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
+                                            <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"></path>
+                                        </svg>
+                                    </div>
+                                {% elif topic.is_locked %}
+                                    <div class="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                                        <svg class="w-4 h-4 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"></path>
+                                        </svg>
+                                    </div>
+                                {% else %}
+                                    <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                                        <svg class="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                            <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"></path>
+                                        </svg>
+                                    </div>
+                                {% endif %}
+                            </div>
+
+                            <!-- Topic Content -->
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-start justify-between">
+                                    <div class="flex-1 min-w-0">
+                                        <!-- Topic Title -->
+                                        <h3 class="font-semibold text-gray-900 leading-tight">
+                                            <a href="{% url 'forum_conversation:topic' topic.slug topic.pk %}" 
+                                               class="hover:text-green-600 transition-colors">
+                                                {{ topic.subject }}
+                                            </a>
+                                            
+                                            <!-- Topic Labels -->
+                                            {% if topic.is_sticky %}
+                                                <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                                                    Sticky
+                                                </span>
+                                            {% endif %}
+                                            {% if topic.is_locked %}
+                                                <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                                    Locked
+                                                </span>
+                                            {% endif %}
+                                        </h3>
+                                        
+                                        <!-- Topic Meta -->
+                                        <div class="mt-1 text-sm text-gray-500">
+                                            Started by 
+                                            <a href="{% url 'forum_member:profile' topic.poster.pk %}" 
+                                               class="font-medium text-green-600 hover:text-green-700">
+                                                {{ topic.poster.username }}
+                                            </a>
+                                            <span class="mx-1">•</span>
+                                            <time datetime="{{ topic.created|date:'c' }}">
+                                                {{ topic.created|date:"M j, Y" }}
+                                            </time>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Topic Stats -->
+                                    {% if show_topic_stats %}
+                                        <div class="flex items-center space-x-6 text-center">
+                                            <div class="min-w-0">
+                                                <div class="font-semibold text-gray-900">{{ topic.posts_count|default:0 }}</div>
+                                                <div class="text-xs text-gray-500">replies</div>
+                                            </div>
+                                            <div class="min-w-0">
+                                                <div class="font-semibold text-gray-900">{{ topic.views_count|default:0 }}</div>
+                                                <div class="text-xs text-gray-500">views</div>
+                                            </div>
+                                        </div>
+                                    {% endif %}
+                                    
+                                    <!-- Last Post Info -->
+                                    <div class="min-w-0 ml-6">
+                                        {% if topic.last_post %}
+                                            <div class="text-sm text-gray-900">
+                                                <time datetime="{{ topic.last_post.created|date:'c' }}">
+                                                    {{ topic.last_post.created|date:"M j, Y g:i A" }}
+                                                </time>
+                                            </div>
+                                            <div class="text-xs text-gray-500 mt-1">
+                                                by 
+                                                <a href="{% url 'forum_member:profile' topic.last_post.poster.pk %}" 
+                                                   class="font-medium text-green-600 hover:text-green-700">
+                                                    {{ topic.last_post.poster.username }}
+                                                </a>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="p-8 text-center">
+                <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-medium text-gray-900 mb-2">No Topics Yet</h3>
+                <p class="text-gray-500 mb-4">Be the first to start a discussion in this forum!</p>
+                {% if user.is_authenticated and allow_new_topics %}
+                    <a href="{% url 'forum_conversation:topic_create' forum.slug forum.pk %}" 
+                       class="btn-primary">Start First Topic</a>
+                {% elif not user.is_authenticated %}
+                    <a href="/auth/login/" class="btn-primary">Login to Post</a>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- Pagination -->
+    {% if topics.has_other_pages %}
+        <div class="mt-8">
+            {% include "forum_integration/components/pagination.html" with page_obj=topics %}
+        </div>
+    {% endif %}
+
+    <!-- Moderation Tools -->
+    {% if user.is_staff or user.is_moderator %}
+        <div class="mt-8">
+            <div class="card p-4">
+                <h3 class="font-semibold text-gray-900 mb-3">Moderation Tools</h3>
+                <div class="flex space-x-4">
+                    <a href="/admin/forum/forum/{{ forum.pk }}/change/" 
+                       class="text-sm text-blue-600 hover:text-blue-700">Edit Forum Settings</a>
+                    <a href="{% url 'forum_moderation:queue' %}" 
+                       class="text-sm text-yellow-600 hover:text-yellow-700">Moderation Queue</a>
+                    {% if user.is_superuser %}
+                        <a href="/admin/forum_permission/forumpermission/" 
+                           class="text-sm text-purple-600 hover:text-purple-700">Manage Permissions</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}
+
+{% block sidebar %}
+    {% include "forum_integration/components/forum_sidebar.html" with current_forum=forum %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Auto-refresh topic list every 30 seconds if there are new posts
+    let lastRefresh = Date.now();
+    
+    setInterval(function() {
+        if (document.visibilityState === 'visible') {
+            fetch(window.location.href + '?ajax=1&last_refresh=' + lastRefresh)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.has_new_content) {
+                        // Show notification about new content
+                        showNotification('New posts available. <a href="#" onclick="location.reload()">Refresh page</a> to view.');
+                    }
+                    lastRefresh = Date.now();
+                })
+                .catch(error => console.log('Auto-refresh error:', error));
+        }
+    }, 30000);
+    
+    function showNotification(message) {
+        const notification = document.createElement('div');
+        notification.className = 'fixed top-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+        notification.innerHTML = message;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.remove();
+        }, 5000);
+    }
+</script>
+{% endblock %}

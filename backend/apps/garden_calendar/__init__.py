@@ -1,0 +1,1 @@
+# Garden Calendar Django App

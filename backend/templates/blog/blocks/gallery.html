@@ -1,0 +1,16 @@
+{% load wagtailimages_tags %}
+
+<div class="block-gallery">
+    {% if value.gallery_title %}
+        <h3>{{ value.gallery_title }}</h3>
+    {% endif %}
+    
+    <div class="gallery-grid">
+        {% for image in value.images %}
+            {% image image fill-400x300 as gallery_img %}
+            <div class="gallery-item">
+                <img src="{{ gallery_img.url }}" alt="{{ gallery_img.alt }}" />
+            </div>
+        {% endfor %}
+    </div>
+</div>

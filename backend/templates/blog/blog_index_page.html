@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% load static %}
+{% load wagtailcore_tags %}
+
+{% block title %}{{ page.title }}{% endblock %}
+
+{% block content %}
+<div class="blog-index">
+    <header class="blog-header">
+        <h1>{{ page.title }}</h1>
+        {% if page.introduction %}
+            <div class="blog-introduction">
+                {{ page.introduction|richtext }}
+            </div>
+        {% endif %}
+    </header>
+
+    {% if featured_posts %}
+        <section class="featured-posts">
+            <h2>{{ page.featured_posts_title|default:"Featured Posts" }}</h2>
+            <div class="featured-grid">
+                {% for post in featured_posts %}
+                    {% include "blog/components/post_card.html" with post=post featured=True %}
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
+
+    {% if categories %}
+        <section class="blog-categories">
+            <h2>Categories</h2>
+            <div class="categories-grid">
+                {% for category in categories %}
+                    <div class="category-card">
+                        <h3>
+                            <a href="/blog/category/{{ category.slug }}/">
+                                {% if category.icon %}<i class="{{ category.icon }}"></i>{% endif %}
+                                {{ category.name }}
+                            </a>
+                        </h3>
+                        <p>{{ category.description }}</p>
+                        <span class="post-count">{{ category.post_count }} posts</span>
+                    </div>
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
+
+    <section class="blog-posts">
+        <h2>Latest Posts</h2>
+        <div class="posts-grid">
+            {% for post in blog_posts %}
+                {% include "blog/components/post_card.html" with post=post %}
+            {% endfor %}
+        </div>
+
+        {% if blog_posts.has_other_pages %}
+            <nav class="pagination">
+                {% if blog_posts.has_previous %}
+                    <a href="?page={{ blog_posts.previous_page_number }}" class="prev">Previous</a>
+                {% endif %}
+                
+                <span class="page-info">
+                    Page {{ blog_posts.number }} of {{ blog_posts.paginator.num_pages }}
+                </span>
+                
+                {% if blog_posts.has_next %}
+                    <a href="?page={{ blog_posts.next_page_number }}" class="next">Next</a>
+                {% endif %}
+            </nav>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

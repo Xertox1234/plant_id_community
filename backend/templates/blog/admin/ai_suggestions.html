@@ -1,0 +1,173 @@
+{% extends 'blog/admin/base.html' %}
+
+{% block content %}
+{% if not settings.OPENAI_API_KEY %}
+    <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle me-2"></i>
+        <strong>OpenAI API Key Required:</strong> AI content suggestions require an OpenAI API key to be configured.
+    </div>
+{% endif %}
+
+<!-- AI Suggestions Form -->
+<div class="row mb-4">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Generate AI Content Suggestions</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    {% csrf_token %}
+                    
+                    {% if post %}
+                        <div class="alert alert-info">
+                            <strong>Generating suggestions for:</strong> {{ post.title }}
+                        </div>
+                    {% endif %}
+                    
+                    <div class="mb-3">
+                        <label for="content_type" class="form-label">Content Type</label>
+                        <select class="form-select" name="content_type" id="content_type">
+                            <option value="title">Blog Post Titles</option>
+                            <option value="outline">Content Outline</option>
+                            <option value="introduction">Introduction Paragraph</option>
+                            <option value="conclusion">Conclusion</option>
+                            <option value="plant_care">Plant Care Tips</option>
+                            <option value="identification">Plant Identification Guide</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="context" class="form-label">Context/Topic</label>
+                        <textarea class="form-control" name="context" id="context" rows="3" 
+                                  placeholder="Enter the topic, plant name, or context for AI suggestions..."></textarea>
+                        <div class="form-text">
+                            Provide specific details about what you want suggestions for. 
+                            Examples: "indoor plant care", "succulent identification", "seasonal gardening tips"
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-robot me-2"></i>Generate Suggestions
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">AI Tips</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled">
+                    <li class="mb-2">
+                        <i class="bi bi-lightbulb text-warning me-2"></i>
+                        Be specific with your context for better suggestions
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-plant text-success me-2"></i>
+                        Include plant names or types when relevant
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-people text-info me-2"></i>
+                        Consider your target audience level
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-clipboard text-primary me-2"></i>
+                        Use suggestions as starting points, not final content
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- AI Suggestions Results -->
+{% if suggestions %}
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">AI Suggestions</h5>
+                </div>
+                <div class="card-body">
+                    {% for suggestion in suggestions %}
+                        <div class="d-flex justify-content-between align-items-center mb-3 p-3 border rounded">
+                            <div class="flex-grow-1">
+                                <p class="mb-0">{{ suggestion }}</p>
+                            </div>
+                            <div>
+                                <button class="btn btn-outline-primary btn-sm me-2" 
+                                        onclick="copySuggestion('{{ suggestion|escapejs }}')">
+                                    <i class="bi bi-clipboard"></i>
+                                </button>
+                                <button class="btn btn-outline-success btn-sm" 
+                                        onclick="useSuggestion('{{ suggestion|escapejs }}')">
+                                    <i class="bi bi-check"></i> Use
+                                </button>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
+
+<!-- Recent AI Suggestions History -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Suggestion History</h5>
+            </div>
+            <div class="card-body">
+                <div class="text-muted text-center py-4">
+                    <i class="bi bi-clock-history" style="font-size: 2rem;"></i>
+                    <p class="mt-2">AI suggestion history will appear here once implemented.</p>
+                    <small>This feature requires backend integration with a database to store suggestions.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function copySuggestion(text) {
+    navigator.clipboard.writeText(text).then(function() {
+        // Create temporary success feedback
+        const btn = event.target.closest('button');
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-check"></i>';
+        btn.classList.add('btn-success');
+        btn.classList.remove('btn-outline-primary');
+        
+        setTimeout(() => {
+            btn.innerHTML = originalHTML;
+            btn.classList.remove('btn-success');
+            btn.classList.add('btn-outline-primary');
+        }, 2000);
+    }).catch(function(err) {
+        alert('Failed to copy suggestion to clipboard');
+    });
+}
+
+function useSuggestion(text) {
+    // This would typically open the Wagtail editor with the suggestion
+    // For now, we'll just copy it and show an alert
+    navigator.clipboard.writeText(text).then(function() {
+        alert('Suggestion copied to clipboard! You can now paste it into your blog post.');
+    });
+}
+
+// Auto-expand textarea based on content
+document.getElementById('context').addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = (this.scrollHeight) + 'px';
+});
+</script>
+{% endblock %}

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>{% block title %}{{ site_name }}{% endblock %}</title>
+    
+    <!-- Preheader text (hidden in email clients) -->
+    <div style="display: none; font-size: 1px; color: #fefefe; line-height: 1px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-height: 0px; max-width: 0px; opacity: 0; overflow: hidden;">
+        {% block preheader %}{{ preheader_text|default:"Stay connected with your plant community" }}{% endblock %}
+    </div>
+    
+    <style>
+        /* Reset styles */
+        body, table, td, p, a, li, blockquote { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+        table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+        img { -ms-interpolation-mode: bicubic; }
+        
+        /* Remove default margins */
+        body { margin: 0 !important; padding: 0 !important; background-color: #f4f7f6; }
+        
+        /* Typography */
+        .email-body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+        h1, h2, h3 { color: #2c5f41; margin-bottom: 16px; }
+        h1 { font-size: 28px; font-weight: 600; }
+        h2 { font-size: 24px; font-weight: 600; }
+        h3 { font-size: 20px; font-weight: 500; }
+        p { color: #333333; line-height: 1.6; margin-bottom: 16px; }
+        
+        /* Buttons */
+        .btn {
+            display: inline-block;
+            padding: 14px 28px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .btn-primary {
+            background-color: #2c5f41;
+            color: #ffffff;
+        }
+        .btn-secondary {
+            background-color: #f8f9fa;
+            color: #2c5f41;
+            border: 2px solid #2c5f41;
+        }
+        .btn-success {
+            background-color: #28a745;
+            color: #ffffff;
+        }
+        
+        /* Layout */
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .email-header {
+            background: linear-gradient(135deg, #2c5f41 0%, #3d7c5a 100%);
+            color: #ffffff;
+            padding: 32px 24px;
+            text-align: center;
+        }
+        .email-content {
+            padding: 32px 24px;
+        }
+        .email-footer {
+            background-color: #f8f9fa;
+            padding: 24px;
+            text-align: center;
+            border-top: 1px solid #e9ecef;
+        }
+        
+        /* Plant-specific styling */
+        .plant-emoji {
+            font-size: 24px;
+            margin-right: 8px;
+        }
+        .care-card {
+            background-color: #f8fffe;
+            border: 1px solid #c3f4d6;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 16px 0;
+        }
+        .confidence-bar {
+            height: 8px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 8px 0;
+        }
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #dc3545 0%, #ffc107 50%, #28a745 100%);
+            transition: width 0.3s ease;
+        }
+        
+        /* Responsive design */
+        @media only screen and (max-width: 600px) {
+            .email-container { width: 100% !important; margin: 0 !important; }
+            .email-header { padding: 24px 16px !important; }
+            .email-content { padding: 24px 16px !important; }
+            .email-footer { padding: 16px !important; }
+            h1 { font-size: 24px !important; }
+            h2 { font-size: 20px !important; }
+            .btn { padding: 12px 24px !important; font-size: 14px !important; }
+        }
+        
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            .email-container { background-color: #1a1a1a !important; }
+            .email-content { background-color: #1a1a1a !important; }
+            p { color: #e0e0e0 !important; }
+            h1, h2, h3 { color: #4a9d6a !important; }
+        }
+    </style>
+</head>
+<body class="email-body">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f4f7f6; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <div class="email-container">
+                    <!-- Email Header -->
+                    <div class="email-header">
+                        {% block header %}
+                        <h1 style="margin: 0; color: #ffffff;">
+                            <span class="plant-emoji">🌱</span>
+                            {{ site_name }}
+                        </h1>
+                        {% block header_subtitle %}{% endblock %}
+                        {% endblock %}
+                    </div>
+                    
+                    <!-- Email Content -->
+                    <div class="email-content">
+                        {% block content %}
+                        <p>This is a default email template.</p>
+                        {% endblock %}
+                    </div>
+                    
+                    <!-- Email Footer -->
+                    <div class="email-footer">
+                        {% block footer %}
+                        <p style="margin: 0; font-size: 14px; color: #6c757d;">
+                            <strong>{{ site_name }}</strong><br>
+                            Your plant community companion
+                        </p>
+                        <p style="margin: 8px 0 0 0; font-size: 12px; color: #adb5bd;">
+                            <a href="{{ preferences_url }}" style="color: #6c757d; text-decoration: none;">Email Preferences</a>
+                            {% if unsubscribe_url %}
+                            | <a href="{{ unsubscribe_url }}" style="color: #6c757d; text-decoration: none;">Unsubscribe</a>
+                            {% endif %}
+                        </p>
+                        {% endblock %}
+                    </div>
+                </div>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

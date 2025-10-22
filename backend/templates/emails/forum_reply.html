@@ -1,0 +1,53 @@
+{% extends "emails/base.html" %}
+
+{% block title %}New reply in: {{ topic_title }} - {{ site_name }}{% endblock %}
+
+{% block preheader %}{{ author_name }} replied to a topic you're following{% endblock %}
+
+{% block header_subtitle %}
+<p style="margin: 8px 0 0 0; color: #e8f5e8; font-size: 16px; opacity: 0.9;">
+    Forum Notification
+</p>
+{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-bottom: 32px;">
+    <span style="font-size: 48px;">💬</span>
+    <h2 style="margin: 16px 0 8px 0; color: #2c5f41;">
+        New Reply in Forum
+    </h2>
+    <p style="font-size: 16px; color: #6c757d; margin: 0;">
+        Someone replied to a topic you're following
+    </p>
+</div>
+
+<div style="background-color: #f8f9fa; border-left: 4px solid #2c5f41; padding: 20px; margin: 24px 0;">
+    <h3 style="margin: 0 0 12px 0; color: #2c5f41;">{{ topic_title }}</h3>
+    <p style="margin: 0 0 16px 0; font-size: 14px; color: #6c757d;">
+        <strong>{{ author_name }}</strong> replied:
+    </p>
+    <div style="background-color: #ffffff; border-radius: 6px; padding: 16px; margin: 12px 0;">
+        <p style="margin: 0; color: #333;">{{ post_excerpt }}</p>
+    </div>
+</div>
+
+<div style="text-align: center; margin: 32px 0;">
+    <a href="{{ topic_url }}" class="btn btn-primary">
+        Read Full Discussion
+    </a>
+</div>
+
+<div style="background-color: #e7f3ff; border-radius: 8px; padding: 20px; margin: 24px 0;">
+    <h4 style="margin: 0 0 12px 0; color: #0066cc;">💡 Forum Tip</h4>
+    <p style="margin: 0; color: #0066cc;">
+        You can reply directly to this topic or adjust your notification preferences in your profile settings.
+    </p>
+</div>
+
+<div style="text-align: center; margin-top: 32px;">
+    <p style="font-size: 14px; color: #6c757d;">
+        <a href="{{ forum_preferences_url }}" style="color: #2c5f41; text-decoration: none;">Manage Forum Notifications</a>
+        | <a href="{{ topic_url }}#unsubscribe" style="color: #6c757d; text-decoration: none;">Unsubscribe from Topic</a>
+    </p>
+</div>
+{% endblock %}

@@ -1,0 +1,19 @@
+{% load wagtailcore_tags %}
+
+<div class="bg-gray-50 border border-gray-200 rounded-lg p-6 mb-6">
+    <div class="flex items-start">
+        <div class="flex-shrink-0">
+            <div class="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+                <svg class="w-4 h-4 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" clip-rule="evenodd"></path>
+                </svg>
+            </div>
+        </div>
+        <div class="ml-4 flex-1">
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">{{ value.rule_title }}</h3>
+            <div class="prose max-w-none text-gray-700">
+                {{ value.rule_description|richtext }}
+            </div>
+        </div>
+    </div>
+</div>

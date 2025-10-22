@@ -1,0 +1,78 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Time to care for your {{ plant_name }} - {{ site_name }}{% endblock %}
+
+{% block preheader %}It's time to {{ care_type|lower }} your {{ plant_name }}!{% endblock %}
+
+{% block header_subtitle %}
+<p style="margin: 8px 0 0 0; color: #e8f5e8; font-size: 16px; opacity: 0.9;">
+    Plant Care Reminder
+</p>
+{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-bottom: 32px;">
+    <span style="font-size: 48px;">{{ plant_emoji|default:"🌱" }}</span>
+    <h2 style="margin: 16px 0 8px 0; color: #2c5f41;">
+        Time to care for your {{ plant_name }}!
+    </h2>
+    <p style="font-size: 18px; color: #6c757d; margin: 0;">
+        {{ care_type }} reminder
+    </p>
+</div>
+
+<div class="care-card">
+    <h3 style="margin-top: 0; color: #2c5f41;">
+        <span style="font-size: 20px; margin-right: 8px;">
+            {% if care_type == "watering" %}💧
+            {% elif care_type == "fertilizing" %}🌿
+            {% elif care_type == "pruning" %}✂️
+            {% elif care_type == "repotting" %}🪴
+            {% elif care_type == "inspection" %}🔍
+            {% elif care_type == "cleaning" %}🧽
+            {% else %}🌱{% endif %}
+        </span>
+        {{ care_type|title }} Instructions
+    </h3>
+    
+    {% if care_instructions %}
+    <p style="margin-bottom: 16px;">{{ care_instructions }}</p>
+    {% endif %}
+    
+    {% if custom_instructions %}
+    <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 16px; margin: 16px 0;">
+        <h4 style="margin: 0 0 8px 0; color: #856404;">Your Personal Notes:</h4>
+        <p style="margin: 0; color: #856404;">{{ custom_instructions }}</p>
+    </div>
+    {% endif %}
+    
+    {% if next_care_date %}
+    <p style="font-size: 14px; color: #6c757d; margin: 16px 0 0 0;">
+        <strong>Next reminder:</strong> {{ next_care_date|date:"F j, Y" }}
+    </p>
+    {% endif %}
+</div>
+
+<div style="text-align: center; margin: 32px 0;">
+    <a href="{{ care_instructions_url }}" class="btn btn-primary" style="margin-right: 16px;">
+        View Full Care Guide
+    </a>
+    <a href="{{ manage_reminders_url }}" class="btn btn-secondary">
+        Manage Reminders
+    </a>
+</div>
+
+{% if plant_tips %}
+<div style="background-color: #f8f9fa; border-radius: 8px; padding: 20px; margin: 24px 0;">
+    <h4 style="margin: 0 0 12px 0; color: #495057;">💡 Care Tip</h4>
+    <p style="margin: 0; font-style: italic; color: #6c757d;">{{ plant_tips }}</p>
+</div>
+{% endif %}
+
+<div style="text-align: center; margin-top: 32px;">
+    <p style="font-size: 14px; color: #6c757d;">
+        Having trouble with your plant care? 
+        <a href="{{ forum_url }}" style="color: #2c5f41; text-decoration: none;">Ask the community</a> for help!
+    </p>
+</div>
+{% endblock %}

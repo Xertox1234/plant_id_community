@@ -179,3 +179,4 @@ existing_implementation/backend/.env
 existing_implementation/frontend/node_modules/
 existing_implementation/frontend/dist/
 existing_implementation/frontend/.env
+.worktrees

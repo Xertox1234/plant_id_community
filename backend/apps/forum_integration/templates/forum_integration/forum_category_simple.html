@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }} - Plant Community Forum</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Breadcrumbs -->
+        <nav class="mb-6 text-sm">
+            <ol class="flex items-center space-x-2 text-gray-500">
+                <li><a href="{% url 'forum_integration:forum_index' %}" class="hover:text-green-600">Forum Home</a></li>
+                <li>/</li>
+                <li class="text-gray-800">{{ forum.name }}</li>
+            </ol>
+        </nav>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="mb-4 p-4 rounded-lg {% if message.tags == 'error' %}bg-red-100 border border-red-400 text-red-700{% else %}bg-green-100 border border-green-400 text-green-700{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <!-- Forum Header -->
+        <header class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h1 class="text-3xl font-bold text-green-800 mb-2">{{ forum.name }}</h1>
+            {% if forum.description %}
+                <p class="text-gray-600">{{ forum.description }}</p>
+            {% endif %}
+            
+            {% if can_create_topics %}
+                <div class="mt-4">
+                    <a href="{% url 'forum_integration:create_topic' forum.id %}" 
+                       class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                        <span class="mr-2">+</span> New Topic
+                    </a>
+                </div>
+            {% endif %}
+        </header>
+
+        <!-- Topics List -->
+        <div class="bg-white rounded-lg shadow-md">
+            <div class="p-4 border-b border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-800">Topics</h2>
+            </div>
+
+            <div class="divide-y divide-gray-200">
+                {% for topic in topics %}
+                    <div class="p-4 hover:bg-gray-50 transition-colors">
+                        <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                                <h3 class="font-semibold">
+                                    <a href="{% url 'forum_integration:forum_topic' topic.id %}" 
+                                       class="text-blue-600 hover:text-blue-800 transition-colors">
+                                        {{ topic.subject }}
+                                    </a>
+                                </h3>
+                                <div class="text-sm text-gray-500 mt-1">
+                                    by {{ topic.poster.username }} 
+                                    • {{ topic.created|date:"M d, Y g:i A" }}
+                                    {% if topic.posts_count > 1 %}
+                                        • {{ topic.posts_count }} replies
+                                    {% endif %}
+                                </div>
+                            </div>
+                            
+                            {% if topic.last_post %}
+                                <div class="text-right text-sm text-gray-500 ml-4">
+                                    <div>Last post:</div>
+                                    <div>{{ topic.last_post.created|date:"M d, g:i A" }}</div>
+                                    <div>by {{ topic.last_post.poster.username }}</div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% empty %}
+                    <div class="p-8 text-center text-gray-500">
+                        <p class="text-lg">No topics yet in this forum.</p>
+                        {% if can_create_topics %}
+                            <p class="mt-2">
+                                <a href="{% url 'forum_integration:create_topic' forum.id %}" 
+                                   class="text-green-600 hover:text-green-700">
+                                    Be the first to start a discussion!
+                                </a>
+                            </p>
+                        {% else %}
+                            <p class="mt-2 text-sm">
+                                <a href="/accounts/login/" class="text-green-600 hover:text-green-700">
+                                    Login to start a new topic
+                                </a>
+                            </p>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+
+            <!-- Pagination -->
+            {% if topics.has_other_pages %}
+                <div class="p-4 border-t border-gray-200">
+                    <nav class="flex justify-center">
+                        <div class="flex space-x-2">
+                            {% if topics.has_previous %}
+                                <a href="?page=1" class="px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">First</a>
+                                <a href="?page={{ topics.previous_page_number }}" class="px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">Previous</a>
+                            {% endif %}
+
+                            <span class="px-3 py-2 bg-green-600 text-white rounded">
+                                Page {{ topics.number }} of {{ topics.paginator.num_pages }}
+                            </span>
+
+                            {% if topics.has_next %}
+                                <a href="?page={{ topics.next_page_number }}" class="px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">Next</a>
+                                <a href="?page={{ topics.paginator.num_pages }}" class="px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">Last</a>
+                            {% endif %}
+                        </div>
+                    </nav>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

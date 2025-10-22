@@ -1,0 +1,1 @@
+# Search app for advanced search functionality

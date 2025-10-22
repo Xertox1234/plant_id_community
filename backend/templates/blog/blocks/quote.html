@@ -1,0 +1,8 @@
+{% load wagtailcore_tags %}
+
+<blockquote class="block-quote">
+    {{ value.quote_text|richtext }}
+    {% if value.attribution %}
+        <cite>— {{ value.attribution }}</cite>
+    {% endif %}
+</blockquote>

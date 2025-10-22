@@ -1,0 +1,219 @@
+{% extends 'blog/admin/base.html' %}
+
+{% block content %}
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card stats-card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Total Posts</h5>
+                        <h3>{{ stats.total_posts }}</h3>
+                    </div>
+                    <i class="bi bi-file-earmark-text" style="font-size: 2rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stats-card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Published</h5>
+                        <h3>{{ stats.published_posts }}</h3>
+                    </div>
+                    <i class="bi bi-check-circle" style="font-size: 2rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stats-card bg-warning text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Drafts</h5>
+                        <h3>{{ stats.draft_posts }}</h3>
+                    </div>
+                    <i class="bi bi-pencil" style="font-size: 2rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stats-card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Featured</h5>
+                        <h3>{{ stats.featured_posts }}</h3>
+                    </div>
+                    <i class="bi bi-star" style="font-size: 2rem;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Comment Statistics -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card stats-card">
+            <div class="card-body">
+                <h5 class="card-title">Total Comments</h5>
+                <h3 class="text-primary">{{ stats.total_comments }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stats-card">
+            <div class="card-body">
+                <h5 class="card-title">Pending Comments</h5>
+                <h3 class="text-warning">{{ stats.pending_comments }}</h3>
+                {% if stats.pending_comments > 0 %}
+                    <a href="{% url 'blog_admin:moderate_comments' %}" class="btn btn-warning btn-sm">
+                        Moderate Now
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stats-card">
+            <div class="card-body">
+                <h5 class="card-title">Approved Comments</h5>
+                <h3 class="text-success">{{ stats.approved_comments }}</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3 mb-2">
+                        <a href="/cms/pages/" class="btn btn-primary w-100">
+                            <i class="bi bi-plus-circle me-2"></i>New Blog Post
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <a href="{% url 'blog_admin:moderate_comments' %}" class="btn btn-warning w-100">
+                            <i class="bi bi-chat-dots me-2"></i>Moderate Comments
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <a href="{% url 'blog_admin:featured_posts' %}" class="btn btn-info w-100">
+                            <i class="bi bi-star me-2"></i>Manage Featured
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <a href="{% url 'blog_admin:ai_suggestions' %}" class="btn btn-secondary w-100">
+                            <i class="bi bi-robot me-2"></i>AI Suggestions
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Activity -->
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Recent Posts</h5>
+            </div>
+            <div class="card-body">
+                {% for post in recent_posts %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                            <strong>{{ post.title|truncatechars:40 }}</strong>
+                            <br><small class="text-muted">{{ post.first_published_at|date:"M j, Y" }}</small>
+                        </div>
+                        <div>
+                            {% if post.is_featured %}
+                                <span class="badge bg-warning">Featured</span>
+                            {% endif %}
+                            {% if post.live %}
+                                <span class="badge bg-success">Published</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Draft</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if not forloop.last %}<hr class="my-2">{% endif %}
+                {% empty %}
+                    <p class="text-muted">No recent posts.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Recent Comments</h5>
+            </div>
+            <div class="card-body">
+                {% for comment in recent_comments %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                            <strong>{{ comment.author.username }}</strong> on 
+                            <em>{{ comment.post.title|truncatechars:30 }}</em>
+                            <br><small class="text-muted">{{ comment.created_at|date:"M j, Y H:i" }}</small>
+                        </div>
+                        <div>
+                            {% if comment.is_approved %}
+                                <span class="badge bg-success">Approved</span>
+                            {% else %}
+                                <span class="badge bg-warning">Pending</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if not forloop.last %}<hr class="my-2">{% endif %}
+                {% empty %}
+                    <p class="text-muted">No recent comments.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Popular Posts -->
+{% if popular_posts %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Popular Posts (by comments)</h5>
+            </div>
+            <div class="card-body">
+                {% for post in popular_posts %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                            <strong>{{ post.title|truncatechars:50 }}</strong>
+                            <br><small class="text-muted">{{ post.first_published_at|date:"M j, Y" }}</small>
+                        </div>
+                        <div>
+                            <span class="badge bg-primary">{{ post.comment_count }} comments</span>
+                        </div>
+                    </div>
+                    {% if not forloop.last %}<hr class="my-2">{% endif %}
+                {% empty %}
+                    <p class="text-muted">No popular posts yet.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

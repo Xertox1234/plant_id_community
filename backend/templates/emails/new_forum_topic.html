@@ -1,0 +1,59 @@
+{% extends "emails/base.html" %}
+
+{% block title %}New discussion in {{ category_name }}{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-bottom: 32px;">
+    <h1 style="color: #10B981; font-size: 28px; font-weight: 700; margin: 0;">
+        🌱 New Discussion Started
+    </h1>
+    <p style="color: #6B7280; font-size: 16px; margin: 8px 0 0 0;">in {{ category_name }}</p>
+</div>
+
+<p style="margin-bottom: 24px;">Hi {{ subscriber.first_name|default:subscriber.username }},</p>
+
+<p style="margin-bottom: 24px;">
+    <strong>{{ author.username }}</strong> just started a new discussion in <strong>{{ category_name }}</strong> that might interest you!
+</p>
+
+<div style="background-color: #F0FDF4; border: 1px solid #10B981; border-radius: 12px; padding: 24px; margin: 32px 0;">
+    <h2 style="color: #10B981; font-size: 20px; font-weight: 600; margin: 0 0 16px 0;">
+        {{ topic_title }}
+    </h2>
+    <div style="color: #374151; margin-bottom: 16px; line-height: 1.6;">
+        {{ topic_excerpt }}
+    </div>
+    <div style="display: flex; align-items: center; color: #6B7280; font-size: 14px;">
+        <span style="font-weight: 500;">Started by {{ author.username }}</span>
+        <span style="margin: 0 8px;">•</span>
+        <span>{{ category_name }}</span>
+    </div>
+</div>
+
+<div style="text-align: center; margin: 32px 0;">
+    <a href="{{ topic_url }}" style="background-color: #10B981; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+        💬 Join the Discussion
+    </a>
+</div>
+
+<p style="margin-bottom: 24px;">
+    <strong>Can't click the button?</strong> Copy and paste this link into your browser:<br>
+    <span style="word-break: break-all; color: #6B7280;">{{ topic_url }}</span>
+</p>
+
+<div style="background-color: #FEF3C7; border-left: 4px solid #F59E0B; padding: 16px; margin: 24px 0;">
+    <p style="margin: 0; color: #92400E;">
+        💡 <strong>Pro tip:</strong> Be the first to share your experience or ask follow-up questions to help the community grow!
+    </p>
+</div>
+
+<hr style="border: none; border-top: 1px solid #E5E7EB; margin: 32px 0;">
+
+<p style="font-size: 14px; color: #6B7280; margin-bottom: 16px;">
+    You're receiving this because you subscribed to notifications for <strong>{{ category_name }}</strong>.
+    You can manage your forum notification preferences in your account settings.
+</p>
+
+<p style="margin-bottom: 8px;">Happy gardening! 🌿</p>
+<p style="font-weight: 600; color: #10B981;">The Plant Community Team</p>
+{% endblock %}

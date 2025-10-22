@@ -1,0 +1,366 @@
+{% extends "forum_integration/base/forum_base.html" %}
+{% load wagtailcore_tags %}
+
+{% block title %}{{ page.title }} - Forum Moderation{% endblock %}
+
+{% block meta_description %}
+    {% if page.meta_description %}
+        {{ page.meta_description }}
+    {% else %}
+        Forum moderation tools and administrative interface for Plant Community.
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <!-- Moderation Header -->
+    <div class="card p-6 mb-8">
+        <div class="flex items-start justify-between">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900 mb-2">{{ page.title }}</h1>
+                <p class="text-gray-600">Manage and moderate forum content, users, and settings.</p>
+            </div>
+            <div class="flex items-center space-x-2">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                    <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                    </svg>
+                    Staff Only
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div class="card p-4 text-center">
+            <div class="text-2xl font-bold text-red-600">{{ pending_posts_count|default:0 }}</div>
+            <div class="text-sm font-medium text-gray-600">Pending Posts</div>
+        </div>
+        <div class="card p-4 text-center">
+            <div class="text-2xl font-bold text-yellow-600">{{ reported_content_count|default:0 }}</div>
+            <div class="text-sm font-medium text-gray-600">Reported Content</div>
+        </div>
+        <div class="card p-4 text-center">
+            <div class="text-2xl font-bold text-blue-600">{{ total_moderators|default:0 }}</div>
+            <div class="text-sm font-medium text-gray-600">Active Moderators</div>
+        </div>
+        <div class="card p-4 text-center">
+            <div class="text-2xl font-bold text-green-600">{{ actions_today|default:0 }}</div>
+            <div class="text-sm font-medium text-gray-600">Actions Today</div>
+        </div>
+    </div>
+
+    <!-- Page Content Blocks -->
+    {% if page.content_blocks %}
+        <div class="mb-8">
+            {% for block in page.content_blocks %}
+                {% include_block block %}
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <!-- Moderation Tools Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        
+        <!-- Pending Posts -->
+        {% if show_pending_posts and pending_posts_count > 0 %}
+            <div class="card">
+                <div class="bg-red-50 px-6 py-4 border-b border-red-200">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-lg font-semibold text-red-900">Pending Posts</h2>
+                        <span class="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-medium">
+                            {{ pending_posts_count }} waiting
+                        </span>
+                    </div>
+                </div>
+                <div class="p-6">
+                    <div class="space-y-4">
+                        {% for post in pending_posts|slice:":5" %}
+                            <div class="border border-gray-200 rounded-lg p-4">
+                                <div class="flex items-start justify-between">
+                                    <div class="flex-1 min-w-0">
+                                        <h3 class="font-medium text-gray-900 truncate">
+                                            {{ post.topic.subject }}
+                                        </h3>
+                                        <p class="text-sm text-gray-600 mt-1">
+                                            by {{ post.poster.username }} • {{ post.created|timesince }} ago
+                                        </p>
+                                        <div class="text-sm text-gray-700 mt-2 line-clamp-3">
+                                            {{ post.content.raw|truncatewords:20 }}
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center space-x-2 ml-4">
+                                        <form method="post" action="{% url 'forum_moderation:post_approve' post.pk %}" class="inline">
+                                            {% csrf_token %}
+                                            <button type="submit" 
+                                                    class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm transition-colors">
+                                                Approve
+                                            </button>
+                                        </form>
+                                        <form method="post" action="{% url 'forum_moderation:post_reject' post.pk %}" class="inline">
+                                            {% csrf_token %}
+                                            <button type="submit" 
+                                                    class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition-colors">
+                                                Reject
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    
+                    {% if pending_posts_count > 5 %}
+                        <div class="mt-4 text-center">
+                            <a href="{% url 'forum_moderation:queue' %}" 
+                               class="btn-primary">View All Pending Posts</a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Reported Content -->
+        {% if show_reported_content %}
+            <div class="card">
+                <div class="bg-yellow-50 px-6 py-4 border-b border-yellow-200">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-lg font-semibold text-yellow-900">Reported Content</h2>
+                        {% if reported_content_count > 0 %}
+                            <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs font-medium">
+                                {{ reported_content_count }} reports
+                            </span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="p-6">
+                    {% if reported_content %}
+                        <div class="space-y-4">
+                            {% for report in reported_content|slice:":3" %}
+                                <div class="border border-gray-200 rounded-lg p-4">
+                                    <div class="flex items-start justify-between">
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="font-medium text-gray-900">
+                                                Report: {{ report.reason }}
+                                            </h3>
+                                            <p class="text-sm text-gray-600 mt-1">
+                                                Reported by {{ report.reporter.username }} • {{ report.created|timesince }} ago
+                                            </p>
+                                            <p class="text-sm text-gray-700 mt-2">
+                                                Content: "{{ report.content|truncatewords:15 }}"
+                                            </p>
+                                        </div>
+                                        <div class="flex items-center space-x-2 ml-4">
+                                            <button onclick="viewReport({{ report.pk }})" 
+                                                    class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors">
+                                                Review
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        {% if reported_content_count > 3 %}
+                            <div class="mt-4 text-center">
+                                <a href="{% url 'forum_moderation:reports' %}" 
+                                   class="btn-primary">View All Reports</a>
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <div class="text-center text-gray-500">
+                            <svg class="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <p>No reported content at the moment.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- User Management -->
+        {% if show_user_management %}
+            <div class="card">
+                <div class="bg-blue-50 px-6 py-4 border-b border-blue-200">
+                    <h2 class="text-lg font-semibold text-blue-900">User Management</h2>
+                </div>
+                <div class="p-6">
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                            <div>
+                                <h3 class="font-medium text-gray-900">Recent Registrations</h3>
+                                <p class="text-sm text-gray-600">{{ recent_users_count|default:0 }} new users in the last 7 days</p>
+                            </div>
+                            <a href="/admin/auth/user/" 
+                               class="btn-secondary text-sm">View Users</a>
+                        </div>
+                        
+                        <div class="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                            <div>
+                                <h3 class="font-medium text-gray-900">Banned Users</h3>
+                                <p class="text-sm text-gray-600">{{ banned_users_count|default:0 }} currently banned</p>
+                            </div>
+                            <a href="{% url 'forum_moderation:banned_users' %}" 
+                               class="btn-secondary text-sm">Manage Bans</a>
+                        </div>
+                        
+                        <div class="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                            <div>
+                                <h3 class="font-medium text-gray-900">Permissions</h3>
+                                <p class="text-sm text-gray-600">Manage forum permissions and roles</p>
+                            </div>
+                            <a href="/admin/forum_permission/forumpermission/" 
+                               class="btn-secondary text-sm">Edit Permissions</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Quick Actions -->
+        <div class="card">
+            <div class="bg-green-50 px-6 py-4 border-b border-green-200">
+                <h2 class="text-lg font-semibold text-green-900">Quick Actions</h2>
+            </div>
+            <div class="p-6">
+                <div class="grid grid-cols-1 gap-3">
+                    <a href="/admin/forum/forum/" 
+                       class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        <svg class="w-5 h-5 text-green-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                        </svg>
+                        <span class="font-medium text-gray-900">Manage Forums</span>
+                    </a>
+                    
+                    <a href="/admin/forum_conversation/topic/" 
+                       class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        <svg class="w-5 h-5 text-blue-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                        </svg>
+                        <span class="font-medium text-gray-900">Manage Topics</span>
+                    </a>
+                    
+                    <a href="/admin/forum_conversation/post/" 
+                       class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        <svg class="w-5 h-5 text-purple-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"></path>
+                        </svg>
+                        <span class="font-medium text-gray-900">Manage Posts</span>
+                    </a>
+                    
+                    <button onclick="openBulkActionModal()" 
+                            class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        <svg class="w-5 h-5 text-orange-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path>
+                        </svg>
+                        <span class="font-medium text-gray-900">Bulk Actions</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Moderation Activity -->
+    <div class="mt-8 card">
+        <div class="bg-gray-50 px-6 py-4 border-b border-gray-200">
+            <h2 class="text-lg font-semibold text-gray-900">Recent Moderation Activity</h2>
+        </div>
+        <div class="p-6">
+            {% if recent_activities %}
+                <div class="space-y-4">
+                    {% for activity in recent_activities %}
+                        <div class="flex items-start space-x-4 p-3 border border-gray-200 rounded-lg">
+                            <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"></path>
+                                    <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"></path>
+                                </svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm text-gray-900">{{ activity.description }}</p>
+                                <p class="text-xs text-gray-500 mt-1">
+                                    by {{ activity.moderator.username }} • {{ activity.created|timesince }} ago
+                                </p>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="text-center text-gray-500 py-8">
+                    <svg class="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <p>No recent moderation activity.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
+
+{% block sidebar %}
+    <div class="space-y-6">
+        <!-- Moderation Guidelines -->
+        <div class="card p-4">
+            <h3 class="font-semibold text-gray-900 mb-3">Moderation Guidelines</h3>
+            <div class="space-y-2 text-sm text-gray-600">
+                <p>• Review reported content within 24 hours</p>
+                <p>• Always provide clear reasons for actions</p>
+                <p>• Document significant moderation decisions</p>
+                <p>• Escalate complex issues to administrators</p>
+                <p>• Follow community guidelines consistently</p>
+            </div>
+        </div>
+
+        <!-- Moderation Stats -->
+        <div class="card p-4">
+            <h3 class="font-semibold text-gray-900 mb-3">Your Stats</h3>
+            <dl class="space-y-2 text-sm">
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">Actions Today</dt>
+                    <dd class="font-medium text-gray-900">{{ user_actions_today|default:0 }}</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">This Week</dt>
+                    <dd class="font-medium text-gray-900">{{ user_actions_week|default:0 }}</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">Total Actions</dt>
+                    <dd class="font-medium text-gray-900">{{ user_actions_total|default:0 }}</dd>
+                </div>
+            </dl>
+        </div>
+
+        {% include "forum_integration/components/forum_sidebar.html" %}
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function viewReport(reportId) {
+        // Open report details modal or navigate to report view
+        window.location.href = `/moderation/reports/${reportId}/`;
+    }
+    
+    function openBulkActionModal() {
+        // Implement bulk action modal
+        alert('Bulk actions modal would open here. This could include mass approve/reject, user actions, etc.');
+    }
+    
+    // Auto-refresh pending counts every 30 seconds
+    setInterval(function() {
+        fetch('/api/moderation/counts/')
+            .then(response => response.json())
+            .then(data => {
+                // Update counts without full page reload
+                document.querySelectorAll('[data-count]').forEach(el => {
+                    const type = el.dataset.count;
+                    if (data[type] !== undefined) {
+                        el.textContent = data[type];
+                    }
+                });
+            })
+            .catch(error => console.log('Count refresh error:', error));
+    }, 30000);
+</script>
+{% endblock %}

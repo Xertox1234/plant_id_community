@@ -1,0 +1,7 @@
+<div class="text-center p-6 bg-green-50 rounded-lg border border-green-200 mb-6">
+    <div class="text-3xl font-bold text-green-600 mb-2">{{ value.stat_value }}</div>
+    <div class="text-lg font-semibold text-gray-900 mb-1">{{ value.stat_label }}</div>
+    {% if value.stat_description %}
+        <p class="text-sm text-gray-600">{{ value.stat_description }}</p>
+    {% endif %}
+</div>

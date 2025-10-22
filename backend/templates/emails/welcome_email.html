@@ -1,0 +1,88 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Welcome to Plant Community!{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-bottom: 32px;">
+    <h1 style="color: #10B981; font-size: 32px; font-weight: 700; margin: 0;">
+        🎉 Welcome to Plant Community!
+    </h1>
+    <p style="color: #6B7280; font-size: 16px; margin: 8px 0 0 0;">Your plant journey starts here</p>
+</div>
+
+<p style="margin-bottom: 24px;">Hi {{ user.first_name|default:user.username }},</p>
+
+<p style="margin-bottom: 24px;">
+    Congratulations! Your email has been verified and your Plant Community account is now active. We're thrilled to have you join our growing community of plant enthusiasts! 🌱
+</p>
+
+<div style="background-color: #F0FDF4; border: 1px solid #10B981; border-radius: 12px; padding: 24px; margin: 32px 0;">
+    <h2 style="color: #10B981; font-size: 20px; font-weight: 600; margin: 0 0 16px 0;">🚀 Getting Started</h2>
+    <p style="margin-bottom: 16px; color: #374151;">Here's how to make the most of Plant Community:</p>
+    
+    <div style="margin-bottom: 16px;">
+        <div style="display: flex; align-items: flex-start; margin-bottom: 12px;">
+            <span style="background-color: #10B981; color: white; border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; margin-right: 12px; flex-shrink: 0;">1</span>
+            <div>
+                <strong style="color: #10B981;">Identify Your First Plant</strong><br>
+                <span style="color: #6B7280; font-size: 14px;">Upload a photo and let our AI help you discover what you're growing</span>
+            </div>
+        </div>
+        
+        <div style="display: flex; align-items: flex-start; margin-bottom: 12px;">
+            <span style="background-color: #10B981; color: white; border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; margin-right: 12px; flex-shrink: 0;">2</span>
+            <div>
+                <strong style="color: #10B981;">Save Care Instructions</strong><br>
+                <span style="color: #6B7280; font-size: 14px;">Build your personal plant care library with AI-generated guidance</span>
+            </div>
+        </div>
+        
+        <div style="display: flex; align-items: flex-start; margin-bottom: 12px;">
+            <span style="background-color: #10B981; color: white; border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; margin-right: 12px; flex-shrink: 0;">3</span>
+            <div>
+                <strong style="color: #10B981;">Join the Forums</strong><br>
+                <span style="color: #6B7280; font-size: 14px;">Connect with other plant lovers, ask questions, and share your successes</span>
+            </div>
+        </div>
+        
+        <div style="display: flex; align-items: flex-start;">
+            <span style="background-color: #10B981; color: white; border-radius: 50%; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; margin-right: 12px; flex-shrink: 0;">4</span>
+            <div>
+                <strong style="color: #10B981;">Set Up Care Reminders</strong><br>
+                <span style="color: #6B7280; font-size: 14px;">Never forget to water, fertilize, or check on your plants again</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div style="text-align: center; margin: 32px 0;">
+    <a href="{{ app_url }}#!/identify" style="background-color: #10B981; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block; margin-right: 16px;">
+        🔍 Identify Your First Plant
+    </a>
+    <a href="{{ app_url }}#!/forum" style="background-color: #3B82F6; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+        💬 Explore Forums
+    </a>
+</div>
+
+<div style="background-color: #FEF3C7; border-left: 4px solid #F59E0B; padding: 16px; margin: 32px 0;">
+    <h3 style="color: #92400E; font-size: 16px; font-weight: 600; margin: 0 0 8px 0;">💡 Pro Tip</h3>
+    <p style="margin: 0; color: #92400E; font-size: 14px;">
+        Take clear, well-lit photos from multiple angles for the best plant identification results. Include close-ups of leaves, flowers, and any unique features!
+    </p>
+</div>
+
+<p style="margin-bottom: 24px;">
+    If you have any questions or need help getting started, don't hesitate to reach out to our friendly community in the forums or contact our support team.
+</p>
+
+<p style="margin-bottom: 8px;">Happy gardening! 🌿</p>
+<p style="font-weight: 600; color: #10B981;">The Plant Community Team</p>
+
+<hr style="border: none; border-top: 1px solid #E5E7EB; margin: 32px 0;">
+
+<div style="text-align: center;">
+    <p style="color: #6B7280; font-size: 12px; margin: 0;">
+        Follow us on social media for daily plant tips and inspiration
+    </p>
+</div>
+{% endblock %}

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }} - Plant Community Forum</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Breadcrumbs -->
+        <nav class="mb-6 text-sm">
+            <ol class="flex items-center space-x-2 text-gray-500">
+                <li><a href="{% url 'forum_integration:forum_index' %}" class="hover:text-green-600">Forum Home</a></li>
+                <li>/</li>
+                <li class="text-gray-800">Search</li>
+            </ol>
+        </nav>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="mb-4 p-4 rounded-lg {% if message.tags == 'error' %}bg-red-100 border border-red-400 text-red-700{% else %}bg-green-100 border border-green-400 text-green-700{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <!-- Search Form -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h1 class="text-2xl font-bold text-gray-800 mb-4">Search the Forum</h1>
+            
+            <form method="GET" class="flex">
+                <input type="text" 
+                       name="q" 
+                       value="{{ query }}"
+                       placeholder="Search for topics, posts, or keywords..."
+                       class="flex-1 px-4 py-2 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-green-500">
+                <button type="submit" 
+                        class="px-6 py-2 bg-green-600 text-white rounded-r-lg hover:bg-green-700 transition-colors">
+                    🔍 Search
+                </button>
+            </form>
+            
+            {% if query %}
+                <p class="text-gray-600 mt-2 text-sm">
+                    Searching for: <strong>"{{ query }}"</strong>
+                </p>
+            {% endif %}
+        </div>
+
+        <!-- Search Results -->
+        {% if query %}
+            {% if results.topics or results.posts %}
+                <div class="space-y-6">
+                    <!-- Topic Results -->
+                    {% if results.topics %}
+                        <div class="bg-white rounded-lg shadow-md">
+                            <div class="p-4 border-b border-gray-200">
+                                <h2 class="text-lg font-semibold text-gray-800">
+                                    Topics ({{ results.topics|length }} found)
+                                </h2>
+                            </div>
+                            
+                            <div class="divide-y divide-gray-200">
+                                {% for topic in results.topics %}
+                                    <div class="p-4 hover:bg-gray-50 transition-colors">
+                                        <h3 class="font-semibold">
+                                            <a href="{% url 'forum_integration:forum_topic' topic.id %}" 
+                                               class="text-blue-600 hover:text-blue-800 transition-colors">
+                                                {{ topic.subject }}
+                                            </a>
+                                        </h3>
+                                        <div class="text-sm text-gray-500 mt-1">
+                                            in <a href="{% url 'forum_integration:forum_category' topic.forum.id %}" 
+                                                  class="text-green-600 hover:text-green-700">{{ topic.forum.name }}</a>
+                                            • by {{ topic.poster.username }}
+                                            • {{ topic.created|date:"M d, Y" }}
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <!-- Post Results -->
+                    {% if results.posts %}
+                        <div class="bg-white rounded-lg shadow-md">
+                            <div class="p-4 border-b border-gray-200">
+                                <h2 class="text-lg font-semibold text-gray-800">
+                                    Posts ({{ results.posts|length }} found)
+                                </h2>
+                            </div>
+                            
+                            <div class="divide-y divide-gray-200">
+                                {% for post in results.posts %}
+                                    <div class="p-4 hover:bg-gray-50 transition-colors">
+                                        <h3 class="font-semibold">
+                                            <a href="{% url 'forum_integration:forum_topic' post.topic.id %}" 
+                                               class="text-blue-600 hover:text-blue-800 transition-colors">
+                                                {{ post.topic.subject }}
+                                            </a>
+                                        </h3>
+                                        <div class="text-sm text-gray-600 mt-2">
+                                            {{ post.content|truncatewords:30 }}
+                                        </div>
+                                        <div class="text-sm text-gray-500 mt-1">
+                                            in <a href="{% url 'forum_integration:forum_category' post.topic.forum.id %}" 
+                                                  class="text-green-600 hover:text-green-700">{{ post.topic.forum.name }}</a>
+                                            • by {{ post.poster.username }}
+                                            • {{ post.created|date:"M d, Y" }}
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="bg-white rounded-lg shadow-md p-8 text-center">
+                    <div class="text-6xl mb-4">🔍</div>
+                    <h2 class="text-xl font-semibold text-gray-800 mb-2">No results found</h2>
+                    <p class="text-gray-600 mb-4">
+                        We couldn't find any topics or posts matching "{{ query }}"
+                    </p>
+                    <div class="text-sm text-gray-500">
+                        <p>Try:</p>
+                        <ul class="list-disc list-inside mt-2 space-y-1">
+                            <li>Using different keywords</li>
+                            <li>Checking your spelling</li>
+                            <li>Using more general terms</li>
+                            <li>Browsing categories directly</li>
+                        </ul>
+                    </div>
+                </div>
+            {% endif %}
+        {% else %}
+            <div class="bg-white rounded-lg shadow-md p-8 text-center">
+                <div class="text-6xl mb-4">🌱</div>
+                <h2 class="text-xl font-semibold text-gray-800 mb-2">Search the Plant Community</h2>
+                <p class="text-gray-600 mb-6">
+                    Find topics, posts, and discussions about plants, gardening, and plant care
+                </p>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-left">
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="font-semibold text-green-700 mb-2">🔍 Plant Identification</h3>
+                        <p class="text-sm text-gray-600">Search for plant names, characteristics, or identification help</p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="font-semibold text-green-700 mb-2">🌱 Plant Care</h3>
+                        <p class="text-sm text-gray-600">Find care guides, troubleshooting, and growing tips</p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="font-semibold text-green-700 mb-2">🏠 Indoor Plants</h3>
+                        <p class="text-sm text-gray-600">Search discussions about houseplants and indoor gardening</p>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>
