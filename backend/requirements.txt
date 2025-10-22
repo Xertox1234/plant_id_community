@@ -55,6 +55,12 @@ django-csp==3.8
 django-ratelimit==4.1.0
 python-magic==0.4.27
 
+# Circuit Breaker
+pybreaker>=1.4.0
+
+# Distributed Locks (Cache Stampede Prevention)
+python-redis-lock>=4.0.0
+
 # OAuth Authentication
 django-allauth>=0.58.2
 

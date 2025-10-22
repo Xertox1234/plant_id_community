@@ -1,6 +1,14 @@
 """
 Simple API views for plant identification using dual API integration.
 These are lightweight endpoints for the React frontend.
+
+Authentication Strategy:
+- Development: IsAuthenticatedOrAnonymousWithStrictRateLimit (allows testing)
+- Production: IsAuthenticatedForIdentification (requires login)
+
+Rate Limiting:
+- Authenticated users: 100 requests/hour
+- Anonymous users: 10 requests/hour (development only)
 """
 
 from rest_framework.decorators import api_view, permission_classes, parser_classes
@@ -11,37 +19,63 @@ from rest_framework import status
 from django.db import transaction
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
+from django.conf import settings
 import logging
 
 from ..services.combined_identification_service import CombinedPlantIdentificationService
+from ..permissions import (
+    IsAuthenticatedOrAnonymousWithStrictRateLimit,
+    IsAuthenticatedForIdentification,
+)
 
 logger = logging.getLogger(__name__)
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])  # TODO: Change to IsAuthenticated for production
+@permission_classes([
+    IsAuthenticatedOrAnonymousWithStrictRateLimit if settings.DEBUG
+    else IsAuthenticatedForIdentification
+])
 @parser_classes([MultiPartParser, FormParser])
-@ratelimit(key='ip', rate='10/h', method='POST')  # Rate limit: 10 requests per hour per IP
-@transaction.atomic  # Ensure all database operations are atomic
+@ratelimit(
+    key=lambda request: 'anon' if not request.user.is_authenticated else f'user-{request.user.id}',
+    rate='10/h' if settings.DEBUG else '100/h',
+    method='POST'
+)
+@transaction.atomic
 def identify_plant(request):
     """
-    Simple plant identification endpoint using dual API integration.
-    
-    POST /api/plant-identification/identify/
-    
-    Request:
-        - image: Image file (multipart/form-data)
-    
-    Response:
-        {
-            "success": true,
-            "plant_name": "Monstera Deliciosa",
-            "scientific_name": "Monstera deliciosa",
-            "confidence": 0.95,
-            "suggestions": [...],
-            "care_instructions": {...},
-            "disease_detection": {...}
-        }
+    Plant identification endpoint using dual API integration.
+
+    **Authentication:**
+    - Development (DEBUG=True): Anonymous users allowed with 10 req/hour limit
+    - Production (DEBUG=False): Authentication required with 100 req/hour limit
+
+    **Endpoint:** POST /api/plant-identification/identify/
+
+    **Request:**
+    ```
+    Content-Type: multipart/form-data
+
+    image: <file>  # Image file (JPEG, PNG, WebP)
+    ```
+
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "plant_name": "Monstera Deliciosa",
+        "scientific_name": "Monstera deliciosa",
+        "confidence": 0.95,
+        "suggestions": [...],
+        "care_instructions": {...},
+        "disease_detection": {...}
+    }
+    ```
+
+    **Rate Limits:**
+    - Authenticated: 100 requests/hour
+    - Anonymous (dev only): 10 requests/hour
     """
     try:
         # Validate image file

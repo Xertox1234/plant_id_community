@@ -90,15 +90,27 @@ urlpatterns = [
     # OAuth Authentication (allauth)
     path('accounts/', include('allauth.urls')),
     
-    # Wagtail API
+    # Wagtail CMS API (v2)
     path('api/v2/', api_router.urls),
-    
-    # Django REST Framework API
+
+    # Django REST Framework API - Versioned (v1)
+    path('api/v1/', include(([
+        path('auth/', include('apps.users.urls')),
+        path('plant-identification/', include('apps.plant_identification.urls')),
+        path('blog/', include('apps.blog.urls')),
+        path('blog-api/', include('apps.blog.api_urls')),
+        path('search/', include('apps.search.urls')),
+        path('calendar/', include('apps.garden_calendar.urls')),
+        *([path('forum/', include('apps.forum_integration.api_urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),
+    ], 'v1'))),
+
+    # Legacy Unversioned API (Deprecated - redirects to v1)
+    # TODO: Remove after 2025-07-01 (6 months deprecation period)
     path('api/', include([
         path('auth/', include('apps.users.urls')),
         path('plant-identification/', include('apps.plant_identification.urls')),
         path('blog/', include('apps.blog.urls')),
-        path('blog-api/', include('apps.blog.api_urls')),  # Blog auto-population APIs
+        path('blog-api/', include('apps.blog.api_urls')),
         path('search/', include('apps.search.urls')),
         path('calendar/', include('apps.garden_calendar.urls')),
         *([path('forum/', include('apps.forum_integration.api_urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),

@@ -1,25 +1,30 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-Development Workflow
+
+## Development Workflow
+
 After completing ANY coding task, you MUST:
 
-Automatically invoke the code-review-specialist sub-agent to review changes
-Wait for the review to complete
-Address any blockers identified
-Only then consider the task complete
-Code Review Process
-The code-review-specialist agent reviews ALL modified files
-Reviews check for: debug code, security issues, accessibility, testing, best practices
-ALL BLOCKERS must be fixed before proceeding
-This is NON-NEGOTIABLE for production code
-Standard Task Pattern
+1. Automatically invoke the code-review-specialist sub-agent to review changes
+2. Wait for the review to complete
+3. Address any blockers identified
+4. Only then consider the task complete
+
+**Code Review Process:**
+- The code-review-specialist agent reviews ALL modified files
+- Reviews check for: debug code, security issues, accessibility, testing, best practices
+- ALL BLOCKERS must be fixed before proceeding
+- This is NON-NEGOTIABLE for production code
+
+**Standard Task Pattern:**
 1. Plan the implementation
 2. Write the code
 3. **USE code-review-specialist agent to review** ← ALWAYS DO THIS
 4. Fix any issues found
 5. Confirm task complete
-Important: Never skip the code review step. It is part of "done".
+
+**Important**: Never skip the code review step. It is part of "done".
 
 ## Project Overview
 
@@ -28,10 +33,10 @@ Important: Never skip the code review step. It is part of "done".
 **Architecture:**
 - **Web Frontend**: React 19 + Vite + Tailwind CSS 4 (port 5173)
 - **Mobile App**: Flutter 3.37 + Firebase (primary platform)
-- **Backend**: Django 5.2 + DRF (port 8000, located in `/backend/`)
+- **Backend**: Django 5.2 + DRF (port 8000, located in `/backend/` - **active development**)
 - **Plant Identification**: Dual API system (Plant.id + PlantNet) with parallel processing
-- **Caching**: Redis for API response caching
-- **Database**: SQLite (dev), PostgreSQL (production) with performance indexes
+- **Caching**: Redis for API response caching (40% hit rate)
+- **Database**: PostgreSQL with GIN indexes and trigram search
 
 **Week 2 Performance Optimizations (✅ Complete):**
 - ⚡ Parallel API processing: 60% faster (4-9s → 2-5s)
@@ -39,7 +44,14 @@ Important: Never skip the code review step. It is part of "done".
 - 🗄️ Database indexes: 100x faster queries (300-800ms → 3-8ms)
 - 📷 Image compression: 85% faster uploads (10MB: 40-80s → 3-5s)
 
-**Important**: The `existing_implementation/` folder contains reference code for blog/forum features. **DO NOT EDIT** - see `.DO_NOT_EDIT` file in that directory.
+**Important Directory Structure:**
+- `/backend/` - **Active development** - Plant identification services, APIs, and core functionality
+- `/existing_implementation/` - Reference code for blog/forum features only - **DO NOT EDIT**
+
+**Circuit Breaker Documentation:**
+- `CIRCUIT_BREAKER_RESEARCH.md` - Comprehensive research on circuit breaker patterns for external APIs
+- `CIRCUIT_BREAKER_IMPLEMENTATION.md` - Step-by-step implementation guide with code examples
+- `CIRCUIT_BREAKER_QUICKREF.md` - Quick reference for configuration, monitoring, and troubleshooting
 
 ## Essential Commands
 
@@ -107,9 +119,32 @@ flutter test --coverage         # Coverage report
 flutterfire configure --project=plant-community-prod
 ```
 
+## Code Quality Standards
+
+**Type Hints:**
+- All service methods MUST have return type annotations
+- Use `typing` module: `Optional`, `Dict`, `List`, `Any`, `Tuple`, `Union`
+- Example: `def identify_plant(self, image_file) -> Optional[Dict[str, Any]]:`
+
+**Constants:**
+- All magic numbers/strings must be defined in `apps/plant_identification/constants.py`
+- Centralized configuration for timeouts, cache TTLs, thresholds, API limits
+- Use descriptive constant names: `PLANT_ID_API_TIMEOUT`, `CACHE_TIMEOUT_24_HOURS`
+
+**Logging Standards:**
+- Use bracketed prefixes for filtering: `[CACHE]`, `[PERF]`, `[ERROR]`, `[PARALLEL]`
+- Example: `logger.info("[CACHE] HIT for image {hash[:8]}... (instant response)")`
+- See `LOGGING_STANDARDS.md` for complete guidelines
+
+**Testing:**
+- All new features require comprehensive unit tests
+- Mock external APIs (Plant.id, PlantNet) in tests
+- Use PostgreSQL test database for production equivalence
+- 100% pass rate required before merging
+
 ## Week 2 Performance Optimizations
 
-See `WEEK2_PERFORMANCE.md` for comprehensive documentation.
+See `WEEK2_PERFORMANCE.md` and `UNIT_TESTS_COMPLETION.md` for comprehensive documentation.
 
 **Backend Optimizations:**
 1. **Parallel API Processing** - ThreadPoolExecutor calls Plant.id + PlantNet simultaneously
@@ -188,29 +223,6 @@ lib/
 └── widgets/                # Reusable UI components
 ```
 
-### Backend (`/backend/`) ⚠️ ACTIVE DEVELOPMENT
-```
-backend/
-├── apps/
-│   ├── plant_identification/    # Plant ID API endpoints
-│   │   ├── services/
-│   │   │   ├── plant_id_service.py                    # Plant.id API + Redis caching
-│   │   │   ├── combined_identification_service.py     # Parallel dual API (Week 2)
-│   │   │   ├── plantnet_service.py                    # PlantNet API
-│   │   │   └── ...
-│   │   ├── api/
-│   │   │   └── simple_views.py                        # API endpoints
-│   │   └── migrations/
-│   │       └── 0012_add_performance_indexes.py        # Week 2 DB indexes
-│   ├── users/              # User management
-│   └── core/               # Shared utilities
-├── manage.py
-├── simple_server.py        # Development server with Redis health check
-├── requirements.txt
-└── .env                    # API keys (see .env.example)
-```
-
-**Note**: `/existing_implementation/backend/` contains reference code for blog/forum features. DO NOT EDIT that directory.
 
 ## Backend API Integration
 
@@ -263,7 +275,41 @@ Response:
 }
 ```
 
-### Dual API Strategy
+### Backend Service Architecture
+
+**Critical Implementation Details:**
+
+1. **Parallel API Processing** (`combined_identification_service.py`):
+   - Uses module-level ThreadPoolExecutor singleton pattern
+   - `get_executor()` function with double-checked locking for thread safety
+   - Registered cleanup via `atexit.register(_cleanup_executor)`
+   - Max workers capped at 10 to prevent API rate limit issues
+   - Both APIs called simultaneously using `executor.submit()`
+
+2. **Redis Caching Strategy**:
+   - **Plant.id**: SHA-256 image hash + API version + disease flag = cache key
+   - **PlantNet**: SHA-256 hash + project + organs + modifiers = cache key
+   - TTL: Plant.id (30 min), PlantNet (24 hours)
+   - Cache hit = instant response (<10ms), cache miss = API call
+
+3. **Database Indexes** (`migrations/0012_add_performance_indexes.py`):
+   - 8 composite indexes for common query patterns
+   - GIN indexes for full-text search on names, descriptions
+   - Trigram indexes for fuzzy search (`pg_trgm` extension)
+   - 100x performance improvement (300-800ms → 3-8ms)
+
+4. **Service Dependencies**:
+   - `CombinedPlantIdentificationService` → orchestrates Plant.id + PlantNet
+   - `PlantIDAPIService` → handles Plant.id API with caching
+   - `PlantNetAPIService` → handles PlantNet API with caching
+   - `SpeciesLookupService` → local-first species lookup with API fallback
+
+**Thread Safety Considerations:**
+- Executor initialization uses `threading.Lock()` to prevent race conditions
+- Tested with 10 concurrent threads in `test_executor_thread_safety`
+- Never create ThreadPoolExecutor in `__init__` - always use `get_executor()`
+
+## Dual API Strategy
 
 **Architecture:**
 ```
@@ -382,6 +428,59 @@ flutter run -d ios  # or -d android
    - Test plant identification workflow
    - Verify Firebase integration (when configured)
 
+## Common Development Tasks
+
+### Adding a New Service
+
+1. Create service in `backend/apps/plant_identification/services/`
+2. Add type hints to all methods (required)
+3. Extract constants to `constants.py`
+4. Use bracketed logging prefixes (`[SERVICE_NAME]`)
+5. Add comprehensive unit tests
+6. Run code-review-specialist agent before committing
+
+### Modifying API Integration
+
+1. Update service file (e.g., `plant_id_service.py`)
+2. Update cache key generation if parameters change
+3. Update corresponding tests
+4. Verify Redis caching still works: `redis-cli keys "*"`
+5. Check performance impact with `test_performance.py`
+
+### Database Migrations
+
+```bash
+cd backend
+source venv/bin/activate
+
+# Create migration
+python manage.py makemigrations
+
+# Important: For PostgreSQL-specific features (GIN indexes, trigrams):
+# - Check migration file for `connection.vendor == 'postgresql'`
+# - Ensure graceful skip on SQLite for dev environment
+# - See migrations/0013_add_search_gin_indexes.py for example
+
+# Apply migration
+python manage.py migrate
+
+# Run tests to verify
+python manage.py test apps.plant_identification --keepdb
+```
+
+### Performance Optimization Workflow
+
+1. Identify bottleneck (use Django Debug Toolbar or logging)
+2. Check if can be solved with:
+   - Caching (Redis)
+   - Database index
+   - Parallel execution
+   - Image compression
+3. Implement solution with constants in `constants.py`
+4. Add unit tests for performance validation
+5. Update `WEEK2_PERFORMANCE.md` with results
+6. Run `test_performance.py` to verify improvements
+
 ## Common Issues & Solutions
 
 ### Backend won't start
@@ -392,6 +491,28 @@ source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env  # Then edit .env with your API keys
 python manage.py migrate
+```
+
+### Redis not running (caching disabled)
+```bash
+# macOS (Homebrew)
+brew install redis
+brew services start redis
+redis-cli ping  # Should return "PONG"
+
+# Ubuntu/Debian
+sudo apt-get install redis-server
+sudo systemctl start redis
+redis-cli ping
+
+# Verify Django can connect
+cd backend && source venv/bin/activate
+python -c "from django.core.cache import cache; cache.set('test', 'ok'); print(cache.get('test'))"
+# Should print: ok
+
+# Check cached plant IDs
+redis-cli keys "plant_id:*"
+redis-cli keys "plantnet:*"
 ```
 
 ### CORS errors from frontend
@@ -419,29 +540,62 @@ flutter clean && flutter pub get
 2. Check `web/.env` has `VITE_API_URL=http://localhost:8000`
 3. Restart Vite dev server after .env changes
 
+### PostgreSQL setup for tests (recommended)
+```bash
+# macOS (Homebrew)
+brew install postgresql@18
+brew services start postgresql@18
+
+# Ubuntu/Debian
+sudo apt-get install postgresql-18
+sudo systemctl start postgresql
+
+# Create test database
+createdb plant_community_test
+
+# Install pg_trgm extension (for trigram search)
+psql plant_community_test -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+
+# Verify test database works
+cd backend && source venv/bin/activate
+python manage.py test apps.plant_identification.test_executor_caching --keepdb -v 2
+
+# Note: settings.py auto-detects 'test' in sys.argv and switches to PostgreSQL
+# Uses getpass.getuser() for username, no password required for local dev
+```
+
 ## Current Development Status
 
-### ✅ Completed
-- Web frontend basic structure (React + Vite + Tailwind)
-- Plant identification page with file upload
-- Backend API integration (Plant.id + PlantNet)
-- Django backend running with dual API services
-- Flutter project initialized with design system
-- Theme support (light/dark mode) in Flutter
+### ✅ Completed (Production-Ready)
+- **Backend Infrastructure**:
+  - Django 5.2 + DRF with dual API integration (Plant.id + PlantNet)
+  - Week 2 Performance Optimizations (parallel processing, Redis caching, DB indexes)
+  - Comprehensive unit test suite (20/20 tests passing)
+  - PostgreSQL 18 with GIN indexes and trigram search
+  - Type hints on all service methods
+  - Centralized constants and logging standards
+
+- **Web Frontend**:
+  - React 19 + Vite + Tailwind CSS 4
+  - Plant identification workflow with image compression
+  - API integration with backend
+
+- **Mobile App**:
+  - Flutter 3.37 project structure
+  - Design system (colors, typography, spacing)
+  - Light/dark theme support
 
 ### 🚧 In Progress
-- Flutter app features (authentication, plant ID, collection)
-- Firebase integration for mobile app
-- User authentication system
-- Plant collection management
+- Flutter feature implementation (authentication, plant ID, collection)
+- Firebase integration for mobile backend
+- User authentication and profile management
 
 ### 📋 Planned
-- Firebase authentication (email, Google, Apple)
 - Offline-first data sync for mobile
-- User plant collection with care tracking
-- Forum/community features (read-only in mobile)
+- Plant collection with care tracking
+- Community features (forum read-only in mobile)
 - Garden calendar and reminders
-- Disease diagnosis with regional intelligence
+- Advanced disease diagnosis
 
 ## Architecture Decisions
 
@@ -476,8 +630,20 @@ npm run build        # Verify production build works
 ```bash
 cd backend
 source venv/bin/activate
+
+# Run all plant identification tests
 python manage.py test apps.plant_identification
-pytest apps/plant_identification/tests/  # Alternative with pytest
+
+# Run specific test modules
+python manage.py test apps.plant_identification.test_executor_caching  # Week 2 optimizations
+python manage.py test apps.plant_identification.test_services           # Service layer
+python manage.py test apps.plant_identification.test_api                # API endpoints
+
+# Run with PostgreSQL test database (recommended - production equivalent)
+python manage.py test apps.plant_identification.test_executor_caching --keepdb -v 2
+
+# Note: Tests use PostgreSQL 18 (configured in settings.py when 'test' in sys.argv)
+# This ensures tests run with GIN indexes, trigrams, and other PostgreSQL-specific features
 ```
 
 ### Flutter Mobile

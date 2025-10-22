@@ -357,6 +357,11 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
     ],
     'EXCEPTION_HANDLER': 'apps.core.exceptions.custom_exception_handler',
+    # API Versioning
+    'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.NamespaceVersioning',
+    'DEFAULT_VERSION': 'v1',
+    'ALLOWED_VERSIONS': ['v1'],  # Add 'v2' when implementing breaking changes
+    'VERSION_PARAM': 'version',
 }
 
 # JWT Settings

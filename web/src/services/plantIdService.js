@@ -1,6 +1,7 @@
 import axios from 'axios'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_VERSION = 'v1'
 
 export const plantIdService = {
   /**
@@ -14,7 +15,7 @@ export const plantIdService = {
 
     try {
       const response = await axios.post(
-        `${API_BASE_URL}/api/plant-identification/identify/`,
+        `${API_BASE_URL}/api/${API_VERSION}/plant-identification/identify/`,
         formData,
         {
           headers: {
@@ -38,7 +39,7 @@ export const plantIdService = {
   getHistory: async () => {
     try {
       const response = await axios.get(
-        `${API_BASE_URL}/api/plant-identification/history/`
+        `${API_BASE_URL}/api/${API_VERSION}/plant-identification/history/`
       )
       return response.data
     } catch (error) {
@@ -54,7 +55,7 @@ export const plantIdService = {
   saveToCollection: async (identificationId) => {
     try {
       const response = await axios.post(
-        `${API_BASE_URL}/api/plant-identification/save/`,
+        `${API_BASE_URL}/api/${API_VERSION}/plant-identification/save/`,
         { identification_id: identificationId }
       )
       return response.data

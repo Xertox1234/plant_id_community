@@ -3,23 +3,62 @@ Plant.id (Kindwise) API integration service.
 
 Plant.id provides AI-powered plant identification with disease detection.
 Documentation: https://plant.id/docs
+
+Circuit Breaker Protection:
+- Opens after 3 consecutive failures
+- Resets after 60 seconds
+- Requires 2 successes to close
 """
 
 import requests
 import logging
 import base64
 import hashlib
+import socket
+import os
+import threading
+import time
 from typing import Dict, List, Optional
 from django.conf import settings
 from django.core.cache import cache
+from pybreaker import CircuitBreakerError
+from redis import Redis
 
 from ..constants import (
     PLANT_ID_CACHE_TIMEOUT,
     PLANT_ID_API_TIMEOUT_DEFAULT,
     CACHE_TIMEOUT_24_HOURS,
+    PLANT_ID_CIRCUIT_FAIL_MAX,
+    PLANT_ID_CIRCUIT_RESET_TIMEOUT,
+    PLANT_ID_CIRCUIT_SUCCESS_THRESHOLD,
+    PLANT_ID_CIRCUIT_TIMEOUT,
+    CACHE_LOCK_TIMEOUT,
+    CACHE_LOCK_EXPIRE,
+    CACHE_LOCK_AUTO_RENEWAL,
+    CACHE_LOCK_BLOCKING,
+    CACHE_LOCK_ID_PREFIX,
 )
+from ..circuit_monitoring import create_monitored_circuit
+from apps.core.exceptions import ExternalAPIError
 
 logger = logging.getLogger(__name__)
+
+# Module-level circuit breaker (shared across all instances for proper failure tracking)
+_plant_id_circuit, _plant_id_monitor, _plant_id_stats = create_monitored_circuit(
+    service_name='plant_id_api',
+    fail_max=PLANT_ID_CIRCUIT_FAIL_MAX,
+    reset_timeout=PLANT_ID_CIRCUIT_RESET_TIMEOUT,
+    success_threshold=PLANT_ID_CIRCUIT_SUCCESS_THRESHOLD,
+    timeout=PLANT_ID_CIRCUIT_TIMEOUT,
+)
+
+
+def get_lock_id() -> str:
+    """Generate unique lock ID for debugging which process holds the lock."""
+    hostname = socket.gethostname()
+    pid = os.getpid()
+    thread_id = threading.get_ident()
+    return f"{CACHE_LOCK_ID_PREFIX}-{hostname}-{pid}-{thread_id}"
 
 
 class PlantIDAPIService:
@@ -34,7 +73,7 @@ class PlantIDAPIService:
 
     def __init__(self, api_key: Optional[str] = None):
         """
-        Initialize the Plant.id API service.
+        Initialize the Plant.id API service with circuit breaker and distributed lock support.
 
         Args:
             api_key: Plant.id API key. If not provided, will use settings.PLANT_ID_API_KEY
@@ -46,10 +85,51 @@ class PlantIDAPIService:
 
         self.session = requests.Session()
         self.timeout = getattr(settings, 'PLANT_ID_API_TIMEOUT', PLANT_ID_API_TIMEOUT_DEFAULT)
+
+        # Reference module-level circuit breaker
+        self.circuit = _plant_id_circuit
+        self.circuit_stats = _plant_id_stats
+
+        # Get Redis connection for distributed locks (cache stampede prevention)
+        self.redis_client = self._get_redis_connection()
+
+    def _get_redis_connection(self) -> Optional[Redis]:
+        """
+        Get Redis connection from django-redis for distributed lock operations.
+
+        Verifies Redis is responsive with a ping check to prevent silent failures.
+
+        Returns:
+            Redis client or None if Redis not configured/unresponsive
+        """
+        try:
+            from django_redis import get_redis_connection
+            redis_client = get_redis_connection("default")
+
+            # Verify Redis is responsive (prevents silent failures)
+            redis_client.ping()
+
+            logger.info("[LOCK] Redis connection verified for distributed locks")
+            return redis_client
+        except Exception as e:
+            logger.warning(f"[LOCK] Redis not available for distributed locks: {e}")
+            return None
     
     def identify_plant(self, image_file, include_diseases: bool = True) -> Dict:
         """
-        Identify a plant from an image using Plant.id API with Redis caching.
+        Identify a plant from an image using Plant.id API with circuit breaker protection.
+
+        Circuit Breaker Pattern:
+        1. Check cache (before circuit breaker - instant if cached)
+        2. Acquire distributed lock to prevent cache stampede
+        3. Double-check cache (another process may have populated it)
+        4. Call API through circuit breaker (protected from cascading failures)
+        5. Fast-fail if circuit is open (no wasted API calls)
+
+        Cache Stampede Prevention:
+        - Uses Redis distributed lock to ensure only one process calls API
+        - Other concurrent requests wait for lock, then get cached result
+        - Prevents duplicate API calls for same image (saves quota + money)
 
         Args:
             image_file: Django file object or file bytes
@@ -57,6 +137,11 @@ class PlantIDAPIService:
 
         Returns:
             Dictionary containing identification results
+
+        Raises:
+            ExternalAPIError: If Plant.id service is unavailable (circuit open)
+            requests.exceptions.Timeout: If API request times out
+            requests.exceptions.RequestException: If API request fails
         """
         try:
             # Convert image to bytes
@@ -69,70 +154,105 @@ class PlantIDAPIService:
             image_hash = hashlib.sha256(image_data).hexdigest()
             cache_key = f"plant_id:{self.API_VERSION}:{image_hash}:{include_diseases}"
 
-            # Check cache first
+            # Check cache first (before circuit breaker check - fastest path)
             cached_result = cache.get(cache_key)
             if cached_result:
                 logger.info(f"[CACHE] HIT for image {image_hash[:8]}... (instant response)")
                 return cached_result
 
-            # Cache miss - call API
-            logger.info(f"[CACHE] MISS for image {image_hash[:8]}... (calling Plant.id API)")
+            # Cache miss - acquire distributed lock to prevent cache stampede
+            logger.info(f"[CACHE] MISS for image {image_hash[:8]}... (acquiring lock)")
 
-            encoded_image = base64.b64encode(image_data).decode('utf-8')
+            # Use distributed lock if Redis is available
+            if self.redis_client:
+                import redis_lock
 
-            # Prepare request payload
-            headers = {
-                'Api-Key': self.api_key,
-                'Content-Type': 'application/json',
-            }
+                lock_key = f"lock:plant_id:{self.API_VERSION}:{image_hash}:{include_diseases}"
+                lock_id = get_lock_id()
 
-            data = {
-                'images': [encoded_image],
-                'modifiers': ['crops', 'similar_images'],
-                'plant_language': 'en',
-                'plant_details': [
-                    'common_names',
-                    'taxonomy',
-                    'url',
-                    'description',
-                    'synonyms',
-                    'image',
-                    'edible_parts',
-                    'watering',
-                    'propagation_methods',
-                ],
-            }
+                logger.info(f"[LOCK] Attempting to acquire lock for {image_hash[:8]}... (id: {lock_id})")
 
-            # Add disease detection if requested
-            if include_diseases:
-                data['disease_details'] = [
-                    'common_names',
-                    'description',
-                    'treatment',
-                    'classification',
-                    'url',
-                ]
+                lock = redis_lock.Lock(
+                    self.redis_client,
+                    lock_key,
+                    expire=CACHE_LOCK_EXPIRE,
+                    auto_renewal=CACHE_LOCK_AUTO_RENEWAL,
+                    id=lock_id,
+                )
 
-            # Make API request
-            response = self.session.post(
-                f"{self.BASE_URL}/identification",
-                json=data,
-                headers=headers,
-                timeout=self.timeout
+                # Try to acquire lock (blocks if another process has it)
+                if lock.acquire(blocking=CACHE_LOCK_BLOCKING, timeout=CACHE_LOCK_TIMEOUT):
+                    try:
+                        logger.info(f"[LOCK] Lock acquired for {image_hash[:8]}... (id: {lock_id})")
+
+                        # Double-check cache (another process may have populated it)
+                        cached_result = cache.get(cache_key)
+                        if cached_result:
+                            logger.info(
+                                f"[LOCK] Cache populated by another process for {image_hash[:8]}... "
+                                f"(skipping API call)"
+                            )
+                            return cached_result
+
+                        # Call API through circuit breaker
+                        logger.info(f"[LOCK] Calling Plant.id API for {image_hash[:8]}...")
+                        result = self.circuit.call(
+                            self._call_plant_id_api,
+                            image_data,
+                            cache_key,
+                            image_hash,
+                            include_diseases
+                        )
+
+                        return result
+
+                    finally:
+                        # Always release lock
+                        lock.release()
+                        logger.info(f"[LOCK] Released lock for {image_hash[:8]}... (id: {lock_id})")
+                else:
+                    # Lock acquisition timed out - check cache one more time
+                    # (another process may have finished and populated cache)
+                    cached_result = cache.get(cache_key)
+                    if cached_result:
+                        logger.info(
+                            f"[LOCK] Lock timeout resolved - cache populated by another process "
+                            f"for {image_hash[:8]}... (skipping API call)"
+                        )
+                        return cached_result
+
+                    logger.warning(
+                        f"[LOCK] Lock acquisition timed out for {image_hash[:8]}... "
+                        f"after {CACHE_LOCK_TIMEOUT}s (proceeding without lock - cache stampede risk)"
+                    )
+                    # Fall through to direct API call without lock
+            else:
+                logger.warning("[LOCK] Redis not available - skipping distributed lock (cache stampede possible)")
+
+            # Fallback: Call API without lock (if Redis unavailable or lock timeout)
+            # One final cache check to minimize duplicate API calls
+            cached_result = cache.get(cache_key)
+            if cached_result:
+                logger.info(f"[CACHE] Last-chance cache hit for {image_hash[:8]}... (skipping API call)")
+                return cached_result
+
+            logger.info(f"[CACHE] Calling Plant.id API for {image_hash[:8]}... (no lock)")
+            result = self.circuit.call(
+                self._call_plant_id_api,
+                image_data,
+                cache_key,
+                image_hash,
+                include_diseases
             )
-            response.raise_for_status()
 
-            result = response.json()
-            formatted_result = self._format_response(result)
+            return result
 
-            logger.info(f"Plant.id identification successful: {result.get('suggestions', [{}])[0].get('plant_name', 'Unknown')}")
-
-            # Store in cache for 24 hours
-            cache.set(cache_key, formatted_result, timeout=CACHE_TIMEOUT_24_HOURS)
-            logger.info(f"[CACHE] Stored result for image {image_hash[:8]}... (24h TTL)")
-
-            return formatted_result
-
+        except CircuitBreakerError as e:
+            logger.error(f"[CIRCUIT] Plant.id circuit is OPEN - fast failing without API call")
+            raise ExternalAPIError(
+                "Plant.id service is temporarily unavailable. Please try again in a few moments.",
+                status_code=503
+            )
         except requests.exceptions.Timeout:
             logger.error("Plant.id API request timed out")
             raise
@@ -142,6 +262,87 @@ class PlantIDAPIService:
         except Exception as e:
             logger.error(f"Unexpected error in Plant.id identification: {e}")
             raise
+
+    def _call_plant_id_api(
+        self,
+        image_data: bytes,
+        cache_key: str,
+        image_hash: str,
+        include_diseases: bool
+    ) -> Dict:
+        """
+        Protected API call wrapped by circuit breaker.
+
+        This method is called by the circuit breaker and will trigger
+        circuit state changes on success/failure.
+
+        Args:
+            image_data: Image bytes
+            cache_key: Redis cache key
+            image_hash: SHA-256 hash of image (for logging)
+            include_diseases: Whether to include disease detection
+
+        Returns:
+            Formatted API response
+
+        Raises:
+            requests.exceptions.RequestException: On API failure (triggers circuit)
+        """
+        # Encode image
+        encoded_image = base64.b64encode(image_data).decode('utf-8')
+
+        # Prepare request payload
+        headers = {
+            'Api-Key': self.api_key,
+            'Content-Type': 'application/json',
+        }
+
+        data = {
+            'images': [encoded_image],
+            'modifiers': ['crops', 'similar_images'],
+            'plant_language': 'en',
+            'plant_details': [
+                'common_names',
+                'taxonomy',
+                'url',
+                'description',
+                'synonyms',
+                'image',
+                'edible_parts',
+                'watering',
+                'propagation_methods',
+            ],
+        }
+
+        # Add disease detection if requested
+        if include_diseases:
+            data['disease_details'] = [
+                'common_names',
+                'description',
+                'treatment',
+                'classification',
+                'url',
+            ]
+
+        # Make API request (will be timed by circuit breaker)
+        response = self.session.post(
+            f"{self.BASE_URL}/identification",
+            json=data,
+            headers=headers,
+            timeout=self.timeout
+        )
+        response.raise_for_status()
+
+        result = response.json()
+        formatted_result = self._format_response(result)
+
+        logger.info(f"Plant.id identification successful: {result.get('suggestions', [{}])[0].get('plant_name', 'Unknown')}")
+
+        # Store in cache for 24 hours
+        cache.set(cache_key, formatted_result, timeout=CACHE_TIMEOUT_24_HOURS)
+        logger.info(f"[CACHE] Stored result for image {image_hash[:8]}... (24h TTL)")
+
+        return formatted_result
     
     def _format_response(self, raw_response: Dict) -> Dict:
         """
