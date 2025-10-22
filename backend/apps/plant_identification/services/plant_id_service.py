@@ -21,8 +21,9 @@ class PlantIDAPIService:
     Service for interacting with the Plant.id (Kindwise) API.
     Provides AI-powered plant identification with disease detection.
     """
-    
+
     BASE_URL = "https://plant.id/api/v3"
+    API_VERSION = "v3"  # Include in cache key for version-specific caching
     CACHE_TIMEOUT = 1800  # 30 minutes
     
     def __init__(self, api_key: Optional[str] = None):
@@ -58,18 +59,18 @@ class PlantIDAPIService:
             else:
                 image_data = image_file
 
-            # Generate cache key from image hash
+            # Generate cache key from image hash (includes API version for cache invalidation)
             image_hash = hashlib.sha256(image_data).hexdigest()
-            cache_key = f"plant_id:{image_hash}:{include_diseases}"
+            cache_key = f"plant_id:{self.API_VERSION}:{image_hash}:{include_diseases}"
 
             # Check cache first
             cached_result = cache.get(cache_key)
             if cached_result:
-                logger.info(f"✅ Cache HIT for image {image_hash[:8]}... (instant response)")
+                logger.info(f"[CACHE] HIT for image {image_hash[:8]}... (instant response)")
                 return cached_result
 
             # Cache miss - call API
-            logger.info(f"❌ Cache MISS for image {image_hash[:8]}... (calling Plant.id API)")
+            logger.info(f"[CACHE] MISS for image {image_hash[:8]}... (calling Plant.id API)")
 
             encoded_image = base64.b64encode(image_data).decode('utf-8')
 
@@ -122,7 +123,7 @@ class PlantIDAPIService:
 
             # Store in cache (24 hours)
             cache.set(cache_key, formatted_result, timeout=86400)
-            logger.info(f"💾 Cached result for image {image_hash[:8]}... (24h TTL)")
+            logger.info(f"[CACHE] Stored result for image {image_hash[:8]}... (24h TTL)")
 
             return formatted_result
 

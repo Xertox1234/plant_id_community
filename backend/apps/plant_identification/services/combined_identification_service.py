@@ -56,7 +56,12 @@ class CombinedPlantIdentificationService:
 
         if not self.plant_id and not self.plantnet:
             logger.error("No plant identification APIs available")
-    
+
+    def __del__(self):
+        """Cleanup thread pool executor on instance destruction."""
+        if hasattr(self, 'executor'):
+            self.executor.shutdown(wait=False)
+
     def identify_plant(self, image_file, user=None) -> Dict:
         """
         Identify a plant using both APIs in parallel and combine results.
@@ -86,7 +91,7 @@ class CombinedPlantIdentificationService:
         else:
             image_data = image_file
 
-        logger.info("🚀 Starting parallel API calls (Plant.id + PlantNet)")
+        logger.info("[PARALLEL] Starting parallel API calls (Plant.id + PlantNet)")
 
         # Execute both API calls in parallel
         plant_id_results, plantnet_results = self._identify_parallel(image_data)
@@ -98,13 +103,13 @@ class CombinedPlantIdentificationService:
             results['confidence_score'] = plant_id_results.get('confidence', 0)
             results['source'] = 'plant_id'
 
-            logger.info(f"✅ Plant.id identified: {plant_id_results.get('top_suggestion', {}).get('plant_name', 'Unknown')} "
+            logger.info(f"[SUCCESS] Plant.id identified: {plant_id_results.get('top_suggestion', {}).get('plant_name', 'Unknown')} "
                       f"(confidence: {results['confidence_score']:.2%})")
 
         # Process PlantNet results
         if plantnet_results:
             results['care_instructions'] = self._extract_care_info(plantnet_results)
-            logger.info("✅ PlantNet care instructions retrieved")
+            logger.info("[SUCCESS] PlantNet care instructions retrieved")
 
         # Combine suggestions from both APIs
         results['combined_suggestions'] = self._merge_suggestions(
@@ -114,13 +119,13 @@ class CombinedPlantIdentificationService:
 
         # If no results from either API, return error
         if not results['combined_suggestions']:
-            logger.warning("❌ No identification results from any API")
+            logger.warning("[ERROR] No identification results from any API")
             results['error'] = "Unable to identify plant. Please try a clearer image."
 
         # Record total timing
         total_time = time.time() - start_time
         results['timing']['total'] = round(total_time, 2)
-        logger.info(f"⚡ Total identification time: {total_time:.2f}s (parallel processing)")
+        logger.info(f"[PERF] Total identification time: {total_time:.2f}s (parallel processing)")
 
         return results
 
@@ -140,24 +145,24 @@ class CombinedPlantIdentificationService:
             """Call Plant.id API in a thread."""
             try:
                 plant_id_start = time.time()
-                logger.info("🔍 Plant.id API call started (parallel)")
+                logger.info("[PARALLEL] Plant.id API call started")
 
                 # Create BytesIO object from image data
                 image_file = BytesIO(image_data)
                 result = self.plant_id.identify_plant(image_file, include_diseases=True)
 
                 duration = time.time() - plant_id_start
-                logger.info(f"✅ Plant.id completed in {duration:.2f}s")
+                logger.info(f"[SUCCESS] Plant.id completed in {duration:.2f}s")
                 return result
             except Exception as e:
-                logger.error(f"❌ Plant.id failed: {e}")
+                logger.error(f"[ERROR] Plant.id failed: {e}")
                 return None
 
         def call_plantnet():
             """Call PlantNet API in a thread."""
             try:
                 plantnet_start = time.time()
-                logger.info("🌿 PlantNet API call started (parallel)")
+                logger.info("[PARALLEL] PlantNet API call started")
 
                 # Create BytesIO object from image data
                 image_file = BytesIO(image_data)
@@ -168,10 +173,10 @@ class CombinedPlantIdentificationService:
                 )
 
                 duration = time.time() - plantnet_start
-                logger.info(f"✅ PlantNet completed in {duration:.2f}s")
+                logger.info(f"[SUCCESS] PlantNet completed in {duration:.2f}s")
                 return result
             except Exception as e:
-                logger.error(f"❌ PlantNet failed: {e}")
+                logger.error(f"[ERROR] PlantNet failed: {e}")
                 return None
 
         # Initialize results
@@ -194,21 +199,21 @@ class CombinedPlantIdentificationService:
                 # Plant.id timeout: 35s (30s API + 5s buffer)
                 plant_id_results = future_plant_id.result(timeout=35)
             except FuturesTimeoutError:
-                logger.error("❌ Plant.id API timeout (35s)")
+                logger.error("[ERROR] Plant.id API timeout (35s)")
             except Exception as e:
-                logger.error(f"❌ Plant.id execution failed: {e}")
+                logger.error(f"[ERROR] Plant.id execution failed: {e}")
 
         if future_plantnet:
             try:
                 # PlantNet timeout: 20s (15s API + 5s buffer)
                 plantnet_results = future_plantnet.result(timeout=20)
             except FuturesTimeoutError:
-                logger.error("❌ PlantNet API timeout (20s)")
+                logger.error("[ERROR] PlantNet API timeout (20s)")
             except Exception as e:
-                logger.error(f"❌ PlantNet execution failed: {e}")
+                logger.error(f"[ERROR] PlantNet execution failed: {e}")
 
         parallel_duration = time.time() - api_start_time
-        logger.info(f"⚡ Parallel API execution completed in {parallel_duration:.2f}s")
+        logger.info(f"[PERF] Parallel API execution completed in {parallel_duration:.2f}s")
 
         return plant_id_results, plantnet_results
     

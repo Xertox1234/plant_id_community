@@ -108,5 +108,16 @@ if not settings.configured:
 
 django.setup()
 
+# Validate Redis connection on startup
+try:
+    from django.core.cache import cache
+    cache.set('startup_test', 'ok', 10)
+    if cache.get('startup_test') != 'ok':
+        raise ConnectionError("Redis cache not working")
+    print("[SUCCESS] Redis cache connected successfully")
+except Exception as e:
+    print(f"[WARNING] Redis cache unavailable: {e}")
+    print("[WARNING] Caching will be disabled - API calls will not be cached")
+
 if __name__ == '__main__':
     execute_from_command_line(['manage.py', 'runserver', '8000'])
