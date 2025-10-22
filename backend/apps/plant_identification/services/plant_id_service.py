@@ -13,6 +13,12 @@ from typing import Dict, List, Optional
 from django.conf import settings
 from django.core.cache import cache
 
+from ..constants import (
+    PLANT_ID_CACHE_TIMEOUT,
+    PLANT_ID_API_TIMEOUT_DEFAULT,
+    CACHE_TIMEOUT_24_HOURS,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,12 +30,12 @@ class PlantIDAPIService:
 
     BASE_URL = "https://plant.id/api/v3"
     API_VERSION = "v3"  # Include in cache key for version-specific caching
-    CACHE_TIMEOUT = 1800  # 30 minutes
-    
+    CACHE_TIMEOUT = PLANT_ID_CACHE_TIMEOUT
+
     def __init__(self, api_key: Optional[str] = None):
         """
         Initialize the Plant.id API service.
-        
+
         Args:
             api_key: Plant.id API key. If not provided, will use settings.PLANT_ID_API_KEY
         """
@@ -37,9 +43,9 @@ class PlantIDAPIService:
         if not self.api_key:
             logger.error("Plant.id API key not configured")
             raise ValueError("PLANT_ID_API_KEY must be set in Django settings")
-        
+
         self.session = requests.Session()
-        self.timeout = getattr(settings, 'PLANT_ID_API_TIMEOUT', 30)
+        self.timeout = getattr(settings, 'PLANT_ID_API_TIMEOUT', PLANT_ID_API_TIMEOUT_DEFAULT)
     
     def identify_plant(self, image_file, include_diseases: bool = True) -> Dict:
         """
@@ -121,8 +127,8 @@ class PlantIDAPIService:
 
             logger.info(f"Plant.id identification successful: {result.get('suggestions', [{}])[0].get('plant_name', 'Unknown')}")
 
-            # Store in cache (24 hours)
-            cache.set(cache_key, formatted_result, timeout=86400)
+            # Store in cache for 24 hours
+            cache.set(cache_key, formatted_result, timeout=CACHE_TIMEOUT_24_HOURS)
             logger.info(f"[CACHE] Stored result for image {image_hash[:8]}... (24h TTL)")
 
             return formatted_result

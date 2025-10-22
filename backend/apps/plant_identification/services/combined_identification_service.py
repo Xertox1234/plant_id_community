@@ -20,6 +20,13 @@ from django.conf import settings
 
 from .plant_id_service import PlantIDAPIService
 from .plantnet_service import PlantNetAPIService
+from ..constants import (
+    MAX_WORKER_THREADS,
+    CPU_CORE_MULTIPLIER,
+    PLANT_ID_API_TIMEOUT,
+    PLANTNET_API_TIMEOUT,
+    TEMPERATURE_RANGE_CELSIUS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +46,7 @@ def get_executor() -> ThreadPoolExecutor:
 
     Environment Variables:
         PLANT_ID_MAX_WORKERS (int, optional): Maximum worker threads for parallel API calls.
-            Default: 2x CPU cores (capped at 10). Must be positive integer.
+            Default: 2x CPU cores (capped at MAX_WORKER_THREADS). Must be positive integer.
 
     Returns:
         ThreadPoolExecutor: Shared executor with configurable max_workers
@@ -55,22 +62,23 @@ def get_executor() -> ThreadPoolExecutor:
         # Double-check inside lock to prevent race condition
         if _EXECUTOR is None:
             # Get max_workers from environment or calculate based on CPU cores
-            # For I/O-bound tasks (API calls), use 2x CPU cores
+            # For I/O-bound tasks (API calls), use CPU_CORE_MULTIPLIER x CPU cores
             try:
                 max_workers_env = os.getenv('PLANT_ID_MAX_WORKERS')
                 if max_workers_env:
                     max_workers = int(max_workers_env)
                     if max_workers < 1:
                         logger.warning(f"Invalid PLANT_ID_MAX_WORKERS={max_workers} (must be positive), using default")
-                        max_workers = os.cpu_count() * 2 if os.cpu_count() else 2
+                        default_workers = os.cpu_count() * CPU_CORE_MULTIPLIER if os.cpu_count() else CPU_CORE_MULTIPLIER
+                        max_workers = default_workers
                 else:
-                    max_workers = os.cpu_count() * 2 if os.cpu_count() else 2
+                    max_workers = os.cpu_count() * CPU_CORE_MULTIPLIER if os.cpu_count() else CPU_CORE_MULTIPLIER
             except (ValueError, TypeError) as e:
                 logger.error(f"Invalid PLANT_ID_MAX_WORKERS value: {e}, using default")
-                max_workers = os.cpu_count() * 2 if os.cpu_count() else 2
+                max_workers = os.cpu_count() * CPU_CORE_MULTIPLIER if os.cpu_count() else CPU_CORE_MULTIPLIER
 
-            # Cap at reasonable maximum to prevent API rate limit issues
-            max_workers = max(1, min(max_workers, 10))
+            # Cap at maximum to prevent API rate limit issues
+            max_workers = max(1, min(max_workers, MAX_WORKER_THREADS))
 
             _EXECUTOR = ThreadPoolExecutor(
                 max_workers=max_workers,
@@ -273,19 +281,19 @@ class CombinedPlantIdentificationService:
         # Get results with timeout handling
         if future_plant_id:
             try:
-                # Plant.id timeout: 35s (30s API + 5s buffer)
-                plant_id_results = future_plant_id.result(timeout=35)
+                # Plant.id timeout with buffer
+                plant_id_results = future_plant_id.result(timeout=PLANT_ID_API_TIMEOUT)
             except FuturesTimeoutError:
-                logger.error("[ERROR] Plant.id API timeout (35s)")
+                logger.error(f"[ERROR] Plant.id API timeout ({PLANT_ID_API_TIMEOUT}s)")
             except Exception as e:
                 logger.error(f"[ERROR] Plant.id execution failed: {e}")
 
         if future_plantnet:
             try:
-                # PlantNet timeout: 20s (15s API + 5s buffer)
-                plantnet_results = future_plantnet.result(timeout=20)
+                # PlantNet timeout with buffer
+                plantnet_results = future_plantnet.result(timeout=PLANTNET_API_TIMEOUT)
             except FuturesTimeoutError:
-                logger.error("[ERROR] PlantNet API timeout (20s)")
+                logger.error(f"[ERROR] PlantNet API timeout ({PLANTNET_API_TIMEOUT}s)")
             except Exception as e:
                 logger.error(f"[ERROR] PlantNet execution failed: {e}")
 
@@ -307,7 +315,7 @@ class CombinedPlantIdentificationService:
         care_info = {
             'watering': 'Moderate watering recommended',
             'light': 'Bright indirect light',
-            'temperature': 'Room temperature (18-24°C)',
+            'temperature': f'Room temperature ({TEMPERATURE_RANGE_CELSIUS})',
             'humidity': 'Average humidity',
             'fertilizing': 'Monthly during growing season',
             'pruning': 'Prune as needed',

@@ -16,6 +16,13 @@ import base64
 import io
 from PIL import Image
 
+from ..constants import (
+    PLANTNET_CACHE_TIMEOUT,
+    PLANTNET_API_REQUEST_TIMEOUT,
+    IMAGE_DOWNLOAD_TIMEOUT,
+    IMAGE_DOWNLOAD_QUICK_TIMEOUT,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,10 +31,10 @@ class PlantNetAPIService:
     Service for interacting with the PlantNet API.
     Provides AI-powered plant identification from images.
     """
-    
+
     BASE_URL = "https://my-api.plantnet.org/v2"
     API_VERSION = "v2"  # Include in cache key for version-specific caching
-    CACHE_TIMEOUT = 86400  # 24 hours (match Plant.id caching strategy)
+    CACHE_TIMEOUT = PLANTNET_CACHE_TIMEOUT
     
     # PlantNet project types - using actual project IDs from API
     # These are the valid project IDs returned by the /v2/projects endpoint
@@ -188,7 +195,7 @@ class PlantNetAPIService:
                     data.append(('modifiers', modifier))
             
             # Make request using requests.post with files and data tuples
-            response = self.session.post(url, params=params, files=files, data=data, timeout=60)
+            response = self.session.post(url, params=params, files=files, data=data, timeout=PLANTNET_API_REQUEST_TIMEOUT)
             response.raise_for_status()
 
             result = response.json()
@@ -328,10 +335,10 @@ class PlantNetAPIService:
         params = {'api-key': self.api_key}
         
         try:
-            response = self.session.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=IMAGE_DOWNLOAD_TIMEOUT)
             response.raise_for_status()
             return response.json()
-            
+
         except requests.exceptions.RequestException as e:
             logger.error(f"PlantNet projects request failed: {str(e)}")
             return None
@@ -432,8 +439,8 @@ class PlantNetAPIService:
             # Try to get the projects list first (simpler endpoint)
             url = f"{self.BASE_URL}/projects"
             params = {'api-key': self.api_key}
-            
-            response = self.session.get(url, params=params, timeout=10)
+
+            response = self.session.get(url, params=params, timeout=IMAGE_DOWNLOAD_QUICK_TIMEOUT)
             
             if response.status_code == 200:
                 projects_data = response.json()
