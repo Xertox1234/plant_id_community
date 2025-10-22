@@ -47,6 +47,8 @@ venv/
 env/
 ENV/
 .venv
+venv_old_python39/
+**/venv_old_python39/
 
 # Django
 *.log
