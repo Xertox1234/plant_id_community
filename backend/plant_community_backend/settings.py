@@ -201,6 +201,22 @@ DATABASES = {
     )
 }
 
+# Use PostgreSQL for tests to match production environment
+# This ensures PostgreSQL-specific features (GIN indexes, trigrams, etc.) work correctly
+if 'test' in sys.argv:
+    import getpass
+    DATABASES['default'] = {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('TEST_DB_NAME', default='plant_community_test'),
+        'USER': config('TEST_DB_USER', default=getpass.getuser()),
+        'PASSWORD': config('TEST_DB_PASSWORD', default=''),
+        'HOST': config('TEST_DB_HOST', default='localhost'),
+        'PORT': config('TEST_DB_PORT', default='5432'),
+        'TEST': {
+            'NAME': 'test_plant_community',
+        }
+    }
+
 
 # Cache configuration with Redis fallback to dummy cache
 try:
