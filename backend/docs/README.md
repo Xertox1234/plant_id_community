@@ -46,13 +46,20 @@ System design, analysis, and recommendations for the Plant ID Community backend.
 ### Performance Documentation
 **Location:** [`performance/`](./performance/)
 
-Week 2 performance optimizations and benchmarking results.
+Week 2 and Week 4 performance optimizations and benchmarking results.
 
+- [N+1 Query Elimination Guide](./performance/n-plus-one-elimination.md) - **NEW** Week 4 database optimization (75-98% query reduction)
 - [Week 2 Performance Summary](./performance/week2-performance.md) - Parallel processing, Redis caching, DB indexes
 - [Week 2 Completion Report](./performance/week2-completed.md) - Implementation details
 - [Manual Configuration Steps](./performance/week2-manual-steps.md) - Deployment checklist
 
-**Performance Improvements:**
+**Week 4 Performance Improvements (N+1 Elimination):**
+- 75-98% query reduction (dashboard: 15-20 → 3-4 queries)
+- 10-100x faster execution (email lookup: 300-800ms → 3-8ms)
+- Thread-safe concurrent request handling
+- Database indexes on critical fields
+
+**Week 2 Performance Improvements:**
 - 60% faster plant identification (parallel API calls)
 - 40% cache hit rate (Redis caching)
 - 100x faster database queries (GIN indexes)
@@ -84,6 +91,7 @@ Authentication security, hardening guides, and security best practices.
 
 Session summaries, troubleshooting guides, security best practices, and development workflow documentation.
 
+- [Performance Patterns Codified](./development/PERFORMANCE_PATTERNS_CODIFIED.md) - **NEW** Week 4 codified N+1 patterns in reviewer agents
 - [Session Summaries](./development/session-summaries.md) - Implementation session notes (includes Week 4 authentication security)
 - [Authentication Testing & Security Best Practices](./development/AUTHENTICATION_TESTING_SECURITY_BEST_PRACTICES.md) - Comprehensive Django/DRF authentication research (Oct 2025)
 - [Authentication Research Summary](./development/AUTHENTICATION_RESEARCH_SUMMARY.md) - Quick reference guide for implementation

@@ -316,6 +316,79 @@ For Django/Python files (*.py):
      ```
 
 **Additional Django/Python Checks:**
+
+7. **Database Query Optimization** - N+1 Query Detection
+   - BLOCKER: Multiple separate COUNT queries that could use aggregate()
+   - BLOCKER: Foreign key access in loops without select_related()
+   - WARNING: Missing database indexes on frequently filtered fields
+   - WARNING: Repeated queries for the same object
+   - Pattern: Use Django aggregation with Count() and Q() filters
+   - Example from dashboard_stats:
+     ```python
+     # BLOCKER: Multiple COUNT queries (15-20 queries)
+     total_identified = PlantIdentificationRequest.objects.filter(
+         user=request.user, status='identified'
+     ).count()  # Query 1
+     total_searches = PlantIdentificationRequest.objects.filter(
+         user=request.user
+     ).count()  # Query 2
+
+     # Fix - Single aggregation query (1 query)
+     from django.db.models import Count, Q
+
+     plant_aggregation = PlantIdentificationRequest.objects.filter(
+         user=request.user
+     ).aggregate(
+         total_identified=Count('id', filter=Q(status='identified')),
+         total_searches=Count('id'),
+     )
+     ```
+   - Example from topic iteration:
+     ```python
+     # BLOCKER: N+1 query (1 + N queries)
+     recent_topics = Topic.objects.filter(poster=request.user).order_by('-created')[:10]
+     for topic in recent_topics:
+         description = f'in {topic.forum.name}'  # Query per iteration!
+
+     # Fix - Use select_related() (1 query total)
+     recent_topics = Topic.objects.filter(
+         poster=request.user
+     ).select_related('forum').only(
+         'id', 'subject', 'created', 'forum__name'
+     ).order_by('-created')[:10]
+     ```
+   - Detection: Look for `.count()` multiple times or for loops accessing foreign keys
+   - Performance impact: 75-98% query reduction, 10-100x faster execution
+   - **For comprehensive Django performance review, use django-performance-reviewer agent**
+
+8. **Thread Safety** - Concurrent Request Handling
+   - BLOCKER: Read-modify-write patterns without atomic operations
+   - Check for: `cache.get()` followed by modification and `cache.set()`
+   - Pattern: Use optimistic locking with retry logic
+   - Example from SecurityMonitor:
+     ```python
+     # BLOCKER: Race condition (lost updates)
+     attempts = cache.get(key, [])
+     attempts.append(new_attempt)
+     cache.set(key, attempts)  # Last write wins!
+
+     # Fix - Optimistic locking with retry
+     max_retries = 3
+     for attempt_num in range(max_retries):
+         attempts = cache.get(key, [])
+         attempts.append(new_attempt)
+
+         if attempt_num == 0 and not cache.get(key):
+             success = cache.add(key, attempts, timeout)  # Atomic
+             if not success:
+                 continue  # Retry
+         else:
+             cache.set(key, attempts, timeout)
+
+         return True, len(attempts)
+     ```
+   - Security impact: Prevents data loss, ensures correct state under concurrency
+
 For Wagtail models:
 
  StreamField blocks structured correctly
@@ -553,6 +626,48 @@ timeout=30
 # Fix - Use constant:
 from ..constants import PLANT_ID_API_TIMEOUT
 timeout=PLANT_ID_API_TIMEOUT
+
+views.py:520-535 - Multiple COUNT queries instead of aggregate()
+
+python # Current (15-20 queries, BLOCKER):
+total_identified = PlantIdentificationRequest.objects.filter(
+    user=request.user,
+    status='identified'
+).count()  # Query 1
+total_searches = PlantIdentificationRequest.objects.filter(
+    user=request.user
+).count()  # Query 2
+
+# Fix - Single aggregation query:
+from django.db.models import Count, Q
+
+plant_aggregation = PlantIdentificationRequest.objects.filter(
+    user=request.user
+).aggregate(
+    total_identified=Count('id', filter=Q(status='identified')),
+    total_searches=Count('id'),
+)
+# Performance: 15-20 queries → 1 query (75% reduction), 500ms → 10ms (97% faster)
+
+views.py:582-597 - N+1 query on foreign key access (BLOCKER)
+
+python # Current (N+1 queries):
+recent_topics = Topic.objects.filter(
+    poster=request.user,
+    approved=True
+).order_by('-created')[:10]
+
+for topic in recent_topics:
+    description = f'in {topic.forum.name}'  # Query per iteration!
+
+# Fix - Use select_related():
+recent_topics = Topic.objects.filter(
+    poster=request.user,
+    approved=True
+).select_related('forum').only(
+    'id', 'subject', 'created', 'forum__name'
+).order_by('-created')[:10]
+# Performance: 11 queries → 1 query (91% reduction), 200ms → 10ms (95% faster)
 
 
 ---
