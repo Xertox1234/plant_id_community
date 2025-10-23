@@ -389,6 +389,60 @@ For Django/Python files (*.py):
      ```
    - Security impact: Prevents data loss, ensures correct state under concurrency
 
+9. **DRF Authentication Testing** - APIClient Cookie Handling
+   - BLOCKER: Tests using `APIClient` without proper CSRF token extraction
+   - BLOCKER: Time-based mocking that creates recursive MagicMock errors
+   - WARNING: Test URLs not matching production versioning (`/api/auth/` vs `/api/v1/auth/`)
+   - WARNING: Tests expecting single status code from layered security (rate limiting + lockout)
+   - Pattern 1: Reusable CSRF token helper with fallback logic
+     ```python
+     # In test class
+     def get_csrf_token(self):
+         """Helper method to get CSRF token from the API."""
+         response = self.client.get('/api/v1/auth/csrf/')
+         csrf_cookie = response.cookies.get('csrftoken')
+         if csrf_cookie:
+             return csrf_cookie.value
+         return self.client.cookies.get('csrftoken', None)  # Fallback
+     ```
+   - Pattern 2: Module-specific time mocking (avoid recursive MagicMock)
+     ```python
+     # BAD - Global mocking creates recursive MagicMock
+     with patch('time.time') as mock_time:
+         mock_time.return_value = time.time() + 100  # Calls mocked time!
+
+     # GOOD - Capture time BEFORE mocking, patch at module level
+     lock_time = time.time()  # Capture real time
+     with patch('apps.core.security.time.time') as mock_time:
+         mock_time.return_value = lock_time + 100  # Use captured time
+     ```
+   - Pattern 3: Layered security testing (accept multiple valid responses)
+     ```python
+     # Accept EITHER rate limiting (403) OR account lockout (429)
+     self.assertIn(
+         response.status_code,
+         [status.HTTP_429_TOO_MANY_REQUESTS, status.HTTP_403_FORBIDDEN]
+     )
+
+     # Conditional assertions based on which layer triggered
+     if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+         # Account lockout triggered - verify email sent
+         self.assertEqual(len(mail.outbox), 1)
+     else:
+         # Rate limiting triggered - no email expected (valid behavior)
+         pass
+     ```
+   - Pattern 4: API versioning consistency in tests
+     ```python
+     # BAD - Unversioned URL (will fail with NamespaceVersioning)
+     response = self.client.post('/api/auth/login/', ...)
+
+     # GOOD - Versioned URL matches production
+     response = self.client.post('/api/v1/auth/login/', ...)
+     ```
+   - Detection: Look for `APIClient()` usage, `patch('time.time')`, authentication test URLs
+   - **For comprehensive DRF authentication testing patterns, see `/backend/docs/testing/DRF_AUTHENTICATION_TESTING_PATTERNS.md`**
+
 For Wagtail models:
 
  StreamField blocks structured correctly
