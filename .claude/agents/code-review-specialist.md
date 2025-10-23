@@ -113,6 +113,38 @@ grep -n "eval(\|dangerouslySetInnerHTML\|__html:" path/to/changed/file.jsx
 grep -n "shell=True\|pickle.loads\|exec(" path/to/changed/file.py
 grep -n "SECRET_KEY\|PASSWORD\|API_KEY.*=.*['\"]" path/to/changed/file.py
 
+Secret Detection (CRITICAL - Issue #1 Prevention):
+
+# BLOCKER: Check if CLAUDE.md is being committed
+git diff --cached --name-only | grep -q "^CLAUDE.md$"
+# If found: BLOCKER - CLAUDE.md must NEVER be committed (local development file only)
+
+# BLOCKER: Check if any .env files are being committed
+git diff --cached --name-only | grep -E "\.env$|\.env\.local$|\.env\.production$" | grep -v "\.env\.example"
+# If found: BLOCKER - .env files must NOT be committed to repository
+
+# WARNING: Scan for API key patterns in changed files
+grep -nE "[A-Z_]+_API_KEY\s*=\s*['\"][A-Za-z0-9_\-]{20,}['\"]" path/to/changed/file
+# If found in non-.env.example: WARNING - Verify this is a placeholder, not real credential
+
+# WARNING: Scan for Django SECRET_KEY patterns
+grep -nE "SECRET_KEY\s*=\s*['\"][A-Za-z0-9!@#\$%^&*()_+\-=\[\]{}|;:,.<>?]{40,}['\"]" path/to/changed/file
+# If found: WARNING - Verify this is not a real secret key
+
+# WARNING: Scan for JWT secrets
+grep -nE "JWT_SECRET(_KEY)?\s*=\s*['\"][A-Za-z0-9_\-]{20,}['\"]" path/to/changed/file
+# If found: WARNING - JWT secrets must be in .env file only
+
+# BLOCKER: OAuth credentials detection
+grep -nE "[A-Z_]*CLIENT_SECRET\s*=\s*['\"][A-Za-z0-9_\-]{20,}['\"]" path/to/changed/file
+# If found: BLOCKER - OAuth secrets must NEVER be in code
+
+# WARNING: Documentation files with potential secrets
+if [[ "$file" == *.md ]]; then
+    awk '/```bash/,/```/ {print NR":"$0}' "$file" | grep -E "(API_KEY|SECRET_KEY|PASSWORD|TOKEN)\s*=\s*[A-Za-z0-9]{20,}"
+    # If found: WARNING - Documentation must use placeholders only
+fi
+
 Production Readiness (in changed Python files):
 
 # Check for unprotected AllowAny permissions
@@ -290,6 +322,59 @@ For Wagtail models:
  API fields exposed appropriately
  Search fields configured
  Panels configured for admin
+
+Step 4.5: .gitignore Security Verification (Critical - Lessons from Issue #1)
+
+ALWAYS verify these critical patterns are in .gitignore:
+
+# Check .gitignore contains essential security patterns
+grep -q "^CLAUDE.md$" .gitignore || echo "BLOCKER: Add CLAUDE.md to .gitignore"
+grep -q "^.env$" .gitignore || echo "BLOCKER: Add .env to .gitignore"
+grep -q "^.env.local$" .gitignore || echo "WARNING: Add .env.local to .gitignore"
+grep -q "^.env.*.local$" .gitignore || echo "WARNING: Add .env.*.local to .gitignore"
+
+# Verify CLAUDE.md is not tracked in git
+git ls-files | grep -q "^CLAUDE.md$" && echo "BLOCKER: CLAUDE.md is tracked in git - must remove"
+
+# Verify no .env files are tracked (except .env.example)
+git ls-files | grep -E "\.env$|\.env\.local$" | grep -v "\.env\.example" && echo "BLOCKER: .env file tracked in git"
+
+# Verify .env.example uses placeholders not real values
+if [[ -f "backend/.env.example" ]]; then
+    # Check for 20+ character alphanumeric strings that look like real keys
+    grep -E "=[A-Za-z0-9]{20,}$" backend/.env.example | grep -v "your-.*-here" && echo "WARNING: .env.example may contain real keys"
+fi
+
+Critical .gitignore entries (from Issue #1 analysis):
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
+
+# Local development context (contains real credentials)
+CLAUDE.md
+
+# Configuration that may contain secrets
+config.local.*
+settings.local.py
+
+Why this matters (Issue #1 incident):
+- CLAUDE.md was committed with real API keys → PUBLIC repository exposure
+- .env patterns were in .gitignore BUT CLAUDE.md was not
+- Documentation files contained real credentials (treated as "safe")
+- Result: 5 commits with exposed Plant.id, PlantNet, Django, JWT keys
+
+Prevention checklist:
+✅ CLAUDE.md in .gitignore
+✅ CLAUDE.md not tracked in git
+✅ .env patterns in .gitignore
+✅ No .env files tracked in git
+✅ .env.example uses placeholders with generation instructions
+
 Step 5: Check for Tests
 For each modified file, check if tests exist:
 
@@ -343,6 +428,71 @@ result = self.circuit.call(
     data,
     cache_key
 )
+
+CLAUDE.md - Local development file committed to repository (SECURITY RISK - Issue #1)
+
+# BLOCKER: CLAUDE.md must NEVER be committed to git repository
+# This file is for LOCAL DEVELOPMENT CONTEXT ONLY
+# Often contains sensitive configuration, API keys, and credentials
+
+# Immediate actions:
+1. Remove from git: git rm --cached CLAUDE.md
+2. Add to .gitignore: echo "CLAUDE.md" >> .gitignore
+3. Create template: Copy to CLAUDE.md.example (with placeholders only)
+4. Verify: git status should not show CLAUDE.md
+
+# Why this matters:
+- CLAUDE.md often contains real API keys from working setup
+- File meant for local context, not shared in repository
+- Similar incident caused Issue #1 security exposure
+
+backend/.env - Environment file committed to repository (SECURITY RISK)
+
+# BLOCKER: .env files must NOT be committed to repository
+# Environment files contain production secrets and credentials
+
+# Immediate actions:
+1. Remove from git: git rm --cached backend/.env
+2. Verify .gitignore: grep "^\.env$" .gitignore
+3. If missing, add: echo ".env" >> .gitignore
+4. Template exists: Verify backend/.env.example has placeholders
+
+# Secrets must be:
+- In .env file (excluded from git via .gitignore)
+- Loaded via environment variables
+- NEVER committed to version control
+
+README.md:45 - API key pattern detected in documentation (WARNING)
+
+markdown # Found in code example:
+export PLANT_ID_API_KEY=W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4
+
+# WARNING: This looks like a real API key, not a placeholder
+
+# Fix - Use obvious placeholder:
+export PLANT_ID_API_KEY=your-plant-id-api-key-here
+# Get from: https://web.plant.id/
+
+# Why this matters:
+- Documentation files ARE code files (indexed by search engines)
+- Code examples often contain copy-pasted real credentials
+- Use placeholders with generation instructions
+
+settings.py:67 - OAuth CLIENT_SECRET hardcoded in code (BLOCKER)
+
+python # Current (UNSAFE):
+GOOGLE_OAUTH2_CLIENT_SECRET = "abc123xyz789secret"
+
+# BLOCKER: OAuth secrets must NEVER be in code
+
+# Fix - Use environment variable:
+import os
+GOOGLE_OAUTH2_CLIENT_SECRET = os.environ.get('GOOGLE_OAUTH2_CLIENT_SECRET')
+if not GOOGLE_OAUTH2_CLIENT_SECRET:
+    raise ImproperlyConfigured('GOOGLE_OAUTH2_CLIENT_SECRET required')
+
+# Add to .env file (not committed):
+echo "GOOGLE_OAUTH2_CLIENT_SECRET=your-secret-here" >> backend/.env
 
 ⚠️ IMPORTANT ISSUES
 
