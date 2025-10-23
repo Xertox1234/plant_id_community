@@ -59,6 +59,7 @@ plant_id.db-journal
 /staticfiles/
 /mediafiles/
 /media/
+backend/media/
 
 # pytest
 .pytest_cache/
