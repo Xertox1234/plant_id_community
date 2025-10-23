@@ -86,15 +86,17 @@ def identify_plant(request):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         image_file = request.FILES['image']
-        
-        # Validate file type
-        allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
-        if image_file.content_type not in allowed_types:
+
+        # Multi-layer file validation (Content-Type + magic bytes + PIL)
+        try:
+            from apps.plant_identification.utils import validate_image_file
+            validate_image_file(image_file)
+        except ValidationError as e:
             return Response({
                 'success': False,
-                'error': f'Invalid file type: {image_file.content_type}. Allowed types: JPEG, PNG, WebP'
+                'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
-        
+
         # Validate file size (10MB max)
         max_size = 10 * 1024 * 1024  # 10MB
         if image_file.size > max_size:

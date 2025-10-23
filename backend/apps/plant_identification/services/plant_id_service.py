@@ -115,7 +115,7 @@ class PlantIDAPIService:
             logger.warning(f"[LOCK] Redis not available for distributed locks: {e}")
             return None
     
-    def identify_plant(self, image_file, include_diseases: bool = True) -> Dict:
+    def identify_plant(self, image_file, include_diseases: bool = True) -> Dict[str, Any]:
         """
         Identify a plant from an image using Plant.id API with circuit breaker protection.
 
@@ -207,9 +207,15 @@ class PlantIDAPIService:
                         return result
 
                     finally:
-                        # Always release lock
-                        lock.release()
-                        logger.info(f"[LOCK] Released lock for {image_hash[:8]}... (id: {lock_id})")
+                        # Always release lock - wrap in try/except for error handling
+                        try:
+                            lock.release()
+                            logger.info(f"[LOCK] Released lock for {image_hash[:8]}... (id: {lock_id})")
+                        except Exception as e:
+                            logger.error(
+                                f"[LOCK] Failed to release lock for {image_hash[:8]}... (id: {lock_id}): {e}. "
+                                f"Lock will auto-expire after {CACHE_LOCK_EXPIRE}s"
+                            )
                 else:
                     # Lock acquisition timed out - check cache one more time
                     # (another process may have finished and populated cache)
@@ -269,7 +275,7 @@ class PlantIDAPIService:
         cache_key: str,
         image_hash: str,
         include_diseases: bool
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """
         Protected API call wrapped by circuit breaker.
 
@@ -344,7 +350,7 @@ class PlantIDAPIService:
 
         return formatted_result
     
-    def _format_response(self, raw_response: Dict) -> Dict:
+    def _format_response(self, raw_response: Dict[str, Any]) -> Dict[str, Any]:
         """
         Format Plant.id API response into a standardized structure.
         
@@ -399,7 +405,7 @@ class PlantIDAPIService:
             'confidence': formatted_suggestions[0]['probability'] if formatted_suggestions else 0,
         }
     
-    def get_plant_details(self, plant_name: str) -> Optional[Dict]:
+    def get_plant_details(self, plant_name: str) -> Optional[Dict[str, Any]]:
         """
         Get detailed information about a specific plant.
         (Note: Plant.id doesn't have a direct plant details endpoint,

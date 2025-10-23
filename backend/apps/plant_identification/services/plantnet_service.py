@@ -108,7 +108,7 @@ class PlantNetAPIService:
                       project: str = 'world',
                       organs: Optional[List[str]] = None,
                       modifiers: Optional[List[str]] = None,
-                      include_related_images: bool = False) -> Optional[Dict]:
+                      include_related_images: bool = False) -> Optional[Dict[str, Any]]:
         """
         Identify a plant from images using PlantNet API.
         
@@ -216,7 +216,7 @@ class PlantNetAPIService:
             logger.error(f"Error preparing PlantNet request: {str(e)}")
             return None
     
-    def get_top_suggestions(self, identification_result: Dict, min_score: float = 0.1) -> List[Dict]:
+    def get_top_suggestions(self, identification_result: Dict[str, Any], min_score: float = 0.1) -> List[Dict[str, Any]]:
         """
         Extract top plant suggestions from PlantNet identification result.
         
