@@ -12,6 +12,7 @@ from decouple import config
 import dj_database_url
 from datetime import timedelta
 import sentry_sdk
+from django.core.exceptions import ImproperlyConfigured
 
 # Optional JSON logging availability check for tests/local
 try:
@@ -870,13 +871,12 @@ def validate_environment():
     critical_errors = []
     
     # Critical settings that MUST be set in production
+    # Note: SECRET_KEY is validated earlier in settings.py (lines 35-95)
+    # with comprehensive checks for pattern matching, length, and production requirements
     if not DEBUG:
-        if SECRET_KEY == 'django-insecure-change-me-in-production':
-            critical_errors.append("SECRET_KEY must be changed in production")
-        
         if not ALLOWED_HOSTS or ALLOWED_HOSTS == ['localhost', '127.0.0.1']:
             critical_errors.append("ALLOWED_HOSTS must be configured for production domains")
-        
+
         if not config('CSRF_TRUSTED_ORIGINS', default=''):
             critical_errors.append("CSRF_TRUSTED_ORIGINS must be set in production")
     
