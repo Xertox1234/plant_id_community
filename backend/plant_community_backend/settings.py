@@ -836,11 +836,12 @@ AUTHENTICATION_BACKENDS = [
     'allauth.account.auth_backends.AuthenticationBackend',
 ]
 
-# Allauth settings
-ACCOUNT_AUTHENTICATION_METHOD = 'username_email'
-ACCOUNT_EMAIL_REQUIRED = True
+# Allauth settings (django-allauth 65.x+ API)
+# Replaced ACCOUNT_AUTHENTICATION_METHOD with ACCOUNT_LOGIN_METHODS
+ACCOUNT_LOGIN_METHODS = {'username', 'email'}  # Allow login with either username or email
+# Replaced ACCOUNT_EMAIL_REQUIRED and ACCOUNT_USERNAME_REQUIRED with ACCOUNT_SIGNUP_FIELDS
+ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']  # * = required
 ACCOUNT_EMAIL_VERIFICATION = 'mandatory'  # Require email verification for new accounts
-ACCOUNT_USERNAME_REQUIRED = True
 ACCOUNT_USER_MODEL_USERNAME_FIELD = 'username'
 ACCOUNT_USER_MODEL_EMAIL_FIELD = 'email'
 ACCOUNT_UNIQUE_EMAIL = True
