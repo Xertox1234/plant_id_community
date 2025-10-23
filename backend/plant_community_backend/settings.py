@@ -203,6 +203,8 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',  # Static file serving
     'apps.core.security.SecurityMiddleware',  # Security monitoring
+    'apps.core.middleware.RateLimitMonitoringMiddleware',  # Rate limit monitoring
+    'apps.core.middleware.SecurityMetricsMiddleware',  # Security metrics collection
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -336,6 +338,9 @@ except (ImportError, redis.ConnectionError, redis.TimeoutError):
 
 # Session configuration - use database sessions for development
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+# Session timeout after 24 hours of inactivity
+SESSION_COOKIE_AGE = 86400  # 24 hours
+SESSION_SAVE_EVERY_REQUEST = True  # Reset timeout on activity
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -344,6 +349,9 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {
+            'min_length': 14,
+        }
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
@@ -434,7 +442,7 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
     'ALGORITHM': 'HS256',
-    'SIGNING_KEY': config('JWT_SECRET_KEY', default=None) or SECRET_KEY,  # Use separate key if available
+    'SIGNING_KEY': None,  # Will be set below after validation
     'VERIFYING_KEY': None,
     'AUDIENCE': None,
     'ISSUER': None,
@@ -452,6 +460,46 @@ SIMPLE_JWT = {
     'SLIDING_TOKEN_LIFETIME': timedelta(minutes=5),
     'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),
 }
+
+# JWT_SECRET_KEY Validation (CRITICAL SECURITY)
+# JWT tokens MUST use a separate signing key from Django's SECRET_KEY
+# This prevents SECRET_KEY compromise from affecting JWT authentication
+if not DEBUG:
+    # Production: JWT_SECRET_KEY is REQUIRED and must be different from SECRET_KEY
+    JWT_SECRET_KEY = config('JWT_SECRET_KEY', default=None)
+    if not JWT_SECRET_KEY:
+        raise ImproperlyConfigured(
+            "JWT_SECRET_KEY environment variable is required in production. "
+            "Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
+        )
+    if JWT_SECRET_KEY == SECRET_KEY:
+        raise ImproperlyConfigured(
+            "JWT_SECRET_KEY must be different from SECRET_KEY in production. "
+            "Using the same key for both JWT and Django session/CSRF tokens is a security vulnerability. "
+            "Generate a separate JWT_SECRET_KEY with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
+        )
+    if len(JWT_SECRET_KEY) < 50:
+        raise ImproperlyConfigured(
+            f"JWT_SECRET_KEY must be at least 50 characters (got {len(JWT_SECRET_KEY)}). "
+            "Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
+        )
+    SIMPLE_JWT['SIGNING_KEY'] = JWT_SECRET_KEY
+else:
+    # Development: Allow fallback to SECRET_KEY for convenience
+    JWT_SECRET_KEY = config('JWT_SECRET_KEY', default=None)
+    if JWT_SECRET_KEY:
+        SIMPLE_JWT['SIGNING_KEY'] = JWT_SECRET_KEY
+    else:
+        SIMPLE_JWT['SIGNING_KEY'] = SECRET_KEY
+        # Use print() for settings warnings (logger not yet initialized)
+        if DEBUG:
+            import sys
+            print("\n" + "=" * 70, file=sys.stderr)
+            print("⚠️  WARNING: Using SECRET_KEY for JWT signing in development", file=sys.stderr)
+            print("=" * 70, file=sys.stderr)
+            print("Set JWT_SECRET_KEY in .env for production-like security testing", file=sys.stderr)
+            print("Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'", file=sys.stderr)
+            print("=" * 70 + "\n", file=sys.stderr)
 
 # CORS settings - Secure configuration
 CORS_ALLOWED_ORIGINS = config(

@@ -8,13 +8,14 @@ Authentication Strategy:
 
 Rate Limiting:
 - Authenticated users: 100 requests/hour
-- Anonymous users: 10 requests/hour (development only)
+- Anonymous users: 10 requests/hour per IP (development only)
 """
-
+from typing import Optional
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
+from rest_framework.request import Request
 from rest_framework import status
 from django.db import transaction
 from django_ratelimit.decorators import ratelimit
@@ -31,6 +32,33 @@ from ..permissions import (
 logger = logging.getLogger(__name__)
 
 
+def get_rate_limit_key(group: str, request: Request) -> str:
+    """
+    Get rate limit key with validated IP tracking for anonymous users.
+
+    Uses SecurityMonitor._get_client_ip() which provides:
+    - IP validation to prevent injection attacks
+    - X-Forwarded-For spoofing protection
+    - Correct IP extraction when behind proxies
+
+    Args:
+        group: Rate limit group name (unused, required by django-ratelimit)
+        request: DRF request object
+
+    Returns:
+        Rate limit key string: 'user:{id}' for authenticated, 'anon:{ip}' for anonymous
+    """
+    if request.user and request.user.is_authenticated:
+        return f'user:{request.user.id}'
+
+    # For anonymous users, use validated IP extraction from SecurityMonitor
+    # This prevents rate limit bypass via X-Forwarded-For spoofing
+    from apps.core.security import SecurityMonitor
+    ip = SecurityMonitor._get_client_ip(request)
+
+    return f'anon:{ip}'
+
+
 @api_view(['POST'])
 @permission_classes([
     IsAuthenticatedOrAnonymousWithStrictRateLimit if settings.DEBUG
@@ -38,12 +66,12 @@ logger = logging.getLogger(__name__)
 ])
 @parser_classes([MultiPartParser, FormParser])
 @ratelimit(
-    key=lambda request: 'anon' if not request.user.is_authenticated else f'user-{request.user.id}',
+    key=get_rate_limit_key,
     rate='10/h' if settings.DEBUG else '100/h',
     method='POST'
 )
 @transaction.atomic
-def identify_plant(request):
+def identify_plant(request: Request) -> Response:
     """
     Plant identification endpoint using dual API integration.
 

@@ -10,8 +10,8 @@ from .models import User, UserPlantCollection
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     """Serializer for user registration."""
-    
-    password = serializers.CharField(write_only=True, min_length=12)
+
+    password = serializers.CharField(write_only=True)
     password_confirm = serializers.CharField(write_only=True, required=False)
     confirmPassword = serializers.CharField(write_only=True, required=False)  # Support frontend field name
     
@@ -24,21 +24,20 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     
     def validate(self, data):
         """Validate password confirmation and other fields."""
-        # Handle both password_confirm and confirmPassword field names
-        password_confirm = data.get('password_confirm') or data.get('confirmPassword')
-        
-        # Check if password confirmation is provided
-        if password_confirm and data.get('password') != password_confirm:
-            raise serializers.ValidationError({"confirmPassword": ["Passwords do not match."]})
-        
-        # Comprehensive password validation using Django's built-in validators
         password = data.get('password')
+        password_confirm = data.get('password_confirm') or data.get('confirmPassword')
+
+        # Validate password strength FIRST (better UX - show strength issues before confirmation)
         if password:
             try:
                 validate_password(password)
             except ValidationError as e:
                 raise serializers.ValidationError({"password": e.messages})
-        
+
+        # Then check confirmation match
+        if password_confirm and password != password_confirm:
+            raise serializers.ValidationError({"confirmPassword": ["Passwords do not match."]})
+
         return data
     
     def validate_email(self, value):

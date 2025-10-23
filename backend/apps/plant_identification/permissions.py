@@ -5,8 +5,10 @@ Implements flexible permission strategy for plant identification:
 - Authenticated users: Full access with higher rate limits
 - Anonymous users: Limited access with strict rate limits
 """
-
+from typing import Any
 from rest_framework import permissions
+from rest_framework.request import Request
+from rest_framework.views import APIView
 
 
 class IsAuthenticatedOrReadOnlyWithRateLimit(permissions.BasePermission):
@@ -19,7 +21,17 @@ class IsAuthenticatedOrReadOnlyWithRateLimit(permissions.BasePermission):
     - Anonymous users: Lower rate limits (10/hour)
     """
 
-    def has_permission(self, request, view):
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        """
+        Check if the request has permission to access the view.
+
+        Args:
+            request: DRF request object
+            view: The view being accessed
+
+        Returns:
+            True if permission granted, False otherwise
+        """
         # Always allow authenticated users
         if request.user and request.user.is_authenticated:
             return True
@@ -39,7 +51,17 @@ class IsAuthenticatedForIdentification(permissions.BasePermission):
     Health check endpoint remains public.
     """
 
-    def has_permission(self, request, view):
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        """
+        Check if the request has permission to access the view.
+
+        Args:
+            request: DRF request object
+            view: The view being accessed
+
+        Returns:
+            True if permission granted, False otherwise
+        """
         # Allow GET requests (health checks) for everyone
         if request.method in permissions.SAFE_METHODS:
             return True
@@ -65,7 +87,17 @@ class IsAuthenticatedOrAnonymousWithStrictRateLimit(permissions.BasePermission):
     Rate limits are enforced via @ratelimit decorator, not this permission class.
     """
 
-    def has_permission(self, request, view):
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        """
+        Check if the request has permission to access the view.
+
+        Args:
+            request: DRF request object
+            view: The view being accessed
+
+        Returns:
+            True (always allows access, rate limiting handled by decorator)
+        """
         # Allow both authenticated and anonymous users
         # Rate limiting is handled by @ratelimit decorator
         return True

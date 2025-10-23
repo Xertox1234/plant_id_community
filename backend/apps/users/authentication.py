@@ -1,15 +1,19 @@
 """
 Secure authentication module with httpOnly cookie support for JWT tokens.
 """
+from typing import Optional, Tuple
 from django.conf import settings
-from django.http import HttpResponse
+from django.contrib.auth import get_user_model
+from django.http import HttpRequest, HttpResponse
+from rest_framework.request import Request
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.tokens import RefreshToken, Token
 from rest_framework.authentication import CSRFCheck
 from rest_framework import exceptions
 import logging
 
 logger = logging.getLogger(__name__)
+User = get_user_model()
 
 
 class CookieJWTAuthentication(JWTAuthentication):
@@ -18,56 +22,83 @@ class CookieJWTAuthentication(JWTAuthentication):
     Falls back to Authorization header if cookie is not present.
     """
     
-    def authenticate(self, request):
+    def authenticate(self, request: Request) -> Optional[Tuple[User, Token]]:
+        """
+        Authenticate using httpOnly cookie or Authorization header.
+
+        Args:
+            request: DRF request object
+
+        Returns:
+            Tuple of (User, Token) if authentication succeeds, None otherwise
+        """
         # First try cookie-based authentication
         raw_token = self.get_raw_token_from_cookie(request)
         cookie_auth = raw_token is not None
-        
+
         # Fall back to header-based authentication if no cookie
         if raw_token is None:
             header = self.get_header(request)
             if header is None:
                 return None
             raw_token = self.get_raw_token(header)
-        
+
         if raw_token is None:
             return None
-            
+
         try:
-            # Validate the token
-            validated_token = self.get_validated_token(raw_token)
-            
-            # Enforce CSRF for cookie-based authentication ONLY after token validation
+            # CRITICAL SECURITY: Enforce CSRF FIRST for cookie-based auth
+            # CSRF must be the first line of defense, not the second
+            # Prevents timing attacks on token validation
             if cookie_auth:
                 self.enforce_csrf(request)
-            
+
+            # Validate the token after CSRF check
+            validated_token = self.get_validated_token(raw_token)
+
             return self.get_user(validated_token), validated_token
-        except exceptions.AuthenticationFailed:
-            # If token validation fails, return None instead of raising exception
-            # This allows other authentication classes to try
+        except exceptions.AuthenticationFailed as e:
+            # Log authentication failures for debugging
+            logger.warning(f"[AUTH] JWT authentication failed: {str(e)}")
+            # Return None to allow other authentication classes to try
             return None
-        except exceptions.PermissionDenied:
-            # If CSRF fails for cookie-based auth, return None
-            # This allows the request to be processed as unauthenticated
-            return None
+        except exceptions.PermissionDenied as e:
+            # CRITICAL SECURITY: CSRF failures MUST block the request
+            # CSRF validation exists to prevent state-changing requests from malicious sites
+            # Allowing fallback defeats the entire purpose of CSRF protection
+            logger.error(f"[SECURITY] CSRF validation failed for cookie auth: {str(e)}")
+            # Re-raise the exception - CSRF failures must block the request
+            raise
     
-    def get_raw_token_from_cookie(self, request):
+    def get_raw_token_from_cookie(self, request: Request) -> Optional[str]:
         """
         Extract JWT token from httpOnly cookie.
+
+        Args:
+            request: DRF request object
+
+        Returns:
+            JWT token string or None if not present
         """
         return request.COOKIES.get('access_token')
-    
-    def enforce_csrf(self, request):
+
+    def enforce_csrf(self, request: Request) -> None:
         """
         Enforce CSRF validation for cookie-based authentication.
+
+        Args:
+            request: DRF request object
+
+        Raises:
+            exceptions.PermissionDenied: If CSRF validation fails
         """
         # Skip CSRF for safe methods
         if request.method in ('GET', 'HEAD', 'OPTIONS', 'TRACE'):
             return
-        
-        def dummy_view(request):
+
+        def dummy_view(request: HttpRequest) -> HttpResponse:
             return HttpResponse()
-        
+
         check = CSRFCheck(dummy_view)
         check.process_request(request)
         reason = check.process_view(request, None, (), {})
@@ -75,13 +106,16 @@ class CookieJWTAuthentication(JWTAuthentication):
             raise exceptions.PermissionDenied(f'CSRF Failed: {reason}')
 
 
-def set_jwt_cookies(response, user):
+def set_jwt_cookies(response: HttpResponse, user: User) -> HttpResponse:
     """
     Set JWT tokens as httpOnly cookies in the response.
-    
+
     Args:
         response: Django HttpResponse object
         user: User instance to generate tokens for
+
+    Returns:
+        Modified response with JWT cookies set
     """
     refresh = RefreshToken.for_user(user)
     access_token = refresh.access_token
@@ -115,12 +149,15 @@ def set_jwt_cookies(response, user):
     return response
 
 
-def clear_jwt_cookies(response):
+def clear_jwt_cookies(response: HttpResponse) -> HttpResponse:
     """
     Clear JWT cookies from the response (for logout).
-    
+
     Args:
         response: Django HttpResponse object
+
+    Returns:
+        Modified response with JWT cookies cleared
     """
     response.delete_cookie('access_token', path='/')
     response.delete_cookie('refresh_token', path='/api/auth/')
@@ -134,13 +171,13 @@ class RefreshTokenFromCookie:
     """
     
     @staticmethod
-    def get_refresh_token(request):
+    def get_refresh_token(request: Request) -> Optional[str]:
         """
         Extract refresh token from cookie or request data.
-        
+
         Args:
             request: Django request object
-            
+
         Returns:
             Refresh token string or None
         """

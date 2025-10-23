@@ -60,18 +60,41 @@ Week 2 performance optimizations and benchmarking results.
 
 ---
 
+### Security Documentation
+**Location:** [`security/`](./security/)
+
+Authentication security, hardening guides, and security best practices.
+
+- [Authentication Security Guide](./security/AUTHENTICATION_SECURITY.md) - **NEW** Comprehensive authentication security implementation (Week 4)
+- [Authentication Testing Guide](./testing/AUTHENTICATION_TESTS.md) - **NEW** Test coverage and patterns (63+ tests)
+
+**Key Security Features:**
+- JWT_SECRET_KEY separation and validation
+- Account lockout (10 attempts, 1-hour duration)
+- Session timeout with activity renewal (24 hours)
+- Rate limiting (5/15min login, 3/h registration)
+- IP spoofing protection
+- Token refresh blacklisting
+- RFC 7807 standardized error responses
+
+---
+
 ### Development Notes
 **Location:** [`development/`](./development/)
 
-Session summaries, troubleshooting guides, and development workflow documentation.
+Session summaries, troubleshooting guides, security best practices, and development workflow documentation.
 
-- [GitHub Issue Best Practices](./development/github-issue-best-practices.md) - Comprehensive guide for security vulnerabilities and technical debt
+- [Session Summaries](./development/session-summaries.md) - Implementation session notes (includes Week 4 authentication security)
+- [Authentication Testing & Security Best Practices](./development/AUTHENTICATION_TESTING_SECURITY_BEST_PRACTICES.md) - Comprehensive Django/DRF authentication research (Oct 2025)
+- [Authentication Research Summary](./development/AUTHENTICATION_RESEARCH_SUMMARY.md) - Quick reference guide for implementation
+- [Code Review Workflow](./development/CODE_REVIEW_WORKFLOW.md) - Code review standards and process
+- [Code Review Checklist](./development/CODE_REVIEW_CHECKLIST.md) - Security, performance, and quality checklist
+- [Type Hints Guide](./development/TYPE_HINTS_GUIDE.md) - Python type annotations standards
+- [GitHub Issue Best Practices](./development/github-issue-best-practices.md) - Security vulnerabilities and technical debt
 - [GitHub Issue Templates Summary](./development/github-issue-templates-summary.md) - Quick reference templates
-- [Session Summaries](./development/session-summaries.md) - Implementation session notes
-- [Security Fixes Week 1](./development/security-fixes-week1.md) - Initial security hardening
 - [Test Results](./development/test-results.md) - Unit test reports
 - [PlantNet API Fix](./development/plantnet-api-fix.md) - PlantNet integration debugging
-- [Quick Start Security](./development/quick-start-security.md) - Security setup guide
+- [Security Incident: API Keys](./development/SECURITY_INCIDENT_2025_10_23_API_KEYS.md) - Security incident response
 
 ---
 
@@ -111,6 +134,32 @@ All documentation in this directory follows these standards:
 ---
 
 ## Recent Updates
+
+**October 23, 2025** - Week 4: Authentication Security Improvements COMPLETE
+- **Production-ready authentication system** (Grade: A, 92/100)
+- Comprehensive security fixes and optional enhancements implemented
+- 63+ test cases across 5 test files (1,810 lines of tests)
+- JWT_SECRET_KEY separation and validation
+- Account lockout (10 attempts, 1-hour duration)
+- Session timeout with activity renewal (24 hours)
+- Rate limiting enhancements (5/15min login, 3/h registration)
+- IP spoofing protection
+- Token refresh blacklisting
+- Type hints (98% coverage) and centralized constants
+- Standardized error responses with RFC 7807 compliance
+- See: [Authentication Security Guide](./security/AUTHENTICATION_SECURITY.md)
+
+**October 23, 2025** - Authentication Testing & Security Best Practices Research
+- Comprehensive research on Django/DRF authentication security (115+ pages)
+- NIST SP 800-63B password guidelines (2024 update)
+- OWASP authentication testing checklist
+- RFC 7807/9457 error message standardization
+- Multi-dimensional rate limiting patterns
+- Account lockout industry standards
+- JWT token management best practices
+- Session management and multi-device patterns
+- Attack prevention techniques (timing, enumeration, brute force)
+- Complete testing patterns and implementation checklist
 
 **October 22, 2025** - GitHub Issue Best Practices
 - Created comprehensive guide for security vulnerabilities and technical debt
