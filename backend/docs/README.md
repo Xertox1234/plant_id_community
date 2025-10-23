@@ -65,6 +65,8 @@ Week 2 performance optimizations and benchmarking results.
 
 Session summaries, troubleshooting guides, and development workflow documentation.
 
+- [GitHub Issue Best Practices](./development/github-issue-best-practices.md) - Comprehensive guide for security vulnerabilities and technical debt
+- [GitHub Issue Templates Summary](./development/github-issue-templates-summary.md) - Quick reference templates
 - [Session Summaries](./development/session-summaries.md) - Implementation session notes
 - [Security Fixes Week 1](./development/security-fixes-week1.md) - Initial security hardening
 - [Test Results](./development/test-results.md) - Unit test reports
@@ -89,6 +91,7 @@ Session summaries, troubleshooting guides, and development workflow documentatio
 ### Reference
 - [Architecture Analysis](./architecture/analysis.md) - Design patterns and rationale
 - [Recommendations](./architecture/recommendations.md) - Best practices and future work
+- [GitHub Issue Best Practices](./development/github-issue-best-practices.md) - Security and technical debt issue templates
 - [Session Summaries](./development/session-summaries.md) - Development history
 
 ---
@@ -108,6 +111,14 @@ All documentation in this directory follows these standards:
 ---
 
 ## Recent Updates
+
+**October 22, 2025** - GitHub Issue Best Practices
+- Created comprehensive guide for security vulnerabilities and technical debt
+- CVSS scoring guidelines with Django-specific examples
+- Remediation timeline standards (CISA BOD 19-02)
+- AI-era development considerations for Claude Code
+- Django security checklists (SECRET_KEY, file uploads, API keys, Redis)
+- Quick reference templates summary
 
 **October 22, 2025** - Documentation reorganization
 - Created centralized `docs/` directory structure
