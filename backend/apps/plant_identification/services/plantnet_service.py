@@ -8,7 +8,7 @@ Documentation: https://my.plantnet.org/
 import hashlib
 import requests
 import logging
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.base import ContentFile

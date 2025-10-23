@@ -152,6 +152,20 @@ flutterfire configure --project=plant-community-prod
 - Use PostgreSQL test database for production equivalence
 - 100% pass rate required before merging
 
+**Type Checking:**
+- Run mypy before committing changes to service files:
+  ```bash
+  cd backend
+  source venv/bin/activate
+  mypy apps/plant_identification/services/plant_id_service.py \
+       apps/plant_identification/services/plantnet_service.py \
+       apps/plant_identification/services/combined_identification_service.py
+  ```
+- Use explicit type hints: `Dict[str, Any]` not bare `Dict`
+- Use `Optional[X]` for nullable returns
+- Use `Union[X, Y]` for multiple return types
+- See `docs/development/TYPE_HINTS_GUIDE.md` for complete guide
+
 ## Week 2 Performance Optimizations
 
 See `/backend/docs/performance/week2-performance.md` for comprehensive documentation.

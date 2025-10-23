@@ -18,7 +18,7 @@ import socket
 import os
 import threading
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from django.conf import settings
 from django.core.cache import cache
 from pybreaker import CircuitBreakerError
