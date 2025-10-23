@@ -69,13 +69,16 @@ def get_executor() -> ThreadPoolExecutor:
                     max_workers = int(max_workers_env)
                     if max_workers < 1:
                         logger.warning(f"Invalid PLANT_ID_MAX_WORKERS={max_workers} (must be positive), using default")
-                        default_workers = os.cpu_count() * CPU_CORE_MULTIPLIER if os.cpu_count() else CPU_CORE_MULTIPLIER
+                        cpu_count = os.cpu_count() or 1
+                        default_workers = cpu_count * CPU_CORE_MULTIPLIER
                         max_workers = default_workers
                 else:
-                    max_workers = os.cpu_count() * CPU_CORE_MULTIPLIER if os.cpu_count() else CPU_CORE_MULTIPLIER
+                    cpu_count = os.cpu_count() or 1
+                    max_workers = cpu_count * CPU_CORE_MULTIPLIER
             except (ValueError, TypeError) as e:
                 logger.error(f"Invalid PLANT_ID_MAX_WORKERS value: {e}, using default")
-                max_workers = os.cpu_count() * CPU_CORE_MULTIPLIER if os.cpu_count() else CPU_CORE_MULTIPLIER
+                cpu_count = os.cpu_count() or 1
+                max_workers = cpu_count * CPU_CORE_MULTIPLIER
 
             # Cap at maximum to prevent API rate limit issues
             max_workers = max(1, min(max_workers, MAX_WORKER_THREADS))
@@ -160,7 +163,7 @@ class CombinedPlantIdentificationService:
         """
         start_time = time.time()
 
-        results = {
+        results: Dict[str, Any] = {
             'primary_identification': None,
             'care_instructions': None,
             'disease_detection': None,
@@ -353,7 +356,7 @@ class CombinedPlantIdentificationService:
         Returns:
             Merged suggestions list
         """
-        combined = []
+        combined: List[Dict[str, Any]] = []
         
         # Add Plant.id suggestions (primary, most accurate)
         if plant_id_results and 'suggestions' in plant_id_results:
