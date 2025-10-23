@@ -1,0 +1,223 @@
+# Pre-commit hooks for Plant ID Community
+# Installation:
+#   pip install pre-commit
+#   pre-commit install
+#
+# Run manually:
+#   pre-commit run --all-files
+#
+# Update hooks:
+#   pre-commit autoupdate
+
+repos:
+  # ===================================
+  # Secret Detection (Critical - Issue #1 Prevention)
+  # ===================================
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        name: Detect secrets in code
+        args:
+          - '--baseline'
+          - '.secrets.baseline'
+          - '--exclude-files'
+          - '\.env\.example$'
+          - '--exclude-files'
+          - 'package-lock\.json$'
+          - '--exclude-files'
+          - 'yarn\.lock$'
+        exclude: |
+          (?x)^(
+            .*\.lock$|
+            .*\.min\.js$|
+            backend/docs/development/SECURITY_INCIDENT_.*\.md$
+          )
+
+  # ===================================
+  # Git Security (Issue #1 Prevention)
+  # ===================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      # Prevent committing large files
+      - id: check-added-large-files
+        args: ['--maxkb=10240']  # 10MB limit
+        name: Check for large files
+
+      # Prevent committing files with merge conflicts
+      - id: check-merge-conflict
+        name: Check for merge conflicts
+
+      # Prevent committing to protected branches
+      - id: no-commit-to-branch
+        name: Prevent commits to main/master
+        args: ['--branch', 'main', '--branch', 'master']
+
+      # Check YAML syntax
+      - id: check-yaml
+        name: Check YAML syntax
+        exclude: '^plant_community_mobile/'  # Flutter pubspec.yaml can have special syntax
+
+      # Check JSON syntax
+      - id: check-json
+        name: Check JSON syntax
+
+      # Trim trailing whitespace
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+        args: ['--markdown-linebreak-ext=md']
+
+      # Ensure files end with newline
+      - id: end-of-file-fixer
+        name: Fix end of files
+
+      # Check for private keys
+      - id: detect-private-key
+        name: Detect private keys
+
+  # ===================================
+  # Custom Secret Detection Rules (Issue #1 Specific)
+  # ===================================
+  - repo: local
+    hooks:
+      # Block CLAUDE.md from being committed
+      - id: block-claude-md
+        name: Block CLAUDE.md (local development file only)
+        entry: bash -c 'if git diff --cached --name-only | grep -q "^CLAUDE.md$"; then echo "ERROR: CLAUDE.md must NEVER be committed (local file only). See Issue #1."; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # Block .env files (except .env.example)
+      - id: block-env-files
+        name: Block .env files (use .env.example instead)
+        entry: bash -c 'if git diff --cached --name-only | grep -E "\.env$|\.env\.local$|\.env\.production$" | grep -v "\.env\.example"; then echo "ERROR: .env files must NOT be committed. Use .env.example for templates."; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # Scan for API key patterns in staged files
+      - id: scan-api-keys
+        name: Scan for exposed API keys in code
+        entry: bash -c 'for file in $(git diff --cached --name-only); do if [[ -f "$file" ]] && ! [[ "$file" =~ \.env\.example$ ]]; then if grep -HnE "[A-Z_]+_API_KEY\s*=\s*['\''\"'''][A-Za-z0-9_\-]{20,}['\''\"''']" "$file" 2>/dev/null; then echo "WARNING: Potential API key detected in $file. Verify this is a placeholder."; fi; fi; done'
+        language: system
+        pass_filenames: false
+        always_run: true
+        verbose: true
+
+      # Scan for Django SECRET_KEY patterns
+      - id: scan-django-secrets
+        name: Scan for Django SECRET_KEY in code
+        entry: bash -c 'for file in $(git diff --cached --name-only); do if [[ -f "$file" ]] && ! [[ "$file" =~ \.env\.example$ ]]; then if grep -HnE "SECRET_KEY\s*=\s*['\''\"'''][A-Za-z0-9!@#\$%^&*()_+\-=\[\]{}|;:,.<>?]{40,}['\''\"''']" "$file" 2>/dev/null; then echo "WARNING: Potential Django SECRET_KEY detected in $file."; fi; fi; done'
+        language: system
+        pass_filenames: false
+        always_run: true
+        verbose: true
+
+      # Verify .gitignore contains critical patterns
+      - id: verify-gitignore
+        name: Verify .gitignore has security patterns
+        entry: bash -c 'if ! grep -q "^CLAUDE.md$" .gitignore; then echo "ERROR: Add CLAUDE.md to .gitignore"; exit 1; fi; if ! grep -q "^.env$" .gitignore; then echo "ERROR: Add .env to .gitignore"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  # ===================================
+  # Python Code Quality
+  # ===================================
+  - repo: https://github.com/psf/black
+    rev: 24.1.1
+    hooks:
+      - id: black
+        name: Format Python code with Black
+        language_version: python3
+        files: ^backend/.*\.py$
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        name: Lint Python with Flake8
+        args:
+          - '--max-line-length=120'
+          - '--extend-ignore=E203,W503'
+        files: ^backend/.*\.py$
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        name: Sort Python imports
+        args: ['--profile', 'black']
+        files: ^backend/.*\.py$
+
+  # ===================================
+  # JavaScript/TypeScript Code Quality
+  # ===================================
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v8.56.0
+    hooks:
+      - id: eslint
+        name: Lint JavaScript/React with ESLint
+        files: ^web/src/.*\.(js|jsx|ts|tsx)$
+        types: [file]
+        additional_dependencies:
+          - eslint@8.56.0
+          - eslint-plugin-react@7.33.2
+          - eslint-plugin-react-hooks@4.6.0
+
+  # ===================================
+  # Markdown Linting
+  # ===================================
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.39.0
+    hooks:
+      - id: markdownlint
+        name: Lint Markdown files
+        args: ['--fix']
+        exclude: |
+          (?x)^(
+            PLANNING/.*|
+            backend/docs/development/SECURITY_INCIDENT_.*\.md$
+          )
+
+  # ===================================
+  # Trailing Whitespace & File Endings
+  # ===================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: mixed-line-ending
+        name: Fix mixed line endings
+        args: ['--fix=lf']
+
+# ===================================
+# Hook Execution Order
+# ===================================
+# 1. Secret detection (CRITICAL - blocks commit if secrets found)
+# 2. Custom secret rules (CRITICAL - Issue #1 specific checks)
+# 3. Git security checks (large files, merge conflicts, etc.)
+# 4. Code quality (formatting, linting)
+# 5. File cleanup (whitespace, line endings)
+
+# ===================================
+# Configuration Notes
+# ===================================
+# - All hooks run automatically on `git commit`
+# - Hooks can be skipped with: git commit --no-verify (NOT RECOMMENDED)
+# - Update hooks monthly: pre-commit autoupdate
+# - Generate secrets baseline: detect-secrets scan > .secrets.baseline
+# - Add false positives to .secrets.baseline using: detect-secrets audit .secrets.baseline
+
+# ===================================
+# Issue #1 Prevention
+# ===================================
+# This configuration specifically prevents the issues identified in Issue #1:
+# 1. CLAUDE.md blocking - Prevents committing local development context file
+# 2. .env file blocking - Ensures environment files are never committed
+# 3. API key scanning - Detects potential real credentials in code
+# 4. .gitignore verification - Ensures security patterns are present
+# 5. detect-secrets - Industry-standard secret detection tool
+#
+# See: backend/docs/development/SECURITY_PATTERNS_CODIFIED.md for complete analysis
