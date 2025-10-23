@@ -168,17 +168,18 @@ pids/
 *.pid.lock
 
 # ===================================
-# Reference / Old Implementation
+# Development / Reference Materials
 # ===================================
-# Keep existing_implementation for reference, but ignore its artifacts
-existing_implementation/backend/venv/
-existing_implementation/backend/__pycache__/
-existing_implementation/backend/*.db
-existing_implementation/backend/*.log
-existing_implementation/backend/staticfiles/
-existing_implementation/backend/mediafiles/
-existing_implementation/backend/.env
-existing_implementation/frontend/node_modules/
-existing_implementation/frontend/dist/
-existing_implementation/frontend/.env
-.worktrees
+# Claude Code configuration and tools
+.claude/
+
+# Development planning and reference
+playwright-mcp/
+planning/
+design-reference/
+
+# Old implementation for reference only (not part of project)
+existing_implementation/
+
+# Git worktrees
+.worktrees/
