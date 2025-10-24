@@ -313,6 +313,19 @@ try:
                 'IGNORE_EXCEPTIONS': True,
             },
             'KEY_PREFIX': 'machina_attachments',
+        },
+        'renditions': {
+            # Phase 2.5: Wagtail image rendition cache
+            # Long TTL (1 year) because renditions are immutable
+            # Significantly reduces database queries for image generation
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/3'),
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'IGNORE_EXCEPTIONS': True,
+            },
+            'KEY_PREFIX': 'wagtail_renditions',
+            'TIMEOUT': 31536000,  # 1 year (images rarely change)
         }
     }
 except (ImportError, redis.ConnectionError, redis.TimeoutError):
@@ -332,6 +345,15 @@ except (ImportError, redis.ConnectionError, redis.TimeoutError):
             'TIMEOUT': 3600,
             'OPTIONS': {
                 'MAX_ENTRIES': 500,
+            }
+        },
+        'renditions': {
+            # Phase 2.5: Fallback rendition cache (file-based)
+            'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+            'LOCATION': BASE_DIR / 'wagtail_renditions_cache',
+            'TIMEOUT': 31536000,  # 1 year
+            'OPTIONS': {
+                'MAX_ENTRIES': 5000,
             }
         }
     }
