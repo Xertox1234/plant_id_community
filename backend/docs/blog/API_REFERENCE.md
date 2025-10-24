@@ -36,7 +36,7 @@ The Wagtail Blog API provides headless CMS functionality for consuming blog cont
 - **StreamField Support**: Rich content blocks (12+ types)
 - **Image Renditions**: Automatic image optimization
 - **Redis Caching**: <50ms cached responses, 24h TTL
-- **Query Optimization**: <20 queries for lists, 19 queries for details
+- **Query Optimization**: Target <15 queries for lists, <10 queries for details (actual may vary with prefetching)
 - **Search Integration**: Full-text search with Wagtail Query tracking
 - **RSS/Atom Feeds**: Standard feed formats
 
@@ -44,8 +44,9 @@ The Wagtail Blog API provides headless CMS functionality for consuming blog cont
 
 ## Authentication
 
-**Current**: No authentication required for public content
-**Future**: JWT token authentication for draft/preview access
+**Public Endpoints**: No authentication required for published content
+**Preview Endpoints**: Requires Wagtail session authentication (implemented)
+**Future**: JWT token authentication for mobile app preview access
 
 ```http
 Authorization: Bearer <jwt_token>
@@ -698,7 +699,7 @@ All responses follow Wagtail API v2 format:
 - Key prefix: `blog:`
 
 **Cache Keys**:
-- Blog list: `blog:list:{page}:{limit}:{filters_hash}`
+- Blog list: `blog:list:{page}:{limit}:{filters_hash}` (16-char SHA-256 hash)
 - Blog post: `blog:post:{slug}`
 
 **Cache Invalidation**:
