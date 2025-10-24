@@ -406,13 +406,17 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         start_time = time.time()
 
         # Get the blog post to extract slug
-        # Wagtail API uses find_object() instead of get_object()
+        # Try Wagtail's find_object() first, fallback to direct queryset lookup for tests
         queryset = self.get_queryset()
-        instance = self.find_object(queryset, request)
+        instance = self.find_object(queryset, request) if hasattr(self, 'find_object') else None
 
         if not instance:
-            # Let Wagtail handle 404
-            return super().detail_view(request, pk)
+            # Fallback for test context: get object directly by pk
+            try:
+                instance = queryset.get(pk=pk)
+            except (BlogPostPage.DoesNotExist, ValueError):
+                # Let Wagtail handle 404
+                return super().detail_view(request, pk)
 
         slug = instance.slug
 
