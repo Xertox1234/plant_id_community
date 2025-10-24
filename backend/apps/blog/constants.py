@@ -19,6 +19,8 @@ CACHE_PREFIX_RENDITION = "wagtail:rendition"
 
 # Query optimization constants
 MAX_RELATED_PLANT_SPECIES = 10  # Maximum related plants to prefetch per post
+MAX_TAGS_PREFETCH = 50  # Maximum tags to prefetch per query
+MAX_CATEGORIES_PREFETCH = 20  # Maximum categories to prefetch per query
 DEFAULT_PAGE_SIZE = 10  # Default pagination size
 MAX_PAGE_SIZE = 100  # Maximum allowed pagination size
 

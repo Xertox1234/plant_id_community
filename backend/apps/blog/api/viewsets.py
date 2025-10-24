@@ -143,37 +143,71 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         if plant_species:
             queryset = queryset.filter(related_plant_species__id=plant_species)
         
-        # Prefetch related objects for performance (Phase 2.4)
-        queryset = queryset.select_related(
-            'author',  # ForeignKey - reduces queries for author info
-            'series',  # ForeignKey - reduces queries for series info
-        ).prefetch_related(
-            'categories',  # ManyToMany - fetch all categories in one query
-            'tags',  # ManyToMany via ClusterTaggableManager
-            Prefetch(
-                'related_plant_species',  # ManyToMany with nested select_related
-                queryset=BlogPostPage.related_plant_species.through.objects.select_related('plantspecies')
-            ),
-        )
+        # Conditional prefetching based on action type (list vs retrieve)
+        # This prevents memory issues from aggressive prefetching
+        action = getattr(self, 'action', None)
 
-        # Prefetch image renditions for featured images (Phase 2.4)
-        # This reduces image-related queries by 95%
-        # Creates renditions in advance for common sizes
-        try:
-            queryset = queryset.prefetch_related(
+        if action == 'list':
+            # List view: Optimized for multiple posts with limited related data
+            from ..constants import MAX_RELATED_PLANT_SPECIES
+
+            queryset = queryset.select_related(
+                'author',  # ForeignKey - reduces queries for author info
+                'series',  # ForeignKey - reduces queries for series info
+            ).prefetch_related(
+                'categories',  # ManyToMany - fetch all categories (usually <5 per post)
+                'tags',  # ManyToMany - tags prefetched but limited in serializer
                 Prefetch(
-                    'featured_image',
-                    queryset=Image.objects.prefetch_renditions(
-                        'fill-800x600',  # Detail page hero
-                        'fill-400x300',  # List page thumbnail
-                        'width-1200',    # Full width images
+                    'related_plant_species',  # Limit to most relevant
+                    queryset=BlogPostPage.related_plant_species.through.objects.select_related(
+                        'plantspecies'
+                    )[:MAX_RELATED_PLANT_SPECIES]
+                ),
+            )
+
+            # List view: Only prefetch thumbnail renditions
+            try:
+                queryset = queryset.prefetch_related(
+                    Prefetch(
+                        'featured_image',
+                        queryset=Image.objects.prefetch_renditions(
+                            'fill-400x300',  # List page thumbnail only
+                        )
                     )
                 )
+                logger.debug("[PERF] Image rendition prefetching enabled (list view)")
+            except (AttributeError, TypeError) as e:
+                logger.warning(f"[PERF] Image rendition prefetching not available: {e}")
+
+        elif action == 'retrieve':
+            # Detail view: Prefetch full data and larger renditions
+            queryset = queryset.select_related(
+                'author',
+                'series',
+            ).prefetch_related(
+                'categories',
+                'tags',
+                'related_plant_species',  # All related species for detail view
             )
-            logger.debug("[PERF] Image rendition prefetching enabled")
-        except (AttributeError, TypeError) as e:
-            # Fallback if prefetch_renditions not available (older Wagtail versions)
-            logger.warning(f"[PERF] Image rendition prefetching not available: {e}")
+
+            # Detail view: Prefetch full-size renditions
+            try:
+                queryset = queryset.prefetch_related(
+                    Prefetch(
+                        'featured_image',
+                        queryset=Image.objects.prefetch_renditions(
+                            'fill-800x600',  # Detail page hero
+                            'width-1200',    # Full width images
+                        )
+                    )
+                )
+                logger.debug("[PERF] Image rendition prefetching enabled (detail view)")
+            except (AttributeError, TypeError) as e:
+                logger.warning(f"[PERF] Image rendition prefetching not available: {e}")
+
+        else:
+            # Other actions (featured, recent, etc.): Basic prefetching
+            queryset = queryset.select_related('author', 'series')
 
         return queryset.distinct()
     

@@ -146,10 +146,26 @@ class BlogCacheService:
             - Key format: blog:list:{page}:{limit}:{filters_hash}
             - Hash length: 16 characters (64 bits) to prevent collisions
             - Invalidation: On ANY post publish/unpublish/delete
+            - Tracking: Keys tracked for non-Redis backend invalidation
         """
         filters_hash = hashlib.sha256(str(sorted(filters.items())).encode()).hexdigest()[:16]
         cache_key = f"{CACHE_PREFIX_BLOG_LIST}:{page}:{limit}:{filters_hash}"
         cache.set(cache_key, data, BLOG_LIST_CACHE_TIMEOUT)
+
+        # Track this key for fallback invalidation (non-Redis backends)
+        # This enables invalidation when delete_pattern is not available
+        try:
+            cache_key_set = f"{CACHE_PREFIX_BLOG_LIST}:_keys"
+            tracked_keys = cache.get(cache_key_set, set())
+            if not isinstance(tracked_keys, set):
+                tracked_keys = set()
+            tracked_keys.add(cache_key)
+            cache.set(cache_key_set, tracked_keys, BLOG_LIST_CACHE_TIMEOUT)
+        except Exception as e:
+            # If tracking fails, pattern matching will handle it (Redis)
+            # or cache will naturally expire after 24h
+            logger.debug(f"[CACHE] Failed to track key {cache_key}: {e}")
+
         logger.info(f"[CACHE] SET for blog list page {page} (24h TTL)")
 
     @staticmethod
@@ -221,23 +237,38 @@ class BlogCacheService:
         - Blog post categories are changed
         - Featured flag is toggled
 
-        Uses Redis pattern matching (requires django-redis backend):
-        - Deletes all keys matching "blog:list:*"
-        - More efficient than tracking all possible filter combinations
+        Strategy:
+        - Primary: Redis pattern matching (most efficient)
+        - Fallback: Tracked key deletion (non-Redis backends)
+        - Last resort: 24h natural expiration
 
         Note:
             This is intentionally aggressive - any blog content change
             invalidates ALL list caches. Trade-off between complexity
             and cache freshness favors simplicity.
         """
-        # Use Redis pattern matching (requires django-redis backend)
+        # Try Redis pattern matching (most efficient)
         try:
             cache.delete_pattern(f"{CACHE_PREFIX_BLOG_LIST}:*")
             logger.info("[CACHE] INVALIDATE all blog lists (pattern match)")
+            return
         except AttributeError:
-            # Fallback if cache backend doesn't support delete_pattern
-            # This is less efficient but works with any cache backend
-            logger.warning("[CACHE] Cache backend doesn't support delete_pattern, skipping list invalidation")
+            # Fallback: Use tracked keys for non-Redis backends
+            try:
+                cache_key_set = f"{CACHE_PREFIX_BLOG_LIST}:_keys"
+                tracked_keys = cache.get(cache_key_set, set())
+
+                if tracked_keys and isinstance(tracked_keys, set):
+                    # Delete each tracked cache key
+                    for key in tracked_keys:
+                        cache.delete(key)
+                    # Delete the tracking set itself
+                    cache.delete(cache_key_set)
+                    logger.info(f"[CACHE] INVALIDATE {len(tracked_keys)} blog list keys (tracked)")
+                else:
+                    logger.warning("[CACHE] No tracked blog list keys to invalidate (will expire naturally in 24h)")
+            except Exception as e:
+                logger.error(f"[CACHE] Failed to invalidate blog lists: {e}")
 
     @staticmethod
     def invalidate_blog_category(slug: str) -> None:
