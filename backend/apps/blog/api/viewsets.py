@@ -295,9 +295,14 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         start_time = time.time()
 
         # Extract pagination and filter parameters for cache key
-        page = int(request.GET.get('offset', 0)) // int(request.GET.get('limit', 10))
+        # Calculate page number consistently (page numbers start at 1)
+        offset = int(request.GET.get('offset', 0))
         limit = int(request.GET.get('limit', 10))
-        filters = {k: v for k, v in request.GET.items() if k not in ['offset', 'limit']}
+        page = (offset // limit) + 1  # Page 1 = offset 0-9, Page 2 = offset 10-19, etc.
+
+        # Extract filters (everything except pagination params)
+        filters = {k: v for k, v in request.GET.items()
+                   if k not in ['offset', 'limit', 'page']}
 
         # Check cache first (Phase 2.2)
         cached_response = BlogCacheService.get_blog_list(page, limit, filters)

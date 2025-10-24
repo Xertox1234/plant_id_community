@@ -51,10 +51,13 @@ def invalidate_blog_cache_on_publish(sender, **kwargs):
     - Cache invalidation: <5ms (delete operations are fast)
     - Acceptable trade-off for cache freshness
     """
+    from .models import BlogPostPage
+
     instance = kwargs.get('instance')
 
     # Only handle blog posts (not other Wagtail pages)
-    if not instance or not hasattr(instance, 'blogpostpage'):
+    # Use isinstance() check - Wagtail uses multi-table inheritance
+    if not instance or not isinstance(instance, BlogPostPage):
         return
 
     try:
@@ -79,10 +82,13 @@ def invalidate_blog_cache_on_unpublish(sender, **kwargs):
     - Invalidate specific post cache (now returns 404)
     - Invalidate ALL list caches (post no longer visible)
     """
+    from .models import BlogPostPage
+
     instance = kwargs.get('instance')
 
     # Only handle blog posts
-    if not instance or not hasattr(instance, 'blogpostpage'):
+    # Use isinstance() check - Wagtail uses multi-table inheritance
+    if not instance or not isinstance(instance, BlogPostPage):
         return
 
     try:
@@ -107,13 +113,16 @@ def invalidate_blog_cache_on_delete(sender, **kwargs):
     - Invalidate ALL list caches (post removed from all lists)
 
     Note:
-        sender is the model class, so we check class name
-        to avoid triggering on non-blog deletions.
+        Uses isinstance() check - sender parameter is less reliable
+        than checking the instance type directly.
     """
+    from .models import BlogPostPage
+
     instance = kwargs.get('instance')
 
     # Check if this is a BlogPostPage deletion
-    if not instance or instance.__class__.__name__ != 'BlogPostPage':
+    # Use isinstance() for consistency with other signal handlers
+    if not instance or not isinstance(instance, BlogPostPage):
         return
 
     try:

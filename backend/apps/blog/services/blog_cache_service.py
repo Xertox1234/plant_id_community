@@ -116,9 +116,10 @@ class BlogCacheService:
         Cache Key Generation:
             - Hash filters to create unique key per filter combination
             - Format: blog:list:{page}:{limit}:{filters_hash}
-            - SHA-256 hash truncated to 8 characters for brevity
+            - SHA-256 hash truncated to 16 characters (64 bits)
+            - Birthday paradox: 50% collision after ~5 billion combinations
         """
-        filters_hash = hashlib.sha256(str(sorted(filters.items())).encode()).hexdigest()[:8]
+        filters_hash = hashlib.sha256(str(sorted(filters.items())).encode()).hexdigest()[:16]
         cache_key = f"{CACHE_PREFIX_BLOG_LIST}:{page}:{limit}:{filters_hash}"
         cached = cache.get(cache_key)
 
@@ -143,9 +144,10 @@ class BlogCacheService:
         Cache Configuration:
             - TTL: 24 hours (BLOG_LIST_CACHE_TIMEOUT)
             - Key format: blog:list:{page}:{limit}:{filters_hash}
+            - Hash length: 16 characters (64 bits) to prevent collisions
             - Invalidation: On ANY post publish/unpublish/delete
         """
-        filters_hash = hashlib.sha256(str(sorted(filters.items())).encode()).hexdigest()[:8]
+        filters_hash = hashlib.sha256(str(sorted(filters.items())).encode()).hexdigest()[:16]
         cache_key = f"{CACHE_PREFIX_BLOG_LIST}:{page}:{limit}:{filters_hash}"
         cache.set(cache_key, data, BLOG_LIST_CACHE_TIMEOUT)
         logger.info(f"[CACHE] SET for blog list page {page} (24h TTL)")
