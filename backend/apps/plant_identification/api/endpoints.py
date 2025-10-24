@@ -26,7 +26,8 @@ from .serializers import (
 
 class PlantSpeciesAPIViewSet(BaseAPIViewSet):
     """API ViewSet for PlantSpecies snippets."""
-    
+
+    versioning_class = None  # Disable DRF versioning for Wagtail API
     base_serializer_class = PlantSpeciesSerializer
     filter_backends = [FieldsFilter, OrderingFilter, SearchFilter]
     body_fields = [

@@ -93,6 +93,9 @@ urlpatterns = [
     # Wagtail CMS API (v2)
     path('api/v2/', api_router.urls),
 
+    # Custom blog endpoints (DRF @action decorators not supported by Wagtail router)
+    path('api/v2/blog-posts/popular/', BlogPostPageViewSet.as_view({'get': 'popular'}), name='blog-posts-popular'),
+
     # Django REST Framework API - Versioned (v1)
     path('api/v1/', include(([
         path('auth/', include('apps.users.urls')),

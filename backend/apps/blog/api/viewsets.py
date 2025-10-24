@@ -47,6 +47,11 @@ from .serializers import (
     BlogAuthorPageSerializer
 )
 from ..services.blog_cache_service import BlogCacheService
+from ..constants import (
+    POPULAR_POSTS_DEFAULT_LIMIT,
+    POPULAR_POSTS_MAX_LIMIT,
+    POPULAR_POSTS_DEFAULT_DAYS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +60,10 @@ class BlogPostPageViewSet(PagesAPIViewSet):
     """
     Custom ViewSet for blog posts with enhanced filtering and search.
     """
-    
+
+    # Disable DRF versioning for Wagtail API (uses 'wagtailapi' namespace instead of 'v1'/'v2')
+    versioning_class = None
+
     # Override serializer classes
     def get_serializer_class(self):
         """Use different serializers for list vs detail views."""
@@ -226,13 +234,13 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         """Default ordering for blog posts."""
         ordering = self.request.GET.get('order', '-first_published_at')
 
-        # Map friendly ordering names
+        # Map friendly ordering names (Phase 6.2: popular ordering added)
         ordering_map = {
             'newest': '-first_published_at',
             'oldest': 'first_published_at',
             'title': 'title',
             'title_desc': '-title',
-            'popular': '-views_count',  # If you add view tracking
+            'popular': '-view_count',  # Phase 6.2: View tracking enabled
         }
 
         return ordering_map.get(ordering, ordering)
@@ -252,12 +260,67 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         """Get recent blog posts."""
         limit = int(request.GET.get('limit', 10))
         recent_posts = self.get_queryset()[:limit]
-        
+
         serializer = BlogPostPageListSerializer(
             recent_posts, many=True, context={'request': request}
         )
         return Response(serializer.data)
-    
+
+    @action(detail=False, methods=['get'])
+    def popular(self, request):
+        """
+        Get popular blog posts based on view count (Phase 6.2).
+
+        Query Parameters:
+        - limit: Number of posts to return (default: 10, max: 50)
+        - days: Time period for popularity calculation (default: 30, 0 = all time)
+
+        Example: /api/v2/blog-posts/popular/?limit=10&days=7
+
+        BLOCKER 3 fix: Uses constants instead of magic numbers.
+        """
+        limit = min(
+            int(request.GET.get('limit', POPULAR_POSTS_DEFAULT_LIMIT)),
+            POPULAR_POSTS_MAX_LIMIT
+        )
+        days = int(request.GET.get('days', POPULAR_POSTS_DEFAULT_DAYS))
+
+        queryset = self.get_queryset()
+
+        # Filter by time period if specified
+        if days > 0:
+            from datetime import timedelta
+            from django.utils import timezone
+
+            cutoff_date = timezone.now() - timedelta(days=days)
+
+            # Get posts with views in the time period
+            # Use Count annotation for accurate filtering
+            from django.db.models import Count, Q
+
+            queryset = queryset.annotate(
+                recent_views=Count(
+                    'views',
+                    filter=Q(views__viewed_at__gte=cutoff_date)
+                )
+            ).order_by('-recent_views', '-view_count', '-first_published_at')
+        else:
+            # All-time popular (simple view_count ordering)
+            queryset = queryset.order_by('-view_count', '-first_published_at')
+
+        popular_posts = queryset[:limit]
+
+        serializer = BlogPostPageListSerializer(
+            popular_posts, many=True, context={'request': request}
+        )
+
+        logger.info(
+            f"[ANALYTICS] Popular posts requested: "
+            f"limit={limit}, days={days}, results={len(popular_posts)}"
+        )
+
+        return Response(serializer.data)
+
     @action(detail=False, methods=['get'])
     def by_category(self, request):
         """Get posts grouped by category."""
@@ -452,7 +515,8 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
 class BlogIndexPageViewSet(PagesAPIViewSet):
     """ViewSet for blog index pages."""
-    
+
+    versioning_class = None  # Disable DRF versioning for Wagtail API
     serializer_class = BlogIndexPageSerializer
     
     def get_queryset(self):
@@ -461,7 +525,8 @@ class BlogIndexPageViewSet(PagesAPIViewSet):
 
 class BlogCategoryPageViewSet(PagesAPIViewSet):
     """ViewSet for blog category pages."""
-    
+
+    versioning_class = None  # Disable DRF versioning for Wagtail API
     serializer_class = BlogCategoryPageSerializer
     
     def get_queryset(self):
@@ -470,7 +535,8 @@ class BlogCategoryPageViewSet(PagesAPIViewSet):
 
 class BlogAuthorPageViewSet(PagesAPIViewSet):
     """ViewSet for blog author pages."""
-    
+
+    versioning_class = None  # Disable DRF versioning for Wagtail API
     serializer_class = BlogAuthorPageSerializer
     
     def get_queryset(self):

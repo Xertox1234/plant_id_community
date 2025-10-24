@@ -31,33 +31,40 @@ Code review MUST be invoked after:
 - ✅ Modifying frontend components (React, JSX, TSX)
 - ✅ Changing any Python file with logic (.py)
 - ✅ Updating JavaScript/TypeScript files
-- ✅ **ANY FILE MODIFICATION THAT INVOLVES CODE**
+- ✅ **Creating or modifying technical documentation** (API docs, architecture docs, implementation guides)
+- ✅ **ANY FILE MODIFICATION THAT INVOLVES CODE OR TECHNICAL SPECIFICATIONS**
 
-**Simple Rule: If you modified a code file, invoke code-review-specialist BEFORE marking complete!**
+**Simple Rule: If you modified a code file OR technical documentation, invoke code-review-specialist BEFORE marking complete!**
+
+**CRITICAL TIMING: Review must happen BEFORE the first git commit, not after!**
 
 ## Correct Workflow Pattern
 
 ```
 1. Plan the implementation
-2. Write the code
-3. 🚨 INVOKE code-review-specialist agent 🚨 ← DO NOT SKIP THIS STEP!
+2. Write the code or documentation
+3. 🚨 INVOKE code-review-specialist agent 🚨 ← DO NOT SKIP THIS STEP! (BEFORE committing)
 4. Wait for review to complete
-5. Fix any blockers identified
-6. THEN commit changes (if not already committed)
+5. Fix any blockers and important issues identified
+6. THEN commit changes with review findings in commit message
 7. THEN mark task complete
 ```
+
+**KEY POINT: Review happens STEP 3, before STEP 6 (commit). Never commit first!**
 
 ## Incorrect Workflow (NEVER DO THIS)
 
 ```
 1. Plan the implementation
-2. Write the code
-3. ❌ Skip code review ❌ ← WRONG!
-4. Commit changes
-5. Mark task complete
-6. User reminds you to run code review
-7. Run code review (should have been step 3!)
+2. Write the code or documentation
+3. ❌ Commit changes WITHOUT review ❌ ← WRONG!
+4. Mark task complete
+5. User reminds you to run code review
+6. Run code review (should have been step 3, before commit!)
+7. Find issues, need to fix and commit again
 ```
+
+**This doubles the work and creates messy git history with "fix after review" commits!**
 
 ## Trigger Checklist - When Did You Last Use This Agent?
 
@@ -65,12 +72,16 @@ Before marking ANY task complete, ask yourself:
 - [ ] Did I modify any .py files? → Code review required
 - [ ] Did I modify any .js/.jsx/.tsx files? → Code review required
 - [ ] Did I create new files? → Code review required
+- [ ] Did I create or modify technical documentation (API docs, architecture)? → Code review required
 - [ ] Did I fix a bug? → Code review required
 - [ ] Did I add a feature? → Code review required
-- [ ] Am I about to commit code? → Code review required FIRST
+- [ ] Am I about to commit code? → Code review required FIRST (before commit!)
 - [ ] Am I about to mark a task complete? → Code review required FIRST
+- [ ] Did I just commit without reviewing? → STOP! Review now, fix issues, commit fixes
 
 **If you answered YES to ANY of these, you MUST invoke code-review-specialist!**
+
+**ESPECIALLY THE COMMIT QUESTION: Review happens BEFORE first commit, not after!**
 
 ---
 
@@ -98,6 +109,7 @@ Use the Read tool to examine each modified file completely. Pay attention to:
 What was added/changed
 The context around those changes
 Related code that might be affected
+If documentation (.md files): Technical claims, metrics, code examples, feature status
 Step 3: Run Targeted Checks
 For each modified file, check for issues in that specific file only:
 
@@ -186,6 +198,17 @@ For Django/Python files (*.py):
  QuerySet optimizations (select_related, prefetch_related)
  Security: input validation, CSRF, permissions
  Follows PEP 8 conventions
+
+For Technical Documentation files (*.md with code/specs):
+
+ Performance metrics align with constants.py (authoritative source)
+ Feature status is accurate (implemented vs planned vs future)
+ Test coverage claims distinguish "pass rate" from "code coverage %"
+ Code examples match actual implementation (not hand-written)
+ API endpoints include version prefix (/api/v1/, not /api/)
+ Cache keys include hash length and algorithm specifications
+ Cross-references to files/sections are valid and current
+ No copy-paste errors from outdated documentation
 
 **Production Readiness Patterns (Quick Wins):**
 
@@ -679,7 +702,358 @@ For Wagtail models:
      - [ ] Are imports lazy (avoid circular dependencies)?
      - [ ] Is there documentation explaining the shadowing?
 
-Step 4.5: .gitignore Security Verification (Critical - Lessons from Issue #1)
+**Django + React Integration Patterns (Frontend-Backend):**
+
+15. **CORS Configuration Completeness** - django-cors-headers Full Setup
+   - BLOCKER: Missing CORS_ALLOW_METHODS and CORS_ALLOW_HEADERS configuration
+   - CRITICAL: Django requires both CORS_ALLOWED_ORIGINS and CSRF_TRUSTED_ORIGINS
+   - WARNING: Python bytecode cache can persist old settings after file edits
+   - Check for: Incomplete CORS configuration in settings.py
+   - Example from settings.py:
+     ```python
+     # INCOMPLETE CORS (will fail with browser preflight requests)
+     CORS_ALLOWED_ORIGINS = [
+         'http://localhost:5173',
+         'http://localhost:5174',
+     ]
+     CORS_ALLOW_CREDENTIALS = True
+     # Missing CORS_ALLOW_METHODS and CORS_ALLOW_HEADERS!
+
+     # COMPLETE CORS (works with all browsers)
+     CORS_ALLOWED_ORIGINS = [
+         'http://localhost:3000',
+         'http://127.0.0.1:3000',
+         'http://localhost:5173',
+         'http://127.0.0.1:5173',
+         'http://localhost:5174',
+         'http://127.0.0.1:5174',
+     ]
+     CORS_ALLOW_CREDENTIALS = True
+     CORS_ALLOW_ALL_ORIGINS = False  # Explicit security control
+
+     # CRITICAL: Required for preflight requests
+     CORS_ALLOW_METHODS = [
+         'DELETE',
+         'GET',
+         'OPTIONS',
+         'PATCH',
+         'POST',
+         'PUT',
+     ]
+     CORS_ALLOW_HEADERS = [
+         'accept',
+         'accept-encoding',
+         'authorization',
+         'content-type',
+         'dnt',
+         'origin',
+         'user-agent',
+         'x-csrftoken',
+         'x-requested-with',
+     ]
+
+     # CRITICAL: CSRF tokens need trusted origins
+     CSRF_TRUSTED_ORIGINS = [
+         'http://localhost:3000',
+         'http://localhost:5173',
+         'http://localhost:5174',
+         # Must include ALL frontend development ports
+     ]
+     ```
+   - Why CORS_ALLOW_METHODS/HEADERS are required:
+     - Browsers send OPTIONS preflight requests before POST/PUT/DELETE
+     - django-cors-headers needs explicit method/header lists
+     - Default values are too restrictive for modern SPAs
+     - Missing configuration = CORS errors despite correct origins
+   - CSRF_TRUSTED_ORIGINS requirement:
+     - Django validates Origin header for state-changing requests
+     - CORS_ALLOWED_ORIGINS alone is NOT sufficient
+     - Must include all ports where frontend runs (dev servers change ports)
+   - Python cache clearing:
+     ```bash
+     # CORS not working after settings changes? Clear bytecode cache:
+     find . -type d -name "__pycache__" -exec rm -rf {} +
+     python manage.py runserver  # Restart server
+     ```
+   - Detection patterns:
+     ```bash
+     # Check for incomplete CORS configuration
+     grep -n "CORS_ALLOWED_ORIGINS" backend/*/settings.py
+     grep -n "CORS_ALLOW_METHODS" backend/*/settings.py || echo "WARNING: Missing CORS_ALLOW_METHODS"
+     grep -n "CORS_ALLOW_HEADERS" backend/*/settings.py || echo "WARNING: Missing CORS_ALLOW_HEADERS"
+     grep -n "CSRF_TRUSTED_ORIGINS" backend/*/settings.py || echo "WARNING: Missing CSRF_TRUSTED_ORIGINS"
+     ```
+   - Review checklist:
+     - [ ] Are CORS_ALLOWED_ORIGINS configured with both localhost and 127.0.0.1?
+     - [ ] Are CORS_ALLOW_METHODS defined (GET, POST, PUT, PATCH, DELETE, OPTIONS)?
+     - [ ] Are CORS_ALLOW_HEADERS defined (authorization, content-type, x-csrftoken)?
+     - [ ] Are CSRF_TRUSTED_ORIGINS configured with all frontend ports?
+     - [ ] Is CORS_ALLOW_CREDENTIALS = True (for cookie-based auth)?
+     - [ ] Is CORS_ALLOW_ALL_ORIGINS = False (explicit security)?
+     - [ ] Are there instructions to clear __pycache__ if CORS changes don't work?
+   - Common symptoms of incomplete CORS:
+     - curl requests work, browser requests fail
+     - GET requests work, POST/PUT/DELETE fail with CORS error
+     - Error: "CORS header 'Access-Control-Allow-Origin' missing"
+     - Error: "Method POST is not allowed by Access-Control-Allow-Methods"
+
+16. **Wagtail API Endpoint Usage** - Dedicated vs Generic Endpoints
+   - BLOCKER: Using generic Wagtail Pages API with type filters instead of dedicated endpoints
+   - PATTERN: WagtailAPIRouter creates specific endpoints for registered viewsets
+   - Check for: Frontend code using /api/v2/pages/?type= queries
+   - Why generic endpoint fails:
+     ```python
+     # Backend: WagtailAPIRouter configuration
+     api_router = WagtailAPIRouter('wagtailapi')
+     api_router.register_endpoint('blog-posts', BlogPostViewSet)
+     api_router.register_endpoint('blog-categories', BlogCategoryViewSet)
+     # This creates: /api/v2/blog-posts/, NOT /api/v2/pages/
+     ```
+   - Anti-pattern (FAILS - 404 errors):
+     ```javascript
+     // WRONG: Using generic pages endpoint with type filter
+     const response = await fetch(
+       `${API_URL}/api/v2/pages/?type=blog.BlogPostPage&fields=*`
+     );
+     // ERROR: 404 Not Found - generic pages endpoint not registered
+     ```
+   - Correct pattern:
+     ```javascript
+     // CORRECT: Using dedicated blog posts endpoint
+     const params = new URLSearchParams({
+       limit: '10',
+       offset: '0',
+       // No 'type' parameter needed - endpoint is already filtered
+     });
+     const response = await fetch(
+       `${API_URL}/api/v2/blog-posts/?${params}`
+     );
+     // SUCCESS: Endpoint returns only BlogPostPage instances
+     ```
+   - When to use generic vs dedicated endpoints:
+     - **Generic /api/v2/pages/**: Only if registered in api_router
+     - **Dedicated /api/v2/blog-posts/**: Use when custom viewset registered
+     - **Benefit of dedicated**: Custom filtering, serialization, permissions
+   - Detection patterns:
+     ```bash
+     # Backend: Check for registered custom viewsets
+     grep -n "api_router.register_endpoint" backend/apps/*/api.py
+     # If found: Frontend should use dedicated endpoints
+
+     # Frontend: Check for incorrect generic endpoint usage
+     grep -n "/api/v2/pages/?type=" web/src/**/*.{js,jsx,ts,tsx}
+     # If found with custom viewsets: Use dedicated endpoint instead
+     ```
+   - Review checklist:
+     - [ ] Does backend register custom Wagtail API viewsets?
+     - [ ] Does frontend use dedicated endpoints (/api/v2/blog-posts/)?
+     - [ ] Are 'type' query parameters removed (not needed with dedicated endpoints)?
+     - [ ] Are unnecessary 'fields' parameters removed (viewsets control serialization)?
+     - [ ] Does API documentation list all available dedicated endpoints?
+     - [ ] Are frontend developers aware of dedicated vs generic endpoint distinction?
+   - Common symptoms:
+     - 404 errors for /api/v2/pages/ queries
+     - Frontend working in one environment but failing in another
+     - Type filters returning empty results
+     - Documentation shows generic endpoint but backend uses dedicated
+   - Wagtail API Router pattern:
+     ```python
+     # Backend: urls.py or api.py
+     from wagtail.api.v2.router import WagtailAPIRouter
+     from .viewsets import BlogPostViewSet, BlogCategoryViewSet
+
+     api_router = WagtailAPIRouter('wagtailapi')
+
+     # Register custom viewsets (creates dedicated endpoints)
+     api_router.register_endpoint('blog-posts', BlogPostViewSet)
+     api_router.register_endpoint('blog-categories', BlogCategoryViewSet)
+
+     # Optional: Register generic pages endpoint
+     # from wagtail.api.v2.views import PagesAPIViewSet
+     # api_router.register_endpoint('pages', PagesAPIViewSet)
+
+     urlpatterns = [
+         path('api/v2/', api_router.urls),
+     ]
+     ```
+   - Frontend integration:
+     ```javascript
+     // Correct usage with dedicated endpoints
+     const API_ENDPOINTS = {
+       BLOG_POSTS: '/api/v2/blog-posts/',
+       BLOG_CATEGORIES: '/api/v2/blog-categories/',
+       // NOT: '/api/v2/pages/?type=blog.BlogPostPage'
+     };
+
+     // Fetch blog posts
+     const fetchBlogPosts = async (page = 1, limit = 10) => {
+       const params = new URLSearchParams({
+         limit: limit.toString(),
+         offset: ((page - 1) * limit).toString(),
+       });
+
+       const response = await fetch(
+         `${API_URL}${API_ENDPOINTS.BLOG_POSTS}?${params}`
+       );
+
+       if (!response.ok) {
+         throw new Error(`HTTP error! status: ${response.status}`);
+       }
+
+       return response.json();
+     };
+     ```
+
+Step 4.5: Documentation Accuracy Review (Technical Docs)
+
+**CRITICAL: Technical documentation needs the same rigor as code!**
+
+When reviewing documentation files (*.md with technical content):
+
+# Documentation-Specific Checks
+
+## 1. Performance Metrics Accuracy
+# Check if docs reference specific query counts, response times, cache hit rates
+grep -nE "[0-9]+\s*(queries|ms|queries|seconds|%)" path/to/doc.md
+
+# Cross-reference with constants.py
+# Example: "15 queries" in docs must match TARGET_BLOG_LIST_QUERIES=15 in constants.py
+
+**BLOCKER Examples:**
+- Doc says "< 20 queries" but constants.py has TARGET_BLOG_LIST_QUERIES=15
+- Doc says "100% test coverage" but means "100% test pass rate"
+- Doc says "5-8ms response" but production shows 50-80ms
+
+**Pattern:** All performance metrics MUST align with:
+1. Constants defined in constants.py (authoritative source)
+2. Actual measured performance (not aspirational)
+3. Clear language (target vs actual, test pass rate vs code coverage)
+
+## 2. Authentication/Feature Status Clarity
+# Look for phrases about implementation status
+grep -niE "(current:|future:|planned:|implemented:|coming soon)" path/to/doc.md
+
+**BLOCKER Examples:**
+- "Current: No authentication" vs "Current: Preview token authentication"
+- "Future: JWT tokens" when JWT is already implemented
+- Mixing implemented features with planned features without distinction
+
+**Pattern:** Feature status must be accurate:
+- **Public endpoints**: "No authentication required"
+- **Implemented features**: "Current: Preview token authentication via ?preview_token="
+- **Planned features**: "Future/Planned: Full JWT authentication"
+- **In development**: "In development (Phase N): Feature X"
+
+## 3. Cache Key Specifications
+# Check if cache keys are documented with sufficient detail
+grep -nE "cache.*key.*:" path/to/doc.md
+
+**WARNING Examples:**
+- "blog:list:{filters_hash}" without specifying hash length
+- "16-char hash" without specifying algorithm (SHA-256)
+- Missing collision prevention explanation
+
+**Pattern:** Cache key documentation must include:
+```python
+# GOOD: Complete specification
+cache_key = f"blog:list:{page}:{limit}:{filters_hash}"
+# filters_hash: 16-char SHA-256 hash (64 bits, prevents collisions)
+# Birthday paradox: 50% collision at ~5 billion combinations
+
+# BAD: Incomplete
+cache_key = f"blog:list:{filters_hash}"  # What hash? How long?
+```
+
+## 4. Test Coverage Claims
+# Check for test coverage statements
+grep -niE "(test coverage|tests? passing|% coverage)" path/to/doc.md
+
+**BLOCKER Examples:**
+- "100% test coverage" when meaning "100% tests passing"
+- "Full coverage" without specifying what's covered
+- Confusing test pass rate (100/100 tests pass) with code coverage % (lines executed)
+
+**Pattern:** Distinguish test metrics:
+- **Test pass rate**: "100% test pass rate (79/79 tests passing)"
+- **Code coverage**: "85% code coverage (measured by coverage.py)"
+- **Comprehensive coverage**: "Comprehensive test coverage across unit/integration/E2E"
+
+## 5. API Endpoint Version Consistency
+# Check if API endpoints include version prefix
+grep -nE "/api/[^v]" path/to/doc.md  # Catches /api/blog/ without /api/v1/
+
+**WARNING Examples:**
+- `/api/blog/posts/` should be `/api/v1/blog/posts/`
+- Mixing versioned and unversioned endpoints
+- Examples using wrong version (v2 when production is v1)
+
+## 6. Code Example Accuracy
+# Check if code examples in docs match actual implementation
+# Manually compare: code blocks in docs vs actual source files
+
+**BLOCKER Examples:**
+- Function signatures in docs don't match actual code
+- Import statements reference moved/renamed modules
+- Configuration examples use deprecated settings
+
+**Pattern:** Code examples must be:
+- Copy-pasted from actual working code (not hand-written)
+- Tested in actual environment
+- Updated when implementation changes
+- Include file path reference: `# From: apps/blog/services/blog_cache_service.py`
+
+## 7. Cross-Reference Verification
+# Check if docs reference other files/sections
+grep -nE "See:|see also|refer to|documented in" path/to/doc.md -i
+
+**Pattern:** All references must be valid:
+- File paths must exist: `See /backend/docs/blog/ADMIN_GUIDE.md`
+- Section anchors must be correct: `#performance-optimization`
+- Version references must be current: `Django 5.2` not `Django 4.x`
+
+## How to Review Documentation (Step-by-Step)
+
+1. **Read the documentation** - Understand what's being documented
+2. **Identify technical claims** - Metrics, features, performance, API endpoints
+3. **Cross-reference with code** - Check constants.py, actual implementations
+4. **Verify code examples** - Do they match actual source files?
+5. **Check feature status** - Is it implemented, planned, or future?
+6. **Validate references** - Do linked files/sections exist?
+7. **Test examples** - Can code examples be copy-pasted and run?
+
+## Documentation Review Output Format
+
+When reviewing documentation, include section like:
+
+📄 DOCUMENTATION ACCURACY REVIEW
+
+**File:** backend/docs/blog/API_REFERENCE.md (1,200 lines)
+
+**Technical Claims Found:**
+1. Line 39: "< 20 queries for list endpoints"
+   ❌ BLOCKER: constants.py defines TARGET_BLOG_LIST_QUERIES=15
+   Fix: Change to "Target <15 queries (actual varies with prefetching)"
+
+2. Line 47: "Current: No authentication"
+   ❌ BLOCKER: Phase 3 implemented preview token authentication
+   Fix: "Current: Preview token authentication (?preview_token=...)"
+
+3. Line 702: "blog:list:{page}:{limit}:{filters_hash}"
+   ⚠️ WARNING: Missing hash length specification
+   Fix: Add "(16-char SHA-256 hash)" to document collision prevention
+
+4. Line 22: "100% test coverage"
+   ❌ BLOCKER: Misleading - this means test pass rate, not code coverage
+   Fix: "100% test pass rate, comprehensive coverage"
+
+**Code Examples:** 12 found, 11/12 accurate
+- Line 567: Import path incorrect (apps.blog.api → apps.blog.services)
+
+**Cross-References:** 8 found, 8/8 valid
+
+**Overall:** High-quality documentation with 4 technical accuracy issues
+
+Step 4.6: .gitignore Security Verification (Critical - Lessons from Issue #1)
 
 ALWAYS verify these critical patterns are in .gitignore:
 

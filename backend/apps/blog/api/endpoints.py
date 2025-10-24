@@ -11,7 +11,8 @@ from .serializers import BlogCategorySerializer, BlogSeriesSerializer
 
 class BlogCategoryAPIViewSet(BaseAPIViewSet):
     """API ViewSet for BlogCategory snippets."""
-    
+
+    versioning_class = None  # Disable DRF versioning for Wagtail API
     base_serializer_class = BlogCategorySerializer
     filter_backends = [FieldsFilter, OrderingFilter, SearchFilter]
     body_fields = ['id', 'name', 'slug', 'description', 'icon', 'color', 'is_featured']
@@ -23,7 +24,8 @@ class BlogCategoryAPIViewSet(BaseAPIViewSet):
 
 class BlogSeriesAPIViewSet(BaseAPIViewSet):
     """API ViewSet for BlogSeries snippets."""
-    
+
+    versioning_class = None  # Disable DRF versioning for Wagtail API
     base_serializer_class = BlogSeriesSerializer
     filter_backends = [FieldsFilter, OrderingFilter, SearchFilter]
     body_fields = ['id', 'title', 'slug', 'description', 'cover_image', 'is_completed']

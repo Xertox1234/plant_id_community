@@ -156,6 +156,77 @@ class BlogPostTag(TaggedItemBase):
     )
 
 
+# Analytics models (Phase 6.2)
+class BlogPostView(models.Model):
+    """
+    Track individual page views for blog post analytics.
+
+    This model stores detailed view tracking data including:
+    - User information (if authenticated)
+    - IP address for anonymous tracking
+    - User agent for device/browser analytics
+    - Referrer for traffic source analysis
+    - Timestamp for temporal analytics
+
+    Used to generate:
+    - Popular posts rankings
+    - Trending content identification
+    - Traffic source analytics
+    - User engagement metrics
+    """
+
+    post = models.ForeignKey(
+        'blog.BlogPostPage',
+        on_delete=models.CASCADE,
+        related_name='views',
+        help_text="The blog post that was viewed"
+    )
+
+    user = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        help_text="User who viewed the post (if authenticated)"
+    )
+
+    ip_address = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        help_text="IP address of the viewer"
+    )
+
+    user_agent = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Browser user agent string"
+    )
+
+    referrer = models.URLField(
+        blank=True,
+        help_text="Referrer URL (where the user came from)"
+    )
+
+    viewed_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the post was viewed"
+    )
+
+    class Meta:
+        verbose_name = "Blog Post View"
+        verbose_name_plural = "Blog Post Views"
+        ordering = ['-viewed_at']
+        indexes = [
+            models.Index(fields=['post', '-viewed_at']),
+            models.Index(fields=['-viewed_at']),
+            models.Index(fields=['user', '-viewed_at']),
+        ]
+
+    def __str__(self):
+        user_str = self.user.username if self.user else self.ip_address
+        return f"{self.post.title} - {user_str} at {self.viewed_at}"
+
+
 # Snippet models
 @register_snippet
 class BlogCategory(models.Model):
@@ -625,6 +696,12 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
         default=True,
         help_text="Allow comments on this post"
     )
+
+    # Analytics (Phase 6.2)
+    view_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of times this post has been viewed"
+    )
     
     content_panels = BlogBasePage.content_panels + [
         MultiFieldPanel([
@@ -674,6 +751,7 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
         'related_plant_species',
         'difficulty_level',
         'allow_comments',
+        'view_count',  # Phase 6.2: Analytics
     ]
     
     def get_context(self, request):

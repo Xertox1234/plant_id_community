@@ -216,6 +216,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'csp.middleware.CSPMiddleware',  # Content Security Policy
     'wagtail.contrib.redirects.middleware.RedirectMiddleware',
+    'apps.blog.middleware.BlogViewTrackingMiddleware',  # Blog analytics (Phase 6.2)
 ]
 
 if _HAS_REQUEST_ID:
@@ -537,11 +538,33 @@ else:
 # CORS settings - Secure configuration
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:5173,http://127.0.0.1:5173',
+    default='http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174',
     cast=lambda v: [s.strip() for s in v.split(',')]
 )
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = False  # Never allow all origins, even in development
+# TEMPORARY: Allow all origins for debugging
+CORS_ALLOW_ALL_ORIGINS = True if DEBUG else False
+
+# Additional CORS settings for proper API access
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 # CSRF trusted origins - environment-driven for production security
 # In production, set CSRF_TRUSTED_ORIGINS env var with https URLs
@@ -550,10 +573,12 @@ if DEBUG:
     CSRF_TRUSTED_ORIGINS = [
         'http://localhost:3000',
         'http://127.0.0.1:3000',
-        'http://localhost:3001', 
+        'http://localhost:3001',
         'http://127.0.0.1:3001',
         'http://localhost:5173',
         'http://127.0.0.1:5173',
+        'http://localhost:5174',
+        'http://127.0.0.1:5174',
         'http://localhost:8000',
         'http://127.0.0.1:8000',
     ]

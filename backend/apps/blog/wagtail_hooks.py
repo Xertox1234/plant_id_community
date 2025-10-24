@@ -47,15 +47,21 @@ def register_blog_menu():
 @hooks.register('construct_homepage_panels')
 def add_blog_stats_panel(request, panels):
     """
-    Add blog statistics to the Wagtail admin homepage.
+    Add blog statistics to the Wagtail admin homepage (Phase 6.2: Analytics).
     """
     try:
+        from django.db.models import Sum
+
         total_posts = BlogPostPage.objects.live().count()
         published_posts = BlogPostPage.objects.live().public().count()
         draft_posts = BlogPostPage.objects.filter(live=False).count()
         featured_posts = BlogPostPage.objects.live().public().filter(is_featured=True).count()
         pending_comments = BlogComment.objects.filter(is_approved=False).count()
-        
+
+        # Phase 6.2: Analytics data
+        total_views = BlogPostPage.objects.aggregate(Sum('view_count'))['view_count__sum'] or 0
+        most_popular = BlogPostPage.objects.live().public().order_by('-view_count').first()
+
         panel_content = format_html(
             """
             <div class="panel summary nice-padding">
@@ -65,6 +71,8 @@ def add_blog_stats_panel(request, panels):
                     <li><strong>{published}</strong> Published Posts</li>
                     <li><strong>{featured}</strong> Featured Posts</li>
                     {drafts_html}
+                    {analytics_html}
+                    {popular_html}
                     {comments_html}
                 </ul>
                 <div class="panel-actions">
@@ -82,6 +90,15 @@ def add_blog_stats_panel(request, panels):
                 '<li class="warning"><strong>{}</strong> Draft Posts</li>',
                 draft_posts
             ) if draft_posts > 0 else '',
+            analytics_html=format_html(
+                '<li style="color: #007d7e;"><strong>{:,}</strong> Total Views</li>',
+                total_views
+            ) if total_views > 0 else '',
+            popular_html=format_html(
+                '<li style="color: #007d7e;">Most Popular: <strong>{}</strong> ({} views)</li>',
+                most_popular.title[:30] + '...' if len(most_popular.title) > 30 else most_popular.title,
+                most_popular.view_count
+            ) if most_popular and most_popular.view_count > 0 else '',
             comments_html=format_html(
                 '<li class="error"><strong>{}</strong> Comments Pending Approval</li>',
                 pending_comments
@@ -157,7 +174,7 @@ def add_blog_summary_items(request, items):
 @hooks.register('register_page_listing_buttons')
 def blog_page_listing_buttons(page, page_perms=None, user=None, is_parent=False, next_url=None, **kwargs):
     """
-    Add custom buttons to blog page listings in Wagtail admin.
+    Add custom buttons to blog page listings in Wagtail admin (Phase 6.2: Analytics).
     """
     if isinstance(page, BlogPostPage):
         # View live blog post button
@@ -168,7 +185,17 @@ def blog_page_listing_buttons(page, page_perms=None, user=None, is_parent=False,
                 icon_name='view',
                 priority=10
             )
-        
+
+        # Phase 6.2: View count button
+        if page.view_count > 0:
+            yield wagtailadmin_widgets.PageListingButton(
+                f'{page.view_count:,} views',
+                f'#',  # Could link to detailed analytics
+                icon_name='view',
+                priority=15,
+                attrs={'title': f'{page.view_count:,} total views'}
+            )
+
         # Comments button
         comment_count = page.comments.filter(is_approved=True).count()
         if comment_count > 0:
@@ -178,7 +205,7 @@ def blog_page_listing_buttons(page, page_perms=None, user=None, is_parent=False,
                 icon_name='comment',
                 priority=20
             )
-        
+
         # AI content suggestions button (if content is short)
         if page.reading_time and page.reading_time < 3:
             yield wagtailadmin_widgets.PageListingButton(

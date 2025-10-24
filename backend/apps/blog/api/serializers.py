@@ -25,10 +25,13 @@ from ..models import (
 
 class BlogCategorySerializer(BaseSerializer):
     """Serializer for blog categories as snippets."""
-    
+
     post_count = serializers.SerializerMethodField()
     url = serializers.SerializerMethodField()
-    
+
+    # Wagtail API expects meta_fields attribute (fields shown in 'meta' section)
+    meta_fields = ['type', 'detail_url']
+
     class Meta:
         model = BlogCategory
         fields = [
@@ -51,11 +54,14 @@ class BlogCategorySerializer(BaseSerializer):
 
 class BlogSeriesSerializer(BaseSerializer):
     """Serializer for blog series as snippets."""
-    
+
     post_count = serializers.SerializerMethodField()
     cover_image = ImageRenditionField('fill-300x200', source='image', read_only=True)
     posts_url = serializers.SerializerMethodField()
-    
+
+    # Wagtail API expects meta_fields attribute (fields shown in 'meta' section)
+    meta_fields = ['type', 'detail_url']
+
     class Meta:
         model = BlogSeries
         fields = [
