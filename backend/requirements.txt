@@ -176,6 +176,7 @@ uvloop==0.22.1
 vine==5.1.0
 wagtail==7.0.3
 wagtail-ai==2.1.2
+wagtail-headless-preview==0.8.0
 watchfiles==1.1.1
 wcwidth==0.2.14
 websockets==15.0.1

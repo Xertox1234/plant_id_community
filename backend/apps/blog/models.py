@@ -17,6 +17,7 @@ from wagtail.images.blocks import ImageChooserBlock
 from wagtail.admin.panels import FieldPanel, MultiFieldPanel, InlinePanel
 from wagtail.search import index
 from wagtail.snippets.models import register_snippet
+from wagtail_headless_preview.models import HeadlessPreviewMixin
 from modelcluster.fields import ParentalKey, ParentalManyToManyField
 from modelcluster.contrib.taggit import ClusterTaggableManager
 from taggit.models import TaggedItemBase
@@ -521,9 +522,10 @@ class BlogAuthorExpertise(TaggedItemBase):
     )
 
 
-class BlogPostPage(BlogBasePage):
+class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
     """
     Individual blog post page with AI-enhanced content creation.
+    Includes headless preview support for React/Flutter frontends.
     """
     
     # Author and publishing info
@@ -706,7 +708,44 @@ class BlogPostPage(BlogBasePage):
                 word_count += len(block.value.split())
         
         return max(1, word_count // 200)  # At least 1 minute
-    
+
+    # Headless Preview Configuration (Phase 3)
+    @property
+    def preview_modes(self):
+        """
+        Define preview modes for different frontend platforms.
+        """
+        return [
+            ('', 'Default (Web)'),
+            ('mobile', 'Mobile (Flutter)'),
+        ]
+
+    def get_client_root_url(self, request=None, mode=''):
+        """
+        Return the preview URL for the specified mode.
+
+        Args:
+            request: The HTTP request object (optional)
+            mode: Preview mode ('', 'mobile')
+
+        Returns:
+            str: The preview URL for the frontend client
+        """
+        if mode == 'mobile':
+            # Flutter deep link for mobile preview
+            # Format: plantid://blog/preview
+            return 'plantid://blog/preview'
+
+        # React web preview (default)
+        # URL structure: http://localhost:5173/blog/preview/{content_type}/{token}/
+        # The {content_type} and {token} are replaced by wagtail-headless-preview
+        from django.conf import settings
+        preview_url = settings.HEADLESS_PREVIEW_CLIENT_URLS.get('default')
+
+        # Extract base URL without placeholder variables for return
+        # The library will append the content_type and token dynamically
+        return preview_url.rsplit('/{content_type}', 1)[0] if preview_url else 'http://localhost:5173/blog/preview'
+
     def save(self, *args, **kwargs):
         # Auto-calculate reading time
         if not self.reading_time:

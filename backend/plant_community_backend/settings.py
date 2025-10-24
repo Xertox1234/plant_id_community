@@ -130,6 +130,7 @@ WAGTAIL_APPS = [
     'wagtail',
     'wagtail.api.v2',
     # 'wagtail_ai',  # Optional AI features - disabled for now
+    'wagtail_headless_preview',  # Phase 3: Headless preview for React/Flutter
     'modelcluster',
     'taggit',
 ]
@@ -423,6 +424,16 @@ WAGTAIL_FRONTEND_LOGIN_URL = '/accounts/login/'
 WAGTAILADMIN_BASE_URL = 'http://localhost:8000'
  # Frontend base URL (used for OAuth redirect targets)
 FRONTEND_BASE_URL = config('FRONTEND_BASE_URL', default='http://localhost:3000')
+
+# Wagtail Headless Preview (Phase 3)
+# Configuration for React/Flutter preview of unpublished content
+HEADLESS_PREVIEW_CLIENT_URLS = {
+    'default': config(
+        'HEADLESS_PREVIEW_CLIENT_URL',
+        default='http://localhost:5173/blog/preview/{content_type}/{token}/'
+    ),
+}
+HEADLESS_PREVIEW_LIVE = config('HEADLESS_PREVIEW_LIVE', default=True, cast=bool)
 
 # Use custom user model
 AUTH_USER_MODEL = 'users.User'
