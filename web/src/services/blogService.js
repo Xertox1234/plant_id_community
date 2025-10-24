@@ -192,30 +192,15 @@ export async function fetchCategories() {
 }
 
 /**
- * Fetch related blog posts for a given post.
+ * NOTE: Related posts are included in the blog post detail response.
+ * This function is kept for backwards compatibility but is no longer needed.
+ * The related_posts field is already populated in fetchBlogPost().
  *
  * @param {string} postId - Post ID
- * @returns {Promise<Array>} - Array of related posts
+ * @returns {Promise<Array>} - Array of related posts (always empty - use post.related_posts instead)
  */
 export async function fetchRelatedPosts(postId) {
-  try {
-    const response = await fetch(`${API_URL}/api/v2/pages/${postId}/related/`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      // Related posts endpoint might not exist yet, return empty array
-      return [];
-    }
-
-    const data = await response.json();
-    return data || [];
-  } catch (error) {
-    console.error('[BlogService] Error fetching related posts:', error);
-    return []; // Return empty array on error (non-critical)
-  }
+  // Related posts are now included in the blog post detail API response
+  // No need for a separate endpoint call
+  return [];
 }

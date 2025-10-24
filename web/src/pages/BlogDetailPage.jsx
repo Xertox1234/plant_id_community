@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import StreamFieldRenderer from '../components/StreamFieldRenderer';
 import BlogCard from '../components/BlogCard';
-import { fetchBlogPost, fetchRelatedPosts } from '../services/blogService';
+import { fetchBlogPost } from '../services/blogService';
 
 /**
  * Create sanitized HTML for safe rendering
@@ -37,12 +37,22 @@ export default function BlogDetailPage() {
         setError(null);
 
         const data = await fetchBlogPost(slug);
+
+        // Parse content_blocks if it's a JSON string
+        if (data.content_blocks && typeof data.content_blocks === 'string') {
+          try {
+            data.content_blocks = JSON.parse(data.content_blocks);
+          } catch (e) {
+            console.error('[BlogDetailPage] Failed to parse content_blocks:', e);
+            data.content_blocks = [];
+          }
+        }
+
         setPost(data);
 
-        // Fetch related posts
-        if (data.id) {
-          const related = await fetchRelatedPosts(data.id);
-          setRelatedPosts(related);
+        // Related posts are already included in the API response
+        if (data.related_posts && Array.isArray(data.related_posts)) {
+          setRelatedPosts(data.related_posts);
         }
       } catch (err) {
         console.error('[BlogDetailPage] Error loading post:', err);

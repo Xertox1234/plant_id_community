@@ -102,12 +102,16 @@ function StreamFieldBlock({ block }) {
       );
 
     case 'quote':
+      // Handle both possible quote structures
+      const quoteText = typeof value === 'string' ? value : (value.quote || value.quote_text || '');
+      const attribution = typeof value === 'object' ? value.attribution : null;
+
       return (
         <blockquote className="border-l-4 border-green-600 pl-6 py-4 my-8 italic text-gray-700 bg-gray-50 rounded-r-lg">
-          <p className="text-xl mb-2">{value.quote}</p>
-          {value.attribution && (
+          {quoteText && <p className="text-xl mb-2">{quoteText}</p>}
+          {attribution && (
             <footer className="text-sm text-gray-600 not-italic">
-              — {value.attribution}
+              — {attribution}
             </footer>
           )}
         </blockquote>
