@@ -1,5 +1,22 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import DOMPurify from 'dompurify';
+
+/**
+ * Helper function to create safe HTML markup with DOMPurify sanitization.
+ * Protects against XSS attacks in preview content.
+ *
+ * @param {string} html - The HTML content to sanitize
+ * @returns {object} - Object with __html property for dangerouslySetInnerHTML
+ */
+function createSafeMarkup(html) {
+  return {
+    __html: DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h2', 'h3', 'h4', 'blockquote', 'code', 'pre'],
+      ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
+    })
+  };
+}
 
 /**
  * BlogPreview Component
@@ -33,8 +50,6 @@ export default function BlogPreview() {
         const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
         const previewUrl = `${API_URL}/api/v2/page_preview/1/?content_type=${content_type}&token=${token}`;
 
-        console.log('[BlogPreview] Fetching preview:', previewUrl);
-
         const response = await fetch(previewUrl, {
           method: 'GET',
           headers: {
@@ -49,7 +64,6 @@ export default function BlogPreview() {
         }
 
         const data = await response.json();
-        console.log('[BlogPreview] Preview data:', data);
         setPost(data);
       } catch (err) {
         console.error('[BlogPreview] Error fetching preview:', err);
@@ -184,7 +198,7 @@ export default function BlogPreview() {
         {post.introduction && (
           <div
             className="text-xl text-gray-700 mb-8 leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: post.introduction }}
+            dangerouslySetInnerHTML={createSafeMarkup(post.introduction)}
           />
         )}
 
@@ -235,7 +249,7 @@ function StreamFieldBlock({ block }) {
       return (
         <div
           className="mb-4"
-          dangerouslySetInnerHTML={{ __html: value }}
+          dangerouslySetInnerHTML={createSafeMarkup(value)}
         />
       );
 
@@ -287,7 +301,7 @@ function StreamFieldBlock({ block }) {
               className="w-full h-64 object-cover rounded-lg mb-4"
             />
           )}
-          <div dangerouslySetInnerHTML={{ __html: value.description }} />
+          <div dangerouslySetInnerHTML={createSafeMarkup(value.description)} />
           {value.care_level && (
             <p className="mt-4 text-sm font-semibold text-green-700">
               Care Level: {value.care_level}

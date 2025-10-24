@@ -5,8 +5,10 @@ This module contains Wagtail page models for the blog system with AI-enhanced
 content creation and plant-specific features.
 """
 
+from typing import List, Tuple, Optional
 from django.db import models
 from django.contrib.auth import get_user_model
+from django.http import HttpRequest
 from django.urls import reverse
 from django.core.paginator import Paginator
 from django.utils.text import slugify
@@ -711,25 +713,35 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
 
     # Headless Preview Configuration (Phase 3)
     @property
-    def preview_modes(self):
+    def preview_modes(self) -> List[Tuple[str, str]]:
         """
         Define preview modes for different frontend platforms.
+
+        Returns:
+            List of tuples: (mode_key, mode_display_name)
         """
         return [
             ('', 'Default (Web)'),
             ('mobile', 'Mobile (Flutter)'),
         ]
 
-    def get_client_root_url(self, request=None, mode=''):
+    def get_client_root_url(self, request: Optional[HttpRequest] = None, mode: str = '') -> str:
         """
         Return the preview URL for the specified mode.
 
+        IMPORTANT: This returns the BASE URL. The wagtail-headless-preview
+        library automatically appends {content_type}/{token}/ dynamically.
+
         Args:
-            request: The HTTP request object (optional)
-            mode: Preview mode ('', 'mobile')
+            request: The HTTP request object (optional, unused)
+            mode: Preview mode - '' for web, 'mobile' for Flutter
 
         Returns:
-            str: The preview URL for the frontend client
+            Base preview URL without content_type/token placeholders
+
+        Example:
+            Base URL: http://localhost:5173/blog/preview
+            Library appends: /blog.blogpostpage/abc123xyz/
         """
         if mode == 'mobile':
             # Flutter deep link for mobile preview
