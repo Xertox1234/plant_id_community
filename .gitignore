@@ -192,3 +192,4 @@ existing_implementation/
 # Local reference directories (not tracked)
 existing_implementation/
 design_reference/
+.worktrees

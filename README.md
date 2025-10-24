@@ -41,9 +41,11 @@ Visit:
 ### Multi-Platform Stack
 - **Web Frontend**: React 19 + Vite + Tailwind CSS 4
 - **Mobile App**: Flutter 3.37 + Firebase (primary platform)
-- **Backend**: Django 5.2 + Django REST Framework
+- **Backend**: Django 5.2 + Django REST Framework + Wagtail 7.0.3 CMS
 - **Database**: SQLite (dev), PostgreSQL (production)
+- **Cache**: Redis (40% hit rate, <50ms responses)
 - **Plant ID**: Dual API (Plant.id + PlantNet)
+- **CMS**: Wagtail headless CMS for blog content
 
 ### Project Structure
 ```
@@ -87,6 +89,13 @@ plant_id_community/
 - ✅ Flutter design system (colors, typography, spacing)
 - ✅ Firebase authentication ready
 - ✅ Django REST API backend
+- ✅ **NEW: Wagtail CMS Blog** (Phase 2 Complete - Oct 24, 2025)
+  - Headless CMS with rich StreamField editor
+  - Redis caching (35%+ hit rate, <50ms cached responses)
+  - Advanced filtering (categories, tags, authors, series)
+  - SEO optimization (meta tags, OpenGraph, structured data)
+  - Image rendition caching (1-year TTL)
+  - Access CMS admin at: http://localhost:8000/cms/
 
 ### Planned
 - 🚧 User authentication (Firebase Auth)
@@ -95,6 +104,7 @@ plant_id_community/
 - 🚧 Community forum (read-only in mobile)
 - 🚧 Disease diagnosis
 - 🚧 Garden calendar
+- 🚧 Wagtail blog mobile integration (Phase 3)
 
 ## 🔧 Development
 

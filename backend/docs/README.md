@@ -6,6 +6,32 @@ Welcome to the Plant ID Community backend documentation. This directory contains
 
 ## Documentation Structure
 
+### Wagtail Blog Implementation ✅ **NEW**
+**Location:** [`plan.md`](./plan.md)
+
+Wagtail 7.0.3 CMS blog with headless API, Redis caching, and comprehensive test coverage.
+
+- [Implementation Plan](./plan.md) - 7-phase plan (Phase 2 Complete - Oct 24, 2025)
+- [Phase 2 Patterns Codified](../../.worktrees/wagtail-blog/backend/PHASE_2_PATTERNS_CODIFIED.md) - 5 patterns for code review
+
+**Phase 2 Complete (Oct 24, 2025):**
+- ✅ Redis caching with 35%+ hit rate, <50ms cached responses
+- ✅ Dual-strategy cache invalidation (Redis + non-Redis fallback)
+- ✅ Conditional prefetching (memory-safe, action-based)
+- ✅ Signal-based cache invalidation
+- ✅ Image rendition caching (1-year TTL)
+- ✅ 18/18 cache service tests passing (100%)
+- ✅ Code Review: Grade A (94/100) - APPROVED
+- ✅ 5 patterns codified in code-review-specialist
+
+**API Endpoints:**
+- `/api/v2/blog-posts/` - Blog post list/detail with filtering
+- `/api/v2/blog-categories/` - Category pages
+- `/api/v2/blog-authors/` - Author profiles
+- `/cms/` - Wagtail admin interface
+
+---
+
 ### Quick Wins Implementation
 **Location:** [`quick-wins/`](./quick-wins/)
 

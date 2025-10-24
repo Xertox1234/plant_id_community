@@ -450,6 +450,235 @@ For Wagtail models:
  Search fields configured
  Panels configured for admin
 
+**Wagtail CMS Performance Patterns (Phase 2 Blog Caching):**
+
+10. **Cache Key Tracking for Non-Redis Backends** - Dual-Strategy Invalidation
+   - PATTERN: Primary strategy uses Redis `delete_pattern()`, fallback uses tracked key sets
+   - Check for: Cache invalidation that requires pattern matching
+   - Anti-pattern: Relying solely on `delete_pattern()` without fallback (fails on Memcached, Database cache)
+   - Example from blog_cache_service.py:
+     ```python
+     @staticmethod
+     def set_blog_list(page: int, limit: int, filters: Dict[str, Any], data: Dict[str, Any]) -> None:
+         """Cache blog list with key tracking for non-Redis backends."""
+         filters_hash = hashlib.sha256(str(sorted(filters.items())).encode()).hexdigest()[:16]
+         cache_key = f"{CACHE_PREFIX_BLOG_LIST}:{page}:{limit}:{filters_hash}"
+         cache.set(cache_key, data, BLOG_LIST_CACHE_TIMEOUT)
+
+         # Track this key for fallback invalidation (non-Redis backends)
+         try:
+             cache_key_set = f"{CACHE_PREFIX_BLOG_LIST}:_keys"
+             tracked_keys = cache.get(cache_key_set, set())
+             if not isinstance(tracked_keys, set):
+                 tracked_keys = set()
+             tracked_keys.add(cache_key)
+             cache.set(cache_key_set, tracked_keys, BLOG_LIST_CACHE_TIMEOUT)
+         except Exception as e:
+             # Graceful degradation: pattern matching or natural TTL expiration
+             logger.debug(f"[CACHE] Failed to track key {cache_key}: {e}")
+
+     @staticmethod
+     def invalidate_blog_lists() -> None:
+         """Dual-strategy invalidation with graceful fallback."""
+         # Primary: Redis pattern matching (most efficient)
+         try:
+             cache.delete_pattern(f"{CACHE_PREFIX_BLOG_LIST}:*")
+             logger.info("[CACHE] INVALIDATE all blog lists (pattern match)")
+             return
+         except AttributeError:
+             # Fallback: Tracked key deletion (non-Redis backends)
+             cache_key_set = f"{CACHE_PREFIX_BLOG_LIST}:_keys"
+             tracked_keys = cache.get(cache_key_set, set())
+             if tracked_keys and isinstance(tracked_keys, set):
+                 for key in tracked_keys:
+                     cache.delete(key)
+                 cache.delete(cache_key_set)
+                 logger.info(f"[CACHE] INVALIDATE {len(tracked_keys)} blog list keys (tracked)")
+             else:
+                 # Last resort: Natural TTL expiration (24h)
+                 logger.warning("[CACHE] No tracked keys, cache expires naturally in 24h")
+     ```
+   - Detection: Look for `cache.delete_pattern()` calls without try/except
+   - Review checklist:
+     - [ ] Does cache service use pattern matching for bulk invalidation?
+     - [ ] Is there a fallback for non-Redis backends?
+     - [ ] Are cache keys tracked during set operations?
+     - [ ] Is there graceful degradation (natural TTL expiration)?
+     - [ ] Are tracked keys stored as sets (not lists)?
+
+11. **Conditional Prefetching** - Action-Based Query Optimization
+   - BLOCKER: Aggressive prefetching without limits causes memory issues
+   - PATTERN: Different prefetch strategies for list vs detail views
+   - Check for: ViewSet `get_queryset()` without action-based optimization
+   - Example from viewsets.py:
+     ```python
+     def get_queryset(self):
+         """Conditional prefetching prevents memory issues."""
+         queryset = super().get_queryset()
+         action = getattr(self, 'action', None)
+
+         if action == 'list':
+             # List: Limited prefetch, thumbnail renditions only
+             from ..constants import MAX_RELATED_PLANT_SPECIES
+
+             queryset = queryset.select_related('author', 'series').prefetch_related(
+                 'categories',
+                 'tags',
+                 Prefetch(
+                     'related_plant_species',
+                     queryset=BlogPostPage.related_plant_species.through.objects
+                         .select_related('plantspecies')[:MAX_RELATED_PLANT_SPECIES]
+                 ),
+             )
+             # Thumbnail renditions only
+             queryset = queryset.prefetch_related(
+                 Prefetch('featured_image',
+                         queryset=Image.objects.prefetch_renditions('fill-400x300'))
+             )
+
+         elif action == 'retrieve':
+             # Detail: Full prefetch with larger renditions
+             queryset = queryset.select_related('author', 'series').prefetch_related(
+                 'categories',
+                 'tags',
+                 'related_plant_species',  # All species, not limited
+             )
+             # Full-size renditions
+             queryset = queryset.prefetch_related(
+                 Prefetch('featured_image',
+                         queryset=Image.objects.prefetch_renditions('fill-800x600', 'width-1200'))
+             )
+
+         return queryset
+     ```
+   - Detection: Look for ViewSets with heavy prefetching but no action checks
+   - Review checklist:
+     - [ ] Does ViewSet prefetch different data for list vs retrieve?
+     - [ ] Are ManyToMany relationships limited in list views?
+     - [ ] Are image renditions appropriate for action type?
+     - [ ] Are prefetch limits defined as constants (not magic numbers)?
+     - [ ] Are there try/except blocks for optional prefetch operations?
+
+12. **Hash Collision Prevention** - 64-bit SHA-256 for Cache Keys
+   - WARNING: Short hash lengths (8 chars = 32 bits) risk collisions
+   - PATTERN: 16 hex characters (64 bits) from SHA-256 hash
+   - Check for: Cache key hashing with insufficient length
+   - Example from blog_cache_service.py:
+     ```python
+     def get_blog_list(page: int, limit: int, filters: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+         """
+         64-bit hash prevents collisions.
+
+         Birthday paradox: 50% collision probability after ~5 billion combinations.
+         16 hex chars (64 bits) is safe for cache keys with millions of variations.
+         """
+         # Sort filters for order-independence ({"a":1, "b":2} == {"b":2, "a":1})
+         filters_hash = hashlib.sha256(str(sorted(filters.items())).encode()).hexdigest()[:16]
+         cache_key = f"{CACHE_PREFIX_BLOG_LIST}:{page}:{limit}:{filters_hash}"
+         # ...
+     ```
+   - Anti-pattern: Using 8 characters (32 bits) for hash:
+     ```python
+     # BAD - High collision risk with 32-bit hash
+     hash = hashlib.sha256(data).hexdigest()[:8]  # Only 4 billion combinations
+     ```
+   - Detection: Look for `.hexdigest()[:N]` where N < 16
+   - Review checklist:
+     - [ ] Are cache key hashes at least 16 characters (64 bits)?
+     - [ ] Are filter dictionaries sorted before hashing (order-independent)?
+     - [ ] Is SHA-256 used (not MD5 or weak algorithms)?
+     - [ ] Are hash lengths defined as constants?
+
+13. **Wagtail Signal Handler Filtering** - isinstance() for Multi-Table Inheritance
+   - BLOCKER: Using `hasattr(instance, 'blogpostpage')` FAILS with Wagtail
+   - CRITICAL: Wagtail uses multi-table inheritance (BlogPostPage IS a Page)
+   - PATTERN: Use `isinstance(instance, BlogPostPage)` check
+   - Check for: Signal handlers checking page type with hasattr()
+   - Example from signals.py:
+     ```python
+     @receiver(page_published)
+     def invalidate_blog_cache_on_publish(sender, **kwargs):
+         from .models import BlogPostPage
+         instance = kwargs.get('instance')
+
+         # CORRECT: isinstance() handles multi-table inheritance
+         if not instance or not isinstance(instance, BlogPostPage):
+             return
+
+         # Only BlogPostPage instances proceed
+         BlogCacheService.invalidate_blog_post(instance.slug)
+         BlogCacheService.invalidate_blog_lists()
+     ```
+   - Anti-pattern (FAILS with Wagtail):
+     ```python
+     # BAD - hasattr() doesn't work with multi-table inheritance
+     if not hasattr(instance, 'blogpostpage'):
+         return  # This will incorrectly filter out BlogPostPage instances!
+
+     # BAD - Checking sender is unreliable
+     if sender != BlogPostPage:
+         return  # May miss subclasses or related signals
+     ```
+   - Why hasattr() fails:
+     - Wagtail multi-table inheritance: BlogPostPage inherits from Page
+     - Django creates separate tables: wagtailcore_page, blog_blogpostpage
+     - The instance IS a BlogPostPage, not a Page with blogpostpage attribute
+     - hasattr() looks for reverse relation, which doesn't exist this way
+   - Detection: Look for `hasattr(instance, ...)` in Wagtail signal handlers
+   - Review checklist:
+     - [ ] Do signal handlers use `isinstance()` instead of `hasattr()`?
+     - [ ] Is the model imported inside the handler (avoid circular imports)?
+     - [ ] Does the handler check for `instance` existence?
+     - [ ] Are signal receivers registered in apps.py ready() method?
+
+14. **Module Re-export Pattern** - __getattr__ for Package Shadowing
+   - WARNING: Creating services/ package shadows services.py file
+   - PATTERN: Use `__getattr__` for lazy re-export of parent module
+   - Check for: services/ package created alongside services.py
+   - Example from services/__init__.py:
+     ```python
+     """
+     This package (services/) shadows the parent services.py file.
+     Re-export classes from parent for backward compatibility.
+     """
+     from .blog_cache_service import BlogCacheService
+
+     def __getattr__(name):
+         """Lazy import from parent services.py to avoid circular imports."""
+         if name in ('BlockAutoPopulationService', 'PlantDataLookupService'):
+             import importlib.util
+             import os
+
+             # Load parent services.py as separate module
+             parent_dir = os.path.dirname(os.path.dirname(__file__))
+             services_file = os.path.join(parent_dir, 'services.py')
+
+             spec = importlib.util.spec_from_file_location("apps.blog._parent_services", services_file)
+             parent_services_module = importlib.util.module_from_spec(spec)
+             spec.loader.exec_module(parent_services_module)
+
+             return getattr(parent_services_module, name)
+
+         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+     __all__ = ['BlogCacheService', 'BlockAutoPopulationService', 'PlantDataLookupService']
+     ```
+   - Why this is needed:
+     - Python imports prefer packages over modules: `from .services import X` → services/__init__.py
+     - Existing code expects: `from .services import BlockAutoPopulationService`
+     - Without re-export: ImportError (BlockAutoPopulationService in services.py, not services/)
+   - Alternative (avoid package shadowing):
+     - Rename services.py to block_services.py
+     - Update all imports (breaking change)
+     - Create services/ package without conflict
+   - Detection: Look for directories with same name as .py files (services/ + services.py)
+   - Review checklist:
+     - [ ] Is __getattr__ implemented for lazy re-export?
+     - [ ] Does it raise AttributeError for unknown attributes?
+     - [ ] Is __all__ defined with complete export list?
+     - [ ] Are imports lazy (avoid circular dependencies)?
+     - [ ] Is there documentation explaining the shadowing?
+
 Step 4.5: .gitignore Security Verification (Critical - Lessons from Issue #1)
 
 ALWAYS verify these critical patterns are in .gitignore:
