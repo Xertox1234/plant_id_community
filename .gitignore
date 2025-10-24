@@ -188,3 +188,7 @@ existing_implementation/
 
 # Git worktrees
 .worktrees/
+
+# Local reference directories (not tracked)
+existing_implementation/
+design_reference/
