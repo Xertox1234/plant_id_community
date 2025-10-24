@@ -3,9 +3,16 @@ Custom Wagtail API ViewSets for blog functionality.
 
 Extends Wagtail's PageViewSet with blog-specific filtering,
 search, and content delivery features for headless CMS.
+
+Performance Optimizations (Phase 2):
+- Redis caching for instant responses (<50ms cached, 24h TTL)
+- Query optimization with select_related/prefetch_related
+- Cache invalidation via signals (page_published, page_unpublished, post_delete)
 """
 
-from django.db.models import Q
+import logging
+import time
+from django.db.models import Q, Prefetch
 from django.utils import timezone
 from rest_framework import filters
 from rest_framework.decorators import action
@@ -16,6 +23,8 @@ from wagtail.api.v2.filters import (
     OrderingFilter,
     SearchFilter
 )
+from wagtail.images.models import Image
+
 try:
     from wagtail.search.models import Query
 except ImportError:
@@ -37,6 +46,9 @@ from .serializers import (
     BlogCategoryPageSerializer,
     BlogAuthorPageSerializer
 )
+from ..services.blog_cache_service import BlogCacheService
+
+logger = logging.getLogger(__name__)
 
 
 class BlogPostPageViewSet(PagesAPIViewSet):
@@ -131,13 +143,72 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         if plant_species:
             queryset = queryset.filter(related_plant_species__id=plant_species)
         
-        # Prefetch related objects for performance
-        queryset = queryset.select_related(
-            'author', 'series'
-        ).prefetch_related(
-            'categories', 'tags', 'related_plant_species'
-        )
-        
+        # Conditional prefetching based on action type (list vs retrieve)
+        # This prevents memory issues from aggressive prefetching
+        action = getattr(self, 'action', None)
+
+        if action == 'list':
+            # List view: Optimized for multiple posts with limited related data
+            from ..constants import MAX_RELATED_PLANT_SPECIES
+
+            queryset = queryset.select_related(
+                'author',  # ForeignKey - reduces queries for author info
+                'series',  # ForeignKey - reduces queries for series info
+            ).prefetch_related(
+                'categories',  # ManyToMany - fetch all categories (usually <5 per post)
+                'tags',  # ManyToMany - tags prefetched but limited in serializer
+                Prefetch(
+                    'related_plant_species',  # Limit to most relevant
+                    queryset=BlogPostPage.related_plant_species.through.objects.select_related(
+                        'plantspecies'
+                    )[:MAX_RELATED_PLANT_SPECIES]
+                ),
+            )
+
+            # List view: Only prefetch thumbnail renditions
+            try:
+                queryset = queryset.prefetch_related(
+                    Prefetch(
+                        'featured_image',
+                        queryset=Image.objects.prefetch_renditions(
+                            'fill-400x300',  # List page thumbnail only
+                        )
+                    )
+                )
+                logger.debug("[PERF] Image rendition prefetching enabled (list view)")
+            except (AttributeError, TypeError) as e:
+                logger.warning(f"[PERF] Image rendition prefetching not available: {e}")
+
+        elif action == 'retrieve':
+            # Detail view: Prefetch full data and larger renditions
+            queryset = queryset.select_related(
+                'author',
+                'series',
+            ).prefetch_related(
+                'categories',
+                'tags',
+                'related_plant_species',  # All related species for detail view
+            )
+
+            # Detail view: Prefetch full-size renditions
+            try:
+                queryset = queryset.prefetch_related(
+                    Prefetch(
+                        'featured_image',
+                        queryset=Image.objects.prefetch_renditions(
+                            'fill-800x600',  # Detail page hero
+                            'width-1200',    # Full width images
+                        )
+                    )
+                )
+                logger.debug("[PERF] Image rendition prefetching enabled (detail view)")
+            except (AttributeError, TypeError) as e:
+                logger.warning(f"[PERF] Image rendition prefetching not available: {e}")
+
+        else:
+            # Other actions (featured, recent, etc.): Basic prefetching
+            queryset = queryset.select_related('author', 'series')
+
         return queryset.distinct()
     
     def get_ordering(self):
@@ -244,7 +315,36 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         return Response(serializer.data)
     
     def list(self, request, *args, **kwargs):
-        """Enhanced list view with search tracking."""
+        """
+        Enhanced list view with caching and search tracking.
+
+        Performance (Phase 2.2):
+        - Cache check before database queries
+        - Instant response (<50ms) on cache hit
+        - 24-hour TTL for blog lists
+        - Automatic invalidation via signals
+
+        Cache Key: blog:list:{page}:{limit}:{filters_hash}
+        """
+        start_time = time.time()
+
+        # Extract pagination and filter parameters for cache key
+        # Calculate page number consistently (page numbers start at 1)
+        offset = int(request.GET.get('offset', 0))
+        limit = int(request.GET.get('limit', 10))
+        page = (offset // limit) + 1  # Page 1 = offset 0-9, Page 2 = offset 10-19, etc.
+
+        # Extract filters (everything except pagination params)
+        filters = {k: v for k, v in request.GET.items()
+                   if k not in ['offset', 'limit', 'page']}
+
+        # Check cache first (Phase 2.2)
+        cached_response = BlogCacheService.get_blog_list(page, limit, filters)
+        if cached_response:
+            elapsed = (time.time() - start_time) * 1000
+            logger.info(f"[PERF] Blog list cached response in {elapsed:.2f}ms")
+            return Response(cached_response)
+
         # Track search queries for analytics
         search_query = request.GET.get('search')
         if search_query and Query:
@@ -253,8 +353,54 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             except Exception:
                 # Ignore query tracking errors
                 pass
-        
-        return super().list(request, *args, **kwargs)
+
+        # Cache miss - query database
+        response = super().list(request, *args, **kwargs)
+
+        # Cache the response for future requests (Phase 2.2)
+        if response.status_code == 200:
+            BlogCacheService.set_blog_list(page, limit, filters, response.data)
+            elapsed = (time.time() - start_time) * 1000
+            logger.info(f"[PERF] Blog list cold response in {elapsed:.2f}ms")
+
+        return response
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Retrieve single blog post with caching.
+
+        Performance (Phase 2.2):
+        - Cache check before database queries
+        - Instant response (<30ms) on cache hit
+        - 24-hour TTL for blog posts
+        - Automatic invalidation on publish/unpublish/delete
+
+        Cache Key: blog:post:{slug}
+        """
+        start_time = time.time()
+
+        # Get the blog post to extract slug
+        instance = self.get_object()
+        slug = instance.slug
+
+        # Check cache first (Phase 2.2)
+        cached_response = BlogCacheService.get_blog_post(slug)
+        if cached_response:
+            elapsed = (time.time() - start_time) * 1000
+            logger.info(f"[PERF] Blog post '{slug}' cached response in {elapsed:.2f}ms")
+            return Response(cached_response)
+
+        # Cache miss - serialize from database
+        serializer = self.get_serializer(instance)
+        data = serializer.data
+
+        # Cache the response for future requests (Phase 2.2)
+        BlogCacheService.set_blog_post(slug, data)
+
+        elapsed = (time.time() - start_time) * 1000
+        logger.info(f"[PERF] Blog post '{slug}' cold response in {elapsed:.2f}ms")
+
+        return Response(data)
 
 
 class BlogIndexPageViewSet(PagesAPIViewSet):
