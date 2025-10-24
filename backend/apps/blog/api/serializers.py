@@ -85,7 +85,7 @@ class BlogAuthorPageSerializer(PageSerializer):
     
     class Meta:
         model = BlogAuthorPage
-        fields = ['id', 'title', 'slug', 'url', 'meta'] + [
+        fields = ['id', 'title', 'slug', 'url'] + [
             'author', 'bio', 'expertise_areas', 'social_links',
             'post_count', 'recent_posts'
         ]
@@ -138,9 +138,9 @@ class BlogAuthorPageSerializer(PageSerializer):
         return ''
 
 
-class BlogPostPageSerializer(PageSerializer):
+class BlogPostPageSerializer(serializers.ModelSerializer):
     """Comprehensive serializer for blog posts with full content."""
-    
+
     author = serializers.SerializerMethodField()
     categories = BlogCategorySerializer(many=True, read_only=True)
     tags = serializers.SerializerMethodField()
@@ -153,10 +153,12 @@ class BlogPostPageSerializer(PageSerializer):
     related_posts = serializers.SerializerMethodField()
     related_plant_species = serializers.SerializerMethodField()
     social_image = ImageRenditionField('fill-1200x630', read_only=True)
-    
+    url = serializers.SerializerMethodField()
+
     class Meta:
         model = BlogPostPage
-        fields = ['id', 'title', 'slug', 'url', 'meta'] + [
+        fields = [
+            'id', 'title', 'slug', 'url',
             'author', 'publish_date', 'introduction', 'content_blocks',
             'categories', 'tags', 'series', 'series_order',
             'featured_image', 'featured_image_thumb', 'is_featured',
@@ -164,6 +166,22 @@ class BlogPostPageSerializer(PageSerializer):
             'excerpt', 'comment_count', 'related_posts',
             'related_plant_species', 'social_image'
         ]
+
+    def get_url(self, obj):
+        """Get page URL."""
+        try:
+            url = obj.get_url()
+            if not url:
+                # In test context or when no site configured, return None
+                return None
+            request = self.context.get('request')
+            if request:
+                from wagtail.api.v2.utils import get_full_url
+                return get_full_url(request, url)
+            return url
+        except Exception:
+            # Handle cases where get_url() fails (e.g., no site root)
+            return None
     
     def get_author(self, obj):
         """Get author information."""
@@ -248,9 +266,9 @@ class BlogPostPageSerializer(PageSerializer):
         return None
 
 
-class BlogPostPageListSerializer(PageSerializer):
+class BlogPostPageListSerializer(serializers.ModelSerializer):
     """Lighter serializer for blog post lists and feeds."""
-    
+
     author = serializers.SerializerMethodField()
     categories = BlogCategorySerializer(many=True, read_only=True)
     tags = serializers.SerializerMethodField()
@@ -258,14 +276,32 @@ class BlogPostPageListSerializer(PageSerializer):
     reading_time = serializers.ReadOnlyField()
     excerpt = serializers.SerializerMethodField()
     comment_count = serializers.SerializerMethodField()
-    
+    url = serializers.SerializerMethodField()
+
     class Meta:
         model = BlogPostPage
-        fields = ['id', 'title', 'slug', 'url', 'meta'] + [
+        fields = [
+            'id', 'title', 'slug', 'url',
             'author', 'publish_date', 'categories', 'tags',
             'featured_image_thumb', 'is_featured', 'reading_time',
             'difficulty_level', 'excerpt', 'comment_count'
         ]
+
+    def get_url(self, obj):
+        """Get page URL."""
+        try:
+            url = obj.get_url()
+            if not url:
+                # In test context or when no site configured, return None
+                return None
+            request = self.context.get('request')
+            if request:
+                from wagtail.api.v2.utils import get_full_url
+                return get_full_url(request, url)
+            return url
+        except Exception:
+            # Handle cases where get_url() fails (e.g., no site root)
+            return None
     
     def get_author(self, obj):
         """Get basic author information."""
@@ -304,7 +340,7 @@ class BlogIndexPageSerializer(PageSerializer):
     
     class Meta:
         model = BlogIndexPage
-        fields = ['id', 'title', 'slug', 'url', 'meta'] + [
+        fields = ['id', 'title', 'slug', 'url'] + [
             'introduction', 'posts_per_page', 'show_featured_posts',
             'show_categories', 'featured_posts_title', 'featured_posts',
             'categories', 'recent_posts'
@@ -352,7 +388,7 @@ class BlogCategoryPageSerializer(PageSerializer):
     
     class Meta:
         model = BlogCategoryPage
-        fields = ['id', 'title', 'slug', 'url', 'meta'] + [
+        fields = ['id', 'title', 'slug', 'url'] + [
             'category', 'posts_per_page', 'posts'
         ]
     

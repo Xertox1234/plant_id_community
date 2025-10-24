@@ -149,20 +149,13 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         if action == 'list':
             # List view: Optimized for multiple posts with limited related data
-            from ..constants import MAX_RELATED_PLANT_SPECIES
-
             queryset = queryset.select_related(
                 'author',  # ForeignKey - reduces queries for author info
                 'series',  # ForeignKey - reduces queries for series info
             ).prefetch_related(
                 'categories',  # ManyToMany - fetch all categories (usually <5 per post)
                 'tags',  # ManyToMany - tags prefetched but limited in serializer
-                Prefetch(
-                    'related_plant_species',  # Limit to most relevant
-                    queryset=BlogPostPage.related_plant_species.through.objects.select_related(
-                        'plantspecies'
-                    )[:MAX_RELATED_PLANT_SPECIES]
-                ),
+                'related_plant_species',  # Prefetch all, limit in serializer (MAX_RELATED_PLANT_SPECIES)
             )
 
             # List view: Only prefetch thumbnail renditions
@@ -211,10 +204,28 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         return queryset.distinct()
     
+    def get_serializer_context(self):
+        """
+        Override to make wagtailapi_router optional for test compatibility.
+
+        Wagtail's PagesAPIViewSet expects request.wagtailapi_router which is only
+        added by Wagtail's URL dispatcher. In test contexts using APIRequestFactory,
+        this attribute doesn't exist, so we need to handle it gracefully.
+        """
+        context = {
+            'request': self.request,
+            'format': self.format_kwarg,
+            'view': self
+        }
+        # Add router if available (production), but don't fail if missing (tests)
+        if hasattr(self.request, 'wagtailapi_router'):
+            context['router'] = self.request.wagtailapi_router
+        return context
+
     def get_ordering(self):
         """Default ordering for blog posts."""
         ordering = self.request.GET.get('order', '-first_published_at')
-        
+
         # Map friendly ordering names
         ordering_map = {
             'newest': '-first_published_at',
@@ -223,7 +234,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             'title_desc': '-title',
             'popular': '-views_count',  # If you add view tracking
         }
-        
+
         return ordering_map.get(ordering, ordering)
     
     @action(detail=False, methods=['get'])
@@ -314,9 +325,12 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         )
         return Response(serializer.data)
     
-    def list(self, request, *args, **kwargs):
+    def listing_view(self, request):
         """
-        Enhanced list view with caching and search tracking.
+        Enhanced listing view with caching and search tracking.
+
+        Wagtail API Method: Overrides PagesAPIViewSet.listing_view()
+        instead of DRF's list() method.
 
         Performance (Phase 2.2):
         - Cache check before database queries
@@ -331,8 +345,8 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         # Extract pagination and filter parameters for cache key
         # Calculate page number consistently (page numbers start at 1)
         offset = int(request.GET.get('offset', 0))
-        limit = int(request.GET.get('limit', 10))
-        page = (offset // limit) + 1  # Page 1 = offset 0-9, Page 2 = offset 10-19, etc.
+        limit = int(request.GET.get('limit', 20))  # Wagtail default is 20
+        page = (offset // limit) + 1  # Page 1 = offset 0-19, Page 2 = offset 20-39, etc.
 
         # Extract filters (everything except pagination params)
         filters = {k: v for k, v in request.GET.items()
@@ -354,8 +368,8 @@ class BlogPostPageViewSet(PagesAPIViewSet):
                 # Ignore query tracking errors
                 pass
 
-        # Cache miss - query database
-        response = super().list(request, *args, **kwargs)
+        # Cache miss - call Wagtail's listing_view
+        response = super().listing_view(request)
 
         # Cache the response for future requests (Phase 2.2)
         if response.status_code == 200:
@@ -365,9 +379,21 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         return response
 
-    def retrieve(self, request, *args, **kwargs):
+    def list(self, request, *args, **kwargs):
+        """
+        DRF-compatible list method (for tests and direct calls).
+
+        This method wraps listing_view() to maintain compatibility with
+        DRF test patterns while supporting Wagtail's API architecture.
+        """
+        return self.listing_view(request)
+
+    def detail_view(self, request, pk):
         """
         Retrieve single blog post with caching.
+
+        Wagtail API Method: Overrides PagesAPIViewSet.detail_view()
+        instead of DRF's retrieve() method.
 
         Performance (Phase 2.2):
         - Cache check before database queries
@@ -380,7 +406,14 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         start_time = time.time()
 
         # Get the blog post to extract slug
-        instance = self.get_object()
+        # Wagtail API uses find_object() instead of get_object()
+        queryset = self.get_queryset()
+        instance = self.find_object(queryset, request)
+
+        if not instance:
+            # Let Wagtail handle 404
+            return super().detail_view(request, pk)
+
         slug = instance.slug
 
         # Check cache first (Phase 2.2)
@@ -390,17 +423,27 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             logger.info(f"[PERF] Blog post '{slug}' cached response in {elapsed:.2f}ms")
             return Response(cached_response)
 
-        # Cache miss - serialize from database
-        serializer = self.get_serializer(instance)
-        data = serializer.data
+        # Cache miss - call Wagtail's detail_view
+        response = super().detail_view(request, pk)
 
         # Cache the response for future requests (Phase 2.2)
-        BlogCacheService.set_blog_post(slug, data)
+        if response.status_code == 200:
+            BlogCacheService.set_blog_post(slug, response.data)
+            elapsed = (time.time() - start_time) * 1000
+            logger.info(f"[PERF] Blog post '{slug}' cold response in {elapsed:.2f}ms")
 
-        elapsed = (time.time() - start_time) * 1000
-        logger.info(f"[PERF] Blog post '{slug}' cold response in {elapsed:.2f}ms")
+        return response
 
-        return Response(data)
+    def retrieve(self, request, *args, **kwargs):
+        """
+        DRF-compatible retrieve method (for tests and direct calls).
+
+        This method wraps detail_view() to maintain compatibility with
+        DRF test patterns while supporting Wagtail's API architecture.
+        """
+        # Extract pk from kwargs (DRF pattern)
+        pk = kwargs.get('pk')
+        return self.detail_view(request, pk)
 
 
 class BlogIndexPageViewSet(PagesAPIViewSet):
