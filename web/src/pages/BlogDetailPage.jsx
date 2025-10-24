@@ -29,6 +29,7 @@ export default function BlogDetailPage() {
   const [relatedPosts, setRelatedPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const loadPost = async () => {
@@ -316,26 +317,50 @@ export default function BlogDetailPage() {
           <h3 className="text-lg font-bold text-gray-900 mb-4">Share this article</h3>
           <div className="flex gap-3">
             <button
-              onClick={() => {
+              onClick={async () => {
                 const url = window.location.href;
-                const text = `Check out this article: ${post.title}`;
-                if (navigator.share) {
-                  navigator.share({ title: post.title, text, url });
-                } else {
-                  navigator.clipboard.writeText(url);
-                  alert('Link copied to clipboard!');
+                try {
+                  await navigator.clipboard.writeText(url);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                } catch (err) {
+                  console.error('Failed to copy:', err);
                 }
               }}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
+              className={`px-4 py-2 rounded-lg transition-all flex items-center ${
+                copied
+                  ? 'bg-green-100 text-green-800 border-2 border-green-600'
+                  : 'bg-green-600 text-white hover:bg-green-700'
+              }`}
             >
-              <svg
-                className="w-5 h-5 mr-2"
-                fill="currentColor"
-                viewBox="0 0 20 20"
-              >
-                <path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" />
-              </svg>
-              Share
+              {copied ? (
+                <>
+                  <svg
+                    className="w-5 h-5 mr-2"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  Link Copied!
+                </>
+              ) : (
+                <>
+                  <svg
+                    className="w-5 h-5 mr-2"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                    <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                  </svg>
+                  Copy Link
+                </>
+              )}
             </button>
           </div>
         </div>
