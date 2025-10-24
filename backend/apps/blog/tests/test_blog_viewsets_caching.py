@@ -10,7 +10,9 @@ Validates:
 """
 
 import time
+from datetime import date
 from django.test import TestCase, RequestFactory
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from unittest.mock import patch, MagicMock
 from rest_framework.test import APIRequestFactory
@@ -18,6 +20,8 @@ from wagtail.models import Page
 
 from ..models import BlogPostPage, BlogIndexPage
 from ..api.viewsets import BlogPostPageViewSet
+
+User = get_user_model()
 from ..services.blog_cache_service import BlogCacheService
 
 
@@ -28,6 +32,13 @@ class BlogPostPageViewSetCachingTestCase(TestCase):
         """Set up test data and clear cache."""
         cache.clear()
         self.factory = APIRequestFactory()
+
+        # Create test user for blog posts
+        self.user = User.objects.create_user(
+            username="testauthor",
+            email="author@example.com",
+            password="testpass123"
+        )
 
         # Create a root page
         root = Page.objects.get(id=1)
@@ -44,8 +55,10 @@ class BlogPostPageViewSetCachingTestCase(TestCase):
             blog_post = BlogPostPage(
                 title=f"Test Post {i}",
                 slug=f"test-post-{i}",
-                intro=f"Test intro {i}",
-                body=[],
+                author=self.user,
+                publish_date=date.today(),
+                introduction=f"<p>Test intro {i}</p>",
+                content_blocks=[],
             )
             self.blog_index.add_child(instance=blog_post)
 

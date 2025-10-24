@@ -7,7 +7,9 @@ Validates:
 - Signal error handling and logging
 """
 
+from datetime import date
 from django.test import TestCase
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from unittest.mock import patch, MagicMock
 from wagtail.models import Page
@@ -18,6 +20,8 @@ from ..models import BlogPostPage, BlogIndexPage
 from ..services.blog_cache_service import BlogCacheService
 from .. import signals  # Import to ensure signals are registered
 
+User = get_user_model()
+
 
 class BlogSignalTestCase(TestCase):
     """Test suite for blog signal handlers."""
@@ -25,6 +29,13 @@ class BlogSignalTestCase(TestCase):
     def setUp(self):
         """Set up test data and clear cache."""
         cache.clear()
+
+        # Create test user for blog posts
+        self.user = User.objects.create_user(
+            username="testauthor",
+            email="author@example.com",
+            password="testpass123"
+        )
 
         # Create a root page
         root = Page.objects.get(id=1)
@@ -40,8 +51,10 @@ class BlogSignalTestCase(TestCase):
         self.blog_post = BlogPostPage(
             title="Test Post",
             slug="test-post",
-            intro="Test intro",
-            body=[],
+            author=self.user,
+            publish_date=date.today(),
+            introduction="<p>Test intro</p>",
+            content_blocks=[],
         )
         self.blog_index.add_child(instance=self.blog_post)
 
