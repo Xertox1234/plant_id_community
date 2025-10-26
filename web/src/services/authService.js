@@ -64,8 +64,8 @@ export async function login(credentials) {
 
     const data = await response.json()
 
-    // Store user in localStorage for persistence
-    localStorage.setItem('user', JSON.stringify(data.user))
+    // Store user in sessionStorage (cleared on tab close - more secure than localStorage)
+    sessionStorage.setItem('user', JSON.stringify(data.user))
 
     return data.user
   } catch (error) {
@@ -108,8 +108,8 @@ export async function signup(userData) {
 
     const data = await response.json()
 
-    // Store user in localStorage for persistence
-    localStorage.setItem('user', JSON.stringify(data.user))
+    // Store user in sessionStorage (cleared on tab close - more secure than localStorage)
+    sessionStorage.setItem('user', JSON.stringify(data.user))
 
     return data.user
   } catch (error) {
@@ -120,7 +120,7 @@ export async function signup(userData) {
 
 /**
  * Logout current user
- * Clears cookie and localStorage
+ * Clears cookie and sessionStorage
  * @returns {Promise<void>}
  */
 export async function logout() {
@@ -143,12 +143,12 @@ export async function logout() {
       logger.warn('[authService] Logout API failed, clearing local state anyway')
     }
 
-    // Always clear localStorage regardless of API response
-    localStorage.removeItem('user')
+    // Always clear sessionStorage regardless of API response
+    sessionStorage.removeItem('user')
   } catch (error) {
     logger.error('[authService] Logout error:', error)
-    // Still clear localStorage even if API fails
-    localStorage.removeItem('user')
+    // Still clear sessionStorage even if API fails
+    sessionStorage.removeItem('user')
     throw error
   }
 }
@@ -166,33 +166,33 @@ export async function getCurrentUser() {
     })
 
     if (!response.ok) {
-      // Not authenticated - clear localStorage
-      localStorage.removeItem('user')
+      // Not authenticated - clear sessionStorage
+      sessionStorage.removeItem('user')
       return null
     }
 
     const data = await response.json()
 
-    // Update localStorage with fresh user data
-    localStorage.setItem('user', JSON.stringify(data))
+    // Update sessionStorage with fresh user data
+    sessionStorage.setItem('user', JSON.stringify(data))
 
     return data
   } catch (error) {
     logger.error('[authService] Get current user error:', error)
-    // On error, try to get user from localStorage as fallback
-    const storedUser = localStorage.getItem('user')
+    // On error, try to get user from sessionStorage as fallback
+    const storedUser = sessionStorage.getItem('user')
     return storedUser ? JSON.parse(storedUser) : null
   }
 }
 
 /**
- * Get user from localStorage (synchronous)
+ * Get user from sessionStorage (synchronous)
  * Used for initial state on app load
  * @returns {Object|null} User data or null
  */
 export function getStoredUser() {
   try {
-    const storedUser = localStorage.getItem('user')
+    const storedUser = sessionStorage.getItem('user')
     return storedUser ? JSON.parse(storedUser) : null
   } catch (error) {
     logger.error('[authService] Error parsing stored user:', error)

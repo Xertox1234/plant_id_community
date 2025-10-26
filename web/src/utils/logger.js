@@ -5,12 +5,14 @@
  * but safe for production environments.
  *
  * In development: Logs to console
- * In production: Silent (or integrate with monitoring service like Sentry)
+ * In production: Sends to Sentry for error tracking
  *
  * @example
  * import { logger } from '../utils/logger'
  * logger.error('[LoginPage] Login failed:', error)
  */
+
+import * as Sentry from '@sentry/react'
 
 /**
  * Log error message
@@ -20,14 +22,13 @@
 export function logError(message, error) {
   if (import.meta.env.DEV) {
     console.error(message, error)
+  } else if (import.meta.env.PROD) {
+    // Send to Sentry in production
+    Sentry.captureException(error, {
+      tags: { context: message },
+      extra: { message },
+    })
   }
-
-  // TODO: In production, send to monitoring service
-  // if (import.meta.env.PROD && window.errorTracker) {
-  //   window.errorTracker.captureException(error, {
-  //     tags: { context: message }
-  //   })
-  // }
 }
 
 /**
@@ -38,9 +39,13 @@ export function logError(message, error) {
 export function logWarning(message, data) {
   if (import.meta.env.DEV) {
     console.warn(message, data)
+  } else if (import.meta.env.PROD) {
+    // Send to Sentry as warning level in production
+    Sentry.captureMessage(message, {
+      level: 'warning',
+      extra: data ? { data } : {},
+    })
   }
-
-  // TODO: In production, send to monitoring service
 }
 
 /**
