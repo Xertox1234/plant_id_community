@@ -1,6 +1,12 @@
+/**
+ * ForumPage Component
+ *
+ * Community forum page (placeholder for future implementation).
+ * Header and navigation now handled by RootLayout.
+ */
 export default function ForumPage() {
   return (
-    <div className="min-h-screen p-8">
+    <div className="p-8">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-4xl font-bold text-gray-900 mb-8">
           Community Forum

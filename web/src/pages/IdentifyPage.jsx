@@ -1,10 +1,15 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { ArrowLeft, Sparkles } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import FileUpload from '../components/PlantIdentification/FileUpload'
 import IdentificationResults from '../components/PlantIdentification/IdentificationResults'
 import { plantIdService } from '../services/plantIdService'
 
+/**
+ * IdentifyPage Component
+ *
+ * Plant identification page with file upload and AI-powered results.
+ * Page header and navigation now handled by RootLayout.
+ */
 export default function IdentifyPage() {
   const [selectedFile, setSelectedFile] = useState(null)
   const [results, setResults] = useState(null)
@@ -40,17 +45,10 @@ export default function IdentifyPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50">
-      {/* Header */}
+    <div className="bg-gradient-to-br from-green-50 to-emerald-50">
+      {/* Page Header */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <Link
-            to="/"
-            className="inline-flex items-center text-gray-600 hover:text-gray-900 mb-4"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Home
-          </Link>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl flex items-center justify-center">
               <Sparkles className="w-6 h-6 text-white" />
