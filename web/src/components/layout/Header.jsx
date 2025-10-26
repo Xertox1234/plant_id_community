@@ -1,23 +1,31 @@
 import { useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
-import { Menu, X } from 'lucide-react'
+import { Menu, X, User } from 'lucide-react'
+import { useAuth } from '../../hooks/useAuth'
 
 /**
  * Header Component
  *
- * Responsive navigation header with mobile menu.
+ * Responsive navigation header with mobile menu and authentication.
  * Features:
  * - Sticky header with logo and navigation
  * - Desktop navigation (visible on md+ breakpoints)
  * - Mobile hamburger menu with slide animation
  * - Active link highlighting with NavLink
- * - Placeholder auth buttons (functional in Phase 3)
+ * - Authentication-aware UI (shows user info when logged in)
+ * - Phase 3: Basic auth integration (enhanced in Phase 5 with UserMenu)
  */
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const { user, isAuthenticated, logout } = useAuth()
 
   const toggleMenu = () => setIsMenuOpen(!isMenuOpen)
   const closeMenu = () => setIsMenuOpen(false)
+
+  const handleLogout = async () => {
+    await logout()
+    closeMenu()
+  }
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
@@ -77,20 +85,37 @@ export default function Header() {
             </NavLink>
           </div>
 
-          {/* Desktop Auth Actions (Placeholder - Phase 3) */}
+          {/* Desktop Auth Actions */}
           <div className="hidden md:flex items-center gap-4">
-            <Link
-              to="/login"
-              className="text-gray-700 hover:text-green-600 font-medium"
-            >
-              Log in
-            </Link>
-            <Link
-              to="/signup"
-              className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
-            >
-              Sign up
-            </Link>
+            {isAuthenticated ? (
+              <>
+                <div className="flex items-center gap-2 text-gray-700">
+                  <User className="w-5 h-5 text-green-600" />
+                  <span className="font-medium">{user?.name || user?.email}</span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="px-4 py-2 text-gray-700 hover:text-green-600 font-medium transition-colors"
+                >
+                  Log out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="text-gray-700 hover:text-green-600 font-medium transition-colors"
+                >
+                  Log in
+                </Link>
+                <Link
+                  to="/signup"
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
+                >
+                  Sign up
+                </Link>
+              </>
+            )}
           </div>
 
           {/* Mobile menu button */}
@@ -149,22 +174,39 @@ export default function Header() {
               Community
             </NavLink>
 
-            {/* Mobile Auth Actions (Placeholder - Phase 3) */}
+            {/* Mobile Auth Actions */}
             <div className="pt-4 border-t border-gray-200">
-              <Link
-                to="/login"
-                onClick={closeMenu}
-                className="block px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-50 font-medium"
-              >
-                Log in
-              </Link>
-              <Link
-                to="/signup"
-                onClick={closeMenu}
-                className="block px-3 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 text-center font-medium mt-2 transition-colors"
-              >
-                Sign up
-              </Link>
+              {isAuthenticated ? (
+                <>
+                  <div className="flex items-center gap-2 px-3 py-2 text-gray-700">
+                    <User className="w-5 h-5 text-green-600" />
+                    <span className="font-medium">{user?.name || user?.email}</span>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full text-left px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+                  >
+                    Log out
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link
+                    to="/login"
+                    onClick={closeMenu}
+                    className="block px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+                  >
+                    Log in
+                  </Link>
+                  <Link
+                    to="/signup"
+                    onClick={closeMenu}
+                    className="block px-3 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 text-center font-medium mt-2 transition-colors"
+                  >
+                    Sign up
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </div>
