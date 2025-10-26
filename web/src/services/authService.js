@@ -11,7 +11,25 @@
  * - GET  /api/v1/users/me/
  */
 
+import { logger } from '../utils/logger'
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+// HTTPS enforcement for production
+if (import.meta.env.PROD && API_URL.startsWith('http://')) {
+  logger.error('[authService] SECURITY ERROR: API_URL must use HTTPS in production')
+  throw new Error('Cannot send credentials over HTTP in production. Set VITE_API_URL to https:// endpoint.')
+}
+
+/**
+ * Get CSRF token from cookie
+ * Django sets csrftoken cookie that must be sent as X-CSRFToken header
+ * @returns {string|null} CSRF token or null if not found
+ */
+function getCsrfToken() {
+  const match = document.cookie.match(/csrftoken=([^;]+)/)
+  return match ? match[1] : null
+}
 
 /**
  * Login user with email and password
@@ -22,11 +40,19 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
  */
 export async function login(credentials) {
   try {
+    const csrfToken = getCsrfToken()
+    const headers = {
+      'Content-Type': 'application/json',
+    }
+
+    // Add CSRF token if available (required by Django backend)
+    if (csrfToken) {
+      headers['X-CSRFToken'] = csrfToken
+    }
+
     const response = await fetch(`${API_URL}/api/v1/users/login/`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       credentials: 'include', // Include cookies
       body: JSON.stringify(credentials),
     })
@@ -43,7 +69,7 @@ export async function login(credentials) {
 
     return data.user
   } catch (error) {
-    console.error('[authService] Login error:', error)
+    logger.error('[authService] Login error:', error)
     throw error
   }
 }
@@ -58,11 +84,19 @@ export async function login(credentials) {
  */
 export async function signup(userData) {
   try {
+    const csrfToken = getCsrfToken()
+    const headers = {
+      'Content-Type': 'application/json',
+    }
+
+    // Add CSRF token if available (required by Django backend)
+    if (csrfToken) {
+      headers['X-CSRFToken'] = csrfToken
+    }
+
     const response = await fetch(`${API_URL}/api/v1/users/signup/`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       credentials: 'include', // Include cookies
       body: JSON.stringify(userData),
     })
@@ -79,7 +113,7 @@ export async function signup(userData) {
 
     return data.user
   } catch (error) {
-    console.error('[authService] Signup error:', error)
+    logger.error('[authService] Signup error:', error)
     throw error
   }
 }
@@ -91,19 +125,28 @@ export async function signup(userData) {
  */
 export async function logout() {
   try {
+    const csrfToken = getCsrfToken()
+    const headers = {}
+
+    // Add CSRF token if available (required by Django backend)
+    if (csrfToken) {
+      headers['X-CSRFToken'] = csrfToken
+    }
+
     const response = await fetch(`${API_URL}/api/v1/users/logout/`, {
       method: 'POST',
+      headers,
       credentials: 'include', // Include cookies
     })
 
     if (!response.ok) {
-      console.warn('[authService] Logout API failed, clearing local state anyway')
+      logger.warn('[authService] Logout API failed, clearing local state anyway')
     }
 
     // Always clear localStorage regardless of API response
     localStorage.removeItem('user')
   } catch (error) {
-    console.error('[authService] Logout error:', error)
+    logger.error('[authService] Logout error:', error)
     // Still clear localStorage even if API fails
     localStorage.removeItem('user')
     throw error
@@ -135,7 +178,7 @@ export async function getCurrentUser() {
 
     return data
   } catch (error) {
-    console.error('[authService] Get current user error:', error)
+    logger.error('[authService] Get current user error:', error)
     // On error, try to get user from localStorage as fallback
     const storedUser = localStorage.getItem('user')
     return storedUser ? JSON.parse(storedUser) : null
@@ -152,7 +195,7 @@ export function getStoredUser() {
     const storedUser = localStorage.getItem('user')
     return storedUser ? JSON.parse(storedUser) : null
   } catch (error) {
-    console.error('[authService] Error parsing stored user:', error)
+    logger.error('[authService] Error parsing stored user:', error)
     return null
   }
 }

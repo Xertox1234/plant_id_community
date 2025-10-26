@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useState, useEffect, useMemo } from 'react'
 import * as authService from '../services/authService'
+import { logger } from '../utils/logger'
 
 /**
  * AuthContext
@@ -50,7 +51,7 @@ export function AuthProvider({ children }) {
         const currentUser = await authService.getCurrentUser()
         setUser(currentUser)
       } catch (err) {
-        console.error('[AuthContext] Auth initialization failed:', err)
+        logger.error('[AuthContext] Auth initialization failed:', err)
         setUser(null)
       } finally {
         setIsLoading(false)
@@ -114,7 +115,7 @@ export function AuthProvider({ children }) {
       setUser(null)
       setError(null)
     } catch (err) {
-      console.error('[AuthContext] Logout failed:', err)
+      logger.error('[AuthContext] Logout failed:', err)
       // Still clear user state even if API fails
       setUser(null)
     }

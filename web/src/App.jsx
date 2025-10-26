@@ -6,6 +6,8 @@ import BlogListPage from './pages/BlogListPage'
 import BlogDetailPage from './pages/BlogDetailPage'
 import BlogPreview from './pages/BlogPreview'
 import ForumPage from './pages/ForumPage'
+import LoginPage from './pages/auth/LoginPage'
+import SignupPage from './pages/auth/SignupPage'
 
 /**
  * App Component
@@ -24,6 +26,10 @@ function App() {
         <Route path="/blog/:slug" element={<BlogDetailPage />} />
         <Route path="/blog/preview/:content_type/:token" element={<BlogPreview />} />
         <Route path="/forum" element={<ForumPage />} />
+
+        {/* Authentication routes */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
       </Route>
     </Routes>
   )
