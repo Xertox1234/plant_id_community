@@ -5,6 +5,7 @@ Authentication and user management views for the Plant Community application.
 from django.contrib.auth import authenticate
 from rest_framework import status, permissions
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db import transaction
@@ -52,7 +53,7 @@ def create_error_response(code: str, message: str, details: str = None, status_c
 @api_view(['GET'])
 @permission_classes([permissions.AllowAny])
 @ensure_csrf_cookie
-def get_csrf_token(request):
+def get_csrf_token(request: Request) -> Response:
     """
     Get CSRF token for frontend.
     """
@@ -63,7 +64,7 @@ def get_csrf_token(request):
 @permission_classes([permissions.AllowAny])
 @ensure_csrf_cookie
 @ratelimit(key='ip', rate='3/h', method='POST', block=True)  # 3 registrations per hour per IP
-def register(request):
+def register(request: Request) -> Response:
     """
     Register a new user account.
     """
@@ -116,7 +117,7 @@ def register(request):
 @permission_classes([permissions.AllowAny])
 @ensure_csrf_cookie
 @ratelimit(key='ip', rate='5/15m', method='POST', block=True)  # 5 login attempts per 15 minutes per IP
-def login(request):
+def login(request: Request) -> Response:
     """
     Authenticate user and return tokens.
     """
@@ -201,7 +202,7 @@ def login(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
-def current_user(request):
+def current_user(request: Request) -> Response:
     """
     Get current authenticated user information.
     """
@@ -211,7 +212,7 @@ def current_user(request):
 
 @api_view(['PATCH'])
 @permission_classes([permissions.IsAuthenticated])
-def update_profile(request):
+def update_profile(request: Request) -> Response:
     """
     Update current user's profile.
     """
@@ -229,7 +230,7 @@ def update_profile(request):
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
-def logout(request):
+def logout(request: Request) -> Response:
     """
     Logout user by clearing httpOnly cookies and blacklisting refresh token.
     """
@@ -263,7 +264,7 @@ def logout(request):
 @permission_classes([permissions.AllowAny])
 @csrf_protect  # CRITICAL: Validates CSRF for ALL POST requests (not just cookie-based)
 @ratelimit(key='ip', rate='10/h', method='POST', block=True)
-def token_refresh(request):
+def token_refresh(request: Request) -> Response:
     """
     Refresh JWT access token using refresh token from cookie or request data.
 
@@ -337,7 +338,7 @@ def token_refresh(request):
 
 @api_view(['GET', 'POST'])
 @permission_classes([permissions.IsAuthenticated])
-def user_collections(request):
+def user_collections(request: Request) -> Response:
     """
     List all collections for the current user or create a new one.
     """
@@ -358,7 +359,7 @@ def user_collections(request):
 
 @api_view(['GET', 'PUT', 'DELETE'])
 @permission_classes([permissions.IsAuthenticated])
-def user_collection_detail(request, collection_id):
+def user_collection_detail(request: Request, collection_id: int) -> Response:
     """
     Retrieve, update or delete a specific collection.
     """
@@ -387,7 +388,7 @@ def user_collection_detail(request, collection_id):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
-def previous_searches(request):
+def previous_searches(request: Request) -> Response:
     """
     Get user's previous plant identification searches.
     """
@@ -427,7 +428,7 @@ def previous_searches(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
-def search_detail(request, request_id):
+def search_detail(request: Request, request_id: int) -> Response:
     """
     Get detailed information about a specific search/identification request.
     """
@@ -450,7 +451,7 @@ def search_detail(request, request_id):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
-def forum_activity(request):
+def forum_activity(request: Request) -> Response:
     """
     Get user's recent forum activity (topics and posts).
     """
@@ -499,7 +500,7 @@ def forum_activity(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
-def dashboard_stats(request):
+def dashboard_stats(request: Request) -> Response:
     """
     Get comprehensive dashboard statistics for the user.
 
@@ -640,7 +641,7 @@ def dashboard_stats(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
-def forum_permissions(request):
+def forum_permissions(request: Request) -> Response:
     """
     Get forum permissions for the current user, including image upload permissions.
     """
@@ -700,7 +701,7 @@ def forum_permissions(request):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 @ratelimit(key='user', rate='10/h', method='POST', block=True)
-def subscribe_push_notifications(request):
+def subscribe_push_notifications(request: Request) -> Response:
     """
     Subscribe user to push notifications.
     """
@@ -737,7 +738,7 @@ def subscribe_push_notifications(request):
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
-def unsubscribe_push_notifications(request):
+def unsubscribe_push_notifications(request: Request) -> Response:
     """
     Unsubscribe from push notifications.
     """
@@ -763,7 +764,7 @@ def unsubscribe_push_notifications(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
-def push_subscriptions(request):
+def push_subscriptions(request: Request) -> Response:
     """
     Get user's current push subscriptions.
     """
@@ -789,7 +790,7 @@ def push_subscriptions(request):
 
 @api_view(['GET', 'POST'])
 @permission_classes([permissions.IsAuthenticated])
-def care_reminders(request):
+def care_reminders(request: Request) -> Response:
     """
     List user's care reminders or create a new one.
     """
@@ -889,7 +890,7 @@ def care_reminders(request):
 
 @api_view(['GET', 'PUT', 'DELETE'])
 @permission_classes([permissions.IsAuthenticated])
-def care_reminder_detail(request, reminder_uuid):
+def care_reminder_detail(request: Request, reminder_uuid: str) -> Response:
     """
     Get, update, or delete a specific care reminder.
     """
@@ -993,7 +994,7 @@ def care_reminder_detail(request, reminder_uuid):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 @ratelimit(key='user', rate='20/h', method='POST', block=True)
-def care_reminder_action(request, reminder_uuid):
+def care_reminder_action(request: Request, reminder_uuid: str) -> Response:
     """
     Perform actions on a care reminder (complete, snooze, skip).
     """
@@ -1063,7 +1064,7 @@ def care_reminder_action(request, reminder_uuid):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
-def care_reminder_stats(request):
+def care_reminder_stats(request: Request) -> Response:
     """
     Get user's care reminder statistics and analytics.
     """
@@ -1132,7 +1133,7 @@ def care_reminder_stats(request):
 
 @api_view(['GET', 'PATCH'])
 @permission_classes([permissions.IsAuthenticated])
-def onboarding_progress(request):
+def onboarding_progress(request: Request) -> Response:
     """
     Get or update user's onboarding progress.
     """
@@ -1191,7 +1192,7 @@ def onboarding_progress(request):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 @ratelimit(key='user', rate='10/h', method='POST', block=True)
-def create_demo_data(request):
+def create_demo_data(request: Request) -> Response:
     """
     Create demo data for new users to explore the platform.
     """
@@ -1233,7 +1234,7 @@ def create_demo_data(request):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 @ratelimit(key='user', rate='50/h', method='POST', block=True)
-def track_onboarding_event(request):
+def track_onboarding_event(request: Request) -> Response:
     """
     Track onboarding events for analytics and optimization.
     """
@@ -1269,7 +1270,7 @@ def track_onboarding_event(request):
 
 @api_view(['DELETE'])
 @permission_classes([permissions.IsAuthenticated])
-def delete_demo_data(request):
+def delete_demo_data(request: Request) -> Response:
     """
     Delete all demo data for a user.
     """
@@ -1299,7 +1300,7 @@ def delete_demo_data(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
-def export_care_reminders_calendar(request):
+def export_care_reminders_calendar(request: Request) -> HttpResponse:
     """
     Export user's care reminders as an ICS calendar file.
     """
@@ -1408,7 +1409,7 @@ def export_care_reminders_calendar(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
-def care_reminder_calendar_preview(request):
+def care_reminder_calendar_preview(request: Request) -> Response:
     """
     Get a preview of upcoming care reminder events for calendar display.
     """
