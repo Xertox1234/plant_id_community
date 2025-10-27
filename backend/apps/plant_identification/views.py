@@ -14,6 +14,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.db import transaction, models
+from django.db.models import F
 from django.conf import settings
 # Rate limiting - make optional
 try:
@@ -324,27 +325,45 @@ class PlantIdentificationResultViewSet(viewsets.ReadOnlyModelViewSet):
                     # User is changing their vote
                     vote.vote_type = vote_type
                     vote.save()
-                    
-                    # Adjust vote counts
+
+                    # Adjust vote counts atomically using F() expressions (prevents race conditions)
                     if previous_vote == 'upvote':
-                        result_obj.upvotes = max(0, result_obj.upvotes - 1)
-                        result_obj.downvotes += 1
+                        # Decrement upvotes, increment downvotes
+                        PlantIdentificationResult.objects.filter(id=result_obj.id).update(
+                            upvotes=models.Case(
+                                models.When(upvotes__gt=0, then=F('upvotes') - 1),
+                                default=0
+                            ),
+                            downvotes=F('downvotes') + 1
+                        )
                     else:
-                        result_obj.downvotes = max(0, result_obj.downvotes - 1) 
-                        result_obj.upvotes += 1
-                    result_obj.save()
+                        # Decrement downvotes, increment upvotes
+                        PlantIdentificationResult.objects.filter(id=result_obj.id).update(
+                            downvotes=models.Case(
+                                models.When(downvotes__gt=0, then=F('downvotes') - 1),
+                                default=0
+                            ),
+                            upvotes=F('upvotes') + 1
+                        )
+                    # Refresh object from database to get updated values
+                    result_obj.refresh_from_database()
                     
                     return Response({
                         'message': f'Vote changed to {vote_type} successfully',
                         'result': self.get_serializer(result_obj, context={'request': request}).data
                     })
             else:
-                # New vote - increment the appropriate counter
+                # New vote - increment the appropriate counter atomically (prevents race conditions)
                 if vote_type == 'upvote':
-                    result_obj.upvotes += 1
+                    PlantIdentificationResult.objects.filter(id=result_obj.id).update(
+                        upvotes=F('upvotes') + 1
+                    )
                 else:
-                    result_obj.downvotes += 1
-                result_obj.save()
+                    PlantIdentificationResult.objects.filter(id=result_obj.id).update(
+                        downvotes=F('downvotes') + 1
+                    )
+                # Refresh object from database to get updated values
+                result_obj.refresh_from_database()
                 
                 return Response({
                     'message': f'Vote {vote_type}d successfully',
@@ -839,13 +858,18 @@ class PlantDiseaseResultViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'error': 'Invalid vote type'}, status=400)
         
         # TODO: Implement proper voting system with user tracking to prevent duplicate votes
-        with transaction.atomic():
-            if vote_type == 'upvote':
-                result_obj.upvotes += 1
-            else:
-                result_obj.downvotes += 1
-            
-            result_obj.save()
+        # Use atomic F() expressions to prevent race conditions
+        if vote_type == 'upvote':
+            PlantDiseaseResult.objects.filter(id=result_obj.id).update(
+                upvotes=F('upvotes') + 1
+            )
+        else:
+            PlantDiseaseResult.objects.filter(id=result_obj.id).update(
+                downvotes=F('downvotes') + 1
+            )
+
+        # Refresh object from database to get updated values
+        result_obj.refresh_from_database()
         
         serializer = self.get_serializer(result_obj)
         return Response({
@@ -987,7 +1011,7 @@ class PlantDiseaseDatabaseViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=['get'])
     def disease_types(self, request):
         """Get available disease types with counts."""
-        from django.db.models import Count
+        from django.db.models import Count, F
         
         types = PlantDiseaseDatabase.objects.values('disease_type').annotate(
             count=Count('id'),
