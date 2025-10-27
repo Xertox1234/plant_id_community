@@ -21,9 +21,23 @@ from ..constants import (
     PLANTNET_API_REQUEST_TIMEOUT,
     IMAGE_DOWNLOAD_TIMEOUT,
     IMAGE_DOWNLOAD_QUICK_TIMEOUT,
+    PLANTNET_CIRCUIT_FAIL_MAX,
+    PLANTNET_CIRCUIT_RESET_TIMEOUT,
+    PLANTNET_CIRCUIT_SUCCESS_THRESHOLD,
+    PLANTNET_CIRCUIT_TIMEOUT,
 )
+from ..circuit_monitoring import create_monitored_circuit
 
 logger = logging.getLogger(__name__)
+
+# Module-level circuit breaker (shared across all instances for proper failure tracking)
+_plantnet_circuit, _plantnet_monitor, _plantnet_stats = create_monitored_circuit(
+    service_name='plantnet_api',
+    fail_max=PLANTNET_CIRCUIT_FAIL_MAX,
+    reset_timeout=PLANTNET_CIRCUIT_RESET_TIMEOUT,
+    success_threshold=PLANTNET_CIRCUIT_SUCCESS_THRESHOLD,
+    timeout=PLANTNET_CIRCUIT_TIMEOUT,
+)
 
 
 class PlantNetAPIService:
@@ -56,8 +70,8 @@ class PlantNetAPIService:
     
     def __init__(self, api_key: Optional[str] = None):
         """
-        Initialize the PlantNet API service.
-        
+        Initialize the PlantNet API service with circuit breaker support.
+
         Args:
             api_key: PlantNet API key. If not provided, will use settings.PLANTNET_API_KEY
         """
@@ -65,9 +79,52 @@ class PlantNetAPIService:
         if not self.api_key:
             logger.error("PlantNet API key not configured")
             raise ValueError("PLANTNET_API_KEY must be set in Django settings")
-        
+
         self.session = requests.Session()
+
+        # Reference module-level circuit breaker
+        self.circuit = _plantnet_circuit
+        self.circuit_stats = _plantnet_stats
     
+    def _call_plantnet_api(self, url: str, params: Dict[str, str], files: List[tuple],
+                           data: List[tuple], cache_key: str, image_hash: str) -> Optional[Dict[str, Any]]:
+        """
+        Internal method to call PlantNet API through circuit breaker.
+
+        Args:
+            url: API endpoint URL
+            params: Query parameters (API key)
+            files: Multipart files list
+            data: Multipart data tuples (organs, modifiers)
+            cache_key: Cache key for storing result
+            image_hash: Image hash for logging
+
+        Returns:
+            API response dictionary or None if error
+        """
+        try:
+            logger.info(f"[CIRCUIT] Calling PlantNet API for {image_hash[:8]}...")
+            response = self.session.post(url, params=params, files=files, data=data, timeout=PLANTNET_API_REQUEST_TIMEOUT)
+            response.raise_for_status()
+
+            result = response.json()
+
+            # Cache the result for 24 hours (match Plant.id caching strategy)
+            cache.set(cache_key, result, timeout=self.CACHE_TIMEOUT)
+            logger.info(f"[CACHE] Stored PlantNet result for image {image_hash[:8]}... (TTL: {self.CACHE_TIMEOUT}s)")
+
+            return result
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[ERROR] PlantNet API request failed: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Response status: {e.response.status_code}")
+                logger.error(f"Response body: {e.response.text[:500]}")
+            raise  # Re-raise for circuit breaker to track failures
+        except Exception as e:
+            logger.error(f"[ERROR] PlantNet API error: {str(e)}")
+            raise  # Re-raise for circuit breaker to track failures
+
     def _prepare_image(self, image_file, max_size: int = 1024) -> bytes:
         """
         Prepare image for PlantNet API by resizing and converting to JPEG.
@@ -193,27 +250,23 @@ class PlantNetAPIService:
             if modifiers:
                 for modifier in modifiers:
                     data.append(('modifiers', modifier))
-            
-            # Make request using requests.post with files and data tuples
-            response = self.session.post(url, params=params, files=files, data=data, timeout=PLANTNET_API_REQUEST_TIMEOUT)
-            response.raise_for_status()
 
-            result = response.json()
-
-            # Cache the result for 24 hours (match Plant.id caching strategy)
-            cache.set(cache_key, result, timeout=self.CACHE_TIMEOUT)
-            logger.info(f"[CACHE] Stored PlantNet result for image {image_hash[:8]}... (TTL: {self.CACHE_TIMEOUT}s)")
+            # Call API through circuit breaker (99.97% faster fast-fail during outages)
+            result = self.circuit.call(
+                self._call_plantnet_api,
+                url,
+                params,
+                files,
+                data,
+                cache_key,
+                image_hash
+            )
 
             return result
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"PlantNet API request failed: {str(e)}")
-            if hasattr(e, 'response') and e.response is not None:
-                logger.error(f"Response status: {e.response.status_code}")
-                logger.error(f"Response body: {e.response.text[:500]}")
-            return None
+
         except Exception as e:
-            logger.error(f"Error preparing PlantNet request: {str(e)}")
+            # Circuit breaker exceptions (CircuitBreakerError, etc.) or general errors
+            logger.error(f"[ERROR] PlantNet identification failed: {str(e)}")
             return None
     
     def get_top_suggestions(self, identification_result: Dict[str, Any], min_score: float = 0.1) -> List[Dict[str, Any]]:
