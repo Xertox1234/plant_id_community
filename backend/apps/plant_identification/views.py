@@ -346,7 +346,7 @@ class PlantIdentificationResultViewSet(viewsets.ReadOnlyModelViewSet):
                             upvotes=F('upvotes') + 1
                         )
                     # Refresh object from database to get updated values
-                    result_obj.refresh_from_database()
+                    result_obj.refresh_from_db()
                     
                     return Response({
                         'message': f'Vote changed to {vote_type} successfully',
@@ -363,7 +363,7 @@ class PlantIdentificationResultViewSet(viewsets.ReadOnlyModelViewSet):
                         downvotes=F('downvotes') + 1
                     )
                 # Refresh object from database to get updated values
-                result_obj.refresh_from_database()
+                result_obj.refresh_from_db()
                 
                 return Response({
                     'message': f'Vote {vote_type}d successfully',
@@ -869,7 +869,7 @@ class PlantDiseaseResultViewSet(viewsets.ReadOnlyModelViewSet):
             )
 
         # Refresh object from database to get updated values
-        result_obj.refresh_from_database()
+        result_obj.refresh_from_db()
         
         serializer = self.get_serializer(result_obj)
         return Response({
