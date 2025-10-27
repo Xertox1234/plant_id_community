@@ -1,8 +1,14 @@
 import { Link } from 'react-router-dom'
 
+/**
+ * HomePage Component
+ *
+ * Landing page with hero section and feature cards.
+ * Header and navigation now handled by RootLayout.
+ */
 export default function HomePage() {
   return (
-    <div className="min-h-screen">
+    <div>
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-green-50 to-emerald-50 py-24 px-4">
         <div className="max-w-7xl mx-auto text-center">
