@@ -42,7 +42,7 @@ export const plantIdService = {
         `${API_BASE_URL}/api/${API_VERSION}/plant-identification/history/`
       )
       return response.data
-    } catch (error) {
+    } catch {
       throw new Error('Failed to load identification history')
     }
   },
@@ -59,7 +59,7 @@ export const plantIdService = {
         { identification_id: identificationId }
       )
       return response.data
-    } catch (error) {
+    } catch {
       throw new Error('Failed to save plant to collection')
     }
   },

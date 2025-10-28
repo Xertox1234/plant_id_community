@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useMemo, memo } from 'react';
 import PropTypes from 'prop-types';
 
 /**
@@ -6,8 +7,9 @@ import PropTypes from 'prop-types';
  *
  * Displays a blog post preview card with image, title, excerpt, and metadata.
  * Used in blog list pages and related posts sections.
+ * Memoized to prevent unnecessary re-renders when parent component updates.
  */
-export default function BlogCard({ post, showImage = true, compact = false }) {
+function BlogCard({ post, showImage = true, compact = false }) {
   const {
     slug,
     title,
@@ -19,22 +21,24 @@ export default function BlogCard({ post, showImage = true, compact = false }) {
     view_count = 0,
   } = post;
 
-  // Format date
-  const formattedDate = publish_date
-    ? new Date(publish_date).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      })
-    : null;
+  // Format date (memoized to prevent recalculation on every render)
+  const formattedDate = useMemo(() => {
+    if (!publish_date) return null;
+    return new Date(publish_date).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  }, [publish_date]);
 
-  // Get first category
-  const primaryCategory = categories[0];
+  // Get first category (memoized)
+  const primaryCategory = useMemo(() => categories[0], [categories]);
 
-  // Truncate introduction for preview
-  const excerpt = introduction
-    ? introduction.replace(/<[^>]*>/g, '').substring(0, compact ? 100 : 200) + '...'
-    : '';
+  // Truncate introduction for preview (memoized)
+  const excerpt = useMemo(() => {
+    if (!introduction) return '';
+    return introduction.replace(/<[^>]*>/g, '').substring(0, compact ? 100 : 200) + '...';
+  }, [introduction, compact]);
 
   return (
     <Link
@@ -179,3 +183,6 @@ BlogCard.propTypes = {
   showImage: PropTypes.bool,
   compact: PropTypes.bool,
 };
+
+// Export memoized component to prevent re-renders when props don't change
+export default memo(BlogCard);

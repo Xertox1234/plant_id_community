@@ -101,7 +101,7 @@ function StreamFieldBlock({ block }) {
         </figure>
       );
 
-    case 'quote':
+    case 'quote': {
       // Handle both possible quote structures
       const quoteText = typeof value === 'string' ? value : (value.quote || value.quote_text || '');
       const attribution = typeof value === 'object' ? value.attribution : null;
@@ -116,6 +116,7 @@ function StreamFieldBlock({ block }) {
           )}
         </blockquote>
       );
+    }
 
     case 'code':
       return (

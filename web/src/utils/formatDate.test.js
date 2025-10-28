@@ -164,11 +164,8 @@ describe('formatDate utilities', () => {
   });
 
   describe('formatRelativeDate', () => {
-    let originalDate;
-
     beforeEach(() => {
       // Mock Date to have consistent test results
-      originalDate = global.Date;
       const mockDate = new Date('2025-01-15T12:00:00');
       vi.useFakeTimers();
       vi.setSystemTime(mockDate);
@@ -176,7 +173,6 @@ describe('formatDate utilities', () => {
 
     afterEach(() => {
       vi.useRealTimers();
-      global.Date = originalDate;
     });
 
     it('should return "Just now" for recent dates', () => {

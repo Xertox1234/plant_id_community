@@ -702,24 +702,811 @@ For Wagtail models:
      - [ ] Are imports lazy (avoid circular dependencies)?
      - [ ] Is there documentation explaining the shadowing?
 
+**Django ORM Patterns (Phase 1 P1 Critical Fixes + P2 Enhancements):**
+
+15. **Django Multi-Table Inheritance Index Limitation** ⭐ NEW - BLOCKER (Issue #25)
+   - BLOCKER: Cannot add indexes on inherited fields in Django child model Meta class
+   - CRITICAL: Multi-table inheritance creates separate tables for parent and child
+   - PATTERN: Verify parent model already indexes the field before attempting in child
+   - Check for: Indexes on fields like `first_published_at` in Wagtail Page subclasses
+   - Why this fails:
+     - Django creates separate tables: `wagtailcore_page` + `blog_blogpostpage`
+     - Inherited fields exist in parent table only
+     - Index constraint: Must be on fields in child's table
+     - Django error: `(models.E016) 'indexes' refers to field 'first_published_at' which is not local to model`
+   - Anti-pattern (BLOCKER):
+     ```python
+     # WRONG: Cannot index inherited field in child model
+     class BlogPostPage(Page):  # Inherits from Wagtail Page
+         custom_field = models.CharField(max_length=255)
+
+         class Meta:
+             indexes = [
+                 # ❌ BLOCKER: 'first_published_at' is inherited from Page
+                 models.Index(fields=['first_published_at']),
+             ]
+     ```
+   - Django error message:
+     ```
+     (models.E016) 'indexes' refers to field 'first_published_at' which
+     is not local to model 'BlogPostPage'. This isn't supported on
+     multi-table inheritance relationships.
+     ```
+   - Correct pattern (document parent index):
+     ```python
+     class BlogPostPage(Page):
+         custom_field = models.CharField(max_length=255)
+
+         class Meta:
+             indexes = [
+                 # NOTE: Cannot index 'first_published_at' here (inherited from Page)
+                 # Wagtail's Page model already includes index on first_published_at
+                 # in wagtailcore_page table (verified in Wagtail 7.0.3 source)
+
+                 # ✅ Index local fields only
+                 models.Index(fields=['custom_field'],
+                             name='blogpost_custom_idx'),
+             ]
+     ```
+   - Composite indexes (local + inherited):
+     ```python
+     class Meta:
+         indexes = [
+             # ✅ CORRECT: Composite index with local field first
+             # Django creates index on child table, uses JOIN for inherited field
+             models.Index(
+                 fields=['custom_field', '-first_published_at'],
+                 name='blogpost_custom_published_idx'
+             ),
+         ]
+     ```
+   - Verification steps:
+     ```bash
+     # Step 1: Check Wagtail Page model for existing indexes
+     grep -A 10 "class.*Page.*Meta" wagtail/core/models.py
+
+     # Step 2: Check migration files
+     find . -path "*/wagtail/core/migrations/*.py" -exec grep -l "first_published_at" {} \;
+
+     # Step 3: Verify parent indexes exist
+     python manage.py dbshell
+     \d wagtailcore_page  -- PostgreSQL: Shows all indexes on parent table
+     ```
+   - Detection pattern:
+     ```bash
+     # Find child models with indexes on inherited fields
+     find . -name "models.py" -exec awk '
+       /class.*\(Page\):/ { in_page_class=1; class_name=$2 }
+       in_page_class && /class Meta:/ { in_meta=1 }
+       in_meta && /Index.*first_published/ {
+         print FILENAME":"NR": BLOCKER - Cannot index inherited field in "class_name
+       }
+       /^class / && !/class Meta/ { in_page_class=0; in_meta=0 }
+     ' {} \;
+     ```
+   - Review checklist:
+     - [ ] Is the model using multi-table inheritance (Page, User, AbstractUser)?
+     - [ ] Are indexed fields defined locally in the child model?
+     - [ ] If using inherited fields in index, is there documentation?
+     - [ ] For Wagtail models, are parent indexes verified in source?
+     - [ ] Are composite indexes structured with local fields first?
+     - [ ] Is migration documented with reason for index structure?
+   - Impact if violated:
+     - **Migration Creation**: Fails with models.E016 error
+     - **Development**: Blocks database schema changes
+     - **Performance**: May attempt redundant indexes
+   - See: [P2 Code Review Patterns](P2_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 22
+
+16. **F() Expression with Refresh Pattern** ⭐ NEW - CRITICAL
+   - BLOCKER: F() expression updates without refresh_from_db()
+   - CRITICAL: Django F() expressions update database but NOT in-memory object
+   - PATTERN: Always call refresh_from_db() after F() expression save
+   - Check for: F('field') + 1 followed by save() without refresh_from_db()
+   - Why this is critical:
+     - F() expressions perform atomic database updates: `UPDATE table SET count = count + 1`
+     - In-memory object still has old value: `obj.count = <F expression object>`
+     - Serializers read from memory, not database → users see stale data
+     - **User experience**: Vote buttons don't show immediate feedback
+   - Anti-pattern (BLOCKER):
+     ```python
+     # WRONG: Missing refresh_from_db()
+     plant_result.upvotes = F('upvotes') + 1
+     plant_result.save()
+     serializer = PlantResultSerializer(plant_result)
+     return Response(serializer.data)  # ❌ Returns OLD value
+     ```
+   - Common typo (BLOCKER):
+     ```python
+     # ❌ WRONG METHOD NAME (does not exist)
+     plant_result.refresh_from_database()  # AttributeError!
+
+     # ✅ CORRECT
+     plant_result.refresh_from_db()  # Note: 'db' not 'database'
+     ```
+   - Correct pattern:
+     ```python
+     # CORRECT: Atomic update with refresh
+     plant_result.upvotes = F('upvotes') + 1
+     plant_result.save()
+     plant_result.refresh_from_db()  # ✅ Reload from database
+
+     serializer = PlantResultSerializer(plant_result)
+     return Response(serializer.data)  # ✅ Returns NEW value
+     ```
+   - Multiple field updates:
+     ```python
+     # Multiple F() expressions in one save
+     plant_result.upvotes = F('upvotes') + 1
+     plant_result.downvotes = F('downvotes') - 1
+     plant_result.save()
+
+     # Refresh specific fields (more efficient)
+     plant_result.refresh_from_db(fields=['upvotes', 'downvotes'])
+     ```
+   - Detection patterns:
+     ```bash
+     # Find F() expressions in Python files
+     grep -n "F(" apps/*/views.py apps/*/api.py
+
+     # For each match, check if followed by refresh_from_db() within 5 lines
+     # Pattern: Look for .save() WITHOUT subsequent refresh_from_db()
+     ```
+   - Review checklist:
+     - [ ] Does code use F() expressions for field updates?
+     - [ ] Is save() called after assigning F() expression?
+     - [ ] Is refresh_from_db() called immediately after save()?
+     - [ ] Is method name spelled correctly (refresh_from_db not refresh_from_database)?
+     - [ ] Does serializer run AFTER refresh (not before)?
+     - [ ] Are there unit tests verifying returned value matches database state?
+   - Impact if violated:
+     - **User Experience**: Vote counts don't update in UI, users click multiple times
+     - **Data Integrity**: Database correct, API response stale (inconsistency)
+     - **Security**: Audit logs show incorrect values, metrics use wrong data
+   - Test pattern:
+     ```python
+     def test_upvote_returns_fresh_count(self):
+         """Verify upvote API returns updated count immediately."""
+         plant_result = PlantIdentificationResult.objects.create(
+             user=self.user,
+             common_name="Rose",
+             upvotes=0  # Initial count
+         )
+
+         # Upvote via API
+         response = self.client.post(f'/api/v1/plant-results/{plant_result.id}/upvote/')
+
+         self.assertEqual(response.status_code, 200)
+
+         # CRITICAL: Response must show incremented count
+         self.assertEqual(response.data['upvotes'], 1)  # Not 0!
+
+         # Verify database matches
+         plant_result.refresh_from_db()
+         self.assertEqual(plant_result.upvotes, 1)
+     ```
+   - See: [P1 Code Review Patterns Codified](P1_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 1
+
+17. **Django ORM Method Name Validation** ⭐ NEW
+   - BLOCKER: Incorrect Django model method names (typos)
+   - PATTERN: Verify method names against Django documentation
+   - Check for: Common Django ORM typos
+   - Common errors:
+     | ❌ Incorrect | ✅ Correct | Purpose |
+     |-------------|-----------|---------|
+     | `refresh_from_database()` | `refresh_from_db()` | Reload object from DB |
+     | `get_or_create_or_update()` | `get_or_create()` or `update_or_create()` | Get/create logic |
+     | `update_or_insert()` | `update_or_create()` | Upsert operation |
+     | `delete_all()` | `all().delete()` | Bulk delete |
+     | `filter_by()` | `filter()` | QuerySet filtering |
+     | `order()` | `order_by()` | QuerySet ordering |
+     | `select_all_related()` | `select_related()` | Eager loading |
+   - Detection pattern:
+     ```bash
+     # Check for common typos in Python files
+     grep -nE "(refresh_from_database|get_or_create_or_update|update_or_insert|delete_all\(|filter_by\(|order\(|select_all_related)" apps/**/*.py
+
+     # If found: BLOCKER - Incorrect Django ORM method name
+     ```
+   - Why this matters:
+     - Typos cause `AttributeError` at runtime
+     - May pass linting but fail in production
+     - Tests catch these errors (if they exist)
+     - IDE autocomplete prevents these errors
+   - Prevention:
+     - Use IDE autocomplete (don't type method names manually)
+     - Run tests (unit tests catch AttributeError immediately)
+     - Check Django documentation: https://docs.djangoproject.com/en/5.2/ref/models/instances/
+     - Consider django-stubs for type checking
+   - Review checklist:
+     - [ ] Are Django model methods spelled correctly?
+     - [ ] Do tests cover the method call (would catch AttributeError)?
+     - [ ] Is IDE providing correct autocomplete suggestions?
+     - [ ] Are there Django documentation references in comments?
+   - See: [P1 Code Review Patterns Codified](P1_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 2
+
+18. **Type Hints on Helper Functions** ⭐ NEW (P1)
+   - IMPORTANT: All helper functions called by views need type hints
+   - PATTERN: Consistent type hint coverage across view layer
+   - Check for: Views with type hints calling helpers without type hints
+   - Why this matters:
+     - Mixing typed and untyped code reduces type checker effectiveness
+     - Type checker cannot verify data flow between functions
+     - Refactoring is harder (unclear what types are expected)
+   - Anti-pattern (inconsistent):
+     ```python
+     # View function: HAS type hints ✅
+     def plant_identification_view(request) -> Response:
+         result = process_plant_image(request.FILES['image'])
+         return Response(result)
+
+     # Helper function: MISSING type hints ❌
+     def process_plant_image(image_file):  # No types!
+         return {'status': 'success', 'data': data}
+     ```
+   - Correct pattern:
+     ```python
+     from typing import Dict, Any
+     from django.core.files.uploadedfile import UploadedFile
+
+     # View function: HAS type hints ✅
+     def plant_identification_view(request) -> Response:
+         result: Dict[str, Any] = process_plant_image(request.FILES['image'])
+         return Response(result)
+
+     # Helper function: HAS type hints ✅
+     def process_plant_image(image_file: UploadedFile) -> Dict[str, Any]:
+         """Process uploaded plant image."""
+         return {'status': 'success', 'data': data}
+     ```
+   - Type hint best practices:
+     ```python
+     from typing import Dict, Any, TypedDict
+
+     # ❌ Too generic
+     def get_stats(user_id: int) -> dict:
+         return {'count': 10}
+
+     # ✅ Specific types
+     def get_stats(user_id: int) -> Dict[str, Any]:
+         return {'count': 10}
+
+     # ✅ BEST: TypedDict for known structure
+     class StatsDict(TypedDict):
+         count: int
+         total: int
+
+     def get_stats(user_id: int) -> StatsDict:
+         return {'count': 10, 'total': 100}
+     ```
+   - Django-specific types:
+     ```python
+     from django.http import HttpRequest, HttpResponse
+     from django.db.models import QuerySet
+     from rest_framework.request import Request
+     from rest_framework.response import Response
+
+     # DRF view
+     def api_view(request: Request) -> Response:
+         pass
+
+     # Django view
+     def django_view(request: HttpRequest) -> HttpResponse:
+         pass
+
+     # QuerySet return type
+     def get_active_users() -> QuerySet[User]:
+         return User.objects.filter(is_active=True)
+     ```
+   - Detection pattern:
+     ```bash
+     # Find functions without return type hints
+     grep -nP "def \w+\([^)]*\):" apps/*/views.py apps/*/api.py
+
+     # Cross-reference with functions that HAVE type hints
+     grep -nP "def \w+\([^)]*\) ->" apps/*/views.py
+
+     # Any view helper without -> is WARNING
+     ```
+   - Review checklist:
+     - [ ] Do all view functions have type hints?
+     - [ ] Do all helper functions called by views have type hints?
+     - [ ] Are type hints specific (Dict[str, Any] not dict)?
+     - [ ] Are Django/DRF types used correctly (Request, Response, QuerySet)?
+     - [ ] Do docstrings document Args and Returns?
+     - [ ] Does mypy pass without errors?
+   - mypy integration:
+     ```bash
+     # Check type hints with mypy
+     mypy apps/users/views.py apps/users/api.py
+
+     # Strict mode (recommended)
+     mypy --strict apps/users/views.py
+     ```
+   - See: [P1 Code Review Patterns Codified](P1_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 3
+
+**React 19 Patterns (P2 Issues - October 2025):**
+
+19. **React Hooks Placement Rules** ⭐ ENHANCED - BLOCKER (P2 Issue #23)
+   - BLOCKER: React hooks called after conditional statements or early returns
+   - CRITICAL: Violates React's Rules of Hooks - hooks must be in same order every render
+   - PATTERN: All hooks must be at the top of component, before ANY conditional returns
+   - Check for: useMemo, useCallback, useEffect, useState after early returns
+   - Why this is critical:
+     - React tracks hooks by call order, not by name
+     - Conditional hook calls break React's internal state tracking
+     - May work in development but break in production builds
+     - ESLint catches this but developers may disable warning
+   - Anti-pattern (BLOCKER - from P2 review):
+     ```javascript
+     function BlogDetailPage() {
+       const { slug } = useParams();
+       const [post, setPost] = useState(null);
+       const [loading, setLoading] = useState(true);
+
+       // ❌ CRITICAL ERROR: Early return BEFORE hooks
+       if (!slug) {
+         return <ErrorPage message="No slug provided" />;
+       }
+
+       // ❌ BLOCKER: Hooks called after early return
+       const contentBlocks = useMemo(() => {
+         return parseContentBlocks(post.content_blocks);
+       }, [post.content_blocks]);
+
+       const handleShare = useCallback(() => {
+         // Share logic
+       }, [post]);
+     }
+     ```
+   - Correct pattern (fixed in P2):
+     ```javascript
+     function BlogDetailPage() {
+       const { slug } = useParams();
+       const [post, setPost] = useState(null);
+       const [loading, setLoading] = useState(true);
+
+       // ✅ ALL HOOKS FIRST (before ANY returns)
+       const contentBlocks = useMemo(() => {
+         // Handle null case inside the hook
+         if (!post?.content_blocks) return [];
+         return parseContentBlocks(post.content_blocks);
+       }, [post]);
+
+       const handleShare = useCallback(() => {
+         if (!post) return;
+         // Share logic
+       }, [post]);
+
+       // ✅ NOW safe to have early returns
+       if (!slug) {
+         return <ErrorPage message="No slug provided" />;
+       }
+
+       if (loading) {
+         return <LoadingSpinner />;
+       }
+
+       if (!post) {
+         return <NotFoundPage />;
+       }
+
+       return <div>{/* render with contentBlocks and handleShare */}</div>;
+     }
+     ```
+   - Common violations to check:
+     ```javascript
+     // ❌ useEffect after conditional
+     if (error) return <ErrorPage />;
+     useEffect(() => {}, []);
+
+     // ❌ useState after early return
+     if (!data) return null;
+     const [expanded, setExpanded] = useState(false);
+
+     // ❌ useMemo after loading check
+     if (loading) return <Spinner />;
+     const sorted = useMemo(() => sort(items), [items]);
+
+     // ❌ useCallback after permission check
+     if (!hasPermission) return <Forbidden />;
+     const handleClick = useCallback(() => {}, []);
+     ```
+   - ESLint error messages:
+     ```
+     React Hook 'useMemo' is called conditionally. React Hooks must be
+     called in the exact same order in every component render.
+     ```
+   - Detection pattern:
+     ```bash
+     # Find components with hooks after early returns
+     grep -n "return.*<" web/src/**/*.{jsx,tsx} | \
+       while read line; do
+         file=$(echo "$line" | cut -d: -f1)
+         line_num=$(echo "$line" | cut -d: -f2)
+         # Check if any hooks appear after this return statement
+         awk -v start="$line_num" \
+           'NR > start && /use(State|Effect|Memo|Callback|Reducer|Ref|Context)/ {
+             print FILENAME":"NR": BLOCKER - React hook after early return at line "start
+           }' "$file"
+       done
+     ```
+   - Review checklist:
+     - [ ] Are all hooks (useState, useEffect, useMemo, useCallback) at top of component?
+     - [ ] Are hooks called before any conditional statements?
+     - [ ] Are hooks called before any early returns?
+     - [ ] Does ESLint pass without react-hooks/rules-of-hooks warnings?
+     - [ ] Are hook dependency arrays complete and accurate?
+     - [ ] If hook has conditional logic, is it inside the hook (not outside)?
+   - Impact if violated:
+     - **Development**: May appear to work but is fundamentally broken
+     - **Production**: Unpredictable state bugs, crashes
+     - **React**: Violates core framework rules
+   - See: [P2 Code Review Patterns](P2_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 21
+
+20. **React.memo() Optimization Guidelines** ⭐ NEW (Issue #24)
+   - SUGGESTION: Expensive components re-rendering unnecessarily
+   - PATTERN: Wrap with React.memo() to prevent re-renders when props unchanged
+   - Check for: Components rendered frequently in lists or with expensive logic
+   - Performance impact: 70% reduction in unnecessary re-renders (Issue #24 results)
+   - When to use React.memo():
+     - ✅ Component is pure (same props → same output)
+     - ✅ Component renders frequently with same props
+     - ✅ Component has expensive rendering logic
+     - ✅ Component is in a list or repeated structure
+     - ✅ Parent re-renders often due to state changes
+   - When NOT to use:
+     - ❌ Component already rarely re-renders
+     - ❌ Props change on every render anyway
+     - ❌ Component is very lightweight (memo overhead > render cost)
+     - ❌ Premature optimization (profile first!)
+   - Correct pattern:
+     ```javascript
+     import { memo } from 'react';
+
+     // ✅ GOOD: Memoized component only re-renders when props change
+     const BlogCard = memo(function BlogCard({ post, compact, onClick }) {
+       // Component logic - only runs if props changed
+       return (
+         <article className="blog-card">
+           {/* Complex JSX */}
+         </article>
+       );
+     });
+
+     export default BlogCard;
+     ```
+   - Anti-pattern:
+     ```javascript
+     // ❌ BAD: Component re-renders on every parent update
+     function BlogCard({ post, compact, onClick }) {
+       // Expensive rendering logic runs every time
+       return <article>{/* Complex JSX */}</article>;
+     }
+     ```
+   - Must pair with useCallback for function props:
+     ```javascript
+     // Parent component
+     function BlogList() {
+       const [searchParams, setSearchParams] = useSearchParams();
+
+       // ✅ GOOD: Memoized callback for memoized child
+       const handleClick = useCallback((postId) => {
+         // Handler logic
+       }, [/* dependencies */]);
+
+       return (
+         <>
+           {posts.map(post => (
+             <BlogCard key={post.id} post={post} onClick={handleClick} />
+           ))}
+         </>
+       );
+     }
+     ```
+   - Review checklist:
+     - [ ] Are expensive/frequently-rendered components wrapped with memo()?
+     - [ ] Do memoized components have stable prop types?
+     - [ ] Are function props memoized with useCallback?
+     - [ ] Is there profiling data justifying memo() usage?
+     - [ ] Are dependency arrays complete for useCallback?
+   - See: [P2 Code Review Patterns](P2_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 25
+
+21. **useCallback with Router Params Dependencies** ⭐ NEW - WARNING (Issue #24)
+   - WARNING: useCallback using searchParams/setSearchParams without both in dependencies
+   - PATTERN: Include ALL values referenced inside callback in dependency array
+   - Check for: useCallback with searchParams but missing setSearchParams
+   - Why both required:
+     - `searchParams` - Read current URL parameters (input)
+     - `setSearchParams` - Update URL with new parameters (output)
+     - React Hook rules: Include ALL values used in callback
+     - Stale closure: Without dependencies, callback captures old values
+   - Anti-pattern (WARNING):
+     ```javascript
+     // ❌ WARNING: Incomplete dependency array
+     const handleCategoryFilter = useCallback((categorySlug) => {
+       const newParams = new URLSearchParams(searchParams);  // Uses searchParams
+       newParams.set('category', categorySlug);
+       setSearchParams(newParams);  // Uses setSearchParams
+     }, [searchParams]);  // ❌ Missing setSearchParams
+     ```
+   - ESLint warning:
+     ```
+     React Hook useCallback has a missing dependency: 'setSearchParams'.
+     Either include it or remove the dependency array. (react-hooks/exhaustive-deps)
+     ```
+   - Correct pattern:
+     ```javascript
+     import { useSearchParams } from 'react-router-dom';
+
+     function BlogListPage() {
+       const [searchParams, setSearchParams] = useSearchParams();
+
+       // ✅ GOOD: Complete dependency array
+       const handleCategoryFilter = useCallback((categorySlug) => {
+         const newParams = new URLSearchParams(searchParams);
+
+         if (categorySlug) {
+           newParams.set('category', categorySlug);
+         } else {
+           newParams.delete('category');
+         }
+
+         setSearchParams(newParams);
+       }, [searchParams, setSearchParams]);  // ✅ Both dependencies
+
+       return (
+         <button onClick={() => handleCategoryFilter('flowers')}>
+           Filter by Flowers
+         </button>
+       );
+     }
+     ```
+   - Special case (only setSearchParams needed):
+     ```javascript
+     // When NOT reading current params, only setSearchParams needed
+     const handleClearFilters = useCallback(() => {
+       setSearchParams(new URLSearchParams());  // Fresh params, no read
+     }, [setSearchParams]);  // ✅ Only setSearchParams needed
+     ```
+   - Detection pattern:
+     ```bash
+     # Find useCallback with searchParams but missing setSearchParams
+     grep -rn "useCallback" web/src/**/*.{js,jsx} | while read line; do
+       file=$(echo "$line" | cut -d: -f1)
+       line_num=$(echo "$line" | cut -d: -f2)
+
+       # Extract callback block (up to dependency array)
+       callback_block=$(awk -v start="$line_num" '
+         NR >= start && /useCallback/ { in_callback=1 }
+         in_callback { buffer = buffer $0 "\n" }
+         /\], \[.*\]\)/ { print buffer; exit }
+       ' "$file")
+
+       # Check if uses searchParams but not in dependencies
+       if echo "$callback_block" | grep -q "searchParams" && \
+          echo "$callback_block" | grep -qv "\[.*setSearchParams.*\]"; then
+         echo "WARNING: $file:$line_num - useCallback missing setSearchParams dependency"
+       fi
+     done
+     ```
+   - Review checklist:
+     - [ ] Are all values used in callback included in dependency array?
+     - [ ] If searchParams is read, is it in dependencies?
+     - [ ] If setSearchParams is called, is it in dependencies?
+     - [ ] Does ESLint pass without exhaustive-deps warnings?
+     - [ ] Are there comments explaining omitted dependencies (if any)?
+   - See: [P2 Code Review Patterns](P2_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 27
+
+22. **ESLint Test File Configuration** ⭐ NEW - IMPORTANT (Issue #23)
+   - IMPORTANT: Test files showing ESLint errors for test globals
+   - PATTERN: Configure ESLint with separate rules for test files
+   - Check for: `'describe' is not defined`, `'it' is not defined`, `'expect' is not defined`
+   - Why this happens:
+     - Test framework globals (describe, it, expect) not in default ESLint environment
+     - Vitest/Jest globals need explicit configuration
+     - Test files require different global scope than source files
+   - Anti-pattern (BLOCKER):
+     ```javascript
+     // eslint.config.js - Missing test file configuration
+     export default [
+       {
+         files: ['**/*.{js,jsx}'],
+         languageOptions: {
+           globals: {
+             ...globals.browser,  // Only browser globals
+           },
+         },
+       },
+       // ❌ No test file configuration - test globals undefined
+     ];
+     ```
+   - Correct pattern:
+     ```javascript
+     // eslint.config.js
+     import globals from 'globals';
+
+     export default [
+       {
+         files: ['**/*.{js,jsx,mjs,cjs,ts,tsx}'],
+         languageOptions: {
+           globals: {
+             ...globals.browser,
+           },
+         },
+       },
+
+       // ✅ CRITICAL: Test file configuration
+       {
+         files: ['**/*.test.{js,jsx}', '**/tests/**/*.{js,jsx}'],
+         languageOptions: {
+           globals: {
+             ...globals.browser,
+             ...globals.node,  // Includes describe, it, expect, beforeEach, etc.
+           },
+         },
+       },
+     ];
+     ```
+   - Why globals.node works:
+     ```javascript
+     // globals.node includes test framework globals:
+     {
+       describe: 'readonly',
+       it: 'readonly',
+       test: 'readonly',
+       expect: 'readonly',
+       beforeEach: 'readonly',
+       afterEach: 'readonly',
+       beforeAll: 'readonly',
+       afterAll: 'readonly',
+       vi: 'readonly',  // Vitest
+       jest: 'readonly',  // Jest
+     }
+     ```
+   - Detection pattern:
+     ```bash
+     # Check for test files with ESLint errors
+     find web/src -name "*.test.js" -o -name "*.test.jsx" | while read file; do
+       npx eslint "$file" 2>&1 | grep -q "is not defined" && \
+         echo "WARNING: Test file has undefined globals: $file"
+     done
+
+     # Verify ESLint config has test file pattern
+     grep -q "files.*test.*globals.*node" web/eslint.config.js || \
+       echo "BLOCKER: Missing test file configuration in eslint.config.js"
+     ```
+   - Review checklist:
+     - [ ] Does eslint.config.js have separate configuration for test files?
+     - [ ] Are test file patterns comprehensive (*.test.{js,jsx}, tests/**/*)?
+     - [ ] Are test globals included (globals.node or vitest-specific)?
+     - [ ] Do test files pass ESLint without "not defined" errors?
+     - [ ] Are test runner globals (vi, jest) available if needed?
+   - See: [P2 Code Review Patterns](P2_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 26
+
 **Django + React Integration Patterns (Frontend-Backend):**
 
-15. **CORS Configuration Completeness** - django-cors-headers Full Setup
-   - BLOCKER: Missing CORS_ALLOW_METHODS and CORS_ALLOW_HEADERS configuration
-   - CRITICAL: Django requires both CORS_ALLOWED_ORIGINS and CSRF_TRUSTED_ORIGINS
-   - WARNING: Python bytecode cache can persist old settings after file edits
-   - Check for: Incomplete CORS configuration in settings.py
-   - Example from settings.py:
+23. **Circuit Breaker Configuration Rationale** ⭐ NEW (P1)
+   - IMPORTANT: Document WHY circuit breaker parameters differ between services
+   - PATTERN: Configuration differences must have documented rationale
+   - Check for: Circuit breaker configs without explanatory comments
+   - Why this matters:
+     - Different APIs have different reliability, cost, and SLA characteristics
+     - Configuration differences are intentional, not arbitrary
+     - Future maintainers need context for tuning
+   - Anti-pattern (undocumented):
      ```python
-     # INCOMPLETE CORS (will fail with browser preflight requests)
+     # Plant.id circuit breaker
+     plant_id_circuit = CircuitBreaker(
+         fail_max=3,
+         reset_timeout=60,
+     )
+
+     # PlantNet circuit breaker
+     plantnet_circuit = CircuitBreaker(
+         fail_max=5,
+         reset_timeout=30,
+     )
+     # What's missing: WHY different values?
+     ```
+   - Correct pattern (documented rationale):
+     ```python
+     # Plant.id circuit breaker configuration
+     #
+     # RATIONALE:
+     # - Paid tier API (limited quota, high cost per call)
+     # - Conservative fail_max=3 (fail fast to preserve quota)
+     # - Longer reset_timeout=60s (allow more time for recovery)
+     # - Fast-fail strategy: Better to skip than exhaust paid quota
+     plant_id_circuit = CircuitBreaker(
+         fail_max=PLANT_ID_CIRCUIT_FAIL_MAX,  # 3 failures
+         reset_timeout=PLANT_ID_CIRCUIT_RESET_TIMEOUT,  # 60 seconds
+     )
+
+     # PlantNet circuit breaker configuration
+     #
+     # RATIONALE:
+     # - Free tier API (500 requests/day limit)
+     # - Tolerant fail_max=5 (more lenient, no cost per call)
+     # - Shorter reset_timeout=30s (retry faster for free service)
+     # - Fallback strategy: Can retry more aggressively without cost concerns
+     plantnet_circuit = CircuitBreaker(
+         fail_max=PLANTNET_CIRCUIT_FAIL_MAX,  # 5 failures
+         reset_timeout=PLANTNET_CIRCUIT_RESET_TIMEOUT,  # 30 seconds
+     )
+     ```
+   - Decision matrix:
+     | Factor | Plant.id (Paid) | PlantNet (Free) | Rationale |
+     |--------|----------------|-----------------|-----------|
+     | Cost per call | High | Free | Fail fast for paid, retry for free |
+     | Quota limit | 100/month | 500/day | Preserve paid quota aggressively |
+     | fail_max | 3 (conservative) | 5 (tolerant) | Lower threshold for paid service |
+     | reset_timeout | 60s (longer) | 30s (shorter) | Longer recovery for paid |
+   - Constants documentation:
+     ```python
+     # apps/plant_identification/constants.py
+
+     # Circuit Breaker - Plant.id API (Paid Tier)
+     PLANT_ID_CIRCUIT_FAIL_MAX = 3  # Conservative: Paid API, preserve quota
+     PLANT_ID_CIRCUIT_RESET_TIMEOUT = 60  # Longer recovery: Allow time for service restoration
+
+     # Circuit Breaker - PlantNet API (Free Tier)
+     PLANTNET_CIRCUIT_FAIL_MAX = 5  # Tolerant: Free API, can retry more
+     PLANTNET_CIRCUIT_RESET_TIMEOUT = 30  # Shorter recovery: Retry faster for free service
+
+     # TUNING GUIDE:
+     # - Increase fail_max if service has transient errors (temporary blips)
+     # - Decrease fail_max if service degrades gradually (slow failures)
+     # - Increase reset_timeout for services with long recovery times
+     # - Decrease reset_timeout for services with fast recovery
+     ```
+   - Detection pattern:
+     ```bash
+     # Find CircuitBreaker instantiations
+     grep -n "CircuitBreaker(" apps/*/services/*.py
+
+     # For each match, check for comment block within 10 lines above
+     # If no comment: WARNING - Document circuit breaker rationale
+     ```
+   - Review checklist:
+     - [ ] Is circuit breaker configuration in constants.py (not hardcoded)?
+     - [ ] Is there a comment block explaining WHY these values?
+     - [ ] Are tradeoffs documented (cost vs availability, paid vs free)?
+     - [ ] Is there a decision matrix or tuning guide in constants.py?
+     - [ ] Do comments explain WHEN to adjust values?
+     - [ ] Are service characteristics documented (SLA, quota, cost)?
+   - See: [P1 Code Review Patterns Codified](P1_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 4
+
+24. **Complete CORS Configuration Pattern** ⭐ ENHANCED (P2 Issue #29)
+   - BLOCKER: Incomplete CORS configuration causes authentication failures
+   - CRITICAL: Django CORS requires THREE components, not just CORS_ALLOWED_ORIGINS
+   - PATTERN: CORS_ALLOWED_ORIGINS + CORS_ALLOW_METHODS + CORS_ALLOW_HEADERS + CSRF_TRUSTED_ORIGINS
+   - Check for: CORS_ALLOWED_ORIGINS defined but missing METHODS/HEADERS
+   - Why all three are required:
+     - **CORS_ALLOWED_ORIGINS**: Browser checks allowed domains
+     - **CORS_ALLOW_METHODS**: Browser preflight checks allowed HTTP methods
+     - **CORS_ALLOW_HEADERS**: Browser checks if custom headers (x-csrftoken) allowed
+     - **CSRF_TRUSTED_ORIGINS**: Django validates Origin header for state-changing requests
+   - Anti-pattern (BLOCKER - Incomplete CORS):
+     ```python
+     # ❌ BLOCKER: Missing METHODS and HEADERS
      CORS_ALLOWED_ORIGINS = [
          'http://localhost:5173',
          'http://localhost:5174',
      ]
      CORS_ALLOW_CREDENTIALS = True
-     # Missing CORS_ALLOW_METHODS and CORS_ALLOW_HEADERS!
-
-     # COMPLETE CORS (works with all browsers)
+     # Browser preflight requests FAIL without METHODS/HEADERS!
+     # CSRF protection FAILS without CSRF_TRUSTED_ORIGINS!
+     ```
+   - Symptoms of incomplete CORS:
+     - ✅ curl requests work (no preflight)
+     - ❌ Browser GET requests fail (preflight required)
+     - ❌ Browser POST/PUT/DELETE fail (CORS error)
+     - ❌ Authentication requests fail (x-csrftoken header blocked)
+     - Error: "Method POST is not allowed by Access-Control-Allow-Methods"
+     - Error: "Request header x-csrftoken is not allowed by Access-Control-Allow-Headers"
+   - Correct pattern (COMPLETE CORS):
+     ```python
+     # ✅ COMPLETE: All four required components
      CORS_ALLOWED_ORIGINS = [
          'http://localhost:3000',
          'http://127.0.0.1:3000',
@@ -728,18 +1515,20 @@ For Wagtail models:
          'http://localhost:5174',
          'http://127.0.0.1:5174',
      ]
-     CORS_ALLOW_CREDENTIALS = True
+     CORS_ALLOW_CREDENTIALS = True  # Required for authentication
      CORS_ALLOW_ALL_ORIGINS = False  # Explicit security control
 
-     # CRITICAL: Required for preflight requests
+     # CRITICAL: Required for browser preflight requests
      CORS_ALLOW_METHODS = [
          'DELETE',
          'GET',
-         'OPTIONS',
+         'OPTIONS',  # Preflight requests
          'PATCH',
          'POST',
          'PUT',
      ]
+
+     # CRITICAL: Required for CSRF token and authentication headers
      CORS_ALLOW_HEADERS = [
          'accept',
          'accept-encoding',
@@ -748,11 +1537,11 @@ For Wagtail models:
          'dnt',
          'origin',
          'user-agent',
-         'x-csrftoken',
+         'x-csrftoken',  # REQUIRED for CSRF protection
          'x-requested-with',
      ]
 
-     # CRITICAL: CSRF tokens need trusted origins
+     # CRITICAL: Django CSRF protection requires this
      CSRF_TRUSTED_ORIGINS = [
          'http://localhost:3000',
          'http://localhost:5173',
@@ -760,44 +1549,75 @@ For Wagtail models:
          # Must include ALL frontend development ports
      ]
      ```
-   - Why CORS_ALLOW_METHODS/HEADERS are required:
-     - Browsers send OPTIONS preflight requests before POST/PUT/DELETE
-     - django-cors-headers needs explicit method/header lists
-     - Default values are too restrictive for modern SPAs
-     - Missing configuration = CORS errors despite correct origins
-   - CSRF_TRUSTED_ORIGINS requirement:
+   - Why CORS_ALLOW_METHODS is required:
+     - Modern browsers send OPTIONS preflight before POST/PUT/DELETE
+     - django-cors-headers checks CORS_ALLOW_METHODS for preflight
+     - Without this, ALL write operations fail in browsers
+     - curl bypasses preflight (only browsers enforce CORS)
+   - Why CORS_ALLOW_HEADERS is required:
+     - SPAs send custom headers: Authorization, X-CSRFToken, X-Requested-With
+     - Browser preflight checks if these headers are allowed
+     - Without x-csrftoken in CORS_ALLOW_HEADERS, Django CSRF protection breaks
+     - Default django-cors-headers values are too restrictive
+   - Why CSRF_TRUSTED_ORIGINS is required:
      - Django validates Origin header for state-changing requests
-     - CORS_ALLOWED_ORIGINS alone is NOT sufficient
-     - Must include all ports where frontend runs (dev servers change ports)
-   - Python cache clearing:
+     - CORS_ALLOWED_ORIGINS alone is NOT sufficient (different Django middleware)
+     - Must align with CORS_ALLOWED_ORIGINS for consistency
+     - Missing this = "CSRF token verification failed" errors
+   - BLOCKER: CORS_ALLOW_ALL_ORIGINS = True (NEVER use)
+     - CVSS 7.5 vulnerability - CWE-942 Permissive Cross-domain Policy
+     - Allows ANY website to steal user data via CORS
+     - Even in DEBUG mode, creates XSS/CSRF attack surface
+     - OWASP ASVS 4.0 - V14.5.3 violation
+     ```python
+     # ❌ BLOCKER: NEVER use this
+     CORS_ALLOW_ALL_ORIGINS = True  # Security vulnerability!
+
+     # ❌ BLOCKER: Conditional still dangerous
+     CORS_ALLOW_ALL_ORIGINS = True if DEBUG else False  # Vulnerable in dev
+     ```
+   - Python cache clearing (settings changes not working):
      ```bash
-     # CORS not working after settings changes? Clear bytecode cache:
+     # CORS configuration changes not taking effect? Clear bytecode cache:
      find . -type d -name "__pycache__" -exec rm -rf {} +
-     python manage.py runserver  # Restart server
+     python manage.py runserver  # Restart Django server
      ```
    - Detection patterns:
      ```bash
-     # Check for incomplete CORS configuration
-     grep -n "CORS_ALLOWED_ORIGINS" backend/*/settings.py
-     grep -n "CORS_ALLOW_METHODS" backend/*/settings.py || echo "WARNING: Missing CORS_ALLOW_METHODS"
-     grep -n "CORS_ALLOW_HEADERS" backend/*/settings.py || echo "WARNING: Missing CORS_ALLOW_HEADERS"
-     grep -n "CSRF_TRUSTED_ORIGINS" backend/*/settings.py || echo "WARNING: Missing CSRF_TRUSTED_ORIGINS"
+     # BLOCKER: Check for incomplete CORS configuration
+     grep -A 20 "CORS_ALLOWED_ORIGINS" backend/*/settings.py | \
+       grep -q "CORS_ALLOW_METHODS" || echo "BLOCKER: Missing CORS_ALLOW_METHODS"
+
+     grep -A 20 "CORS_ALLOWED_ORIGINS" backend/*/settings.py | \
+       grep -q "CORS_ALLOW_HEADERS" || echo "BLOCKER: Missing CORS_ALLOW_HEADERS"
+
+     grep -A 20 "CORS_ALLOWED_ORIGINS" backend/*/settings.py | \
+       grep -q "x-csrftoken" || echo "BLOCKER: CORS_ALLOW_HEADERS missing x-csrftoken"
+
+     grep -n "CSRF_TRUSTED_ORIGINS" backend/*/settings.py || \
+       echo "BLOCKER: Missing CSRF_TRUSTED_ORIGINS"
+
+     # BLOCKER: Detect CORS_ALLOW_ALL_ORIGINS
+     grep -rn "CORS_ALLOW_ALL_ORIGINS.*=.*True" backend/*/settings*.py && \
+       echo "BLOCKER: Remove CORS_ALLOW_ALL_ORIGINS - use explicit whitelist"
      ```
    - Review checklist:
-     - [ ] Are CORS_ALLOWED_ORIGINS configured with both localhost and 127.0.0.1?
+     - [ ] Are CORS_ALLOWED_ORIGINS a list of specific origins (NOT "*")?
      - [ ] Are CORS_ALLOW_METHODS defined (GET, POST, PUT, PATCH, DELETE, OPTIONS)?
      - [ ] Are CORS_ALLOW_HEADERS defined (authorization, content-type, x-csrftoken)?
      - [ ] Are CSRF_TRUSTED_ORIGINS configured with all frontend ports?
      - [ ] Is CORS_ALLOW_CREDENTIALS = True (for cookie-based auth)?
-     - [ ] Is CORS_ALLOW_ALL_ORIGINS = False (explicit security)?
-     - [ ] Are there instructions to clear __pycache__ if CORS changes don't work?
-   - Common symptoms of incomplete CORS:
-     - curl requests work, browser requests fail
-     - GET requests work, POST/PUT/DELETE fail with CORS error
-     - Error: "CORS header 'Access-Control-Allow-Origin' missing"
-     - Error: "Method POST is not allowed by Access-Control-Allow-Methods"
+     - [ ] Is CORS_ALLOW_ALL_ORIGINS explicitly False or omitted?
+     - [ ] Are production origins using HTTPS URLs only?
+     - [ ] Do CORS_ALLOWED_ORIGINS and CSRF_TRUSTED_ORIGINS align?
+   - Impact if violated:
+     - **BLOCKER**: Authentication completely broken in browsers
+     - **BLOCKER**: All write operations (POST/PUT/DELETE) fail
+     - **BLOCKER**: CSRF protection bypassed or malfunctioning
+     - **Security**: CORS_ALLOW_ALL_ORIGINS = CVSS 7.5 vulnerability
+   - See: [P2 Code Review Patterns](P2_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 24
 
-16. **Wagtail API Endpoint Usage** - Dedicated vs Generic Endpoints
+25. **Wagtail API Endpoint Usage** - Dedicated vs Generic Endpoints
    - BLOCKER: Using generic Wagtail Pages API with type filters instead of dedicated endpoints
    - PATTERN: WagtailAPIRouter creates specific endpoints for registered viewsets
    - Check for: Frontend code using /api/v2/pages/?type= queries
@@ -903,6 +1723,267 @@ For Wagtail models:
        return response.json();
      };
      ```
+
+26. **Migration Documentation Excellence** ⭐ NEW (P2 Issue - Grade A)
+   - PATTERN: Migration docstrings with performance metrics, verification, and rationale
+   - PRAISED: Migration 0006 for 30-line documentation with complete context
+   - Check for: Migrations without docstrings or only one-line descriptions
+   - Example excellence from 0006_add_blog_performance_indexes.py:
+     ```python
+     """
+     Adds performance indexes for Wagtail blog queries.
+
+     Target Performance:
+     - Blog list queries: 300ms → 60ms (80% faster)
+     - Blog detail queries: 200ms → 40ms (80% faster)
+
+     Indexes added:
+     1. BlogPostPage.slug - Primary lookup field for detail views
+     2. BlogPostPage.(first_published_at, featured) - List queries ordering
+     3. BlogCategoryPage.slug - Category filtering
+     4. BlogAuthorPage.slug - Author filtering
+     5. PlantSpecies.slug - Related species lookup
+
+     NOT added (with rationale):
+     - Composite (slug, live) - Wagtail already filters on page_ptr_id
+     - Full-text search indexes - Using PostgreSQL GIN indexes separately
+
+     Verification:
+     - EXPLAIN ANALYZE confirms index usage
+     - Wagtail's PageManager properly utilizes these indexes
+     - Query count reduced: 5-8 queries (list), 3-5 queries (detail)
+
+     Multi-table inheritance notes:
+     - BlogPostPage inherits from Page (wagtailcore_page table)
+     - Indexes on BlogPostPage fields don't affect base Page queries
+     - Wagtail joins tables via page_ptr_id (already indexed)
+     """
+     ```
+   - Documentation should include:
+     - **Performance metrics**: Before/after timings with percentages
+     - **Verification results**: How you confirmed the improvement
+     - **Decision rationale**: Why certain indexes added/not added
+     - **Query patterns**: What queries these indexes optimize
+     - **Constraint explanations**: Multi-table inheritance, framework specifics
+   - Detection: Look for migrations with minimal/no docstrings
+   - Review checklist:
+     - [ ] Does migration have multi-line docstring?
+     - [ ] Are performance improvements quantified?
+     - [ ] Is verification method documented?
+     - [ ] Are decisions explained (what's included/excluded)?
+     - [ ] Are framework-specific considerations noted?
+
+27. **Complete React Memoization Strategy** ⭐ NEW (P2 Issue #24)
+   - PATTERN: Three-tier memoization for optimal performance
+   - IMPACT: 70% reduction in unnecessary re-renders
+   - Check for: Components with expensive operations but no memoization
+   - Three-tier strategy:
+     ```javascript
+     // Tier 1: Component-level memoization
+     const BlogCard = React.memo(({ post, compact = false }) => {
+       // Component only re-renders if props change
+     });
+
+     // Tier 2: Callback memoization (prevents child re-renders)
+     const handleSearch = useCallback((query) => {
+       setSearchQuery(query);
+       setCurrentPage(1);
+     }, []); // Dependencies array critical!
+
+     // Tier 3: Value memoization (expensive computations)
+     const sortedPosts = useMemo(() => {
+       return [...posts].sort((a, b) => {
+         // Expensive sorting logic
+       });
+     }, [posts, sortOrder]); // Re-compute only when deps change
+     ```
+   - When to use each tier:
+     - **React.memo**: Child components receiving objects/arrays as props
+     - **useCallback**: Event handlers passed to memoized children
+     - **useMemo**: Expensive computations, derived state, reference stability
+   - Common mistakes:
+     ```javascript
+     // ❌ Broken memoization - new function every render
+     <BlogCard
+       post={post}
+       onClick={() => handleClick(post.id)} // Breaks memo!
+     />
+
+     // ✅ Correct - stable callback reference
+     const handlePostClick = useCallback((id) => {
+       handleClick(id);
+     }, [handleClick]);
+
+     <BlogCard
+       post={post}
+       onClick={handlePostClick} // Preserves memo
+     />
+     ```
+   - Detection: Components with .map(), .filter(), .sort() without useMemo
+   - Review checklist:
+     - [ ] Are list components wrapped in React.memo()?
+     - [ ] Are callbacks to memoized components using useCallback()?
+     - [ ] Are expensive computations wrapped in useMemo()?
+     - [ ] Do dependency arrays include all referenced values?
+     - [ ] Are inline arrow functions avoided in memoized component props?
+
+28. **WCAG-Compliant Error UI** ⭐ NEW (P2 Issue - Accessibility Excellence)
+   - PATTERN: Error boundaries with full ARIA attributes and semantic HTML
+   - PRAISED: ErrorBoundary.jsx for complete accessibility implementation
+   - Check for: Error UI without proper ARIA roles and labels
+   - Excellence example from ErrorBoundary.jsx:
+     ```javascript
+     <div
+       role="alert"
+       aria-live="assertive"
+       className="error-boundary"
+     >
+       <h1 id="error-title">Something went wrong</h1>
+       <div aria-describedby="error-title">
+         <p id="error-message">{error.message}</p>
+         <button
+           onClick={resetErrorBoundary}
+           aria-label="Try again"
+           className="btn-primary"
+         >
+           Try Again
+         </button>
+         <a
+           href="/"
+           aria-label="Return to home page"
+           className="btn-secondary"
+         >
+           Go Home
+         </a>
+       </div>
+     </div>
+     ```
+   - Required accessibility features:
+     - **role="alert"**: Screen readers announce immediately
+     - **aria-live="assertive"**: High priority announcement
+     - **aria-label**: Clear button/link purposes
+     - **aria-describedby**: Associates descriptions with elements
+     - **Semantic HTML**: h1 for title, button for actions
+   - Color contrast requirements:
+     - Error text: 4.5:1 contrast ratio minimum
+     - Buttons: 3:1 for large text, 4.5:1 for small
+     - Focus indicators: Visible keyboard focus
+   - Detection: Error components without role="alert"
+   - Review checklist:
+     - [ ] Do error components have role="alert"?
+     - [ ] Are buttons/links labeled with aria-label?
+     - [ ] Is semantic HTML used (not just divs)?
+     - [ ] Are focus states visible for keyboard navigation?
+     - [ ] Do colors meet WCAG contrast requirements?
+
+29. **Production-Safe Logging** ⭐ NEW (P2 Issue - Security Best Practice)
+   - PATTERN: All console.log wrapped in development checks
+   - CRITICAL: console.error acceptable for actual errors
+   - Check for: Bare console.log statements in production code
+   - Correct patterns:
+     ```javascript
+     // ✅ Development-only logging
+     if (import.meta.env.DEV) {
+       console.log('[BlogList] Fetching posts:', { page, filters });
+     }
+
+     // ✅ Error logging (acceptable in production)
+     try {
+       const data = await fetchBlogPosts();
+     } catch (error) {
+       console.error('[BlogList] Failed to fetch posts:', error);
+     }
+
+     // ✅ Bracketed prefixes for filtering
+     console.error('[API] Request failed:', error);
+     console.warn('[CACHE] Cache miss for key:', key);
+
+     // ❌ BLOCKER: Raw console.log in production
+     console.log('user data:', userData); // Exposes sensitive info!
+     ```
+   - Why this matters:
+     - **Security**: User data, API keys, tokens logged to browser console
+     - **Performance**: Console operations affect performance
+     - **Professionalism**: Clean console in production
+   - Logging patterns with prefixes:
+     ```javascript
+     // Filterable in browser console
+     console.error('[AUTH] Login failed:', error);
+     console.error('[API] Rate limit exceeded');
+     console.error('[CACHE] Invalid cache key');
+
+     // Filter in DevTools: [AUTH], [API], [CACHE]
+     ```
+   - Detection: Search for console.log without import.meta.env.DEV
+   - Review checklist:
+     - [ ] Are all console.log wrapped in DEV checks?
+     - [ ] Do error logs use console.error (not console.log)?
+     - [ ] Are bracketed prefixes used for categorization?
+     - [ ] Is sensitive data excluded from all log statements?
+     - [ ] Are there no console statements in production builds?
+
+30. **ESLint Test Configuration** ⭐ NEW (P2 Issue #23 - Test Setup)
+   - PATTERN: Proper ESLint configuration for test files
+   - FIXES: "describe/it/expect is not defined" errors
+   - Check for: Test files without proper globals configuration
+   - Correct .eslintrc.cjs pattern:
+     ```javascript
+     module.exports = {
+       overrides: [
+         {
+           files: ['**/*.test.js', '**/*.test.jsx', '**/*.spec.js'],
+           env: {
+             node: true,
+             jest: true, // or mocha: true
+           },
+           globals: {
+             describe: 'readonly',
+             it: 'readonly',
+             expect: 'readonly',
+             beforeEach: 'readonly',
+             afterEach: 'readonly',
+             test: 'readonly',
+             jest: 'readonly',
+             vi: 'readonly', // For Vitest
+           },
+         },
+       ],
+     };
+     ```
+   - Framework-specific configurations:
+     ```javascript
+     // Vitest configuration
+     {
+       files: ['**/*.test.{js,jsx,ts,tsx}'],
+       globals: {
+         vi: 'readonly',
+         vitest: 'readonly',
+       },
+     }
+
+     // Jest configuration
+     {
+       files: ['**/*.test.{js,jsx,ts,tsx}'],
+       env: {
+         'jest/globals': true,
+       },
+     }
+
+     // Mocha configuration
+     {
+       files: ['**/*.test.{js,jsx,ts,tsx}'],
+       env: {
+         mocha: true,
+       },
+     }
+     ```
+   - Detection: Test files with ESLint "undefined" errors for test globals
+   - Review checklist:
+     - [ ] Do test files have ESLint overrides configuration?
+     - [ ] Are test globals (describe, it, etc.) defined?
+     - [ ] Is correct test framework environment set?
+     - [ ] Are file patterns matching all test files?
+     - [ ] Do tests pass ESLint without "undefined" errors?
 
 Step 4.5: Documentation Accuracy Review (Technical Docs)
 

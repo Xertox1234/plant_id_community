@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   createSafeMarkup,
   sanitizeHtml,
@@ -142,7 +142,7 @@ describe('sanitize utilities', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       // This shouldn't normally throw, but we can test error handling
-      const result = createSafeMarkup('<p>Valid HTML</p>');
+      createSafeMarkup('<p>Valid HTML</p>');
 
       consoleErrorSpy.mockRestore();
     });

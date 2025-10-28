@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import BlogCard from '../components/BlogCard';
 import { fetchBlogPosts, fetchPopularPosts, fetchCategories } from '../services/blogService';
@@ -75,8 +75,8 @@ export default function BlogListPage() {
     loadSidebarData();
   }, []);
 
-  // Handlers
-  const handleSearch = (e) => {
+  // Handlers (memoized to prevent recreation on every render)
+  const handleSearch = useCallback((e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
     const searchValue = formData.get('search');
@@ -89,9 +89,9 @@ export default function BlogListPage() {
     }
     newParams.set('page', '1'); // Reset to page 1
     setSearchParams(newParams);
-  };
+  }, [searchParams, setSearchParams]);
 
-  const handleCategoryFilter = (categorySlug) => {
+  const handleCategoryFilter = useCallback((categorySlug) => {
     const newParams = new URLSearchParams(searchParams);
     if (categorySlug) {
       newParams.set('category', categorySlug);
@@ -100,29 +100,29 @@ export default function BlogListPage() {
     }
     newParams.set('page', '1');
     setSearchParams(newParams);
-  };
+  }, [searchParams, setSearchParams]);
 
-  const handleOrderChange = (newOrder) => {
+  const handleOrderChange = useCallback((newOrder) => {
     const newParams = new URLSearchParams(searchParams);
     newParams.set('order', newOrder);
     newParams.set('page', '1');
     setSearchParams(newParams);
-  };
+  }, [searchParams, setSearchParams]);
 
-  const handlePageChange = (newPage) => {
+  const handlePageChange = useCallback((newPage) => {
     const newParams = new URLSearchParams(searchParams);
     newParams.set('page', newPage.toString());
     setSearchParams(newParams);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, [searchParams, setSearchParams]);
 
-  const clearFilters = () => {
+  const clearFilters = useCallback(() => {
     setSearchParams({});
-  };
+  }, [setSearchParams]);
 
-  // Calculate pagination
-  const totalPages = Math.ceil(totalCount / limit);
-  const hasFilters = search || category || order !== 'latest';
+  // Calculate pagination (memoized to prevent recalculation on every render)
+  const totalPages = useMemo(() => Math.ceil(totalCount / limit), [totalCount, limit]);
+  const hasFilters = useMemo(() => search || category || order !== 'latest', [search, category, order]);
 
   return (
     <div className="min-h-screen bg-gray-50">

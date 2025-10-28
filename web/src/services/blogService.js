@@ -196,10 +196,9 @@ export async function fetchCategories() {
  * This function is kept for backwards compatibility but is no longer needed.
  * The related_posts field is already populated in fetchBlogPost().
  *
- * @param {string} postId - Post ID
  * @returns {Promise<Array>} - Array of related posts (always empty - use post.related_posts instead)
  */
-export async function fetchRelatedPosts(postId) {
+export async function fetchRelatedPosts() {
   // Related posts are now included in the blog post detail API response
   // No need for a separate endpoint call
   return [];

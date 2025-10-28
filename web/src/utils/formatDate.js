@@ -114,7 +114,7 @@ export function formatShortDate(dateString, locale = DEFAULT_LOCALE) {
  * formatRelativeDate('2025-01-10')
  * // Returns: '5 days ago' (if today is 2025-01-15)
  */
-export function formatRelativeDate(dateString, locale = DEFAULT_LOCALE) {
+export function formatRelativeDate(dateString) {
   if (!dateString) {
     return null;
   }

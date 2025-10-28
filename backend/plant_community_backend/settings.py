@@ -536,14 +536,32 @@ else:
             print("=" * 70 + "\n", file=sys.stderr)
 
 # CORS settings - Secure configuration
-CORS_ALLOWED_ORIGINS = config(
-    'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174',
-    cast=lambda v: [s.strip() for s in v.split(',')]
-)
+# SECURITY FIX: Never use CORS_ALLOW_ALL_ORIGINS, even in DEBUG mode
+# Whitelist specific dev origins to prevent CSRF attacks (CVSS 7.5)
+if DEBUG:
+    CORS_ALLOWED_ORIGINS = [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'http://localhost:3001',
+        'http://127.0.0.1:3001',
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:5174',  # React blog dev server
+        'http://127.0.0.1:5174',
+        'https://localhost:5174',
+        'https://127.0.0.1:5174',
+    ]
+else:
+    # Production: Use environment variable for allowed origins
+    CORS_ALLOWED_ORIGINS = config(
+        'CORS_ALLOWED_ORIGINS',
+        default='https://plantcommunity.com',
+        cast=lambda v: [s.strip() for s in v.split(',')]
+    )
+
 CORS_ALLOW_CREDENTIALS = True
-# TEMPORARY: Allow all origins for debugging
-CORS_ALLOW_ALL_ORIGINS = True if DEBUG else False
+# SECURITY: NEVER set to True, even in DEBUG mode (prevents CSRF attacks)
+CORS_ALLOW_ALL_ORIGINS = False
 
 # Additional CORS settings for proper API access
 CORS_ALLOW_METHODS = [

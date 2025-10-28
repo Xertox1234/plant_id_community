@@ -5,7 +5,7 @@
  * It sets up DOM polyfills, global mocks, and test utilities.
  */
 
-import { expect, afterEach, vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 
 // Cleanup after each test case (e.g., clearing jsdom)

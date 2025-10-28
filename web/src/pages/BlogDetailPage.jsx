@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import StreamFieldRenderer from '../components/StreamFieldRenderer';
@@ -30,6 +30,29 @@ export default function BlogDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
+
+  // Format date (memoized to prevent recalculation on every render)
+  // Must be before early returns to comply with React Hooks rules
+  const formattedDate = useMemo(() => {
+    if (!post?.publish_date) return null;
+    return new Date(post.publish_date).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  }, [post?.publish_date]);
+
+  // Share button handler (memoized)
+  const handleShare = useCallback(async () => {
+    const url = window.location.href;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  }, []);
 
   useEffect(() => {
     const loadPost = async () => {
@@ -105,15 +128,6 @@ export default function BlogDetailPage() {
       </div>
     );
   }
-
-  // Format date
-  const formattedDate = post.publish_date
-    ? new Date(post.publish_date).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      })
-    : null;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -317,16 +331,7 @@ export default function BlogDetailPage() {
           <h3 className="text-lg font-bold text-gray-900 mb-4">Share this article</h3>
           <div className="flex gap-3">
             <button
-              onClick={async () => {
-                const url = window.location.href;
-                try {
-                  await navigator.clipboard.writeText(url);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 2000);
-                } catch (err) {
-                  console.error('Failed to copy:', err);
-                }
-              }}
+              onClick={handleShare}
               className={`px-4 py-2 rounded-lg transition-all flex items-center ${
                 copied
                   ? 'bg-green-100 text-green-800 border-2 border-green-600'

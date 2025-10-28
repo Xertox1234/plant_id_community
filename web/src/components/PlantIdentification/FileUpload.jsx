@@ -18,7 +18,7 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
     }
   }, [preview])
 
-  const validateFile = (file) => {
+  const validateFile = useCallback((file) => {
     // Check file type
     if (!file.type.startsWith('image/')) {
       setError('Please upload an image file')
@@ -33,7 +33,7 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
 
     setError(null)
     return true
-  }
+  }, [maxSize])
 
   const handleFile = useCallback(async (file) => {
     if (validateFile(file)) {
@@ -56,7 +56,7 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
             compressedSize,
             reduction,
           })
-        } catch (compressionError) {
+        } catch {
           setError('Image compression failed. Using original file.')
           // Continue with original file
         } finally {
@@ -68,7 +68,7 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
       try {
         const objectUrl = URL.createObjectURL(finalFile)
         setPreview(objectUrl)
-      } catch (previewError) {
+      } catch {
         setError('Failed to load image preview')
         return
       }
@@ -76,7 +76,7 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
       // Pass file to parent
       onFileSelect(finalFile)
     }
-  }, [onFileSelect, maxSize])
+  }, [onFileSelect, validateFile])
 
   const handleDrag = useCallback((e) => {
     e.preventDefault()

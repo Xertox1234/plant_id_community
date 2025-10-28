@@ -844,6 +844,12 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
     
     class Meta:
         verbose_name = "Blog Post"
+        indexes = [
+            # Index on view_count (local field)
+            models.Index(fields=['-view_count'], name='blog_post_view_count_idx'),
+        ]
+        # NOTE: Cannot add indexes on inherited fields (first_published_at) in Meta class
+        # These are created via custom migration with RunSQL (see migration 0006)
 
 
 class BlogComment(models.Model):
