@@ -10,6 +10,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken, Token
 from rest_framework.authentication import CSRFCheck
 from rest_framework import exceptions
+from apps.core.utils.pii_safe_logging import log_safe_user_context
 import logging
 
 logger = logging.getLogger(__name__)
@@ -145,7 +146,7 @@ def set_jwt_cookies(response: HttpResponse, user: User) -> HttpResponse:
         path='/api/auth/'  # Restrict refresh token to auth endpoints
     )
     
-    logger.info(f"JWT cookies set for user: {user.username}")
+    logger.info(f"JWT cookies set for {log_safe_user_context(user)}")
     return response
 
 

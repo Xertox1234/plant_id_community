@@ -1,5 +1,5 @@
 ---
-status: ready
+status: resolved
 priority: p3
 issue_id: "015"
 tags: [security, cookies, ux]

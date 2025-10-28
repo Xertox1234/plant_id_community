@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <title>{% block title %}{{ site_name }}{% endblock %}</title>
-    
+
     <!-- Preheader text (hidden in email clients) -->
     <div style="display: none; font-size: 1px; color: #fefefe; line-height: 1px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-height: 0px; max-width: 0px; opacity: 0; overflow: hidden;">
         {% block preheader %}{{ preheader_text|default:"Stay connected with your plant community" }}{% endblock %}
     </div>
-    
-    <style>
+
+    <style nonce="{{ request.csp_nonce|default:'' }}">
         /* Reset styles */
         body, table, td, p, a, li, blockquote { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
         table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }

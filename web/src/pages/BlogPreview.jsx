@@ -1,22 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import DOMPurify from 'dompurify';
-
-/**
- * Helper function to create safe HTML markup with DOMPurify sanitization.
- * Protects against XSS attacks in preview content.
- *
- * @param {string} html - The HTML content to sanitize
- * @returns {object} - Object with __html property for dangerouslySetInnerHTML
- */
-function createSafeMarkup(html) {
-  return {
-    __html: DOMPurify.sanitize(html, {
-      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h2', 'h3', 'h4', 'blockquote', 'code', 'pre'],
-      ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
-    })
-  };
-}
+import { createSafeMarkup, SANITIZE_PRESETS } from '../utils/sanitize';
 
 /**
  * BlogPreview Component
@@ -198,7 +182,7 @@ export default function BlogPreview() {
         {post.introduction && (
           <div
             className="text-xl text-gray-700 mb-8 leading-relaxed"
-            dangerouslySetInnerHTML={createSafeMarkup(post.introduction)}
+            dangerouslySetInnerHTML={createSafeMarkup(post.introduction, SANITIZE_PRESETS.STANDARD)}
           />
         )}
 
@@ -249,7 +233,7 @@ function StreamFieldBlock({ block }) {
       return (
         <div
           className="mb-4"
-          dangerouslySetInnerHTML={createSafeMarkup(value)}
+          dangerouslySetInnerHTML={createSafeMarkup(value, SANITIZE_PRESETS.STREAMFIELD)}
         />
       );
 
@@ -301,7 +285,7 @@ function StreamFieldBlock({ block }) {
               className="w-full h-64 object-cover rounded-lg mb-4"
             />
           )}
-          <div dangerouslySetInnerHTML={createSafeMarkup(value.description)} />
+          <div dangerouslySetInnerHTML={createSafeMarkup(value.description, SANITIZE_PRESETS.STREAMFIELD)} />
           {value.care_level && (
             <p className="mt-4 text-sm font-semibold text-green-700">
               Care Level: {value.care_level}

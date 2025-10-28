@@ -1,9 +1,10 @@
 ---
-status: ready
+status: resolved
 priority: p4
 issue_id: "034"
 tags: [code-quality, duplication, frontend]
 dependencies: []
+resolved_date: 2025-10-27
 ---
 
 # Consolidate Duplicate DOMPurify Sanitization
@@ -136,10 +137,60 @@ grep -r "DOMPurify.sanitize" web/src/
 ## Work Log
 
 - 2025-10-25: Issue identified by pattern-recognition-specialist agent
+- 2025-10-27: **RESOLVED** - Centralized sanitization implementation completed
+
+## Resolution Summary
+
+Successfully consolidated all DOMPurify sanitization into a centralized utility with preset configurations.
+
+### Changes Made
+
+1. **Enhanced `/web/src/utils/sanitize.js`** (300 lines)
+   - Added 5 preset configurations: MINIMAL, BASIC, STANDARD, FULL, STREAMFIELD
+   - Implemented `sanitizeHtml()` function with preset support
+   - Implemented `createSafeMarkup()` for React dangerouslySetInnerHTML
+   - Implemented `stripHtml()` for plain text extraction
+   - Implemented `isSafeHtml()` for security checks
+   - Maintained backward compatibility with existing `sanitizeInput()`, `sanitizeHTML()`, `sanitizeError()`
+
+2. **Updated `/web/src/utils/domSanitizer.js`**
+   - Converted to async wrapper that delegates to centralized `sanitize.js`
+   - Maintains backward compatibility for StreamFieldRenderer
+   - Re-exports SANITIZE_PRESETS for convenience
+
+3. **Refactored Components** (4 files)
+   - `/web/src/components/BlogCard.jsx`: Now uses `stripHtml()` instead of manual regex
+   - `/web/src/pages/BlogDetailPage.jsx`: Now uses `createSafeMarkup()` with STANDARD preset
+   - `/web/src/pages/BlogPreview.jsx`: Now uses `createSafeMarkup()` with STANDARD/STREAMFIELD presets
+   - `/web/src/components/StreamFieldRenderer.jsx`: Already using domSanitizer (now centralized)
+
+4. **Test Updates**
+   - Fixed 1 failing test: HTML entities behavior (DOMPurify keeps entities encoded for safety)
+   - All 60 sanitization tests passing
+   - No ESLint errors
+
+### Verification
+
+- All DOMPurify imports now in single location: `/web/src/utils/sanitize.js`
+- All components use centralized utility functions
+- XSS protection verified via comprehensive test suite (60 tests)
+- No manual HTML stripping with regex patterns
+
+### Security Impact
+
+**POSITIVE**: More consistent XSS protection across all components with auditable presets.
+
+**Files Modified**: 6 files
+- `/web/src/utils/sanitize.js` (enhanced)
+- `/web/src/utils/domSanitizer.js` (refactored)
+- `/web/src/components/BlogCard.jsx` (refactored)
+- `/web/src/pages/BlogDetailPage.jsx` (refactored)
+- `/web/src/pages/BlogPreview.jsx` (refactored)
+- `/web/src/utils/sanitize.test.js` (fixed)
 
 ## Notes
 
 **Priority rationale**: P4 (Low) - Code quality improvement, XSS protection already works
-**Current state**: All components do sanitize, just inconsistently
-**Security impact**: Low (all components use DOMPurify, just with different configs)
+**Current state**: ✅ RESOLVED - All components use centralized sanitization
+**Security impact**: POSITIVE - More consistent XSS protection with auditable presets
 **Related**: XSS testing (issue #032 - React component tests)

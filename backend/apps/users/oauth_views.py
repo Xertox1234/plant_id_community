@@ -18,6 +18,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from django_ratelimit.decorators import ratelimit
+from apps.core.utils.pii_safe_logging import log_safe_username, log_safe_user_context, log_safe_email
 import logging
 import json
 
@@ -167,7 +168,7 @@ def oauth_callback(request, provider):
         response = HttpResponseRedirect(redirect_url)
         response = set_jwt_cookies(response, user)
 
-        logger.info(f"Successful OAuth login for user: {user.username} via {provider}")
+        logger.info(f"Successful OAuth login for {log_safe_user_context(user)} via {provider}")
         return response
         
     except Exception as e:
@@ -288,13 +289,13 @@ def _find_or_create_user(provider, user_data):
     try:
         email = user_data.get('email')
         if not email:
-            logger.error(f"No email provided by {provider}")
+            logger.error(f"No email provided by {provider} (GDPR: no email logged)")
             return None
         
         # Check if user exists with this email
         try:
             user = User.objects.get(email=email)
-            logger.info(f"Found existing user: {user.username}")
+            logger.info(f"Found existing {log_safe_user_context(user)}")
             return user
         except User.DoesNotExist:
             pass
@@ -348,7 +349,7 @@ def _find_or_create_user(provider, user_data):
                 user.location = user_data.get('location', '')[:100]
             user.save()
         
-        logger.info(f"Created new user: {user.username} via {provider}")
+        logger.info(f"Created new {log_safe_user_context(user)} via {provider}")
         return user
         
     except Exception as e:

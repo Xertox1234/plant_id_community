@@ -34,6 +34,7 @@ flutter run
 Visit:
 - **Web**: http://localhost:5173
 - **Backend**: http://localhost:8000
+- **API Docs**: http://localhost:8000/api/docs/ (Swagger UI)
 - **Mobile**: Opens in simulator/emulator
 
 ## 📱 Architecture
@@ -188,13 +189,37 @@ python manage.py test apps.plant_identification
 
 ## 🌐 API Endpoints
 
+### Interactive API Documentation
+
+**NEW:** Interactive OpenAPI 3.0 documentation is now available!
+
+- **Swagger UI**: http://localhost:8000/api/docs/
+  - Interactive API explorer with "Try it out" functionality
+  - Auto-generated from code (always up-to-date)
+  - JWT authentication support built-in
+
+- **ReDoc**: http://localhost:8000/api/redoc/
+  - Clean, responsive documentation interface
+  - Better for browsing and learning the API
+
+- **OpenAPI Schema**: http://localhost:8000/api/schema/
+  - Download the raw OpenAPI 3.0 schema (YAML)
+  - Use with Postman, Insomnia, or other API clients
+
+All `/api/v1/*` endpoints are automatically documented. The documentation includes:
+- Request/response schemas
+- Authentication requirements (JWT tokens)
+- Query parameters and filters
+- Example requests
+- Error responses
+
 ### Plant Identification
 ```bash
 # Health check
-GET /api/plant-identification/identify/health/
+GET /api/v1/plant-identification/identify/health/
 
 # Identify plant
-POST /api/plant-identification/identify/
+POST /api/v1/plant-identification/identify/
 Content-Type: multipart/form-data
 Body: { image: <file> }
 ```

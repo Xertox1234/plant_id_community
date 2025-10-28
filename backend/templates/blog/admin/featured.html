@@ -81,7 +81,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ request.csp_nonce }}">
 function toggleFeatured(postId) {
     fetch(`/blog-admin/posts/${postId}/toggle-featured/`, {
         method: 'POST',

@@ -1,9 +1,10 @@
 ---
-status: ready
+status: resolved
 priority: p4
 issue_id: "026"
 tags: [security, https, headers]
 dependencies: []
+resolved_date: 2025-10-27
 ---
 
 # Enable HSTS Preload
@@ -97,6 +98,64 @@ curl -I https://yourdomain.com | grep Strict-Transport-Security
 ## Work Log
 
 - 2025-10-25: Issue identified by security-sentinel agent
+- 2025-10-27: RESOLVED - HSTS preload configuration already implemented and documented
+
+## Resolution Summary
+
+The HSTS preload configuration was **already implemented** in the codebase as of Phase 1 security updates. The settings are automatically enabled in production mode:
+
+### Implementation Details
+
+**File: `/backend/plant_community_backend/settings.py` (lines 881-933)**
+- `SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0` (1 year)
+- `SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG` (required for preload)
+- `SECURE_HSTS_PRELOAD = not DEBUG` (adds preload directive)
+
+**Behavior:**
+- Development (DEBUG=True): HSTS disabled for local HTTP testing
+- Production (DEBUG=False): All HSTS settings automatically enabled
+
+**Header in Production:**
+```
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+```
+
+### Documentation Added
+
+1. **settings.py** - Added comprehensive 41-line comment block documenting:
+   - What each HSTS setting does
+   - HSTS preload list submission requirements
+   - Verification command
+   - Important warnings about irreversibility
+   - Resource links (hstspreload.org, chromium.org, securityheaders.com)
+
+2. **.env.example** - Added 28-line documentation section explaining:
+   - How settings are auto-configured by DEBUG mode
+   - HSTS preload list submission process
+   - Pre-submission checklist
+   - Header verification command
+   - Warning about 1+ year irreversibility
+
+### Next Steps for Production Deployment
+
+Once the application is deployed to production with HTTPS:
+
+1. Verify HTTPS certificate is valid and working
+2. Ensure HTTP → HTTPS redirect is configured (port 80 → 443)
+3. Verify all subdomains are accessible via HTTPS (www, api, cms)
+4. Test the header: `curl -I https://yourdomain.com | grep Strict-Transport-Security`
+5. Verify output: `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`
+6. Submit domain to https://hstspreload.org/
+7. Monitor for 6-8 weeks for browser preload list inclusion
+
+### Acceptance Criteria Status
+
+- [x] `SECURE_HSTS_PRELOAD = True` in production settings (auto-enabled when DEBUG=False)
+- [x] Header includes `includeSubDomains` and `preload` (verified in code)
+- [ ] All subdomains accessible via HTTPS (pending production deployment)
+- [ ] Domain submitted to HSTS preload list (pending production deployment)
+- [ ] Preload status "pending" on hstspreload.org (pending submission)
+- [x] Documented rollback plan (documented in settings.py comments)
 
 ## Notes
 
@@ -104,3 +163,4 @@ curl -I https://yourdomain.com | grep Strict-Transport-Security
 **Irreversibility**: Once on preload list, cannot remove for 1+ year
 **Testing**: Test on staging domain first before production submission
 **Related**: Ensure HTTPS enforced (issue #004 from Phase 1)
+**Status**: Configuration complete, awaiting production HTTPS deployment for preload list submission

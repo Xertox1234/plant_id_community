@@ -1,22 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import DOMPurify from 'dompurify';
 import StreamFieldRenderer from '../components/StreamFieldRenderer';
 import BlogCard from '../components/BlogCard';
 import { fetchBlogPost } from '../services/blogService';
-
-/**
- * Create sanitized HTML for safe rendering
- * Prevents XSS attacks from malicious content in rich text fields
- */
-function createSafeMarkup(html) {
-  return {
-    __html: DOMPurify.sanitize(html, {
-      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'blockquote'],
-      ALLOWED_ATTR: ['href', 'target', 'rel'],
-    }),
-  };
-}
+import { createSafeMarkup, SANITIZE_PRESETS } from '../utils/sanitize';
 
 /**
  * BlogDetailPage Component
@@ -279,7 +266,7 @@ export default function BlogDetailPage() {
         {/* Introduction */}
         {post.introduction && (
           <div className="text-xl text-gray-700 mb-8 leading-relaxed border-l-4 border-green-600 pl-6 py-2 bg-green-50 rounded-r-lg">
-            <div dangerouslySetInnerHTML={createSafeMarkup(post.introduction)} />
+            <div dangerouslySetInnerHTML={createSafeMarkup(post.introduction, SANITIZE_PRESETS.STANDARD)} />
           </div>
         )}
 

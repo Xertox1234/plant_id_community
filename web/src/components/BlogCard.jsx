@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useMemo, memo } from 'react';
 import PropTypes from 'prop-types';
+import { stripHtml } from '../utils/sanitize';
 
 /**
  * BlogCard Component
@@ -35,9 +36,11 @@ function BlogCard({ post, showImage = true, compact = false }) {
   const primaryCategory = useMemo(() => categories[0], [categories]);
 
   // Truncate introduction for preview (memoized)
+  // Use centralized stripHtml instead of manual regex
   const excerpt = useMemo(() => {
     if (!introduction) return '';
-    return introduction.replace(/<[^>]*>/g, '').substring(0, compact ? 100 : 200) + '...';
+    const plainText = stripHtml(introduction);
+    return plainText.substring(0, compact ? 100 : 200) + '...';
   }, [introduction, compact]);
 
   return (

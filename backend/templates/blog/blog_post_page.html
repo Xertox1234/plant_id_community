@@ -104,7 +104,7 @@
     {% endif %}
 </article>
 
-<script>
+<script nonce="{{ request.csp_nonce }}">
 // Load comments via API
 document.addEventListener('DOMContentLoaded', function() {
     if (document.getElementById('blog-comments')) {

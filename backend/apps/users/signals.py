@@ -11,6 +11,7 @@ from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from allauth.account.signals import email_confirmed, user_signed_up
 from apps.core.services.email_service import EmailService
+from apps.core.utils.pii_safe_logging import log_safe_username, log_safe_user_context, log_safe_email
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -31,9 +32,9 @@ def send_welcome_email_on_verification(sender, request, email_address, **kwargs)
         success = email_service.send_welcome_email(user)
         
         if success:
-            logger.info(f"Welcome email sent to {user.username} ({email_address.email})")
+            logger.info(f"Welcome email sent to {log_safe_user_context(user)} ({log_safe_email(email_address.email)})")
         else:
-            logger.error(f"Failed to send welcome email to {user.username}")
+            logger.error(f"Failed to send welcome email to {log_safe_user_context(user)}")
             
     except Exception as e:
         logger.error(f"Error sending welcome email: {e}")
@@ -58,7 +59,7 @@ def handle_user_signup(sender, request, user, **kwargs):
                 completed_steps=['account_created'],
                 onboarding_entry_point='direct_signup'
             )
-            logger.info(f"Created onboarding progress for new user: {user.username}")
+            logger.info(f"Created onboarding progress for new {log_safe_user_context(user)}")
         
         # Log user signup in activity
         from apps.users.models import ActivityLog
@@ -69,10 +70,10 @@ def handle_user_signup(sender, request, user, **kwargs):
             is_public=False
         )
         
-        logger.info(f"New user signed up: {user.username} ({user.email})")
+        logger.info(f"New user signed up: {log_safe_user_context(user, include_email=True)}")
         
     except Exception as e:
-        logger.error(f"Error handling user signup for {user.username}: {e}")
+        logger.error(f"Error handling user signup for {log_safe_user_context(user)}: {e}")
 
 
 @receiver(post_save, sender=User)
@@ -91,11 +92,11 @@ def handle_user_profile_update(sender, instance, created, **kwargs):
         old_trust_level = getattr(instance, '_old_trust_level', None)
         if old_trust_level and old_trust_level != instance.trust_level:
             # Trust level was upgraded
-            logger.info(f"Trust level upgraded for {instance.username}: {old_trust_level} -> {instance.trust_level}")
+            logger.info(f"Trust level upgraded for {log_safe_user_context(instance)}: {old_trust_level} -> {instance.trust_level}")
             
             # Could send congratulations email here in the future
             # email_service = EmailService()
             # email_service.send_trust_level_upgrade_email(instance, old_trust_level, instance.trust_level)
             
     except Exception as e:
-        logger.error(f"Error handling user profile update for {instance.username}: {e}")
+        logger.error(f"Error handling user profile update for {log_safe_user_context(instance)}: {e}")

@@ -3,6 +3,32 @@
 from django.db import migrations, models
 
 
+def migrate_null_emails_to_empty_string(apps, schema_editor):
+    """
+    Migrate any NULL email values to empty strings before AlterField.
+
+    This ensures data integrity when changing email field constraints.
+    Although the field was already NOT NULL in the database schema,
+    this migration provides safety for any edge cases or future schema changes.
+    """
+    User = apps.get_model('users', 'User')
+    # Update any users with NULL email to empty string
+    updated_count = User.objects.filter(email__isnull=True).update(email='')
+    if updated_count > 0:
+        print(f"Migrated {updated_count} NULL email(s) to empty string")
+
+
+def reverse_migration(apps, schema_editor):
+    """
+    Reverse migration - no action needed.
+
+    We don't convert empty strings back to NULL because:
+    1. The original schema didn't allow NULL values
+    2. Empty string is semantically equivalent to "no email provided"
+    """
+    pass
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -10,6 +36,12 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # STEP 1: Data migration - convert NULL emails to empty strings
+        migrations.RunPython(
+            migrate_null_emails_to_empty_string,
+            reverse_migration,
+        ),
+        # STEP 2: Schema migration - alter email field constraints
         migrations.AlterField(
             model_name='user',
             name='email',

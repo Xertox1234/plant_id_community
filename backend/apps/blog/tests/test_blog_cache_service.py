@@ -105,12 +105,12 @@ class BlogCacheServiceTestCase(TestCase):
         self.assertEqual(result2, data2)
         self.assertNotEqual(result1, result2)
 
-    def test_hash_length_is_16_characters(self):
-        """Verify hash is truncated to 16 characters (64 bits) to prevent collisions."""
+    def test_hash_length_is_64_characters(self):
+        """Verify hash is full 64 characters (256 bits) to prevent collisions."""
         filters = {'category': '1', 'tag': 'test', 'search': 'query'}
-        filters_hash = hashlib.sha256(str(sorted(filters.items())).encode()).hexdigest()[:16]
+        filters_hash = hashlib.sha256(str(sorted(filters.items())).encode()).hexdigest()
 
-        self.assertEqual(len(filters_hash), 16)
+        self.assertEqual(len(filters_hash), 64)
         # Verify it's hexadecimal
         int(filters_hash, 16)  # Will raise ValueError if not hex
 

@@ -7,6 +7,7 @@ This module contains models for plant data, identification requests, and results
 from django.db import models
 from django.conf import settings
 from django.urls import reverse
+from django.core.validators import MinValueValidator, MaxValueValidator
 from imagekit.models import ImageSpecField, ProcessedImageField
 from imagekit.processors import ResizeToFill, ResizeToFit
 from taggit.managers import TaggableManager
@@ -222,6 +223,7 @@ class PlantSpecies(models.Model):
     confidence_score = models.FloatField(
         null=True,
         blank=True,
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         help_text="Highest confidence score from identifications that created this species"
     )
     
@@ -300,6 +302,10 @@ class PlantSpecies(models.Model):
 class PlantIdentificationRequest(models.Model):
     """
     Model representing a user's request to identify a plant.
+
+    CASCADE POLICY:
+    - user: CASCADE (user's identification requests deleted with user per GDPR)
+    - assigned_to_collection: SET_NULL (preserves request if collection deleted)
     """
     
     # Request ID for tracking
@@ -490,6 +496,11 @@ class PlantIdentificationRequest(models.Model):
 class PlantIdentificationResult(models.Model):
     """
     Model representing an identification result for a plant request.
+
+    CASCADE POLICY:
+    - request: CASCADE (identification results are meaningless without the request)
+    - identified_species: SET_NULL (preserves historical research data if species deleted)
+    - identified_by: CASCADE (community/expert identifications deleted with user per GDPR)
     """
     
     # UUID for secure references (prevents IDOR attacks)
@@ -508,12 +519,16 @@ class PlantIdentificationResult(models.Model):
     )
     
     # Identified species (if matched to database)
+    # CASCADE POLICY: SET_NULL to preserve historical identification data
+    # If a species is removed from the database, the identification result
+    # remains with suggested_scientific_name and suggested_common_name as fallback
     identified_species = models.ForeignKey(
         PlantSpecies,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='identification_results'
+        related_name='identification_results',
+        help_text="Identified species from database. SET_NULL preserves research data."
     )
     
     # Alternative identification (if species not in database)
@@ -528,12 +543,13 @@ class PlantIdentificationResult(models.Model):
         blank=True,
         help_text="Suggested common name"
     )
-    
+
     # Confidence and Source
     confidence_score = models.FloatField(
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         help_text="Confidence score (0.0 to 1.0)"
     )
-    
+
     identification_source = models.CharField(
         max_length=20,
         choices=[
@@ -642,6 +658,13 @@ class PlantIdentificationResult(models.Model):
 class UserPlant(models.Model):
     """
     Model representing a plant in a user's collection.
+
+    CASCADE POLICY:
+    - user: CASCADE (user's plants deleted with user per GDPR right to be forgotten)
+    - collection: CASCADE (plants belong to a collection, deleted if collection removed)
+    - species: SET_NULL (preserves user's plant records even if species removed from database)
+    - from_identification_request: SET_NULL (preserves link to historical identification)
+    - from_identification_result: SET_NULL (preserves link to historical identification)
     """
     
     # UUID for secure references (prevents IDOR attacks)
@@ -666,12 +689,16 @@ class UserPlant(models.Model):
     )
     
     # Plant Information
+    # CASCADE POLICY: SET_NULL to preserve user's plant records
+    # If a species is removed from the database, the user's plant remains
+    # with nickname and other metadata intact
     species = models.ForeignKey(
         PlantSpecies,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='user_plants'
+        related_name='user_plants',
+        help_text="Species from database. SET_NULL preserves user plant records."
     )
     
     # Custom name given by user
@@ -1048,9 +1075,10 @@ class PlantDiseaseDatabase(models.Model):
         default=list,
         help_text="Environmental conditions that trigger this disease"
     )
-    
+
     # Storage metadata
     confidence_score = models.FloatField(
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         help_text="Minimum confidence score from diagnoses (≥0.5 required)"
     )
     
@@ -1334,12 +1362,13 @@ class PlantDiseaseResult(models.Model):
         blank=True,
         help_text="Type of disease suggested by API"
     )
-    
+
     # Confidence and Source
     confidence_score = models.FloatField(
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         help_text="Confidence score (0.0 to 1.0)"
     )
-    
+
     diagnosis_source = models.CharField(
         max_length=20,
         choices=[
@@ -1615,6 +1644,10 @@ class TreatmentAttempt(models.Model):
 class SavedCareInstructions(models.Model):
     """
     Model for user's saved plant care instruction cards.
+
+    CASCADE POLICY:
+    - user: CASCADE (user's saved care instructions deleted with user per GDPR)
+    - plant_species: SET_NULL (preserves saved instructions with fallback to plant_scientific_name)
     """
     
     # UUID for secure references
@@ -1633,12 +1666,15 @@ class SavedCareInstructions(models.Model):
     )
     
     # Plant information
+    # CASCADE POLICY: SET_NULL to preserve user's saved care instructions
+    # If a species is removed from the database, the care card remains
+    # with plant_scientific_name and plant_common_name as fallback
     plant_species = models.ForeignKey(
         PlantSpecies,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        help_text="Plant species this care card is for"
+        help_text="Plant species this care card is for. SET_NULL preserves saved care instructions."
     )
     
     # Plant identification info (if saved from an identification result)

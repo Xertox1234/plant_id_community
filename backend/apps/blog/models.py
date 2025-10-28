@@ -48,17 +48,17 @@ class BlogStreamBlocks(blocks.StreamBlock):
         help_text="Add paragraph text with AI assistance for plant content"
     )
     
-    image = ImageChooserBlock(
-        icon="image",
-        template="blog/blocks/image.html",
-        help_text="Add images with AI-generated alt text"
-    )
-    
+    # Unused blocks removed (TODO #033) - can be re-added when needed:
+    # - image (use paragraph with embedded images instead)
+    # - care_instructions (no instances in blog posts)
+    # - gallery (no instances in blog posts)
+    # - video_embed (no instances in blog posts)
+
     quote = blocks.StructBlock([
         ('quote_text', blocks.RichTextBlock()),
         ('attribution', blocks.CharBlock(required=False, help_text="Who said this quote?"))
     ], icon="openquote", template="blog/blocks/quote.html")
-    
+
     code = blocks.StructBlock([
         ('language', blocks.ChoiceBlock(choices=[
             ('python', 'Python'),
@@ -70,7 +70,7 @@ class BlogStreamBlocks(blocks.StreamBlock):
         ], required=False)),
         ('code', blocks.TextBlock())
     ], icon="code", template="blog/blocks/code.html")
-    
+
     plant_spotlight = blocks.StructBlock([
         ('plant_name', blocks.CharBlock(
             help_text="🌱 Enter plant name - auto-population will fill other fields"
@@ -91,43 +91,9 @@ class BlogStreamBlocks(blocks.StreamBlock):
             required=False,
             help_text="Plant image (suggestions provided from database)"
         ))
-    ], icon="snippet", template="blog/blocks/plant_spotlight.html", 
+    ], icon="snippet", template="blog/blocks/plant_spotlight.html",
     help_text="Spotlight a specific plant with auto-populated data from our plant database")
-    
-    care_instructions = blocks.StructBlock([
-        ('care_title', blocks.CharBlock(
-            help_text="🌿 Enter plant name in title - care details will auto-populate"
-        )),
-        ('watering', blocks.RichTextBlock(
-            help_text="Watering instructions (auto-populated from plant database)"
-        )),
-        ('lighting', blocks.RichTextBlock(
-            help_text="Lighting requirements (auto-populated from plant database)"
-        )),
-        ('temperature', blocks.CharBlock(
-            required=False,
-            help_text="Temperature preferences (auto-populated from hardiness data)"
-        )),
-        ('humidity', blocks.CharBlock(
-            required=False,
-            help_text="Humidity requirements (auto-populated or AI-generated)"
-        )),
-        ('fertilizing', blocks.RichTextBlock(
-            required=False,
-            help_text="Fertilizing schedule (auto-populated or AI-generated)"
-        )),
-        ('special_notes', blocks.RichTextBlock(
-            required=False,
-            help_text="Special care notes (AI-generated from plant characteristics)"
-        ))
-    ], icon="help", template="blog/blocks/care_instructions.html",
-    help_text="Detailed plant care instructions with auto-populated guidance")
-    
-    gallery = blocks.StructBlock([
-        ('gallery_title', blocks.CharBlock(required=False)),
-        ('images', blocks.ListBlock(ImageChooserBlock(), min_num=2, max_num=12))
-    ], icon="image", template="blog/blocks/gallery.html")
-    
+
     call_to_action = blocks.StructBlock([
         ('cta_title', blocks.CharBlock()),
         ('cta_description', blocks.RichTextBlock(required=False)),
@@ -139,12 +105,6 @@ class BlogStreamBlocks(blocks.StreamBlock):
             ('outline', 'Outline'),
         ], default='primary'))
     ], icon="link", template="blog/blocks/call_to_action.html")
-    
-    video_embed = blocks.StructBlock([
-        ('video_title', blocks.CharBlock(required=False)),
-        ('video_url', blocks.URLBlock(help_text="YouTube or Vimeo URL")),
-        ('description', blocks.RichTextBlock(required=False))
-    ], icon="media", template="blog/blocks/video_embed.html")
 
 
 # Tag models for blog posts
@@ -845,11 +805,13 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
     class Meta:
         verbose_name = "Blog Post"
         indexes = [
-            # Index on view_count (local field)
+            # Index on view_count (local field) - migration 0006
             models.Index(fields=['-view_count'], name='blog_post_view_count_idx'),
+            # Index on publish_date (local field) - migration 0007
+            models.Index(fields=['-publish_date'], name='blog_post_publish_date_idx'),
         ]
         # NOTE: Cannot add indexes on inherited fields (first_published_at) in Meta class
-        # These are created via custom migration with RunSQL (see migration 0006)
+        # Composite index on categories junction table created via RunSQL (see migration 0007)
 
 
 class BlogComment(models.Model):

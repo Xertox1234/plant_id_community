@@ -14,6 +14,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie, csrf_protect
 from django_ratelimit.decorators import ratelimit
 from django.views.decorators.cache import cache_page
 from apps.core.security import SecurityMonitor, log_security_event
+from apps.core.utils.pii_safe_logging import log_safe_username, log_safe_user_context
 import logging
 from rest_framework.authentication import CSRFCheck
 from django.http import HttpResponse
@@ -21,6 +22,7 @@ from django.http import HttpResponse
 from .models import User, UserPlantCollection
 from .serializers import UserRegistrationSerializer, UserSerializer, UserProfileSerializer
 from .authentication import set_jwt_cookies, clear_jwt_cookies, RefreshTokenFromCookie
+from apps.plant_identification.constants import RATE_LIMITS
 
 logger = logging.getLogger(__name__)
 
@@ -63,13 +65,19 @@ def get_csrf_token(request: Request) -> Response:
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 @ensure_csrf_cookie
-@ratelimit(key='ip', rate='3/h', method='POST', block=True)  # 3 registrations per hour per IP
+@ratelimit(
+    key='ip',
+    rate=RATE_LIMITS['auth_endpoints']['register'],
+    method='POST',
+    block=True
+)
 def register(request: Request) -> Response:
     """
     Register a new user account.
     """
     # Log registration attempt (without sensitive data)
-    logger.info(f"Registration attempt for user: {request.data.get('username', 'unknown')}")
+    username = request.data.get('username', 'unknown')
+    logger.info(f"Registration attempt for user: {log_safe_username(username)}")
     
     serializer = UserRegistrationSerializer(data=request.data)
     
@@ -109,14 +117,20 @@ def register(request: Request) -> Response:
     
     # Log validation errors (sanitized)
     error_fields = list(serializer.errors.keys()) if serializer.errors else []
-    logger.warning(f"Registration validation failed for user: {request.data.get('username', 'unknown')}, fields: {error_fields}")
+    username = request.data.get('username', 'unknown')
+    logger.warning(f"Registration validation failed for user: {log_safe_username(username)}, fields: {error_fields}")
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 @ensure_csrf_cookie
-@ratelimit(key='ip', rate='5/15m', method='POST', block=True)  # 5 login attempts per 15 minutes per IP
+@ratelimit(
+    key='ip',
+    rate=RATE_LIMITS['auth_endpoints']['login'],
+    method='POST',
+    block=True
+)
 def login(request: Request) -> Response:
     """
     Authenticate user and return tokens.
@@ -263,7 +277,12 @@ def logout(request: Request) -> Response:
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 @csrf_protect  # CRITICAL: Validates CSRF for ALL POST requests (not just cookie-based)
-@ratelimit(key='ip', rate='10/h', method='POST', block=True)
+@ratelimit(
+    key='ip',
+    rate=RATE_LIMITS['auth_endpoints']['token_refresh'],
+    method='POST',
+    block=True
+)
 def token_refresh(request: Request) -> Response:
     """
     Refresh JWT access token using refresh token from cookie or request data.
@@ -700,7 +719,12 @@ def forum_permissions(request: Request) -> Response:
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
-@ratelimit(key='user', rate='10/h', method='POST', block=True)
+@ratelimit(
+    key='user',
+    rate=RATE_LIMITS['user_features']['push_notifications'],
+    method='POST',
+    block=True
+)
 def subscribe_push_notifications(request: Request) -> Response:
     """
     Subscribe user to push notifications.
@@ -729,7 +753,7 @@ def subscribe_push_notifications(request: Request) -> Response:
         }, status=status.HTTP_201_CREATED)
         
     except Exception as e:
-        logger.error(f"Push subscription failed for {request.user.username}: {e}")
+        logger.error(f"Push subscription failed for {log_safe_user_context(request.user)}: {e}")
         return Response(
             {'error': 'Failed to subscribe to push notifications'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -881,7 +905,7 @@ def care_reminders(request: Request) -> Response:
                 status=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
-            logger.error(f"Failed to create care reminder for {request.user.username}: {e}")
+            logger.error(f"Failed to create care reminder for {log_safe_user_context(request.user)}: {e}")
             return Response(
                 {'error': 'Failed to create care reminder'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -993,7 +1017,12 @@ def care_reminder_detail(request: Request, reminder_uuid: str) -> Response:
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
-@ratelimit(key='user', rate='20/h', method='POST', block=True)
+@ratelimit(
+    key='user',
+    rate=RATE_LIMITS['user_features']['care_reminders'],
+    method='POST',
+    block=True
+)
 def care_reminder_action(request: Request, reminder_uuid: str) -> Response:
     """
     Perform actions on a care reminder (complete, snooze, skip).

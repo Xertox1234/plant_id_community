@@ -3,6 +3,9 @@ Constants for Plant Identification Services
 
 Centralized configuration values to improve maintainability and make
 tuning easier without hunting through service code.
+
+NOTE: This file has been cleaned up to remove unused constants (80% were unused).
+Only actively used constants from the three service files are retained.
 """
 
 # ============================================================================
@@ -22,147 +25,38 @@ CPU_CORE_MULTIPLIER = 2
 # API Timeout Configuration (seconds)
 # ============================================================================
 
-# Plant.id API timeout (including 5s buffer)
-PLANT_ID_API_TIMEOUT = 35
-PLANT_ID_API_TIMEOUT_DEFAULT = 30
+# Plant.id API timeouts
+PLANT_ID_API_TIMEOUT = 35              # With 5s buffer
+PLANT_ID_API_TIMEOUT_DEFAULT = 30      # Default timeout
 
-# PlantNet API timeout (including 5s buffer)
-PLANTNET_API_TIMEOUT = 20
-PLANTNET_API_REQUEST_TIMEOUT = 60
-
-# Plant Health API timeout
-PLANT_HEALTH_API_TIMEOUT = 60
-PLANT_HEALTH_HEALTH_CHECK_TIMEOUT = 10
-
-# Trefle API timeout
-TREFLE_API_TIMEOUT = 10
+# PlantNet API timeouts
+PLANTNET_API_TIMEOUT = 20              # With 5s buffer
+PLANTNET_API_REQUEST_TIMEOUT = 60      # Request timeout
 
 # Image service timeouts
-IMAGE_DOWNLOAD_TIMEOUT = 30
-IMAGE_DOWNLOAD_QUICK_TIMEOUT = 10
+IMAGE_DOWNLOAD_TIMEOUT = 30            # Standard download
+IMAGE_DOWNLOAD_QUICK_TIMEOUT = 10      # Quick download
 
 
 # ============================================================================
 # Cache Configuration (seconds)
 # ============================================================================
 
-# Standard 24-hour cache for API results
-CACHE_TIMEOUT_24_HOURS = 86400
+# Base cache timeouts
+CACHE_TIMEOUT_24_HOURS = 86400         # 24 hours
+CACHE_TIMEOUT_30_MINUTES = 1800        # 30 minutes
 
-# Alternative cache timeouts
-CACHE_TIMEOUT_30_MINUTES = 1800
-CACHE_TIMEOUT_1_HOUR = 3600
-CACHE_TIMEOUT_7_DAYS = 604800
-
-# Specific service cache timeouts
+# Service-specific cache timeouts
 PLANT_ID_CACHE_TIMEOUT = CACHE_TIMEOUT_30_MINUTES
 PLANTNET_CACHE_TIMEOUT = CACHE_TIMEOUT_24_HOURS
-TREFLE_CACHE_TIMEOUT = CACHE_TIMEOUT_24_HOURS
-UNSPLASH_CACHE_TIMEOUT = CACHE_TIMEOUT_24_HOURS
-PEXELS_CACHE_TIMEOUT = CACHE_TIMEOUT_24_HOURS
-AI_IMAGE_CACHE_TIMEOUT = CACHE_TIMEOUT_7_DAYS
-AI_COST_CACHE_TIMEOUT = CACHE_TIMEOUT_24_HOURS
-
-# Rate limit cache durations
-RATE_LIMIT_CACHE_DURATION = 300  # 5 minutes
-RATE_LIMIT_RETRY_AFTER_MIN = 60  # 1 minute minimum
 
 
 # ============================================================================
-# Confidence Score Thresholds
+# Temperature Constants
 # ============================================================================
 
-# Species lookup confidence scores
-CONFIDENCE_LOCAL_VERIFIED = 0.8  # Expert-verified local species
-CONFIDENCE_CACHED_API = 0.6      # Cached API results
-CONFIDENCE_LOCAL_FALLBACK = 0.4  # Local fallback when API unavailable
-
-# Plant health confidence thresholds
-HEALTH_CONFIDENCE_HIGH = 0.8     # High confidence diagnosis
-HEALTH_CONFIDENCE_MEDIUM = 0.6   # Medium confidence diagnosis
-
-# Monitoring thresholds
-MONITORING_WARNING_THRESHOLD = 0.8   # 80% of limit
-MONITORING_CRITICAL_THRESHOLD = 0.95  # 95% of limit
-
-
-# ============================================================================
-# Performance Thresholds
-# ============================================================================
-
-# Cache performance thresholds (percentages)
-CACHE_HIT_RATIO_MIN = 30         # Minimum acceptable cache hit rate (%)
-LOCAL_DB_RATIO_MIN = 30          # Minimum local database usage (%)
-API_DEPENDENCY_RATIO_MAX = 60    # Maximum API dependency (%)
-
-
-# ============================================================================
-# API Limits and Defaults
-# ============================================================================
-
-# Default result limits
-DEFAULT_SEARCH_LIMIT = 10
-DEFAULT_SPECIES_LIMIT = 20
-DEFAULT_IMAGE_LIMIT_UNSPLASH = 10
-DEFAULT_IMAGE_LIMIT_PEXELS = 15
-
-# API-imposed limits
-UNSPLASH_MAX_RESULTS = 30        # Unsplash API limit
-PLANT_HEALTH_MAX_IMAGES = 10     # Plant Health API limit
-
-
-# ============================================================================
-# Temperature and Climate Constants
-# ============================================================================
-
-# Default temperature ranges (for care instructions)
+# Default temperature range for care instructions
 TEMPERATURE_RANGE_CELSIUS = "18-24°C"
-TEMPERATURE_RANGE_FAHRENHEIT = "65-75°F"
-HUMIDITY_IDEAL_RANGE = "40-60%"
-
-
-# ============================================================================
-# Geographic Regions (for PlantNet project selection)
-# ============================================================================
-
-# Europe boundaries
-EUROPE_LAT_MIN, EUROPE_LAT_MAX = 35, 70
-EUROPE_LON_MIN, EUROPE_LON_MAX = -25, 45
-
-# South America boundaries
-SOUTH_AMERICA_LAT_MIN, SOUTH_AMERICA_LAT_MAX = -55, 15
-SOUTH_AMERICA_LON_MIN, SOUTH_AMERICA_LON_MAX = -85, -35
-
-# Africa boundaries
-AFRICA_LAT_MIN, AFRICA_LAT_MAX = -35, 40
-AFRICA_LON_MIN, AFRICA_LON_MAX = -20, 55
-
-# Asia boundaries
-ASIA_LAT_MIN, ASIA_LAT_MAX = -10, 70
-ASIA_LON_MIN, ASIA_LON_MAX = 60, 180
-
-# Oceania boundaries
-OCEANIA_LAT_MIN, OCEANIA_LAT_MAX = -50, -10
-OCEANIA_LON_MIN, OCEANIA_LON_MAX = 110, 180
-
-
-# ============================================================================
-# Time Intervals (days)
-# ============================================================================
-
-# Care reminder intervals
-CARE_REMINDER_INTERVAL_DAYS = 30
-
-
-# ============================================================================
-# Cache Performance Metrics
-# ============================================================================
-
-# Expected cache hit rate after optimization (for documentation)
-EXPECTED_CACHE_HIT_RATE = 0.40  # 40% of requests should hit cache
-
-# Performance improvement expectations
-PARALLEL_SPEEDUP_FACTOR = 0.60  # 60% faster with parallel execution
 
 
 # ============================================================================
@@ -170,27 +64,16 @@ PARALLEL_SPEEDUP_FACTOR = 0.60  # 60% faster with parallel execution
 # ============================================================================
 
 # Plant.id API Circuit Breaker (Paid Tier - Conservative)
-# Fail quickly if API is down to protect quota
 PLANT_ID_CIRCUIT_FAIL_MAX = 3            # Open circuit after 3 consecutive failures
 PLANT_ID_CIRCUIT_RESET_TIMEOUT = 60      # Wait 60s before testing recovery
 PLANT_ID_CIRCUIT_SUCCESS_THRESHOLD = 2   # Require 2 successes to close circuit
 PLANT_ID_CIRCUIT_TIMEOUT = PLANT_ID_API_TIMEOUT
 
 # PlantNet API Circuit Breaker (Free Tier - More Tolerant)
-# More tolerant of failures since it's free tier
 PLANTNET_CIRCUIT_FAIL_MAX = 5            # Open circuit after 5 consecutive failures
 PLANTNET_CIRCUIT_RESET_TIMEOUT = 30      # Wait 30s before testing recovery
 PLANTNET_CIRCUIT_SUCCESS_THRESHOLD = 2   # Require 2 successes to close circuit
 PLANTNET_CIRCUIT_TIMEOUT = PLANTNET_API_TIMEOUT
-
-# Circuit Breaker State Storage
-# Use Redis for distributed circuit breaker state across Django workers
-CIRCUIT_BREAKER_REDIS_STORE = True       # Enable Redis storage for multi-worker setups
-CIRCUIT_BREAKER_REDIS_DB = 1             # Use separate Redis DB for circuit state
-
-# Circuit Breaker Monitoring
-CIRCUIT_OPEN_ALERT_THRESHOLD = 300       # Alert if circuit open > 5 minutes
-CIRCUIT_HALF_OPEN_MAX_DURATION = 120     # Max time in half-open state (2 minutes)
 
 
 # ============================================================================
@@ -198,24 +81,76 @@ CIRCUIT_HALF_OPEN_MAX_DURATION = 120     # Max time in half-open state (2 minute
 # ============================================================================
 
 # Lock Acquisition Timeout
-# How long to wait for a lock before giving up (seconds)
-# Should be longer than max API response time (Plant.id max observed: ~9s)
-# Set to 15s to prevent timeout-induced cache stampede
 CACHE_LOCK_TIMEOUT = 15  # Wait max 15s for another process to finish
 
 # Lock Expiry (Auto-Release)
-# Automatically release lock after this duration to prevent deadlocks
-# Must be greater than max API response time (currently 5-9s for Plant.id)
 CACHE_LOCK_EXPIRE = 30  # Auto-release after 30s (prevents deadlock on crash)
 
 # Lock Auto-Renewal
-# Keep extending lock while operation is running (for variable-duration API calls)
 CACHE_LOCK_AUTO_RENEWAL = True  # Recommended for API calls with unpredictable duration
 
 # Lock Blocking Mode
-# Whether to wait for lock or fail immediately
 CACHE_LOCK_BLOCKING = True  # Wait for lock (better UX than immediate failure)
 
 # Lock ID Prefix
-# Prefix for lock identifiers (used for debugging which process holds lock)
 CACHE_LOCK_ID_PREFIX = 'plant_id'  # Will be: "plant_id-{hostname}-{pid}-{thread_id}"
+
+
+# ============================================================================
+# Rate Limiting Configuration
+# ============================================================================
+# Centralized rate limit policy for consistent enforcement across endpoints.
+# See: docs/api/RATE_LIMITING_POLICY.md for detailed documentation.
+#
+# Format: '{count}/{period}' where period is: s (second), m (minute), h (hour), d (day)
+# Key types:
+#   - 'ip': Based on client IP address (for anonymous/auth endpoints)
+#   - 'user': Based on authenticated user ID
+#   - 'user_or_ip': User ID if authenticated, IP otherwise
+#
+# Rate Limit Tiers:
+#   - Anonymous: Strict limits for abuse prevention
+#   - Authenticated: Higher limits for legitimate users
+#   - Write Operations: Lower limits to prevent spam
+#   - Read Operations: Higher limits for better UX
+
+RATE_LIMITS = {
+    # Anonymous User Limits (IP-based)
+    'anonymous': {
+        'plant_identification': '10/h',     # Plant ID API calls (expensive)
+        'read_only': '100/h',               # General read operations
+        'search': '30/h',                   # Search endpoints
+    },
+
+    # Authenticated User Limits (user-based)
+    'authenticated': {
+        'plant_identification': '100/h',    # Plant ID API calls
+        'write_operations': '50/h',         # Create/update operations
+        'read_only': '1000/h',              # General read operations
+        'search': '100/h',                  # Search endpoints
+        'care_instructions': '30/m',        # Care instruction lookups
+        'regenerate': '5/m',                # AI regeneration (expensive)
+    },
+
+    # Authentication Endpoints (IP-based, security-focused)
+    'auth_endpoints': {
+        'login': '5/15m',                   # Login attempts
+        'register': '3/h',                  # Registration
+        'token_refresh': '10/h',            # Token refresh
+        'password_reset': '3/h',            # Password reset (not implemented)
+    },
+
+    # User Feature Endpoints (user-based)
+    'user_features': {
+        'push_notifications': '10/h',       # Push notification subscriptions
+        'care_reminders': '20/h',           # Care reminder actions
+        'profile_updates': '10/h',          # Profile modifications
+    },
+
+    # Blog/Content Endpoints (user_or_ip-based)
+    'blog': {
+        'read': '100/h',                    # Blog post reads
+        'write': '10/h',                    # Blog post creation (authenticated)
+        'comment': '20/h',                  # Comments (when implemented)
+    },
+}

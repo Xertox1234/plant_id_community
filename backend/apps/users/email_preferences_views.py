@@ -12,6 +12,7 @@ from django.http import JsonResponse, HttpResponse
 from django.views.decorators.http import require_http_methods
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from apps.core.utils.pii_safe_logging import log_safe_user_context
 import logging
 
 from apps.core.services.notification_service import NotificationService
@@ -49,11 +50,11 @@ def email_preferences(request):
             update_forum_subscriptions(user, request.POST)
             
             messages.success(request, '✅ Your email preferences have been updated successfully!')
-            logger.info(f"Email preferences updated for user {user.username}")
+            logger.info(f"Email preferences updated for {log_safe_user_context(user)}")
             
         except Exception as e:
             messages.error(request, '❌ There was an error updating your preferences. Please try again.')
-            logger.error(f"Error updating email preferences for {user.username}: {e}")
+            logger.error(f"Error updating email preferences for {log_safe_user_context(user)}: {e}")
     
     # Get current preferences
     current_preferences = notification_service.get_user_notification_preferences(user)
@@ -124,7 +125,7 @@ def unsubscribe(request):
             
             user.save()
         
-        logger.info(f"User {user.username} unsubscribed from {email_type} emails")
+        logger.info(f"{log_safe_user_context(user)} unsubscribed from {email_type} emails")
         
         return render(request, 'users/unsubscribe_success.html', {
             'user': user,
@@ -176,7 +177,7 @@ def ajax_update_preference(request):
                 'error': 'User does not have this preference field'
             }, status=400)
         
-        logger.info(f"AJAX preference update: {user.username} set {preference_name} to {enabled}")
+        logger.info(f"AJAX preference update: {log_safe_user_context(user)} set {preference_name} to {enabled}")
         
         return JsonResponse({'success': True})
         

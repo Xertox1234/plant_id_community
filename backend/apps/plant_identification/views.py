@@ -27,6 +27,7 @@ except ImportError:
         return decorator
 import logging
 
+from . import constants
 from .models import (
     PlantSpecies, 
     PlantIdentificationRequest, 
@@ -132,7 +133,12 @@ class PlantIdentificationRequestViewSet(viewsets.ModelViewSet):
             user=self.request.user
         ).order_by('-created_at')
     
-    @ratelimit(key='user', rate='10/m', method='POST', block=True)  # 10 requests per minute per user
+    @ratelimit(
+        key='user',
+        rate=constants.RATE_LIMITS['authenticated']['plant_identification'],
+        method='POST',
+        block=True
+    )
     def create(self, request, *args, **kwargs):
         """Create plant identification request with rate limiting."""
         try:
@@ -484,7 +490,12 @@ class UserPlantViewSet(viewsets.ModelViewSet):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
-@ratelimit(key='user_or_ip', rate='30/m', method='GET', block=True)  # 30 requests per minute per user/IP
+@ratelimit(
+    key='user_or_ip',
+    rate=constants.RATE_LIMITS['authenticated']['care_instructions'],
+    method='GET',
+    block=True
+)
 def get_care_instructions(request, species_id=None):
     """
     Get care instructions for a plant species.
@@ -1143,7 +1154,12 @@ class TreatmentAttemptViewSet(viewsets.ModelViewSet):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticatedOrReadOnly])
-@ratelimit(key='user_or_ip', rate='20/m', method='GET', block=True)
+@ratelimit(
+    key='user_or_ip',
+    rate=constants.RATE_LIMITS['authenticated']['search'],
+    method='GET',
+    block=True
+)
 def search_local_plants(request):
     """
     Search local plant database for cost-effective lookups.
@@ -1188,7 +1204,12 @@ def search_local_plants(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticatedOrReadOnly])
-@ratelimit(key='user_or_ip', rate='20/m', method='GET', block=True)
+@ratelimit(
+    key='user_or_ip',
+    rate=constants.RATE_LIMITS['authenticated']['search'],
+    method='GET',
+    block=True
+)
 def search_local_diseases(request):
     """
     Search local disease database for cost-effective disease diagnosis.
@@ -1230,7 +1251,12 @@ def search_local_diseases(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticatedOrReadOnly])
-@ratelimit(key='user_or_ip', rate='30/m', method='GET', block=True)
+@ratelimit(
+    key='user_or_ip',
+    rate=constants.RATE_LIMITS['authenticated']['read_only'],
+    method='GET',
+    block=True
+)
 def enrich_plant_data(request):
     """
     Enrich plant data using Trefle API for comprehensive botanical information.
@@ -1292,7 +1318,12 @@ def enrich_plant_data(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticatedOrReadOnly])
-@ratelimit(key='user_or_ip', rate='30/m', method='GET', block=True)
+@ratelimit(
+    key='user_or_ip',
+    rate=constants.RATE_LIMITS['authenticated']['search'],
+    method='GET',
+    block=True
+)
 def search_plant_species(request):
     """
     Search plant species using Trefle API for autocomplete and species lookup.
@@ -1334,7 +1365,12 @@ def search_plant_species(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticatedOrReadOnly])
-@ratelimit(key='user_or_ip', rate='30/m', method='GET', block=True)
+@ratelimit(
+    key='user_or_ip',
+    rate=constants.RATE_LIMITS['authenticated']['read_only'],
+    method='GET',
+    block=True
+)
 def get_plant_characteristics(request, species_id):
     """
     Get detailed plant characteristics for a specific species.
@@ -1381,7 +1417,12 @@ def get_plant_characteristics(request, species_id):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticatedOrReadOnly])
-@ratelimit(key='user_or_ip', rate='30/m', method='GET', block=True)
+@ratelimit(
+    key='user_or_ip',
+    rate=constants.RATE_LIMITS['authenticated']['read_only'],
+    method='GET',
+    block=True
+)
 def get_plant_growth_info(request, species_id):
     """
     Get growth information and care requirements for a specific species.
@@ -1426,7 +1467,12 @@ def get_plant_growth_info(request, species_id):
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
-@ratelimit(key='user_or_ip', rate='5/m', method='POST', block=True)  # Limited to 5 regenerations per minute
+@ratelimit(
+    key='user_or_ip',
+    rate=constants.RATE_LIMITS['authenticated']['regenerate'],
+    method='POST',
+    block=True
+)
 def regenerate_care_instructions(request, result_id):
     """
     Regenerate AI care instructions for a specific identification result.

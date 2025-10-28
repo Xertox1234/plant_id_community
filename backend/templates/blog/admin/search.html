@@ -205,7 +205,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ request.csp_nonce }}">
 // Auto-focus search input
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('q').focus();

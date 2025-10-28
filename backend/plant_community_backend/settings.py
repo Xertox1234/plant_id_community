@@ -139,6 +139,7 @@ THIRD_PARTY_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
+    'drf_spectacular',  # OpenAPI 3.0 schema generation
     'corsheaders',
     'django_filters',
     'imagekit',
@@ -146,6 +147,7 @@ THIRD_PARTY_APPS = [
     'widget_tweaks',
     'csp',  # Content Security Policy
     'django_celery_beat',
+    'auditlog',  # Audit trail for data access tracking (GDPR compliance)
     # OAuth Authentication
     'allauth',
     'allauth.account',
@@ -463,11 +465,59 @@ REST_FRAMEWORK = {
     # API Versioning
     'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.NamespaceVersioning',
     'DEFAULT_VERSION': 'v1',
-    'ALLOWED_VERSIONS': ['v1'],  # Add 'v2' when implementing breaking changes
+    'ALLOWED_VERSIONS': ['v1', 'v2'],  # v2 is for Wagtail API endpoints
     'VERSION_PARAM': 'version',
+    # API Schema Generation
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# drf-spectacular OpenAPI Schema Settings
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Plant ID Community API',
+    'DESCRIPTION': 'Plant identification and community platform API with dual provider support (Plant.id + PlantNet)',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'CONTACT': {
+        'name': 'Plant ID Community',
+        'url': 'https://github.com/Xertox1234/plant_id_community',
+    },
+    'LICENSE': {
+        'name': 'MIT License',
+    },
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SORT_OPERATIONS': False,
+    'SCHEMA_PATH_PREFIX': r'/api/v[0-9]',
+    'SCHEMA_PATH_PREFIX_TRIM': True,
+    'SERVERS': [
+        {'url': 'http://localhost:8000', 'description': 'Development server'},
+    ],
+    'TAGS': [
+        {'name': 'authentication', 'description': 'User authentication and JWT token management'},
+        {'name': 'plant-identification', 'description': 'Plant identification using AI (Plant.id + PlantNet)'},
+        {'name': 'blog', 'description': 'Blog posts and content management'},
+        {'name': 'users', 'description': 'User profile and account management'},
+        {'name': 'search', 'description': 'Search functionality across the platform'},
+    ],
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+        'displayOperationId': True,
+        'filter': True,
+    },
+    # Exclude Wagtail API endpoints that don't use DRF versioning
+    'PREPROCESSING_HOOKS': ['plant_community_backend.api_schema.preprocess_exclude_wagtail'],
 }
 
 # JWT Settings
+# SECURITY: Access token lifetime should be short (15-60 minutes) per OWASP recommendations
+# Current: 1 hour (Phase 1 - OWASP compliant compromise)
+# Target: 15 minutes with auto-refresh (Phase 2 - requires frontend changes)
+# See: https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html
+#
+# Environment variables:
+#   JWT_ACCESS_TOKEN_LIFETIME - Access token lifetime in MINUTES (default: 60 = 1 hour)
+#   JWT_REFRESH_TOKEN_LIFETIME - Refresh token lifetime in DAYS (default: 7 days)
+#   JWT_ACCESS_TOKEN_LIFETIME_DEBUG - Debug mode access token lifetime in MINUTES (default: 120 = 2 hours)
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=config('JWT_ACCESS_TOKEN_LIFETIME', default=60, cast=int)),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=config('JWT_REFRESH_TOKEN_LIFETIME', default=7, cast=int)),

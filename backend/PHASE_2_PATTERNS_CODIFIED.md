@@ -103,7 +103,7 @@ def get_queryset(self):
 
 ---
 
-### 3. Hash Collision Prevention with 64-bit SHA-256
+### 3. Hash Collision Prevention with Full 256-bit SHA-256
 **Pattern Number**: 12 in code-review-specialist.md
 **Severity**: WARNING
 **Category**: Cache Key Generation
@@ -111,26 +111,27 @@ def get_queryset(self):
 **Problem Solved**:
 - Short hashes (8 chars = 32 bits) have high collision probability
 - Birthday paradox: 50% collision at √(2^32) ≈ 65,000 combinations
+- 64-bit hashes (16 chars): 50% collision at ~5 billion combinations
 - Cache collisions cause wrong data to be served
 
 **Solution Pattern**:
 ```python
-# 64-bit hash: 50% collision at ~5 billion combinations
+# Full 256-bit hash: Virtually no collision risk (2^256 combinations)
 filters_hash = hashlib.sha256(
     str(sorted(filters.items())).encode()
-).hexdigest()[:16]  # 16 hex chars = 64 bits
+).hexdigest()  # Full 64 hex chars = 256 bits
 
 cache_key = f"{CACHE_PREFIX_BLOG_LIST}:{page}:{limit}:{filters_hash}"
 ```
 
 **Key Principles**:
-- **16 characters minimum** (64 bits)
+- **64 characters (full SHA-256)** for virtually no collision risk
 - **Sort dictionaries** before hashing (order-independence)
 - **SHA-256 algorithm** (not MD5 or weak hashes)
 - **Document collision probability** in comments
 
 **Review Checklist**:
-- [ ] Hash length ≥ 16 characters (64 bits)
+- [ ] Full SHA-256 hash used (64 characters, 256 bits)
 - [ ] Filter dictionaries sorted before hashing
 - [ ] SHA-256 used (not MD5)
 - [ ] Hash lengths defined as constants
@@ -270,7 +271,7 @@ __all__ = ['BlogCacheService', 'BlockAutoPopulationService', 'PlantDataLookupSer
 All patterns were validated with comprehensive tests:
 - **18/18 cache service tests passing** (100% pass rate)
 - Edge cases: empty filters, complex filter values
-- Hash collision prevention validated (16-char length)
+- Hash collision prevention validated (64-char full SHA-256)
 - Filter order independence tested
 - Dual invalidation strategy tested (pattern + tracked keys)
 
@@ -362,13 +363,14 @@ done
 
 ### 3. Hash Collision Risk
 ```bash
-# Find short hashes (< 16 characters)
-grep -n "hexdigest()\[:[0-9]\+\]" apps/*/services/*.py | while read line; do
-    chars=$(echo $line | grep -oP "(?<=:)\d+(?=\])")
-    if [ "$chars" -lt 16 ]; then
-        echo "WARNING: $line - Hash too short ($chars chars, need 16+)"
-    fi
+# Find truncated hashes (should use full 64-char SHA-256)
+grep -n "hexdigest()\[:" apps/*/services/*.py | while read line; do
+    echo "WARNING: $line - Hash is truncated, should use full SHA-256 (64 chars)"
 done
+
+# Verify full hashes are used
+grep -n "hexdigest()$" apps/*/services/*.py | grep -v "hexdigest()\[:"
+# All hash uses should appear here (full 64-character hashes)
 ```
 
 ### 4. Wagtail Signal Handlers

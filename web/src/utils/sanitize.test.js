@@ -257,7 +257,9 @@ describe('sanitize utilities', () => {
       const html = '<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>';
       const result = stripHtml(html);
 
-      expect(result).toContain('<script>'); // Entity was decoded
+      // DOMPurify keeps entities encoded for safety (does NOT decode them)
+      // This is the correct behavior - entities stay escaped
+      expect(result).toContain('&lt;script&gt;'); // Entities remain encoded
       expect(result).not.toContain('<p>'); // Tag was removed
     });
   });

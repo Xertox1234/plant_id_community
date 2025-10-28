@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.apps import apps
 from machina.core.loading import get_class
 from machina.apps.forum.models import Forum
+from apps.core.utils.pii_safe_logging import log_safe_username, log_safe_user_context, log_safe_email
 
 # External dependency for Web Push (requires: pip install pywebpush)
 try:
@@ -264,17 +265,17 @@ class NotificationService:
             # Mark subscription as used
             subscription.mark_as_used()
             
-            logger.info(f"Push notification sent successfully to {subscription.user.username}")
+            logger.info(f"Push notification sent successfully to {log_safe_user_context(subscription.user)}")
             return True
             
         except WebPushException as e:
-            logger.error(f"WebPush error for {subscription.user.username}: {e}")
+            logger.error(f"WebPush error for {log_safe_user_context(subscription.user)}: {e}")
             
             # Handle specific error cases
             if e.response and e.response.status_code in [410, 413, 429]:
                 # Subscription is no longer valid or rate limited
                 subscription.deactivate()
-                logger.warning(f"Deactivated push subscription for {subscription.user.username}")
+                logger.warning(f"Deactivated push subscription for {log_safe_user_context(subscription.user)}")
             
             return False
             
@@ -294,14 +295,14 @@ class NotificationService:
             bool: True if sent to at least one subscription
         """
         if not reminder.user.care_reminder_notifications:
-            logger.info(f"Care reminder push disabled for user {reminder.user.username}")
+            logger.info(f"Care reminder push disabled for {log_safe_user_context(reminder.user)}")
             return False
         
         # Get all active push subscriptions for the user
         subscriptions = reminder.user.push_subscriptions.filter(is_active=True)
         
         if not subscriptions.exists():
-            logger.info(f"No active push subscriptions for user {reminder.user.username}")
+            logger.info(f"No active push subscriptions for {log_safe_user_context(reminder.user)}")
             return False
         
         # Prepare notification content
@@ -357,7 +358,7 @@ class NotificationService:
             }
         )
         
-        logger.info(f"Care reminder sent to {success_count}/{subscriptions.count()} subscriptions for {reminder.user.username}")
+        logger.info(f"Care reminder sent to {success_count}/{subscriptions.count()} subscriptions for {log_safe_user_context(reminder.user)}")
         return success_count > 0
     
     @staticmethod
@@ -414,7 +415,7 @@ The Plant Community Team
                 fail_silently=False
             )
             
-            logger.info(f"Care reminder email sent to {reminder.user.email}")
+            logger.info(f"Care reminder email sent to {log_safe_email(reminder.user.email)}")
             return True
             
         except Exception as e:
@@ -452,7 +453,7 @@ The Plant Community Team
             }
         )
         
-        logger.info(f"Push subscription {'created' if created else 'updated'} for {user.username}")
+        logger.info(f"Push subscription {'created' if created else 'updated'} for {log_safe_user_context(user)}")
         return subscription
     
     @staticmethod
@@ -472,10 +473,10 @@ The Plant Community Team
         try:
             subscription = PushSubscription.objects.get(user=user, endpoint=endpoint)
             subscription.deactivate()
-            logger.info(f"Push subscription deactivated for {user.username}")
+            logger.info(f"Push subscription deactivated for {log_safe_user_context(user)}")
             return True
         except PushSubscription.DoesNotExist:
-            logger.warning(f"Push subscription not found for {user.username} with endpoint {endpoint}")
+            logger.warning(f"Push subscription not found for {log_safe_user_context(user)} with endpoint {endpoint[:20]}...")
             return False
     
     @staticmethod
@@ -602,7 +603,7 @@ class CareReminderService:
             send_email_notification=user.care_reminder_email
         )
         
-        logger.info(f"Care reminder created for {user.username}: {title}")
+        logger.info(f"Care reminder created for {log_safe_user_context(user)}: {title}")
         return reminder
     
     @staticmethod

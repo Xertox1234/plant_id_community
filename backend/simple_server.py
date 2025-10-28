@@ -56,10 +56,11 @@ if not settings.configured:
         ],
 
         MIDDLEWARE=[
+            'django.middleware.security.SecurityMiddleware',
             'corsheaders.middleware.CorsMiddleware',
             'django.middleware.common.CommonMiddleware',
             'django.middleware.csrf.CsrfViewMiddleware',
-            'django.middleware.security.SecurityMiddleware',
+            'django.middleware.clickjacking.XFrameOptionsMiddleware',
         ],
 
         DATABASES={

@@ -28,6 +28,7 @@ from ..permissions import (
     IsAuthenticatedOrAnonymousWithStrictRateLimit,
     IsAuthenticatedForIdentification,
 )
+from .. import constants
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,11 @@ def get_rate_limit_key(group: str, request: Request) -> str:
 @parser_classes([MultiPartParser, FormParser])
 @ratelimit(
     key=get_rate_limit_key,
-    rate='10/h' if settings.DEBUG else '100/h',
+    rate=(
+        constants.RATE_LIMITS['anonymous']['plant_identification']
+        if settings.DEBUG
+        else constants.RATE_LIMITS['authenticated']['plant_identification']
+    ),
     method='POST'
 )
 @transaction.atomic

@@ -1,9 +1,10 @@
 ---
-status: ready
+status: resolved
 priority: p3
 issue_id: "016"
 tags: [security, gdpr, privacy, logging]
 dependencies: []
+resolved_date: 2025-10-27
 ---
 
 # Remove PII from Logs

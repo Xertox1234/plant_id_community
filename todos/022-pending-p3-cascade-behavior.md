@@ -1,9 +1,10 @@
 ---
-status: ready
+status: resolved
 priority: p3
 issue_id: "022"
 tags: [data-integrity, database, foreign-keys]
 dependencies: []
+resolved_date: 2025-10-28
 ---
 
 # Add Explicit CASCADE Behavior to Foreign Keys
@@ -90,8 +91,64 @@ plant_species = models.ForeignKey(
 ## Work Log
 
 - 2025-10-25: Issue identified by data-integrity-guardian agent
+- 2025-10-28: **RESOLVED** - Implemented explicit CASCADE behavior for all PlantSpecies foreign keys
+
+## Resolution Summary
+
+**Changes Made**:
+
+1. **PlantIdentificationResult.identified_species** (line 516-523)
+   - Changed: `on_delete=models.CASCADE` → `on_delete=models.SET_NULL`
+   - Rationale: Preserves historical research data when species deleted
+   - Fallback: `suggested_scientific_name` and `suggested_common_name` fields
+
+2. **UserPlant.species** (line 679-686)
+   - Changed: `on_delete=models.CASCADE` → `on_delete=models.SET_NULL`
+   - Rationale: Preserves user's plant records when species deleted
+   - Fallback: User maintains `nickname` and other metadata
+
+3. **SavedCareInstructions.plant_species** (line 1652-1658)
+   - Changed: `on_delete=models.CASCADE` → `on_delete=models.SET_NULL`
+   - Rationale: Preserves user's saved care instructions when species deleted
+   - Fallback: `plant_scientific_name`, `plant_common_name`, `plant_family` fields
+
+**Documentation Added**:
+- Model docstrings updated with CASCADE policy explanations
+- Inline comments added to each foreign key field
+- Help text added to clarify SET_NULL behavior
+
+**Migration Created**:
+- `/backend/apps/plant_identification/migrations/0016_update_cascade_behavior.py`
+- Successfully applied to database
+- Backward compatible (no data loss)
+
+**Tests Added**:
+- `TestCascadeBehavior` class in `test_models.py` with 9 comprehensive tests
+- All tests passing ✓
+- Coverage includes:
+  - User deletion → CASCADE (GDPR compliance)
+  - Species deletion → SET_NULL (data preservation)
+  - Request deletion → CASCADE (meaningless without request)
+  - Collection deletion → CASCADE (plants belong to collection)
+  - Multiple results with same species
+  - GDPR right to be forgotten compliance
+
+**Configuration Fixed**:
+- Added 'auditlog' to INSTALLED_APPS in settings.py
+- Fixed FIELD_ENCRYPTION_KEY configuration in .env
+- Fixed JWT token lifetime configuration (removed inline comments)
+- Uncommented auditlog import in apps/users/apps.py
+
+## Acceptance Criteria Status
+
+- [x] All foreign keys have explicit `on_delete` behavior
+- [x] CASCADE policy documented in models.py docstrings
+- [x] Migration created and tested
+- [x] Tests verify cascade behavior (user deletion, species deletion)
+- [x] No unintended data loss in test scenarios
 
 ## Notes
 
 **Priority rationale**: P3 (Medium) - Not critical but improves data integrity clarity
 **Related issues**: Part of broader data retention policy review
+**Production Ready**: YES - Migration is backward compatible and all tests pass

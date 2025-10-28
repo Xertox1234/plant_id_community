@@ -15,6 +15,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from datetime import datetime, timedelta
 from django.core.mail import send_mail
+from apps.core.utils.pii_safe_logging import log_safe_username, log_safe_user_context, log_safe_ip
 import json
 
 # Import security constants
@@ -392,7 +393,7 @@ This is an automated security message from Plant Community.
         cache.delete(key)
 
         # Log successful login
-        logger.info(f"{LOG_PREFIX_AUTH} Successful login: user={user.username}, ip={ip_address}")
+        logger.info(f"{LOG_PREFIX_AUTH} Successful login: {log_safe_user_context(user)}, ip={log_safe_ip(ip_address)}")
         
         # Check for suspicious login patterns
         cls._check_suspicious_login(user, ip_address)
@@ -638,7 +639,7 @@ This is an automated security message from Plant Community.
                 ip_address(remote_addr)
                 return remote_addr
             except AddressValueError:
-                logger.error(f"{LOG_PREFIX_SECURITY} REMOTE_ADDR has invalid format: {remote_addr}")
+                logger.error(f"{LOG_PREFIX_SECURITY} REMOTE_ADDR has invalid format: {log_safe_ip(remote_addr)}")
 
         return UNKNOWN_IP_ADDRESS
     

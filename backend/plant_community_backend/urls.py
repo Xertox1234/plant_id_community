@@ -24,6 +24,13 @@ from rest_framework_simplejwt.views import (
     TokenVerifyView,
 )
 
+# Import drf-spectacular views for API documentation
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularSwaggerView,
+    SpectacularRedocView,
+)
+
 # Import blog API viewsets
 from apps.blog.api.viewsets import (
     BlogPostPageViewSet,
@@ -83,7 +90,12 @@ urlpatterns = [
     # API Authentication
     path('api/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
-    
+
+    # API Documentation (OpenAPI 3.0)
+    path('api/schema/', SpectacularAPIView.as_view(), name='api-schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='api-schema'), name='api-docs-swagger'),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='api-schema'), name='api-docs-redoc'),
+
     # OAuth Authentication
     path('api/auth/oauth/<str:provider>/', include('apps.users.oauth_urls')),
     

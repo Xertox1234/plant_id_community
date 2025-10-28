@@ -1,37 +1,41 @@
+import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
-import DOMPurify from 'dompurify';
+import { createSafeMarkup } from '../utils/domSanitizer';
 
 /**
- * Helper function to create safe HTML markup with DOMPurify sanitization.
- * Protects against XSS attacks in content.
+ * SafeHTML Component
  *
- * @param {string} html - The HTML content to sanitize
- * @returns {object} - Object with __html property for dangerouslySetInnerHTML
+ * Wrapper component that handles async HTML sanitization with DOMPurify.
+ * DOMPurify is dynamically imported to reduce initial bundle size.
  */
-function createSafeMarkup(html) {
-  return {
-    __html: DOMPurify.sanitize(html, {
-      ALLOWED_TAGS: [
-        'p',
-        'br',
-        'strong',
-        'em',
-        'u',
-        'a',
-        'ul',
-        'ol',
-        'li',
-        'h2',
-        'h3',
-        'h4',
-        'blockquote',
-        'code',
-        'pre',
-      ],
-      ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
-    }),
-  };
+function SafeHTML({ html, className = '' }) {
+  const [safeMarkup, setSafeMarkup] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    createSafeMarkup(html).then((markup) => {
+      if (isMounted) {
+        setSafeMarkup(markup);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [html]);
+
+  if (!safeMarkup) {
+    return <div className={className}>Loading...</div>;
+  }
+
+  return <div className={className} dangerouslySetInnerHTML={safeMarkup} />;
 }
+
+SafeHTML.propTypes = {
+  html: PropTypes.string.isRequired,
+  className: PropTypes.string,
+};
 
 /**
  * StreamFieldRenderer Component
@@ -76,30 +80,9 @@ function StreamFieldBlock({ block }) {
       return <h2 className="text-3xl font-bold mt-8 mb-4 text-gray-900">{value}</h2>;
 
     case 'paragraph':
-      return (
-        <div
-          className="mb-4 text-gray-700 leading-relaxed"
-          dangerouslySetInnerHTML={createSafeMarkup(value)}
-        />
-      );
+      return <SafeHTML html={value} className="mb-4 text-gray-700 leading-relaxed" />;
 
-    case 'image':
-      return (
-        <figure className="my-8">
-          {value.image && (
-            <img
-              src={value.image.renditions?.[0]?.url || value.image.url}
-              alt={value.image.title}
-              className="w-full h-auto rounded-lg shadow-md"
-            />
-          )}
-          {value.caption && (
-            <figcaption className="text-sm text-gray-600 mt-2 text-center italic">
-              {value.caption}
-            </figcaption>
-          )}
-        </figure>
-      );
+    // Removed: image block (no backend definition, use paragraph with embedded images)
 
     case 'quote': {
       // Handle both possible quote structures
@@ -140,10 +123,7 @@ function StreamFieldBlock({ block }) {
               className="w-full h-64 object-cover rounded-lg mb-4 shadow-md"
             />
           )}
-          <div
-            className="text-gray-700 mb-4"
-            dangerouslySetInnerHTML={createSafeMarkup(value.description)}
-          />
+          <SafeHTML html={value.description} className="text-gray-700 mb-4" />
           {value.care_level && (
             <p className="mt-4 text-sm font-semibold text-green-700 flex items-center">
               <svg
@@ -173,23 +153,7 @@ function StreamFieldBlock({ block }) {
         </div>
       );
 
-    case 'list':
-      return (
-        <ul className="my-6 space-y-2 list-disc list-inside text-gray-700">
-          {value.items && value.items.map((item, idx) => (
-            <li key={idx} className="leading-relaxed">
-              {item}
-            </li>
-          ))}
-        </ul>
-      );
-
-    case 'embed':
-      return (
-        <div className="my-8 aspect-video bg-gray-100 rounded-lg overflow-hidden shadow-md">
-          <div dangerouslySetInnerHTML={createSafeMarkup(value.html || value)} />
-        </div>
-      );
+    // Removed: list and embed blocks (no backend definitions)
 
     default:
       return (

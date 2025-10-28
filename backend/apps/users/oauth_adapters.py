@@ -10,6 +10,7 @@ from django.http import HttpRequest, HttpResponseRedirect
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from apps.core.utils.pii_safe_logging import log_safe_username, log_safe_user_context
 import logging
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
                     if not sociallogin.is_existing:
                         # Connect the social account to existing user
                         sociallogin.connect(request, existing_user)
-                        logger.info(f"Connected {sociallogin.account.provider} account to existing user: {existing_user.username}")
+                        logger.info(f"Connected {sociallogin.account.provider} account to existing {log_safe_user_context(existing_user)}")
                 except User.DoesNotExist:
                     pass
     
@@ -84,7 +85,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
                 user.website = extra_data.get('blog', '')[:200]
         
         user.save()
-        logger.info(f"Created new user via {sociallogin.account.provider}: {user.username}")
+        logger.info(f"Created new {log_safe_user_context(user)} via {sociallogin.account.provider}")
         return user
     
     def get_login_redirect_url(self, request: HttpRequest) -> str:

@@ -136,7 +136,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ request.csp_nonce }}">
 function copySuggestion(text) {
     navigator.clipboard.writeText(text).then(function() {
         // Create temporary success feedback

@@ -1,16 +1,22 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import RootLayout from './layouts/RootLayout'
 import ProtectedLayout from './layouts/ProtectedLayout'
+import LoadingSpinner from './components/ui/LoadingSpinner'
+
+// Eagerly load critical routes (HomePage, LoginPage, SignupPage)
 import HomePage from './pages/HomePage'
-import IdentifyPage from './pages/IdentifyPage'
-import BlogListPage from './pages/BlogListPage'
-import BlogDetailPage from './pages/BlogDetailPage'
-import BlogPreview from './pages/BlogPreview'
-import ForumPage from './pages/ForumPage'
 import LoginPage from './pages/auth/LoginPage'
 import SignupPage from './pages/auth/SignupPage'
-import ProfilePage from './pages/ProfilePage'
-import SettingsPage from './pages/SettingsPage'
+
+// Lazy load non-critical routes for better initial load performance
+const IdentifyPage = lazy(() => import('./pages/IdentifyPage'))
+const BlogListPage = lazy(() => import('./pages/BlogListPage'))
+const BlogDetailPage = lazy(() => import('./pages/BlogDetailPage'))
+const BlogPreview = lazy(() => import('./pages/BlogPreview'))
+const ForumPage = lazy(() => import('./pages/ForumPage'))
+const ProfilePage = lazy(() => import('./pages/ProfilePage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 
 /**
  * App Component
@@ -18,32 +24,36 @@ import SettingsPage from './pages/SettingsPage'
  * Root application component with routing configuration.
  * - RootLayout: Provides header/footer for all routes
  * - ProtectedLayout: Wraps protected routes, redirects to login if not authenticated
+ * - Lazy loading: Non-critical routes load on-demand to reduce initial bundle size
  */
 function App() {
   return (
-    <Routes>
-      {/* Public routes with shared layout */}
-      <Route element={<RootLayout />}>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/identify" element={<IdentifyPage />} />
-        <Route path="/blog" element={<BlogListPage />} />
-        <Route path="/blog/:slug" element={<BlogDetailPage />} />
-        <Route path="/blog/preview/:content_type/:token" element={<BlogPreview />} />
-        <Route path="/forum" element={<ForumPage />} />
-
-        {/* Authentication routes */}
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
-      </Route>
-
-      {/* Protected routes - requires authentication */}
-      <Route element={<ProtectedLayout />}>
+    <Suspense fallback={<LoadingSpinner />}>
+      <Routes>
+        {/* Public routes with shared layout */}
         <Route element={<RootLayout />}>
-          <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          {/* Critical routes (eagerly loaded) */}
+          <Route path="/" element={<HomePage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
+
+          {/* Non-critical routes (lazy loaded) */}
+          <Route path="/identify" element={<IdentifyPage />} />
+          <Route path="/blog" element={<BlogListPage />} />
+          <Route path="/blog/:slug" element={<BlogDetailPage />} />
+          <Route path="/blog/preview/:content_type/:token" element={<BlogPreview />} />
+          <Route path="/forum" element={<ForumPage />} />
         </Route>
-      </Route>
-    </Routes>
+
+        {/* Protected routes - requires authentication */}
+        <Route element={<ProtectedLayout />}>
+          <Route element={<RootLayout />}>
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
+        </Route>
+      </Routes>
+    </Suspense>
   )
 }
 

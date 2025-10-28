@@ -154,7 +154,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ request.csp_nonce }}">
 function approveComment(commentId) {
     if (confirm('Are you sure you want to approve this comment?')) {
         fetch(`/blog-admin/comments/approve/${commentId}/`, {
