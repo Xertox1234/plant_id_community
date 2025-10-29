@@ -12,6 +12,7 @@ from django.utils import timezone
 from enum import Enum
 
 from .email_service import EmailService, EmailType
+from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -150,15 +151,15 @@ class NotificationService:
             try:
                 user = User.objects.get(email=recipient)
             except User.DoesNotExist:
-                logger.error(f"User not found for email: {recipient}")
+                logger.error(f"User not found for email: {log_safe_email(recipient)}")
                 return False
         else:
             user = recipient
-        
+
         # Create in-app notification record
         try:
             # This will be implemented when we add the InAppNotification model
-            logger.info(f"In-app notification sent to {user.username}: {title}")
+            logger.info(f"In-app notification sent to {log_safe_user_context(user)}: {title}")
             return True
         except Exception as e:
             logger.error(f"Failed to create in-app notification: {e}")
@@ -364,12 +365,12 @@ class NotificationService:
                 user.care_reminder_email = preferences['care_reminder_email']
             
             user.save()
-            
-            logger.info(f"Updated notification preferences for user {user.username}")
+
+            logger.info(f"Updated notification preferences for {log_safe_user_context(user)}")
             return True
-            
+
         except Exception as e:
-            logger.error(f"Failed to update preferences for {user.username}: {e}")
+            logger.error(f"Failed to update preferences for {log_safe_user_context(user)}: {e}")
             return False
     
     def send_forum_mention_notification(

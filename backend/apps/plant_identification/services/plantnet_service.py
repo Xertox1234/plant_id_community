@@ -27,6 +27,9 @@ from ..constants import (
     PLANTNET_CIRCUIT_TIMEOUT,
 )
 from ..circuit_monitoring import create_monitored_circuit
+from .quota_manager import QuotaManager, QuotaExceeded
+from apps.core.exceptions import ExternalAPIError
+from pybreaker import CircuitBreakerError
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +88,9 @@ class PlantNetAPIService:
         # Reference module-level circuit breaker
         self.circuit = _plantnet_circuit
         self.circuit_stats = _plantnet_stats
+
+        # Initialize quota manager for API quota tracking
+        self.quota_manager = QuotaManager()
     
     def _call_plantnet_api(self, url: str, params: Dict[str, str], files: List[tuple],
                            data: List[tuple], cache_key: str, image_hash: str) -> Optional[Dict[str, Any]]:
@@ -108,6 +114,9 @@ class PlantNetAPIService:
             response.raise_for_status()
 
             result = response.json()
+
+            # Increment quota counter after successful API call
+            self.quota_manager.increment_plantnet()
 
             # Cache the result for 24 hours (match Plant.id caching strategy)
             cache.set(cache_key, result, timeout=self.CACHE_TIMEOUT)
@@ -233,7 +242,18 @@ class PlantNetAPIService:
                 logger.info(f"[CACHE] HIT for PlantNet image {image_hash[:8]}... (instant response)")
                 return cached_result
 
-            logger.info(f"[CACHE] MISS for PlantNet image {image_hash[:8]}... - calling API")
+            logger.info(f"[CACHE] MISS for PlantNet image {image_hash[:8]}... (checking quota)")
+
+            # Check quota before making API call
+            if not self.quota_manager.can_call_plantnet():
+                hourly_usage = self.quota_manager.get_plantnet_hourly_usage()
+                logger.error(f"[QUOTA] PlantNet hourly quota EXHAUSTED ({hourly_usage}/20 used)")
+                raise QuotaExceeded(
+                    "PlantNet hourly API quota exhausted. Please try again in an hour."
+                )
+
+            # Quota available - proceed with API call
+            logger.info(f"[QUOTA] PlantNet quota available (calling API)")
             
             # Prepare multipart form data exactly like the working TypeScript implementation
             # Each organ is added separately, not as an array
@@ -264,10 +284,60 @@ class PlantNetAPIService:
 
             return result
 
-        except Exception as e:
-            # Circuit breaker exceptions (CircuitBreakerError, etc.) or general errors
-            logger.error(f"[ERROR] PlantNet identification failed: {str(e)}")
-            return None
+        except CircuitBreakerError:
+            # Circuit breaker is open - expected operational state, not an error
+            logger.warning(
+                f"[CIRCUIT] PlantNet circuit breaker open - service degraded "
+                f"(failing fast without API call)"
+            )
+            raise ExternalAPIError(
+                "PlantNet service is temporarily unavailable. Please try again in a few moments.",
+                status_code=503
+            )
+
+        except requests.exceptions.Timeout:
+            # API request timeout
+            logger.error(
+                f"[ERROR] PlantNet API timeout after {PLANTNET_API_REQUEST_TIMEOUT}s",
+                exc_info=settings.DEBUG
+            )
+            raise ExternalAPIError(
+                "Plant identification service timeout. Please try again.",
+                status_code=504
+            )
+
+        except requests.exceptions.ConnectionError as e:
+            # Network connectivity issues
+            logger.error(
+                f"[ERROR] PlantNet connection failed: {type(e).__name__}",
+                exc_info=settings.DEBUG
+            )
+            raise ExternalAPIError(
+                "Unable to connect to plant identification service. Please check your connection.",
+                status_code=503
+            )
+
+        except requests.exceptions.RequestException as e:
+            # Other requests library errors (HTTPError, etc.)
+            logger.error(
+                f"[ERROR] PlantNet API request failed: {type(e).__name__}",
+                exc_info=settings.DEBUG
+            )
+            raise ExternalAPIError(
+                "Plant identification service error. Please try again later.",
+                status_code=503
+            )
+
+        except ValueError as e:
+            # Data validation/parsing errors (JSON decoding, etc.)
+            logger.error(
+                f"[ERROR] PlantNet response parsing failed: {type(e).__name__}",
+                exc_info=True  # Always log validation errors with traceback
+            )
+            raise ExternalAPIError(
+                "Unable to process plant identification results. Please try again.",
+                status_code=502
+            )
     
     def get_top_suggestions(self, identification_result: Dict[str, Any], min_score: float = 0.1) -> List[Dict[str, Any]]:
         """
@@ -313,7 +383,7 @@ class PlantNetAPIService:
         
         return sorted(suggestions, key=lambda x: x['confidence_score'], reverse=True)
     
-    def _extract_species_images(self, image_list: List[Dict]) -> List[Dict]:
+    def _extract_species_images(self, image_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Extract and format species reference images."""
         images = []
         for img in image_list:
@@ -327,7 +397,7 @@ class PlantNetAPIService:
                 })
         return images
     
-    def normalize_plantnet_data(self, suggestion: Dict) -> Dict:
+    def normalize_plantnet_data(self, suggestion: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normalize PlantNet suggestion data to our internal format.
         
@@ -352,7 +422,7 @@ class PlantNetAPIService:
             'suggested_common_name': common_names_str.split(',')[0].strip() if common_names_str else '',
         }
     
-    def get_project_info(self, project: str = 'world') -> Optional[Dict]:
+    def get_project_info(self, project: str = 'world') -> Optional[Dict[str, Any]]:
         """
         Get information about a PlantNet project from the projects list.
         
@@ -377,7 +447,7 @@ class PlantNetAPIService:
         logger.warning(f"Project {project} (key: {project_key}) not found in available projects")
         return None
     
-    def get_all_projects(self) -> Optional[List[Dict]]:
+    def get_all_projects(self) -> Optional[List[Dict[str, Any]]]:
         """
         Get list of all available PlantNet projects.
         
@@ -396,7 +466,7 @@ class PlantNetAPIService:
             logger.error(f"PlantNet projects request failed: {str(e)}")
             return None
     
-    def get_available_projects(self) -> List[Dict]:
+    def get_available_projects(self) -> List[Dict[str, Any]]:
         """
         Get list of available PlantNet projects.
         
@@ -418,11 +488,11 @@ class PlantNetAPIService:
         
         return projects
     
-    def identify_with_location(self, 
-                             images: List[Union[str, ContentFile]], 
+    def identify_with_location(self,
+                             images: List[Union[str, ContentFile]],
                              latitude: Optional[float] = None,
                              longitude: Optional[float] = None,
-                             organs: Optional[List[str]] = None) -> Optional[Dict]:
+                             organs: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         """
         Identify plant with location-based project selection.
         
@@ -481,7 +551,7 @@ class PlantNetAPIService:
         else:
             return 'world'
     
-    def get_service_status(self) -> Dict:
+    def get_service_status(self) -> Dict[str, Any]:
         """
         Check if the PlantNet API service is available.
         

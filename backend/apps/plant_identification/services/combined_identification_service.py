@@ -14,9 +14,12 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 from django.conf import settings
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser
 
 from .plant_id_service import PlantIDAPIService
 from .plantnet_service import PlantNetAPIService
@@ -27,6 +30,7 @@ from ..constants import (
     PLANTNET_API_TIMEOUT,
     TEMPERATURE_RANGE_CELSIUS,
 )
+from apps.core.exceptions import ExternalAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -132,16 +136,36 @@ class CombinedPlantIdentificationService:
             if getattr(settings, 'ENABLE_PLANT_ID', True):
                 self.plant_id = PlantIDAPIService()
                 logger.info("Plant.id service initialized")
+        except (ImportError, AttributeError, KeyError) as e:
+            # Configuration errors or missing dependencies
+            logger.warning(
+                f"Plant.id service not available: {type(e).__name__}",
+                exc_info=settings.DEBUG
+            )
         except Exception as e:
-            logger.warning(f"Plant.id service not available: {e}")
+            # Unexpected initialization errors
+            logger.error(
+                f"Unexpected error initializing Plant.id service: {type(e).__name__}",
+                exc_info=True
+            )
 
         # Initialize PlantNet service
         try:
             if getattr(settings, 'ENABLE_PLANTNET', True):
                 self.plantnet = PlantNetAPIService()
                 logger.info("PlantNet service initialized")
+        except (ImportError, AttributeError, KeyError) as e:
+            # Configuration errors or missing dependencies
+            logger.warning(
+                f"PlantNet service not available: {type(e).__name__}",
+                exc_info=settings.DEBUG
+            )
         except Exception as e:
-            logger.warning(f"PlantNet service not available: {e}")
+            # Unexpected initialization errors
+            logger.error(
+                f"Unexpected error initializing PlantNet service: {type(e).__name__}",
+                exc_info=True
+            )
 
         if not self.plant_id and not self.plantnet:
             logger.error("No plant identification APIs available")
@@ -149,7 +173,7 @@ class CombinedPlantIdentificationService:
     def identify_plant(
         self,
         image_file: Union[BytesIO, InMemoryUploadedFile, TemporaryUploadedFile, bytes],
-        user: Optional[Any] = None
+        user: Optional["AbstractBaseUser"] = None
     ) -> Dict[str, Any]:
         """
         Identify a plant using both APIs in parallel and combine results.
@@ -242,8 +266,27 @@ class CombinedPlantIdentificationService:
                 duration = time.time() - plant_id_start
                 logger.info(f"[SUCCESS] Plant.id completed in {duration:.2f}s")
                 return result
+            except ExternalAPIError as e:
+                # API is unavailable (circuit breaker open, timeout, connection error)
+                # This is expected in degraded scenarios - log as warning and continue
+                logger.warning(
+                    f"[PARALLEL] Plant.id API unavailable: {type(e).__name__}",
+                    exc_info=settings.DEBUG
+                )
+                return None
+            except (ValueError, KeyError, TypeError) as e:
+                # Data validation or parsing errors
+                logger.error(
+                    f"[ERROR] Plant.id response parsing failed: {type(e).__name__}",
+                    exc_info=True
+                )
+                return None
             except Exception as e:
-                logger.error(f"[ERROR] Plant.id failed: {e}")
+                # Unexpected errors (should be rare with proper error handling)
+                logger.error(
+                    f"[ERROR] Unexpected Plant.id error: {type(e).__name__}",
+                    exc_info=True
+                )
                 return None
 
         def call_plantnet() -> Optional[Dict[str, Any]]:
@@ -263,8 +306,27 @@ class CombinedPlantIdentificationService:
                 duration = time.time() - plantnet_start
                 logger.info(f"[SUCCESS] PlantNet completed in {duration:.2f}s")
                 return result
+            except ExternalAPIError as e:
+                # API is unavailable (circuit breaker open, timeout, connection error)
+                # This is expected in degraded scenarios - log as warning and continue
+                logger.warning(
+                    f"[PARALLEL] PlantNet API unavailable: {type(e).__name__}",
+                    exc_info=settings.DEBUG
+                )
+                return None
+            except (ValueError, KeyError, TypeError) as e:
+                # Data validation or parsing errors
+                logger.error(
+                    f"[ERROR] PlantNet response parsing failed: {type(e).__name__}",
+                    exc_info=True
+                )
+                return None
             except Exception as e:
-                logger.error(f"[ERROR] PlantNet failed: {e}")
+                # Unexpected errors (should be rare with proper error handling)
+                logger.error(
+                    f"[ERROR] Unexpected PlantNet error: {type(e).__name__}",
+                    exc_info=True
+                )
                 return None
 
         # Initialize results
@@ -287,18 +349,34 @@ class CombinedPlantIdentificationService:
                 # Plant.id timeout with buffer
                 plant_id_results = future_plant_id.result(timeout=PLANT_ID_API_TIMEOUT)
             except FuturesTimeoutError:
-                logger.error(f"[ERROR] Plant.id API timeout ({PLANT_ID_API_TIMEOUT}s)")
+                # Executor timeout - API took too long
+                logger.error(
+                    f"[ERROR] Plant.id executor timeout after {PLANT_ID_API_TIMEOUT}s",
+                    exc_info=settings.DEBUG
+                )
             except Exception as e:
-                logger.error(f"[ERROR] Plant.id execution failed: {e}")
+                # Thread execution errors (should be caught inside call_plant_id)
+                logger.error(
+                    f"[ERROR] Plant.id thread execution failed: {type(e).__name__}",
+                    exc_info=True
+                )
 
         if future_plantnet:
             try:
                 # PlantNet timeout with buffer
                 plantnet_results = future_plantnet.result(timeout=PLANTNET_API_TIMEOUT)
             except FuturesTimeoutError:
-                logger.error(f"[ERROR] PlantNet API timeout ({PLANTNET_API_TIMEOUT}s)")
+                # Executor timeout - API took too long
+                logger.error(
+                    f"[ERROR] PlantNet executor timeout after {PLANTNET_API_TIMEOUT}s",
+                    exc_info=settings.DEBUG
+                )
             except Exception as e:
-                logger.error(f"[ERROR] PlantNet execution failed: {e}")
+                # Thread execution errors (should be caught inside call_plantnet)
+                logger.error(
+                    f"[ERROR] PlantNet thread execution failed: {type(e).__name__}",
+                    exc_info=True
+                )
 
         parallel_duration = time.time() - api_start_time
         logger.info(f"[PERF] Parallel API execution completed in {parallel_duration:.2f}s")

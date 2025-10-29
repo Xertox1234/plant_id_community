@@ -13,12 +13,14 @@ Only actively used constants from the three service files are retained.
 # ============================================================================
 
 # Maximum number of worker threads for parallel API calls
-# Capped to prevent API rate limit issues
-MAX_WORKER_THREADS = 10
+# Reduced from 10 to 4 to prevent API quota exhaustion during burst traffic
+# Rationale: I/O-bound tasks (API calls) don't benefit from many threads
+# 4 workers still allows parallelism while protecting against quota exhaustion
+MAX_WORKER_THREADS = 4
 
 # Default multiplier for calculating workers based on CPU cores
-# For I/O-bound tasks (API calls), use 2x CPU cores
-CPU_CORE_MULTIPLIER = 2
+# For I/O-bound tasks (API calls), use 1x CPU cores (reduced from 2x)
+CPU_CORE_MULTIPLIER = 1
 
 
 # ============================================================================
@@ -49,6 +51,27 @@ CACHE_TIMEOUT_30_MINUTES = 1800        # 30 minutes
 # Service-specific cache timeouts
 PLANT_ID_CACHE_TIMEOUT = CACHE_TIMEOUT_30_MINUTES
 PLANTNET_CACHE_TIMEOUT = CACHE_TIMEOUT_24_HOURS
+
+
+# ============================================================================
+# API Quota Configuration
+# ============================================================================
+
+# Plant.id API Limits (Free Tier)
+PLANT_ID_MONTHLY_QUOTA = 100           # 100 identifications per month
+PLANT_ID_DAILY_QUOTA = 3               # ~3 per day (100/30)
+PLANT_ID_QUOTA_WARNING_THRESHOLD = 0.8 # Warn at 80% usage
+
+# PlantNet API Limits (Free Tier)
+PLANTNET_DAILY_QUOTA = 500             # 500 requests per day
+PLANTNET_HOURLY_QUOTA = 20             # ~20 per hour (500/24)
+PLANTNET_QUOTA_WARNING_THRESHOLD = 0.8 # Warn at 80% usage
+
+# Quota tracking Redis key prefixes
+QUOTA_KEY_PREFIX_PLANT_ID_DAILY = 'quota:plant_id:daily'
+QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY = 'quota:plant_id:monthly'
+QUOTA_KEY_PREFIX_PLANTNET_DAILY = 'quota:plantnet:daily'
+QUOTA_KEY_PREFIX_PLANTNET_HOURLY = 'quota:plantnet:hourly'
 
 
 # ============================================================================

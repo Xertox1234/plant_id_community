@@ -40,6 +40,7 @@ from ..constants import (
 )
 from ..circuit_monitoring import create_monitored_circuit
 from apps.core.exceptions import ExternalAPIError
+from .quota_manager import QuotaManager, QuotaExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,9 @@ class PlantIDAPIService:
 
         # Get Redis connection for distributed locks (cache stampede prevention)
         self.redis_client = self._get_redis_connection()
+
+        # Initialize quota manager for API quota tracking
+        self.quota_manager = QuotaManager()
 
     def _get_redis_connection(self) -> Optional[Redis]:
         """
@@ -160,8 +164,19 @@ class PlantIDAPIService:
                 logger.info(f"[CACHE] HIT for image {image_hash[:8]}... (instant response)")
                 return cached_result
 
-            # Cache miss - acquire distributed lock to prevent cache stampede
-            logger.info(f"[CACHE] MISS for image {image_hash[:8]}... (acquiring lock)")
+            # Cache miss - check quota before making API call
+            logger.info(f"[CACHE] MISS for image {image_hash[:8]}... (checking quota)")
+
+            # Check quota before acquiring lock and making API call
+            if not self.quota_manager.can_call_plant_id():
+                daily_usage = self.quota_manager.get_plant_id_daily_usage()
+                logger.error(f"[QUOTA] Plant.id daily quota EXHAUSTED ({daily_usage}/3 used)")
+                raise QuotaExceeded(
+                    "Plant.id daily API quota exhausted. Please try again tomorrow or upgrade your plan."
+                )
+
+            # Quota available - acquire distributed lock to prevent cache stampede
+            logger.info(f"[QUOTA] Plant.id quota available (acquiring lock)")
 
             # Use distributed lock if Redis is available
             if self.redis_client:
@@ -343,6 +358,9 @@ class PlantIDAPIService:
         formatted_result = self._format_response(result)
 
         logger.info(f"Plant.id identification successful: {result.get('suggestions', [{}])[0].get('plant_name', 'Unknown')}")
+
+        # Increment quota counter after successful API call
+        self.quota_manager.increment_plant_id()
 
         # Store in cache for 24 hours
         cache.set(cache_key, formatted_result, timeout=CACHE_TIMEOUT_24_HOURS)

@@ -5,6 +5,7 @@ This module contains models for plant data, identification requests, and results
 """
 
 from django.db import models
+from django.db.models import F
 from django.conf import settings
 from django.urls import reverse
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -290,8 +291,11 @@ class PlantSpecies(models.Model):
             self.confidence_score = new_confidence
     
     def increment_identification_count(self):
-        """Increment the count of identifications for this species."""
-        self.identification_count += 1
+        """Increment the count of identifications for this species atomically."""
+        PlantSpecies.objects.filter(id=self.id).update(
+            identification_count=F('identification_count') + 1
+        )
+        self.refresh_from_db()
         
     @staticmethod
     def should_auto_store(confidence: float) -> bool:
@@ -546,12 +550,16 @@ class PlantIdentificationResult(models.Model):
 
     # Confidence and Source
     confidence_score = models.FloatField(
+        null=False,
+        blank=False,
         validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         help_text="Confidence score (0.0 to 1.0)"
     )
 
     identification_source = models.CharField(
         max_length=20,
+        null=False,
+        blank=False,
         choices=[
             ('ai_trefle', 'AI - Trefle API'),
             ('ai_plantnet', 'AI - PlantNet API'),

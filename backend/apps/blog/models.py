@@ -564,16 +564,18 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
     # Author and publishing info
     author = models.ForeignKey(
         User,
+        null=False,
         on_delete=models.PROTECT,
         help_text="Post author"
     )
-    
+
     publish_date = models.DateField(
         help_text="Date to publish this post"
     )
-    
+
     # Content
     introduction = RichTextField(
+        blank=False,
         help_text="Brief introduction or excerpt"
     )
     
