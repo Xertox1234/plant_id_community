@@ -14,11 +14,13 @@ Pattern follows apps/blog/models.py structure.
 """
 
 import uuid
-from django.db import models
+from typing import Optional, Tuple, Dict, Any
+from django.db import models, IntegrityError
 from django.conf import settings
 from django.utils import timezone
 from django.utils.text import slugify
 from django.core.validators import MinValueValidator, MaxValueValidator, FileExtensionValidator
+from django.core.exceptions import ValidationError
 from imagekit.models import ImageSpecField
 from imagekit.processors import ResizeToFill, ResizeToFit
 
@@ -104,25 +106,49 @@ class Category(models.Model):
     def __str__(self):
         return self.name
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:
         """Auto-generate slug from name if not provided."""
         if not self.slug:
             base_slug = slugify(self.name)
             slug = base_slug
             counter = 1
-            while Category.objects.filter(slug=slug).exists():
-                slug = f"{base_slug}-{counter}"
-                counter += 1
-            self.slug = slug
-        super().save(*args, **kwargs)
+            max_attempts = 100  # Prevent infinite loop
 
-    def get_thread_count(self):
+            while counter < max_attempts:
+                try:
+                    if not Category.objects.filter(slug=slug).exists():
+                        self.slug = slug
+                        break
+                    slug = f"{base_slug}-{counter}"
+                    counter += 1
+                except Exception:
+                    # If slug check fails, use UUID suffix for guaranteed uniqueness
+                    self.slug = f"{base_slug}-{str(uuid.uuid4())[:8]}"
+                    break
+
+            if not self.slug:
+                # Fallback to UUID suffix if loop exhausted
+                self.slug = f"{base_slug}-{str(uuid.uuid4())[:8]}"
+
+        try:
+            super().save(*args, **kwargs)
+        except IntegrityError as e:
+            # Race condition: slug was taken between check and save
+            if 'slug' in str(e):
+                self.slug = f"{slugify(self.name)}-{str(uuid.uuid4())[:8]}"
+                super().save(*args, **kwargs)
+            else:
+                raise
+
+    def get_thread_count(self) -> int:
         """Get number of threads in this category."""
         return self.threads.filter(is_active=True).count()
 
-    def get_post_count(self):
+    def get_post_count(self) -> int:
         """Get total number of posts in all threads in this category."""
-        return sum(thread.post_count for thread in self.threads.filter(is_active=True))
+        from django.db.models import Sum
+        result = self.threads.filter(is_active=True).aggregate(total_posts=Sum('post_count'))
+        return result['total_posts'] or 0
 
 
 class Thread(models.Model):
@@ -210,7 +236,7 @@ class Thread(models.Model):
     def __str__(self):
         return self.title
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:
         """Auto-generate slug from title with UUID suffix for uniqueness."""
         if not self.slug:
             # Create slug with UUID suffix to ensure uniqueness
@@ -224,17 +250,18 @@ class Thread(models.Model):
 
         super().save(*args, **kwargs)
 
-    def increment_view_count(self):
+    def increment_view_count(self) -> None:
         """Increment view count (use F() expression to avoid race conditions)."""
         from django.db.models import F
         Thread.objects.filter(pk=self.pk).update(view_count=F('view_count') + 1)
+        self.refresh_from_db(fields=['view_count'])
 
-    def update_post_count(self):
+    def update_post_count(self) -> None:
         """Update cached post count from actual posts."""
         self.post_count = self.posts.filter(is_active=True).count()
         self.save(update_fields=['post_count'])
 
-    def update_last_activity(self):
+    def update_last_activity(self) -> None:
         """Update last_activity_at to current time."""
         self.last_activity_at = timezone.now()
         self.save(update_fields=['last_activity_at'])
@@ -318,7 +345,7 @@ class Post(models.Model):
     def __str__(self):
         return f"Post by {self.author.username} in {self.thread.title}"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:
         """Update thread statistics on post creation."""
         is_new = not self.pk
         super().save(*args, **kwargs)
@@ -328,7 +355,7 @@ class Post(models.Model):
             self.thread.update_post_count()
             self.thread.update_last_activity()
 
-    def mark_edited(self, editor):
+    def mark_edited(self, editor) -> None:
         """Mark post as edited by given user."""
         self.edited_at = timezone.now()
         self.edited_by = editor
@@ -416,20 +443,44 @@ class Attachment(models.Model):
     def __str__(self):
         return f"Attachment {self.original_filename} on post {self.post.id}"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:
         """Extract file metadata on upload."""
         if self.image and not self.file_size:
             self.file_size = self.image.size
             self.original_filename = self.image.name
-            # MIME type detection would happen here
-            if self.image.name.lower().endswith('.jpg') or self.image.name.lower().endswith('.jpeg'):
-                self.mime_type = 'image/jpeg'
-            elif self.image.name.lower().endswith('.png'):
-                self.mime_type = 'image/png'
-            elif self.image.name.lower().endswith('.gif'):
-                self.mime_type = 'image/gif'
-            elif self.image.name.lower().endswith('.webp'):
-                self.mime_type = 'image/webp'
+
+            # Use Pillow for accurate MIME type detection
+            try:
+                from PIL import Image
+                img = Image.open(self.image)
+                # Get format from image header (more reliable than file extension)
+                image_format = img.format
+                if image_format:
+                    self.mime_type = f'image/{image_format.lower()}'
+                else:
+                    # Fallback to file extension if Pillow can't determine format
+                    ext = self.image.name.lower().split('.')[-1]
+                    mime_map = {
+                        'jpg': 'image/jpeg',
+                        'jpeg': 'image/jpeg',
+                        'png': 'image/png',
+                        'gif': 'image/gif',
+                        'webp': 'image/webp'
+                    }
+                    self.mime_type = mime_map.get(ext, 'application/octet-stream')
+                # Reset file pointer after reading
+                self.image.seek(0)
+            except Exception:
+                # Fallback to file extension if Pillow fails
+                ext = self.image.name.lower().split('.')[-1]
+                mime_map = {
+                    'jpg': 'image/jpeg',
+                    'jpeg': 'image/jpeg',
+                    'png': 'image/png',
+                    'gif': 'image/gif',
+                    'webp': 'image/webp'
+                }
+                self.mime_type = mime_map.get(ext, 'application/octet-stream')
 
         super().save(*args, **kwargs)
 
@@ -491,7 +542,7 @@ class Reaction(models.Model):
         return f"{self.user.username} {self.reaction_type} on post {self.post.id}"
 
     @classmethod
-    def toggle_reaction(cls, post_id, user_id, reaction_type):
+    def toggle_reaction(cls, post_id: uuid.UUID, user_id: int, reaction_type: str) -> Tuple['Reaction', bool]:
         """
         Toggle a reaction on/off.
 
@@ -578,17 +629,17 @@ class UserProfile(models.Model):
     def __str__(self):
         return f"Forum profile for {self.user.username}"
 
-    def update_post_count(self):
+    def update_post_count(self) -> None:
         """Update cached post count from actual posts."""
         self.post_count = Post.objects.filter(author=self.user, is_active=True).count()
         self.save(update_fields=['post_count'])
 
-    def update_thread_count(self):
+    def update_thread_count(self) -> None:
         """Update cached thread count from actual threads."""
         self.thread_count = Thread.objects.filter(author=self.user, is_active=True).count()
         self.save(update_fields=['thread_count'])
 
-    def update_helpful_count(self):
+    def update_helpful_count(self) -> None:
         """Update helpful reaction count received."""
         from django.db.models import Count
         self.helpful_count = Reaction.objects.filter(
@@ -598,7 +649,7 @@ class UserProfile(models.Model):
         ).count()
         self.save(update_fields=['helpful_count'])
 
-    def calculate_trust_level(self):
+    def calculate_trust_level(self) -> str:
         """
         Calculate appropriate trust level based on activity.
 
