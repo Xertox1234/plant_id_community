@@ -114,6 +114,7 @@ urlpatterns = [
         path('plant-identification/', include('apps.plant_identification.urls')),
         path('blog/', include('apps.blog.urls')),
         path('blog-api/', include('apps.blog.api_urls')),
+        path('forum/', include('apps.forum.urls')),  # Forum API
         # path('search/', include('apps.search.urls')),  # Temporarily disabled (depends on Machina)
         path('calendar/', include('apps.garden_calendar.urls')),
         # *([path('forum/', include('apps.forum_integration.api_urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),  # Temporarily disabled (depends on Machina)
