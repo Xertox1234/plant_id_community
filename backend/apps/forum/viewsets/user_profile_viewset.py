@@ -9,6 +9,7 @@ from typing import Dict, Any
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.request import Request
 from rest_framework.permissions import AllowAny
 from django.db.models import QuerySet
 
@@ -77,7 +78,7 @@ class UserProfileViewSet(viewsets.ReadOnlyModelViewSet):
         return context
 
     @action(detail=False, methods=['GET'])
-    def top_contributors(self, request):
+    def top_contributors(self, request: Request) -> Response:
         """
         Get top contributors by post count.
 
@@ -98,7 +99,7 @@ class UserProfileViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['GET'])
-    def most_helpful(self, request):
+    def most_helpful(self, request: Request) -> Response:
         """
         Get most helpful users by helpful reaction count.
 
@@ -119,7 +120,7 @@ class UserProfileViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['GET'])
-    def veterans(self, request):
+    def veterans(self, request: Request) -> Response:
         """
         Get veteran and expert users.
 
@@ -142,7 +143,7 @@ class UserProfileViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
 
     @action(detail=False, methods=['GET'])
-    def new_members(self, request):
+    def new_members(self, request: Request) -> Response:
         """
         Get recently joined members.
 

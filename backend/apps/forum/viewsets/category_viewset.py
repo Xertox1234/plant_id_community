@@ -5,11 +5,13 @@ Provides CRUD operations for forum categories with hierarchical support.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Type
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.request import Request
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from rest_framework.serializers import Serializer
 from django.db.models import QuerySet
 
 from ..models import Category
@@ -79,7 +81,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
         return qs
 
-    def get_serializer_class(self):
+    def get_serializer_class(self) -> Type[Serializer]:
         """
         Use CategoryTreeSerializer for tree action, otherwise CategorySerializer.
 
@@ -107,7 +109,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return context
 
     @action(detail=False, methods=['GET'])
-    def tree(self, request):
+    def tree(self, request: Request) -> Response:
         """
         Return full category tree with all descendants.
 

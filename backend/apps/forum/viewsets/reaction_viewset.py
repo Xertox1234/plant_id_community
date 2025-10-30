@@ -5,11 +5,12 @@ Provides reaction management with toggle pattern for easy add/remove.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticatedOrReadOnly, IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, IsAuthenticated, BasePermission
 from django.db.models import QuerySet
 
 from ..models import Reaction
@@ -93,7 +94,7 @@ class ReactionViewSet(viewsets.ModelViewSet):
         context['request'] = self.request
         return context
 
-    def get_permissions(self):
+    def get_permissions(self) -> List[BasePermission]:
         """
         Require authentication for create/update/delete and toggle.
 
@@ -104,7 +105,7 @@ class ReactionViewSet(viewsets.ModelViewSet):
             return [IsAuthenticated()]
         return [IsAuthenticatedOrReadOnly()]
 
-    def list(self, request, *args, **kwargs):
+    def list(self, request: Request, *args, **kwargs) -> Response:
         """
         List reactions on a post.
 
@@ -127,7 +128,7 @@ class ReactionViewSet(viewsets.ModelViewSet):
         return super().list(request, *args, **kwargs)
 
     @action(detail=False, methods=['POST'], permission_classes=[IsAuthenticated])
-    def toggle(self, request):
+    def toggle(self, request: Request) -> Response:
         """
         Toggle reaction on a post (add if not exists, remove if exists).
 
@@ -177,7 +178,7 @@ class ReactionViewSet(viewsets.ModelViewSet):
         return Response(result, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['GET'])
-    def aggregate(self, request):
+    def aggregate(self, request: Request) -> Response:
         """
         Get aggregated reaction counts for a post.
 

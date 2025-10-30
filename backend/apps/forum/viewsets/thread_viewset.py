@@ -5,11 +5,13 @@ Provides CRUD operations for forum threads with optimized prefetching.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Type
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.request import Request
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from rest_framework.serializers import Serializer
 from django.db.models import QuerySet, Prefetch, Q
 from django.utils import timezone
 
@@ -110,7 +112,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
 
         return qs
 
-    def get_serializer_class(self):
+    def get_serializer_class(self) -> Type[Serializer]:
         """
         Use different serializers for different actions.
 
@@ -147,7 +149,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
         serializer.save()
         logger.info(f"[FORUM] Thread created: {serializer.instance.slug} by {self.request.user.username}")
 
-    def retrieve(self, request, *args, **kwargs):
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
         """
         Retrieve thread detail and increment view count.
 
@@ -164,7 +166,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @action(detail=False, methods=['GET'])
-    def pinned(self, request):
+    def pinned(self, request: Request) -> Response:
         """
         Get all pinned threads.
 
@@ -184,7 +186,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @action(detail=False, methods=['GET'])
-    def recent(self, request):
+    def recent(self, request: Request) -> Response:
         """
         Get recently active threads.
 

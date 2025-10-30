@@ -5,11 +5,13 @@ Provides CRUD operations for forum posts with full reaction and attachment suppo
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Type
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.request import Request
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from rest_framework.serializers import Serializer
 from django.db.models import QuerySet
 
 from ..models import Post
@@ -86,7 +88,7 @@ class PostViewSet(viewsets.ModelViewSet):
 
         return qs
 
-    def get_serializer_class(self):
+    def get_serializer_class(self) -> Type[Serializer]:
         """
         Use different serializers for different actions.
 
@@ -112,7 +114,7 @@ class PostViewSet(viewsets.ModelViewSet):
         context['request'] = self.request
         return context
 
-    def list(self, request, *args, **kwargs):
+    def list(self, request: Request, *args, **kwargs) -> Response:
         """
         List posts in a thread.
 
@@ -167,7 +169,7 @@ class PostViewSet(viewsets.ModelViewSet):
         logger.info(f"[FORUM] Post {instance.id} soft deleted by {self.request.user.username}")
 
     @action(detail=False, methods=['GET'])
-    def first_posts(self, request):
+    def first_posts(self, request: Request) -> Response:
         """
         Get all first posts (thread starters) with optional filtering.
 
