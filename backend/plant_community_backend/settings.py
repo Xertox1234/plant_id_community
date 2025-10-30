@@ -232,8 +232,9 @@ if DEBUG:
     MIDDLEWARE += ['debug_toolbar.middleware.DebugToolbarMiddleware']
 
 # Include forum permission middleware only when forum is enabled
-if ENABLE_FORUM:
-    MIDDLEWARE.append('machina.apps.forum_permission.middleware.ForumPermissionMiddleware')
+# Temporarily disabled (depends on Machina)
+# if ENABLE_FORUM:
+#     MIDDLEWARE.append('machina.apps.forum_permission.middleware.ForumPermissionMiddleware')
 
 ROOT_URLCONF = 'plant_community_backend.urls'
 
