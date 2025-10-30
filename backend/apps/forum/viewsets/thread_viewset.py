@@ -5,12 +5,12 @@ Provides CRUD operations for forum threads with optimized prefetching.
 """
 
 import logging
-from typing import Dict, Any, Type
+from typing import Dict, Any, Type, List
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.request import Request
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, BasePermission
 from rest_framework.serializers import Serializer
 from django.db.models import QuerySet, Prefetch, Q
 from django.utils import timezone
@@ -21,6 +21,7 @@ from ..serializers import (
     ThreadDetailSerializer,
     ThreadCreateSerializer,
 )
+from ..permissions import IsAuthorOrReadOnly, IsModerator, CanCreateThread
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,24 @@ class ThreadViewSet(viewsets.ModelViewSet):
         elif self.action == 'create':
             return ThreadCreateSerializer
         return ThreadDetailSerializer
+
+    def get_permissions(self) -> List[BasePermission]:
+        """
+        Dynamic permissions based on action.
+
+        Returns:
+            - CanCreateThread for create (requires trust level)
+            - IsAuthorOrReadOnly | IsModerator for update/delete
+            - IsAuthenticatedOrReadOnly for list/retrieve
+        """
+        if self.action == 'create':
+            # Creating threads requires minimum trust level
+            return [CanCreateThread()]
+        elif self.action in ['update', 'partial_update', 'destroy']:
+            # Editing requires being author OR moderator
+            # Note: DRF evaluates permissions with OR logic when multiple are provided
+            return [IsAuthorOrReadOnly(), IsModerator()]
+        return [IsAuthenticatedOrReadOnly()]
 
     def get_serializer_context(self) -> Dict[str, Any]:
         """

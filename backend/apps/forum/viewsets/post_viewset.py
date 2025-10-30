@@ -5,12 +5,12 @@ Provides CRUD operations for forum posts with full reaction and attachment suppo
 """
 
 import logging
-from typing import Dict, Any, Type
+from typing import Dict, Any, Type, List
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.request import Request
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, BasePermission
 from rest_framework.serializers import Serializer
 from django.db.models import QuerySet
 
@@ -20,6 +20,7 @@ from ..serializers import (
     PostCreateSerializer,
     PostUpdateSerializer,
 )
+from ..permissions import IsAuthorOrReadOnly, IsModerator
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,19 @@ class PostViewSet(viewsets.ModelViewSet):
         elif self.action in ['update', 'partial_update']:
             return PostUpdateSerializer
         return PostSerializer
+
+    def get_permissions(self) -> List[BasePermission]:
+        """
+        Dynamic permissions based on action.
+
+        Returns:
+            - IsAuthorOrReadOnly | IsModerator for update/delete
+            - IsAuthenticatedOrReadOnly for list/retrieve/create
+        """
+        if self.action in ['update', 'partial_update', 'destroy']:
+            # Editing requires being author OR moderator
+            return [IsAuthorOrReadOnly(), IsModerator()]
+        return [IsAuthenticatedOrReadOnly()]
 
     def get_serializer_context(self) -> Dict[str, Any]:
         """

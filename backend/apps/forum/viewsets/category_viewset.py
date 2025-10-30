@@ -5,17 +5,18 @@ Provides CRUD operations for forum categories with hierarchical support.
 """
 
 import logging
-from typing import Dict, Any, Type
+from typing import Dict, Any, Type, List
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.request import Request
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, BasePermission
 from rest_framework.serializers import Serializer
 from django.db.models import QuerySet
 
 from ..models import Category
 from ..serializers import CategorySerializer, CategoryTreeSerializer
+from ..permissions import IsModerator
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,18 @@ class CategoryViewSet(viewsets.ModelViewSet):
         if self.action == 'tree':
             return CategoryTreeSerializer
         return CategorySerializer
+
+    def get_permissions(self) -> List[BasePermission]:
+        """
+        Dynamic permissions based on action.
+
+        Returns:
+            - IsModerator for create/update/delete
+            - IsAuthenticatedOrReadOnly for list/retrieve
+        """
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsModerator()]
+        return [IsAuthenticatedOrReadOnly()]
 
     def get_serializer_context(self) -> Dict[str, Any]:
         """
