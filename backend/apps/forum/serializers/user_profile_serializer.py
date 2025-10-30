@@ -6,7 +6,7 @@ Provides user forum statistics and trust level information.
 
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from ..models import UserProfile
 
@@ -31,7 +31,7 @@ class ProfileUserSerializer(serializers.ModelSerializer):
             return obj.first_name
         return obj.username
 
-    def get_avatar_url(self, obj: User) -> str:
+    def get_avatar_url(self, obj: User) -> Optional[str]:
         """Get avatar URL if available."""
         if hasattr(obj, 'avatar') and obj.avatar:
             request = self.context.get('request')
