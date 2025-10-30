@@ -169,9 +169,10 @@ class ReactionViewSet(viewsets.ModelViewSet):
         # Log the toggle action
         action_str = "created" if result['created'] else "toggled"
         active_str = "active" if result['is_active'] else "inactive"
+        # result['reaction'] is serialized data (dict), not model instance
         logger.info(
             f"[FORUM] Reaction {action_str} by {request.user.username}: "
-            f"{result['reaction'].reaction_type} on post {result['reaction'].post_id} "
+            f"{result['reaction']['reaction_type']} on post {result['reaction']['post']} "
             f"(now {active_str})"
         )
 

@@ -21,7 +21,7 @@ from ..serializers import (
     ThreadDetailSerializer,
     ThreadCreateSerializer,
 )
-from ..permissions import IsAuthorOrReadOnly, IsModerator, CanCreateThread
+from ..permissions import IsAuthorOrReadOnly, IsModerator, CanCreateThread, IsAuthorOrModerator
 
 logger = logging.getLogger(__name__)
 
@@ -142,8 +142,8 @@ class ThreadViewSet(viewsets.ModelViewSet):
             return [CanCreateThread()]
         elif self.action in ['update', 'partial_update', 'destroy']:
             # Editing requires being author OR moderator
-            # Note: DRF evaluates permissions with OR logic when multiple are provided
-            return [IsAuthorOrReadOnly(), IsModerator()]
+            # Use combined permission class for proper OR logic
+            return [IsAuthorOrModerator()]
         return [IsAuthenticatedOrReadOnly()]
 
     def get_serializer_context(self) -> Dict[str, Any]:

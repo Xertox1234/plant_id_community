@@ -135,3 +135,59 @@ class CanCreateThread(permissions.BasePermission):
             # No forum profile exists, deny permission
             # Note: Forum profiles should be created via signals when user is created
             return False
+
+
+class IsAuthorOrModerator(permissions.BasePermission):
+    """
+    Allow authors to edit their own content OR moderators to edit any content.
+
+    Combines IsAuthorOrReadOnly and IsModerator with OR logic.
+    This is the correct pattern for "author OR moderator" permissions.
+
+    Permissions:
+    - Read (GET, HEAD, OPTIONS): Anyone
+    - Write (POST, PUT, PATCH, DELETE): Author OR Moderator
+
+    Usage:
+        Apply to ThreadViewSet and PostViewSet for update/delete actions.
+        Replaces the incorrect pattern of returning multiple permissions.
+
+    Example:
+        >>> # WRONG (AND logic - both must pass):
+        >>> return [IsAuthorOrReadOnly(), IsModerator()]
+
+        >>> # CORRECT (OR logic - either can pass):
+        >>> return [IsAuthorOrModerator()]
+    """
+
+    def has_object_permission(self, request: Any, view: Any, obj: Any) -> bool:
+        """
+        Check if user is author OR moderator.
+
+        Args:
+            request: Django request object
+            view: ViewSet instance
+            obj: Object being accessed (Thread or Post)
+
+        Returns:
+            True if user is author or moderator, False otherwise
+        """
+        # Read permissions (GET, HEAD, OPTIONS) allowed for anyone
+        if request.method in permissions.SAFE_METHODS:
+            return True
+
+        # Write permissions for author OR moderator
+
+        # Check if user is the author
+        if obj.author == request.user:
+            return True  # Author can edit their own content
+
+        # Check if user is a moderator (staff or in Moderators group)
+        if request.user.is_authenticated and (
+            request.user.is_staff or
+            request.user.groups.filter(name='Moderators').exists()
+        ):
+            return True  # Moderator can edit any content
+
+        # Neither author nor moderator
+        return False

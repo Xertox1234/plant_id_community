@@ -20,7 +20,7 @@ from ..serializers import (
     PostCreateSerializer,
     PostUpdateSerializer,
 )
-from ..permissions import IsAuthorOrReadOnly, IsModerator
+from ..permissions import IsAuthorOrReadOnly, IsModerator, IsAuthorOrModerator
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,8 @@ class PostViewSet(viewsets.ModelViewSet):
         """
         if self.action in ['update', 'partial_update', 'destroy']:
             # Editing requires being author OR moderator
-            return [IsAuthorOrReadOnly(), IsModerator()]
+            # Use combined permission class for proper OR logic
+            return [IsAuthorOrModerator()]
         return [IsAuthenticatedOrReadOnly()]
 
     def get_serializer_context(self) -> Dict[str, Any]:
@@ -149,6 +150,29 @@ class PostViewSet(viewsets.ModelViewSet):
             )
 
         return super().list(request, *args, **kwargs)
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Create a new post.
+
+        Uses PostCreateSerializer for input validation,
+        but returns PostSerializer for full response data.
+
+        Returns:
+            Full post data including author, timestamps, etc.
+        """
+        # Validate input with PostCreateSerializer
+        create_serializer = self.get_serializer(data=request.data)
+        create_serializer.is_valid(raise_exception=True)
+
+        # Create post (calls PostCreateSerializer.create())
+        self.perform_create(create_serializer)
+        post_instance = create_serializer.instance
+
+        # Return full PostSerializer for response
+        response_serializer = PostSerializer(post_instance, context=self.get_serializer_context())
+        headers = self.get_success_headers(response_serializer.data)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     def perform_create(self, serializer) -> None:
         """

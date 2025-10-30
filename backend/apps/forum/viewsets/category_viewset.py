@@ -117,7 +117,11 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
         # Pass include_children to serializer
         include_children = self.request.query_params.get('include_children', 'false')
-        context['include_children'] = include_children.lower() == 'true'
+        # Also include children for retrieve action (detail view always shows children)
+        context['include_children'] = (
+            include_children.lower() == 'true' or
+            self.action == 'retrieve'
+        )
 
         return context
 
