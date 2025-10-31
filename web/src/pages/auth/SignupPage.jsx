@@ -140,13 +140,13 @@ export default function SignupPage() {
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-gray-50">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-md min-w-[280px]">
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">
+        <div className="text-center mb-8 space-y-2">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
             Create an account
           </h1>
-          <p className="mt-2 text-gray-600">
+          <p className="text-sm sm:text-base text-gray-600">
             Join PlantID to identify plants and track your garden
           </p>
         </div>

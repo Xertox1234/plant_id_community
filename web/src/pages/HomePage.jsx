@@ -47,7 +47,7 @@ export default function HomePage() {
             <h2 className="text-4xl font-bold text-gray-900 mb-4">
               Everything you need to explore plants
             </h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="text-xl text-gray-600">
               From AI-powered identification to community knowledge sharing
             </p>
           </div>
