@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { fetchCategoryTree } from '../../services/forumService';
 import CategoryCard from '../../components/forum/CategoryCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { logger } from '../../utils/logger';
 
 /**
  * CategoryListPage Component
@@ -23,7 +24,10 @@ export default function CategoryListPage() {
         const data = await fetchCategoryTree();
         setCategories(data);
       } catch (err) {
-        console.error('[CategoryListPage] Error loading categories:', err);
+        logger.error('Error loading forum categories', {
+          component: 'CategoryListPage',
+          error: err,
+        });
         setError(err.message);
       } finally {
         setLoading(false);

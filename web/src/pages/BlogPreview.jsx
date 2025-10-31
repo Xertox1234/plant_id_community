@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { createSafeMarkup, SANITIZE_PRESETS } from '../utils/sanitize';
+import { logger } from '../utils/logger';
 
 /**
  * BlogPreview Component
@@ -50,7 +51,11 @@ export default function BlogPreview() {
         const data = await response.json();
         setPost(data);
       } catch (err) {
-        console.error('[BlogPreview] Error fetching preview:', err);
+        logger.error('Error fetching blog preview', {
+          component: 'BlogPreview',
+          error: err,
+          context: { content_type, token },
+        });
         setError(err.message);
       } finally {
         setLoading(false);
