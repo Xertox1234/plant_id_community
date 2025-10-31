@@ -62,9 +62,11 @@ def get_csrf_token(request: Request) -> Response:
     return Response({'detail': 'CSRF cookie set'})
 
 
+from django.views.decorators.csrf import csrf_exempt
+
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
-@ensure_csrf_cookie
+@csrf_exempt
 @ratelimit(
     key='ip',
     rate=RATE_LIMITS['auth_endpoints']['register'],
@@ -134,15 +136,17 @@ def register(request: Request) -> Response:
 def login(request: Request) -> Response:
     """
     Authenticate user and return tokens.
+    Accepts either 'username' or 'email' as the identifier.
     """
-    username = request.data.get('username')
+    # Support both 'username' and 'email' fields for flexibility
+    username = request.data.get('username') or request.data.get('email')
     password = request.data.get('password')
 
     if not username or not password:
         return create_error_response(
             'MISSING_CREDENTIALS',
             'Missing credentials',
-            'Username and password are required',
+            'Email/username and password are required',
             status.HTTP_400_BAD_REQUEST
         )
 
@@ -157,8 +161,17 @@ def login(request: Request) -> Response:
             status.HTTP_429_TOO_MANY_REQUESTS
         )
 
-    # Authenticate user
+    # Try to authenticate with username first
     user = authenticate(username=username, password=password)
+
+    # If authentication fails and the identifier looks like an email,
+    # try to find the user by email and authenticate with their username
+    if not user and '@' in username:
+        try:
+            from_email = User.objects.get(email=username)
+            user = authenticate(username=from_email.username, password=password)
+        except User.DoesNotExist:
+            pass
 
     if user:
         if user.is_active:

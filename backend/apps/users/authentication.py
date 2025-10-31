@@ -126,6 +126,8 @@ def set_jwt_cookies(response: HttpResponse, user: User) -> HttpResponse:
     refresh_max_age = settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()
     
     # Set httpOnly cookies
+    # IMPORTANT: domain=None allows cookies to be sent from different ports on localhost
+    # This enables frontend (localhost:5174) to send cookies to backend (localhost:8000)
     response.set_cookie(
         key='access_token',
         value=str(access_token),
@@ -133,9 +135,10 @@ def set_jwt_cookies(response: HttpResponse, user: User) -> HttpResponse:
         httponly=True,
         secure=not settings.DEBUG,  # Use secure cookies in production
         samesite='Strict' if not settings.DEBUG else 'Lax',
+        domain=None,  # Default domain (allows cross-port in localhost)
         path='/'
     )
-    
+
     response.set_cookie(
         key='refresh_token',
         value=str(refresh),
@@ -143,6 +146,7 @@ def set_jwt_cookies(response: HttpResponse, user: User) -> HttpResponse:
         httponly=True,
         secure=not settings.DEBUG,
         samesite='Strict' if not settings.DEBUG else 'Lax',
+        domain=None,  # Default domain (allows cross-port in localhost)
         path='/api/auth/'  # Restrict refresh token to auth endpoints
     )
     

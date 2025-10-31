@@ -30,8 +30,8 @@ export function validatePassword(password) {
     return false
   }
 
-  // Minimum 8 characters
-  return password.length >= 8
+  // Minimum 14 characters (Django backend requirement)
+  return password.length >= 14
 }
 
 /**
@@ -89,7 +89,7 @@ export function getPasswordError(password) {
   }
 
   if (!validatePassword(password)) {
-    return 'Password must be at least 8 characters long'
+    return 'Password must be at least 14 characters long'
   }
 
   return null

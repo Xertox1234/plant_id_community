@@ -86,7 +86,7 @@ describe('ThreadListPage', () => {
     renderThreadListPage();
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Plant Care Tips' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Plant Care Tips' })).toBeInTheDocument();
     });
 
     expect(screen.getByText('Learn how to care for your plants')).toBeInTheDocument();

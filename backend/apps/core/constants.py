@@ -84,6 +84,23 @@ LOG_PREFIX_AUTH = "[AUTH]"
 LOG_PREFIX_RATELIMIT = "[RATELIMIT]"
 LOG_PREFIX_LOCKOUT = "[LOCKOUT]"
 LOG_PREFIX_ALERT = "[ALERT]"
+LOG_PREFIX_CACHE = "[CACHE]"
+LOG_PREFIX_PERF = "[PERF]"
+LOG_PREFIX_ERROR = "[ERROR]"
+LOG_PREFIX_API = "[API]"
+LOG_PREFIX_DB = "[DB]"
+LOG_PREFIX_CIRCUIT = "[CIRCUIT]"
+LOG_PREFIX_PARALLEL = "[PARALLEL]"
+
+# ============================================================================
+# Log Levels
+# ============================================================================
+
+LOG_LEVEL_DEBUG = 'DEBUG'
+LOG_LEVEL_INFO = 'INFO'
+LOG_LEVEL_WARNING = 'WARNING'
+LOG_LEVEL_ERROR = 'ERROR'
+LOG_LEVEL_CRITICAL = 'CRITICAL'
 
 # ============================================================================
 # Email Configuration
