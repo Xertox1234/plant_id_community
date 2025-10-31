@@ -12,12 +12,12 @@ function CategoryCard({ category }) {
   const hasChildren = category.children && category.children.length > 0;
 
   return (
-    <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow">
+    <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow p-6">
+      {/* Category Header - Clickable Link */}
       <Link
         to={`/forum/${category.slug}`}
-        className="block p-6"
+        className="block"
       >
-        {/* Category Header */}
         <div className="flex items-start gap-4">
           {/* Icon */}
           {category.icon && (
@@ -50,27 +50,26 @@ function CategoryCard({ category }) {
             </div>
           </div>
         </div>
-
-        {/* Subcategories (if any) */}
-        {hasChildren && (
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <div className="flex flex-wrap gap-2">
-              <span className="text-sm text-gray-500">Subcategories:</span>
-              {category.children.map(child => (
-                <Link
-                  key={child.id}
-                  to={`/forum/${child.slug}`}
-                  className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-sm text-gray-700 rounded-full transition-colors"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {child.icon && <span className="mr-1">{child.icon}</span>}
-                  {child.name}
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
       </Link>
+
+      {/* Subcategories (if any) - Outside main link to avoid nested anchors */}
+      {hasChildren && (
+        <div className="mt-4 pt-4 border-t border-gray-200">
+          <div className="flex flex-wrap gap-2">
+            <span className="text-sm text-gray-500">Subcategories:</span>
+            {category.children.map(child => (
+              <Link
+                key={child.id}
+                to={`/forum/${child.slug}`}
+                className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-sm text-gray-700 rounded-full transition-colors"
+              >
+                {child.icon && <span className="mr-1">{child.icon}</span>}
+                {child.name}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
