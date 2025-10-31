@@ -114,9 +114,9 @@ urlpatterns = [
         path('plant-identification/', include('apps.plant_identification.urls')),
         path('blog/', include('apps.blog.urls')),
         path('blog-api/', include('apps.blog.api_urls')),
-        path('search/', include('apps.search.urls')),
+        # path('search/', include('apps.search.urls')),  # Temporarily disabled (depends on Machina)
         path('calendar/', include('apps.garden_calendar.urls')),
-        *([path('forum/', include('apps.forum_integration.api_urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),
+        # *([path('forum/', include('apps.forum_integration.api_urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),  # Temporarily disabled (depends on Machina)
     ], 'v1'))),
 
     # Legacy Unversioned API (Deprecated - redirects to v1)
@@ -126,9 +126,9 @@ urlpatterns = [
         path('plant-identification/', include('apps.plant_identification.urls')),
         path('blog/', include('apps.blog.urls')),
         path('blog-api/', include('apps.blog.api_urls')),
-        path('search/', include('apps.search.urls')),
+        # path('search/', include('apps.search.urls')),  # Temporarily disabled (depends on Machina)
         path('calendar/', include('apps.garden_calendar.urls')),
-        *([path('forum/', include('apps.forum_integration.api_urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),
+        # *([path('forum/', include('apps.forum_integration.api_urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),  # Temporarily disabled (depends on Machina)
     ])),
     
     # Blog Administration Interface
@@ -136,8 +136,8 @@ urlpatterns = [
     
     # Forum Integration (optional)
     # Only include when ENABLE_FORUM=True to avoid migration issues during smoke tests
-    *([path('forum/', include('apps.forum_integration.urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),
-    *([path('machina/', include('machina.urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),
+    # *([path('forum/', include('apps.forum_integration.urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),  # Temporarily disabled (depends on Machina)
+    # *([path('machina/', include('machina.urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),  # Temporarily disabled
     
     # Default redirect to Wagtail admin for development
     path('', RedirectView.as_view(url='/cms/', permanent=False)),

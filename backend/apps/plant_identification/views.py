@@ -316,13 +316,24 @@ class PlantIdentificationResultViewSet(viewsets.ReadOnlyModelViewSet):
                 if previous_vote == vote_type:
                     # User is voting the same way again - remove their vote
                     vote.delete()
-                    # Decrease the vote count
+                    # Decrease the vote count atomically using F() expressions (prevents race conditions)
                     if vote_type == 'upvote':
-                        result_obj.upvotes = max(0, result_obj.upvotes - 1)
+                        PlantIdentificationResult.objects.filter(id=result_obj.id).update(
+                            upvotes=models.Case(
+                                models.When(upvotes__gt=0, then=F('upvotes') - 1),
+                                default=0
+                            )
+                        )
                     else:
-                        result_obj.downvotes = max(0, result_obj.downvotes - 1)
-                    result_obj.save()
-                    
+                        PlantIdentificationResult.objects.filter(id=result_obj.id).update(
+                            downvotes=models.Case(
+                                models.When(downvotes__gt=0, then=F('downvotes') - 1),
+                                default=0
+                            )
+                        )
+                    # Refresh object from database to get updated values
+                    result_obj.refresh_from_db()
+
                     return Response({
                         'message': f'{vote_type} removed successfully',
                         'result': self.get_serializer(result_obj, context={'request': request}).data

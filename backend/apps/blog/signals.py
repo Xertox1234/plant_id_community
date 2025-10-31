@@ -64,6 +64,7 @@ def invalidate_blog_cache_on_publish(sender, **kwargs):
         BlogCacheService = get_blog_cache_service()
         BlogCacheService.invalidate_blog_post(instance.slug)
         BlogCacheService.invalidate_blog_lists()
+        BlogCacheService.invalidate_popular_posts()  # TODO 040 fix
         logger.info(f"[CACHE] Invalidated caches for published post: {instance.slug}")
     except Exception as e:
         logger.error(f"[CACHE] Error invalidating cache on publish: {e}")
@@ -95,6 +96,7 @@ def invalidate_blog_cache_on_unpublish(sender, **kwargs):
         BlogCacheService = get_blog_cache_service()
         BlogCacheService.invalidate_blog_post(instance.slug)
         BlogCacheService.invalidate_blog_lists()
+        BlogCacheService.invalidate_popular_posts()  # TODO 040 fix
         logger.info(f"[CACHE] Invalidated caches for unpublished post: {instance.slug}")
     except Exception as e:
         logger.error(f"[CACHE] Error invalidating cache on unpublish: {e}")
@@ -129,6 +131,7 @@ def invalidate_blog_cache_on_delete(sender, **kwargs):
         BlogCacheService = get_blog_cache_service()
         BlogCacheService.invalidate_blog_post(instance.slug)
         BlogCacheService.invalidate_blog_lists()
+        BlogCacheService.invalidate_popular_posts()  # TODO 040 fix
         logger.info(f"[CACHE] Invalidated caches for deleted post: {instance.slug}")
     except Exception as e:
         logger.error(f"[CACHE] Error invalidating cache on delete: {e}")

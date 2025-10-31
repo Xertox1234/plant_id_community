@@ -482,6 +482,73 @@ class PopularPostsAPITests(TestCase):
         # (This test verifies the annotation logic works)
         self.assertGreater(len(response.data), 0)
 
+    def test_popular_posts_query_optimization(self):
+        """
+        TODO 037: Verify prefetch_related eliminates N+1 queries.
+
+        Tests that the popular() endpoint uses efficient prefetching
+        to avoid N+1 query problems when filtering by time period.
+
+        Expected: Query count should be low (<10) regardless of post count.
+        Before fix: ~15 queries for 10 posts, ~150 queries for 100 posts (O(n))
+        After fix: ~5-8 queries regardless of post count (O(1))
+        """
+        # Create more posts with recent views to test query efficiency
+        recent_date = timezone.now() - timedelta(days=5)
+
+        for post in self.posts:
+            # Add 3 recent views per post
+            for _ in range(3):
+                BlogPostView.objects.create(
+                    post=post,
+                    user=self.user,
+                    viewed_at=recent_date,
+                    ip_address='127.0.0.1'
+                )
+
+        # Clear any query caches
+        cache.clear()
+
+        # Test with time-based filtering (where N+1 problem occurs)
+        with CaptureQueriesContext(connection) as context:
+            response = self.client.get('/api/v2/blog-posts/popular/?days=30&limit=10')
+            self.assertEqual(response.status_code, 200)
+
+        query_count = len(context.captured_queries)
+
+        # With prefetch_related optimization, should be <10 queries
+        # Without it, would be ~15+ queries for 5 posts (3 per post)
+        self.assertLess(
+            query_count,
+            10,
+            f"Query count too high: {query_count} queries. "
+            f"Expected <10 with prefetch_related optimization.\n"
+            f"Queries: {[q['sql'][:100] for q in context.captured_queries]}"
+        )
+
+        # Log query count for monitoring
+        print(f"\n[PERF] Popular endpoint query count: {query_count} queries for {len(response.data)} posts")
+
+    def test_popular_posts_all_time_query_count(self):
+        """All-time popular (days=0) should have minimal queries (no prefetching needed)."""
+        # Clear any query caches
+        cache.clear()
+
+        with CaptureQueriesContext(connection) as context:
+            response = self.client.get('/api/v2/blog-posts/popular/?days=0&limit=10')
+            self.assertEqual(response.status_code, 200)
+
+        query_count = len(context.captured_queries)
+
+        # All-time should be very efficient (no annotation, just ordering)
+        self.assertLess(
+            query_count,
+            8,
+            f"All-time query count too high: {query_count} queries"
+        )
+
+        print(f"\n[PERF] All-time popular query count: {query_count} queries")
+
 
 class AnalyticsDashboardTests(TestCase):
     """Test Wagtail admin analytics integration (Phase 6.2)."""

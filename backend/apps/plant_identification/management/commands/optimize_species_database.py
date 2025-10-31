@@ -11,6 +11,7 @@ This command:
 import logging
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction, models
+from django.db.models import F
 from django.core.cache import cache
 from django.conf import settings
 
@@ -142,9 +143,12 @@ class Command(BaseCommand):
                         identified_species__in=to_remove
                     ).update(identified_species=best_species)
                     
-                    # Update best species counts
-                    best_species.identification_count += sum(s.identification_count for s in to_remove)
-                    best_species.save()
+                    # Update best species counts atomically
+                    count_to_add = sum(s.identification_count for s in to_remove)
+                    PlantSpecies.objects.filter(id=best_species.id).update(
+                        identification_count=F('identification_count') + count_to_add
+                    )
+                    best_species.refresh_from_db()
                     
                     # Remove duplicates
                     removed_count += to_remove.count()

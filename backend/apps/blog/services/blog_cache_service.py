@@ -27,9 +27,11 @@ from ..constants import (
     BLOG_LIST_CACHE_TIMEOUT,
     BLOG_POST_CACHE_TIMEOUT,
     BLOG_CATEGORY_CACHE_TIMEOUT,
+    POPULAR_POSTS_CACHE_TIMEOUT,
     CACHE_PREFIX_BLOG_POST,
     CACHE_PREFIX_BLOG_LIST,
     CACHE_PREFIX_BLOG_CATEGORY,
+    CACHE_PREFIX_POPULAR_POSTS,
 )
 
 logger = logging.getLogger(__name__)
@@ -271,6 +273,77 @@ class BlogCacheService:
                 logger.error(f"[CACHE] Failed to invalidate blog lists: {e}")
 
     @staticmethod
+    def get_popular_posts(limit: int, days: int) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve cached popular posts.
+
+        Args:
+            limit: Number of posts requested
+            days: Time period for popularity calculation (0 = all time)
+
+        Returns:
+            Cached popular posts data dict or None if cache miss
+
+        Performance:
+            - Cache hit: <10ms response
+            - Cache miss: Returns None, triggers DB query
+        """
+        cache_key = f"{CACHE_PREFIX_POPULAR_POSTS}:{limit}:{days}"
+        cached = cache.get(cache_key)
+
+        if cached:
+            logger.info(f"[CACHE] HIT for popular posts (limit={limit}, days={days}) (instant response)")
+            return cached
+
+        logger.info(f"[CACHE] MISS for popular posts (limit={limit}, days={days})")
+        return None
+
+    @staticmethod
+    def set_popular_posts(limit: int, days: int, data: Dict[str, Any]) -> None:
+        """
+        Cache popular posts data.
+
+        Args:
+            limit: Number of posts in response
+            days: Time period used for popularity calculation
+            data: Popular posts data to cache (serialized dict)
+
+        Cache Configuration:
+            - TTL: 30 minutes (POPULAR_POSTS_CACHE_TIMEOUT)
+            - Key format: blog:popular:{limit}:{days}
+            - Invalidation: On ANY post view count update or publish/unpublish
+            - Shorter TTL than regular content (popular posts change more frequently)
+        """
+        cache_key = f"{CACHE_PREFIX_POPULAR_POSTS}:{limit}:{days}"
+        cache.set(cache_key, data, POPULAR_POSTS_CACHE_TIMEOUT)
+        logger.info(f"[CACHE] SET for popular posts (limit={limit}, days={days}) (30min TTL)")
+
+    @staticmethod
+    def invalidate_popular_posts() -> None:
+        """
+        Invalidate all popular posts caches.
+
+        Called by signals when:
+        - ANY blog post view count is updated
+        - Blog post is published/unpublished/deleted
+        - Featured flag is toggled
+
+        Strategy:
+        - Primary: Redis pattern matching (most efficient)
+        - Fallback: Natural expiration (30 minutes)
+
+        Note:
+            Popular posts have a shorter TTL (30 minutes) than regular content,
+            so natural expiration is acceptable if pattern matching fails.
+        """
+        try:
+            cache.delete_pattern(f"{CACHE_PREFIX_POPULAR_POSTS}:*")
+            logger.info("[CACHE] INVALIDATE all popular posts (pattern match)")
+        except AttributeError:
+            # Fallback: Let natural 30-minute expiration handle it
+            logger.warning("[CACHE] Cache backend doesn't support delete_pattern, popular posts will expire naturally in 30min")
+
+    @staticmethod
     def invalidate_blog_category(slug: str) -> None:
         """
         Invalidate all pages for a specific category.
@@ -306,6 +379,7 @@ class BlogCacheService:
             cache.delete_pattern(f"{CACHE_PREFIX_BLOG_POST}:*")
             cache.delete_pattern(f"{CACHE_PREFIX_BLOG_LIST}:*")
             cache.delete_pattern(f"{CACHE_PREFIX_BLOG_CATEGORY}:*")
+            cache.delete_pattern(f"{CACHE_PREFIX_POPULAR_POSTS}:*")
             logger.warning("[CACHE] CLEARED all blog caches (nuclear option)")
         except AttributeError:
             logger.warning("[CACHE] Cache backend doesn't support delete_pattern, manual flush required")

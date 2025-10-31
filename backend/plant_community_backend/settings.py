@@ -182,14 +182,18 @@ LOCAL_APPS = [
     'apps.users',
     'apps.plant_identification',
     'apps.blog',
+    'apps.forum',  # New headless forum implementation
     'apps.core',
-    'apps.search',
+    # 'apps.search',  # Temporarily disabled (depends on Machina)
     'apps.garden_calendar',
 ]
-if ENABLE_FORUM:
-    LOCAL_APPS.insert(2, 'apps.forum_integration')
+# Temporarily disable forum_integration (depends on Machina)
+# if ENABLE_FORUM:
+#     LOCAL_APPS.insert(2, 'apps.forum_integration')
 
-INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + MACHINA_APPS + LOCAL_APPS
+# Temporarily disable MACHINA_APPS while building new headless forum
+# MACHINA_APPS will be removed entirely once new forum is production-ready
+INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS  # + MACHINA_APPS
 
 # WebSockets via Django Channels
 INSTALLED_APPS += [
@@ -228,8 +232,9 @@ if DEBUG:
     MIDDLEWARE += ['debug_toolbar.middleware.DebugToolbarMiddleware']
 
 # Include forum permission middleware only when forum is enabled
-if ENABLE_FORUM:
-    MIDDLEWARE.append('machina.apps.forum_permission.middleware.ForumPermissionMiddleware')
+# Temporarily disabled (depends on Machina)
+# if ENABLE_FORUM:
+#     MIDDLEWARE.append('machina.apps.forum_permission.middleware.ForumPermissionMiddleware')
 
 ROOT_URLCONF = 'plant_community_backend.urls'
 

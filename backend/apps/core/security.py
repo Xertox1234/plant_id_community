@@ -184,7 +184,7 @@ class SecurityMonitor:
                 logger.error(f"{LOG_PREFIX_SECURITY} Error tracking failed attempt: {str(e)}")
                 if attempt_num == max_retries - 1:
                     # Last retry failed, log and return safe defaults
-                    logger.error(f"{LOG_PREFIX_SECURITY} All retries exhausted for {username}")
+                    logger.error(f"{LOG_PREFIX_SECURITY} All retries exhausted for {log_safe_username(username)}")
                     return False, 0
                 # Retry on next iteration
 

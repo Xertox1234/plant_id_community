@@ -15,6 +15,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 
+from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
+
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
@@ -101,7 +103,7 @@ class EmailService:
         
         # Check user preferences if requested
         if respect_preferences and user and not self._should_send_email(user, email_type):
-            logger.info(f"Email {email_type} skipped for {recipient_email} due to user preferences")
+            logger.info(f"Email {email_type} skipped for {log_safe_email(recipient_email)} due to user preferences")
             return False
         
         # Prepare context
@@ -146,15 +148,15 @@ class EmailService:
                 template_name=template_name,
                 priority=priority
             )
-            
-            logger.info(f"Email {email_type} sent successfully to {recipient_email}")
+
+            logger.info(f"Email {email_type} sent successfully to {log_safe_email(recipient_email)}")
             return True
-            
+
         except ConnectionError as e:
-            logger.error(f"Email connection failed for {email_type} to {recipient_email}: {e}")
+            logger.error(f"Email connection failed for {email_type} to {log_safe_email(recipient_email)}: {e}")
             return False
         except Exception as e:
-            logger.error(f"Failed to send email {email_type} to {recipient_email}: {e}")
+            logger.error(f"Failed to send email {email_type} to {log_safe_email(recipient_email)}: {e}")
             return False
     
     def send_bulk_email(
@@ -197,9 +199,11 @@ class EmailService:
                 else:
                     results['failed'] += 1
             except Exception as e:
-                logger.error(f"Bulk email failed for recipient {recipient}: {e}")
+                # recipient could be email or User object - handle both cases
+                safe_recipient = log_safe_email(recipient) if isinstance(recipient, str) else log_safe_user_context(recipient)
+                logger.error(f"Bulk email failed for recipient {safe_recipient}: {e}")
                 results['failed'] += 1
-        
+
         logger.info(f"Bulk email {email_type} completed: {results['sent']} sent, {results['failed']} failed")
         return results
     
@@ -352,10 +356,10 @@ class EmailService:
                 recipient_list=[recipient_email],
                 html_message=html_message
             )
-            logger.info(f"Transactional email sent to {recipient_email}")
+            logger.info(f"Transactional email sent to {log_safe_email(recipient_email)}")
             return True
         except Exception as e:
-            logger.error(f"Failed to send transactional email to {recipient_email}: {e}")
+            logger.error(f"Failed to send transactional email to {log_safe_email(recipient_email)}: {e}")
             return False
     
     def send_welcome_email(self, user: User) -> bool:

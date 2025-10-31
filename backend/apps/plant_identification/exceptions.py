@@ -1,5 +1,11 @@
 """
 Custom exceptions for the plant identification module.
+
+NOTE: For API-related exceptions that need to return HTTP responses,
+use the exceptions from apps.core.exceptions (ExternalAPIError, etc.)
+which are properly integrated with Django REST Framework.
+
+The exceptions in this file are for internal business logic only.
 """
 
 

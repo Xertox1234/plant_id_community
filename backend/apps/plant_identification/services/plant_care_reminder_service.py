@@ -15,6 +15,7 @@ from django.urls import reverse
 from apps.core.models import PlantCareReminder
 from apps.core.services.notification_service import NotificationService
 from apps.core.services.email_service import EmailType
+from apps.core.utils.pii_safe_logging import log_safe_user_context
 from .trefle_service import TrefleAPIService
 
 User = get_user_model()
@@ -73,8 +74,8 @@ class PlantCareReminderService:
             custom_instructions=custom_instructions,
             next_reminder_date=next_reminder_date
         )
-        
-        logger.info(f"Created care reminder for {user.username}: {care_type} for {reminder.plant_name}")
+
+        logger.info(f"Created care reminder for {log_safe_user_context(user)}: {care_type} for {reminder.plant_name}")
         return reminder
     
     def create_custom_reminder(
@@ -111,8 +112,8 @@ class PlantCareReminderService:
             custom_instructions=custom_instructions,
             next_reminder_date=next_reminder_date
         )
-        
-        logger.info(f"Created custom care reminder for {user.username}: {care_type} for {plant_name}")
+
+        logger.info(f"Created custom care reminder for {log_safe_user_context(user)}: {care_type} for {plant_name}")
         return reminder
     
     def get_due_reminders(self, as_of: datetime = None) -> List[PlantCareReminder]:
@@ -159,9 +160,9 @@ class PlantCareReminderService:
             if success:
                 # Mark reminder as sent and calculate next date
                 reminder.mark_reminder_sent()
-                logger.info(f"Sent care reminder to {reminder.user.username} for {reminder.plant_name}")
+                logger.info(f"Sent care reminder to {log_safe_user_context(reminder.user)} for {reminder.plant_name}")
             else:
-                logger.warning(f"Failed to send care reminder to {reminder.user.username}")
+                logger.warning(f"Failed to send care reminder to {log_safe_user_context(reminder.user)}")
             
             return success
             
@@ -400,6 +401,6 @@ class PlantCareReminderService:
                 reminders.append(reminder)
             except Exception as e:
                 logger.error(f"Failed to create {care_type} reminder: {e}")
-        
-        logger.info(f"Created {len(reminders)} reminders for user {user.username}")
+
+        logger.info(f"Created {len(reminders)} reminders for {log_safe_user_context(user)}")
         return reminders
