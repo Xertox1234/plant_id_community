@@ -16,7 +16,7 @@ Usage:
     # Basic logging with bracket prefix
     logger.info("[CACHE] Cache hit", extra={'key': cache_key, 'hit_rate': 0.42})
 
-    # With automatic request context
+    # With automatic request context (request_id, user_id auto-injected)
     logger.error("[API] External API failed", extra={'api': 'plant.id', 'status': 500})
 
     # Debug level (development only)
@@ -27,9 +27,12 @@ Pattern Reference:
 - Maintains bracket prefixes for backward compatibility
 - Type hints on all methods
 - Automatic context injection (request_id, user_id, environment)
+- PII-safe logging (no usernames or emails in structured logs)
 """
 
+import json
 import logging
+import threading
 from typing import Any, Dict, Optional
 from django.conf import settings
 
@@ -63,7 +66,6 @@ class StructuredLogger:
             name: Module name (typically __name__)
         """
         self.logger = logging.getLogger(name)
-        self.environment = getattr(settings, 'ENVIRONMENT', 'development')
 
     def _get_context(self) -> Dict[str, Any]:
         """
@@ -71,9 +73,13 @@ class StructuredLogger:
 
         Returns:
             Dictionary with request_id, user_id, environment
+
+        Note:
+            Usernames and emails are NOT logged to prevent PII leakage.
+            Use user_id for correlation instead.
         """
         context = {
-            'environment': self.environment,
+            'environment': getattr(settings, 'ENVIRONMENT', 'development'),
         }
 
         # Add request ID if available (from django-request-id middleware)
@@ -82,19 +88,23 @@ class StructuredLogger:
                 request_id = getattr(local, 'request_id', None)
                 if request_id:
                     context['request_id'] = request_id
-            except Exception:
+            except (AttributeError, RuntimeError):
+                # AttributeError: local doesn't exist
+                # RuntimeError: called outside request context
                 pass
 
         # Add user ID if available (from request context)
+        # NOTE: Username is PII and NOT logged for GDPR/CCPA compliance
         try:
             from crum import get_current_user
             user = get_current_user()
             if user and hasattr(user, 'id'):
                 context['user_id'] = str(user.id)
-                context['username'] = user.username
-        except ImportError:
-            pass
-        except Exception:
+                # Do NOT log username - it's PII
+        except (ImportError, AttributeError, RuntimeError):
+            # ImportError: crum not installed
+            # AttributeError: user has no 'id' attribute
+            # RuntimeError: called outside request context
             pass
 
         return context
@@ -108,12 +118,31 @@ class StructuredLogger:
 
         Returns:
             Merged context dictionary
+
+        Note:
+            Non-dict `extra` values are handled gracefully.
+            Non-JSON-serializable values are converted to strings.
         """
         context = self._get_context()
 
         if extra:
-            # User-provided data takes precedence
-            context.update(extra)
+            # Validate input type
+            if not isinstance(extra, dict):
+                # Log warning but don't crash
+                self.logger.warning(
+                    f"[LOGGER] Invalid extra type: {type(extra).__name__}. Expected dict."
+                )
+                return context
+
+            # Sanitize values for JSON serialization
+            for key, value in extra.items():
+                try:
+                    # Test JSON serializability
+                    json.dumps(value)
+                    context[key] = value
+                except (TypeError, ValueError):
+                    # Convert non-serializable objects to string
+                    context[key] = str(value)
 
         return context
 
@@ -233,23 +262,44 @@ class StructuredLogger:
         self.logger.exception(message, extra=self._merge_extra(extra))
 
 
+# Module-level logger cache for performance
+_logger_cache: Dict[str, StructuredLogger] = {}
+_logger_lock: threading.Lock = threading.Lock()
+
+
 def get_logger(name: str) -> StructuredLogger:
     """
     Get a structured logger instance for a module.
+
+    Logger instances are cached per module name for performance.
+    This avoids creating new wrapper objects on every call.
 
     Args:
         name: Module name (typically __name__)
 
     Returns:
-        StructuredLogger instance
+        Cached StructuredLogger instance
 
     Example:
         from apps.core.utils.structured_logger import get_logger
 
         logger = get_logger(__name__)
         logger.info("[CACHE] Cache miss", extra={'key': cache_key})
+
+    Thread Safety:
+        Uses double-checked locking for thread-safe cache access.
     """
-    return StructuredLogger(name)
+    # Fast path: check cache without lock
+    if name in _logger_cache:
+        return _logger_cache[name]
+
+    # Slow path: create logger with lock
+    with _logger_lock:
+        # Double-checked locking pattern
+        if name not in _logger_cache:
+            _logger_cache[name] = StructuredLogger(name)
+
+    return _logger_cache[name]
 
 
 # Convenience function for backward compatibility
