@@ -23,12 +23,18 @@ export default function ThreadDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPosts, setTotalPosts] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const postsPerPage = 20;
+
   // Reply form state
   const [replyContent, setReplyContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [replyError, setReplyError] = useState(null);
 
-  // Load thread and posts
+  // Load thread and initial posts
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -37,11 +43,13 @@ export default function ThreadDetailPage() {
 
         const [threadData, postsData] = await Promise.all([
           fetchThread(threadSlug),
-          fetchPosts({ thread: threadSlug, limit: 100 }), // Load all posts (consider pagination later)
+          fetchPosts({ thread: threadSlug, page: 1, limit: postsPerPage }),
         ]);
 
         setThread(threadData);
         setPosts(postsData.items);
+        setTotalPosts(postsData.meta.count);
+        setCurrentPage(1);
       } catch (err) {
         console.error('[ThreadDetailPage] Error loading data:', err);
         setError(err.message);
@@ -78,6 +86,7 @@ export default function ThreadDetailPage() {
       });
 
       setPosts(prev => [...prev, newPost]);
+      setTotalPosts(prev => prev + 1);
       setReplyContent(''); // Clear editor
 
       // Scroll to new post
@@ -102,11 +111,34 @@ export default function ThreadDetailPage() {
     try {
       await deletePost(post.id);
       setPosts(prev => prev.filter(p => p.id !== post.id));
+      setTotalPosts(prev => prev - 1);
     } catch (err) {
       console.error('[ThreadDetailPage] Error deleting post:', err);
       alert(`Failed to delete post: ${err.message}`);
     }
   }, []);
+
+  // Load more posts (pagination)
+  const handleLoadMore = useCallback(async () => {
+    try {
+      setLoadingMore(true);
+      const nextPage = currentPage + 1;
+
+      const postsData = await fetchPosts({
+        thread: threadSlug,
+        page: nextPage,
+        limit: postsPerPage,
+      });
+
+      setPosts(prev => [...prev, ...postsData.items]);
+      setCurrentPage(nextPage);
+    } catch (err) {
+      console.error('[ThreadDetailPage] Error loading more posts:', err);
+      alert(`Failed to load more posts: ${err.message}`);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [currentPage, threadSlug]);
 
   if (loading) {
     return (
@@ -173,7 +205,7 @@ export default function ThreadDetailPage() {
                 </strong>
               </span>
               <span>•</span>
-              <span>💬 {posts.length} replies</span>
+              <span>💬 {totalPosts} replies</span>
               <span>•</span>
               <span>👁️ {thread.view_count} views</span>
             </div>
@@ -206,6 +238,20 @@ export default function ThreadDetailPage() {
           </div>
         ))}
       </div>
+
+      {/* Load More Button */}
+      {posts.length < totalPosts && (
+        <div className="mb-8 text-center">
+          <Button
+            onClick={handleLoadMore}
+            variant="outline"
+            loading={loadingMore}
+            disabled={loadingMore}
+          >
+            {loadingMore ? 'Loading...' : `Load More Posts (${totalPosts - posts.length} remaining)`}
+          </Button>
+        </div>
+      )}
 
       {/* Reply Form */}
       {!thread.is_locked && (
