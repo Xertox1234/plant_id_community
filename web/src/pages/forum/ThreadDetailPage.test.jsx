@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
+import * as ReactRouter from 'react-router';
 import ThreadDetailPage from './ThreadDetailPage';
 import { createMockThread, createMockPost } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
@@ -11,6 +12,20 @@ import { useAuth } from '../../contexts/AuthContext';
 vi.mock('../../services/forumService');
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: vi.fn(() => ({ user: null, isAuthenticated: false })),
+}));
+
+// Mock TipTapEditor to prevent ProseMirror initialization hanging
+vi.mock('../../components/forum/TipTapEditor', () => ({
+  default: vi.fn(({ content, onChange, placeholder }) => (
+    <div data-testid="mock-tiptap-editor">
+      <textarea
+        className="ProseMirror"
+        value={content}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+    </div>
+  )),
 }));
 
 /**
@@ -33,6 +48,12 @@ function renderThreadDetailPage(
 describe('ThreadDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // Mock useParams to return categorySlug and threadSlug
+    vi.spyOn(ReactRouter, 'useParams').mockReturnValue({
+      categorySlug: 'plant-care',
+      threadSlug: 'watering-tips'
+    });
   });
 
   it('shows loading spinner while fetching data', () => {
@@ -95,7 +116,7 @@ describe('ThreadDetailPage', () => {
     renderThreadDetailPage();
 
     await waitFor(() => {
-      expect(screen.getByText('How to water succulents?')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'How to water succulents?' })).toBeInTheDocument();
     });
 
     expect(screen.getByText(/Master Gardener/i)).toBeInTheDocument();

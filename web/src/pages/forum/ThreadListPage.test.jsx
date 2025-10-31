@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter, MemoryRouter } from 'react-router';
+import * as ReactRouter from 'react-router';
 import ThreadListPage from './ThreadListPage';
 import { createMockCategory, createMockThread } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
@@ -23,6 +24,11 @@ function renderThreadListPage(initialEntries = ['/forum/plant-care']) {
 describe('ThreadListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // Mock useParams to return categorySlug
+    vi.spyOn(ReactRouter, 'useParams').mockReturnValue({
+      categorySlug: 'plant-care'
+    });
   });
 
   it('shows loading spinner while fetching data', () => {
@@ -80,7 +86,7 @@ describe('ThreadListPage', () => {
     renderThreadListPage();
 
     await waitFor(() => {
-      expect(screen.getByText('Plant Care Tips')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Plant Care Tips' })).toBeInTheDocument();
     });
 
     expect(screen.getByText('Learn how to care for your plants')).toBeInTheDocument();
@@ -169,13 +175,13 @@ describe('ThreadListPage', () => {
     renderThreadListPage();
 
     await waitFor(() => {
-      expect(screen.getByText('Forums')).toBeInTheDocument();
+      const breadcrumb = screen.getByLabelText('Breadcrumb');
+      expect(breadcrumb).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Plant Care')).toBeInTheDocument();
-
     const breadcrumb = screen.getByLabelText('Breadcrumb');
-    expect(breadcrumb).toBeInTheDocument();
+    expect(breadcrumb).toHaveTextContent('Forums');
+    expect(breadcrumb).toHaveTextContent('Plant Care');
   });
 
   it('submits search form and updates URL params', async () => {
