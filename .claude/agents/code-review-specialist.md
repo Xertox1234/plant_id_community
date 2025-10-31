@@ -3205,6 +3205,144 @@ For Wagtail models:
    - Grade penalty: **-3 points** (incomplete API response)
    - See: [Phase 2c Blocker Patterns](PHASE_2C_BLOCKER_PATTERNS_CODIFIED.md) - Pattern 6
 
+40. **React Router v6+ Testing - useParams() Mocking** ⭐ NEW - IMPORTANT (Forum Phase 6 Polish)
+   - IMPORTANT: React Router v6+ useParams() difficult to mock with MemoryRouter
+   - PATTERN: Use vi.spyOn() on the module import, not the function itself
+   - Check for: Test failures showing useParams() returning undefined
+   - Anti-pattern (fails):
+     ```javascript
+     // ❌ WRONG: Can't mock useParams directly
+     vi.mock('react-router', () => ({
+       useParams: vi.fn(() => ({ categorySlug: 'plant-care' })),
+     }));
+     ```
+   - Correct pattern:
+     ```javascript
+     // ✅ CORRECT: Spy on module import
+     import * as ReactRouter from 'react-router';
+     vi.spyOn(ReactRouter, 'useParams').mockReturnValue({
+       categorySlug: 'plant-care'
+     });
+     ```
+   - See: ThreadDetailPage.test.jsx - 11 Router mocking test failures (infrastructure, not logic)
+
+41. **HTML Validation - Nested Anchor Tags** ⭐ NEW - BLOCKER (Forum Phase 6 Polish)
+   - BLOCKER: `<a>` cannot be descendant of `<a>` (HTML spec violation)
+   - PATTERN: Restructure to avoid Link inside Link
+   - Anti-pattern:
+     ```javascript
+     // ❌ BLOCKER: Subcategory links inside main link
+     <Link to={`/forum/${category.slug}`}>
+       <h3>{category.name}</h3>
+       {category.children.map(child => (
+         <Link to={`/forum/${child.slug}`}>{child.name}</Link>
+       ))}
+     </Link>
+     ```
+   - Correct pattern:
+     ```javascript
+     // ✅ CORRECT: Separate clickable areas
+     <div>
+       <Link to={`/forum/${category.slug}`}>
+         <h3>{category.name}</h3>
+       </Link>
+       <div>
+         {category.children.map(child => (
+           <Link to={`/forum/${child.slug}`}>{child.name}</Link>
+         ))}
+       </div>
+     </div>
+     ```
+   - See: CategoryCard.jsx (lines 15-73) - Fixed in Forum Phase 6 Polish
+
+42. **Context Hook Export Pattern** ⭐ NEW - BLOCKER (Forum Phase 6 Polish)
+   - BLOCKER: Missing useContext wrapper hook export
+   - PATTERN: Export createContext, Provider, AND custom hook
+   - Anti-pattern:
+     ```javascript
+     // ❌ BLOCKER: Only exports context, missing hook
+     export const AuthContext = createContext(null);
+     export function AuthProvider({ children }) { ... }
+     // Missing: useAuth hook!
+     ```
+   - Correct pattern:
+     ```javascript
+     // ✅ CORRECT: Export all three
+     export const AuthContext = createContext(null);
+
+     export function useAuth() {
+       const context = useContext(AuthContext);
+       if (context === null) {
+         throw new Error('useAuth must be used within AuthProvider');
+       }
+       return context;
+     }
+
+     export function AuthProvider({ children }) { ... }
+     ```
+   - See: AuthContext.jsx (lines 35-43) - Fixed in commit de551be
+
+43. **Incremental Pagination - Load More vs Replace** ⭐ NEW - IMPORTANT (Forum Phase 6 Polish)
+   - IMPORTANT: Use append pattern for feeds/threads, not full replacement
+   - PATTERN: `setPosts(prev => [...prev, ...newItems])` not `setPosts(newItems)`
+   - Anti-pattern:
+     ```javascript
+     // ❌ WRONG: Replaces all posts, loses context
+     const handleLoadMore = async () => {
+       const data = await fetchPosts({ page: nextPage });
+       setPosts(data.items);  // Replaces!
+     };
+     ```
+   - Correct pattern:
+     ```javascript
+     // ✅ CORRECT: Appends new posts
+     const handleLoadMore = useCallback(async () => {
+       setLoadingMore(true);
+       const data = await fetchPosts({ page: currentPage + 1, limit: 20 });
+       setPosts(prev => [...prev, ...data.items]);  // Appends!
+       setCurrentPage(prev => prev + 1);
+       setLoadingMore(false);
+     }, [currentPage]);
+     ```
+   - State management:
+     ```javascript
+     const [posts, setPosts] = useState([]);
+     const [currentPage, setCurrentPage] = useState(1);
+     const [totalPosts, setTotalPosts] = useState(0);
+     const [loadingMore, setLoadingMore] = useState(false);
+     const postsPerPage = 20;
+     ```
+   - See: ThreadDetailPage.jsx (lines 121-140) - Implemented in Forum Phase 6 Polish
+
+44. **Django Test Data - Idempotent Scripts** ⭐ NEW - IMPORTANT (Forum Phase 6 Polish)
+   - IMPORTANT: Use get_or_create() for test data, not create()
+   - PATTERN: Scripts safe to re-run without duplicates
+   - Anti-pattern:
+     ```python
+     # ❌ WRONG: Creates duplicates every run
+     test_user = User.objects.create(username='tester')
+     category = Category.objects.create(name='Test', slug='test')
+     ```
+   - Correct pattern:
+     ```python
+     # ✅ CORRECT: Idempotent creation
+     test_user, created = User.objects.get_or_create(
+         username='tester',
+         defaults={'email': 'test@example.com'}
+     )
+     if created:
+         print(f"Created: {test_user}")
+     else:
+         print(f"Using existing: {test_user}")
+
+     # Check counts before bulk creation
+     existing_count = Post.objects.filter(thread=thread).count()
+     if existing_count < target_count:
+         for i in range(target_count - existing_count):
+             Post.objects.create(...)
+     ```
+   - See: create_forum_test_data.py (265 lines) - Forum Phase 6 Polish
+
 Step 4.5: Documentation Accuracy Review (Technical Docs)
 
 **CRITICAL: Technical documentation needs the same rigor as code!**
