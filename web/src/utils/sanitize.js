@@ -126,6 +126,54 @@ export const SANITIZE_PRESETS = {
     ],
     ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'src', 'alt', 'title', 'id'],
   },
+
+  /**
+   * FORUM: Rich forum posts with mentions, code blocks, images
+   * Use for: Forum posts, thread content
+   * Allows: FULL + mentions, code blocks, custom classes for syntax highlighting
+   */
+  FORUM: {
+    ALLOWED_TAGS: [
+      'p',
+      'br',
+      'strong',
+      'em',
+      'u',
+      'a',
+      'ul',
+      'ol',
+      'li',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+      'blockquote',
+      'code',
+      'pre',
+      'img',
+      'span',
+      'div',
+    ],
+    ALLOWED_ATTR: [
+      'href',
+      'target',
+      'rel',
+      'class',
+      'src',
+      'alt',
+      'title',
+      'data-mention',
+      'data-mention-id',
+    ],
+    ALLOWED_CLASSES: {
+      span: ['mention'],
+      code: ['language-*'],
+      div: ['code-block'],
+    },
+    ALLOW_DATA_ATTR: false,
+  },
 }
 
 /**

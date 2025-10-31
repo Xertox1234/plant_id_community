@@ -2468,6 +2468,743 @@ For Wagtail models:
      - **Safety**: Quota lock-in if service crashes (no auto-expiry)
    - See: [Parallel TODO Resolution Patterns](PARALLEL_TODO_RESOLUTION_PATTERNS_CODIFIED.md) - Pattern 5
 
+34. **DRF Permission OR/AND Logic** ⭐ NEW - BLOCKER (Forum Phase 2c)
+   - BLOCKER: Returning multiple permission classes creates AND logic (all must pass), not OR logic
+   - CRITICAL: Moderators and authors unable to edit content when permissions misconfigured
+   - PATTERN: Create combined permission class with built-in OR logic
+   - Check for: `return [Permission1(), Permission2()]` in `get_permissions()`
+   - Why this is critical:
+     - DRF evaluates permissions in sequence (all must return True)
+     - `[IsAuthorOrReadOnly(), IsModerator()]` requires BOTH author AND moderator
+     - User must be author AND moderator (impossible/rare condition)
+     - Correct access control broken, moderators can't moderate content
+   - Anti-pattern (BLOCKER - from forum permission tests):
+     ```python
+     # WRONG: AND logic (both must pass)
+     class ThreadViewSet(viewsets.ModelViewSet):
+         def get_permissions(self):
+             if self.action in ['update', 'destroy']:
+                 return [IsAuthorOrReadOnly(), IsModerator()]  # ❌ Requires BOTH!
+             return super().get_permissions()
+
+     # Result: User must be BOTH author AND moderator
+     # - Moderators can't edit other users' threads (not author)
+     # - Authors can't edit if not moderator (not moderator)
+     ```
+   - Correct pattern (combined permission class):
+     ```python
+     # CORRECT: OR logic in single permission class
+     class IsAuthorOrModerator(permissions.BasePermission):
+         """
+         Allow authors to edit their own content OR moderators to edit any content.
+
+         Combines IsAuthorOrReadOnly and IsModerator with OR logic.
+         """
+
+         def has_object_permission(self, request, view, obj):
+             # Read permissions for anyone
+             if request.method in permissions.SAFE_METHODS:
+                 return True
+
+             # Write permissions: author OR moderator
+             if obj.author == request.user:
+                 return True  # ✅ Author can edit
+
+             if request.user.is_authenticated and (
+                 request.user.is_staff or
+                 request.user.groups.filter(name='Moderators').exists()
+             ):
+                 return True  # ✅ Moderator can edit
+
+             return False  # Neither author nor moderator
+
+     class ThreadViewSet(viewsets.ModelViewSet):
+         def get_permissions(self):
+             if self.action in ['update', 'destroy']:
+                 return [IsAuthorOrModerator()]  # ✅ Single class with OR logic
+             return super().get_permissions()
+     ```
+   - Detection pattern:
+     ```bash
+     # Find multiple permission classes in get_permissions()
+     grep -rn "return \[.*(), .*()\]" apps/*/viewsets/ apps/*/api/ apps/*/views.py
+
+     # For each match, check:
+     # 1. Are permissions role-based? (Author, Moderator, Admin)
+     # 2. Should ANY role grant access? (OR logic needed)
+     # 3. Create combined permission class with OR logic
+     ```
+   - Test requirements:
+     ```python
+     # Test 1: Moderator can edit other users' content
+     def test_moderator_can_edit_other_users_thread(self):
+         thread = Thread.objects.create(author=user1, ...)
+         self.client.force_authenticate(user=moderator)
+         response = self.client.patch(f'/api/v1/threads/{thread.id}/', {...})
+         self.assertEqual(response.status_code, 200)  # ✅ Must succeed
+
+     # Test 2: Author can edit their own content
+     def test_author_can_edit_own_thread(self):
+         thread = Thread.objects.create(author=user1, ...)
+         self.client.force_authenticate(user=user1)
+         response = self.client.patch(f'/api/v1/threads/{thread.id}/', {...})
+         self.assertEqual(response.status_code, 200)  # ✅ Must succeed
+
+     # Test 3: Non-author/non-moderator cannot edit
+     def test_user_cannot_edit_others_thread(self):
+         thread = Thread.objects.create(author=user1, ...)
+         self.client.force_authenticate(user=user2)
+         response = self.client.patch(f'/api/v1/threads/{thread.id}/', {...})
+         self.assertEqual(response.status_code, 403)  # ✅ Must fail
+     ```
+   - Review checklist:
+     - [ ] Are multiple permission classes returned in `get_permissions()`?
+     - [ ] Should permissions use OR logic (any can grant access)?
+     - [ ] Is combined permission class created with OR logic?
+     - [ ] Are permission class names accurate (`OrModerator` not `AndModerator`)?
+     - [ ] Do tests verify both author AND moderator scenarios?
+     - [ ] Do tests verify neither author nor moderator is denied?
+   - Common permission patterns:
+     ```python
+     # Pattern 1: Author OR Moderator (most common)
+     class IsAuthorOrModerator(permissions.BasePermission):
+         def has_object_permission(self, request, view, obj):
+             return (
+                 obj.author == request.user or
+                 is_moderator(request.user)
+             )
+
+     # Pattern 2: Author OR Admin
+     class IsAuthorOrAdmin(permissions.BasePermission):
+         def has_object_permission(self, request, view, obj):
+             return (
+                 obj.author == request.user or
+                 request.user.is_staff
+             )
+
+     # Pattern 3: Owner OR Group Member
+     class IsOwnerOrGroupMember(permissions.BasePermission):
+         def has_object_permission(self, request, view, obj):
+             return (
+                 obj.owner == request.user or
+                 obj.group.members.filter(id=request.user.id).exists()
+             )
+     ```
+   - Impact if violated:
+     - **Access Control**: Broken permissions, users can't access resources
+     - **UX**: Moderators unable to moderate content (primary job function)
+     - **Security**: May accidentally grant too much or too little access
+     - **Testing**: Integration tests fail, production permissions broken
+   - Grade penalty: **-10 points** (BLOCKER - broken access control)
+   - See: [Phase 2c Blocker Patterns](PHASE_2C_BLOCKER_PATTERNS_CODIFIED.md) - Pattern 1
+
+35. **Serializer Return Type JSON Serialization** ⭐ NEW - BLOCKER (Forum Phase 2c)
+   - BLOCKER: Serializer methods returning model instances cause TypeError in production
+   - CRITICAL: `TypeError: Object of type ModelName is not JSON serializable`
+   - PATTERN: Always serialize model instances before returning from serializer methods
+   - Check for: `return {'field': model_instance}` in serializer `create()/update()`
+   - Why this is critical:
+     - DRF serializes response data to JSON before sending to client
+     - Model instances are not JSON serializable (complex Python objects)
+     - Production crashes with 500 error instead of successful response
+     - Error only appears when response is sent, not during testing
+   - Anti-pattern (BLOCKER - from reaction toggle serializer):
+     ```python
+     # WRONG: Returns model instance (not JSON serializable)
+     class ReactionToggleSerializer(serializers.Serializer):
+         post_id = serializers.UUIDField()
+         reaction_type = serializers.CharField()
+
+         def create(self, validated_data):
+             reaction, created = Reaction.toggle_reaction(...)
+
+             # ❌ WRONG: Returns model instance
+             return {
+                 'reaction': reaction,  # Model instance!
+                 'created': created
+             }
+
+     # Result: TypeError when DRF tries to serialize response
+     # json.dumps({'reaction': <Reaction object>})
+     # → TypeError: Object of type Reaction is not JSON serializable
+     ```
+   - Correct pattern (serialize before returning):
+     ```python
+     # CORRECT: Serialize model instance before returning
+     class ReactionToggleSerializer(serializers.Serializer):
+         post_id = serializers.UUIDField()
+         reaction_type = serializers.CharField()
+
+         def create(self, validated_data):
+             reaction, created = Reaction.toggle_reaction(...)
+
+             # ✅ CORRECT: Serialize the instance
+             reaction_serializer = ReactionSerializer(reaction, context=self.context)
+
+             return {
+                 'reaction': reaction_serializer.data,  # Dict (JSON serializable)
+                 'created': created,
+                 'is_active': reaction.is_active
+             }
+     ```
+   - Detection pattern:
+     ```bash
+     # Find serializer create/update methods
+     grep -A 20 "def create(" apps/*/serializers/*.py
+     grep -A 20 "def update(" apps/*/serializers/*.py
+
+     # Look for patterns that return dictionaries with potential model instances:
+     # - return {'model': <variable>}
+     # - return {'data': <queryset>}
+     # - return {'object': <obj>}
+
+     # Check if returned values are serialized:
+     # ✅ Good: Serializer(instance).data
+     # ❌ Bad: instance (raw model)
+     ```
+   - Test pattern (verify JSON serialization):
+     ```python
+     import json
+
+     def test_reaction_response_is_json_serializable(self):
+         """Verify API response can be serialized to JSON."""
+         self.client.force_authenticate(user=self.user)
+
+         response = self.client.post(
+             f'/api/v1/posts/{post.id}/reactions/toggle/',
+             {'reaction_type': 'like'}
+         )
+
+         self.assertEqual(response.status_code, 200)
+
+         # ✅ Response must be JSON serializable
+         try:
+             json_str = json.dumps(response.data)
+             self.assertIsInstance(json_str, str)
+         except TypeError as e:
+             self.fail(f"Response not JSON serializable: {e}")
+
+         # Verify all fields are JSON types (not model instances)
+         reaction_data = response.data['reaction']
+         self.assertIsInstance(reaction_data, dict)  # Not model
+         self.assertIsInstance(reaction_data['user'], int)  # ID, not User object
+     ```
+   - Review checklist:
+     - [ ] Do serializer `create()/update()` methods return dictionaries?
+     - [ ] Are all dictionary values JSON-serializable types?
+     - [ ] Are model instances serialized before being returned?
+     - [ ] Is `SerializerClass(instance).data` used instead of raw `instance`?
+     - [ ] Do tests verify `json.dumps(response.data)` succeeds?
+     - [ ] Are related objects represented by IDs (not nested objects)?
+   - Common serialization mistakes:
+     ```python
+     # ❌ WRONG: Raw model instance
+     return {'user': user_instance}
+
+     # ✅ CORRECT: Serialized or ID
+     return {'user': UserSerializer(user_instance).data}
+     return {'user': user_instance.id}  # If only ID needed
+
+     # ❌ WRONG: QuerySet
+     return {'posts': Post.objects.all()}
+
+     # ✅ CORRECT: Serialized list
+     return {'posts': PostSerializer(Post.objects.all(), many=True).data}
+
+     # ❌ WRONG: Complex object
+     return {'metadata': some_complex_object}
+
+     # ✅ CORRECT: Primitive types
+     return {'metadata': {'key': 'value', 'count': 10}}
+     ```
+   - Impact if violated:
+     - **Production**: 500 errors instead of successful responses
+     - **UX**: API appears broken, users can't perform actions
+     - **Debugging**: TypeError only appears in production (not local testing)
+     - **Data Loss**: Actions may succeed in database but response fails
+   - Grade penalty: **-10 points** (BLOCKER - production crash)
+   - See: [Phase 2c Blocker Patterns](PHASE_2C_BLOCKER_PATTERNS_CODIFIED.md) - Pattern 2
+
+36. **HTTP Status Code Correctness (401 vs 403)** ⭐ NEW - IMPORTANT (Forum Phase 2c)
+   - IMPORTANT: Confusing 401 (authentication required) with 403 (insufficient permissions)
+   - PATTERN: 401 for anonymous users, 403 for authenticated but unauthorized
+   - Check for: Incorrect status code expectations in tests
+   - Why this matters:
+     - RFC 7235 defines clear distinction between authentication vs authorization
+     - Incorrect status codes break API contracts and client error handling
+     - Test assertions with wrong status codes give false confidence
+   - HTTP Status Code Definitions:
+     ```
+     401 Unauthorized:
+     - Meaning: Authentication is required but not provided
+     - Use Case: Anonymous user trying to access protected resource
+     - User Action: "Please log in"
+     - Header: WWW-Authenticate (authentication challenge)
+
+     403 Forbidden:
+     - Meaning: Authenticated but insufficient permissions
+     - Use Case: Logged-in user trying to access forbidden resource
+     - User Action: "You don't have permission for this"
+     - No authentication challenge needed (already authenticated)
+     ```
+   - Common test mistakes:
+     ```python
+     # ❌ WRONG: Expects 403 for anonymous user
+     def test_anonymous_cannot_create_post(self):
+         # No authentication (anonymous request)
+         response = self.client.post('/api/v1/posts/', {...})
+
+         # ❌ WRONG: Should be 401 (not authenticated)
+         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+     # ✅ CORRECT: Expects 401 for anonymous user
+     def test_anonymous_cannot_create_post(self):
+         # No authentication (anonymous request)
+         response = self.client.post('/api/v1/posts/', {...})
+
+         # ✅ CORRECT: 401 Unauthorized (need to log in)
+         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+     # ✅ CORRECT: Expects 403 for wrong user
+     def test_user_cannot_edit_others_post(self):
+         # Authenticated as user2
+         self.client.force_authenticate(user=self.user2)
+
+         # Try to edit user1's post
+         response = self.client.patch(f'/api/v1/posts/{user1_post.id}/', {...})
+
+         # ✅ CORRECT: 403 Forbidden (authenticated but not authorized)
+         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+     ```
+   - Decision tree:
+     ```
+     Is request authenticated?
+     ├─ NO → 401 Unauthorized (need to log in)
+     └─ YES → Is user authorized for this action?
+               ├─ NO → 403 Forbidden (insufficient permissions)
+               └─ YES → 200/201/204 (success)
+     ```
+   - Test pattern (all three scenarios):
+     ```python
+     def test_http_status_codes_comprehensive(self):
+         """Verify correct status codes for authentication vs permission errors."""
+
+         # Scenario 1: Anonymous user (401)
+         response = self.client.post('/api/v1/posts/', {'content': 'Test'})
+         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+         # Scenario 2: Authenticated but wrong user (403)
+         self.client.force_authenticate(user=self.user2)
+         response = self.client.delete(f'/api/v1/posts/{user1_post.id}/')
+         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+         # Scenario 3: Authenticated and authorized (200/204)
+         self.client.force_authenticate(user=self.user1)
+         response = self.client.delete(f'/api/v1/posts/{user1_post.id}/')
+         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+     ```
+   - Review checklist:
+     - [ ] Are 401 responses used for anonymous requests?
+     - [ ] Are 403 responses used for authenticated but unauthorized?
+     - [ ] Are error messages appropriate for status code?
+     - [ ] Is decision tree clear (authentication → authorization)?
+     - [ ] Do tests cover all three scenarios (401, 403, success)?
+   - Error message patterns:
+     ```python
+     # 401 Unauthorized (not authenticated)
+     {
+         "detail": "Authentication credentials were not provided."
+     }
+
+     # 403 Forbidden (authenticated but not authorized)
+     {
+         "detail": "You do not have permission to perform this action."
+     }
+     ```
+   - Impact if violated:
+     - **API Contract**: Clients expect 401 to trigger login, 403 to show error
+     - **UX**: Wrong status code confuses client-side error handling
+     - **Testing**: False confidence from tests with wrong assertions
+     - **Documentation**: API docs show incorrect status codes
+   - Grade penalty: **-2 points** (test correctness), **-4 points** (API contract)
+   - See: [Phase 2c Blocker Patterns](PHASE_2C_BLOCKER_PATTERNS_CODIFIED.md) - Pattern 3
+
+37. **Django User Model PK Type Assumptions** ⭐ NEW - IMPORTANT (Forum Phase 2c)
+   - IMPORTANT: Assuming all primary keys are UUIDs when User model uses integer AutoField
+   - PATTERN: User.id is integer, custom models may use UUID
+   - Check for: `str(user.id)` conversions in tests/code
+   - Why this matters:
+     - Django User model uses AutoField (integer primary key)
+     - Custom models often use UUIDField for distributed systems
+     - Type confusion leads to failed comparisons and test failures
+   - Model primary key types:
+     ```python
+     # Django User model (built-in):
+     class User(AbstractUser):
+         id = models.AutoField(primary_key=True)  # INTEGER (1, 2, 3, ...)
+
+     # Custom forum models:
+     class Thread(models.Model):
+         id = models.UUIDField(primary_key=True, default=uuid.uuid4)  # UUID
+
+     class Post(models.Model):
+         id = models.UUIDField(primary_key=True, default=uuid.uuid4)  # UUID
+     ```
+   - Common test mistake:
+     ```python
+     # ❌ WRONG: Converts integer PK to string
+     def test_reaction_user_field(self):
+         reaction = Reaction.objects.create(user=self.user, ...)
+
+         # User.id is integer (e.g., 1, 2, 3)
+         # ❌ WRONG: Unnecessary string conversion
+         self.assertEqual(reaction.user_id, str(self.user.id))
+         # Compares: 1 == "1" → False (type mismatch)
+
+     # ✅ CORRECT: Direct integer comparison
+     def test_reaction_user_field(self):
+         reaction = Reaction.objects.create(user=self.user, ...)
+
+         # User.id is integer, compare directly
+         self.assertEqual(reaction.user_id, self.user.id)
+         # Compares: 1 == 1 → True
+     ```
+   - Detection pattern:
+     ```bash
+     # Find incorrect string conversions of user IDs
+     grep -rn "str(.*\.user\.id)" apps/*/tests/
+     grep -rn "str(user_id)" apps/*/tests/
+     grep -rn "str(author_id)" apps/*/tests/
+
+     # For each match:
+     # - If User model field: Don't convert (integer)
+     # - If UUID field: str() conversion correct (serialized as string)
+     ```
+   - Correct patterns by model type:
+     ```python
+     # User model (integer PK)
+     user = User.objects.get(id=1)
+     self.assertEqual(obj.user_id, user.id)  # ✅ Integer comparison
+
+     # Custom model (UUID PK)
+     thread = Thread.objects.create(...)
+     self.assertEqual(response.data['thread_id'], str(thread.id))  # ✅ String (serialized)
+
+     # Serializer response (UUIDs as strings)
+     response = self.client.get(f'/api/v1/threads/{thread.id}/')
+     self.assertEqual(response.data['id'], str(thread.id))  # ✅ String in JSON
+     ```
+   - Review checklist:
+     - [ ] Are User.id comparisons using integers (not strings)?
+     - [ ] Are UUID field comparisons using strings (serialized format)?
+     - [ ] Is primary key type documented for custom models?
+     - [ ] Are tests using correct types for assertions?
+     - [ ] Is serializer behavior consistent (UUIDs → strings)?
+   - Common PK type patterns:
+     ```python
+     # Integer PK (Django default):
+     models.AutoField(primary_key=True)          # 1, 2, 3, ...
+     models.BigAutoField(primary_key=True)       # Large integers
+
+     # UUID PK (distributed systems):
+     models.UUIDField(primary_key=True, default=uuid.uuid4)
+
+     # String PK (rare):
+     models.CharField(primary_key=True, max_length=50)
+     ```
+   - Impact if violated:
+     - **Test Failures**: Comparisons fail due to type mismatch
+     - **Type Safety**: Mixing integer/string IDs breaks type checking
+     - **API Consistency**: Inconsistent ID representation in responses
+   - Grade penalty: **-1 point** (test correctness), **-3 points** (type safety)
+   - See: [Phase 2c Blocker Patterns](PHASE_2C_BLOCKER_PATTERNS_CODIFIED.md) - Pattern 4
+
+38. **Conditional Serializer Context for Detail Views** ⭐ NEW - IMPORTANT (Forum Phase 2c)
+   - IMPORTANT: Detail views may require different serializer context than list views
+   - PATTERN: Use `self.action == 'retrieve'` to auto-enable detail-only features
+   - Check for: Hardcoded serializer context that ignores action type
+   - Why this matters:
+     - List views prioritize performance (minimal data, no nested relations)
+     - Detail views prioritize completeness (full data, nested relations)
+     - User experience: Detail view should show all data by default
+   - Use case (category children field):
+     ```
+     Requirement:
+     - List view: Don't show children (performance, many categories)
+     - Detail view: Show children by default (UX, complete information)
+     - Query param: Allow override in both views
+     ```
+   - Anti-pattern (hardcoded context):
+     ```python
+     # ❌ WRONG: Hardcoded to query param only
+     class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
+         def get_serializer_context(self):
+             context = super().get_serializer_context()
+
+             # Only enabled via query param
+             include_children = self.request.query_params.get('include_children', 'false')
+             context['include_children'] = include_children.lower() == 'true'
+
+             return context
+
+     # Result:
+     # - List: /api/v1/categories/ → No children ✅
+     # - Detail: /api/v1/categories/{id}/ → No children ❌ (should show by default)
+     # - Override: /api/v1/categories/{id}/?include_children=true → Children ✅
+     ```
+   - Correct pattern (action-based context):
+     ```python
+     # ✅ CORRECT: Auto-enable for detail view
+     class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
+         def get_serializer_context(self):
+             """
+             Conditionally include children based on action.
+
+             - List view: Exclude children (performance)
+             - Detail view: Include children by default (UX)
+             - Query param: Override default behavior
+             """
+             context = super().get_serializer_context()
+
+             # Check query param (allows override)
+             include_children = self.request.query_params.get('include_children', 'false')
+
+             # Auto-enable for detail view
+             context['include_children'] = (
+                 include_children.lower() == 'true' or
+                 self.action == 'retrieve'  # ✅ Detail view shows children
+             )
+
+             return context
+
+     # Result:
+     # - List: /api/v1/categories/ → No children ✅
+     # - Detail: /api/v1/categories/{id}/ → Children ✅ (auto-enabled)
+     # - Override: /api/v1/categories/{id}/?include_children=false → No children ✅
+     ```
+   - Common action types:
+     ```python
+     # ViewSet actions:
+     self.action == 'list'      # GET /api/resource/
+     self.action == 'retrieve'  # GET /api/resource/{id}/
+     self.action == 'create'    # POST /api/resource/
+     self.action == 'update'    # PUT /api/resource/{id}/
+     self.action == 'partial_update'  # PATCH /api/resource/{id}/
+     self.action == 'destroy'   # DELETE /api/resource/{id}/
+     ```
+   - Test pattern (list vs detail):
+     ```python
+     def test_category_detail_includes_children_by_default(self):
+         """Verify detail view includes children without query param."""
+         parent = Category.objects.create(name="Parent", slug="parent")
+         child1 = Category.objects.create(name="Child 1", parent=parent)
+         child2 = Category.objects.create(name="Child 2", parent=parent)
+
+         # Detail view WITHOUT query param
+         response = self.client.get(f'/api/v1/categories/{parent.id}/')
+
+         self.assertEqual(response.status_code, 200)
+
+         # ✅ Should include children by default
+         self.assertIn('children', response.data)
+         self.assertEqual(len(response.data['children']), 2)
+
+     def test_category_list_excludes_children_by_default(self):
+         """Verify list view excludes children for performance."""
+         parent = Category.objects.create(name="Parent", slug="parent")
+         child = Category.objects.create(name="Child", parent=parent)
+
+         # List view WITHOUT query param
+         response = self.client.get('/api/v1/categories/')
+
+         self.assertEqual(response.status_code, 200)
+
+         # Find parent in results
+         parent_data = next(c for c in response.data['results'] if c['slug'] == 'parent')
+
+         # ✅ Should NOT include children in list view
+         self.assertNotIn('children', parent_data)
+     ```
+   - Review checklist:
+     - [ ] Does detail view require different data than list view?
+     - [ ] Is `self.action` checked for conditional context?
+     - [ ] Can query params override default behavior?
+     - [ ] Are performance implications documented?
+     - [ ] Are tests verifying both list and detail view behavior?
+   - Performance considerations:
+     ```python
+     # List view: Minimal data (fast)
+     # - No nested serializers
+     # - No prefetch_related() for optional fields
+     # - Pagination enabled
+
+     # Detail view: Complete data (acceptable slower)
+     # - Nested serializers for related objects
+     # - prefetch_related() for all relations
+     # - Full object representation
+     ```
+   - Impact if violated:
+     - **UX**: Detail view requires query param for basic functionality
+     - **Performance**: List view loads unnecessary data (N+1 queries)
+     - **Consistency**: Inconsistent behavior across actions
+   - Grade penalty: **-2 points** (UX), **-4 points** (N+1 queries)
+   - See: [Phase 2c Blocker Patterns](PHASE_2C_BLOCKER_PATTERNS_CODIFIED.md) - Pattern 5
+
+39. **Separate Create/Response Serializers** ⭐ NEW - IMPORTANT (Forum Phase 2c)
+   - IMPORTANT: Create serializers have different fields than response serializers
+   - PATTERN: Use create serializer for validation, response serializer for full data
+   - Check for: `create()` methods returning incomplete serializer data
+   - Why this matters:
+     - Create serializer: Input validation (minimal fields from client)
+     - Response serializer: Full representation (includes computed/auto fields)
+     - API contract: Response should include all relevant data
+   - Use case (post creation):
+     ```
+     Input (PostCreateSerializer):
+     - thread_id (required from client)
+     - content (required from client)
+
+     Response (PostSerializer):
+     - id (auto-generated UUID)
+     - thread_id (from input)
+     - content (from input)
+     - author (set automatically from request.user)
+     - created_at (auto-timestamp)
+     - post_number (calculated field)
+     - is_edited (default False)
+     ```
+   - Anti-pattern (incomplete response):
+     ```python
+     # ❌ WRONG: Uses create serializer for response
+     class PostViewSet(viewsets.ModelViewSet):
+         def get_serializer_class(self):
+             if self.action == 'create':
+                 return PostCreateSerializer
+             return PostSerializer
+
+         def create(self, request, *args, **kwargs):
+             # Uses default create() method
+             # Returns PostCreateSerializer data (incomplete!)
+             return super().create(request, *args, **kwargs)
+
+     # Response (WRONG - incomplete):
+     # {
+     #   "id": "...",
+     #   "thread_id": "...",
+     #   "content": "Great discussion!"
+     #   // ❌ Missing: author, created_at, post_number, is_edited
+     # }
+     ```
+   - Correct pattern (full response):
+     ```python
+     # ✅ CORRECT: Separate create/response serializers
+     class PostViewSet(viewsets.ModelViewSet):
+         def get_serializer_class(self):
+             if self.action == 'create':
+                 return PostCreateSerializer  # For validation
+             return PostSerializer  # For response
+
+         def create(self, request, *args, **kwargs):
+             """
+             Create a new post.
+
+             Uses PostCreateSerializer for input validation,
+             but returns PostSerializer for full response data.
+             """
+             # Validate input with create serializer
+             create_serializer = self.get_serializer(data=request.data)
+             create_serializer.is_valid(raise_exception=True)
+
+             # Create post
+             self.perform_create(create_serializer)
+             post_instance = create_serializer.instance
+
+             # ✅ Return full serializer for response
+             response_serializer = PostSerializer(
+                 post_instance,
+                 context=self.get_serializer_context()
+             )
+
+             headers = self.get_success_headers(response_serializer.data)
+             return Response(
+                 response_serializer.data,
+                 status=status.HTTP_201_CREATED,
+                 headers=headers
+             )
+
+     # Response (CORRECT - complete):
+     # {
+     #   "id": "660e8400-...",
+     #   "thread_id": "550e8400-...",
+     #   "content": "Great discussion!",
+     #   "author": {"id": 1, "username": "alice"},
+     #   "created_at": "2025-10-30T12:00:00Z",
+     #   "post_number": 5,
+     #   "is_edited": false
+     # }
+     ```
+   - Test pattern (verify complete response):
+     ```python
+     def test_post_create_returns_full_serializer(self):
+         """Verify post creation returns complete post data."""
+         self.client.force_authenticate(user=self.user)
+
+         # Create post with minimal input
+         response = self.client.post(
+             '/api/v1/posts/',
+             {
+                 'thread_id': str(self.thread.id),
+                 'content': 'Test post'
+             }
+         )
+
+         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+         # ✅ Response must include ALL fields
+         self.assertIn('id', response.data)
+         self.assertIn('thread_id', response.data)
+         self.assertIn('content', response.data)
+
+         # Auto-generated/computed fields
+         self.assertIn('author', response.data)
+         self.assertIn('created_at', response.data)
+         self.assertIn('post_number', response.data)
+         self.assertIn('is_edited', response.data)
+
+         # Verify author was set correctly
+         self.assertEqual(response.data['author']['id'], self.user.id)
+     ```
+   - Review checklist:
+     - [ ] Does create action use different serializer than retrieve?
+     - [ ] Is response serializer used for create() response?
+     - [ ] Does response include all computed/auto-generated fields?
+     - [ ] Are tests verifying complete response structure?
+     - [ ] Is `get_serializer_context()` passed to response serializer?
+   - Common create/response field differences:
+     ```python
+     # Create serializer (input):
+     class PostCreateSerializer(serializers.Serializer):
+         thread_id = serializers.UUIDField()  # Required input
+         content = serializers.CharField()     # Required input
+
+     # Response serializer (output):
+     class PostSerializer(serializers.ModelSerializer):
+         id = serializers.UUIDField()           # Auto-generated
+         thread_id = serializers.UUIDField()    # From input
+         content = serializers.CharField()      # From input
+         author = UserSerializer()              # Set from request.user
+         created_at = serializers.DateTimeField()  # Auto-timestamp
+         post_number = serializers.IntegerField()  # Calculated
+         is_edited = serializers.BooleanField()    # Default False
+     ```
+   - Impact if violated:
+     - **API Contract**: Response missing fields that clients expect
+     - **Client Code**: Clients can't use response for immediate display
+     - **UX**: Extra API call needed to get full data after creation
+     - **Consistency**: Create response different from retrieve response
+   - Grade penalty: **-3 points** (incomplete API response)
+   - See: [Phase 2c Blocker Patterns](PHASE_2C_BLOCKER_PATTERNS_CODIFIED.md) - Pattern 6
+
 Step 4.5: Documentation Accuracy Review (Technical Docs)
 
 **CRITICAL: Technical documentation needs the same rigor as code!**
