@@ -7,6 +7,8 @@
  * @module utils/formatDate
  */
 
+import { logger } from './logger'
+
 /**
  * Default locale for date formatting.
  * Change this single constant to update all dates across the app.
@@ -45,7 +47,10 @@ export function formatPublishDate(dateString, locale = DEFAULT_LOCALE) {
 
     // Check if date is valid
     if (isNaN(date.getTime())) {
-      console.warn(`[formatPublishDate] Invalid date: ${dateString}`);
+      logger.warn('Invalid date in formatPublishDate', {
+        component: 'formatDate',
+        context: { dateString },
+      });
       return null;
     }
 
@@ -55,7 +60,11 @@ export function formatPublishDate(dateString, locale = DEFAULT_LOCALE) {
       day: 'numeric',
     });
   } catch (error) {
-    console.error(`[formatPublishDate] Error formatting date: ${dateString}`, error);
+    logger.error('Error formatting date in formatPublishDate', {
+      component: 'formatDate',
+      error,
+      context: { dateString },
+    });
     return null;
   }
 }
@@ -82,7 +91,10 @@ export function formatShortDate(dateString, locale = DEFAULT_LOCALE) {
     const date = new Date(dateString);
 
     if (isNaN(date.getTime())) {
-      console.warn(`[formatShortDate] Invalid date: ${dateString}`);
+      logger.warn('Invalid date in formatShortDate', {
+        component: 'formatDate',
+        context: { dateString },
+      });
       return null;
     }
 
@@ -92,7 +104,11 @@ export function formatShortDate(dateString, locale = DEFAULT_LOCALE) {
       day: 'numeric',
     });
   } catch (error) {
-    console.error(`[formatShortDate] Error formatting date: ${dateString}`, error);
+    logger.error('Error formatting date in formatShortDate', {
+      component: 'formatDate',
+      error,
+      context: { dateString },
+    });
     return null;
   }
 }
@@ -123,7 +139,10 @@ export function formatRelativeDate(dateString) {
     const date = new Date(dateString);
 
     if (isNaN(date.getTime())) {
-      console.warn(`[formatRelativeDate] Invalid date: ${dateString}`);
+      logger.warn('Invalid date in formatRelativeDate', {
+        component: 'formatDate',
+        context: { dateString },
+      });
       return null;
     }
 
@@ -153,7 +172,11 @@ export function formatRelativeDate(dateString) {
       return `${diffYear} ${diffYear === 1 ? 'year' : 'years'} ago`;
     }
   } catch (error) {
-    console.error(`[formatRelativeDate] Error formatting date: ${dateString}`, error);
+    logger.error('Error formatting date in formatRelativeDate', {
+      component: 'formatDate',
+      error,
+      context: { dateString },
+    });
     return null;
   }
 }
@@ -180,7 +203,10 @@ export function formatDateTime(dateString, locale = DEFAULT_LOCALE) {
     const date = new Date(dateString);
 
     if (isNaN(date.getTime())) {
-      console.warn(`[formatDateTime] Invalid date: ${dateString}`);
+      logger.warn('Invalid date in formatDateTime', {
+        component: 'formatDate',
+        context: { dateString },
+      });
       return null;
     }
 
@@ -198,7 +224,11 @@ export function formatDateTime(dateString, locale = DEFAULT_LOCALE) {
 
     return `${datePart} at ${timePart}`;
   } catch (error) {
-    console.error(`[formatDateTime] Error formatting date: ${dateString}`, error);
+    logger.error('Error formatting date in formatDateTime', {
+      component: 'formatDate',
+      error,
+      context: { dateString },
+    });
     return null;
   }
 }
@@ -228,13 +258,20 @@ export function formatISODate(dateString) {
     const date = new Date(dateString);
 
     if (isNaN(date.getTime())) {
-      console.warn(`[formatISODate] Invalid date: ${dateString}`);
+      logger.warn('Invalid date in formatISODate', {
+        component: 'formatDate',
+        context: { dateString },
+      });
       return null;
     }
 
     return date.toISOString().split('T')[0];
   } catch (error) {
-    console.error(`[formatISODate] Error formatting date: ${dateString}`, error);
+    logger.error('Error formatting date in formatISODate', {
+      component: 'formatDate',
+      error,
+      context: { dateString },
+    });
     return null;
   }
 }

@@ -28,11 +28,18 @@ export function initSentry() {
   const sentryDsn = import.meta.env.VITE_SENTRY_DSN
 
   // If DSN not configured, log warning but don't fail
+  // Note: This warning only appears in production if DSN is missing
   if (!sentryDsn) {
-    console.warn(
-      '[Sentry] VITE_SENTRY_DSN not configured. Error tracking disabled. ' +
-        'Set VITE_SENTRY_DSN in .env.production to enable.'
-    )
+    if (import.meta.env.DEV) {
+      // In development, we expect DSN to be missing, so no warning needed
+      console.info('[Sentry] Running in development mode - error tracking disabled')
+    } else {
+      // In production, missing DSN is a configuration issue
+      console.warn(
+        '[Sentry] VITE_SENTRY_DSN not configured. Error tracking disabled. ' +
+          'Set VITE_SENTRY_DSN in .env.production to enable.'
+      )
+    }
     return
   }
 

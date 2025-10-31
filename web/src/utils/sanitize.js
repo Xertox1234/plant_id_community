@@ -15,6 +15,7 @@
  */
 
 import DOMPurify from 'dompurify'
+import { logger } from './logger'
 
 /**
  * Sanitization Preset Configurations
@@ -203,7 +204,11 @@ export function sanitizeHtml(html, options = null) {
     const config = options || SANITIZE_PRESETS.STANDARD
     return DOMPurify.sanitize(html, config)
   } catch (error) {
-    console.error('[sanitize] DOMPurify sanitization failed:', error)
+    logger.error('DOMPurify sanitization failed', {
+      component: 'sanitize',
+      error,
+      context: { htmlLength: html?.length },
+    })
     return ''
   }
 }
