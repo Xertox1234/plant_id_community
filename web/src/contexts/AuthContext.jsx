@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useState, useEffect, useMemo } from 'react'
+import { createContext, useContext, useState, useEffect, useMemo } from 'react'
 import * as authService from '../services/authService'
 import { logger } from '../utils/logger'
 
@@ -22,6 +22,25 @@ import { logger } from '../utils/logger'
  * both the context and provider, which is a common and acceptable pattern.
  */
 export const AuthContext = createContext(null)
+
+/**
+ * useAuth Hook
+ *
+ * Custom hook to consume AuthContext.
+ * Provides a cleaner API for accessing auth state and methods.
+ *
+ * @returns {Object} Auth context value
+ * @throws {Error} If used outside of AuthProvider
+ */
+export function useAuth() {
+  const context = useContext(AuthContext)
+
+  if (context === null) {
+    throw new Error('useAuth must be used within an AuthProvider')
+  }
+
+  return context
+}
 
 /**
  * AuthProvider Component
