@@ -160,10 +160,10 @@ PLANTNET_API_KEY=your-plantnet-key
 ## 📖 Documentation
 
 - **[CLAUDE.md](CLAUDE.md)** - Complete development guide for Claude Code
-- **[QUICK_START.md](QUICK_START.md)** - Fast setup guide
 - **[PLANNING/](PLANNING/)** - Architecture decisions and technical specs
 - **[Web README](web/README.md)** - React frontend docs
 - **[Mobile README](plant_community_mobile/README.md)** - Flutter app docs
+- **[Archive](docs/archive/)** - Historical documentation and audit reports
 
 ## 🧪 Testing
 
