@@ -6,6 +6,7 @@ import PostCard from '../../components/forum/PostCard';
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
+import { logger } from '../../utils/logger';
 
 /**
  * ThreadDetailPage Component
@@ -51,7 +52,11 @@ export default function ThreadDetailPage() {
         setTotalPosts(postsData.meta.count);
         setCurrentPage(1);
       } catch (err) {
-        console.error('[ThreadDetailPage] Error loading data:', err);
+        logger.error('Error loading thread data', {
+          component: 'ThreadDetailPage',
+          error: err,
+          context: { categorySlug, threadSlug },
+        });
         setError(err.message);
       } finally {
         setLoading(false);
@@ -95,7 +100,11 @@ export default function ThreadDetailPage() {
         element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 100);
     } catch (err) {
-      console.error('[ThreadDetailPage] Error creating post:', err);
+      logger.error('Error creating post', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { threadId: thread?.id, contentLength: replyContent?.length },
+      });
       setReplyError(err.message);
     } finally {
       setIsSubmitting(false);
@@ -113,7 +122,11 @@ export default function ThreadDetailPage() {
       setPosts(prev => prev.filter(p => p.id !== post.id));
       setTotalPosts(prev => prev - 1);
     } catch (err) {
-      console.error('[ThreadDetailPage] Error deleting post:', err);
+      logger.error('Error deleting post', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { postId },
+      });
       alert(`Failed to delete post: ${err.message}`);
     }
   }, []);
@@ -133,7 +146,11 @@ export default function ThreadDetailPage() {
       setPosts(prev => [...prev, ...postsData.items]);
       setCurrentPage(nextPage);
     } catch (err) {
-      console.error('[ThreadDetailPage] Error loading more posts:', err);
+      logger.error('Error loading more posts', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { threadId: thread?.id, page: nextPage },
+      });
       alert(`Failed to load more posts: ${err.message}`);
     } finally {
       setLoadingMore(false);

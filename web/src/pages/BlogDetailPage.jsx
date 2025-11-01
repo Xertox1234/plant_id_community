@@ -4,6 +4,7 @@ import StreamFieldRenderer from '../components/StreamFieldRenderer';
 import BlogCard from '../components/BlogCard';
 import { fetchBlogPost } from '../services/blogService';
 import { createSafeMarkup, SANITIZE_PRESETS } from '../utils/sanitize';
+import { logger } from '../utils/logger';
 
 /**
  * BlogDetailPage Component
@@ -37,7 +38,11 @@ export default function BlogDetailPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err);
+      logger.error('Failed to copy URL to clipboard', {
+        component: 'BlogDetailPage',
+        error: err,
+        context: { url },
+      });
     }
   }, []);
 
@@ -54,7 +59,11 @@ export default function BlogDetailPage() {
           try {
             data.content_blocks = JSON.parse(data.content_blocks);
           } catch (e) {
-            console.error('[BlogDetailPage] Failed to parse content_blocks:', e);
+            logger.error('Failed to parse content_blocks', {
+              component: 'BlogDetailPage',
+              error: e,
+              context: { slug },
+            });
             data.content_blocks = [];
           }
         }
@@ -66,7 +75,11 @@ export default function BlogDetailPage() {
           setRelatedPosts(data.related_posts);
         }
       } catch (err) {
-        console.error('[BlogDetailPage] Error loading post:', err);
+        logger.error('Error loading blog post', {
+          component: 'BlogDetailPage',
+          error: err,
+          context: { slug },
+        });
         setError(err.message);
       } finally {
         setLoading(false);

@@ -23,6 +23,8 @@ export default function TipTapEditor({
         heading: {
           levels: [2, 3], // Only H2 and H3
         },
+        // Disable the default Link from StarterKit to avoid duplicate
+        link: false,
       }),
       Link.configure({
         openOnClick: false,

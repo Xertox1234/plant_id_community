@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import BlogCard from '../components/BlogCard';
 import { fetchBlogPosts, fetchPopularPosts, fetchCategories } from '../services/blogService';
+import { logger } from '../utils/logger';
 
 /**
  * BlogListPage Component
@@ -45,7 +46,11 @@ export default function BlogListPage() {
         setPosts(items);
         setTotalCount(meta.total_count);
       } catch (err) {
-        console.error('[BlogListPage] Error loading posts:', err);
+        logger.error('Error loading blog posts', {
+          component: 'BlogListPage',
+          error: err,
+          context: { page, search, category, order },
+        });
         setError(err.message);
       } finally {
         setLoading(false);
@@ -67,7 +72,10 @@ export default function BlogListPage() {
         setPopularPosts(popular);
         setCategories(cats);
       } catch (err) {
-        console.error('[BlogListPage] Error loading sidebar data:', err);
+        logger.error('Error loading sidebar data', {
+          component: 'BlogListPage',
+          error: err,
+        });
         // Non-critical, continue without sidebar data
       }
     };

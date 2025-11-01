@@ -5,10 +5,11 @@
  * Uses cookie-based JWT authentication (HttpOnly cookies).
  *
  * API Endpoints (Django backend):
- * - POST /api/v1/users/login/
- * - POST /api/v1/users/signup/
- * - POST /api/v1/users/logout/
- * - GET  /api/v1/users/me/
+ * - GET  /api/v1/auth/csrf/ (fetch CSRF token)
+ * - POST /api/v1/auth/login/
+ * - POST /api/v1/auth/register/
+ * - POST /api/v1/auth/logout/
+ * - GET  /api/v1/auth/user/ (current user)
  */
 
 import { logger } from '../utils/logger'
@@ -32,6 +33,22 @@ function getCsrfToken() {
 }
 
 /**
+ * Fetch CSRF token from Django backend
+ * This endpoint sets the csrftoken cookie
+ * @returns {Promise<void>}
+ */
+async function fetchCsrfToken() {
+  try {
+    await fetch(`${API_URL}/api/v1/auth/csrf/`, {
+      method: 'GET',
+      credentials: 'include', // Include cookies
+    })
+  } catch (error) {
+    logger.warn('[authService] Failed to fetch CSRF token:', error)
+  }
+}
+
+/**
  * Login user with email and password
  * @param {Object} credentials - User credentials
  * @param {string} credentials.email - User email
@@ -40,6 +57,11 @@ function getCsrfToken() {
  */
 export async function login(credentials) {
   try {
+    // Fetch CSRF token first if we don't have one
+    if (!getCsrfToken()) {
+      await fetchCsrfToken()
+    }
+
     const csrfToken = getCsrfToken()
     const headers = {
       'Content-Type': 'application/json',
@@ -50,7 +72,7 @@ export async function login(credentials) {
       headers['X-CSRFToken'] = csrfToken
     }
 
-    const response = await fetch(`${API_URL}/api/v1/users/login/`, {
+    const response = await fetch(`${API_URL}/api/v1/auth/login/`, {
       method: 'POST',
       headers,
       credentials: 'include', // Include cookies
@@ -84,6 +106,11 @@ export async function login(credentials) {
  */
 export async function signup(userData) {
   try {
+    // Fetch CSRF token first if we don't have one
+    if (!getCsrfToken()) {
+      await fetchCsrfToken()
+    }
+
     const csrfToken = getCsrfToken()
     const headers = {
       'Content-Type': 'application/json',
@@ -94,7 +121,7 @@ export async function signup(userData) {
       headers['X-CSRFToken'] = csrfToken
     }
 
-    const response = await fetch(`${API_URL}/api/v1/users/signup/`, {
+    const response = await fetch(`${API_URL}/api/v1/auth/register/`, {
       method: 'POST',
       headers,
       credentials: 'include', // Include cookies
@@ -102,8 +129,22 @@ export async function signup(userData) {
     })
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.message || 'Signup failed')
+      let errorData
+      try {
+        errorData = await response.json()
+      } catch (e) {
+        throw new Error(`Signup failed with status ${response.status}`)
+      }
+
+      // Log detailed error for debugging
+      logger.error('[authService] Signup failed:', {
+        status: response.status,
+        error: errorData
+      })
+
+      // Extract error message from backend
+      const errorMessage = errorData.error?.message || errorData.message || JSON.stringify(errorData)
+      throw new Error(errorMessage)
     }
 
     const data = await response.json()
@@ -133,7 +174,7 @@ export async function logout() {
       headers['X-CSRFToken'] = csrfToken
     }
 
-    const response = await fetch(`${API_URL}/api/v1/users/logout/`, {
+    const response = await fetch(`${API_URL}/api/v1/auth/logout/`, {
       method: 'POST',
       headers,
       credentials: 'include', // Include cookies
@@ -160,7 +201,7 @@ export async function logout() {
  */
 export async function getCurrentUser() {
   try {
-    const response = await fetch(`${API_URL}/api/v1/users/me/`, {
+    const response = await fetch(`${API_URL}/api/v1/auth/user/`, {
       method: 'GET',
       credentials: 'include', // Include cookies
     })

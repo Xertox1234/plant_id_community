@@ -3,9 +3,13 @@
  *
  * Provides methods to interact with the Wagtail blog API.
  * All endpoints are at /api/v2/ using Wagtail's API v2.
+ *
+ * Uses httpClient for automatic X-Request-ID header injection
+ * and structured logging for distributed tracing.
  */
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import apiClient from '../utils/httpClient'
+import { logger } from '../utils/logger'
 
 /**
  * Fetch blog posts with optional filters and pagination.
@@ -64,27 +68,19 @@ export async function fetchBlogPosts(options = {}) {
   }
 
   try {
-    const response = await fetch(`${API_URL}/api/v2/blog-posts/?${params}`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch blog posts: ${response.status}`);
-    }
-
-    const data = await response.json();
+    const response = await apiClient.get(`/api/v2/blog-posts/?${params}`)
 
     return {
-      items: data.items || [],
-      meta: data.meta || { total_count: 0 },
-    };
+      items: response.data.items || [],
+      meta: response.data.meta || { total_count: 0 },
+    }
   } catch (error) {
-    console.error('[BlogService] Error fetching blog posts:', error);
-    throw error;
+    logger.error('Error fetching blog posts', {
+      component: 'BlogService',
+      error,
+      context: { params: options },
+    })
+    throw error
   }
 }
 
@@ -100,30 +96,22 @@ export async function fetchBlogPost(slug) {
       type: 'blog.BlogPostPage',
       slug: slug,
       fields: '*', // Get all fields for detail view
-    });
+    })
 
-    const response = await fetch(`${API_URL}/api/v2/blog-posts/?${params}`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
+    const response = await apiClient.get(`/api/v2/blog-posts/?${params}`)
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch blog post: ${response.status}`);
+    if (!response.data.items || response.data.items.length === 0) {
+      throw new Error('Blog post not found')
     }
 
-    const data = await response.json();
-
-    if (!data.items || data.items.length === 0) {
-      throw new Error('Blog post not found');
-    }
-
-    return data.items[0];
+    return response.data.items[0]
   } catch (error) {
-    console.error('[BlogService] Error fetching blog post:', error);
-    throw error;
+    logger.error('Error fetching blog post', {
+      component: 'BlogService',
+      error,
+      context: { slug },
+    })
+    throw error
   }
 }
 
@@ -142,25 +130,17 @@ export async function fetchPopularPosts(options = {}) {
     const params = new URLSearchParams({
       limit: limit.toString(),
       days: days.toString(),
-    });
+    })
 
-    const response = await fetch(`${API_URL}/api/v2/blog-posts/popular/?${params}`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch popular posts: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data || [];
+    const response = await apiClient.get(`/api/v2/blog-posts/popular/?${params}`)
+    return response.data || []
   } catch (error) {
-    console.error('[BlogService] Error fetching popular posts:', error);
-    throw error;
+    logger.error('Error fetching popular posts', {
+      component: 'BlogService',
+      error,
+      context: { limit, days },
+    })
+    throw error
   }
 }
 
@@ -171,23 +151,14 @@ export async function fetchPopularPosts(options = {}) {
  */
 export async function fetchCategories() {
   try {
-    const response = await fetch(`${API_URL}/api/v2/categories/`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch categories: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.items || [];
+    const response = await apiClient.get('/api/v2/categories/')
+    return response.data.items || []
   } catch (error) {
-    console.error('[BlogService] Error fetching categories:', error);
-    return []; // Return empty array on error (non-critical)
+    logger.error('Error fetching categories', {
+      component: 'BlogService',
+      error,
+    })
+    return [] // Return empty array on error (non-critical)
   }
 }
 

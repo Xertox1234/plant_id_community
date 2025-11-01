@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import { Link } from 'react-router';
 import PropTypes from 'prop-types';
 import { formatDistanceToNow } from 'date-fns';
+import { logger } from '../../utils/logger';
 
 /**
  * ThreadCard Component
@@ -17,10 +18,14 @@ function ThreadCard({ thread, compact = false }) {
         addSuffix: true
       });
     } catch (error) {
-      console.error('[ThreadCard] Error formatting date:', error);
+      logger.error('Error formatting date in ThreadCard', {
+        component: 'ThreadCard',
+        error,
+        context: { threadId: thread.id, lastActivityAt: thread.last_activity_at },
+      });
       return 'recently';
     }
-  }, [thread.last_activity_at]);
+  }, [thread.last_activity_at, thread.id]);
 
   const threadUrl = `/forum/${thread.category.slug}/${thread.slug}`;
 

@@ -116,7 +116,7 @@ describe('ThreadDetailPage', () => {
     renderThreadDetailPage();
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'How to water succulents?' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'How to water succulents?' })).toBeInTheDocument();
     });
 
     expect(screen.getByText(/Master Gardener/i)).toBeInTheDocument();
@@ -143,11 +143,12 @@ describe('ThreadDetailPage', () => {
     renderThreadDetailPage();
 
     await waitFor(() => {
-      expect(screen.getByText('Forums')).toBeInTheDocument();
+      expect(screen.getByLabelText('Breadcrumb')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Plant Care')).toBeInTheDocument();
-    expect(screen.getByLabelText('Breadcrumb')).toBeInTheDocument();
+    const breadcrumb = screen.getByLabelText('Breadcrumb');
+    expect(breadcrumb).toHaveTextContent('Forums');
+    expect(breadcrumb).toHaveTextContent('Plant Care');
   });
 
   it('displays pinned badge when thread is pinned', async () => {
