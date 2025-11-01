@@ -91,7 +91,7 @@ function getBaseContext() {
         context.requestId = requestId
       }
     }
-  } catch (error) {
+  } catch {
     // Silently fail if context not available
   }
 
@@ -103,7 +103,7 @@ function getBaseContext() {
         context.userId = userId
       }
     }
-  } catch (error) {
+  } catch {
     // Silently fail if context not available
   }
 

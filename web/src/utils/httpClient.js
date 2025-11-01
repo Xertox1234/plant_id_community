@@ -138,8 +138,8 @@ function getCsrfToken() {
     if (parts.length === 2) {
       return parts.pop()?.split(';').shift() || null
     }
-  } catch (error) {
-    // Silently fail
+  } catch {
+    // Silently fail if cookie parsing fails
   }
   return null
 }
