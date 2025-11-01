@@ -24,8 +24,8 @@ export default defineConfig([
     },
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
-      // Enforce structured logger usage (no console.log/error/warn)
-      // Exceptions: logger.js (implements logger), sentry.js (config warnings)
+      // Enforce structured logger usage (no console.log/error/warn in production code)
+      // Exception: logger.js only (implements logger infrastructure)
       'no-console': 'error',
     },
   },
@@ -38,9 +38,10 @@ export default defineConfig([
       },
     },
   },
-  // Allow console in logger.js (implements the logger) and sentry.js (config warnings)
+  // Allow console in logger.js only (implements the logger infrastructure)
+  // All other files must use structured logger (import { logger } from '../utils/logger')
   {
-    files: ['**/utils/logger.js', '**/config/sentry.js'],
+    files: ['**/utils/logger.js'],
     rules: {
       'no-console': 'off',
     },

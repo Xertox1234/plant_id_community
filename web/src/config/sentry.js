@@ -14,6 +14,7 @@
  */
 
 import * as Sentry from '@sentry/react'
+import { logger } from '../utils/logger'
 
 /**
  * Initialize Sentry error tracking
@@ -32,13 +33,19 @@ export function initSentry() {
   if (!sentryDsn) {
     if (import.meta.env.DEV) {
       // In development, we expect DSN to be missing, so no warning needed
-      console.info('[Sentry] Running in development mode - error tracking disabled')
+      logger.info('Running in development mode - error tracking disabled', {
+        component: 'SentryConfig',
+        context: { mode: import.meta.env.MODE },
+      })
     } else {
       // In production, missing DSN is a configuration issue
-      console.warn(
-        '[Sentry] VITE_SENTRY_DSN not configured. Error tracking disabled. ' +
-          'Set VITE_SENTRY_DSN in .env.production to enable.'
-      )
+      logger.warn('VITE_SENTRY_DSN not configured - error tracking disabled', {
+        component: 'SentryConfig',
+        context: {
+          mode: import.meta.env.MODE,
+          remediation: 'Set VITE_SENTRY_DSN in .env.production to enable error tracking',
+        },
+      })
     }
     return
   }

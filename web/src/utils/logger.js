@@ -281,6 +281,9 @@ function log(level, message, context = {}) {
     }
 
     const style = levelColors[level] || ''
+    // EXCEPTION: console.log is acceptable here (logger bootstrap/infrastructure)
+    // This is the logger's own output mechanism - using logger here would cause infinite recursion
+    // Note: no-console rule is disabled for logger.js in eslint.config.js
     console.log(`%c[${level.toUpperCase()}] ${message}`, style)
     console.log(entry)
   } else {
