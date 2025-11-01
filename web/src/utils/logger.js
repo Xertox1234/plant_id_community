@@ -111,6 +111,78 @@ function getBaseContext() {
 }
 
 /**
+ * Sanitize URL by removing query parameters and hash
+ * Prevents PII exposure from query params (user IDs, emails, tokens)
+ *
+ * @param {string} url - URL to sanitize
+ * @returns {string} URL without query params or hash
+ *
+ * @example
+ * sanitizeUrl('/api/users?email=user@example.com&id=123')
+ * // Returns: '/api/users'
+ */
+function sanitizeUrl(url) {
+  if (!url || typeof url !== 'string') return url
+
+  try {
+    // Check if it's a full URL (starts with http:// or https://)
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      const urlObj = new URL(url)
+      return `${urlObj.origin}${urlObj.pathname}`
+    }
+
+    // For relative URLs, use string manipulation
+    // Remove query params (?...) and hash (#...)
+    return url.split('?')[0].split('#')[0]
+  } catch {
+    // If parsing fails, fallback to string manipulation
+    return url.split('?')[0].split('#')[0]
+  }
+}
+
+/**
+ * Sanitize error object by removing sensitive properties
+ * Filters out config, headers, request details that may contain secrets
+ *
+ * @param {Error|Object} error - Error object to sanitize
+ * @returns {Object} Sanitized error with only safe properties
+ *
+ * @example
+ * const axiosError = { message: 'Failed', config: { headers: { Authorization: 'Bearer secret' } } }
+ * sanitizeError(axiosError)
+ * // Returns: { message: 'Failed', name: undefined, stack: undefined, status: undefined }
+ */
+function sanitizeError(error) {
+  if (!error) return error
+
+  // If it's a primitive (string, number), return as-is
+  if (typeof error !== 'object') return error
+
+  // Extract only safe properties
+  const safe = {
+    message: error.message,
+    name: error.name,
+    stack: import.meta.env.DEV ? error.stack : undefined, // Stack traces in dev only
+  }
+
+  // Add Axios-specific safe properties if present
+  if (error.response) {
+    safe.status = error.response.status
+    safe.statusText = error.response.statusText
+  }
+
+  // Omit sensitive properties:
+  // - error.config (may contain headers, auth, API keys)
+  // - error.config.headers (Authorization, X-CSRFToken, etc.)
+  // - error.config.data (request body with passwords, tokens)
+  // - error.request (XMLHttpRequest object with full request details)
+  // - error.response.config (same as error.config)
+  // - error.response.request (same as error.request)
+
+  return safe
+}
+
+/**
  * Format log entry for console output
  *
  * @param {string} level - Log level
@@ -119,6 +191,20 @@ function getBaseContext() {
  * @returns {Object} Formatted log entry
  */
 function formatLogEntry(level, message, context = {}) {
+  // Only sanitize if context is an object
+  if (context && typeof context === 'object') {
+    // Sanitize URL if present in context
+    if (context.url) {
+      context.url = sanitizeUrl(context.url)
+    }
+
+    // Sanitize error if present in context
+    // Only sanitize if it's an object (not Error instance which should be preserved)
+    if (context.error && typeof context.error === 'object' && !(context.error instanceof Error)) {
+      context.error = sanitizeError(context.error)
+    }
+  }
+
   return {
     level,
     message,

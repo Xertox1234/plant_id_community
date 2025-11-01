@@ -306,4 +306,185 @@ describe('Logger', () => {
       }).not.toThrow();
     });
   });
+
+  describe('Security: URL Sanitization', () => {
+    beforeEach(() => {
+      initLogger({});
+    });
+
+    it('removes query parameters from URLs', () => {
+      logger.info('Test with URL', { url: '/api/users?email=user@example.com&id=123' });
+
+      const logEntry = consoleSpy.log.mock.calls[1][0];
+
+      expect(logEntry.url).toBe('/api/users');
+      expect(logEntry.url).not.toContain('email');
+      expect(logEntry.url).not.toContain('id');
+    });
+
+    it('removes hash fragments from URLs', () => {
+      logger.info('Test with hash', { url: '/api/posts#section123' });
+
+      const logEntry = consoleSpy.log.mock.calls[1][0];
+
+      expect(logEntry.url).toBe('/api/posts');
+      expect(logEntry.url).not.toContain('#');
+    });
+
+    it('removes both query params and hash', () => {
+      logger.info('Test with both', { url: '/api/posts?page=1&token=abc123#top' });
+
+      const logEntry = consoleSpy.log.mock.calls[1][0];
+
+      expect(logEntry.url).toBe('/api/posts');
+    });
+
+    it('handles full URLs with origin', () => {
+      logger.info('Test full URL', { url: 'http://localhost:8000/api/users?email=test@example.com' });
+
+      const logEntry = consoleSpy.log.mock.calls[1][0];
+
+      expect(logEntry.url).toBe('http://localhost:8000/api/users');
+      expect(logEntry.url).not.toContain('email');
+    });
+
+    it('handles invalid URLs gracefully', () => {
+      logger.info('Test invalid URL', { url: 'not a url' });
+
+      const logEntry = consoleSpy.log.mock.calls[1][0];
+
+      expect(logEntry.url).toBe('not a url'); // Passes through as-is
+    });
+
+    it('handles null/undefined URLs', () => {
+      logger.info('Test null URL', { url: null });
+      const logEntry1 = consoleSpy.log.mock.calls[1][0];
+      expect(logEntry1.url).toBeNull();
+
+      logger.info('Test undefined URL', { url: undefined });
+      const logEntry2 = consoleSpy.log.mock.calls[3][0];
+      expect(logEntry2.url).toBeUndefined();
+    });
+  });
+
+  describe('Security: Error Sanitization', () => {
+    beforeEach(() => {
+      initLogger({});
+    });
+
+    it('removes config property from Axios errors', () => {
+      const axiosError = {
+        message: 'Request failed',
+        name: 'AxiosError',
+        config: {
+          headers: { Authorization: 'Bearer secret-token' },
+          data: { password: 'super-secret' },
+        },
+      };
+
+      logger.error('Test error', { error: axiosError });
+
+      const logEntry = consoleSpy.log.mock.calls[1][0];
+
+      expect(logEntry.error.message).toBe('Request failed');
+      expect(logEntry.error.name).toBe('AxiosError');
+      expect(logEntry.error.config).toBeUndefined(); // Sensitive property removed
+    });
+
+    it('removes headers from error objects', () => {
+      const errorWithHeaders = {
+        message: 'Failed',
+        config: {
+          headers: {
+            'X-CSRFToken': 'csrf-token-12345',
+            'Authorization': 'Bearer jwt-token',
+          },
+        },
+      };
+
+      logger.error('Test error', { error: errorWithHeaders });
+
+      const logEntry = consoleSpy.log.mock.calls[1][0];
+
+      expect(logEntry.error.config).toBeUndefined();
+    });
+
+    it('preserves safe error properties', () => {
+      const error = {
+        message: 'Something went wrong',
+        name: 'CustomError',
+        stack: 'Error stack trace...',
+        response: {
+          status: 404,
+          statusText: 'Not Found',
+        },
+      };
+
+      logger.error('Test error', { error });
+
+      const logEntry = consoleSpy.log.mock.calls[1][0];
+
+      expect(logEntry.error.message).toBe('Something went wrong');
+      expect(logEntry.error.name).toBe('CustomError');
+      expect(logEntry.error.status).toBe(404);
+      expect(logEntry.error.statusText).toBe('Not Found');
+    });
+
+    it('includes stack traces in development mode', () => {
+      const error = new Error('Test error');
+
+      logger.error('Test error', { error });
+
+      const logEntry = consoleSpy.log.mock.calls[1][0];
+
+      // In development (import.meta.env.DEV = true in tests), stack is included
+      expect(logEntry.error.stack).toBeDefined();
+    });
+
+    it('handles Error instances', () => {
+      const error = new Error('Native error');
+      error.name = 'TypeError';
+
+      logger.error('Test error', { error });
+
+      const logEntry = consoleSpy.log.mock.calls[1][0];
+
+      expect(logEntry.error.message).toBe('Native error');
+      expect(logEntry.error.name).toBe('TypeError');
+    });
+
+    it('handles null/undefined errors', () => {
+      logger.error('Test null error', { error: null });
+      const logEntry1 = consoleSpy.log.mock.calls[1][0];
+      expect(logEntry1.error).toBeNull();
+
+      logger.error('Test undefined error', { error: undefined });
+      const logEntry2 = consoleSpy.log.mock.calls[3][0];
+      expect(logEntry2.error).toBeUndefined();
+    });
+
+    it('handles primitive errors (string)', () => {
+      logger.error('Test string error', { error: 'Something went wrong' });
+
+      const logEntry = consoleSpy.log.mock.calls[1][0];
+
+      expect(logEntry.error).toBe('Something went wrong');
+    });
+
+    it('removes request property from Axios errors', () => {
+      const axiosError = {
+        message: 'Request failed',
+        request: {
+          responseURL: 'http://localhost:8000/api/users',
+          // XMLHttpRequest object with full details
+        },
+      };
+
+      logger.error('Test error', { error: axiosError });
+
+      const logEntry = consoleSpy.log.mock.calls[1][0];
+
+      expect(logEntry.error.request).toBeUndefined(); // Sensitive property removed
+    });
+  });
 });
