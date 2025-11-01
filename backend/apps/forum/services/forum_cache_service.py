@@ -377,7 +377,7 @@ class ForumCacheService:
 
         Usage:
             stats = ForumCacheService.get_cache_stats()
-            print(f"Hit rate: {stats['hit_rate']:.1%}")
+            logger.info("[CACHE] Cache stats", extra=stats)
 
         Note:
             Requires custom instrumentation in ViewSets to track hits/misses.

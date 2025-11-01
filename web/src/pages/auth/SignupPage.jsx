@@ -29,7 +29,9 @@ export default function SignupPage() {
   const { signup } = useAuth()
 
   const [formData, setFormData] = useState({
-    name: '',
+    username: '',
+    firstName: '',
+    lastName: '',
     email: '',
     password: '',
     confirmPassword: '',
@@ -74,9 +76,13 @@ export default function SignupPage() {
   const validateForm = () => {
     const newErrors = {}
 
-    const nameError = getNameError(formData.name)
-    if (nameError) {
-      newErrors.name = nameError
+    // Username validation (required)
+    if (!formData.username.trim()) {
+      newErrors.username = 'Username is required'
+    } else if (formData.username.length < 3) {
+      newErrors.username = 'Username must be at least 3 characters'
+    } else if (!/^[a-zA-Z0-9_-]+$/.test(formData.username)) {
+      newErrors.username = 'Username can only contain letters, numbers, underscores, and hyphens'
     }
 
     const emailError = getEmailError(formData.email)
@@ -117,9 +123,12 @@ export default function SignupPage() {
 
     try {
       const result = await signup({
-        name: formData.name,
+        username: formData.username,
+        first_name: formData.firstName,  // Backend expects snake_case
+        last_name: formData.lastName,    // Backend expects snake_case
         email: formData.email,
         password: formData.password,
+        confirmPassword: formData.confirmPassword,
       })
 
       if (result.success) {
@@ -140,13 +149,13 @@ export default function SignupPage() {
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-gray-50">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-md min-w-[280px]">
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">
+        <div className="text-center mb-8 space-y-2">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
             Create an account
           </h1>
-          <p className="mt-2 text-gray-600">
+          <p className="text-sm sm:text-base text-gray-600">
             Join PlantID to identify plants and track your garden
           </p>
         </div>
@@ -164,17 +173,43 @@ export default function SignupPage() {
               </div>
             )}
 
-            {/* Name Field */}
+            {/* Username Field */}
             <Input
               type="text"
-              label="Full name"
-              name="name"
-              value={formData.name}
+              label="Username"
+              name="username"
+              value={formData.username}
               onChange={handleChange}
-              error={errors.name}
-              placeholder="John Doe"
+              error={errors.username}
+              placeholder="johndoe"
               required
-              autoComplete="name"
+              autoComplete="username"
+              disabled={isSubmitting}
+            />
+
+            {/* First Name Field */}
+            <Input
+              type="text"
+              label="First name"
+              name="firstName"
+              value={formData.firstName}
+              onChange={handleChange}
+              error={errors.firstName}
+              placeholder="John"
+              autoComplete="given-name"
+              disabled={isSubmitting}
+            />
+
+            {/* Last Name Field */}
+            <Input
+              type="text"
+              label="Last name"
+              name="lastName"
+              value={formData.lastName}
+              onChange={handleChange}
+              error={errors.lastName}
+              placeholder="Doe"
+              autoComplete="family-name"
               disabled={isSubmitting}
             />
 
@@ -200,7 +235,7 @@ export default function SignupPage() {
               value={formData.password}
               onChange={handleChange}
               error={errors.password}
-              placeholder="At least 8 characters"
+              placeholder="At least 14 characters"
               required
               autoComplete="new-password"
               disabled={isSubmitting}

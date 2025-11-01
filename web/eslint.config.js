@@ -24,6 +24,9 @@ export default defineConfig([
     },
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // Enforce structured logger usage (no console.log/error/warn in production code)
+      // Exception: logger.js only (implements logger infrastructure)
+      'no-console': 'error',
     },
   },
   {
@@ -33,6 +36,14 @@ export default defineConfig([
         ...globals.browser,
         ...globals.node,
       },
+    },
+  },
+  // Allow console in logger.js only (implements the logger infrastructure)
+  // All other files must use structured logger (import { logger } from '../utils/logger')
+  {
+    files: ['**/utils/logger.js'],
+    rules: {
+      'no-console': 'off',
     },
   },
 ])

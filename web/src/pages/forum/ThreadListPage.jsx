@@ -4,6 +4,7 @@ import { fetchThreads, fetchCategory } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
+import { logger } from '../../utils/logger';
 
 /**
  * ThreadListPage Component
@@ -51,7 +52,11 @@ export default function ThreadListPage() {
         setThreads(threadsData.items);
         setTotalCount(threadsData.meta.count);
       } catch (err) {
-        console.error('[ThreadListPage] Error loading data:', err);
+        logger.error('Error loading thread list data', {
+          component: 'ThreadListPage',
+          error: err,
+          context: { categorySlug, page, search },
+        });
         setError(err.message);
       } finally {
         setLoading(false);
