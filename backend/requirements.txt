@@ -185,4 +185,4 @@ whitenoise==6.11.0
 Willow==1.11.0
 zope.interface==8.0.1
 django-auditlog==3.3.0
-drf-spectacular==0.28.0
+drf-spectacular==0.29.0
