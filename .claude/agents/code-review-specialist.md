@@ -466,6 +466,118 @@ For Technical Documentation files (*.md with code/specs):
    - Detection: Look for `APIClient()` usage, `patch('time.time')`, authentication test URLs
    - **For comprehensive DRF authentication testing patterns, see `/backend/docs/testing/DRF_AUTHENTICATION_TESTING_PATTERNS.md`**
 
+**Django Rest Framework UUID Patterns (Diagnosis API):**
+
+9a. **DRF Custom Actions with UUID Lookup** - CRITICAL Pattern ⭐
+   - **BLOCKER**: Custom `@action` methods fail with `TypeError: unexpected keyword argument 'uuid'`
+   - **PATTERN**: When `lookup_field = 'uuid'`, ALL `@action(detail=True)` methods MUST accept `uuid=None` parameter
+   - **Why**: DRF passes the lookup field value as a keyword argument to detail-level actions
+   - Check for: ViewSets with `lookup_field = 'uuid'` and custom actions missing uuid parameter
+   - Example from diagnosis_viewsets.py:
+     ```python
+     class DiagnosisCardViewSet(viewsets.ModelViewSet):
+         lookup_field = 'uuid'  # Using UUID instead of pk
+
+         @action(detail=True, methods=['post'])
+         def toggle_favorite(self, request: Request, uuid=None) -> Response:
+             # ✅ MUST accept uuid parameter (matches lookup_field)
+             card = self.get_object()  # Uses lookup_field automatically
+             card.is_favorite = not card.is_favorite
+             card.save(update_fields=['is_favorite'])
+             return Response(...)
+     ```
+   - Anti-patterns:
+     ```python
+     # ❌ Missing uuid parameter
+     @action(detail=True, methods=['post'])
+     def toggle_favorite(self, request: Request) -> Response:
+         # DRF will raise: TypeError: toggle_favorite() got an unexpected keyword argument 'uuid'
+
+     # ❌ Wrong parameter name
+     @action(detail=True, methods=['post'])
+     def toggle_favorite(self, request: Request, pk=None) -> Response:
+         # DRF passes uuid=..., but method expects pk=...
+     ```
+   - Detection: Search for `@action(detail=True)` in ViewSets with `lookup_field = 'uuid'`
+   - Review checklist:
+     - [ ] Does ViewSet have `lookup_field = 'uuid'`?
+     - [ ] Do ALL `@action(detail=True)` methods accept `uuid=None` parameter?
+     - [ ] Does parameter name EXACTLY match `lookup_field` value?
+     - [ ] Does method use `self.get_object()` instead of manual lookup?
+   - **Affected actions in codebase**:
+     - `DiagnosisCardViewSet.toggle_favorite()` - Line 198
+     - `DiagnosisReminderViewSet.snooze()` - Line 320
+     - `DiagnosisReminderViewSet.cancel()` - Line 339
+     - `DiagnosisReminderViewSet.acknowledge()` - Line 353
+   - **For comprehensive DRF UUID patterns, see `/backend/DIAGNOSIS_API_PATTERNS_CODIFIED.md`**
+
+9b. **SlugRelatedField for UUID Relationships** - Serializer Field Type
+   - **WARNING**: Using `PrimaryKeyRelatedField` with UUID models causes validation errors
+   - **PATTERN**: Use `SlugRelatedField(slug_field='uuid')` for related objects with UUID primary keys
+   - Check for: Serializers with UUID-based related fields using wrong field type
+   - Example from diagnosis_serializers.py:
+     ```python
+     class DiagnosisCardCreateSerializer(serializers.ModelSerializer):
+         diagnosis_result = serializers.SlugRelatedField(
+             slug_field='uuid',  # ✅ Accepts UUID strings
+             queryset=PlantDiseaseResult.objects.all(),
+             required=False,
+             allow_null=True,
+         )
+     ```
+   - Anti-pattern:
+     ```python
+     # ❌ PrimaryKeyRelatedField expects integer pk
+     diagnosis_result = serializers.PrimaryKeyRelatedField(
+         queryset=PlantDiseaseResult.objects.all()
+         # API clients send UUID strings, but this expects integers
+     )
+     # Raises: ValidationError: Incorrect type. Expected pk value, received str.
+     ```
+   - Detection: Search for `PrimaryKeyRelatedField` in serializers where related model has UUID pk
+   - Review checklist:
+     - [ ] Does related model use `uuid = UUIDField(primary_key=True)`?
+     - [ ] Is field type `SlugRelatedField(slug_field='uuid')`?
+     - [ ] Are validation methods checking user ownership?
+
+9c. **Test Data Duplicate Keyword Arguments** - Test Setup Pattern
+   - **WARNING**: Tests fail with `TypeError: got multiple values for keyword argument`
+   - **PATTERN**: Never pass same field both explicitly and via `**kwargs`
+   - Check for: Test data setup spreading dictionaries with duplicate keys
+   - Example from test_diagnosis_api.py:
+     ```python
+     # ✅ CORRECT - No duplicates
+     def test_filter_by_treatment_status(self):
+         # First card with not_started status (from self.card_data)
+         DiagnosisCard.objects.create(
+             user=self.user1,
+             **self.card_data  # Contains treatment_status='not_started'
+         )
+
+         # Second card with custom status
+         card_data_in_progress = self.card_data.copy()
+         card_data_in_progress['treatment_status'] = 'in_progress'
+         DiagnosisCard.objects.create(
+             user=self.user1,
+             **card_data_in_progress
+         )
+     ```
+   - Anti-pattern:
+     ```python
+     # ❌ Duplicate treatment_status
+     DiagnosisCard.objects.create(
+         user=self.user1,
+         treatment_status='not_started',  # Explicit
+         **self.card_data  # Also contains treatment_status='not_started'
+     )
+     # Raises: TypeError: create() got multiple values for keyword argument 'treatment_status'
+     ```
+   - Detection: Search for `create(..., field=value, **dict_with_field)`
+   - Review checklist:
+     - [ ] Are test data dictionaries documented (which fields they contain)?
+     - [ ] Does code use `.copy()` before modifying shared test data?
+     - [ ] Are duplicate kwargs avoided (check both explicit and **spread)?
+
 For Wagtail models:
 
  StreamField blocks structured correctly
@@ -3343,7 +3455,316 @@ For Wagtail models:
      ```
    - See: create_forum_test_data.py (265 lines) - Forum Phase 6 Polish
 
-Step 4.5: Documentation Accuracy Review (Technical Docs)
+Step 4.5: Dependency Management Review (Package Updates)
+
+**WHEN TO USE**: Reviewing Dependabot PRs, dependency updates, package.json/requirements.txt changes
+
+When reviewing dependency updates or package management changes:
+
+# Dependency Update Checks
+
+## 1. Priority-Based Risk Assessment
+
+# Check what type of dependency is being updated
+grep -n "dependencies\|devDependencies" package.json
+grep -n "^[a-z-]" requirements.txt
+
+**Priority Matrix**:
+
+| Priority | Category | Example | Risk Level | Verification |
+|----------|----------|---------|------------|--------------|
+| P1 | GitHub Actions | actions/checkout v4→v5 | CRITICAL | CI must pass |
+| P2 | Core Backend | Django, DRF, Wagtail | HIGH | Full test suite |
+| P3 | Dev Tools | pytest, eslint, ruff | LOW | Smoke test |
+| P4 | Production Libs | axios, vite, openapi | MEDIUM | Integration tests |
+| P5 | Mobile Dev | Flutter packages | LOW (if not prod) | Mobile tests |
+
+**Review Pattern**:
+```bash
+# For GitHub Actions updates (P1)
+# BLOCKER: Security-critical CI/CD component
+- [ ] Review changelog for security fixes
+- [ ] Verify all workflows pass with new version
+- [ ] Check for breaking changes in action inputs/outputs
+- [ ] Merge individually (not batched)
+
+# For Django ecosystem updates (P2)
+# BLOCKER: Core production dependency
+- [ ] Check for breaking changes in release notes
+- [ ] Run full test suite: python manage.py test --keepdb -v 2
+- [ ] Verify migrations compatibility
+- [ ] Check for deprecated APIs in codebase
+- [ ] Can group if all minor/patch versions
+
+# For dev dependencies (P3)
+# WARNING: Low risk, can batch merge
+- [ ] Verify CI passes
+- [ ] Can batch 10-20 updates if all passing
+- [ ] Smoke test sufficient (not full test suite)
+
+# For production dependencies (P4)
+# IMPORTANT: Medium risk, test carefully
+- [ ] Run integration tests for affected features
+- [ ] Check bundle size impact (frontend)
+- [ ] Verify API compatibility (backend)
+- [ ] Test individually for major versions
+
+# For mobile dependencies (P5)
+# SUGGESTION: Low risk if mobile not production
+- [ ] Safe to merge if mobile app in development
+- [ ] Review breaking changes for future mobile work
+- [ ] Can merge major versions if mobile not released
+```
+
+## 2. Dependabot Conflict Resolution
+
+# Check if PR has merge conflicts
+gh pr view <PR_NUMBER> --json mergeable
+
+# If conflicts detected
+**Pattern**: Use `@dependabot rebase` (NEVER manual resolution)
+
+```bash
+# CORRECT: Dependabot rebase
+gh pr comment <PR_NUMBER> --body "@dependabot rebase"
+# Wait 1-2 minutes for Dependabot to rebase
+# Lock files regenerated automatically
+# CI re-runs automatically
+
+# WRONG: Manual conflict resolution
+git checkout dependabot/branch
+git merge main  # ❌ Breaks Dependabot automation
+git commit      # ❌ Creates messy merge commit
+```
+
+**Why Dependabot Rebase?**
+- ✅ Automatic lock file regeneration (package-lock.json, poetry.lock)
+- ✅ Maintains linear history (no merge commits)
+- ✅ Preserves Dependabot automation
+- ✅ CI re-runs with fresh rebase
+
+**Detection Pattern**:
+```bash
+# Find PRs needing rebase
+gh pr list --label dependencies --json number,title,mergeable | \
+  grep '"mergeable":false'
+
+# Request rebase for each
+gh pr comment <PR_NUMBER> --body "@dependabot rebase"
+```
+
+## 3. Test Verification After Updates
+
+# After merging dependency updates, run full test suites
+**Pattern**: Distinguish regressions from pre-existing failures
+
+**Backend Test Verification**:
+```bash
+cd backend
+python manage.py test --keepdb -v 2
+
+# If failures:
+# 1. Check if failures existed BEFORE updates
+# 2. Analyze failure patterns (same error across multiple tests?)
+# 3. Determine if related to updated package
+```
+
+**Frontend Test Verification**:
+```bash
+cd web
+npm run test
+
+# If failures:
+# 1. Check error messages for package names
+# 2. Look for breaking API changes in updated packages
+# 3. Determine if failures pre-existing or new
+```
+
+**Regression vs Pre-Existing Decision Matrix**:
+
+| Indicator | Regression | Pre-Existing |
+|-----------|-----------|--------------|
+| **Timing** | Passed before update | Failed before update |
+| **Error Message** | Mentions updated package | Generic or unrelated |
+| **Scope** | Isolated to updated code | Widespread across codebase |
+| **CI History** | Green before, red after | Red before and after |
+
+**If Regression (Blocker)**:
+```bash
+# Rollback immediately
+gh pr revert <PR_NUMBER>
+
+# Investigate compatibility
+# Fix issues, create new PR
+```
+
+**If Pre-Existing (Document)**:
+```bash
+# Create comprehensive TODO file
+# Template: backend/todos/XXX-pending-pN-fix-DESCRIPTION.md
+# Include:
+# - Problem statement with error examples
+# - Root cause analysis
+# - 3+ solution options with pros/cons
+# - Implementation plan with phases
+# - Acceptance criteria (checkboxes)
+# - Estimated effort (hours)
+# - Work log with discovery details
+```
+
+## 4. Grouped vs Individual Merge Strategy
+
+**Group When** (Batch Approval):
+- ✅ All minor/patch versions (1.2.3 → 1.2.4 or 1.2.x → 1.3.0)
+- ✅ Same dependency family (django-*, @types/*, eslint-*)
+- ✅ Dependabot auto-grouped (compatibility verified)
+- ✅ All dev dependencies (no production impact)
+- ✅ All CI checks passing
+
+**Individual When** (Single Review):
+- ✅ Major version updates (1.x → 2.x)
+- ✅ Security-critical components (GitHub Actions, auth libs)
+- ✅ Core production dependencies (Django, React, PostgreSQL)
+- ✅ Breaking changes mentioned in changelog
+- ✅ Different ecosystems (backend + frontend together)
+
+**Merge Command Patterns**:
+```bash
+# Individual merge with detailed reasoning
+gh pr merge <PR_NUMBER> --squash --body "✅ Approved: Django 5.1→5.2 (core dependency)
+
+Rationale: Security patches + async improvements. Backward compatible.
+Verification: Full test suite passing (134/134 tests).
+Breaking changes: None affecting our codebase."
+
+# Batch merge for low-risk updates
+for pr_num in 101 102 103 104 105; do
+  gh pr merge $pr_num --squash --body "✅ Approved: Dev dependency update
+
+Category: Development tools
+Risk: Minimal (no production impact)
+Verification: CI passing"
+done
+```
+
+## 5. Post-Merge Documentation
+
+**Pattern**: Create comprehensive documentation for test failures
+
+**When to Document**:
+- Pre-existing test failures discovered during verification
+- Complex failures requiring investigation
+- Systematic failures across multiple tests
+
+**Documentation Template** (11KB+ for complex issues):
+```markdown
+---
+status: pending
+priority: p2|p3
+issue_id: "XXX"
+tags: [testing, dependencies, category]
+estimated_effort: "X-Y hours"
+---
+
+# [Descriptive Title]
+
+## Problem Statement
+[Clear description with error examples from test output]
+
+## Findings
+- **Discovered**: [Date] during post-dependency-update verification
+- **Scope**: [X failing tests in test_file.py]
+- **Impact**: [What doesn't work]
+
+## Root Cause Analysis
+**Hypothesis 1**: [Most likely cause]
+**Hypothesis 2**: [Alternative cause]
+**Hypothesis 3**: [Edge case]
+
+[Evidence and analysis]
+
+## Proposed Solutions
+
+### Option 1: [Solution Name] (Recommended)
+**Implementation**: [Detailed steps with code examples]
+
+**Pros**:
+- [Benefit 1]
+- [Benefit 2]
+- [Benefit 3]
+
+**Cons**:
+- [Drawback 1]
+- [Drawback 2]
+
+**Effort**: X-Y hours
+**Risk**: Low/Medium/High
+
+### Option 2: [Alternative Solution]
+[Same structure]
+
+### Option 3: [Alternative Solution]
+[Same structure]
+
+## Recommended Action
+[Which option and detailed rationale]
+
+## Implementation Plan
+### Phase 1: [Step] (X hours)
+[Detailed implementation steps]
+
+### Phase 2: [Step] (X hours)
+[Detailed steps]
+
+[Continue for all phases]
+
+## Acceptance Criteria
+- [ ] [Criterion 1 - specific and testable]
+- [ ] [Criterion 2]
+[... 8-15 items total ...]
+
+## Work Log
+### [Date] - Discovery
+**By:** Dependency update verification process
+**Actions**:
+- [Action 1]
+- [Action 2]
+
+**Analysis**: [Findings and conclusions]
+
+## Resources
+- [Link 1]: [Description]
+- [Link 2]: [Reference]
+
+## Notes
+**Why This Matters**: [Business/technical impact]
+**Not Urgent Because**: [Why not blocking production]
+**Future Prevention**: [How to avoid in future]
+```
+
+**Review Checklist for Dependency Updates**:
+- [ ] Is priority level appropriate (P1-P5)?
+- [ ] Are GitHub Actions merged individually (not batched)?
+- [ ] Did you use `@dependabot rebase` for conflicts (not manual)?
+- [ ] Did you run full test suites after merging?
+- [ ] Did you distinguish regressions from pre-existing failures?
+- [ ] Are pre-existing failures documented comprehensively (11KB+)?
+- [ ] Did you verify no breaking changes affect production code?
+- [ ] Is merge strategy appropriate (grouped vs individual)?
+- [ ] Does commit message explain rationale and verification?
+
+**Impact of Proper Dependency Management**:
+- **Security**: Regular updates patch vulnerabilities
+- **Compatibility**: Stay current with ecosystem changes
+- **Performance**: New versions often include optimizations
+- **Developer Experience**: Latest tools and features available
+- **Technical Debt**: Prevents large, risky update batches
+
+**See Also**: `/backend/docs/development/DEPENDENCY_MANAGEMENT_PATTERNS_CODIFIED.md` for comprehensive patterns
+
+---
+
+Step 4.6: Documentation Accuracy Review (Technical Docs)
 
 **CRITICAL: Technical documentation needs the same rigor as code!**
 
