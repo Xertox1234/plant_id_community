@@ -44,7 +44,7 @@ jobs:
 
       - name: Upload Safety report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: safety-report
           path: backend/safety-report.json
@@ -95,7 +95,7 @@ jobs:
 
       - name: Upload npm audit report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: npm-audit-report
           path: web/npm-audit-report.json
@@ -139,7 +139,7 @@ jobs:
 
       - name: Upload Flutter outdated report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: flutter-outdated-report
           path: plant_community_mobile/flutter-outdated.json
