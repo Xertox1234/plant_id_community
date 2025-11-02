@@ -130,7 +130,7 @@ pytest-django==4.11.1
 python-crontab==3.3.0
 python-dateutil==2.9.0.post0
 python-decouple==3.8
-python-dotenv==1.1.1
+python-dotenv==1.2.1
 python-json-logger==4.0.0
 python-magic==0.4.27
 python-redis-lock==4.0.0
