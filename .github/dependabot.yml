@@ -1,0 +1,189 @@
+version: 2
+updates:
+  # Backend Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "security"
+      - "backend"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+    # Group minor and patch updates to reduce PR noise
+    groups:
+      # Django ecosystem updates
+      django-ecosystem:
+        patterns:
+          - "Django*"
+          - "django-*"
+          - "wagtail*"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # DRF and API dependencies
+      api-dependencies:
+        patterns:
+          - "djangorestframework*"
+          - "drf-*"
+          - "django-cors-headers"
+          - "django-filter"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Testing and development tools
+      development-dependencies:
+        patterns:
+          - "pytest*"
+          - "coverage*"
+          - "bandit*"
+          - "mypy*"
+          - "black"
+          - "flake8*"
+          - "isort"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Security and authentication
+      security-dependencies:
+        patterns:
+          - "*jwt*"
+          - "cryptography"
+          - "safety"
+        update-types:
+          - "patch"
+
+    # Allow automatic security updates
+    allow:
+      - dependency-type: "all"
+
+  # Frontend npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "frontend"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+    # Group npm updates
+    groups:
+      # React ecosystem
+      react-ecosystem:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "react-router*"
+          - "@types/react*"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Build tools
+      build-tools:
+        patterns:
+          - "vite*"
+          - "@vitejs/*"
+          - "esbuild"
+          - "rollup"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Testing tools
+      testing-dependencies:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+          - "playwright"
+          - "@playwright/*"
+          - "@testing-library/*"
+          - "jsdom"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Tailwind and styling
+      styling-dependencies:
+        patterns:
+          - "tailwindcss"
+          - "@tailwindcss/*"
+          - "postcss*"
+          - "autoprefixer"
+        update-types:
+          - "minor"
+          - "patch"
+
+    # Ignore some packages that require manual updates
+    ignore:
+      # React major versions require careful migration
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+
+  # Flutter mobile dependencies
+  - package-ecosystem: "pub"
+    directory: "/plant_community_mobile"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "mobile"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+    # Group Flutter updates
+    groups:
+      # Flutter SDK packages
+      flutter-sdk:
+        patterns:
+          - "flutter*"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Firebase packages
+      firebase-packages:
+        patterns:
+          - "firebase*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions workflow dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Los_Angeles"
+    labels:
+      - "dependencies"
+      - "ci-cd"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"

@@ -17,7 +17,8 @@
 7. [Testing](#testing)
 8. [Monitoring and Alerts](#monitoring-and-alerts)
 9. [Troubleshooting](#troubleshooting)
-10. [Security Best Practices](#security-best-practices)
+10. [CSRF Cookie Configuration](#csrf-cookie-configuration)
+11. [Security Best Practices](#security-best-practices)
 
 ---
 
@@ -1218,6 +1219,34 @@ python manage.py shell
 from django.core.mail import send_mail
 send_mail('Test', 'Test message', 'from@example.com', ['to@example.com'])
 ```
+
+---
+
+## CSRF Cookie Configuration
+
+### HttpOnly Setting
+
+**Location:** `backend/plant_community_backend/settings.py:910`
+
+```python
+CSRF_COOKIE_HTTPONLY = False  # Must be False so JavaScript can read it
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SECURE = not DEBUG
+```
+
+**Why False?** Required for Single Page Application (SPA) architecture where React must read the CSRF token from cookies.
+
+**Security Tradeoff:** Creates theoretical XSS risk if XSS vulnerability exists, but comprehensive XSS prevention mitigations make actual risk LOW.
+
+**Detailed Policy:** See [CSRF Cookie Security Policy](./CSRF_COOKIE_POLICY.md) for complete documentation including:
+- Security rationale and risk analysis
+- XSS prevention strategy (5 DOMPurify presets, 157+ tests)
+- Alternative approaches evaluated
+- Quarterly review schedule
+- Decision history and approval
+
+**Risk Assessment:** LOW (requires XSS vulnerability + comprehensive mitigations in place)
+**Production Status:** Approved
 
 ---
 
