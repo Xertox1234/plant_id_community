@@ -46,7 +46,7 @@ dependencies:
   riverpod_annotation: ^2.6.1
 
   # Navigation
-  go_router: ^15.1.0
+  go_router: ^16.3.0
 
   # Image Handling
   image_picker: ^1.2.0
