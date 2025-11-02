@@ -140,7 +140,7 @@ CACHE_LOCK_ID_PREFIX = 'plant_id'  # Will be: "plant_id-{hostname}-{pid}-{thread
 RATE_LIMITS = {
     # Anonymous User Limits (IP-based)
     'anonymous': {
-        'plant_identification': '10/h',     # Plant ID API calls (expensive)
+        'plant_identification': '100/h',    # Increased for development testing (was 10/h)
         'read_only': '100/h',               # General read operations
         'search': '30/h',                   # Search endpoints
     },

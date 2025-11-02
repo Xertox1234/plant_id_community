@@ -298,9 +298,9 @@ class CombinedPlantIdentificationService:
                 # Create BytesIO object from image data
                 image_file = BytesIO(image_data)
                 result = self.plantnet.identify_plant(
-                    image_file,
-                    organs=['flower', 'leaf', 'fruit', 'bark'],
-                    include_related_images=True
+                    [image_file],  # PlantNet expects a list of images
+                    organs=['leaf']  # One organ per image - using 'leaf' as most common
+                    # Note: include_related_images removed - not supported by PlantNet API
                 )
 
                 duration = time.time() - plantnet_start

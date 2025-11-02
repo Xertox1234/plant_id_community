@@ -68,7 +68,7 @@ class PlantIDAPIService:
     Provides AI-powered plant identification with disease detection.
     """
 
-    BASE_URL = "https://plant.id/api/v3"
+    BASE_URL = "https://api.plant.id/v3"  # Correct URL format per official docs
     API_VERSION = "v3"  # Include in cache key for version-specific caching
     CACHE_TIMEOUT = PLANT_ID_CACHE_TIMEOUT
 

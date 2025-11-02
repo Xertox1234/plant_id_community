@@ -636,6 +636,7 @@ CORS_ALLOW_HEADERS = [
     'origin',
     'user-agent',
     'x-csrftoken',
+    'x-request-id',  # For distributed tracing (httpClient)
     'x-requested-with',
 ]
 
@@ -723,6 +724,10 @@ except Exception:
 # External API settings
 TREFLE_API_KEY = config('TREFLE_API_KEY', default='')
 TREFLE_API_BASE_URL = 'https://trefle.io/api/v1'
+
+# Plant.id API (Kindwise) - Primary identification service
+PLANT_ID_API_KEY = config('PLANT_ID_API_KEY', default='')
+PLANT_ID_API_BASE_URL = 'https://api.plant.id/v3'  # Correct URL per official docs
 
 PLANTNET_API_KEY = config('PLANTNET_API_KEY', default='')
 PLANTNET_API_BASE_URL = 'https://my-api.plantnet.org/v2'

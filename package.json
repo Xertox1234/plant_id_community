@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@playwright/test": "^1.56.1",
     "react-error-boundary": "^6.0.0"
   }
 }

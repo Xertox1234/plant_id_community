@@ -10,10 +10,15 @@ export const plantIdService = {
    * @returns {Promise} Plant identification results
    */
   identifyPlant: async (imageFile) => {
+    console.log('[plantIdService] Starting identification...')
+    console.log('[plantIdService] Image file:', imageFile)
+    console.log('[plantIdService] API URL:', `${API_BASE_URL}/api/${API_VERSION}/plant-identification/identify/`)
+
     const formData = new FormData()
     formData.append('image', imageFile)
 
     try {
+      console.log('[plantIdService] Sending request...')
       const response = await axios.post(
         `${API_BASE_URL}/api/${API_VERSION}/plant-identification/identify/`,
         formData,
@@ -23,8 +28,11 @@ export const plantIdService = {
           },
         }
       )
+      console.log('[plantIdService] Response received:', response.data)
       return response.data
     } catch (error) {
+      console.error('[plantIdService] Error occurred:', error)
+      console.error('[plantIdService] Error response:', error.response)
       if (error.response?.data?.error) {
         throw new Error(error.response.data.error)
       }

@@ -16,24 +16,50 @@ export default function IdentifyPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  console.log('[IdentifyPage] Render - selectedFile:', selectedFile)
+  console.log('[IdentifyPage] Render - results:', results)
+  console.log('[IdentifyPage] Render - loading:', loading)
+  console.log('[IdentifyPage] Button should show:', selectedFile && !results)
+
   const handleFileSelect = (file) => {
+    console.log('[IdentifyPage] File selected:', file)
     setSelectedFile(file)
     setResults(null)
     setError(null)
+    console.log('[IdentifyPage] State updated - selectedFile should now be set')
   }
 
   const handleIdentify = async () => {
-    if (!selectedFile) return
+    console.log('[IdentifyPage] handleIdentify called')
+    console.log('[IdentifyPage] selectedFile:', selectedFile)
 
+    if (!selectedFile) {
+      console.log('[IdentifyPage] No file selected, returning')
+      return
+    }
+
+    console.log('[IdentifyPage] Setting loading to true')
     setLoading(true)
     setError(null)
 
     try {
+      console.log('[IdentifyPage] Calling plantIdService.identifyPlant...')
       const data = await plantIdService.identifyPlant(selectedFile)
-      setResults(data)
+      console.log('[IdentifyPage] Got results:', data)
+
+      // Check if the response indicates failure
+      if (data.success === false || data.error) {
+        console.log('[IdentifyPage] API returned error:', data.error)
+        setError(data.error || 'Identification failed')
+        setResults(null)
+      } else {
+        setResults(data)
+      }
     } catch (err) {
+      console.error('[IdentifyPage] Error caught:', err)
       setError(err.message)
     } finally {
+      console.log('[IdentifyPage] Setting loading to false')
       setLoading(false)
     }
   }
