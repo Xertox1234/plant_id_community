@@ -124,9 +124,23 @@ class PostSerializer(serializers.ModelSerializer):
             }
 
         Performance:
-            - Viewset should prefetch reactions to avoid N+1
+            - List view: Uses pre-annotated counts (instant, no query)
+            - Detail view: Falls back to prefetched reactions
             - Counts only active reactions (is_active=True)
+
+        See: Issue #96 - perf: Optimize reaction counts with database annotations
         """
+        # Check if counts were annotated by viewset (list view)
+        if hasattr(obj, 'like_count'):
+            # Use pre-computed annotations (O(1), no query)
+            return {
+                'like': obj.like_count,
+                'love': obj.love_count,
+                'helpful': obj.helpful_count,
+                'thanks': obj.thanks_count,
+            }
+
+        # Fallback for detail view (still efficient with prefetch_related)
         from ..models import Reaction
 
         # Get active reactions for this post
