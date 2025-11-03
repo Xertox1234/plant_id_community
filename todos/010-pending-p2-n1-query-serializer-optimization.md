@@ -5,7 +5,8 @@ issue_id: "010"
 tags: [code-review, performance, django, n-plus-one, forum]
 dependencies: []
 completed_date: 2025-11-03
-pr_number: TBD
+pr_number: 111
+github_issue: 96
 ---
 
 # N+1 Query Optimization - Serializer Reaction Counts
