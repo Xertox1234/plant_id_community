@@ -13,6 +13,8 @@ from rest_framework.request import Request
 from rest_framework.permissions import IsAuthenticatedOrReadOnly, BasePermission
 from rest_framework.serializers import Serializer
 from django.db.models import QuerySet
+from django_ratelimit.decorators import ratelimit
+from django.utils.decorators import method_decorator
 
 from ..models import Post
 from ..serializers import (
@@ -237,6 +239,7 @@ class PostViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @action(detail=True, methods=['POST'], permission_classes=[IsAuthorOrModerator])
+    @method_decorator(ratelimit(key='user', rate='10/h', method='POST', block=True))
     def upload_image(self, request: Request, pk=None) -> Response:
         """
         Upload an image attachment to a post.
@@ -354,6 +357,7 @@ class PostViewSet(viewsets.ModelViewSet):
             )
 
     @action(detail=True, methods=['DELETE'], permission_classes=[IsAuthorOrModerator], url_path='delete_image/(?P<attachment_id>[^/.]+)')
+    @method_decorator(ratelimit(key='user', rate='20/h', method='DELETE', block=True))
     def delete_image(self, request: Request, pk=None, attachment_id=None) -> Response:
         """
         Delete an image attachment from a post.

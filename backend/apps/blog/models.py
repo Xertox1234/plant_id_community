@@ -180,6 +180,7 @@ class BlogPostView(models.Model):
             models.Index(fields=['post', '-viewed_at']),
             models.Index(fields=['-viewed_at']),
             models.Index(fields=['user', '-viewed_at']),
+            models.Index(fields=['viewed_at', 'post'], name='blog_view_trending_idx'),
         ]
 
     def __str__(self):
