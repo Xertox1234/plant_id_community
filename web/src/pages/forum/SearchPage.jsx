@@ -44,6 +44,7 @@ export default function SearchPage() {
     if (query) {
       setSearchInput(query);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load categories for filter dropdown
