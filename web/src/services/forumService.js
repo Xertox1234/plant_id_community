@@ -255,3 +255,83 @@ export async function removeReaction(reactionId) {
 export async function fetchReactions(postId) {
   return authenticatedFetch(`${FORUM_BASE}/reactions/?post=${postId}`);
 }
+
+/**
+ * Search forum threads and posts
+ * @param {Object} options
+ * @param {string} options.q - Search query (required)
+ * @param {string} options.category - Filter by category slug
+ * @param {string} options.author - Filter by author username
+ * @param {string} options.date_from - Filter by date (ISO format)
+ * @param {string} options.date_to - Filter by date (ISO format)
+ * @param {number} options.page - Page number (default: 1)
+ * @param {number} options.page_size - Results per page (default: 20, max: 50)
+ * @returns {Promise<Object>} Search results with threads and posts
+ */
+export async function searchForum({
+  q,
+  category = '',
+  author = '',
+  date_from = '',
+  date_to = '',
+  page = 1,
+  page_size = 20
+} = {}) {
+  if (!q || q.trim() === '') {
+    throw new Error('Search query is required');
+  }
+
+  const params = new URLSearchParams({
+    q: q.trim(),
+    page: page.toString(),
+    page_size: page_size.toString(),
+  });
+
+  if (category) params.append('category', category);
+  if (author) params.append('author', author);
+  if (date_from) params.append('date_from', date_from);
+  if (date_to) params.append('date_to', date_to);
+
+  return authenticatedFetch(`${FORUM_BASE}/threads/search/?${params}`);
+}
+
+/**
+ * Upload image to a post (requires authentication)
+ * @param {string} postId - Post UUID
+ * @param {File} imageFile - Image file to upload
+ * @returns {Promise<Object>} Created attachment object with ImageKit URLs
+ */
+export async function uploadPostImage(postId, imageFile) {
+  const csrfToken = getCsrfToken();
+  const formData = new FormData();
+  formData.append('image', imageFile);
+
+  const response = await fetch(`${FORUM_BASE}/posts/${postId}/upload_image/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Accept': 'application/json',
+      ...(csrfToken && { 'X-CSRFToken': csrfToken }),
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Delete image from a post (requires authentication)
+ * @param {string} postId - Post UUID
+ * @param {string} attachmentId - Attachment UUID
+ * @returns {Promise<void>}
+ */
+export async function deletePostImage(postId, attachmentId) {
+  return authenticatedFetch(`${FORUM_BASE}/posts/${postId}/delete_image/${attachmentId}/`, {
+    method: 'DELETE',
+  });
+}
