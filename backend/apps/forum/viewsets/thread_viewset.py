@@ -26,6 +26,28 @@ from ..permissions import IsAuthorOrReadOnly, IsModerator, CanCreateThread, IsAu
 logger = logging.getLogger(__name__)
 
 
+def escape_search_query(query: str) -> str:
+    """
+    Escape SQL wildcard characters in search queries.
+
+    Prevents unintended pattern matching from user input containing
+    '%' (matches any characters) or '_' (matches single character).
+
+    Args:
+        query: User-provided search query string
+
+    Returns:
+        Sanitized query with escaped wildcards
+
+    Example:
+        >>> escape_search_query("test%data")
+        "test\\%data"
+        >>> escape_search_query("user_name")
+        "user\\_name"
+    """
+    return query.replace('%', r'\%').replace('_', r'\_')
+
+
 class ThreadViewSet(viewsets.ModelViewSet):
     """
     ViewSet for forum threads.
@@ -278,9 +300,17 @@ class ThreadViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Sanitize search query (escape SQL wildcards)
+        safe_query = escape_search_query(query)
+
         # Get filter parameters
         category_slug = request.query_params.get('category', '').strip()
         author_username = request.query_params.get('author', '').strip()
+
+        # Sanitize author username too
+        if author_username:
+            author_username = escape_search_query(author_username)
+
         page_num = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 20))
 
@@ -291,7 +321,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
 
         # Apply search to thread title and excerpt
         thread_qs = thread_qs.filter(
-            Q(title__icontains=query) | Q(excerpt__icontains=query)
+            Q(title__icontains=safe_query) | Q(excerpt__icontains=safe_query)
         )
 
         # Apply filters
@@ -310,7 +340,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
 
         # Apply search to post content (raw content only, not HTML)
         post_qs = post_qs.filter(
-            Q(content_raw__icontains=query)
+            Q(content_raw__icontains=safe_query)
         )
 
         # Apply filters

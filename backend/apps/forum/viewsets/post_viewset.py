@@ -265,15 +265,20 @@ class PostViewSet(viewsets.ModelViewSet):
         from ..models import Attachment
         from ..serializers import AttachmentSerializer
         from django.core.files.uploadedfile import UploadedFile
+        from ..constants import (
+            MAX_ATTACHMENTS_PER_POST,
+            MAX_ATTACHMENT_SIZE_BYTES,
+            ALLOWED_IMAGE_EXTENSIONS,
+            ALLOWED_IMAGE_MIME_TYPES
+        )
 
         post = self.get_object()
 
         # Check max attachments limit
-        MAX_ATTACHMENTS = 6
-        if post.attachments.count() >= MAX_ATTACHMENTS:
+        if post.attachments.count() >= MAX_ATTACHMENTS_PER_POST:
             return Response(
                 {
-                    "error": f"Maximum {MAX_ATTACHMENTS} images allowed per post",
+                    "error": f"Maximum {MAX_ATTACHMENTS_PER_POST} images allowed per post",
                     "detail": "Please delete an existing image before uploading a new one"
                 },
                 status=status.HTTP_400_BAD_REQUEST
@@ -290,13 +295,33 @@ class PostViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Validate file size (10MB max)
-        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-        if image_file.size > MAX_FILE_SIZE:
+        # Validate file extension
+        file_extension = image_file.name.split('.')[-1].lower() if '.' in image_file.name else ''
+        if file_extension not in ALLOWED_IMAGE_EXTENSIONS:
+            return Response(
+                {
+                    "error": "Invalid file type",
+                    "detail": f"Allowed formats: {', '.join(ext.upper() for ext in ALLOWED_IMAGE_EXTENSIONS)}"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate MIME type (defense in depth)
+        if image_file.content_type not in ALLOWED_IMAGE_MIME_TYPES:
+            return Response(
+                {
+                    "error": "Invalid file content type",
+                    "detail": f"File MIME type '{image_file.content_type}' not allowed. Expected: {', '.join(ALLOWED_IMAGE_MIME_TYPES)}"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate file size
+        if image_file.size > MAX_ATTACHMENT_SIZE_BYTES:
             return Response(
                 {
                     "error": "File too large",
-                    "detail": f"Maximum file size is {MAX_FILE_SIZE / 1024 / 1024}MB"
+                    "detail": f"Maximum file size is {MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024}MB"
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )

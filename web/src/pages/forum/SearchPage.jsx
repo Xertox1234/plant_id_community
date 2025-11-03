@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router';
 import { searchForum, fetchCategories } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
@@ -28,7 +28,9 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [searchInput, setSearchInput] = useState('');
-  const [debounceTimer, setDebounceTimer] = useState(null);
+
+  // Use ref for debounce timer to prevent memory leaks
+  const debounceTimerRef = useRef(null);
 
   // Get search params
   const query = searchParams.get('q') || '';
@@ -107,18 +109,27 @@ export default function SearchPage() {
     performSearch();
   }, [query, category, author, dateFrom, dateTo, page, pageSize]);
 
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
+
   // Handle search input with debouncing
   const handleSearchInput = useCallback((e) => {
     const value = e.target.value;
     setSearchInput(value);
 
     // Clear existing timer
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
     }
 
     // Set new timer
-    const timer = setTimeout(() => {
+    debounceTimerRef.current = setTimeout(() => {
       if (value.trim()) {
         setSearchParams(prev => {
           const newParams = new URLSearchParams(prev);
@@ -134,9 +145,7 @@ export default function SearchPage() {
         });
       }
     }, 500); // 500ms debounce
-
-    setDebounceTimer(timer);
-  }, [debounceTimer, setSearchParams]);
+  }, [setSearchParams]);
 
   // Handle filter changes
   const handleCategoryFilter = useCallback((e) => {

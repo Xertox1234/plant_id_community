@@ -30,6 +30,10 @@ MAX_ATTACHMENTS_PER_POST = 6
 MAX_ATTACHMENT_SIZE_MB = 10
 MAX_ATTACHMENT_SIZE_BYTES = MAX_ATTACHMENT_SIZE_MB * 1024 * 1024  # 10MB in bytes
 
+# Allowed image formats for attachments
+ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp']
+ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+
 # Trust levels
 TRUST_LEVEL_NEW = 'new'
 TRUST_LEVEL_BASIC = 'basic'
