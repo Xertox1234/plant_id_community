@@ -553,42 +553,26 @@ SIMPLE_JWT = {
 # JWT_SECRET_KEY Validation (CRITICAL SECURITY)
 # JWT tokens MUST use a separate signing key from Django's SECRET_KEY
 # This prevents SECRET_KEY compromise from affecting JWT authentication
-if not DEBUG:
-    # Production: JWT_SECRET_KEY is REQUIRED and must be different from SECRET_KEY
-    JWT_SECRET_KEY = config('JWT_SECRET_KEY', default=None)
-    if not JWT_SECRET_KEY:
-        raise ImproperlyConfigured(
-            "JWT_SECRET_KEY environment variable is required in production. "
-            "Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
-        )
-    if JWT_SECRET_KEY == SECRET_KEY:
-        raise ImproperlyConfigured(
-            "JWT_SECRET_KEY must be different from SECRET_KEY in production. "
-            "Using the same key for both JWT and Django session/CSRF tokens is a security vulnerability. "
-            "Generate a separate JWT_SECRET_KEY with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
-        )
-    if len(JWT_SECRET_KEY) < 50:
-        raise ImproperlyConfigured(
-            f"JWT_SECRET_KEY must be at least 50 characters (got {len(JWT_SECRET_KEY)}). "
-            "Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
-        )
-    SIMPLE_JWT['SIGNING_KEY'] = JWT_SECRET_KEY
-else:
-    # Development: Allow fallback to SECRET_KEY for convenience
-    JWT_SECRET_KEY = config('JWT_SECRET_KEY', default=None)
-    if JWT_SECRET_KEY:
-        SIMPLE_JWT['SIGNING_KEY'] = JWT_SECRET_KEY
-    else:
-        SIMPLE_JWT['SIGNING_KEY'] = SECRET_KEY
-        # Use print() for settings warnings (logger not yet initialized)
-        if DEBUG:
-            import sys
-            print("\n" + "=" * 70, file=sys.stderr)
-            print("⚠️  WARNING: Using SECRET_KEY for JWT signing in development", file=sys.stderr)
-            print("=" * 70, file=sys.stderr)
-            print("Set JWT_SECRET_KEY in .env for production-like security testing", file=sys.stderr)
-            print("Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'", file=sys.stderr)
-            print("=" * 70 + "\n", file=sys.stderr)
+# JWT_SECRET_KEY is REQUIRED in all environments (production and development)
+# SECURITY: Separate signing keys prevent cascade compromise
+JWT_SECRET_KEY = config('JWT_SECRET_KEY', default=None)
+if not JWT_SECRET_KEY:
+    raise ImproperlyConfigured(
+        "JWT_SECRET_KEY environment variable is required. "
+        "Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
+    )
+if JWT_SECRET_KEY == SECRET_KEY:
+    raise ImproperlyConfigured(
+        "JWT_SECRET_KEY must be different from SECRET_KEY. "
+        "Using the same key for both JWT and Django session/CSRF tokens is a security vulnerability. "
+        "Generate a separate JWT_SECRET_KEY with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
+    )
+if len(JWT_SECRET_KEY) < 50:
+    raise ImproperlyConfigured(
+        f"JWT_SECRET_KEY must be at least 50 characters (got {len(JWT_SECRET_KEY)}). "
+        "Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
+    )
+SIMPLE_JWT['SIGNING_KEY'] = JWT_SECRET_KEY
 
 # CORS settings - Secure configuration
 # SECURITY FIX: Never use CORS_ALLOW_ALL_ORIGINS, even in DEBUG mode

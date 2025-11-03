@@ -26,6 +26,28 @@ from ..permissions import IsAuthorOrReadOnly, IsModerator, CanCreateThread, IsAu
 logger = logging.getLogger(__name__)
 
 
+def escape_search_query(query: str) -> str:
+    """
+    Escape SQL wildcard characters in search queries.
+
+    Prevents unintended pattern matching from user input containing
+    '%' (matches any characters) or '_' (matches single character).
+
+    Args:
+        query: User-provided search query string
+
+    Returns:
+        Sanitized query with escaped wildcards
+
+    Example:
+        >>> escape_search_query("test%data")
+        "test\\%data"
+        >>> escape_search_query("user_name")
+        "user\\_name"
+    """
+    return query.replace('%', r'\%').replace('_', r'\_')
+
+
 class ThreadViewSet(viewsets.ModelViewSet):
     """
     ViewSet for forum threads.
@@ -232,3 +254,138 @@ class ThreadViewSet(viewsets.ModelViewSet):
 
         serializer = ThreadListSerializer(recent_threads, many=True, context=self.get_serializer_context())
         return Response(serializer.data)
+
+    @action(detail=False, methods=['GET'])
+    def search(self, request: Request) -> Response:
+        """
+        Full-text search across threads and posts.
+
+        GET /api/v1/forum/threads/search/?q=watering&category=plant-care&author=john&page=1
+
+        Query Parameters:
+            - q (str): Search query (required)
+            - category (str): Filter by category slug
+            - author (str): Filter by author username
+            - page (int): Page number (default: 1)
+            - page_size (int): Results per page (default: 20)
+
+        Returns:
+            {
+                "query": "watering",
+                "threads": [...],
+                "posts": [...],
+                "thread_count": 5,
+                "post_count": 12,
+                "has_next_threads": true,
+                "has_next_posts": false,
+                "page": 1
+            }
+        """
+        from ..serializers import PostSerializer
+
+        query = request.query_params.get('q', '').strip()
+        if not query:
+            return Response(
+                {
+                    "error": "Search query parameter 'q' is required",
+                    "query": "",
+                    "threads": [],
+                    "posts": [],
+                    "thread_count": 0,
+                    "post_count": 0,
+                    "has_next_threads": False,
+                    "has_next_posts": False,
+                    "page": 1
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Sanitize search query (escape SQL wildcards)
+        safe_query = escape_search_query(query)
+
+        # Get filter parameters
+        category_slug = request.query_params.get('category', '').strip()
+        author_username = request.query_params.get('author', '').strip()
+
+        # Sanitize author username too
+        if author_username:
+            author_username = escape_search_query(author_username)
+
+        page_num = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+
+        # Search threads
+        thread_qs = Thread.objects.filter(
+            is_active=True
+        ).select_related('author', 'category')
+
+        # Apply search to thread title and excerpt
+        thread_qs = thread_qs.filter(
+            Q(title__icontains=safe_query) | Q(excerpt__icontains=safe_query)
+        )
+
+        # Apply filters
+        if category_slug:
+            thread_qs = thread_qs.filter(category__slug=category_slug)
+        if author_username:
+            thread_qs = thread_qs.filter(author__username__icontains=author_username)
+
+        # Order by relevance (pinned first, then recent activity)
+        thread_qs = thread_qs.order_by('-is_pinned', '-last_activity_at')
+
+        # Search posts
+        post_qs = Post.objects.filter(
+            is_active=True
+        ).select_related('author', 'thread', 'thread__category')
+
+        # Apply search to post content (raw content only, not HTML)
+        post_qs = post_qs.filter(
+            Q(content_raw__icontains=safe_query)
+        )
+
+        # Apply filters
+        if category_slug:
+            post_qs = post_qs.filter(thread__category__slug=category_slug)
+        if author_username:
+            post_qs = post_qs.filter(author__username__icontains=author_username)
+
+        # Order by recent activity
+        post_qs = post_qs.order_by('-created_at')
+
+        # Get total counts
+        thread_count = thread_qs.count()
+        post_count = post_qs.count()
+
+        # Paginate results
+        start = (page_num - 1) * page_size
+        end = start + page_size
+
+        threads = thread_qs[start:end]
+        posts = post_qs[start:end]
+
+        # Check if there are more results
+        has_next_threads = thread_count > end
+        has_next_posts = post_count > end
+
+        # Serialize results
+        thread_serializer = ThreadListSerializer(
+            threads,
+            many=True,
+            context=self.get_serializer_context()
+        )
+        post_serializer = PostSerializer(
+            posts,
+            many=True,
+            context={'request': request}
+        )
+
+        return Response({
+            "query": query,
+            "threads": thread_serializer.data,
+            "posts": post_serializer.data,
+            "thread_count": thread_count,
+            "post_count": post_count,
+            "has_next_threads": has_next_threads,
+            "has_next_posts": has_next_posts,
+            "page": page_num
+        })

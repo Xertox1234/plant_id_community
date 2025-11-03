@@ -17,6 +17,7 @@ const BlogPreview = lazy(() => import('./pages/BlogPreview'))
 const CategoryListPage = lazy(() => import('./pages/forum/CategoryListPage'))
 const ThreadListPage = lazy(() => import('./pages/forum/ThreadListPage'))
 const ThreadDetailPage = lazy(() => import('./pages/forum/ThreadDetailPage'))
+const SearchPage = lazy(() => import('./pages/forum/SearchPage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 
@@ -44,6 +45,7 @@ function App() {
           <Route path="/blog" element={<BlogListPage />} />
           <Route path="/blog/:slug" element={<BlogDetailPage />} />
           <Route path="/blog/preview/:content_type/:token" element={<BlogPreview />} />
+          <Route path="/forum/search" element={<SearchPage />} />
           <Route path="/forum" element={<CategoryListPage />} />
           <Route path="/forum/:categorySlug" element={<ThreadListPage />} />
           <Route path="/forum/:categorySlug/:threadSlug" element={<ThreadDetailPage />} />

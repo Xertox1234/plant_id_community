@@ -13,6 +13,8 @@ from rest_framework.request import Request
 from rest_framework.permissions import IsAuthenticatedOrReadOnly, BasePermission
 from rest_framework.serializers import Serializer
 from django.db.models import QuerySet
+from django_ratelimit.decorators import ratelimit
+from django.utils.decorators import method_decorator
 
 from ..models import Post
 from ..serializers import (
@@ -235,3 +237,162 @@ class PostViewSet(viewsets.ModelViewSet):
 
         serializer = PostSerializer(first_posts, many=True, context=self.get_serializer_context())
         return Response(serializer.data)
+
+    @action(detail=True, methods=['POST'], permission_classes=[IsAuthorOrModerator])
+    @method_decorator(ratelimit(key='user', rate='10/h', method='POST', block=True))
+    def upload_image(self, request: Request, pk=None) -> Response:
+        """
+        Upload an image attachment to a post.
+
+        POST /api/v1/forum/posts/{post_id}/upload_image/
+
+        Request:
+            - Content-Type: multipart/form-data
+            - Body: image file
+
+        Validation:
+            - Maximum 6 images per post
+            - Allowed formats: JPG, PNG, GIF, WebP
+            - Maximum file size: 10MB
+
+        Returns:
+            {
+                "id": "uuid",
+                "image": "https://...",
+                "image_thumbnail": "https://...",
+                "original_filename": "photo.jpg",
+                "file_size": 1024000,
+                "created_at": "2025-11-03T..."
+            }
+        """
+        from ..models import Attachment
+        from ..serializers import AttachmentSerializer
+        from django.core.files.uploadedfile import UploadedFile
+        from ..constants import (
+            MAX_ATTACHMENTS_PER_POST,
+            MAX_ATTACHMENT_SIZE_BYTES,
+            ALLOWED_IMAGE_EXTENSIONS,
+            ALLOWED_IMAGE_MIME_TYPES
+        )
+
+        post = self.get_object()
+
+        # Check max attachments limit
+        if post.attachments.count() >= MAX_ATTACHMENTS_PER_POST:
+            return Response(
+                {
+                    "error": f"Maximum {MAX_ATTACHMENTS_PER_POST} images allowed per post",
+                    "detail": "Please delete an existing image before uploading a new one"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get uploaded file
+        image_file = request.FILES.get('image')
+        if not image_file:
+            return Response(
+                {
+                    "error": "No image file provided",
+                    "detail": "Please provide an 'image' field in the multipart form data"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate file extension
+        file_extension = image_file.name.split('.')[-1].lower() if '.' in image_file.name else ''
+        if file_extension not in ALLOWED_IMAGE_EXTENSIONS:
+            return Response(
+                {
+                    "error": "Invalid file type",
+                    "detail": f"Allowed formats: {', '.join(ext.upper() for ext in ALLOWED_IMAGE_EXTENSIONS)}"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate MIME type (defense in depth)
+        if image_file.content_type not in ALLOWED_IMAGE_MIME_TYPES:
+            return Response(
+                {
+                    "error": "Invalid file content type",
+                    "detail": f"File MIME type '{image_file.content_type}' not allowed. Expected: {', '.join(ALLOWED_IMAGE_MIME_TYPES)}"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate file size
+        if image_file.size > MAX_ATTACHMENT_SIZE_BYTES:
+            return Response(
+                {
+                    "error": "File too large",
+                    "detail": f"Maximum file size is {MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024}MB"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create attachment
+        try:
+            attachment = Attachment.objects.create(
+                post=post,
+                image=image_file,
+                original_filename=image_file.name,
+                file_size=image_file.size
+            )
+
+            logger.info(
+                f"[FORUM] Image uploaded to post {post.id} by {request.user.username}: "
+                f"{image_file.name} ({image_file.size} bytes)"
+            )
+
+            serializer = AttachmentSerializer(attachment, context={'request': request})
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            logger.error(f"[FORUM] Image upload failed for post {post.id}: {str(e)}")
+            return Response(
+                {
+                    "error": "Image upload failed",
+                    "detail": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['DELETE'], permission_classes=[IsAuthorOrModerator], url_path='delete_image/(?P<attachment_id>[^/.]+)')
+    @method_decorator(ratelimit(key='user', rate='20/h', method='DELETE', block=True))
+    def delete_image(self, request: Request, pk=None, attachment_id=None) -> Response:
+        """
+        Delete an image attachment from a post.
+
+        DELETE /api/v1/forum/posts/{post_id}/delete_image/{attachment_id}/
+
+        Permissions:
+            - Post author or moderator only
+
+        Returns:
+            204 No Content on success
+        """
+        from ..models import Attachment
+
+        post = self.get_object()
+
+        # Get attachment
+        try:
+            attachment = Attachment.objects.get(id=attachment_id, post=post)
+        except Attachment.DoesNotExist:
+            return Response(
+                {
+                    "error": "Attachment not found",
+                    "detail": f"No attachment with ID {attachment_id} found for this post"
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Delete the attachment (cascades to delete the image file)
+        filename = attachment.original_filename
+        attachment.delete()
+
+        logger.info(
+            f"[FORUM] Image deleted from post {post.id} by {request.user.username}: "
+            f"{filename}"
+        )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)

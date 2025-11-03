@@ -71,11 +71,11 @@ class Category(models.Model):
     )
     parent = models.ForeignKey(
         'self',
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name='children',
-        help_text="Parent category for hierarchical structure"
+        help_text="Parent category. PROTECT prevents accidental deletion of category hierarchies."
     )
     icon = models.CharField(
         max_length=50,
