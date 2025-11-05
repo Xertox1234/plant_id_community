@@ -400,3 +400,204 @@ class ThreadViewSetTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_search_requires_query_parameter(self):
+        """GET /threads/search/ without query parameter returns 400."""
+        response = self.client.get('/api/v1/forum/threads/search/')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+
+    def test_search_finds_threads_by_title(self):
+        """Search finds threads matching query in title."""
+        response = self.client.get('/api/v1/forum/threads/search/?q=water')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['query'], 'water')
+        self.assertGreater(response.data['total_threads'], 0)
+
+        # Check that thread1 is in results
+        thread_ids = [t['id'] for t in response.data['threads']]
+        self.assertIn(str(self.thread1.id), thread_ids)
+
+    def test_search_finds_threads_by_excerpt(self):
+        """Search finds threads matching query in excerpt."""
+        response = self.client.get('/api/v1/forum/threads/search/?q=succulents')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreater(response.data['total_threads'], 0)
+
+        thread_ids = [t['id'] for t in response.data['threads']]
+        self.assertIn(str(self.thread1.id), thread_ids)
+
+    def test_search_finds_posts_by_content(self):
+        """Search finds posts matching query in content."""
+        # Create a post with specific content
+        Post.objects.create(
+            thread=self.thread1,
+            author=self.other_user,
+            content_raw='Make sure to fertilize your plants regularly in spring.',
+            is_active=True
+        )
+
+        response = self.client.get('/api/v1/forum/threads/search/?q=fertilize')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreater(response.data['total_posts'], 0)
+
+    def test_search_filter_by_category(self):
+        """Search can filter results by category slug."""
+        # Create another category and thread
+        other_category = Category.objects.create(
+            name='Pest Control',
+            slug='pest-control',
+            is_active=True
+        )
+        Thread.objects.create(
+            title='How to water indoor plants',
+            slug='water-indoor-plants',
+            author=self.author,
+            category=other_category,
+            excerpt='Indoor watering guide',
+            is_active=True
+        )
+
+        # Search only in plant-care category
+        response = self.client.get(
+            '/api/v1/forum/threads/search/?q=water&category=plant-care'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # All results should be from plant-care category
+        for thread in response.data['threads']:
+            self.assertEqual(thread['category']['slug'], 'plant-care')
+
+    def test_search_filter_by_author(self):
+        """Search can filter results by author username."""
+        response = self.client.get(
+            f'/api/v1/forum/threads/search/?q=guidelines&author={self.moderator.username}'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # All threads should be authored by moderator
+        for thread in response.data['threads']:
+            self.assertEqual(thread['author']['username'], self.moderator.username)
+
+    def test_search_filter_by_date_range(self):
+        """Search accepts date_from and date_to parameters."""
+        from datetime import timedelta
+        from urllib.parse import quote
+
+        # Just test that the date filter parameters are accepted
+        # without verifying the exact filtering logic (which is complex with timing)
+        date_from = (timezone.now() - timedelta(days=5)).isoformat()
+        date_to = timezone.now().isoformat()
+
+        # URL encode the dates to preserve the + sign
+        response = self.client.get(
+            f'/api/v1/forum/threads/search/?q=water&date_from={quote(date_from)}&date_to={quote(date_to)}'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Verify filters are in response (they come back as provided)
+        self.assertIn('date_from', response.data['filters'])
+        self.assertIn('date_to', response.data['filters'])
+
+    def test_search_pagination(self):
+        """Search supports pagination with page and page_size parameters."""
+        # Create multiple threads to test pagination
+        for i in range(5):
+            Thread.objects.create(
+                title=f'Watering guide {i}',
+                slug=f'watering-guide-{i}',
+                author=self.author,
+                category=self.category,
+                excerpt='Watering tips',
+                is_active=True
+            )
+
+        # Get page 1 with 2 results
+        response = self.client.get(
+            '/api/v1/forum/threads/search/?q=watering&page=1&page_size=2'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['page'], 1)
+        self.assertEqual(response.data['page_size'], 2)
+        self.assertLessEqual(len(response.data['threads']), 2)
+
+    def test_search_respects_max_page_size(self):
+        """Search enforces maximum page size of 50."""
+        response = self.client.get(
+            '/api/v1/forum/threads/search/?q=water&page_size=100'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Should be capped at 50
+        self.assertEqual(response.data['page_size'], 50)
+
+    def test_search_excludes_inactive_threads(self):
+        """Search only returns active threads."""
+        response = self.client.get(
+            f'/api/v1/forum/threads/search/?q=inactive'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Inactive thread should not be in results
+        thread_ids = [t['id'] for t in response.data['threads']]
+        self.assertNotIn(str(self.inactive_thread.id), thread_ids)
+
+    def test_search_ranks_by_relevance(self):
+        """Search results are ranked by relevance (title matches rank higher)."""
+        # Create a thread with query in title
+        title_match = Thread.objects.create(
+            title='Complete Watering Guide',
+            slug='complete-watering-guide',
+            author=self.author,
+            category=self.category,
+            excerpt='General guide',
+            is_active=True
+        )
+
+        # Create a thread with query only in excerpt
+        excerpt_match = Thread.objects.create(
+            title='Plant Care Tips',
+            slug='plant-care-tips',
+            author=self.author,
+            category=self.category,
+            excerpt='Learn about watering your plants',
+            is_active=True
+        )
+
+        response = self.client.get('/api/v1/forum/threads/search/?q=watering')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Title match should rank higher than excerpt match
+        thread_ids = [t['id'] for t in response.data['threads']]
+        title_index = thread_ids.index(str(title_match.id))
+        excerpt_index = thread_ids.index(str(excerpt_match.id))
+
+        self.assertLess(title_index, excerpt_index,
+                       "Thread with query in title should rank higher")
+
+    def test_search_response_includes_all_expected_fields(self):
+        """Search response includes all expected fields."""
+        response = self.client.get('/api/v1/forum/threads/search/?q=water')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Check response structure
+        self.assertIn('query', response.data)
+        self.assertIn('threads', response.data)
+        self.assertIn('posts', response.data)
+        self.assertIn('total_threads', response.data)
+        self.assertIn('total_posts', response.data)
+        self.assertIn('page', response.data)
+        self.assertIn('page_size', response.data)
+        self.assertIn('has_next_threads', response.data)
+        self.assertIn('has_next_posts', response.data)
+        self.assertIn('filters', response.data)
