@@ -5,7 +5,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('forum', '0002_category_parent_protect'),
+        ('forum', '0005_flaggedcontent_moderationaction_and_more'),
     ]
 
     operations = [
