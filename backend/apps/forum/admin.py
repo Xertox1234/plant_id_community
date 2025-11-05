@@ -5,7 +5,7 @@ Following pattern from apps/blog/admin.py
 """
 
 from django.contrib import admin
-from .models import Category, Thread, Post, Attachment, Reaction, UserProfile
+from .models import Category, Thread, Post, Attachment, Reaction, UserProfile, FlaggedContent, ModerationAction
 
 
 @admin.register(Category)
@@ -66,3 +66,48 @@ class UserProfileAdmin(admin.ModelAdmin):
     search_fields = ['user__username', 'user__email']
     readonly_fields = ['id', 'post_count', 'thread_count', 'helpful_count', 'created_at', 'updated_at']
     ordering = ['-helpful_count', '-post_count']
+
+
+@admin.register(FlaggedContent)
+class FlaggedContentAdmin(admin.ModelAdmin):
+    """Admin interface for Flagged Content (Phase 4.2)."""
+    list_display = ['id', 'content_type', 'reporter', 'flag_reason', 'status', 'reviewed_by', 'created_at']
+    list_filter = ['status', 'content_type', 'flag_reason', 'created_at', 'reviewed_at']
+    search_fields = ['reporter__username', 'reviewed_by__username', 'explanation', 'moderator_notes']
+    readonly_fields = ['id', 'created_at', 'updated_at']
+    ordering = ['-created_at']
+    date_hierarchy = 'created_at'
+
+    fieldsets = (
+        ('Flag Information', {
+            'fields': ('content_type', 'post', 'thread', 'reporter', 'flag_reason', 'explanation')
+        }),
+        ('Review Information', {
+            'fields': ('status', 'reviewed_by', 'reviewed_at', 'moderator_notes')
+        }),
+        ('Metadata', {
+            'fields': ('id', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+
+@admin.register(ModerationAction)
+class ModerationActionAdmin(admin.ModelAdmin):
+    """Admin interface for Moderation Actions (Phase 4.2)."""
+    list_display = ['id', 'moderator', 'action_type', 'flag', 'affected_user', 'created_at']
+    list_filter = ['action_type', 'created_at']
+    search_fields = ['moderator__username', 'affected_user__username', 'reason']
+    readonly_fields = ['id', 'created_at']
+    ordering = ['-created_at']
+    date_hierarchy = 'created_at'
+
+    fieldsets = (
+        ('Action Information', {
+            'fields': ('flag', 'moderator', 'action_type', 'reason', 'affected_user')
+        }),
+        ('Metadata', {
+            'fields': ('id', 'created_at'),
+            'classes': ('collapse',)
+        }),
+    )

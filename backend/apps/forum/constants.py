@@ -100,3 +100,67 @@ DEFAULT_DISPLAY_ORDER = 0
 MAX_PREFETCH_POSTS = 50  # Limit posts prefetched in thread detail
 MAX_PREFETCH_REACTIONS = 100  # Limit reactions prefetched per post
 MAX_RELATED_THREADS = 5  # Limit related threads shown
+
+# Moderation system (Phase 4.2)
+# Flag reasons for content moderation
+FLAG_REASON_SPAM = 'spam'
+FLAG_REASON_OFFENSIVE = 'offensive'
+FLAG_REASON_OFF_TOPIC = 'off_topic'
+FLAG_REASON_MISINFORMATION = 'misinformation'
+FLAG_REASON_DUPLICATE = 'duplicate'
+FLAG_REASON_LOW_QUALITY = 'low_quality'
+FLAG_REASON_OTHER = 'other'
+
+FLAG_REASONS = [
+    (FLAG_REASON_SPAM, 'Spam or Advertising'),
+    (FLAG_REASON_OFFENSIVE, 'Offensive or Inappropriate Content'),
+    (FLAG_REASON_OFF_TOPIC, 'Off-Topic'),
+    (FLAG_REASON_MISINFORMATION, 'Misinformation'),
+    (FLAG_REASON_DUPLICATE, 'Duplicate Content'),
+    (FLAG_REASON_LOW_QUALITY, 'Low Quality'),
+    (FLAG_REASON_OTHER, 'Other'),
+]
+
+# Moderation states
+MODERATION_STATUS_PENDING = 'pending'
+MODERATION_STATUS_APPROVED = 'approved'
+MODERATION_STATUS_REJECTED = 'rejected'
+MODERATION_STATUS_REMOVED = 'removed'
+
+MODERATION_STATUSES = [
+    (MODERATION_STATUS_PENDING, 'Pending Review'),
+    (MODERATION_STATUS_APPROVED, 'Approved (No Action Needed)'),
+    (MODERATION_STATUS_REJECTED, 'Rejected (Flag Invalid)'),
+    (MODERATION_STATUS_REMOVED, 'Content Removed'),
+]
+
+# Content types that can be flagged
+FLAGGABLE_CONTENT_TYPE_POST = 'post'
+FLAGGABLE_CONTENT_TYPE_THREAD = 'thread'
+
+FLAGGABLE_CONTENT_TYPES = [
+    (FLAGGABLE_CONTENT_TYPE_POST, 'Post'),
+    (FLAGGABLE_CONTENT_TYPE_THREAD, 'Thread'),
+]
+
+# Moderation action types
+MODERATION_ACTION_APPROVE = 'approve'
+MODERATION_ACTION_REJECT = 'reject'
+MODERATION_ACTION_REMOVE_POST = 'remove_post'
+MODERATION_ACTION_REMOVE_THREAD = 'remove_thread'
+MODERATION_ACTION_LOCK_THREAD = 'lock_thread'
+MODERATION_ACTION_WARNING = 'warning'
+
+MODERATION_ACTIONS = [
+    (MODERATION_ACTION_APPROVE, 'Approve (No Violation)'),
+    (MODERATION_ACTION_REJECT, 'Reject Flag'),
+    (MODERATION_ACTION_REMOVE_POST, 'Remove Post'),
+    (MODERATION_ACTION_REMOVE_THREAD, 'Remove Thread'),
+    (MODERATION_ACTION_LOCK_THREAD, 'Lock Thread'),
+    (MODERATION_ACTION_WARNING, 'Issue Warning to User'),
+]
+
+# Moderation limits
+MAX_FLAGS_PER_USER_PER_DAY = 10  # Prevent flag spam
+MAX_EXPLANATION_LENGTH = 1000  # Max length for flag/action explanation
+MIN_FLAGS_FOR_AUTO_HIDE = 3  # Auto-hide content after N flags (trust level dependent)

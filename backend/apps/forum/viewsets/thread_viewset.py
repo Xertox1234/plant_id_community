@@ -389,3 +389,96 @@ class ThreadViewSet(viewsets.ModelViewSet):
             "has_next_posts": has_next_posts,
             "page": page_num
         })
+
+    @action(detail=True, methods=['POST'], permission_classes=[IsAuthenticatedOrReadOnly], url_path='flag')
+    def flag_thread(self, request: Request, pk=None) -> Response:
+        """
+        Flag a thread for moderation review.
+
+        POST /api/v1/forum/threads/{thread_id}/flag/
+
+        Phase 4.2: Content Moderation Queue
+
+        Request body:
+        {
+            "flag_reason": "spam|offensive|off_topic|misinformation|duplicate|low_quality|other",
+            "explanation": "Optional detailed explanation (required if reason is 'other')"
+        }
+
+        Permissions:
+            - Authenticated users only
+            - Rate limit: 10 flags per day per user
+
+        Returns:
+            201 Created: Flag submitted successfully
+            400 Bad Request: Invalid flag data or already flagged
+            429 Too Many Requests: Rate limit exceeded
+        """
+        from ..models import FlaggedContent
+        from ..serializers import FlagSubmissionSerializer
+        from ..constants import MAX_FLAGS_PER_USER_PER_DAY, FLAGGABLE_CONTENT_TYPE_THREAD
+        from django.utils import timezone
+        from datetime import timedelta
+
+        thread = self.get_object()
+
+        # Check if user already flagged this thread
+        existing_flag = FlaggedContent.objects.filter(
+            thread=thread,
+            reporter=request.user,
+            status='pending'
+        ).first()
+
+        if existing_flag:
+            return Response(
+                {
+                    "error": "Already flagged",
+                    "detail": "You have already flagged this thread"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check daily flag limit
+        today_start = timezone.now() - timedelta(days=1)
+        flags_today = FlaggedContent.objects.filter(
+            reporter=request.user,
+            created_at__gte=today_start
+        ).count()
+
+        if flags_today >= MAX_FLAGS_PER_USER_PER_DAY:
+            return Response(
+                {
+                    "error": "Rate limit exceeded",
+                    "detail": f"Maximum {MAX_FLAGS_PER_USER_PER_DAY} flags per day"
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
+        # Validate request data
+        serializer = FlagSubmissionSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create flag
+        flag = FlaggedContent.objects.create(
+            content_type=FLAGGABLE_CONTENT_TYPE_THREAD,
+            thread=thread,
+            reporter=request.user,
+            flag_reason=serializer.validated_data['flag_reason'],
+            explanation=serializer.validated_data.get('explanation', ''),
+            status='pending'
+        )
+
+        logger.info(
+            f"[MODERATION] Thread {thread.id} flagged by {request.user.username} "
+            f"(reason: {flag.flag_reason})"
+        )
+
+        return Response(
+            {
+                "success": True,
+                "flag_id": str(flag.id),
+                "message": "Thread flagged for moderation review"
+            },
+            status=status.HTTP_201_CREATED
+        )

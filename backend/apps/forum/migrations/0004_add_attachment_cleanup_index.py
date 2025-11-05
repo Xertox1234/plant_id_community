@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('forum', '0003_add_attachment_soft_delete'),
+        ('forum', '0002_category_parent_protect'),
     ]
 
     operations = [
