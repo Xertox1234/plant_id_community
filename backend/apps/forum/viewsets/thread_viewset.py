@@ -26,28 +26,6 @@ from ..permissions import IsAuthorOrReadOnly, IsModerator, CanCreateThread, IsAu
 logger = logging.getLogger(__name__)
 
 
-def escape_search_query(query: str) -> str:
-    """
-    Escape SQL wildcard characters in search queries.
-
-    Prevents unintended pattern matching from user input containing
-    '%' (matches any characters) or '_' (matches single character).
-
-    Args:
-        query: User-provided search query string
-
-    Returns:
-        Sanitized query with escaped wildcards
-
-    Example:
-        >>> escape_search_query("test%data")
-        "test\\%data"
-        >>> escape_search_query("user_name")
-        "user\\_name"
-    """
-    return query.replace('%', r'\%').replace('_', r'\_')
-
-
 class ThreadViewSet(viewsets.ModelViewSet):
     """
     ViewSet for forum threads.
@@ -258,136 +236,181 @@ class ThreadViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['GET'])
     def search(self, request: Request) -> Response:
         """
-        Full-text search across threads and posts.
+        Search forum threads and posts using PostgreSQL full-text search.
 
-        GET /api/v1/forum/threads/search/?q=watering&category=plant-care&author=john&page=1
+        GET /api/v1/forum/threads/search/?q=watering&category=plant-care
 
         Query Parameters:
-            - q (str): Search query (required)
-            - category (str): Filter by category slug
-            - author (str): Filter by author username
-            - page (int): Page number (default: 1)
-            - page_size (int): Results per page (default: 20)
+            - q (required): Search query string
+            - category (optional): Filter by category slug
+            - author (optional): Filter by author username
+            - date_from (optional): Filter posts after this date (ISO format)
+            - date_to (optional): Filter posts before this date (ISO format)
+            - page (optional): Page number for pagination
+            - page_size (optional): Results per page (default: 20, max: 50)
 
         Returns:
             {
                 "query": "watering",
                 "threads": [...],
                 "posts": [...],
-                "thread_count": 5,
-                "post_count": 12,
+                "total_threads": 15,
+                "total_posts": 42,
+                "page": 1,
+                "page_size": 20,
                 "has_next_threads": true,
-                "has_next_posts": false,
-                "page": 1
+                "has_next_posts": false
             }
-        """
-        from ..serializers import PostSerializer
 
+        Performance:
+            - Uses PostgreSQL SearchVector + SearchQuery + SearchRank
+            - GIN indexes on thread.title, thread.excerpt, post.content_raw
+            - Target response time: <200ms
+        """
+        from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
+        from django.db.models import Q, F
+        from datetime import datetime
+        from ..serializers.post_serializer import PostSerializer
+
+        # Validate query parameter
         query = request.query_params.get('q', '').strip()
         if not query:
             return Response(
                 {
-                    "error": "Search query parameter 'q' is required",
-                    "query": "",
-                    "threads": [],
-                    "posts": [],
-                    "thread_count": 0,
-                    "post_count": 0,
-                    "has_next_threads": False,
-                    "has_next_posts": False,
-                    "page": 1
+                    'error': 'Search query required',
+                    'detail': 'Please provide a search query using the "q" parameter'
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Sanitize search query (escape SQL wildcards)
-        safe_query = escape_search_query(query)
-
         # Get filter parameters
-        category_slug = request.query_params.get('category', '').strip()
-        author_username = request.query_params.get('author', '').strip()
-
-        # Sanitize author username too
-        if author_username:
-            author_username = escape_search_query(author_username)
-
+        category_slug = request.query_params.get('category')
+        author_username = request.query_params.get('author')
+        date_from = request.query_params.get('date_from')
+        date_to = request.query_params.get('date_to')
         page_num = int(request.query_params.get('page', 1))
-        page_size = int(request.query_params.get('page_size', 20))
+        page_size = min(int(request.query_params.get('page_size', 20)), 50)
 
         # Search threads
-        thread_qs = Thread.objects.filter(
-            is_active=True
-        ).select_related('author', 'category')
+        thread_search_vector = SearchVector('title', weight='A') + SearchVector('excerpt', weight='B')
+        thread_search_query = SearchQuery(query)
 
-        # Apply search to thread title and excerpt
-        thread_qs = thread_qs.filter(
-            Q(title__icontains=safe_query) | Q(excerpt__icontains=safe_query)
-        )
+        thread_qs = Thread.objects.filter(is_active=True)
 
-        # Apply filters
+        # Apply filters to threads
         if category_slug:
             thread_qs = thread_qs.filter(category__slug=category_slug)
         if author_username:
-            thread_qs = thread_qs.filter(author__username__icontains=author_username)
+            thread_qs = thread_qs.filter(author__username=author_username)
+        if date_from:
+            try:
+                date_from_obj = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+                thread_qs = thread_qs.filter(created_at__gte=date_from_obj)
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                date_to_obj = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+                thread_qs = thread_qs.filter(created_at__lte=date_to_obj)
+            except ValueError:
+                pass
 
-        # Order by relevance (pinned first, then recent activity)
-        thread_qs = thread_qs.order_by('-is_pinned', '-last_activity_at')
+        # Apply search with ranking
+        thread_results = thread_qs.annotate(
+            search=thread_search_vector,
+            rank=SearchRank(thread_search_vector, thread_search_query)
+        ).filter(
+            search=thread_search_query
+        ).select_related(
+            'author', 'category'
+        ).order_by('-rank', '-last_activity_at')
+
+        total_threads = thread_results.count()
 
         # Search posts
-        post_qs = Post.objects.filter(
-            is_active=True
-        ).select_related('author', 'thread', 'thread__category')
+        post_search_vector = SearchVector('content_raw', weight='A')
+        post_search_query = SearchQuery(query)
 
-        # Apply search to post content (raw content only, not HTML)
-        post_qs = post_qs.filter(
-            Q(content_raw__icontains=safe_query)
-        )
+        post_qs = Post.objects.filter(is_active=True)
 
-        # Apply filters
+        # Apply filters to posts
         if category_slug:
             post_qs = post_qs.filter(thread__category__slug=category_slug)
         if author_username:
-            post_qs = post_qs.filter(author__username__icontains=author_username)
+            post_qs = post_qs.filter(author__username=author_username)
+        if date_from:
+            try:
+                date_from_obj = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+                post_qs = post_qs.filter(created_at__gte=date_from_obj)
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                date_to_obj = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+                post_qs = post_qs.filter(created_at__lte=date_to_obj)
+            except ValueError:
+                pass
 
-        # Order by recent activity
-        post_qs = post_qs.order_by('-created_at')
+        # Apply search with ranking
+        post_results = post_qs.annotate(
+            search=post_search_vector,
+            rank=SearchRank(post_search_vector, post_search_query)
+        ).filter(
+            search=post_search_query
+        ).select_related(
+            'author', 'thread', 'thread__category', 'edited_by'
+        ).prefetch_related(
+            'reactions', 'attachments'
+        ).order_by('-rank', '-created_at')
 
-        # Get total counts
-        thread_count = thread_qs.count()
-        post_count = post_qs.count()
+        total_posts = post_results.count()
 
-        # Paginate results
-        start = (page_num - 1) * page_size
-        end = start + page_size
+        # Paginate combined results
+        # For simplicity, we'll return top threads and top posts separately
+        # Pagination applies to both independently
+        start_idx = (page_num - 1) * page_size
+        end_idx = start_idx + page_size
 
-        threads = thread_qs[start:end]
-        posts = post_qs[start:end]
-
-        # Check if there are more results
-        has_next_threads = thread_count > end
-        has_next_posts = post_count > end
+        thread_page = thread_results[start_idx:end_idx]
+        post_page = post_results[start_idx:end_idx]
 
         # Serialize results
         thread_serializer = ThreadListSerializer(
-            threads,
+            thread_page,
             many=True,
             context=self.get_serializer_context()
         )
         post_serializer = PostSerializer(
-            posts,
+            post_page,
             many=True,
-            context={'request': request}
+            context=self.get_serializer_context()
+        )
+
+        # Calculate if there are more results
+        has_next_threads = total_threads > end_idx
+        has_next_posts = total_posts > end_idx
+
+        logger.info(
+            f"[FORUM] Search query='{query}' found {total_threads} threads, "
+            f"{total_posts} posts (page {page_num})"
         )
 
         return Response({
-            "query": query,
-            "threads": thread_serializer.data,
-            "posts": post_serializer.data,
-            "thread_count": thread_count,
-            "post_count": post_count,
-            "has_next_threads": has_next_threads,
-            "has_next_posts": has_next_posts,
-            "page": page_num
+            'query': query,
+            'threads': thread_serializer.data,
+            'posts': post_serializer.data,
+            'total_threads': total_threads,
+            'total_posts': total_posts,
+            'page': page_num,
+            'page_size': page_size,
+            'has_next_threads': has_next_threads,
+            'has_next_posts': has_next_posts,
+            'filters': {
+                'category': category_slug,
+                'author': author_username,
+                'date_from': date_from,
+                'date_to': date_to,
+            }
         })
 
     @action(detail=True, methods=['POST'], permission_classes=[IsAuthenticatedOrReadOnly], url_path='flag')

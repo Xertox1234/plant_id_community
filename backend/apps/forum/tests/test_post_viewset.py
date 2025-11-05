@@ -337,3 +337,266 @@ class PostViewSetTests(TestCase):
 
         response = self.client.get('/api/v1/forum/posts/first_posts/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_upload_image_success(self):
+        """POST /posts/{id}/upload_image/ with valid image succeeds."""
+        from io import BytesIO
+        from PIL import Image as PILImage
+
+        self.client.force_authenticate(user=self.author)
+
+        # Create a test image
+        image = PILImage.new('RGB', (100, 100), color='red')
+        image_file = BytesIO()
+        image.save(image_file, format='JPEG')
+        image_file.seek(0)
+        image_file.name = 'test.jpg'
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
+            {'image': image_file, 'alt_text': 'Test image'},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn('id', response.data)
+        self.assertIn('thumbnail_url', response.data)
+        self.assertIn('medium_url', response.data)
+        self.assertEqual(response.data['alt_text'], 'Test image')
+
+    def test_upload_image_requires_authentication(self):
+        """Anonymous users cannot upload images."""
+        from io import BytesIO
+        from PIL import Image as PILImage
+
+        # Create a test image
+        image = PILImage.new('RGB', (100, 100), color='red')
+        image_file = BytesIO()
+        image.save(image_file, format='JPEG')
+        image_file.seek(0)
+        image_file.name = 'test.jpg'
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
+            {'image': image_file},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_upload_image_requires_post_ownership(self):
+        """Non-authors cannot upload images to others' posts."""
+        from io import BytesIO
+        from PIL import Image as PILImage
+
+        self.client.force_authenticate(user=self.other_user)
+
+        # Create a test image
+        image = PILImage.new('RGB', (100, 100), color='red')
+        image_file = BytesIO()
+        image.save(image_file, format='JPEG')
+        image_file.seek(0)
+        image_file.name = 'test.jpg'
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
+            {'image': image_file},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_upload_image_validates_max_count(self):
+        """Cannot upload more than MAX_ATTACHMENTS_PER_POST images."""
+        from io import BytesIO
+        from PIL import Image as PILImage
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from ..models import Attachment
+        from ..constants import MAX_ATTACHMENTS_PER_POST
+
+        self.client.force_authenticate(user=self.author)
+
+        # Create MAX_ATTACHMENTS_PER_POST attachments
+        for i in range(MAX_ATTACHMENTS_PER_POST):
+            image = PILImage.new('RGB', (100, 100), color='red')
+            buffer = BytesIO()
+            image.save(buffer, format='JPEG')
+
+            image_file = SimpleUploadedFile(
+                f'test{i}.jpg',
+                buffer.getvalue(),
+                content_type='image/jpeg'
+            )
+
+            Attachment.objects.create(
+                post=self.first_post,
+                image=image_file
+            )
+
+        # Try to upload one more
+        image = PILImage.new('RGB', (100, 100), color='red')
+        buffer = BytesIO()
+        image.save(buffer, format='JPEG')
+
+        extra_file = SimpleUploadedFile(
+            'test_extra.jpg',
+            buffer.getvalue(),
+            content_type='image/jpeg'
+        )
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
+            {'image': extra_file},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Too many attachments', response.data['error'])
+
+    def test_upload_image_validates_file_size(self):
+        """Cannot upload images larger than MAX_ATTACHMENT_SIZE_BYTES."""
+        from io import BytesIO
+        from PIL import Image as PILImage
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.author)
+
+        # Create a large test image (11MB)
+        # Create BytesIO with enough data to exceed 10MB limit
+        large_data = b'x' * (11 * 1024 * 1024)  # 11MB of data
+
+        # Create an uploaded file with the large size
+        large_file = SimpleUploadedFile(
+            'test.jpg',
+            large_data,
+            content_type='image/jpeg'
+        )
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
+            {'image': large_file},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('File too large', response.data['error'])
+
+    def test_upload_image_validates_file_type(self):
+        """Cannot upload non-image files."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.author)
+
+        # Create a text file pretending to be an image
+        text_file = SimpleUploadedFile(
+            'test.jpg',
+            b'This is not an image',
+            content_type='image/jpeg'
+        )
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
+            {'image': text_file},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Invalid image file', response.data['error'])
+
+    def test_delete_image_success(self):
+        """DELETE /posts/{id}/delete_image/{attachment_id}/ succeeds for author."""
+        from io import BytesIO
+        from PIL import Image as PILImage
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from ..models import Attachment
+
+        self.client.force_authenticate(user=self.author)
+
+        # Create an attachment
+        image = PILImage.new('RGB', (100, 100), color='red')
+        buffer = BytesIO()
+        image.save(buffer, format='JPEG')
+
+        image_file = SimpleUploadedFile(
+            'test.jpg',
+            buffer.getvalue(),
+            content_type='image/jpeg'
+        )
+
+        attachment = Attachment.objects.create(
+            post=self.first_post,
+            image=image_file
+        )
+
+        response = self.client.delete(
+            f'/api/v1/forum/posts/{self.first_post.id}/delete_image/{attachment.id}/'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Attachment.objects.filter(id=attachment.id).exists())
+
+    def test_delete_image_requires_post_ownership(self):
+        """Non-authors cannot delete images from others' posts."""
+        from io import BytesIO
+        from PIL import Image as PILImage
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from ..models import Attachment
+
+        # Create an attachment as author
+        image = PILImage.new('RGB', (100, 100), color='red')
+        buffer = BytesIO()
+        image.save(buffer, format='JPEG')
+
+        image_file = SimpleUploadedFile(
+            'test.jpg',
+            buffer.getvalue(),
+            content_type='image/jpeg'
+        )
+
+        attachment = Attachment.objects.create(
+            post=self.first_post,
+            image=image_file
+        )
+
+        # Try to delete as other user
+        self.client.force_authenticate(user=self.other_user)
+        response = self.client.delete(
+            f'/api/v1/forum/posts/{self.first_post.id}/delete_image/{attachment.id}/'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Attachment.objects.filter(id=attachment.id).exists())
+
+    def test_staff_can_delete_any_image(self):
+        """Staff users can delete images from any post."""
+        from io import BytesIO
+        from PIL import Image as PILImage
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from ..models import Attachment
+
+        # Create an attachment as author
+        image = PILImage.new('RGB', (100, 100), color='red')
+        buffer = BytesIO()
+        image.save(buffer, format='JPEG')
+
+        image_file = SimpleUploadedFile(
+            'test.jpg',
+            buffer.getvalue(),
+            content_type='image/jpeg'
+        )
+
+        attachment = Attachment.objects.create(
+            post=self.first_post,
+            image=image_file
+        )
+
+        # Create staff user
+        staff_user = User.objects.create_user(username='staff', password='pass', is_staff=True)
+        self.client.force_authenticate(user=staff_user)
+
+        response = self.client.delete(
+            f'/api/v1/forum/posts/{self.first_post.id}/delete_image/{attachment.id}/'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Attachment.objects.filter(id=attachment.id).exists())

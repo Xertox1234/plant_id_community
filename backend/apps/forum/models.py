@@ -480,7 +480,16 @@ class Attachment(models.Model):
     def save(self, *args, **kwargs) -> None:
         """Extract file metadata on upload."""
         if self.image and not self.file_size:
-            self.file_size = self.image.size
+            # Get file size - handle both File objects and BytesIO
+            if hasattr(self.image, 'size'):
+                self.file_size = self.image.size
+            else:
+                # For BytesIO or similar objects, get size differently
+                current_pos = self.image.tell()
+                self.image.seek(0, 2)  # Seek to end
+                self.file_size = self.image.tell()
+                self.image.seek(current_pos)  # Restore position
+
             self.original_filename = self.image.name
 
             # Use Pillow for accurate MIME type detection

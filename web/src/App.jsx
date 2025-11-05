@@ -47,6 +47,7 @@ function App() {
           <Route path="/blog/preview/:content_type/:token" element={<BlogPreview />} />
           <Route path="/forum/search" element={<SearchPage />} />
           <Route path="/forum" element={<CategoryListPage />} />
+          <Route path="/forum/search" element={<SearchPage />} />
           <Route path="/forum/:categorySlug" element={<ThreadListPage />} />
           <Route path="/forum/:categorySlug/:threadSlug" element={<ThreadDetailPage />} />
         </Route>
