@@ -66,7 +66,10 @@ class PostPerformanceTestCase(TestCase):
     @override_settings(DEBUG=True)
     def test_list_view_query_count(self):
         """
-        List view should use database annotations (1 query).
+        List view should use single annotated query for optimal performance.
+
+        Regression protection: Ensures conditional annotations are used (Issue #113).
+        Any increase from 1 query indicates N+1 or missing optimization.
 
         Without optimization: 21 queries (1 main + 20 reaction queries)
         With optimization: 1 query (annotations included)
@@ -79,18 +82,19 @@ class PostPerformanceTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-        # Count queries (allow some overhead for auth/session)
+        # Count queries
         query_count = len(connection.queries)
 
-        # Should be much less than 21 queries
-        # Allow up to 5 queries for auth/session overhead
-        self.assertLess(
+        # STRICT: Expect exactly 1 query (annotated queryset)
+        self.assertEqual(
             query_count,
-            10,
-            f"Expected <10 queries, got {query_count}. N+1 query issue still exists!"
+            1,
+            f"Performance regression detected! Expected 1 annotated query, got {query_count}. "
+            f"This indicates N+1 problem or missing conditional optimization in PostViewSet. "
+            f"See Issue #113 for details."
         )
 
-        # Verify reaction counts are present in response
+        # ADDITIONAL: Verify annotations present in response
         first_post = response.data['results'][0]
         self.assertIn('reaction_counts', first_post)
         self.assertIsInstance(first_post['reaction_counts'], dict)
@@ -246,8 +250,20 @@ class PostPerformanceTestCase(TestCase):
         self.assertEqual(annotated_post.helpful_count, 1)
 
     @override_settings(DEBUG=True)
-    def test_detail_view_still_uses_prefetch(self):
-        """Detail view should still use prefetch_related for reactions."""
+    def test_detail_view_query_count(self):
+        """
+        Detail view can use 2-3 queries (main + prefetch).
+
+        Less strict than list view since prefetch_related uses separate queries.
+        This is acceptable for detail views as they retrieve a single object.
+
+        Expected queries:
+        1. Main post query
+        2. Prefetch reactions
+        3. Possibly one more for related data
+
+        Regression protection: Ensures prefetch_related is used efficiently.
+        """
         post = self.posts[0]
 
         # Reset query counter
@@ -258,13 +274,13 @@ class PostPerformanceTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-        # Detail view should prefetch reactions (not annotate)
-        # Should be 2-4 queries (post + prefetches + auth)
+        # Detail view: 1 main query + 1-2 prefetch queries
         query_count = len(connection.queries)
-        self.assertLess(
+        self.assertLessEqual(
             query_count,
-            10,
-            f"Detail view query count should be low: {query_count}"
+            3,
+            f"Detail view query count too high: {query_count} (expected ≤3). "
+            f"Ensure prefetch_related is used in PostViewSet.get_queryset() for detail action."
         )
 
         # Verify reaction counts are present
