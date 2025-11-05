@@ -58,6 +58,74 @@ TRUST_LEVEL_REQUIREMENTS = {
     TRUST_LEVEL_EXPERT: {'verified_by_admin': True},
 }
 
+# Trust level daily action limits (posts/threads per day)
+TRUST_LEVEL_LIMITS = {
+    TRUST_LEVEL_NEW: {
+        'posts_per_day': 10,
+        'threads_per_day': 3,
+    },
+    TRUST_LEVEL_BASIC: {
+        'posts_per_day': 50,
+        'threads_per_day': 10,
+    },
+    TRUST_LEVEL_TRUSTED: {
+        'posts_per_day': 100,
+        'threads_per_day': 25,
+    },
+    TRUST_LEVEL_VETERAN: {
+        'posts_per_day': None,  # Unlimited
+        'threads_per_day': None,  # Unlimited
+    },
+    TRUST_LEVEL_EXPERT: {
+        'posts_per_day': None,  # Unlimited
+        'threads_per_day': None,  # Unlimited
+    },
+}
+
+# Trust level permissions (what actions each level can perform)
+TRUST_LEVEL_PERMISSIONS = {
+    TRUST_LEVEL_NEW: {
+        'can_create_posts': True,
+        'can_create_threads': True,
+        'can_upload_images': False,
+        'can_edit_posts': True,  # Own posts only
+        'can_moderate': False,
+    },
+    TRUST_LEVEL_BASIC: {
+        'can_create_posts': True,
+        'can_create_threads': True,
+        'can_upload_images': True,
+        'can_edit_posts': True,
+        'can_moderate': False,
+    },
+    TRUST_LEVEL_TRUSTED: {
+        'can_create_posts': True,
+        'can_create_threads': True,
+        'can_upload_images': True,
+        'can_edit_posts': True,
+        'can_moderate': False,
+    },
+    TRUST_LEVEL_VETERAN: {
+        'can_create_posts': True,
+        'can_create_threads': True,
+        'can_upload_images': True,
+        'can_edit_posts': True,
+        'can_moderate': False,
+    },
+    TRUST_LEVEL_EXPERT: {
+        'can_create_posts': True,
+        'can_create_threads': True,
+        'can_upload_images': True,
+        'can_edit_posts': True,
+        'can_moderate': True,  # Only experts can moderate
+    },
+}
+
+# Cache configuration for trust level service
+TRUST_LEVEL_CACHE_TIMEOUT = 3600  # 1 hour (user limits change infrequently)
+CACHE_PREFIX_TRUST_LIMITS = 'trust_limits:user:'
+CACHE_PREFIX_DAILY_ACTIONS = 'daily_actions:user:'
+
 # Performance targets (for monitoring and testing)
 TARGET_CACHE_HIT_RATE = 0.30  # 30% (lower than blog's 40% due to higher update frequency)
 TARGET_THREAD_LIST_QUERIES = 12  # Max DB queries for list view
