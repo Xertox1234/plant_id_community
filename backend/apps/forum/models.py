@@ -30,6 +30,7 @@ from .constants import (
     MAX_POST_CONTENT_LENGTH,
     MAX_ATTACHMENTS_PER_POST,
     MAX_ATTACHMENT_SIZE_BYTES,
+    MAX_EXPLANATION_LENGTH,
     DEFAULT_VIEW_COUNT,
     DEFAULT_POST_COUNT,
     DEFAULT_DISPLAY_ORDER,
@@ -38,6 +39,12 @@ from .constants import (
     REACTION_TYPES,
     TRUST_LEVELS,
     TRUST_LEVEL_NEW,
+    FLAG_REASONS,
+    FLAG_REASON_OTHER,
+    MODERATION_STATUSES,
+    MODERATION_STATUS_PENDING,
+    FLAGGABLE_CONTENT_TYPES,
+    MODERATION_ACTIONS,
 )
 
 
@@ -672,3 +679,190 @@ class UserProfile(models.Model):
                 return level
 
         return 'new'
+
+
+class FlaggedContent(models.Model):
+    """
+    User-submitted flags for inappropriate content.
+
+    Tracks reported posts/threads with reasons for moderation review.
+    Phase 4.2: Content Moderation Queue
+    """
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        help_text="UUID primary key for security"
+    )
+    content_type = models.CharField(
+        max_length=20,
+        choices=FLAGGABLE_CONTENT_TYPES,
+        help_text="Type of content being flagged (post or thread)"
+    )
+    post = models.ForeignKey(
+        Post,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='flags',
+        help_text="Flagged post (if content_type is 'post')"
+    )
+    thread = models.ForeignKey(
+        Thread,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='flags',
+        help_text="Flagged thread (if content_type is 'thread')"
+    )
+    reporter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='flags_submitted',
+        help_text="User who submitted the flag"
+    )
+    flag_reason = models.CharField(
+        max_length=50,
+        choices=FLAG_REASONS,
+        default=FLAG_REASON_OTHER,
+        help_text="Reason for flagging"
+    )
+    explanation = models.TextField(
+        max_length=MAX_EXPLANATION_LENGTH,
+        blank=True,
+        help_text="Optional detailed explanation from reporter"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=MODERATION_STATUSES,
+        default=MODERATION_STATUS_PENDING,
+        help_text="Current moderation status"
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='flags_reviewed',
+        help_text="Moderator who reviewed this flag"
+    )
+    reviewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When flag was reviewed"
+    )
+    moderator_notes = models.TextField(
+        max_length=MAX_EXPLANATION_LENGTH,
+        blank=True,
+        help_text="Internal notes from moderator"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Flagged Content"
+        verbose_name_plural = "Flagged Content"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', '-created_at'], name='forum_flag_status_idx'),
+            models.Index(fields=['content_type', 'status'], name='forum_flag_type_status_idx'),
+            models.Index(fields=['reporter', '-created_at'], name='forum_flag_reporter_idx'),
+            models.Index(fields=['reviewed_by', '-reviewed_at'], name='forum_flag_reviewer_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    (models.Q(content_type='post') & models.Q(post__isnull=False) & models.Q(thread__isnull=True)) |
+                    (models.Q(content_type='thread') & models.Q(thread__isnull=False) & models.Q(post__isnull=True))
+                ),
+                name='forum_flag_content_type_consistency'
+            )
+        ]
+
+    def __str__(self):
+        if self.content_type == 'post':
+            return f"Flag on post {self.post.id} by {self.reporter.username}"
+        return f"Flag on thread {self.thread.id} by {self.reporter.username}"
+
+    def clean(self) -> None:
+        """Validate that exactly one of post or thread is set."""
+        if self.content_type == 'post' and not self.post:
+            raise ValidationError("Post must be set when content_type is 'post'")
+        if self.content_type == 'thread' and not self.thread:
+            raise ValidationError("Thread must be set when content_type is 'thread'")
+        if self.post and self.thread:
+            raise ValidationError("Cannot flag both post and thread simultaneously")
+
+    def get_flagged_object(self) -> models.Model:
+        """Get the actual flagged content object."""
+        return self.post if self.content_type == 'post' else self.thread
+
+    def mark_reviewed(self, moderator, status: str, notes: str = '') -> None:
+        """Mark flag as reviewed by moderator."""
+        self.reviewed_by = moderator
+        self.reviewed_at = timezone.now()
+        self.status = status
+        self.moderator_notes = notes
+        self.save(update_fields=['reviewed_by', 'reviewed_at', 'status', 'moderator_notes', 'updated_at'])
+
+
+class ModerationAction(models.Model):
+    """
+    Audit trail for moderation actions taken.
+
+    Records all actions taken by moderators for accountability and transparency.
+    Phase 4.2: Content Moderation Queue
+    """
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        help_text="UUID primary key for security"
+    )
+    flag = models.ForeignKey(
+        FlaggedContent,
+        on_delete=models.CASCADE,
+        related_name='actions',
+        help_text="Associated flag that triggered this action"
+    )
+    moderator = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='moderation_actions',
+        help_text="Moderator who took the action"
+    )
+    action_type = models.CharField(
+        max_length=50,
+        choices=MODERATION_ACTIONS,
+        help_text="Type of action taken"
+    )
+    reason = models.TextField(
+        max_length=MAX_EXPLANATION_LENGTH,
+        blank=True,
+        help_text="Reason for taking this action"
+    )
+    affected_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='moderation_actions_received',
+        help_text="User affected by this action (post/thread author)"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Moderation Action"
+        verbose_name_plural = "Moderation Actions"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['flag', '-created_at'], name='forum_modaction_flag_idx'),
+            models.Index(fields=['moderator', '-created_at'], name='forum_modaction_mod_idx'),
+            models.Index(fields=['affected_user', '-created_at'], name='forum_modaction_user_idx'),
+            models.Index(fields=['action_type', '-created_at'], name='forum_modaction_type_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.action_type} by {self.moderator.username} on {self.created_at.date()}"

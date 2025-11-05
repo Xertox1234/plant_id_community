@@ -13,6 +13,7 @@ from .viewsets import (
     PostViewSet,
     ReactionViewSet,
     UserProfileViewSet,
+    ModerationQueueViewSet,
 )
 
 app_name = 'forum'
@@ -26,6 +27,9 @@ router.register('threads', ThreadViewSet, basename='thread')
 router.register('posts', PostViewSet, basename='post')
 router.register('reactions', ReactionViewSet, basename='reaction')
 router.register('profiles', UserProfileViewSet, basename='userprofile')
+
+# Phase 4.2: Content Moderation Queue
+router.register('moderation-queue', ModerationQueueViewSet, basename='moderation-queue')
 
 urlpatterns = [
     path('', include(router.urls)),

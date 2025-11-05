@@ -191,3 +191,64 @@ class IsAuthorOrModerator(permissions.BasePermission):
 
         # Neither author nor moderator
         return False
+
+
+class IsModeratorOrStaff(permissions.BasePermission):
+    """
+    Restrict access to moderation features to staff and moderators only.
+
+    Phase 4.2: Content Moderation Queue
+    Used for ModerationQueueViewSet and moderation-only endpoints.
+
+    Moderators are identified by:
+    - is_staff=True (Django admin staff)
+    - is_superuser=True (Superusers)
+    - Membership in 'Moderators' group
+
+    Permissions:
+    - Moderators/Staff: Full access to moderation queue
+    - Regular users: Denied
+
+    Usage:
+        Apply to ModerationQueueViewSet for all actions.
+
+    Example:
+        >>> permission_classes = [IsModeratorOrStaff]
+    """
+
+    def has_permission(self, request: Any, view: Any) -> bool:
+        """
+        Check if user has moderation permissions.
+
+        Args:
+            request: Django request object
+            view: ViewSet instance
+
+        Returns:
+            True if user is staff/superuser or in Moderators group, False otherwise
+        """
+        # Check if user is authenticated
+        if not request.user.is_authenticated:
+            return False
+
+        # Check if user is staff, superuser, or in Moderators group
+        return (
+            request.user.is_staff or
+            request.user.is_superuser or
+            request.user.groups.filter(name='Moderators').exists()
+        )
+
+    def has_object_permission(self, request: Any, view: Any, obj: Any) -> bool:
+        """
+        Check if user has moderation permissions for specific object.
+
+        Args:
+            request: Django request object
+            view: ViewSet instance
+            obj: Object being accessed
+
+        Returns:
+            True if user has moderation permissions, False otherwise
+        """
+        # Same logic as has_permission
+        return self.has_permission(request, view)

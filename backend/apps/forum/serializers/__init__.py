@@ -26,6 +26,12 @@ from .user_profile_serializer import (
     UserProfileSerializer,
     UserProfileStatsSerializer,
 )
+from .flagged_content_serializer import (
+    FlaggedContentSerializer,
+    FlagSubmissionSerializer,
+    ModerationActionSerializer,
+    ModerationReviewSerializer,
+)
 
 __all__ = [
     # Category serializers
@@ -48,4 +54,9 @@ __all__ = [
     # User profile serializers
     'UserProfileSerializer',
     'UserProfileStatsSerializer',
+    # Moderation serializers (Phase 4.2)
+    'FlaggedContentSerializer',
+    'FlagSubmissionSerializer',
+    'ModerationActionSerializer',
+    'ModerationReviewSerializer',
 ]
