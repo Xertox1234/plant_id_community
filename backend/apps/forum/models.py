@@ -369,12 +369,25 @@ class Post(models.Model):
         self.save(update_fields=['edited_at', 'edited_by', 'updated_at'])
 
 
+class ActiveAttachmentManager(models.Manager):
+    """Manager that filters for active (not soft-deleted) attachments only."""
+
+    def get_queryset(self):
+        return super().get_queryset().filter(is_active=True)
+
+
 class Attachment(models.Model):
     """
     Image attachment for forum posts.
 
     Uses ImageKit for automatic thumbnail generation and optimization.
     Supports up to 6 images per post (MAX_ATTACHMENTS_PER_POST).
+
+    Soft Delete Pattern:
+    - Uses is_active field for soft deletion (matching Post/Thread pattern)
+    - delete() method sets is_active=False + deleted_at timestamp
+    - hard_delete() method permanently removes from database
+    - Cleanup job removes inactive attachments older than ATTACHMENT_CLEANUP_DAYS (see constants.py)
     """
 
     id = models.UUIDField(
@@ -417,7 +430,21 @@ class Attachment(models.Model):
         blank=True,
         help_text="Alt text for accessibility"
     )
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text="Soft delete flag. False = deleted, True = active"
+    )
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when soft-deleted (for cleanup job)"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    # Managers
+    objects = models.Manager()  # Default manager (includes inactive)
+    active = ActiveAttachmentManager()  # Filtered manager (active only)
 
     # ImageKit specifications for automatic thumbnail generation
     thumbnail = ImageSpecField(
@@ -444,7 +471,7 @@ class Attachment(models.Model):
         verbose_name_plural = "Attachments"
         ordering = ['display_order', 'created_at']
         indexes = [
-            models.Index(fields=['post', 'display_order'], name='forum_attach_post_idx'),
+            models.Index(fields=['post', 'is_active', 'display_order'], name='forum_attach_active_idx'),
         ]
 
     def __str__(self):
@@ -490,6 +517,50 @@ class Attachment(models.Model):
                 self.mime_type = mime_map.get(ext, 'application/octet-stream')
 
         super().save(*args, **kwargs)
+
+    def delete(self, using=None, keep_parents=False):
+        """
+        Soft delete: Mark attachment as inactive instead of hard deleting.
+
+        Sets is_active=False and deleted_at timestamp. This preserves the
+        attachment record for potential restoration and maintains referential
+        integrity with Post model.
+
+        Use hard_delete() for permanent removal (called by cleanup job).
+        """
+        self.is_active = False
+        self.deleted_at = timezone.now()
+        self.save(update_fields=['is_active', 'deleted_at'])
+
+    def restore(self):
+        """
+        Restore a soft-deleted attachment.
+
+        Sets is_active=True and clears deleted_at timestamp. This allows
+        administrators to recover accidentally deleted attachments.
+
+        Note:
+            Only works if attachment was soft-deleted (not hard-deleted).
+            If attachment is already active, this is a no-op.
+        """
+        if not self.is_active:
+            self.is_active = True
+            self.deleted_at = None
+            self.save(update_fields=['is_active', 'deleted_at'])
+
+    def hard_delete(self):
+        """
+        Permanently delete attachment from database and remove file from storage.
+
+        This should only be called by cleanup job for attachments that have
+        been soft-deleted for 30+ days. Direct use is discouraged.
+        """
+        # Delete physical file from storage
+        if self.image:
+            self.image.delete(save=False)
+
+        # Permanently remove from database
+        super().delete()
 
 
 class Reaction(models.Model):
