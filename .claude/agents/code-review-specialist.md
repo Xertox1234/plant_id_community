@@ -338,99 +338,6 @@ For Technical Documentation files (*.md with code/specs):
      from ..constants import CACHE_LOCK_TIMEOUT, CACHE_TIMEOUT_24_HOURS
      ```
 
-7. **Django SECRET_KEY Security** - Cryptographic Configuration
-   - BLOCKER: Missing or insecure SECRET_KEY configuration in settings.py
-   - Check for: SECRET_KEY configuration in Django settings files
-   - Pattern: Environment-aware validation with fail-fast production requirements
-   - Key security requirements:
-     - **Missing Import**: Must import `ImproperlyConfigured` from `django.core.exceptions`
-     - **Production Enforcement**: In production (DEBUG=False), SECRET_KEY MUST be set via environment
-     - **Pattern Validation**: Reject insecure patterns (django-insecure, password, change-me, abc123, secret)
-     - **Length Validation**: Minimum 50 characters for cryptographic strength
-     - **Development Default**: Acceptable in development (DEBUG=True) with clear "DO-NOT-USE-IN-PRODUCTION" marker
-     - **Fail-Fast**: Use `ImproperlyConfigured` exception with detailed, actionable error messages
-
-   - Example implementation:
-     ```python
-     from django.core.exceptions import ImproperlyConfigured
-
-     # Environment-aware SECRET_KEY configuration
-     if config('DEBUG', default=False, cast=bool):
-         # Development: Allow insecure default for local testing
-         SECRET_KEY = config(
-             'SECRET_KEY',
-             default='django-insecure-dev-only-DO-NOT-USE-IN-PRODUCTION-abc123xyz'
-         )
-     else:
-         # Production: MUST have SECRET_KEY set - fail loudly if missing
-         try:
-             SECRET_KEY = config('SECRET_KEY')  # Raises Exception if not set
-         except Exception:
-             raise ImproperlyConfigured(
-                 "\n"
-                 "=" * 70 + "\n"
-                 "CRITICAL: SECRET_KEY environment variable is not set!\n"
-                 "=" * 70 + "\n"
-                 "Django requires a unique SECRET_KEY for production security.\n"
-                 "This key is used for cryptographic signing of:\n"
-                 "  - Session cookies (authentication)\n"
-                 "  - CSRF tokens (security)\n"
-                 "  - Password reset tokens\n"
-                 "  - Signed cookies\n"
-                 "\n"
-                 "Generate a secure key with:\n"
-                 "  python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'\n"
-                 "\n"
-                 "Then set in environment:\n"
-                 "  export SECRET_KEY='your-generated-key-here'\n"
-                 "=" * 70 + "\n"
-             )
-
-         # Validate it's not a default/example value
-         INSECURE_PATTERNS = [
-             'django-insecure',
-             'change-me',
-             'your-secret-key-here',
-             'secret',
-             'password',
-             'abc123',
-         ]
-
-         for pattern in INSECURE_PATTERNS:
-             if pattern in SECRET_KEY.lower():
-                 raise ImproperlyConfigured(
-                     f"Production SECRET_KEY contains insecure pattern: '{pattern}'\n"
-                     f"Generate a new key with:\n"
-                     f"  python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'"
-                 )
-
-         # Validate minimum length
-         if len(SECRET_KEY) < 50:
-             raise ImproperlyConfigured(
-                 f"Production SECRET_KEY is too short ({len(SECRET_KEY)} characters).\n"
-                 f"Django recommends at least 50 characters for security.\n"
-                 f"Generate a new key with:\n"
-                 f"  python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'"
-             )
-     ```
-
-   - **Threat mitigation**: Protects against session hijacking, CSRF attacks, password reset token forgery, cookie tampering
-   - **Best practices**:
-     - Never use same SECRET_KEY as example/default value
-     - Never commit SECRET_KEY to version control
-     - Use separate SECRET_KEY for JWT signing if available (`JWT_SECRET_KEY`)
-     - Rotate SECRET_KEY if compromised (invalidates all sessions/tokens)
-     - Document SECRET_KEY validation location in code comments
-
-   - **Common mistakes to check for**:
-     - BLOCKER: Missing `from django.core.exceptions import ImproperlyConfigured` import
-     - BLOCKER: No SECRET_KEY validation in production (DEBUG=False)
-     - BLOCKER: Using default SECRET_KEY value in production
-     - BLOCKER: SECRET_KEY hardcoded in settings.py instead of environment variable
-     - WARNING: SECRET_KEY shorter than 50 characters
-     - WARNING: Duplicate SECRET_KEY validation (e.g., in validate_environment() when already validated earlier)
-     - WARNING: Using print() instead of logger for settings validation messages
-
 **Additional Django/Python Checks:**
 
 7. **Database Query Optimization** - N+1 Query Detection
@@ -558,118 +465,6 @@ For Technical Documentation files (*.md with code/specs):
      ```
    - Detection: Look for `APIClient()` usage, `patch('time.time')`, authentication test URLs
    - **For comprehensive DRF authentication testing patterns, see `/backend/docs/testing/DRF_AUTHENTICATION_TESTING_PATTERNS.md`**
-
-**Django Rest Framework UUID Patterns (Diagnosis API):**
-
-9a. **DRF Custom Actions with UUID Lookup** - CRITICAL Pattern ⭐
-   - **BLOCKER**: Custom `@action` methods fail with `TypeError: unexpected keyword argument 'uuid'`
-   - **PATTERN**: When `lookup_field = 'uuid'`, ALL `@action(detail=True)` methods MUST accept `uuid=None` parameter
-   - **Why**: DRF passes the lookup field value as a keyword argument to detail-level actions
-   - Check for: ViewSets with `lookup_field = 'uuid'` and custom actions missing uuid parameter
-   - Example from diagnosis_viewsets.py:
-     ```python
-     class DiagnosisCardViewSet(viewsets.ModelViewSet):
-         lookup_field = 'uuid'  # Using UUID instead of pk
-
-         @action(detail=True, methods=['post'])
-         def toggle_favorite(self, request: Request, uuid=None) -> Response:
-             # ✅ MUST accept uuid parameter (matches lookup_field)
-             card = self.get_object()  # Uses lookup_field automatically
-             card.is_favorite = not card.is_favorite
-             card.save(update_fields=['is_favorite'])
-             return Response(...)
-     ```
-   - Anti-patterns:
-     ```python
-     # ❌ Missing uuid parameter
-     @action(detail=True, methods=['post'])
-     def toggle_favorite(self, request: Request) -> Response:
-         # DRF will raise: TypeError: toggle_favorite() got an unexpected keyword argument 'uuid'
-
-     # ❌ Wrong parameter name
-     @action(detail=True, methods=['post'])
-     def toggle_favorite(self, request: Request, pk=None) -> Response:
-         # DRF passes uuid=..., but method expects pk=...
-     ```
-   - Detection: Search for `@action(detail=True)` in ViewSets with `lookup_field = 'uuid'`
-   - Review checklist:
-     - [ ] Does ViewSet have `lookup_field = 'uuid'`?
-     - [ ] Do ALL `@action(detail=True)` methods accept `uuid=None` parameter?
-     - [ ] Does parameter name EXACTLY match `lookup_field` value?
-     - [ ] Does method use `self.get_object()` instead of manual lookup?
-   - **Affected actions in codebase**:
-     - `DiagnosisCardViewSet.toggle_favorite()` - Line 198
-     - `DiagnosisReminderViewSet.snooze()` - Line 320
-     - `DiagnosisReminderViewSet.cancel()` - Line 339
-     - `DiagnosisReminderViewSet.acknowledge()` - Line 353
-   - **For comprehensive DRF UUID patterns, see `/backend/DIAGNOSIS_API_PATTERNS_CODIFIED.md`**
-
-9b. **SlugRelatedField for UUID Relationships** - Serializer Field Type
-   - **WARNING**: Using `PrimaryKeyRelatedField` with UUID models causes validation errors
-   - **PATTERN**: Use `SlugRelatedField(slug_field='uuid')` for related objects with UUID primary keys
-   - Check for: Serializers with UUID-based related fields using wrong field type
-   - Example from diagnosis_serializers.py:
-     ```python
-     class DiagnosisCardCreateSerializer(serializers.ModelSerializer):
-         diagnosis_result = serializers.SlugRelatedField(
-             slug_field='uuid',  # ✅ Accepts UUID strings
-             queryset=PlantDiseaseResult.objects.all(),
-             required=False,
-             allow_null=True,
-         )
-     ```
-   - Anti-pattern:
-     ```python
-     # ❌ PrimaryKeyRelatedField expects integer pk
-     diagnosis_result = serializers.PrimaryKeyRelatedField(
-         queryset=PlantDiseaseResult.objects.all()
-         # API clients send UUID strings, but this expects integers
-     )
-     # Raises: ValidationError: Incorrect type. Expected pk value, received str.
-     ```
-   - Detection: Search for `PrimaryKeyRelatedField` in serializers where related model has UUID pk
-   - Review checklist:
-     - [ ] Does related model use `uuid = UUIDField(primary_key=True)`?
-     - [ ] Is field type `SlugRelatedField(slug_field='uuid')`?
-     - [ ] Are validation methods checking user ownership?
-
-9c. **Test Data Duplicate Keyword Arguments** - Test Setup Pattern
-   - **WARNING**: Tests fail with `TypeError: got multiple values for keyword argument`
-   - **PATTERN**: Never pass same field both explicitly and via `**kwargs`
-   - Check for: Test data setup spreading dictionaries with duplicate keys
-   - Example from test_diagnosis_api.py:
-     ```python
-     # ✅ CORRECT - No duplicates
-     def test_filter_by_treatment_status(self):
-         # First card with not_started status (from self.card_data)
-         DiagnosisCard.objects.create(
-             user=self.user1,
-             **self.card_data  # Contains treatment_status='not_started'
-         )
-
-         # Second card with custom status
-         card_data_in_progress = self.card_data.copy()
-         card_data_in_progress['treatment_status'] = 'in_progress'
-         DiagnosisCard.objects.create(
-             user=self.user1,
-             **card_data_in_progress
-         )
-     ```
-   - Anti-pattern:
-     ```python
-     # ❌ Duplicate treatment_status
-     DiagnosisCard.objects.create(
-         user=self.user1,
-         treatment_status='not_started',  # Explicit
-         **self.card_data  # Also contains treatment_status='not_started'
-     )
-     # Raises: TypeError: create() got multiple values for keyword argument 'treatment_status'
-     ```
-   - Detection: Search for `create(..., field=value, **dict_with_field)`
-   - Review checklist:
-     - [ ] Are test data dictionaries documented (which fields they contain)?
-     - [ ] Does code use `.copy()` before modifying shared test data?
-     - [ ] Are duplicate kwargs avoided (check both explicit and **spread)?
 
 For Wagtail models:
 
@@ -907,811 +702,800 @@ For Wagtail models:
      - [ ] Are imports lazy (avoid circular dependencies)?
      - [ ] Is there documentation explaining the shadowing?
 
-**Django ORM Patterns (Phase 1 P1 Critical Fixes + P2 Enhancements):**
+**React 19 UI Modernization Patterns (Phase 1-7 - Oct 2025):**
 
-15. **Django Multi-Table Inheritance Index Limitation** ⭐ NEW - BLOCKER (Issue #25)
-   - BLOCKER: Cannot add indexes on inherited fields in Django child model Meta class
-   - CRITICAL: Multi-table inheritance creates separate tables for parent and child
-   - PATTERN: Verify parent model already indexes the field before attempting in child
-   - Check for: Indexes on fields like `first_published_at` in Wagtail Page subclasses
-   - Why this fails:
-     - Django creates separate tables: `wagtailcore_page` + `blog_blogpostpage`
-     - Inherited fields exist in parent table only
-     - Index constraint: Must be on fields in child's table
-     - Django error: `(models.E016) 'indexes' refers to field 'first_published_at' which is not local to model`
-   - Anti-pattern (BLOCKER):
-     ```python
-     # WRONG: Cannot index inherited field in child model
-     class BlogPostPage(Page):  # Inherits from Wagtail Page
-         custom_field = models.CharField(max_length=255)
+15. **React 19 Context API Pattern** - Direct Provider Usage
+   - BLOCKER: Using legacy createContext return destructuring pattern
+   - CRITICAL: React 19 createContext can be used directly as provider
+   - WARNING: Context value not memoized causes unnecessary re-renders
+   - Check for: Custom Context + Provider pattern, missing useMemo
+   - Example from AuthContext.jsx:
+     ```javascript
+     // React 19 Pattern: Direct provider usage
+     import { createContext, useState, useEffect, useMemo } from 'react'
 
-         class Meta:
-             indexes = [
-                 # ❌ BLOCKER: 'first_published_at' is inherited from Page
-                 models.Index(fields=['first_published_at']),
-             ]
-     ```
-   - Django error message:
-     ```
-     (models.E016) 'indexes' refers to field 'first_published_at' which
-     is not local to model 'BlogPostPage'. This isn't supported on
-     multi-table inheritance relationships.
-     ```
-   - Correct pattern (document parent index):
-     ```python
-     class BlogPostPage(Page):
-         custom_field = models.CharField(max_length=255)
+     // Create context (can be used directly as provider)
+     export const AuthContext = createContext(null)
 
-         class Meta:
-             indexes = [
-                 # NOTE: Cannot index 'first_published_at' here (inherited from Page)
-                 # Wagtail's Page model already includes index on first_published_at
-                 # in wagtailcore_page table (verified in Wagtail 7.0.3 source)
+     export function AuthProvider({ children }) {
+       const [user, setUser] = useState(null)
+       const [isLoading, setIsLoading] = useState(true)
+       const [error, setError] = useState(null)
 
-                 # ✅ Index local fields only
-                 models.Index(fields=['custom_field'],
-                             name='blogpost_custom_idx'),
-             ]
-     ```
-   - Composite indexes (local + inherited):
-     ```python
-     class Meta:
-         indexes = [
-             # ✅ CORRECT: Composite index with local field first
-             # Django creates index on child table, uses JOIN for inherited field
-             models.Index(
-                 fields=['custom_field', '-first_published_at'],
-                 name='blogpost_custom_published_idx'
-             ),
-         ]
-     ```
-   - Verification steps:
-     ```bash
-     # Step 1: Check Wagtail Page model for existing indexes
-     grep -A 10 "class.*Page.*Meta" wagtail/core/models.py
+       // Memoize value to prevent unnecessary re-renders
+       const value = useMemo(
+         () => ({
+           user,
+           isLoading,
+           error,
+           isAuthenticated: !!user,
+           login,
+           logout,
+           signup,
+         }),
+         [user, isLoading, error]  // Dependencies: only re-create when these change
+       )
 
-     # Step 2: Check migration files
-     find . -path "*/wagtail/core/migrations/*.py" -exec grep -l "first_published_at" {} \;
-
-     # Step 3: Verify parent indexes exist
-     python manage.py dbshell
-     \d wagtailcore_page  -- PostgreSQL: Shows all indexes on parent table
+       // Use AuthContext directly as provider (React 19 feature)
+       return <AuthContext value={value}>{children}</AuthContext>
+     }
      ```
-   - Detection pattern:
-     ```bash
-     # Find child models with indexes on inherited fields
-     find . -name "models.py" -exec awk '
-       /class.*\(Page\):/ { in_page_class=1; class_name=$2 }
-       in_page_class && /class Meta:/ { in_meta=1 }
-       in_meta && /Index.*first_published/ {
-         print FILENAME":"NR": BLOCKER - Cannot index inherited field in "class_name
+   - Anti-pattern (Legacy React):
+     ```javascript
+     // LEGACY: Creating separate provider component
+     const AuthContext = createContext(null)
+     const AuthProvider = AuthContext.Provider  // Not needed in React 19!
+
+     // BLOCKER: Not memoizing context value
+     function AuthProvider({ children }) {
+       const [user, setUser] = useState(null)
+
+       // Missing useMemo - creates new object on every render
+       const value = {
+         user,
+         login,
+         logout,
+       }  // This causes all consumers to re-render!
+
+       return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+     }
+     ```
+   - Custom hook pattern with provider validation:
+     ```javascript
+     // useAuth.js
+     import { useContext } from 'react'
+     import { AuthContext } from '../contexts/AuthContext'
+
+     export function useAuth() {
+       const context = useContext(AuthContext)
+
+       // CRITICAL: Validate hook is used within provider
+       if (context === null) {
+         throw new Error(
+           'useAuth must be used within an AuthProvider. ' +
+           'Wrap your app with <AuthProvider> in main.jsx'
+         )
        }
-       /^class / && !/class Meta/ { in_page_class=0; in_meta=0 }
-     ' {} \;
-     ```
-   - Review checklist:
-     - [ ] Is the model using multi-table inheritance (Page, User, AbstractUser)?
-     - [ ] Are indexed fields defined locally in the child model?
-     - [ ] If using inherited fields in index, is there documentation?
-     - [ ] For Wagtail models, are parent indexes verified in source?
-     - [ ] Are composite indexes structured with local fields first?
-     - [ ] Is migration documented with reason for index structure?
-   - Impact if violated:
-     - **Migration Creation**: Fails with models.E016 error
-     - **Development**: Blocks database schema changes
-     - **Performance**: May attempt redundant indexes
-   - See: [P2 Code Review Patterns](P2_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 22
 
-16. **F() Expression with Refresh Pattern** ⭐ NEW - CRITICAL
-   - BLOCKER: F() expression updates without refresh_from_db()
-   - CRITICAL: Django F() expressions update database but NOT in-memory object
-   - PATTERN: Always call refresh_from_db() after F() expression save
-   - Check for: F('field') + 1 followed by save() without refresh_from_db()
-   - Why this is critical:
-     - F() expressions perform atomic database updates: `UPDATE table SET count = count + 1`
-     - In-memory object still has old value: `obj.count = <F expression object>`
-     - Serializers read from memory, not database → users see stale data
-     - **User experience**: Vote buttons don't show immediate feedback
-   - Anti-pattern (BLOCKER):
-     ```python
-     # WRONG: Missing refresh_from_db()
-     plant_result.upvotes = F('upvotes') + 1
-     plant_result.save()
-     serializer = PlantResultSerializer(plant_result)
-     return Response(serializer.data)  # ❌ Returns OLD value
-     ```
-   - Common typo (BLOCKER):
-     ```python
-     # ❌ WRONG METHOD NAME (does not exist)
-     plant_result.refresh_from_database()  # AttributeError!
-
-     # ✅ CORRECT
-     plant_result.refresh_from_db()  # Note: 'db' not 'database'
-     ```
-   - Correct pattern:
-     ```python
-     # CORRECT: Atomic update with refresh
-     plant_result.upvotes = F('upvotes') + 1
-     plant_result.save()
-     plant_result.refresh_from_db()  # ✅ Reload from database
-
-     serializer = PlantResultSerializer(plant_result)
-     return Response(serializer.data)  # ✅ Returns NEW value
-     ```
-   - Multiple field updates:
-     ```python
-     # Multiple F() expressions in one save
-     plant_result.upvotes = F('upvotes') + 1
-     plant_result.downvotes = F('downvotes') - 1
-     plant_result.save()
-
-     # Refresh specific fields (more efficient)
-     plant_result.refresh_from_db(fields=['upvotes', 'downvotes'])
+       return context
+     }
      ```
    - Detection patterns:
      ```bash
-     # Find F() expressions in Python files
-     grep -n "F(" apps/*/views.py apps/*/api.py
+     # Check for React 19 Context usage
+     grep -n "createContext" web/src/**/*.{js,jsx}
 
-     # For each match, check if followed by refresh_from_db() within 5 lines
-     # Pattern: Look for .save() WITHOUT subsequent refresh_from_db()
+     # Look for missing useMemo on context values
+     grep -A5 "createContext" web/src/**/*.{js,jsx} | grep -v "useMemo"
+
+     # Check for custom hooks with provider validation
+     grep -n "useContext.*throw.*Error" web/src/**/*.{js,jsx}
      ```
    - Review checklist:
-     - [ ] Does code use F() expressions for field updates?
-     - [ ] Is save() called after assigning F() expression?
-     - [ ] Is refresh_from_db() called immediately after save()?
-     - [ ] Is method name spelled correctly (refresh_from_db not refresh_from_database)?
-     - [ ] Does serializer run AFTER refresh (not before)?
-     - [ ] Are there unit tests verifying returned value matches database state?
-   - Impact if violated:
-     - **User Experience**: Vote counts don't update in UI, users click multiple times
-     - **Data Integrity**: Database correct, API response stale (inconsistency)
-     - **Security**: Audit logs show incorrect values, metrics use wrong data
-   - Test pattern:
-     ```python
-     def test_upvote_returns_fresh_count(self):
-         """Verify upvote API returns updated count immediately."""
-         plant_result = PlantIdentificationResult.objects.create(
-             user=self.user,
-             common_name="Rose",
-             upvotes=0  # Initial count
-         )
+     - [ ] Is createContext used directly as provider (React 19 pattern)?
+     - [ ] Is context value wrapped in useMemo with proper dependencies?
+     - [ ] Does custom hook validate provider usage (throw Error if null)?
+     - [ ] Are dependencies in useMemo minimal (only state that affects value)?
+     - [ ] Is there clear JSDoc explaining context value shape?
+     - [ ] Are both context and provider exported from same file?
 
-         # Upvote via API
-         response = self.client.post(f'/api/v1/plant-results/{plant_result.id}/upvote/')
-
-         self.assertEqual(response.status_code, 200)
-
-         # CRITICAL: Response must show incremented count
-         self.assertEqual(response.data['upvotes'], 1)  # Not 0!
-
-         # Verify database matches
-         plant_result.refresh_from_db()
-         self.assertEqual(plant_result.upvotes, 1)
-     ```
-   - See: [P1 Code Review Patterns Codified](P1_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 1
-
-17. **Django ORM Method Name Validation** ⭐ NEW
-   - BLOCKER: Incorrect Django model method names (typos)
-   - PATTERN: Verify method names against Django documentation
-   - Check for: Common Django ORM typos
-   - Common errors:
-     | ❌ Incorrect | ✅ Correct | Purpose |
-     |-------------|-----------|---------|
-     | `refresh_from_database()` | `refresh_from_db()` | Reload object from DB |
-     | `get_or_create_or_update()` | `get_or_create()` or `update_or_create()` | Get/create logic |
-     | `update_or_insert()` | `update_or_create()` | Upsert operation |
-     | `delete_all()` | `all().delete()` | Bulk delete |
-     | `filter_by()` | `filter()` | QuerySet filtering |
-     | `order()` | `order_by()` | QuerySet ordering |
-     | `select_all_related()` | `select_related()` | Eager loading |
-   - Detection pattern:
-     ```bash
-     # Check for common typos in Python files
-     grep -nE "(refresh_from_database|get_or_create_or_update|update_or_insert|delete_all\(|filter_by\(|order\(|select_all_related)" apps/**/*.py
-
-     # If found: BLOCKER - Incorrect Django ORM method name
-     ```
-   - Why this matters:
-     - Typos cause `AttributeError` at runtime
-     - May pass linting but fail in production
-     - Tests catch these errors (if they exist)
-     - IDE autocomplete prevents these errors
-   - Prevention:
-     - Use IDE autocomplete (don't type method names manually)
-     - Run tests (unit tests catch AttributeError immediately)
-     - Check Django documentation: https://docs.djangoproject.com/en/5.2/ref/models/instances/
-     - Consider django-stubs for type checking
-   - Review checklist:
-     - [ ] Are Django model methods spelled correctly?
-     - [ ] Do tests cover the method call (would catch AttributeError)?
-     - [ ] Is IDE providing correct autocomplete suggestions?
-     - [ ] Are there Django documentation references in comments?
-   - See: [P1 Code Review Patterns Codified](P1_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 2
-
-18. **Type Hints on Helper Functions** ⭐ NEW (P1)
-   - IMPORTANT: All helper functions called by views need type hints
-   - PATTERN: Consistent type hint coverage across view layer
-   - Check for: Views with type hints calling helpers without type hints
-   - Why this matters:
-     - Mixing typed and untyped code reduces type checker effectiveness
-     - Type checker cannot verify data flow between functions
-     - Refactoring is harder (unclear what types are expected)
-   - Anti-pattern (inconsistent):
-     ```python
-     # View function: HAS type hints ✅
-     def plant_identification_view(request) -> Response:
-         result = process_plant_image(request.FILES['image'])
-         return Response(result)
-
-     # Helper function: MISSING type hints ❌
-     def process_plant_image(image_file):  # No types!
-         return {'status': 'success', 'data': data}
-     ```
-   - Correct pattern:
-     ```python
-     from typing import Dict, Any
-     from django.core.files.uploadedfile import UploadedFile
-
-     # View function: HAS type hints ✅
-     def plant_identification_view(request) -> Response:
-         result: Dict[str, Any] = process_plant_image(request.FILES['image'])
-         return Response(result)
-
-     # Helper function: HAS type hints ✅
-     def process_plant_image(image_file: UploadedFile) -> Dict[str, Any]:
-         """Process uploaded plant image."""
-         return {'status': 'success', 'data': data}
-     ```
-   - Type hint best practices:
-     ```python
-     from typing import Dict, Any, TypedDict
-
-     # ❌ Too generic
-     def get_stats(user_id: int) -> dict:
-         return {'count': 10}
-
-     # ✅ Specific types
-     def get_stats(user_id: int) -> Dict[str, Any]:
-         return {'count': 10}
-
-     # ✅ BEST: TypedDict for known structure
-     class StatsDict(TypedDict):
-         count: int
-         total: int
-
-     def get_stats(user_id: int) -> StatsDict:
-         return {'count': 10, 'total': 100}
-     ```
-   - Django-specific types:
-     ```python
-     from django.http import HttpRequest, HttpResponse
-     from django.db.models import QuerySet
-     from rest_framework.request import Request
-     from rest_framework.response import Response
-
-     # DRF view
-     def api_view(request: Request) -> Response:
-         pass
-
-     # Django view
-     def django_view(request: HttpRequest) -> HttpResponse:
-         pass
-
-     # QuerySet return type
-     def get_active_users() -> QuerySet[User]:
-         return User.objects.filter(is_active=True)
-     ```
-   - Detection pattern:
-     ```bash
-     # Find functions without return type hints
-     grep -nP "def \w+\([^)]*\):" apps/*/views.py apps/*/api.py
-
-     # Cross-reference with functions that HAVE type hints
-     grep -nP "def \w+\([^)]*\) ->" apps/*/views.py
-
-     # Any view helper without -> is WARNING
-     ```
-   - Review checklist:
-     - [ ] Do all view functions have type hints?
-     - [ ] Do all helper functions called by views have type hints?
-     - [ ] Are type hints specific (Dict[str, Any] not dict)?
-     - [ ] Are Django/DRF types used correctly (Request, Response, QuerySet)?
-     - [ ] Do docstrings document Args and Returns?
-     - [ ] Does mypy pass without errors?
-   - mypy integration:
-     ```bash
-     # Check type hints with mypy
-     mypy apps/users/views.py apps/users/api.py
-
-     # Strict mode (recommended)
-     mypy --strict apps/users/views.py
-     ```
-   - See: [P1 Code Review Patterns Codified](P1_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 3
-
-**React 19 Patterns (P2 Issues - October 2025):**
-
-19. **React Hooks Placement Rules** ⭐ ENHANCED - BLOCKER (P2 Issue #23)
-   - BLOCKER: React hooks called after conditional statements or early returns
-   - CRITICAL: Violates React's Rules of Hooks - hooks must be in same order every render
-   - PATTERN: All hooks must be at the top of component, before ANY conditional returns
-   - Check for: useMemo, useCallback, useEffect, useState after early returns
-   - Why this is critical:
-     - React tracks hooks by call order, not by name
-     - Conditional hook calls break React's internal state tracking
-     - May work in development but break in production builds
-     - ESLint catches this but developers may disable warning
-   - Anti-pattern (BLOCKER - from P2 review):
+16. **Security-First Authentication Pattern** - HTTPS, CSRF, XSS Protection
+   - BLOCKER: Sending credentials over HTTP in production
+   - CRITICAL: Missing CSRF token extraction and header injection
+   - WARNING: Using localStorage for auth tokens (vulnerable to XSS)
+   - Check for: API calls with credentials without security measures
+   - Example from authService.js:
      ```javascript
-     function BlogDetailPage() {
-       const { slug } = useParams();
-       const [post, setPost] = useState(null);
-       const [loading, setLoading] = useState(true);
+     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-       // ❌ CRITICAL ERROR: Early return BEFORE hooks
-       if (!slug) {
-         return <ErrorPage message="No slug provided" />;
+     // BLOCKER: HTTPS enforcement for production
+     if (import.meta.env.PROD && API_URL.startsWith('http://')) {
+       logger.error('[authService] SECURITY ERROR: API_URL must use HTTPS in production')
+       throw new Error('Cannot send credentials over HTTP in production. Set VITE_API_URL to https:// endpoint.')
+     }
+
+     // CSRF token extraction from cookies
+     function getCsrfToken() {
+       const match = document.cookie.match(/csrftoken=([^;]+)/)
+       return match ? match[1] : null
+     }
+
+     // Login with CSRF protection
+     export async function login(credentials) {
+       const csrfToken = getCsrfToken()
+       const headers = {
+         'Content-Type': 'application/json',
        }
 
-       // ❌ BLOCKER: Hooks called after early return
-       const contentBlocks = useMemo(() => {
-         return parseContentBlocks(post.content_blocks);
-       }, [post.content_blocks]);
+       // Add CSRF token if available (required by Django backend)
+       if (csrfToken) {
+         headers['X-CSRFToken'] = csrfToken
+       }
 
-       const handleShare = useCallback(() => {
-         // Share logic
-       }, [post]);
+       const response = await fetch(`${API_URL}/api/v1/users/login/`, {
+         method: 'POST',
+         headers,
+         credentials: 'include',  // Include HttpOnly cookies
+         body: JSON.stringify(credentials),
+       })
+
+       const data = await response.json()
+
+       // SECURITY: Use sessionStorage (cleared on tab close) over localStorage
+       sessionStorage.setItem('user', JSON.stringify(data.user))
+
+       return data.user
      }
      ```
-   - Correct pattern (fixed in P2):
+   - XSS prevention with DOMPurify (sanitize.js):
      ```javascript
-     function BlogDetailPage() {
-       const { slug } = useParams();
-       const [post, setPost] = useState(null);
-       const [loading, setLoading] = useState(true);
+     import DOMPurify from 'dompurify'
 
-       // ✅ ALL HOOKS FIRST (before ANY returns)
-       const contentBlocks = useMemo(() => {
-         // Handle null case inside the hook
-         if (!post?.content_blocks) return [];
-         return parseContentBlocks(post.content_blocks);
-       }, [post]);
+     // Strip ALL HTML from form inputs
+     export function sanitizeInput(input) {
+       if (!input || typeof input !== 'string') return input
 
-       const handleShare = useCallback(() => {
-         if (!post) return;
-         // Share logic
-       }, [post]);
+       return DOMPurify.sanitize(input, {
+         ALLOWED_TAGS: [],    // No HTML in form fields
+         ALLOWED_ATTR: [],
+       }).trim()
+     }
 
-       // ✅ NOW safe to have early returns
-       if (!slug) {
-         return <ErrorPage message="No slug provided" />;
-       }
+     // Sanitize error messages from server (prevent XSS)
+     export function sanitizeError(error) {
+       if (!error || typeof error !== 'string') return error
 
-       if (loading) {
-         return <LoadingSpinner />;
-       }
-
-       if (!post) {
-         return <NotFoundPage />;
-       }
-
-       return <div>{/* render with contentBlocks and handleShare */}</div>;
+       return DOMPurify.sanitize(error, {
+         ALLOWED_TAGS: [],
+         ALLOWED_ATTR: [],
+       })
      }
      ```
-   - Common violations to check:
+   - Production-safe logging (logger.js):
      ```javascript
-     // ❌ useEffect after conditional
-     if (error) return <ErrorPage />;
-     useEffect(() => {}, []);
+     import * as Sentry from '@sentry/react'
 
-     // ❌ useState after early return
-     if (!data) return null;
-     const [expanded, setExpanded] = useState(false);
+     export function logError(message, error) {
+       if (import.meta.env.DEV) {
+         console.error(message, error)
+       } else if (import.meta.env.PROD) {
+         // Send to Sentry in production (not console)
+         Sentry.captureException(error, {
+           tags: { context: message },
+           extra: { message },
+         })
+       }
+     }
+     ```
+   - Sentry configuration with privacy settings (sentry.js):
+     ```javascript
+     Sentry.init({
+       dsn: import.meta.env.VITE_SENTRY_DSN,
+       environment: import.meta.env.MODE || 'production',
+       tracesSampleRate: 0.1,  // 10% of transactions
 
-     // ❌ useMemo after loading check
-     if (loading) return <Spinner />;
-     const sorted = useMemo(() => sort(items), [items]);
+       integrations: [
+         Sentry.browserTracingIntegration(),
+         Sentry.replayIntegration({
+           maskAllText: true,      // Privacy: mask all text
+           blockAllMedia: true,    // Privacy: block all media
+         }),
+       ],
 
-     // ❌ useCallback after permission check
-     if (!hasPermission) return <Forbidden />;
-     const handleClick = useCallback(() => {}, []);
+       replaysSessionSampleRate: 0.1,   // 10% of sessions
+       replaysOnErrorSampleRate: 1.0,   // 100% of error sessions
+     })
      ```
-   - ESLint error messages:
-     ```
-     React Hook 'useMemo' is called conditionally. React Hooks must be
-     called in the exact same order in every component render.
-     ```
-   - Detection pattern:
+   - Detection patterns:
      ```bash
-     # Find components with hooks after early returns
-     grep -n "return.*<" web/src/**/*.{jsx,tsx} | \
-       while read line; do
-         file=$(echo "$line" | cut -d: -f1)
-         line_num=$(echo "$line" | cut -d: -f2)
-         # Check if any hooks appear after this return statement
-         awk -v start="$line_num" \
-           'NR > start && /use(State|Effect|Memo|Callback|Reducer|Ref|Context)/ {
-             print FILENAME":"NR": BLOCKER - React hook after early return at line "start
-           }' "$file"
-       done
+     # Check for HTTP in production
+     grep -n "API_URL.*http://" web/src/**/*.{js,jsx}
+
+     # Look for credentials without CSRF protection
+     grep -n "fetch.*credentials.*include" web/src/**/*.{js,jsx}
+     grep -n "X-CSRFToken" web/src/**/*.{js,jsx}
+
+     # Check for localStorage usage (should be sessionStorage)
+     grep -n "localStorage.setItem.*user\|token" web/src/**/*.{js,jsx}
+
+     # Verify DOMPurify sanitization on user input
+     grep -n "sanitize" web/src/**/*.{js,jsx}
      ```
    - Review checklist:
-     - [ ] Are all hooks (useState, useEffect, useMemo, useCallback) at top of component?
-     - [ ] Are hooks called before any conditional statements?
-     - [ ] Are hooks called before any early returns?
-     - [ ] Does ESLint pass without react-hooks/rules-of-hooks warnings?
-     - [ ] Are hook dependency arrays complete and accurate?
-     - [ ] If hook has conditional logic, is it inside the hook (not outside)?
-   - Impact if violated:
-     - **Development**: May appear to work but is fundamentally broken
-     - **Production**: Unpredictable state bugs, crashes
-     - **React**: Violates core framework rules
-   - See: [P2 Code Review Patterns](P2_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 21
+     - [ ] Is HTTPS enforced in production (throw error if HTTP)?
+     - [ ] Are CSRF tokens extracted from cookies and sent as headers?
+     - [ ] Is sessionStorage used instead of localStorage (more secure)?
+     - [ ] Are all user inputs sanitized with DOMPurify?
+     - [ ] Are error messages from server sanitized before display?
+     - [ ] Is logging environment-aware (console in dev, Sentry in prod)?
+     - [ ] Does Sentry have privacy settings (maskAllText, blockAllMedia)?
 
-20. **React.memo() Optimization Guidelines** ⭐ NEW (Issue #24)
-   - SUGGESTION: Expensive components re-rendering unnecessarily
-   - PATTERN: Wrap with React.memo() to prevent re-renders when props unchanged
-   - Check for: Components rendered frequently in lists or with expensive logic
-   - Performance impact: 70% reduction in unnecessary re-renders (Issue #24 results)
-   - When to use React.memo():
-     - ✅ Component is pure (same props → same output)
-     - ✅ Component renders frequently with same props
-     - ✅ Component has expensive rendering logic
-     - ✅ Component is in a list or repeated structure
-     - ✅ Parent re-renders often due to state changes
-   - When NOT to use:
-     - ❌ Component already rarely re-renders
-     - ❌ Props change on every render anyway
-     - ❌ Component is very lightweight (memo overhead > render cost)
-     - ❌ Premature optimization (profile first!)
-   - Correct pattern:
+17. **Accessible Form Components** - WCAG 2.2 Compliance
+   - BLOCKER: Form inputs without labels or ARIA attributes
+   - WARNING: Error states without aria-invalid or role="alert"
+   - PATTERN: Reusable Input/Button components with built-in accessibility
+   - Check for: Custom form components without accessibility features
+   - Example from Input.jsx:
      ```javascript
-     import { memo } from 'react';
-
-     // ✅ GOOD: Memoized component only re-renders when props change
-     const BlogCard = memo(function BlogCard({ post, compact, onClick }) {
-       // Component logic - only runs if props changed
-       return (
-         <article className="blog-card">
-           {/* Complex JSX */}
-         </article>
-       );
-     });
-
-     export default BlogCard;
-     ```
-   - Anti-pattern:
-     ```javascript
-     // ❌ BAD: Component re-renders on every parent update
-     function BlogCard({ post, compact, onClick }) {
-       // Expensive rendering logic runs every time
-       return <article>{/* Complex JSX */}</article>;
-     }
-     ```
-   - Must pair with useCallback for function props:
-     ```javascript
-     // Parent component
-     function BlogList() {
-       const [searchParams, setSearchParams] = useSearchParams();
-
-       // ✅ GOOD: Memoized callback for memoized child
-       const handleClick = useCallback((postId) => {
-         // Handler logic
-       }, [/* dependencies */]);
+     export default function Input({
+       type = 'text',
+       label,
+       name,
+       value,
+       onChange,
+       error,
+       required = false,
+       disabled = false,
+       ...props
+     }) {
+       const inputId = name || label?.toLowerCase().replace(/\s+/g, '-')
 
        return (
-         <>
-           {posts.map(post => (
-             <BlogCard key={post.id} post={post} onClick={handleClick} />
-           ))}
-         </>
-       );
+         <div className="w-full">
+           {/* WCAG: Label associated with input */}
+           {label && (
+             <label htmlFor={inputId} className="block text-sm font-medium text-gray-700 mb-1">
+               {label}
+               {/* WCAG: Visual indicator for required fields */}
+               {required && <span className="text-red-500 ml-1" aria-label="required">*</span>}
+             </label>
+           )}
+
+           <input
+             type={type}
+             id={inputId}
+             name={name}
+             value={value}
+             onChange={onChange}
+             required={required}
+             disabled={disabled}
+             aria-invalid={!!error}  // WCAG: Error state for screen readers
+             aria-describedby={error ? `${inputId}-error` : undefined}
+             className={`block w-full px-3 py-2 border rounded-lg ${
+               error ? 'border-red-300' : 'border-gray-300'  // Visual error feedback
+             }`}
+             {...props}
+           />
+
+           {/* WCAG: Error message with role="alert" */}
+           {error && (
+             <p
+               id={`${inputId}-error`}
+               className="mt-1 text-sm text-red-600"
+               role="alert"
+             >
+               {error}
+             </p>
+           )}
+         </div>
+       )
      }
      ```
-   - Review checklist:
-     - [ ] Are expensive/frequently-rendered components wrapped with memo()?
-     - [ ] Do memoized components have stable prop types?
-     - [ ] Are function props memoized with useCallback?
-     - [ ] Is there profiling data justifying memo() usage?
-     - [ ] Are dependency arrays complete for useCallback?
-   - See: [P2 Code Review Patterns](P2_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 25
-
-21. **useCallback with Router Params Dependencies** ⭐ NEW - WARNING (Issue #24)
-   - WARNING: useCallback using searchParams/setSearchParams without both in dependencies
-   - PATTERN: Include ALL values referenced inside callback in dependency array
-   - Check for: useCallback with searchParams but missing setSearchParams
-   - Why both required:
-     - `searchParams` - Read current URL parameters (input)
-     - `setSearchParams` - Update URL with new parameters (output)
-     - React Hook rules: Include ALL values used in callback
-     - Stale closure: Without dependencies, callback captures old values
-   - Anti-pattern (WARNING):
+   - Button with loading state and ARIA (Button.jsx):
      ```javascript
-     // ❌ WARNING: Incomplete dependency array
-     const handleCategoryFilter = useCallback((categorySlug) => {
-       const newParams = new URLSearchParams(searchParams);  // Uses searchParams
-       newParams.set('category', categorySlug);
-       setSearchParams(newParams);  // Uses setSearchParams
-     }, [searchParams]);  // ❌ Missing setSearchParams
+     export default function Button({
+       children,
+       variant = 'primary',
+       loading = false,
+       disabled = false,
+       onClick,
+       ...props
+     }) {
+       return (
+         <button
+           onClick={onClick}
+           disabled={disabled || loading}
+           className="inline-flex items-center justify-center font-medium transition-colors rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+           {...props}
+         >
+           {loading && (
+             <svg
+               className="animate-spin -ml-1 mr-2 h-4 w-4"
+               aria-hidden="true"  // Decorative, hide from screen readers
+             >
+               {/* Loading spinner SVG */}
+             </svg>
+           )}
+           {children}
+         </button>
+       )
+     }
      ```
-   - ESLint warning:
-     ```
-     React Hook useCallback has a missing dependency: 'setSearchParams'.
-     Either include it or remove the dependency array. (react-hooks/exhaustive-deps)
-     ```
-   - Correct pattern:
+   - Skip navigation for keyboard users (RootLayout.jsx):
      ```javascript
-     import { useSearchParams } from 'react-router-dom';
+     export default function RootLayout() {
+       return (
+         <div className="min-h-screen flex flex-col">
+           {/* WCAG 2.2: Skip navigation link */}
+           <a href="#main-content" className="skip-nav">
+             Skip to main content
+           </a>
 
-     function BlogListPage() {
-       const [searchParams, setSearchParams] = useSearchParams();
+           <Header />
+           <main id="main-content" className="flex-1">
+             <Outlet />
+           </main>
+           <Footer />
+         </div>
+       )
+     }
+     ```
+   - CSS for skip navigation (index.css):
+     ```css
+     .skip-nav {
+       position: absolute;
+       top: -40px;  /* Hidden by default */
+       left: 0;
+       background: #16a34a;
+       color: white;
+       padding: 8px 16px;
+       text-decoration: none;
+       font-weight: 600;
+       border-radius: 0 0 8px 0;
+       z-index: 100;
+       transition: top 0.2s;
+     }
 
-       // ✅ GOOD: Complete dependency array
-       const handleCategoryFilter = useCallback((categorySlug) => {
-         const newParams = new URLSearchParams(searchParams);
+     .skip-nav:focus {
+       top: 0;  /* Visible when focused via keyboard */
+     }
+     ```
+   - Dropdown with keyboard navigation (UserMenu.jsx):
+     ```javascript
+     export default function UserMenu() {
+       const [isOpen, setIsOpen] = useState(false)
+       const menuRef = useRef(null)
 
-         if (categorySlug) {
-           newParams.set('category', categorySlug);
-         } else {
-           newParams.delete('category');
+       useEffect(() => {
+         function handleEscape(event) {
+           if (event.key === 'Escape') {
+             setIsOpen(false)  // Close on Escape key
+           }
          }
 
-         setSearchParams(newParams);
-       }, [searchParams, setSearchParams]);  // ✅ Both dependencies
+         if (isOpen) {
+           document.addEventListener('keydown', handleEscape)
+           return () => document.removeEventListener('keydown', handleEscape)
+         }
+       }, [isOpen])
 
        return (
-         <button onClick={() => handleCategoryFilter('flowers')}>
-           Filter by Flowers
-         </button>
-       );
+         <div ref={menuRef}>
+           <button
+             onClick={() => setIsOpen(!isOpen)}
+             aria-expanded={isOpen}  // WCAG: Dropdown state
+             aria-haspopup="true"
+           >
+             Menu
+           </button>
+
+           {isOpen && (
+             <div role="menu" aria-label="User menu">
+               <Link to="/profile" role="menuitem" onClick={() => setIsOpen(false)}>
+                 Profile
+               </Link>
+             </div>
+           )}
+         </div>
+       )
      }
      ```
-   - Special case (only setSearchParams needed):
-     ```javascript
-     // When NOT reading current params, only setSearchParams needed
-     const handleClearFilters = useCallback(() => {
-       setSearchParams(new URLSearchParams());  // Fresh params, no read
-     }, [setSearchParams]);  // ✅ Only setSearchParams needed
-     ```
-   - Detection pattern:
+   - Detection patterns:
      ```bash
-     # Find useCallback with searchParams but missing setSearchParams
-     grep -rn "useCallback" web/src/**/*.{js,jsx} | while read line; do
-       file=$(echo "$line" | cut -d: -f1)
-       line_num=$(echo "$line" | cut -d: -f2)
+     # Check for inputs without labels
+     grep -n "<input" web/src/**/*.{js,jsx} | grep -v "aria-label\|htmlFor"
 
-       # Extract callback block (up to dependency array)
-       callback_block=$(awk -v start="$line_num" '
-         NR >= start && /useCallback/ { in_callback=1 }
-         in_callback { buffer = buffer $0 "\n" }
-         /\], \[.*\]\)/ { print buffer; exit }
-       ' "$file")
+     # Look for buttons without accessible names
+     grep -n "<button" web/src/**/*.{js,jsx} | grep -v "aria-label\|children"
 
-       # Check if uses searchParams but not in dependencies
-       if echo "$callback_block" | grep -q "searchParams" && \
-          echo "$callback_block" | grep -qv "\[.*setSearchParams.*\]"; then
-         echo "WARNING: $file:$line_num - useCallback missing setSearchParams dependency"
-       fi
-     done
+     # Check for error states without ARIA
+     grep -n "error" web/src/**/*.{js,jsx} | grep -v "aria-invalid\|role=\"alert\""
+
+     # Verify skip navigation exists
+     grep -n "skip-nav\|Skip to main content" web/src/**/*.{js,jsx,css}
      ```
    - Review checklist:
-     - [ ] Are all values used in callback included in dependency array?
-     - [ ] If searchParams is read, is it in dependencies?
-     - [ ] If setSearchParams is called, is it in dependencies?
-     - [ ] Does ESLint pass without exhaustive-deps warnings?
-     - [ ] Are there comments explaining omitted dependencies (if any)?
-   - See: [P2 Code Review Patterns](P2_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 27
+     - [ ] Do all inputs have associated labels (htmlFor + id)?
+     - [ ] Are required fields marked visually and with ARIA?
+     - [ ] Do error states use aria-invalid and role="alert"?
+     - [ ] Are buttons disabled during loading (not just visual)?
+     - [ ] Is there skip navigation for keyboard users?
+     - [ ] Do dropdowns use role="menu" and aria-expanded?
+     - [ ] Can all interactive elements be operated via keyboard?
+     - [ ] Are decorative elements hidden from screen readers (aria-hidden)?
 
-22. **ESLint Test File Configuration** ⭐ NEW - IMPORTANT (Issue #23)
-   - IMPORTANT: Test files showing ESLint errors for test globals
-   - PATTERN: Configure ESLint with separate rules for test files
-   - Check for: `'describe' is not defined`, `'it' is not defined`, `'expect' is not defined`
-   - Why this happens:
-     - Test framework globals (describe, it, expect) not in default ESLint environment
-     - Vitest/Jest globals need explicit configuration
-     - Test files require different global scope than source files
-   - Anti-pattern (BLOCKER):
+18. **Protected Routes Pattern** - Authentication-Aware Navigation
+   - BLOCKER: Protected pages accessible without authentication
+   - WARNING: Missing loading states during auth verification
+   - PATTERN: ProtectedLayout wrapper with redirect logic
+   - Check for: Routes that require auth without protection
+   - Example from ProtectedLayout.jsx:
      ```javascript
-     // eslint.config.js - Missing test file configuration
-     export default [
-       {
-         files: ['**/*.{js,jsx}'],
-         languageOptions: {
-           globals: {
-             ...globals.browser,  // Only browser globals
-           },
-         },
-       },
-       // ❌ No test file configuration - test globals undefined
-     ];
-     ```
-   - Correct pattern:
-     ```javascript
-     // eslint.config.js
-     import globals from 'globals';
+     import { Navigate, Outlet, useLocation } from 'react-router-dom'
+     import { useAuth } from '../hooks/useAuth'
 
-     export default [
-       {
-         files: ['**/*.{js,jsx,mjs,cjs,ts,tsx}'],
-         languageOptions: {
-           globals: {
-             ...globals.browser,
-           },
-         },
-       },
+     export default function ProtectedLayout() {
+       const { isAuthenticated, isLoading } = useAuth()
+       const location = useLocation()
 
-       // ✅ CRITICAL: Test file configuration
-       {
-         files: ['**/*.test.{js,jsx}', '**/tests/**/*.{js,jsx}'],
-         languageOptions: {
-           globals: {
-             ...globals.browser,
-             ...globals.node,  // Includes describe, it, expect, beforeEach, etc.
-           },
-         },
-       },
-     ];
-     ```
-   - Why globals.node works:
-     ```javascript
-     // globals.node includes test framework globals:
-     {
-       describe: 'readonly',
-       it: 'readonly',
-       test: 'readonly',
-       expect: 'readonly',
-       beforeEach: 'readonly',
-       afterEach: 'readonly',
-       beforeAll: 'readonly',
-       afterAll: 'readonly',
-       vi: 'readonly',  // Vitest
-       jest: 'readonly',  // Jest
+       // Show loading spinner while checking authentication
+       if (isLoading) {
+         return (
+           <div className="min-h-screen flex items-center justify-center bg-gray-50">
+             <div className="text-center" role="status" aria-live="polite">
+               <div
+                 className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"
+                 aria-hidden="true"
+               />
+               <p className="mt-4 text-gray-600">Loading authentication...</p>
+             </div>
+           </div>
+         )
+       }
+
+       // Redirect to login if not authenticated
+       // Save current location to redirect back after login
+       if (!isAuthenticated) {
+         return <Navigate to="/login" state={{ from: location }} replace />
+       }
+
+       // Render protected content
+       return <Outlet />
      }
      ```
-   - Detection pattern:
-     ```bash
-     # Check for test files with ESLint errors
-     find web/src -name "*.test.js" -o -name "*.test.jsx" | while read file; do
-       npx eslint "$file" 2>&1 | grep -q "is not defined" && \
-         echo "WARNING: Test file has undefined globals: $file"
-     done
+   - Return URL handling in LoginPage.jsx:
+     ```javascript
+     export default function LoginPage() {
+       const navigate = useNavigate()
+       const location = useLocation()
+       const { login } = useAuth()
 
-     # Verify ESLint config has test file pattern
-     grep -q "files.*test.*globals.*node" web/eslint.config.js || \
-       echo "BLOCKER: Missing test file configuration in eslint.config.js"
+       // Get the page user was trying to access (for redirect after login)
+       const from = location.state?.from?.pathname || '/'
+
+       const handleSubmit = async (e) => {
+         e.preventDefault()
+
+         const result = await login(credentials)
+
+         if (result.success) {
+           // Redirect to the page user was trying to access, or home
+           navigate(from, { replace: true })
+         }
+       }
+
+       return (/* Login form */)
+     }
+     ```
+   - Route configuration pattern:
+     ```javascript
+     // App.jsx or main routing file
+     import { createBrowserRouter } from 'react-router-dom'
+     import RootLayout from './layouts/RootLayout'
+     import ProtectedLayout from './layouts/ProtectedLayout'
+
+     const router = createBrowserRouter([
+       {
+         path: '/',
+         element: <RootLayout />,
+         children: [
+           { index: true, element: <HomePage /> },
+           { path: 'blog', element: <BlogListPage /> },
+           { path: 'login', element: <LoginPage /> },
+           { path: 'signup', element: <SignupPage /> },
+
+           // Protected routes wrapped in ProtectedLayout
+           {
+             element: <ProtectedLayout />,
+             children: [
+               { path: 'profile', element: <ProfilePage /> },
+               { path: 'settings', element: <SettingsPage /> },
+               { path: 'dashboard', element: <DashboardPage /> },
+             ],
+           },
+         ],
+       },
+     ])
+     ```
+   - Detection patterns:
+     ```bash
+     # Check for protected routes without ProtectedLayout
+     grep -n "path.*profile\|settings\|dashboard" web/src/**/*.{js,jsx}
+
+     # Look for authentication checks without loading states
+     grep -n "isAuthenticated" web/src/**/*.{js,jsx} | grep -v "isLoading"
+
+     # Verify return URL handling
+     grep -n "location.state.*from" web/src/**/*.{js,jsx}
      ```
    - Review checklist:
-     - [ ] Does eslint.config.js have separate configuration for test files?
-     - [ ] Are test file patterns comprehensive (*.test.{js,jsx}, tests/**/*)?
-     - [ ] Are test globals included (globals.node or vitest-specific)?
-     - [ ] Do test files pass ESLint without "not defined" errors?
-     - [ ] Are test runner globals (vi, jest) available if needed?
-   - See: [P2 Code Review Patterns](P2_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 26
+     - [ ] Are protected routes wrapped in ProtectedLayout?
+     - [ ] Is there a loading state during auth verification?
+     - [ ] Does redirect preserve return URL (location.state.from)?
+     - [ ] Are loading states accessible (role="status", aria-live)?
+     - [ ] Does login page redirect to intended destination?
+     - [ ] Is 'replace' used to prevent back button issues?
+     - [ ] Are public routes clearly separated from protected routes?
+
+19. **Tailwind 4 Design System Pattern** - @theme Directive
+   - WARNING: Hardcoded colors, spacing, or font sizes instead of design tokens
+   - PATTERN: Centralized design tokens in @theme directive
+   - Check for: Magic values in Tailwind classes or inline styles
+   - Example from index.css:
+     ```css
+     @import "tailwindcss";
+
+     @theme {
+       /* Brand Colors */
+       --color-primary: #16a34a;
+       --color-primary-hover: #15803d;
+       --color-secondary: #10b981;
+
+       /* Semantic Colors */
+       --color-success: #22c55e;
+       --color-warning: #f59e0b;
+       --color-error: #ef4444;
+
+       /* Spacing Scale */
+       --spacing-xs: 0.25rem;   /* 4px */
+       --spacing-sm: 0.5rem;    /* 8px */
+       --spacing-md: 1rem;      /* 16px */
+       --spacing-lg: 1.5rem;    /* 24px */
+       --spacing-xl: 2rem;      /* 32px */
+
+       /* Border Radius */
+       --radius-sm: 0.375rem;   /* 6px */
+       --radius-md: 0.5rem;     /* 8px */
+       --radius-lg: 0.75rem;    /* 12px */
+
+       /* Typography Scale */
+       --font-sm: 0.875rem;     /* 14px */
+       --font-base: 1rem;       /* 16px */
+       --font-lg: 1.125rem;     /* 18px */
+       --font-xl: 1.25rem;      /* 20px */
+     }
+     ```
+   - Usage in components:
+     ```javascript
+     // GOOD: Using Tailwind utility classes (references design tokens)
+     <button className="bg-green-600 text-white rounded-lg px-4 py-2 hover:bg-green-700">
+       Click me
+     </button>
+
+     // BAD: Hardcoded values (avoid)
+     <button style={{ backgroundColor: '#16a34a', padding: '8px 16px' }}>
+       Click me
+     </button>
+     ```
+   - Variant pattern for component consistency:
+     ```javascript
+     // Button.jsx
+     const variants = {
+       primary: 'bg-green-600 text-white hover:bg-green-700 focus:ring-green-500',
+       secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200 focus:ring-gray-500',
+       outline: 'border-2 border-green-600 text-green-600 hover:bg-green-50',
+     }
+
+     const sizes = {
+       sm: 'px-3 py-1.5 text-sm',
+       md: 'px-4 py-2 text-base',
+       lg: 'px-6 py-3 text-lg',
+     }
+
+     const className = `${baseStyles} ${variants[variant]} ${sizes[size]}`
+     ```
+   - Detection patterns:
+     ```bash
+     # Check for inline styles (should use Tailwind)
+     grep -n "style={{" web/src/**/*.{js,jsx}
+
+     # Look for hardcoded hex colors
+     grep -n "#[0-9a-fA-F]{6}" web/src/**/*.{js,jsx}
+
+     # Verify @theme directive exists
+     grep -n "@theme" web/src/**/*.css
+     ```
+   - Review checklist:
+     - [ ] Are design tokens defined in @theme directive?
+     - [ ] Do components use Tailwind utilities (not inline styles)?
+     - [ ] Are color values consistent across components?
+     - [ ] Do reusable components use variant patterns?
+     - [ ] Are spacing values from design scale (not magic numbers)?
+     - [ ] Are CSS custom properties used for maintainability?
+
+20. **Click-Outside Pattern** - useEffect + Ref for Dropdowns
+   - WARNING: Dropdowns without click-outside behavior
+   - PATTERN: useEffect with event listeners and cleanup
+   - Check for: Dropdown/modal components without outside click handling
+   - Example from UserMenu.jsx:
+     ```javascript
+     export default function UserMenu() {
+       const [isOpen, setIsOpen] = useState(false)
+       const menuRef = useRef(null)
+
+       // Handle click outside to close menu
+       useEffect(() => {
+         function handleClickOutside(event) {
+           if (menuRef.current && !menuRef.current.contains(event.target)) {
+             setIsOpen(false)
+           }
+         }
+
+         // Handle Escape key to close menu
+         function handleEscape(event) {
+           if (event.key === 'Escape') {
+             setIsOpen(false)
+           }
+         }
+
+         if (isOpen) {
+           document.addEventListener('mousedown', handleClickOutside)
+           document.addEventListener('keydown', handleEscape)
+
+           // CRITICAL: Cleanup listeners to prevent memory leaks
+           return () => {
+             document.removeEventListener('mousedown', handleClickOutside)
+             document.removeEventListener('keydown', handleEscape)
+           }
+         }
+       }, [isOpen])  // Re-run when isOpen changes
+
+       return (
+         <div ref={menuRef}>
+           <button onClick={() => setIsOpen(!isOpen)}>Toggle</button>
+           {isOpen && <div>Dropdown content</div>}
+         </div>
+       )
+     }
+     ```
+   - Detection patterns:
+     ```bash
+     # Check for dropdowns without click-outside handling
+     grep -n "useState.*Open\|isOpen" web/src/**/*.{js,jsx}
+
+     # Look for event listeners without cleanup
+     grep -n "addEventListener" web/src/**/*.{js,jsx} | grep -v "removeEventListener"
+
+     # Verify useRef usage for DOM references
+     grep -n "useRef" web/src/**/*.{js,jsx}
+     ```
+   - Review checklist:
+     - [ ] Do dropdowns/modals use useRef for DOM reference?
+     - [ ] Is click-outside handled with event listeners?
+     - [ ] Are event listeners cleaned up in useEffect return?
+     - [ ] Is Escape key handled for keyboard accessibility?
+     - [ ] Are listeners only added when dropdown is open?
+     - [ ] Does cleanup prevent memory leaks?
 
 **Django + React Integration Patterns (Frontend-Backend):**
 
-23. **Circuit Breaker Configuration Rationale** ⭐ NEW (P1)
-   - IMPORTANT: Document WHY circuit breaker parameters differ between services
-   - PATTERN: Configuration differences must have documented rationale
-   - Check for: Circuit breaker configs without explanatory comments
-   - Why this matters:
-     - Different APIs have different reliability, cost, and SLA characteristics
-     - Configuration differences are intentional, not arbitrary
-     - Future maintainers need context for tuning
-   - Anti-pattern (undocumented):
-     ```python
-     # Plant.id circuit breaker
-     plant_id_circuit = CircuitBreaker(
-         fail_max=3,
-         reset_timeout=60,
-     )
+21. **Form Validation Pattern** - Client-Side with Server Verification
+   - BLOCKER: Form submission without validation
+   - WARNING: Validation logic duplicated across multiple forms
+   - PATTERN: Reusable validation utilities with real-time feedback
+   - Check for: Forms without validation or error handling
+   - Example from validation.js:
+     ```javascript
+     // Reusable validation functions
+     export function validateEmail(email) {
+       if (!email || typeof email !== 'string') return false
+       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+       return emailRegex.test(email.trim())
+     }
 
-     # PlantNet circuit breaker
-     plantnet_circuit = CircuitBreaker(
-         fail_max=5,
-         reset_timeout=30,
-     )
-     # What's missing: WHY different values?
+     export function validatePassword(password) {
+       if (!password || typeof password !== 'string') return false
+       return password.length >= 8  // Minimum 8 characters
+     }
+
+     // Error message generators
+     export function getEmailError(email) {
+       if (!validateRequired(email)) return 'Email is required'
+       if (!validateEmail(email)) return 'Please enter a valid email address'
+       return null
+     }
+
+     export function getPasswordError(password) {
+       if (!validateRequired(password)) return 'Password is required'
+       if (!validatePassword(password)) return 'Password must be at least 8 characters long'
+       return null
+     }
      ```
-   - Correct pattern (documented rationale):
-     ```python
-     # Plant.id circuit breaker configuration
-     #
-     # RATIONALE:
-     # - Paid tier API (limited quota, high cost per call)
-     # - Conservative fail_max=3 (fail fast to preserve quota)
-     # - Longer reset_timeout=60s (allow more time for recovery)
-     # - Fast-fail strategy: Better to skip than exhaust paid quota
-     plant_id_circuit = CircuitBreaker(
-         fail_max=PLANT_ID_CIRCUIT_FAIL_MAX,  # 3 failures
-         reset_timeout=PLANT_ID_CIRCUIT_RESET_TIMEOUT,  # 60 seconds
-     )
+   - Usage in LoginPage.jsx:
+     ```javascript
+     const [formData, setFormData] = useState({ email: '', password: '' })
+     const [errors, setErrors] = useState({})
 
-     # PlantNet circuit breaker configuration
-     #
-     # RATIONALE:
-     # - Free tier API (500 requests/day limit)
-     # - Tolerant fail_max=5 (more lenient, no cost per call)
-     # - Shorter reset_timeout=30s (retry faster for free service)
-     # - Fallback strategy: Can retry more aggressively without cost concerns
-     plantnet_circuit = CircuitBreaker(
-         fail_max=PLANTNET_CIRCUIT_FAIL_MAX,  # 5 failures
-         reset_timeout=PLANTNET_CIRCUIT_RESET_TIMEOUT,  # 30 seconds
-     )
+     // Clear error when user starts typing
+     const handleChange = (e) => {
+       const { name, value } = e.target
+       const sanitizedValue = sanitizeInput(value)
+
+       setFormData(prev => ({ ...prev, [name]: sanitizedValue }))
+
+       // Clear error for this field
+       if (errors[name]) {
+         setErrors(prev => ({ ...prev, [name]: null }))
+       }
+     }
+
+     // Validate before submission
+     const validateForm = () => {
+       const newErrors = {}
+
+       const emailError = getEmailError(formData.email)
+       if (emailError) newErrors.email = emailError
+
+       const passwordError = getPasswordError(formData.password)
+       if (passwordError) newErrors.password = passwordError
+
+       setErrors(newErrors)
+       return Object.keys(newErrors).length === 0
+     }
+
+     const handleSubmit = async (e) => {
+       e.preventDefault()
+
+       if (!validateForm()) return  // Stop if validation fails
+
+       const result = await login(formData)
+       if (!result.success) {
+         setServerError(sanitizeError(result.error))  // Sanitize server errors
+       }
+     }
      ```
-   - Decision matrix:
-     | Factor | Plant.id (Paid) | PlantNet (Free) | Rationale |
-     |--------|----------------|-----------------|-----------|
-     | Cost per call | High | Free | Fail fast for paid, retry for free |
-     | Quota limit | 100/month | 500/day | Preserve paid quota aggressively |
-     | fail_max | 3 (conservative) | 5 (tolerant) | Lower threshold for paid service |
-     | reset_timeout | 60s (longer) | 30s (shorter) | Longer recovery for paid |
-   - Constants documentation:
-     ```python
-     # apps/plant_identification/constants.py
-
-     # Circuit Breaker - Plant.id API (Paid Tier)
-     PLANT_ID_CIRCUIT_FAIL_MAX = 3  # Conservative: Paid API, preserve quota
-     PLANT_ID_CIRCUIT_RESET_TIMEOUT = 60  # Longer recovery: Allow time for service restoration
-
-     # Circuit Breaker - PlantNet API (Free Tier)
-     PLANTNET_CIRCUIT_FAIL_MAX = 5  # Tolerant: Free API, can retry more
-     PLANTNET_CIRCUIT_RESET_TIMEOUT = 30  # Shorter recovery: Retry faster for free service
-
-     # TUNING GUIDE:
-     # - Increase fail_max if service has transient errors (temporary blips)
-     # - Decrease fail_max if service degrades gradually (slow failures)
-     # - Increase reset_timeout for services with long recovery times
-     # - Decrease reset_timeout for services with fast recovery
-     ```
-   - Detection pattern:
+   - Detection patterns:
      ```bash
-     # Find CircuitBreaker instantiations
-     grep -n "CircuitBreaker(" apps/*/services/*.py
+     # Check for forms without validation
+     grep -n "onSubmit\|handleSubmit" web/src/**/*.{js,jsx}
 
-     # For each match, check for comment block within 10 lines above
-     # If no comment: WARNING - Document circuit breaker rationale
+     # Look for unsanitized user input
+     grep -n "e.target.value" web/src/**/*.{js,jsx} | grep -v "sanitize"
+
+     # Verify error states are managed
+     grep -n "useState.*error\|errors" web/src/**/*.{js,jsx}
      ```
    - Review checklist:
-     - [ ] Is circuit breaker configuration in constants.py (not hardcoded)?
-     - [ ] Is there a comment block explaining WHY these values?
-     - [ ] Are tradeoffs documented (cost vs availability, paid vs free)?
-     - [ ] Is there a decision matrix or tuning guide in constants.py?
-     - [ ] Do comments explain WHEN to adjust values?
-     - [ ] Are service characteristics documented (SLA, quota, cost)?
-   - See: [P1 Code Review Patterns Codified](P1_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 4
+     - [ ] Are validation functions reusable and centralized?
+     - [ ] Is user input sanitized before state updates?
+     - [ ] Are errors cleared when user starts typing?
+     - [ ] Does validation run before form submission?
+     - [ ] Are server errors sanitized before display?
+     - [ ] Is there visual and ARIA feedback for errors?
+     - [ ] Are validation rules consistent with backend?
 
-24. **Complete CORS Configuration Pattern** ⭐ ENHANCED (P2 Issue #29)
-   - BLOCKER: Incomplete CORS configuration causes authentication failures
-   - CRITICAL: Django CORS requires THREE components, not just CORS_ALLOWED_ORIGINS
-   - PATTERN: CORS_ALLOWED_ORIGINS + CORS_ALLOW_METHODS + CORS_ALLOW_HEADERS + CSRF_TRUSTED_ORIGINS
-   - Check for: CORS_ALLOWED_ORIGINS defined but missing METHODS/HEADERS
-   - Why all three are required:
-     - **CORS_ALLOWED_ORIGINS**: Browser checks allowed domains
-     - **CORS_ALLOW_METHODS**: Browser preflight checks allowed HTTP methods
-     - **CORS_ALLOW_HEADERS**: Browser checks if custom headers (x-csrftoken) allowed
-     - **CSRF_TRUSTED_ORIGINS**: Django validates Origin header for state-changing requests
-   - Anti-pattern (BLOCKER - Incomplete CORS):
+22. **CORS Configuration Completeness** - django-cors-headers Full Setup
+   - Example from settings.py:
      ```python
-     # ❌ BLOCKER: Missing METHODS and HEADERS
+     # INCOMPLETE CORS (will fail with browser preflight requests)
      CORS_ALLOWED_ORIGINS = [
          'http://localhost:5173',
          'http://localhost:5174',
      ]
      CORS_ALLOW_CREDENTIALS = True
-     # Browser preflight requests FAIL without METHODS/HEADERS!
-     # CSRF protection FAILS without CSRF_TRUSTED_ORIGINS!
-     ```
-   - Symptoms of incomplete CORS:
-     - ✅ curl requests work (no preflight)
-     - ❌ Browser GET requests fail (preflight required)
-     - ❌ Browser POST/PUT/DELETE fail (CORS error)
-     - ❌ Authentication requests fail (x-csrftoken header blocked)
-     - Error: "Method POST is not allowed by Access-Control-Allow-Methods"
-     - Error: "Request header x-csrftoken is not allowed by Access-Control-Allow-Headers"
-   - Correct pattern (COMPLETE CORS):
-     ```python
-     # ✅ COMPLETE: All four required components
+     # Missing CORS_ALLOW_METHODS and CORS_ALLOW_HEADERS!
+
+     # COMPLETE CORS (works with all browsers)
      CORS_ALLOWED_ORIGINS = [
          'http://localhost:3000',
          'http://127.0.0.1:3000',
@@ -1720,20 +1504,18 @@ For Wagtail models:
          'http://localhost:5174',
          'http://127.0.0.1:5174',
      ]
-     CORS_ALLOW_CREDENTIALS = True  # Required for authentication
+     CORS_ALLOW_CREDENTIALS = True
      CORS_ALLOW_ALL_ORIGINS = False  # Explicit security control
 
-     # CRITICAL: Required for browser preflight requests
+     # CRITICAL: Required for preflight requests
      CORS_ALLOW_METHODS = [
          'DELETE',
          'GET',
-         'OPTIONS',  # Preflight requests
+         'OPTIONS',
          'PATCH',
          'POST',
          'PUT',
      ]
-
-     # CRITICAL: Required for CSRF token and authentication headers
      CORS_ALLOW_HEADERS = [
          'accept',
          'accept-encoding',
@@ -1742,11 +1524,11 @@ For Wagtail models:
          'dnt',
          'origin',
          'user-agent',
-         'x-csrftoken',  # REQUIRED for CSRF protection
+         'x-csrftoken',
          'x-requested-with',
      ]
 
-     # CRITICAL: Django CSRF protection requires this
+     # CRITICAL: CSRF tokens need trusted origins
      CSRF_TRUSTED_ORIGINS = [
          'http://localhost:3000',
          'http://localhost:5173',
@@ -1754,75 +1536,44 @@ For Wagtail models:
          # Must include ALL frontend development ports
      ]
      ```
-   - Why CORS_ALLOW_METHODS is required:
-     - Modern browsers send OPTIONS preflight before POST/PUT/DELETE
-     - django-cors-headers checks CORS_ALLOW_METHODS for preflight
-     - Without this, ALL write operations fail in browsers
-     - curl bypasses preflight (only browsers enforce CORS)
-   - Why CORS_ALLOW_HEADERS is required:
-     - SPAs send custom headers: Authorization, X-CSRFToken, X-Requested-With
-     - Browser preflight checks if these headers are allowed
-     - Without x-csrftoken in CORS_ALLOW_HEADERS, Django CSRF protection breaks
-     - Default django-cors-headers values are too restrictive
-   - Why CSRF_TRUSTED_ORIGINS is required:
+   - Why CORS_ALLOW_METHODS/HEADERS are required:
+     - Browsers send OPTIONS preflight requests before POST/PUT/DELETE
+     - django-cors-headers needs explicit method/header lists
+     - Default values are too restrictive for modern SPAs
+     - Missing configuration = CORS errors despite correct origins
+   - CSRF_TRUSTED_ORIGINS requirement:
      - Django validates Origin header for state-changing requests
-     - CORS_ALLOWED_ORIGINS alone is NOT sufficient (different Django middleware)
-     - Must align with CORS_ALLOWED_ORIGINS for consistency
-     - Missing this = "CSRF token verification failed" errors
-   - BLOCKER: CORS_ALLOW_ALL_ORIGINS = True (NEVER use)
-     - CVSS 7.5 vulnerability - CWE-942 Permissive Cross-domain Policy
-     - Allows ANY website to steal user data via CORS
-     - Even in DEBUG mode, creates XSS/CSRF attack surface
-     - OWASP ASVS 4.0 - V14.5.3 violation
-     ```python
-     # ❌ BLOCKER: NEVER use this
-     CORS_ALLOW_ALL_ORIGINS = True  # Security vulnerability!
-
-     # ❌ BLOCKER: Conditional still dangerous
-     CORS_ALLOW_ALL_ORIGINS = True if DEBUG else False  # Vulnerable in dev
-     ```
-   - Python cache clearing (settings changes not working):
+     - CORS_ALLOWED_ORIGINS alone is NOT sufficient
+     - Must include all ports where frontend runs (dev servers change ports)
+   - Python cache clearing:
      ```bash
-     # CORS configuration changes not taking effect? Clear bytecode cache:
+     # CORS not working after settings changes? Clear bytecode cache:
      find . -type d -name "__pycache__" -exec rm -rf {} +
-     python manage.py runserver  # Restart Django server
+     python manage.py runserver  # Restart server
      ```
    - Detection patterns:
      ```bash
-     # BLOCKER: Check for incomplete CORS configuration
-     grep -A 20 "CORS_ALLOWED_ORIGINS" backend/*/settings.py | \
-       grep -q "CORS_ALLOW_METHODS" || echo "BLOCKER: Missing CORS_ALLOW_METHODS"
-
-     grep -A 20 "CORS_ALLOWED_ORIGINS" backend/*/settings.py | \
-       grep -q "CORS_ALLOW_HEADERS" || echo "BLOCKER: Missing CORS_ALLOW_HEADERS"
-
-     grep -A 20 "CORS_ALLOWED_ORIGINS" backend/*/settings.py | \
-       grep -q "x-csrftoken" || echo "BLOCKER: CORS_ALLOW_HEADERS missing x-csrftoken"
-
-     grep -n "CSRF_TRUSTED_ORIGINS" backend/*/settings.py || \
-       echo "BLOCKER: Missing CSRF_TRUSTED_ORIGINS"
-
-     # BLOCKER: Detect CORS_ALLOW_ALL_ORIGINS
-     grep -rn "CORS_ALLOW_ALL_ORIGINS.*=.*True" backend/*/settings*.py && \
-       echo "BLOCKER: Remove CORS_ALLOW_ALL_ORIGINS - use explicit whitelist"
+     # Check for incomplete CORS configuration
+     grep -n "CORS_ALLOWED_ORIGINS" backend/*/settings.py
+     grep -n "CORS_ALLOW_METHODS" backend/*/settings.py || echo "WARNING: Missing CORS_ALLOW_METHODS"
+     grep -n "CORS_ALLOW_HEADERS" backend/*/settings.py || echo "WARNING: Missing CORS_ALLOW_HEADERS"
+     grep -n "CSRF_TRUSTED_ORIGINS" backend/*/settings.py || echo "WARNING: Missing CSRF_TRUSTED_ORIGINS"
      ```
    - Review checklist:
-     - [ ] Are CORS_ALLOWED_ORIGINS a list of specific origins (NOT "*")?
+     - [ ] Are CORS_ALLOWED_ORIGINS configured with both localhost and 127.0.0.1?
      - [ ] Are CORS_ALLOW_METHODS defined (GET, POST, PUT, PATCH, DELETE, OPTIONS)?
      - [ ] Are CORS_ALLOW_HEADERS defined (authorization, content-type, x-csrftoken)?
      - [ ] Are CSRF_TRUSTED_ORIGINS configured with all frontend ports?
      - [ ] Is CORS_ALLOW_CREDENTIALS = True (for cookie-based auth)?
-     - [ ] Is CORS_ALLOW_ALL_ORIGINS explicitly False or omitted?
-     - [ ] Are production origins using HTTPS URLs only?
-     - [ ] Do CORS_ALLOWED_ORIGINS and CSRF_TRUSTED_ORIGINS align?
-   - Impact if violated:
-     - **BLOCKER**: Authentication completely broken in browsers
-     - **BLOCKER**: All write operations (POST/PUT/DELETE) fail
-     - **BLOCKER**: CSRF protection bypassed or malfunctioning
-     - **Security**: CORS_ALLOW_ALL_ORIGINS = CVSS 7.5 vulnerability
-   - See: [P2 Code Review Patterns](P2_CODE_REVIEW_PATTERNS_CODIFIED.md) - Pattern 24
+     - [ ] Is CORS_ALLOW_ALL_ORIGINS = False (explicit security)?
+     - [ ] Are there instructions to clear __pycache__ if CORS changes don't work?
+   - Common symptoms of incomplete CORS:
+     - curl requests work, browser requests fail
+     - GET requests work, POST/PUT/DELETE fail with CORS error
+     - Error: "CORS header 'Access-Control-Allow-Origin' missing"
+     - Error: "Method POST is not allowed by Access-Control-Allow-Methods"
 
-25. **Wagtail API Endpoint Usage** - Dedicated vs Generic Endpoints
+16. **Wagtail API Endpoint Usage** - Dedicated vs Generic Endpoints
    - BLOCKER: Using generic Wagtail Pages API with type filters instead of dedicated endpoints
    - PATTERN: WagtailAPIRouter creates specific endpoints for registered viewsets
    - Check for: Frontend code using /api/v2/pages/?type= queries
@@ -1929,1935 +1680,7 @@ For Wagtail models:
      };
      ```
 
-26. **Migration Documentation Excellence** ⭐ NEW (P2 Issue - Grade A)
-   - PATTERN: Migration docstrings with performance metrics, verification, and rationale
-   - PRAISED: Migration 0006 for 30-line documentation with complete context
-   - Check for: Migrations without docstrings or only one-line descriptions
-   - Example excellence from 0006_add_blog_performance_indexes.py:
-     ```python
-     """
-     Adds performance indexes for Wagtail blog queries.
-
-     Target Performance:
-     - Blog list queries: 300ms → 60ms (80% faster)
-     - Blog detail queries: 200ms → 40ms (80% faster)
-
-     Indexes added:
-     1. BlogPostPage.slug - Primary lookup field for detail views
-     2. BlogPostPage.(first_published_at, featured) - List queries ordering
-     3. BlogCategoryPage.slug - Category filtering
-     4. BlogAuthorPage.slug - Author filtering
-     5. PlantSpecies.slug - Related species lookup
-
-     NOT added (with rationale):
-     - Composite (slug, live) - Wagtail already filters on page_ptr_id
-     - Full-text search indexes - Using PostgreSQL GIN indexes separately
-
-     Verification:
-     - EXPLAIN ANALYZE confirms index usage
-     - Wagtail's PageManager properly utilizes these indexes
-     - Query count reduced: 5-8 queries (list), 3-5 queries (detail)
-
-     Multi-table inheritance notes:
-     - BlogPostPage inherits from Page (wagtailcore_page table)
-     - Indexes on BlogPostPage fields don't affect base Page queries
-     - Wagtail joins tables via page_ptr_id (already indexed)
-     """
-     ```
-   - Documentation should include:
-     - **Performance metrics**: Before/after timings with percentages
-     - **Verification results**: How you confirmed the improvement
-     - **Decision rationale**: Why certain indexes added/not added
-     - **Query patterns**: What queries these indexes optimize
-     - **Constraint explanations**: Multi-table inheritance, framework specifics
-   - Detection: Look for migrations with minimal/no docstrings
-   - Review checklist:
-     - [ ] Does migration have multi-line docstring?
-     - [ ] Are performance improvements quantified?
-     - [ ] Is verification method documented?
-     - [ ] Are decisions explained (what's included/excluded)?
-     - [ ] Are framework-specific considerations noted?
-
-27. **Complete React Memoization Strategy** ⭐ NEW (P2 Issue #24)
-   - PATTERN: Three-tier memoization for optimal performance
-   - IMPACT: 70% reduction in unnecessary re-renders
-   - Check for: Components with expensive operations but no memoization
-   - Three-tier strategy:
-     ```javascript
-     // Tier 1: Component-level memoization
-     const BlogCard = React.memo(({ post, compact = false }) => {
-       // Component only re-renders if props change
-     });
-
-     // Tier 2: Callback memoization (prevents child re-renders)
-     const handleSearch = useCallback((query) => {
-       setSearchQuery(query);
-       setCurrentPage(1);
-     }, []); // Dependencies array critical!
-
-     // Tier 3: Value memoization (expensive computations)
-     const sortedPosts = useMemo(() => {
-       return [...posts].sort((a, b) => {
-         // Expensive sorting logic
-       });
-     }, [posts, sortOrder]); // Re-compute only when deps change
-     ```
-   - When to use each tier:
-     - **React.memo**: Child components receiving objects/arrays as props
-     - **useCallback**: Event handlers passed to memoized children
-     - **useMemo**: Expensive computations, derived state, reference stability
-   - Common mistakes:
-     ```javascript
-     // ❌ Broken memoization - new function every render
-     <BlogCard
-       post={post}
-       onClick={() => handleClick(post.id)} // Breaks memo!
-     />
-
-     // ✅ Correct - stable callback reference
-     const handlePostClick = useCallback((id) => {
-       handleClick(id);
-     }, [handleClick]);
-
-     <BlogCard
-       post={post}
-       onClick={handlePostClick} // Preserves memo
-     />
-     ```
-   - Detection: Components with .map(), .filter(), .sort() without useMemo
-   - Review checklist:
-     - [ ] Are list components wrapped in React.memo()?
-     - [ ] Are callbacks to memoized components using useCallback()?
-     - [ ] Are expensive computations wrapped in useMemo()?
-     - [ ] Do dependency arrays include all referenced values?
-     - [ ] Are inline arrow functions avoided in memoized component props?
-
-28. **WCAG-Compliant Error UI** ⭐ NEW (P2 Issue - Accessibility Excellence)
-   - PATTERN: Error boundaries with full ARIA attributes and semantic HTML
-   - PRAISED: ErrorBoundary.jsx for complete accessibility implementation
-   - Check for: Error UI without proper ARIA roles and labels
-   - Excellence example from ErrorBoundary.jsx:
-     ```javascript
-     <div
-       role="alert"
-       aria-live="assertive"
-       className="error-boundary"
-     >
-       <h1 id="error-title">Something went wrong</h1>
-       <div aria-describedby="error-title">
-         <p id="error-message">{error.message}</p>
-         <button
-           onClick={resetErrorBoundary}
-           aria-label="Try again"
-           className="btn-primary"
-         >
-           Try Again
-         </button>
-         <a
-           href="/"
-           aria-label="Return to home page"
-           className="btn-secondary"
-         >
-           Go Home
-         </a>
-       </div>
-     </div>
-     ```
-   - Required accessibility features:
-     - **role="alert"**: Screen readers announce immediately
-     - **aria-live="assertive"**: High priority announcement
-     - **aria-label**: Clear button/link purposes
-     - **aria-describedby**: Associates descriptions with elements
-     - **Semantic HTML**: h1 for title, button for actions
-   - Color contrast requirements:
-     - Error text: 4.5:1 contrast ratio minimum
-     - Buttons: 3:1 for large text, 4.5:1 for small
-     - Focus indicators: Visible keyboard focus
-   - Detection: Error components without role="alert"
-   - Review checklist:
-     - [ ] Do error components have role="alert"?
-     - [ ] Are buttons/links labeled with aria-label?
-     - [ ] Is semantic HTML used (not just divs)?
-     - [ ] Are focus states visible for keyboard navigation?
-     - [ ] Do colors meet WCAG contrast requirements?
-
-29. **Production-Safe Logging** ⭐ NEW (P2 Issue - Security Best Practice)
-   - PATTERN: All console.log wrapped in development checks
-   - CRITICAL: console.error acceptable for actual errors
-   - Check for: Bare console.log statements in production code
-   - Correct patterns:
-     ```javascript
-     // ✅ Development-only logging
-     if (import.meta.env.DEV) {
-       console.log('[BlogList] Fetching posts:', { page, filters });
-     }
-
-     // ✅ Error logging (acceptable in production)
-     try {
-       const data = await fetchBlogPosts();
-     } catch (error) {
-       console.error('[BlogList] Failed to fetch posts:', error);
-     }
-
-     // ✅ Bracketed prefixes for filtering
-     console.error('[API] Request failed:', error);
-     console.warn('[CACHE] Cache miss for key:', key);
-
-     // ❌ BLOCKER: Raw console.log in production
-     console.log('user data:', userData); // Exposes sensitive info!
-     ```
-   - Why this matters:
-     - **Security**: User data, API keys, tokens logged to browser console
-     - **Performance**: Console operations affect performance
-     - **Professionalism**: Clean console in production
-   - Logging patterns with prefixes:
-     ```javascript
-     // Filterable in browser console
-     console.error('[AUTH] Login failed:', error);
-     console.error('[API] Rate limit exceeded');
-     console.error('[CACHE] Invalid cache key');
-
-     // Filter in DevTools: [AUTH], [API], [CACHE]
-     ```
-   - Detection: Search for console.log without import.meta.env.DEV
-   - Review checklist:
-     - [ ] Are all console.log wrapped in DEV checks?
-     - [ ] Do error logs use console.error (not console.log)?
-     - [ ] Are bracketed prefixes used for categorization?
-     - [ ] Is sensitive data excluded from all log statements?
-     - [ ] Are there no console statements in production builds?
-
-30. **ESLint Test Configuration** ⭐ NEW (P2 Issue #23 - Test Setup)
-   - PATTERN: Proper ESLint configuration for test files
-   - FIXES: "describe/it/expect is not defined" errors
-   - Check for: Test files without proper globals configuration
-   - Correct .eslintrc.cjs pattern:
-     ```javascript
-     module.exports = {
-       overrides: [
-         {
-           files: ['**/*.test.js', '**/*.test.jsx', '**/*.spec.js'],
-           env: {
-             node: true,
-             jest: true, // or mocha: true
-           },
-           globals: {
-             describe: 'readonly',
-             it: 'readonly',
-             expect: 'readonly',
-             beforeEach: 'readonly',
-             afterEach: 'readonly',
-             test: 'readonly',
-             jest: 'readonly',
-             vi: 'readonly', // For Vitest
-           },
-         },
-       ],
-     };
-     ```
-   - Framework-specific configurations:
-     ```javascript
-     // Vitest configuration
-     {
-       files: ['**/*.test.{js,jsx,ts,tsx}'],
-       globals: {
-         vi: 'readonly',
-         vitest: 'readonly',
-       },
-     }
-
-     // Jest configuration
-     {
-       files: ['**/*.test.{js,jsx,ts,tsx}'],
-       env: {
-         'jest/globals': true,
-       },
-     }
-
-     // Mocha configuration
-     {
-       files: ['**/*.test.{js,jsx,ts,tsx}'],
-       env: {
-         mocha: true,
-       },
-     }
-     ```
-   - Detection: Test files with ESLint "undefined" errors for test globals
-   - Review checklist:
-     - [ ] Do test files have ESLint overrides configuration?
-     - [ ] Are test globals (describe, it, etc.) defined?
-     - [ ] Is correct test framework environment set?
-     - [ ] Are file patterns matching all test files?
-     - [ ] Do tests pass ESLint without "undefined" errors?
-
-31. **F() Expression with refresh_from_db() Pattern** ⭐ NEW - BLOCKER (Parallel Resolution)
-   - BLOCKER: F() expression updates without refresh_from_db() for immediate serialization
-   - CRITICAL: Django F() expressions update database but NOT in-memory object
-   - PATTERN: Always call refresh_from_db() after F() expression when value needed immediately
-   - Check for: F('field') + 1 followed by serializer without refresh_from_db()
-   - Why this is critical:
-     - F() expressions perform atomic database updates: `UPDATE table SET count = count + 1`
-     - In-memory object still has old value: `obj.count = <F expression object>`
-     - Serializers read from memory, not database → users see stale data
-     - **User Experience**: Vote buttons don't show immediate feedback
-     - **Race Condition Prevention**: F() expressions are atomic (good!) but must refresh for display
-   - Anti-pattern (BLOCKER - from 6 vote endpoints):
-     ```python
-     # WRONG: Missing refresh_from_db()
-     plant_result.upvotes = F('upvotes') + 1
-     plant_result.save()
-     serializer = PlantResultSerializer(plant_result)
-     return Response(serializer.data)  # ❌ Returns OLD value
-
-     # ALSO WRONG: Update without refresh
-     PlantIdentificationResult.objects.filter(id=result_id).update(
-         upvotes=F('upvotes') + 1
-     )
-     result = PlantIdentificationResult.objects.get(id=result_id)
-     serializer = PlantResultSerializer(result)
-     # ✅ This is correct - get() fetches fresh data from DB
-     ```
-   - Common typo (BLOCKER):
-     ```python
-     # ❌ WRONG METHOD NAME (does not exist)
-     plant_result.refresh_from_database()  # AttributeError!
-
-     # ✅ CORRECT
-     plant_result.refresh_from_db()  # Note: 'db' not 'database'
-     ```
-   - Correct pattern (from fixed vote endpoints):
-     ```python
-     # CORRECT: Atomic update with refresh for immediate use
-     plant_result.upvotes = F('upvotes') + 1
-     plant_result.save()
-     plant_result.refresh_from_db()  # ✅ Reload from database
-
-     serializer = PlantResultSerializer(plant_result)
-     return Response(serializer.data)  # ✅ Returns NEW value
-     ```
-   - Multiple field updates:
-     ```python
-     # Multiple F() expressions in one save
-     plant_result.upvotes = F('upvotes') + 1
-     plant_result.downvotes = F('downvotes') - 1
-     plant_result.save()
-
-     # Refresh specific fields (more efficient)
-     plant_result.refresh_from_db(fields=['upvotes', 'downvotes'])
-     ```
-   - When refresh_from_db() NOT needed:
-     ```python
-     # Pattern 1: QuerySet update (no object refresh)
-     PlantIdentificationResult.objects.filter(id=result_id).update(
-         upvotes=F('upvotes') + 1
-     )
-     # Then re-fetch object:
-     result = PlantIdentificationResult.objects.get(id=result_id)
-     # get() returns fresh data, no refresh needed
-
-     # Pattern 2: No immediate serialization
-     plant_result.upvotes = F('upvotes') + 1
-     plant_result.save()
-     # If not serializing/using value immediately, refresh not needed
-     return Response({'message': 'Vote recorded'}, status=200)
-     ```
-   - Detection patterns:
-     ```bash
-     # Find F() expressions in Python files
-     grep -rn "F(" apps/*/views.py apps/*/api.py
-
-     # For each match, check if followed by:
-     # 1. .save() without refresh_from_db()
-     # 2. Serializer instantiation within 10 lines
-     # 3. Response with serializer.data
-
-     # Pattern: Look for .save() WITHOUT subsequent refresh_from_db()
-     # before serializer usage
-     ```
-   - Review checklist:
-     - [ ] Does code use F() expressions for field updates?
-     - [ ] Is save() called after assigning F() expression?
-     - [ ] Is value used immediately in serializer/response?
-     - [ ] Is refresh_from_db() called immediately after save()?
-     - [ ] Is method name spelled correctly (refresh_from_db not refresh_from_database)?
-     - [ ] Does serializer run AFTER refresh (not before)?
-     - [ ] Are there unit tests verifying returned value matches database state?
-     - [ ] If using QuerySet.update(), is object re-fetched with get()?
-   - Test pattern:
-     ```python
-     def test_upvote_returns_fresh_count(self):
-         """Verify upvote API returns updated count immediately."""
-         plant_result = PlantIdentificationResult.objects.create(
-             user=self.user,
-             common_name="Rose",
-             upvotes=0  # Initial count
-         )
-
-         # Upvote via API
-         response = self.client.post(f'/api/v1/plant-results/{plant_result.id}/upvote/')
-
-         self.assertEqual(response.status_code, 200)
-
-         # CRITICAL: Response must show incremented count
-         self.assertEqual(response.data['upvotes'], 1)  # Not 0!
-
-         # Verify database matches
-         plant_result.refresh_from_db()
-         self.assertEqual(plant_result.upvotes, 1)
-     ```
-   - Impact if violated:
-     - **User Experience**: Vote counts don't update in UI, users click multiple times
-     - **Data Integrity**: Database correct, API response stale (inconsistency)
-     - **Security**: Audit logs show incorrect values, metrics use wrong data
-     - **Testing**: Integration tests may pass but E2E tests fail
-   - Grade penalty: **-5 points** (User Experience + Data Integrity)
-   - See: [Parallel TODO Resolution Patterns](PARALLEL_TODO_RESOLUTION_PATTERNS_CODIFIED.md) - Pattern 1
-
-32. **Constants Cleanup Verification Pattern** ⭐ NEW - IMPORTANT (Parallel Resolution)
-   - IMPORTANT: Removing constants without verifying usage creates runtime errors
-   - PATTERN: Must grep entire codebase before removing constants
-   - Check for: Constants removed from constants.py without usage verification
-   - Why this matters:
-     - Constants may be imported in files not recently modified
-     - Tests may pass but production code fails at runtime
-     - NameError/AttributeError only caught when code path executed
-     - Code reviewer caught this in P2 resolution (Issue #045)
-   - Anti-pattern (from P2 review Issue #045):
-     ```python
-     # File: apps/blog/constants.py
-
-     # REMOVED without verification:
-     # MAX_BLOG_TITLE_LENGTH = 200  # ❌ Used in validators!
-     # BLOG_EXCERPT_LENGTH = 300    # ❌ Used in serializers!
-
-     # BLOCKER: Code reviewer found these were still referenced in:
-     # - apps/blog/validators.py (line 23)
-     # - apps/blog/serializers.py (line 67)
-     # - apps/blog/tests/test_validators.py (line 15)
-     ```
-   - Correct pattern (verification process):
-     ```bash
-     # Step 1: Before removing constant, grep entire codebase
-     grep -r "MAX_BLOG_TITLE_LENGTH" apps/ --exclude-dir=__pycache__
-
-     # Step 2: Check results - if ANY matches found:
-     #   - If used: DO NOT remove (document why it's needed)
-     #   - If unused: Safe to remove
-
-     # Step 3: After removal, run full test suite
-     python manage.py test --keepdb
-
-     # Step 4: Document verification in commit message
-     git commit -m "refactor: remove unused constants
-
-     Verification:
-     - Grepped entire codebase for usage: 0 matches
-     - Ran full test suite: 180/180 passing
-     - Safe to remove"
-     ```
-   - Verification checklist:
-     ```bash
-     # For each constant being removed, run:
-
-     # 1. Check Python files
-     grep -r "CONSTANT_NAME" apps/ --include="*.py"
-
-     # 2. Check template files
-     grep -r "CONSTANT_NAME" templates/ --include="*.html"
-
-     # 3. Check JavaScript/frontend
-     grep -r "CONSTANT_NAME" web/src/
-
-     # 4. Check documentation
-     grep -r "CONSTANT_NAME" docs/ backend/docs/
-
-     # 5. Check migrations (may reference old constants)
-     grep -r "CONSTANT_NAME" apps/*/migrations/
-
-     # 6. Check test files (may import constants)
-     grep -r "CONSTANT_NAME" apps/*/tests/
-     ```
-   - Documentation requirements:
-     ```python
-     # If removing constant, add comment explaining why safe:
-     # Removed constants (verified unused):
-     # - MAX_BLOG_TITLE_LENGTH: Replaced by model max_length (grepped 0 matches)
-     # - BLOG_EXCERPT_LENGTH: Calculated dynamically (grepped 0 matches)
-     # Verification date: 2025-10-28
-     # Verification method: grep -r "CONSTANT_NAME" apps/
-     # Test results: 180/180 passing
-     ```
-   - Test requirements:
-     ```python
-     # After constant removal, must verify:
-
-     # 1. Full test suite passes
-     python manage.py test --keepdb
-
-     # 2. No import errors
-     python manage.py check
-
-     # 3. Migrations still valid
-     python manage.py makemigrations --dry-run --check
-
-     # 4. No linting errors
-     flake8 apps/
-     ```
-   - Detection pattern:
-     ```bash
-     # In code review, check git diff for removed constants:
-     git diff HEAD~1 -- apps/*/constants.py | grep "^-"
-
-     # For each removed line, verify grep was performed:
-     # Check commit message or PR description for verification evidence
-     ```
-   - Review checklist:
-     - [ ] Is constant removal documented in commit message?
-     - [ ] Was grep performed across entire codebase?
-     - [ ] Were test results included in documentation?
-     - [ ] Are there 0 matches in grep output?
-     - [ ] Did full test suite pass after removal?
-     - [ ] Are migrations still valid?
-     - [ ] Is there a comment explaining why constant was removed?
-   - Common mistakes:
-     ```python
-     # ❌ BAD: No verification
-     # Just deleted from constants.py and committed
-
-     # ❌ BAD: Only grepped one directory
-     grep -r "CONSTANT_NAME" apps/blog/  # Missed apps/core/!
-
-     # ❌ BAD: Only ran related tests
-     python manage.py test apps.blog  # Missed apps.core tests!
-
-     # ✅ GOOD: Comprehensive verification
-     grep -r "CONSTANT_NAME" . --exclude-dir=venv --exclude-dir=node_modules
-     python manage.py test --keepdb  # All tests
-     git commit -m "refactor: remove unused constant (verified 0 matches)"
-     ```
-   - Impact if violated:
-     - **Runtime Errors**: NameError/AttributeError in production
-     - **Test Failures**: Integration tests fail after deployment
-     - **Rollback Required**: Emergency revert if caught in production
-     - **Code Review**: Grade penalty for incomplete verification
-   - Grade penalty: **-4 points** (Code Quality + Testing)
-   - Recovery process if caught:
-     ```bash
-     # If constant removed but found to be used:
-     1. git revert HEAD  # Revert removal commit
-     2. Document usage: Add comment explaining why constant needed
-     3. Create issue: "Investigate if CONSTANT_NAME can be removed"
-     4. Schedule review: After all usage refactored
-     ```
-   - See: [Parallel TODO Resolution Patterns](PARALLEL_TODO_RESOLUTION_PATTERNS_CODIFIED.md) - Pattern referenced in Issue #045 resolution
-
-33. **API Quota Tracking Pattern** ⭐ NEW - BLOCKER (New Service Pattern)
-   - BLOCKER: External API calls without quota tracking risk cost overruns
-   - CRITICAL: Check quota BEFORE call, increment AFTER success
-   - PATTERN: Redis-based quota tracking with auto-expiry and 80% warnings
-   - Check for: External API service without QuotaManager integration
-   - Why this matters:
-     - **Cost Control**: Prevents unexpected API charges ($100s-$1000s)
-     - **Reliability**: Graceful degradation when quota exhausted
-     - **Monitoring**: Proactive alerts at 80% threshold enable action
-     - **Safety**: Auto-expiry prevents quota lock-in if service crashes
-   - Service architecture:
-     ```python
-     from apps.core.services.quota_manager import QuotaManager
-
-     class PlantIdService:
-         def __init__(self):
-             self.quota_manager = QuotaManager(
-                 service_name='plant_id',
-                 limit_type='daily',  # or 'monthly', 'hourly'
-                 limit_value=100,     # From API tier (free/paid)
-             )
-
-         def identify_plant(self, image_file):
-             # CRITICAL: Check quota BEFORE expensive operations
-             if not self.quota_manager.can_call_api():
-                 logger.error("[QUOTA] Plant.id quota exhausted")
-                 raise QuotaExceededError(
-                     "Daily API quota exhausted. Try again tomorrow."
-                 )
-
-             # Acquire distributed lock (cache stampede prevention)
-             lock_key = f"lock:plant_id:{image_hash}"
-             lock = redis_lock.Lock(...)
-
-             if lock.acquire(blocking=True, timeout=15):
-                 try:
-                     # Double-check cache
-                     cached = cache.get(cache_key)
-                     if cached:
-                         return cached  # No quota consumed
-
-                     # Make API call (expensive, counts toward quota)
-                     result = self.circuit.call(
-                         self._call_plant_id_api,
-                         image_data
-                     )
-
-                     # CRITICAL: Increment quota AFTER successful call
-                     self.quota_manager.increment_usage()
-
-                     # Cache result (prevent future quota usage)
-                     cache.set(cache_key, result, timeout=86400)
-
-                     return result
-                 finally:
-                     lock.release()
-     ```
-   - Quota manager interface:
-     ```python
-     class QuotaManager:
-         def can_call_api(self) -> bool:
-             """Check if quota available BEFORE making call."""
-             current_usage = self.get_usage()
-             limit = self.get_limit()
-
-             if current_usage >= limit:
-                 logger.error(f"[QUOTA] EXCEEDED: {current_usage}/{limit}")
-                 return False
-
-             # Proactive warning at 80% threshold
-             if current_usage >= limit * 0.8:
-                 logger.warning(
-                     f"[QUOTA] WARNING: Approaching limit "
-                     f"({current_usage}/{limit}, {(current_usage/limit)*100:.1f}%)"
-                 )
-
-             return True
-
-         def increment_usage(self) -> int:
-             """Increment AFTER successful API call."""
-             key = self._get_redis_key()  # e.g., "quota:plant_id:2025-10-28"
-
-             # Atomic increment
-             count = self.redis.incr(key)
-
-             # Set expiry ONLY on first increment (prevents quota lock-in)
-             if count == 1:
-                 ttl_seconds = self._calculate_ttl()  # Until midnight/end-of-month
-                 self.redis.expire(key, ttl_seconds)
-
-             logger.info(f"[QUOTA] Usage: {count}/{self.get_limit()}")
-             return count
-
-         def get_usage(self) -> int:
-             """Get current usage count."""
-             key = self._get_redis_key()
-             count = self.redis.get(key)
-             return int(count) if count else 0
-
-         def _calculate_ttl(self) -> int:
-             """Calculate seconds until quota reset."""
-             if self.limit_type == 'daily':
-                 # Until midnight UTC
-                 now = datetime.now(timezone.utc)
-                 midnight = (now + timedelta(days=1)).replace(
-                     hour=0, minute=0, second=0, microsecond=0
-                 )
-                 return int((midnight - now).total_seconds())
-
-             elif self.limit_type == 'monthly':
-                 # Until first day of next month
-                 now = datetime.now(timezone.utc)
-                 next_month = (now.replace(day=1) + timedelta(days=32)).replace(day=1)
-                 return int((next_month - now).total_seconds())
-
-             elif self.limit_type == 'hourly':
-                 # Until next hour
-                 now = datetime.now(timezone.utc)
-                 next_hour = (now + timedelta(hours=1)).replace(
-                     minute=0, second=0, microsecond=0
-                 )
-                 return int((next_hour - now).total_seconds())
-     ```
-   - Integration with distributed locks:
-     ```python
-     # CORRECT: Quota check BEFORE lock acquisition
-     if not self.quota_manager.can_call_api():
-         raise QuotaExceededError("API quota exhausted")
-
-     lock = redis_lock.Lock(redis_client, lock_key, expire=30)
-
-     if lock.acquire(blocking=True, timeout=15):
-         try:
-             # Triple cache check (before lock, after lock, after API)
-             cached = cache.get(cache_key)
-             if cached:
-                 return cached  # No quota consumed
-
-             # Make API call
-             result = circuit.call(api_function, *args)
-
-             # Increment quota AFTER success
-             self.quota_manager.increment_usage()
-
-             # Cache for future (prevent quota usage)
-             cache.set(cache_key, result, timeout=86400)
-             return result
-         finally:
-             lock.release()
-     ```
-   - Fail-open pattern (Redis unavailable):
-     ```python
-     def can_call_api(self) -> bool:
-         """Allow API calls when Redis unavailable (fail-open)."""
-         try:
-             if not self.redis.ping():
-                 logger.warning("[QUOTA] Redis unavailable, failing open")
-                 return True  # Allow calls when monitoring unavailable
-         except (ConnectionError, TimeoutError):
-             logger.warning("[QUOTA] Redis unavailable, failing open")
-             return True
-
-         # Normal quota check...
-     ```
-   - Monitoring and alerting:
-     ```python
-     # 80% warning threshold enables proactive action
-     if current_usage >= limit * 0.8:
-         logger.warning(
-             f"[QUOTA] WARNING: {current_usage}/{limit} "
-             f"({(current_usage/limit)*100:.1f}%)"
-         )
-         # Send alert to ops team (e.g., Slack, PagerDuty)
-         send_quota_alert(service_name, current_usage, limit)
-     ```
-   - Detection pattern:
-     ```bash
-     # Find external API services without quota tracking
-     grep -rn "requests\.\(get\|post\)" apps/*/services/*.py | while read line; do
-         file=$(echo "$line" | cut -d: -f1)
-
-         # Check if file imports QuotaManager
-         if ! grep -q "from.*quota_manager import QuotaManager" "$file"; then
-             echo "WARNING: $file makes API calls without quota tracking"
-         fi
-     done
-     ```
-   - Review checklist:
-     - [ ] Does service integrate QuotaManager?
-     - [ ] Is quota checked BEFORE acquiring locks/making calls?
-     - [ ] Is quota incremented AFTER successful API response?
-     - [ ] Is auto-expiry set on first increment (count == 1)?
-     - [ ] Are warning logs at 80% threshold?
-     - [ ] Does service fail-open when Redis unavailable?
-     - [ ] Are TTL calculations timezone-aware (UTC)?
-     - [ ] Is increment atomic (redis.incr(), not get/set)?
-     - [ ] Are quota limits documented in constants.py?
-     - [ ] Is monitoring/alerting configured for warnings?
-   - Constants pattern:
-     ```python
-     # apps/plant_identification/constants.py
-
-     # API Quota Limits (from tier documentation)
-     PLANT_ID_DAILY_LIMIT = 100    # Free tier: 100 IDs/day
-     PLANT_ID_MONTHLY_LIMIT = 100  # Free tier: 100 IDs/month
-     PLANTNET_DAILY_LIMIT = 500    # Free tier: 500 requests/day
-
-     # Quota warning threshold (percentage)
-     QUOTA_WARNING_THRESHOLD = 0.8  # 80% - alert before exhaustion
-     ```
-   - Grade penalties:
-     - **Missing quota tracking**: -10 points (Cost Control)
-     - **Increment before call**: -5 points (Quota leak risk)
-     - **No 80% warning**: -3 points (Monitoring)
-     - **Missing fail-open**: -2 points (Reliability)
-   - Impact if violated:
-     - **Cost**: Unexpected API charges ($100s-$1000s per month)
-     - **Reliability**: Service fails when quota exhausted (no fallback)
-     - **Monitoring**: No proactive alerts, only discover after exhaustion
-     - **Safety**: Quota lock-in if service crashes (no auto-expiry)
-   - See: [Parallel TODO Resolution Patterns](PARALLEL_TODO_RESOLUTION_PATTERNS_CODIFIED.md) - Pattern 5
-
-34. **DRF Permission OR/AND Logic** ⭐ NEW - BLOCKER (Forum Phase 2c)
-   - BLOCKER: Returning multiple permission classes creates AND logic (all must pass), not OR logic
-   - CRITICAL: Moderators and authors unable to edit content when permissions misconfigured
-   - PATTERN: Create combined permission class with built-in OR logic
-   - Check for: `return [Permission1(), Permission2()]` in `get_permissions()`
-   - Why this is critical:
-     - DRF evaluates permissions in sequence (all must return True)
-     - `[IsAuthorOrReadOnly(), IsModerator()]` requires BOTH author AND moderator
-     - User must be author AND moderator (impossible/rare condition)
-     - Correct access control broken, moderators can't moderate content
-   - Anti-pattern (BLOCKER - from forum permission tests):
-     ```python
-     # WRONG: AND logic (both must pass)
-     class ThreadViewSet(viewsets.ModelViewSet):
-         def get_permissions(self):
-             if self.action in ['update', 'destroy']:
-                 return [IsAuthorOrReadOnly(), IsModerator()]  # ❌ Requires BOTH!
-             return super().get_permissions()
-
-     # Result: User must be BOTH author AND moderator
-     # - Moderators can't edit other users' threads (not author)
-     # - Authors can't edit if not moderator (not moderator)
-     ```
-   - Correct pattern (combined permission class):
-     ```python
-     # CORRECT: OR logic in single permission class
-     class IsAuthorOrModerator(permissions.BasePermission):
-         """
-         Allow authors to edit their own content OR moderators to edit any content.
-
-         Combines IsAuthorOrReadOnly and IsModerator with OR logic.
-         """
-
-         def has_object_permission(self, request, view, obj):
-             # Read permissions for anyone
-             if request.method in permissions.SAFE_METHODS:
-                 return True
-
-             # Write permissions: author OR moderator
-             if obj.author == request.user:
-                 return True  # ✅ Author can edit
-
-             if request.user.is_authenticated and (
-                 request.user.is_staff or
-                 request.user.groups.filter(name='Moderators').exists()
-             ):
-                 return True  # ✅ Moderator can edit
-
-             return False  # Neither author nor moderator
-
-     class ThreadViewSet(viewsets.ModelViewSet):
-         def get_permissions(self):
-             if self.action in ['update', 'destroy']:
-                 return [IsAuthorOrModerator()]  # ✅ Single class with OR logic
-             return super().get_permissions()
-     ```
-   - Detection pattern:
-     ```bash
-     # Find multiple permission classes in get_permissions()
-     grep -rn "return \[.*(), .*()\]" apps/*/viewsets/ apps/*/api/ apps/*/views.py
-
-     # For each match, check:
-     # 1. Are permissions role-based? (Author, Moderator, Admin)
-     # 2. Should ANY role grant access? (OR logic needed)
-     # 3. Create combined permission class with OR logic
-     ```
-   - Test requirements:
-     ```python
-     # Test 1: Moderator can edit other users' content
-     def test_moderator_can_edit_other_users_thread(self):
-         thread = Thread.objects.create(author=user1, ...)
-         self.client.force_authenticate(user=moderator)
-         response = self.client.patch(f'/api/v1/threads/{thread.id}/', {...})
-         self.assertEqual(response.status_code, 200)  # ✅ Must succeed
-
-     # Test 2: Author can edit their own content
-     def test_author_can_edit_own_thread(self):
-         thread = Thread.objects.create(author=user1, ...)
-         self.client.force_authenticate(user=user1)
-         response = self.client.patch(f'/api/v1/threads/{thread.id}/', {...})
-         self.assertEqual(response.status_code, 200)  # ✅ Must succeed
-
-     # Test 3: Non-author/non-moderator cannot edit
-     def test_user_cannot_edit_others_thread(self):
-         thread = Thread.objects.create(author=user1, ...)
-         self.client.force_authenticate(user=user2)
-         response = self.client.patch(f'/api/v1/threads/{thread.id}/', {...})
-         self.assertEqual(response.status_code, 403)  # ✅ Must fail
-     ```
-   - Review checklist:
-     - [ ] Are multiple permission classes returned in `get_permissions()`?
-     - [ ] Should permissions use OR logic (any can grant access)?
-     - [ ] Is combined permission class created with OR logic?
-     - [ ] Are permission class names accurate (`OrModerator` not `AndModerator`)?
-     - [ ] Do tests verify both author AND moderator scenarios?
-     - [ ] Do tests verify neither author nor moderator is denied?
-   - Common permission patterns:
-     ```python
-     # Pattern 1: Author OR Moderator (most common)
-     class IsAuthorOrModerator(permissions.BasePermission):
-         def has_object_permission(self, request, view, obj):
-             return (
-                 obj.author == request.user or
-                 is_moderator(request.user)
-             )
-
-     # Pattern 2: Author OR Admin
-     class IsAuthorOrAdmin(permissions.BasePermission):
-         def has_object_permission(self, request, view, obj):
-             return (
-                 obj.author == request.user or
-                 request.user.is_staff
-             )
-
-     # Pattern 3: Owner OR Group Member
-     class IsOwnerOrGroupMember(permissions.BasePermission):
-         def has_object_permission(self, request, view, obj):
-             return (
-                 obj.owner == request.user or
-                 obj.group.members.filter(id=request.user.id).exists()
-             )
-     ```
-   - Impact if violated:
-     - **Access Control**: Broken permissions, users can't access resources
-     - **UX**: Moderators unable to moderate content (primary job function)
-     - **Security**: May accidentally grant too much or too little access
-     - **Testing**: Integration tests fail, production permissions broken
-   - Grade penalty: **-10 points** (BLOCKER - broken access control)
-   - See: [Phase 2c Blocker Patterns](PHASE_2C_BLOCKER_PATTERNS_CODIFIED.md) - Pattern 1
-
-35. **Serializer Return Type JSON Serialization** ⭐ NEW - BLOCKER (Forum Phase 2c)
-   - BLOCKER: Serializer methods returning model instances cause TypeError in production
-   - CRITICAL: `TypeError: Object of type ModelName is not JSON serializable`
-   - PATTERN: Always serialize model instances before returning from serializer methods
-   - Check for: `return {'field': model_instance}` in serializer `create()/update()`
-   - Why this is critical:
-     - DRF serializes response data to JSON before sending to client
-     - Model instances are not JSON serializable (complex Python objects)
-     - Production crashes with 500 error instead of successful response
-     - Error only appears when response is sent, not during testing
-   - Anti-pattern (BLOCKER - from reaction toggle serializer):
-     ```python
-     # WRONG: Returns model instance (not JSON serializable)
-     class ReactionToggleSerializer(serializers.Serializer):
-         post_id = serializers.UUIDField()
-         reaction_type = serializers.CharField()
-
-         def create(self, validated_data):
-             reaction, created = Reaction.toggle_reaction(...)
-
-             # ❌ WRONG: Returns model instance
-             return {
-                 'reaction': reaction,  # Model instance!
-                 'created': created
-             }
-
-     # Result: TypeError when DRF tries to serialize response
-     # json.dumps({'reaction': <Reaction object>})
-     # → TypeError: Object of type Reaction is not JSON serializable
-     ```
-   - Correct pattern (serialize before returning):
-     ```python
-     # CORRECT: Serialize model instance before returning
-     class ReactionToggleSerializer(serializers.Serializer):
-         post_id = serializers.UUIDField()
-         reaction_type = serializers.CharField()
-
-         def create(self, validated_data):
-             reaction, created = Reaction.toggle_reaction(...)
-
-             # ✅ CORRECT: Serialize the instance
-             reaction_serializer = ReactionSerializer(reaction, context=self.context)
-
-             return {
-                 'reaction': reaction_serializer.data,  # Dict (JSON serializable)
-                 'created': created,
-                 'is_active': reaction.is_active
-             }
-     ```
-   - Detection pattern:
-     ```bash
-     # Find serializer create/update methods
-     grep -A 20 "def create(" apps/*/serializers/*.py
-     grep -A 20 "def update(" apps/*/serializers/*.py
-
-     # Look for patterns that return dictionaries with potential model instances:
-     # - return {'model': <variable>}
-     # - return {'data': <queryset>}
-     # - return {'object': <obj>}
-
-     # Check if returned values are serialized:
-     # ✅ Good: Serializer(instance).data
-     # ❌ Bad: instance (raw model)
-     ```
-   - Test pattern (verify JSON serialization):
-     ```python
-     import json
-
-     def test_reaction_response_is_json_serializable(self):
-         """Verify API response can be serialized to JSON."""
-         self.client.force_authenticate(user=self.user)
-
-         response = self.client.post(
-             f'/api/v1/posts/{post.id}/reactions/toggle/',
-             {'reaction_type': 'like'}
-         )
-
-         self.assertEqual(response.status_code, 200)
-
-         # ✅ Response must be JSON serializable
-         try:
-             json_str = json.dumps(response.data)
-             self.assertIsInstance(json_str, str)
-         except TypeError as e:
-             self.fail(f"Response not JSON serializable: {e}")
-
-         # Verify all fields are JSON types (not model instances)
-         reaction_data = response.data['reaction']
-         self.assertIsInstance(reaction_data, dict)  # Not model
-         self.assertIsInstance(reaction_data['user'], int)  # ID, not User object
-     ```
-   - Review checklist:
-     - [ ] Do serializer `create()/update()` methods return dictionaries?
-     - [ ] Are all dictionary values JSON-serializable types?
-     - [ ] Are model instances serialized before being returned?
-     - [ ] Is `SerializerClass(instance).data` used instead of raw `instance`?
-     - [ ] Do tests verify `json.dumps(response.data)` succeeds?
-     - [ ] Are related objects represented by IDs (not nested objects)?
-   - Common serialization mistakes:
-     ```python
-     # ❌ WRONG: Raw model instance
-     return {'user': user_instance}
-
-     # ✅ CORRECT: Serialized or ID
-     return {'user': UserSerializer(user_instance).data}
-     return {'user': user_instance.id}  # If only ID needed
-
-     # ❌ WRONG: QuerySet
-     return {'posts': Post.objects.all()}
-
-     # ✅ CORRECT: Serialized list
-     return {'posts': PostSerializer(Post.objects.all(), many=True).data}
-
-     # ❌ WRONG: Complex object
-     return {'metadata': some_complex_object}
-
-     # ✅ CORRECT: Primitive types
-     return {'metadata': {'key': 'value', 'count': 10}}
-     ```
-   - Impact if violated:
-     - **Production**: 500 errors instead of successful responses
-     - **UX**: API appears broken, users can't perform actions
-     - **Debugging**: TypeError only appears in production (not local testing)
-     - **Data Loss**: Actions may succeed in database but response fails
-   - Grade penalty: **-10 points** (BLOCKER - production crash)
-   - See: [Phase 2c Blocker Patterns](PHASE_2C_BLOCKER_PATTERNS_CODIFIED.md) - Pattern 2
-
-36. **HTTP Status Code Correctness (401 vs 403)** ⭐ NEW - IMPORTANT (Forum Phase 2c)
-   - IMPORTANT: Confusing 401 (authentication required) with 403 (insufficient permissions)
-   - PATTERN: 401 for anonymous users, 403 for authenticated but unauthorized
-   - Check for: Incorrect status code expectations in tests
-   - Why this matters:
-     - RFC 7235 defines clear distinction between authentication vs authorization
-     - Incorrect status codes break API contracts and client error handling
-     - Test assertions with wrong status codes give false confidence
-   - HTTP Status Code Definitions:
-     ```
-     401 Unauthorized:
-     - Meaning: Authentication is required but not provided
-     - Use Case: Anonymous user trying to access protected resource
-     - User Action: "Please log in"
-     - Header: WWW-Authenticate (authentication challenge)
-
-     403 Forbidden:
-     - Meaning: Authenticated but insufficient permissions
-     - Use Case: Logged-in user trying to access forbidden resource
-     - User Action: "You don't have permission for this"
-     - No authentication challenge needed (already authenticated)
-     ```
-   - Common test mistakes:
-     ```python
-     # ❌ WRONG: Expects 403 for anonymous user
-     def test_anonymous_cannot_create_post(self):
-         # No authentication (anonymous request)
-         response = self.client.post('/api/v1/posts/', {...})
-
-         # ❌ WRONG: Should be 401 (not authenticated)
-         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-     # ✅ CORRECT: Expects 401 for anonymous user
-     def test_anonymous_cannot_create_post(self):
-         # No authentication (anonymous request)
-         response = self.client.post('/api/v1/posts/', {...})
-
-         # ✅ CORRECT: 401 Unauthorized (need to log in)
-         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-     # ✅ CORRECT: Expects 403 for wrong user
-     def test_user_cannot_edit_others_post(self):
-         # Authenticated as user2
-         self.client.force_authenticate(user=self.user2)
-
-         # Try to edit user1's post
-         response = self.client.patch(f'/api/v1/posts/{user1_post.id}/', {...})
-
-         # ✅ CORRECT: 403 Forbidden (authenticated but not authorized)
-         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-     ```
-   - Decision tree:
-     ```
-     Is request authenticated?
-     ├─ NO → 401 Unauthorized (need to log in)
-     └─ YES → Is user authorized for this action?
-               ├─ NO → 403 Forbidden (insufficient permissions)
-               └─ YES → 200/201/204 (success)
-     ```
-   - Test pattern (all three scenarios):
-     ```python
-     def test_http_status_codes_comprehensive(self):
-         """Verify correct status codes for authentication vs permission errors."""
-
-         # Scenario 1: Anonymous user (401)
-         response = self.client.post('/api/v1/posts/', {'content': 'Test'})
-         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-         # Scenario 2: Authenticated but wrong user (403)
-         self.client.force_authenticate(user=self.user2)
-         response = self.client.delete(f'/api/v1/posts/{user1_post.id}/')
-         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-         # Scenario 3: Authenticated and authorized (200/204)
-         self.client.force_authenticate(user=self.user1)
-         response = self.client.delete(f'/api/v1/posts/{user1_post.id}/')
-         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-     ```
-   - Review checklist:
-     - [ ] Are 401 responses used for anonymous requests?
-     - [ ] Are 403 responses used for authenticated but unauthorized?
-     - [ ] Are error messages appropriate for status code?
-     - [ ] Is decision tree clear (authentication → authorization)?
-     - [ ] Do tests cover all three scenarios (401, 403, success)?
-   - Error message patterns:
-     ```python
-     # 401 Unauthorized (not authenticated)
-     {
-         "detail": "Authentication credentials were not provided."
-     }
-
-     # 403 Forbidden (authenticated but not authorized)
-     {
-         "detail": "You do not have permission to perform this action."
-     }
-     ```
-   - Impact if violated:
-     - **API Contract**: Clients expect 401 to trigger login, 403 to show error
-     - **UX**: Wrong status code confuses client-side error handling
-     - **Testing**: False confidence from tests with wrong assertions
-     - **Documentation**: API docs show incorrect status codes
-   - Grade penalty: **-2 points** (test correctness), **-4 points** (API contract)
-   - See: [Phase 2c Blocker Patterns](PHASE_2C_BLOCKER_PATTERNS_CODIFIED.md) - Pattern 3
-
-37. **Django User Model PK Type Assumptions** ⭐ NEW - IMPORTANT (Forum Phase 2c)
-   - IMPORTANT: Assuming all primary keys are UUIDs when User model uses integer AutoField
-   - PATTERN: User.id is integer, custom models may use UUID
-   - Check for: `str(user.id)` conversions in tests/code
-   - Why this matters:
-     - Django User model uses AutoField (integer primary key)
-     - Custom models often use UUIDField for distributed systems
-     - Type confusion leads to failed comparisons and test failures
-   - Model primary key types:
-     ```python
-     # Django User model (built-in):
-     class User(AbstractUser):
-         id = models.AutoField(primary_key=True)  # INTEGER (1, 2, 3, ...)
-
-     # Custom forum models:
-     class Thread(models.Model):
-         id = models.UUIDField(primary_key=True, default=uuid.uuid4)  # UUID
-
-     class Post(models.Model):
-         id = models.UUIDField(primary_key=True, default=uuid.uuid4)  # UUID
-     ```
-   - Common test mistake:
-     ```python
-     # ❌ WRONG: Converts integer PK to string
-     def test_reaction_user_field(self):
-         reaction = Reaction.objects.create(user=self.user, ...)
-
-         # User.id is integer (e.g., 1, 2, 3)
-         # ❌ WRONG: Unnecessary string conversion
-         self.assertEqual(reaction.user_id, str(self.user.id))
-         # Compares: 1 == "1" → False (type mismatch)
-
-     # ✅ CORRECT: Direct integer comparison
-     def test_reaction_user_field(self):
-         reaction = Reaction.objects.create(user=self.user, ...)
-
-         # User.id is integer, compare directly
-         self.assertEqual(reaction.user_id, self.user.id)
-         # Compares: 1 == 1 → True
-     ```
-   - Detection pattern:
-     ```bash
-     # Find incorrect string conversions of user IDs
-     grep -rn "str(.*\.user\.id)" apps/*/tests/
-     grep -rn "str(user_id)" apps/*/tests/
-     grep -rn "str(author_id)" apps/*/tests/
-
-     # For each match:
-     # - If User model field: Don't convert (integer)
-     # - If UUID field: str() conversion correct (serialized as string)
-     ```
-   - Correct patterns by model type:
-     ```python
-     # User model (integer PK)
-     user = User.objects.get(id=1)
-     self.assertEqual(obj.user_id, user.id)  # ✅ Integer comparison
-
-     # Custom model (UUID PK)
-     thread = Thread.objects.create(...)
-     self.assertEqual(response.data['thread_id'], str(thread.id))  # ✅ String (serialized)
-
-     # Serializer response (UUIDs as strings)
-     response = self.client.get(f'/api/v1/threads/{thread.id}/')
-     self.assertEqual(response.data['id'], str(thread.id))  # ✅ String in JSON
-     ```
-   - Review checklist:
-     - [ ] Are User.id comparisons using integers (not strings)?
-     - [ ] Are UUID field comparisons using strings (serialized format)?
-     - [ ] Is primary key type documented for custom models?
-     - [ ] Are tests using correct types for assertions?
-     - [ ] Is serializer behavior consistent (UUIDs → strings)?
-   - Common PK type patterns:
-     ```python
-     # Integer PK (Django default):
-     models.AutoField(primary_key=True)          # 1, 2, 3, ...
-     models.BigAutoField(primary_key=True)       # Large integers
-
-     # UUID PK (distributed systems):
-     models.UUIDField(primary_key=True, default=uuid.uuid4)
-
-     # String PK (rare):
-     models.CharField(primary_key=True, max_length=50)
-     ```
-   - Impact if violated:
-     - **Test Failures**: Comparisons fail due to type mismatch
-     - **Type Safety**: Mixing integer/string IDs breaks type checking
-     - **API Consistency**: Inconsistent ID representation in responses
-   - Grade penalty: **-1 point** (test correctness), **-3 points** (type safety)
-   - See: [Phase 2c Blocker Patterns](PHASE_2C_BLOCKER_PATTERNS_CODIFIED.md) - Pattern 4
-
-38. **Conditional Serializer Context for Detail Views** ⭐ NEW - IMPORTANT (Forum Phase 2c)
-   - IMPORTANT: Detail views may require different serializer context than list views
-   - PATTERN: Use `self.action == 'retrieve'` to auto-enable detail-only features
-   - Check for: Hardcoded serializer context that ignores action type
-   - Why this matters:
-     - List views prioritize performance (minimal data, no nested relations)
-     - Detail views prioritize completeness (full data, nested relations)
-     - User experience: Detail view should show all data by default
-   - Use case (category children field):
-     ```
-     Requirement:
-     - List view: Don't show children (performance, many categories)
-     - Detail view: Show children by default (UX, complete information)
-     - Query param: Allow override in both views
-     ```
-   - Anti-pattern (hardcoded context):
-     ```python
-     # ❌ WRONG: Hardcoded to query param only
-     class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
-         def get_serializer_context(self):
-             context = super().get_serializer_context()
-
-             # Only enabled via query param
-             include_children = self.request.query_params.get('include_children', 'false')
-             context['include_children'] = include_children.lower() == 'true'
-
-             return context
-
-     # Result:
-     # - List: /api/v1/categories/ → No children ✅
-     # - Detail: /api/v1/categories/{id}/ → No children ❌ (should show by default)
-     # - Override: /api/v1/categories/{id}/?include_children=true → Children ✅
-     ```
-   - Correct pattern (action-based context):
-     ```python
-     # ✅ CORRECT: Auto-enable for detail view
-     class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
-         def get_serializer_context(self):
-             """
-             Conditionally include children based on action.
-
-             - List view: Exclude children (performance)
-             - Detail view: Include children by default (UX)
-             - Query param: Override default behavior
-             """
-             context = super().get_serializer_context()
-
-             # Check query param (allows override)
-             include_children = self.request.query_params.get('include_children', 'false')
-
-             # Auto-enable for detail view
-             context['include_children'] = (
-                 include_children.lower() == 'true' or
-                 self.action == 'retrieve'  # ✅ Detail view shows children
-             )
-
-             return context
-
-     # Result:
-     # - List: /api/v1/categories/ → No children ✅
-     # - Detail: /api/v1/categories/{id}/ → Children ✅ (auto-enabled)
-     # - Override: /api/v1/categories/{id}/?include_children=false → No children ✅
-     ```
-   - Common action types:
-     ```python
-     # ViewSet actions:
-     self.action == 'list'      # GET /api/resource/
-     self.action == 'retrieve'  # GET /api/resource/{id}/
-     self.action == 'create'    # POST /api/resource/
-     self.action == 'update'    # PUT /api/resource/{id}/
-     self.action == 'partial_update'  # PATCH /api/resource/{id}/
-     self.action == 'destroy'   # DELETE /api/resource/{id}/
-     ```
-   - Test pattern (list vs detail):
-     ```python
-     def test_category_detail_includes_children_by_default(self):
-         """Verify detail view includes children without query param."""
-         parent = Category.objects.create(name="Parent", slug="parent")
-         child1 = Category.objects.create(name="Child 1", parent=parent)
-         child2 = Category.objects.create(name="Child 2", parent=parent)
-
-         # Detail view WITHOUT query param
-         response = self.client.get(f'/api/v1/categories/{parent.id}/')
-
-         self.assertEqual(response.status_code, 200)
-
-         # ✅ Should include children by default
-         self.assertIn('children', response.data)
-         self.assertEqual(len(response.data['children']), 2)
-
-     def test_category_list_excludes_children_by_default(self):
-         """Verify list view excludes children for performance."""
-         parent = Category.objects.create(name="Parent", slug="parent")
-         child = Category.objects.create(name="Child", parent=parent)
-
-         # List view WITHOUT query param
-         response = self.client.get('/api/v1/categories/')
-
-         self.assertEqual(response.status_code, 200)
-
-         # Find parent in results
-         parent_data = next(c for c in response.data['results'] if c['slug'] == 'parent')
-
-         # ✅ Should NOT include children in list view
-         self.assertNotIn('children', parent_data)
-     ```
-   - Review checklist:
-     - [ ] Does detail view require different data than list view?
-     - [ ] Is `self.action` checked for conditional context?
-     - [ ] Can query params override default behavior?
-     - [ ] Are performance implications documented?
-     - [ ] Are tests verifying both list and detail view behavior?
-   - Performance considerations:
-     ```python
-     # List view: Minimal data (fast)
-     # - No nested serializers
-     # - No prefetch_related() for optional fields
-     # - Pagination enabled
-
-     # Detail view: Complete data (acceptable slower)
-     # - Nested serializers for related objects
-     # - prefetch_related() for all relations
-     # - Full object representation
-     ```
-   - Impact if violated:
-     - **UX**: Detail view requires query param for basic functionality
-     - **Performance**: List view loads unnecessary data (N+1 queries)
-     - **Consistency**: Inconsistent behavior across actions
-   - Grade penalty: **-2 points** (UX), **-4 points** (N+1 queries)
-   - See: [Phase 2c Blocker Patterns](PHASE_2C_BLOCKER_PATTERNS_CODIFIED.md) - Pattern 5
-
-39. **Separate Create/Response Serializers** ⭐ NEW - IMPORTANT (Forum Phase 2c)
-   - IMPORTANT: Create serializers have different fields than response serializers
-   - PATTERN: Use create serializer for validation, response serializer for full data
-   - Check for: `create()` methods returning incomplete serializer data
-   - Why this matters:
-     - Create serializer: Input validation (minimal fields from client)
-     - Response serializer: Full representation (includes computed/auto fields)
-     - API contract: Response should include all relevant data
-   - Use case (post creation):
-     ```
-     Input (PostCreateSerializer):
-     - thread_id (required from client)
-     - content (required from client)
-
-     Response (PostSerializer):
-     - id (auto-generated UUID)
-     - thread_id (from input)
-     - content (from input)
-     - author (set automatically from request.user)
-     - created_at (auto-timestamp)
-     - post_number (calculated field)
-     - is_edited (default False)
-     ```
-   - Anti-pattern (incomplete response):
-     ```python
-     # ❌ WRONG: Uses create serializer for response
-     class PostViewSet(viewsets.ModelViewSet):
-         def get_serializer_class(self):
-             if self.action == 'create':
-                 return PostCreateSerializer
-             return PostSerializer
-
-         def create(self, request, *args, **kwargs):
-             # Uses default create() method
-             # Returns PostCreateSerializer data (incomplete!)
-             return super().create(request, *args, **kwargs)
-
-     # Response (WRONG - incomplete):
-     # {
-     #   "id": "...",
-     #   "thread_id": "...",
-     #   "content": "Great discussion!"
-     #   // ❌ Missing: author, created_at, post_number, is_edited
-     # }
-     ```
-   - Correct pattern (full response):
-     ```python
-     # ✅ CORRECT: Separate create/response serializers
-     class PostViewSet(viewsets.ModelViewSet):
-         def get_serializer_class(self):
-             if self.action == 'create':
-                 return PostCreateSerializer  # For validation
-             return PostSerializer  # For response
-
-         def create(self, request, *args, **kwargs):
-             """
-             Create a new post.
-
-             Uses PostCreateSerializer for input validation,
-             but returns PostSerializer for full response data.
-             """
-             # Validate input with create serializer
-             create_serializer = self.get_serializer(data=request.data)
-             create_serializer.is_valid(raise_exception=True)
-
-             # Create post
-             self.perform_create(create_serializer)
-             post_instance = create_serializer.instance
-
-             # ✅ Return full serializer for response
-             response_serializer = PostSerializer(
-                 post_instance,
-                 context=self.get_serializer_context()
-             )
-
-             headers = self.get_success_headers(response_serializer.data)
-             return Response(
-                 response_serializer.data,
-                 status=status.HTTP_201_CREATED,
-                 headers=headers
-             )
-
-     # Response (CORRECT - complete):
-     # {
-     #   "id": "660e8400-...",
-     #   "thread_id": "550e8400-...",
-     #   "content": "Great discussion!",
-     #   "author": {"id": 1, "username": "alice"},
-     #   "created_at": "2025-10-30T12:00:00Z",
-     #   "post_number": 5,
-     #   "is_edited": false
-     # }
-     ```
-   - Test pattern (verify complete response):
-     ```python
-     def test_post_create_returns_full_serializer(self):
-         """Verify post creation returns complete post data."""
-         self.client.force_authenticate(user=self.user)
-
-         # Create post with minimal input
-         response = self.client.post(
-             '/api/v1/posts/',
-             {
-                 'thread_id': str(self.thread.id),
-                 'content': 'Test post'
-             }
-         )
-
-         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-         # ✅ Response must include ALL fields
-         self.assertIn('id', response.data)
-         self.assertIn('thread_id', response.data)
-         self.assertIn('content', response.data)
-
-         # Auto-generated/computed fields
-         self.assertIn('author', response.data)
-         self.assertIn('created_at', response.data)
-         self.assertIn('post_number', response.data)
-         self.assertIn('is_edited', response.data)
-
-         # Verify author was set correctly
-         self.assertEqual(response.data['author']['id'], self.user.id)
-     ```
-   - Review checklist:
-     - [ ] Does create action use different serializer than retrieve?
-     - [ ] Is response serializer used for create() response?
-     - [ ] Does response include all computed/auto-generated fields?
-     - [ ] Are tests verifying complete response structure?
-     - [ ] Is `get_serializer_context()` passed to response serializer?
-   - Common create/response field differences:
-     ```python
-     # Create serializer (input):
-     class PostCreateSerializer(serializers.Serializer):
-         thread_id = serializers.UUIDField()  # Required input
-         content = serializers.CharField()     # Required input
-
-     # Response serializer (output):
-     class PostSerializer(serializers.ModelSerializer):
-         id = serializers.UUIDField()           # Auto-generated
-         thread_id = serializers.UUIDField()    # From input
-         content = serializers.CharField()      # From input
-         author = UserSerializer()              # Set from request.user
-         created_at = serializers.DateTimeField()  # Auto-timestamp
-         post_number = serializers.IntegerField()  # Calculated
-         is_edited = serializers.BooleanField()    # Default False
-     ```
-   - Impact if violated:
-     - **API Contract**: Response missing fields that clients expect
-     - **Client Code**: Clients can't use response for immediate display
-     - **UX**: Extra API call needed to get full data after creation
-     - **Consistency**: Create response different from retrieve response
-   - Grade penalty: **-3 points** (incomplete API response)
-   - See: [Phase 2c Blocker Patterns](PHASE_2C_BLOCKER_PATTERNS_CODIFIED.md) - Pattern 6
-
-40. **React Router v6+ Testing - useParams() Mocking** ⭐ NEW - IMPORTANT (Forum Phase 6 Polish)
-   - IMPORTANT: React Router v6+ useParams() difficult to mock with MemoryRouter
-   - PATTERN: Use vi.spyOn() on the module import, not the function itself
-   - Check for: Test failures showing useParams() returning undefined
-   - Anti-pattern (fails):
-     ```javascript
-     // ❌ WRONG: Can't mock useParams directly
-     vi.mock('react-router', () => ({
-       useParams: vi.fn(() => ({ categorySlug: 'plant-care' })),
-     }));
-     ```
-   - Correct pattern:
-     ```javascript
-     // ✅ CORRECT: Spy on module import
-     import * as ReactRouter from 'react-router';
-     vi.spyOn(ReactRouter, 'useParams').mockReturnValue({
-       categorySlug: 'plant-care'
-     });
-     ```
-   - See: ThreadDetailPage.test.jsx - 11 Router mocking test failures (infrastructure, not logic)
-
-41. **HTML Validation - Nested Anchor Tags** ⭐ NEW - BLOCKER (Forum Phase 6 Polish)
-   - BLOCKER: `<a>` cannot be descendant of `<a>` (HTML spec violation)
-   - PATTERN: Restructure to avoid Link inside Link
-   - Anti-pattern:
-     ```javascript
-     // ❌ BLOCKER: Subcategory links inside main link
-     <Link to={`/forum/${category.slug}`}>
-       <h3>{category.name}</h3>
-       {category.children.map(child => (
-         <Link to={`/forum/${child.slug}`}>{child.name}</Link>
-       ))}
-     </Link>
-     ```
-   - Correct pattern:
-     ```javascript
-     // ✅ CORRECT: Separate clickable areas
-     <div>
-       <Link to={`/forum/${category.slug}`}>
-         <h3>{category.name}</h3>
-       </Link>
-       <div>
-         {category.children.map(child => (
-           <Link to={`/forum/${child.slug}`}>{child.name}</Link>
-         ))}
-       </div>
-     </div>
-     ```
-   - See: CategoryCard.jsx (lines 15-73) - Fixed in Forum Phase 6 Polish
-
-42. **Context Hook Export Pattern** ⭐ NEW - BLOCKER (Forum Phase 6 Polish)
-   - BLOCKER: Missing useContext wrapper hook export
-   - PATTERN: Export createContext, Provider, AND custom hook
-   - Anti-pattern:
-     ```javascript
-     // ❌ BLOCKER: Only exports context, missing hook
-     export const AuthContext = createContext(null);
-     export function AuthProvider({ children }) { ... }
-     // Missing: useAuth hook!
-     ```
-   - Correct pattern:
-     ```javascript
-     // ✅ CORRECT: Export all three
-     export const AuthContext = createContext(null);
-
-     export function useAuth() {
-       const context = useContext(AuthContext);
-       if (context === null) {
-         throw new Error('useAuth must be used within AuthProvider');
-       }
-       return context;
-     }
-
-     export function AuthProvider({ children }) { ... }
-     ```
-   - See: AuthContext.jsx (lines 35-43) - Fixed in commit de551be
-
-43. **Incremental Pagination - Load More vs Replace** ⭐ NEW - IMPORTANT (Forum Phase 6 Polish)
-   - IMPORTANT: Use append pattern for feeds/threads, not full replacement
-   - PATTERN: `setPosts(prev => [...prev, ...newItems])` not `setPosts(newItems)`
-   - Anti-pattern:
-     ```javascript
-     // ❌ WRONG: Replaces all posts, loses context
-     const handleLoadMore = async () => {
-       const data = await fetchPosts({ page: nextPage });
-       setPosts(data.items);  // Replaces!
-     };
-     ```
-   - Correct pattern:
-     ```javascript
-     // ✅ CORRECT: Appends new posts
-     const handleLoadMore = useCallback(async () => {
-       setLoadingMore(true);
-       const data = await fetchPosts({ page: currentPage + 1, limit: 20 });
-       setPosts(prev => [...prev, ...data.items]);  // Appends!
-       setCurrentPage(prev => prev + 1);
-       setLoadingMore(false);
-     }, [currentPage]);
-     ```
-   - State management:
-     ```javascript
-     const [posts, setPosts] = useState([]);
-     const [currentPage, setCurrentPage] = useState(1);
-     const [totalPosts, setTotalPosts] = useState(0);
-     const [loadingMore, setLoadingMore] = useState(false);
-     const postsPerPage = 20;
-     ```
-   - See: ThreadDetailPage.jsx (lines 121-140) - Implemented in Forum Phase 6 Polish
-
-44. **Django Test Data - Idempotent Scripts** ⭐ NEW - IMPORTANT (Forum Phase 6 Polish)
-   - IMPORTANT: Use get_or_create() for test data, not create()
-   - PATTERN: Scripts safe to re-run without duplicates
-   - Anti-pattern:
-     ```python
-     # ❌ WRONG: Creates duplicates every run
-     test_user = User.objects.create(username='tester')
-     category = Category.objects.create(name='Test', slug='test')
-     ```
-   - Correct pattern:
-     ```python
-     # ✅ CORRECT: Idempotent creation
-     test_user, created = User.objects.get_or_create(
-         username='tester',
-         defaults={'email': 'test@example.com'}
-     )
-     if created:
-         print(f"Created: {test_user}")
-     else:
-         print(f"Using existing: {test_user}")
-
-     # Check counts before bulk creation
-     existing_count = Post.objects.filter(thread=thread).count()
-     if existing_count < target_count:
-         for i in range(target_count - existing_count):
-             Post.objects.create(...)
-     ```
-   - See: create_forum_test_data.py (265 lines) - Forum Phase 6 Polish
-
-Step 4.5: Dependency Management Review (Package Updates)
-
-**WHEN TO USE**: Reviewing Dependabot PRs, dependency updates, package.json/requirements.txt changes
-
-When reviewing dependency updates or package management changes:
-
-# Dependency Update Checks
-
-## 1. Priority-Based Risk Assessment
-
-# Check what type of dependency is being updated
-grep -n "dependencies\|devDependencies" package.json
-grep -n "^[a-z-]" requirements.txt
-
-**Priority Matrix**:
-
-| Priority | Category | Example | Risk Level | Verification |
-|----------|----------|---------|------------|--------------|
-| P1 | GitHub Actions | actions/checkout v4→v5 | CRITICAL | CI must pass |
-| P2 | Core Backend | Django, DRF, Wagtail | HIGH | Full test suite |
-| P3 | Dev Tools | pytest, eslint, ruff | LOW | Smoke test |
-| P4 | Production Libs | axios, vite, openapi | MEDIUM | Integration tests |
-| P5 | Mobile Dev | Flutter packages | LOW (if not prod) | Mobile tests |
-
-**Review Pattern**:
-```bash
-# For GitHub Actions updates (P1)
-# BLOCKER: Security-critical CI/CD component
-- [ ] Review changelog for security fixes
-- [ ] Verify all workflows pass with new version
-- [ ] Check for breaking changes in action inputs/outputs
-- [ ] Merge individually (not batched)
-
-# For Django ecosystem updates (P2)
-# BLOCKER: Core production dependency
-- [ ] Check for breaking changes in release notes
-- [ ] Run full test suite: python manage.py test --keepdb -v 2
-- [ ] Verify migrations compatibility
-- [ ] Check for deprecated APIs in codebase
-- [ ] Can group if all minor/patch versions
-
-# For dev dependencies (P3)
-# WARNING: Low risk, can batch merge
-- [ ] Verify CI passes
-- [ ] Can batch 10-20 updates if all passing
-- [ ] Smoke test sufficient (not full test suite)
-
-# For production dependencies (P4)
-# IMPORTANT: Medium risk, test carefully
-- [ ] Run integration tests for affected features
-- [ ] Check bundle size impact (frontend)
-- [ ] Verify API compatibility (backend)
-- [ ] Test individually for major versions
-
-# For mobile dependencies (P5)
-# SUGGESTION: Low risk if mobile not production
-- [ ] Safe to merge if mobile app in development
-- [ ] Review breaking changes for future mobile work
-- [ ] Can merge major versions if mobile not released
-```
-
-## 2. Dependabot Conflict Resolution
-
-# Check if PR has merge conflicts
-gh pr view <PR_NUMBER> --json mergeable
-
-# If conflicts detected
-**Pattern**: Use `@dependabot rebase` (NEVER manual resolution)
-
-```bash
-# CORRECT: Dependabot rebase
-gh pr comment <PR_NUMBER> --body "@dependabot rebase"
-# Wait 1-2 minutes for Dependabot to rebase
-# Lock files regenerated automatically
-# CI re-runs automatically
-
-# WRONG: Manual conflict resolution
-git checkout dependabot/branch
-git merge main  # ❌ Breaks Dependabot automation
-git commit      # ❌ Creates messy merge commit
-```
-
-**Why Dependabot Rebase?**
-- ✅ Automatic lock file regeneration (package-lock.json, poetry.lock)
-- ✅ Maintains linear history (no merge commits)
-- ✅ Preserves Dependabot automation
-- ✅ CI re-runs with fresh rebase
-
-**Detection Pattern**:
-```bash
-# Find PRs needing rebase
-gh pr list --label dependencies --json number,title,mergeable | \
-  grep '"mergeable":false'
-
-# Request rebase for each
-gh pr comment <PR_NUMBER> --body "@dependabot rebase"
-```
-
-## 3. Test Verification After Updates
-
-# After merging dependency updates, run full test suites
-**Pattern**: Distinguish regressions from pre-existing failures
-
-**Backend Test Verification**:
-```bash
-cd backend
-python manage.py test --keepdb -v 2
-
-# If failures:
-# 1. Check if failures existed BEFORE updates
-# 2. Analyze failure patterns (same error across multiple tests?)
-# 3. Determine if related to updated package
-```
-
-**Frontend Test Verification**:
-```bash
-cd web
-npm run test
-
-# If failures:
-# 1. Check error messages for package names
-# 2. Look for breaking API changes in updated packages
-# 3. Determine if failures pre-existing or new
-```
-
-**Regression vs Pre-Existing Decision Matrix**:
-
-| Indicator | Regression | Pre-Existing |
-|-----------|-----------|--------------|
-| **Timing** | Passed before update | Failed before update |
-| **Error Message** | Mentions updated package | Generic or unrelated |
-| **Scope** | Isolated to updated code | Widespread across codebase |
-| **CI History** | Green before, red after | Red before and after |
-
-**If Regression (Blocker)**:
-```bash
-# Rollback immediately
-gh pr revert <PR_NUMBER>
-
-# Investigate compatibility
-# Fix issues, create new PR
-```
-
-**If Pre-Existing (Document)**:
-```bash
-# Create comprehensive TODO file
-# Template: backend/todos/XXX-pending-pN-fix-DESCRIPTION.md
-# Include:
-# - Problem statement with error examples
-# - Root cause analysis
-# - 3+ solution options with pros/cons
-# - Implementation plan with phases
-# - Acceptance criteria (checkboxes)
-# - Estimated effort (hours)
-# - Work log with discovery details
-```
-
-## 4. Grouped vs Individual Merge Strategy
-
-**Group When** (Batch Approval):
-- ✅ All minor/patch versions (1.2.3 → 1.2.4 or 1.2.x → 1.3.0)
-- ✅ Same dependency family (django-*, @types/*, eslint-*)
-- ✅ Dependabot auto-grouped (compatibility verified)
-- ✅ All dev dependencies (no production impact)
-- ✅ All CI checks passing
-
-**Individual When** (Single Review):
-- ✅ Major version updates (1.x → 2.x)
-- ✅ Security-critical components (GitHub Actions, auth libs)
-- ✅ Core production dependencies (Django, React, PostgreSQL)
-- ✅ Breaking changes mentioned in changelog
-- ✅ Different ecosystems (backend + frontend together)
-
-**Merge Command Patterns**:
-```bash
-# Individual merge with detailed reasoning
-gh pr merge <PR_NUMBER> --squash --body "✅ Approved: Django 5.1→5.2 (core dependency)
-
-Rationale: Security patches + async improvements. Backward compatible.
-Verification: Full test suite passing (134/134 tests).
-Breaking changes: None affecting our codebase."
-
-# Batch merge for low-risk updates
-for pr_num in 101 102 103 104 105; do
-  gh pr merge $pr_num --squash --body "✅ Approved: Dev dependency update
-
-Category: Development tools
-Risk: Minimal (no production impact)
-Verification: CI passing"
-done
-```
-
-## 5. Post-Merge Documentation
-
-**Pattern**: Create comprehensive documentation for test failures
-
-**When to Document**:
-- Pre-existing test failures discovered during verification
-- Complex failures requiring investigation
-- Systematic failures across multiple tests
-
-**Documentation Template** (11KB+ for complex issues):
-```markdown
----
-status: pending
-priority: p2|p3
-issue_id: "XXX"
-tags: [testing, dependencies, category]
-estimated_effort: "X-Y hours"
----
-
-# [Descriptive Title]
-
-## Problem Statement
-[Clear description with error examples from test output]
-
-## Findings
-- **Discovered**: [Date] during post-dependency-update verification
-- **Scope**: [X failing tests in test_file.py]
-- **Impact**: [What doesn't work]
-
-## Root Cause Analysis
-**Hypothesis 1**: [Most likely cause]
-**Hypothesis 2**: [Alternative cause]
-**Hypothesis 3**: [Edge case]
-
-[Evidence and analysis]
-
-## Proposed Solutions
-
-### Option 1: [Solution Name] (Recommended)
-**Implementation**: [Detailed steps with code examples]
-
-**Pros**:
-- [Benefit 1]
-- [Benefit 2]
-- [Benefit 3]
-
-**Cons**:
-- [Drawback 1]
-- [Drawback 2]
-
-**Effort**: X-Y hours
-**Risk**: Low/Medium/High
-
-### Option 2: [Alternative Solution]
-[Same structure]
-
-### Option 3: [Alternative Solution]
-[Same structure]
-
-## Recommended Action
-[Which option and detailed rationale]
-
-## Implementation Plan
-### Phase 1: [Step] (X hours)
-[Detailed implementation steps]
-
-### Phase 2: [Step] (X hours)
-[Detailed steps]
-
-[Continue for all phases]
-
-## Acceptance Criteria
-- [ ] [Criterion 1 - specific and testable]
-- [ ] [Criterion 2]
-[... 8-15 items total ...]
-
-## Work Log
-### [Date] - Discovery
-**By:** Dependency update verification process
-**Actions**:
-- [Action 1]
-- [Action 2]
-
-**Analysis**: [Findings and conclusions]
-
-## Resources
-- [Link 1]: [Description]
-- [Link 2]: [Reference]
-
-## Notes
-**Why This Matters**: [Business/technical impact]
-**Not Urgent Because**: [Why not blocking production]
-**Future Prevention**: [How to avoid in future]
-```
-
-**Review Checklist for Dependency Updates**:
-- [ ] Is priority level appropriate (P1-P5)?
-- [ ] Are GitHub Actions merged individually (not batched)?
-- [ ] Did you use `@dependabot rebase` for conflicts (not manual)?
-- [ ] Did you run full test suites after merging?
-- [ ] Did you distinguish regressions from pre-existing failures?
-- [ ] Are pre-existing failures documented comprehensively (11KB+)?
-- [ ] Did you verify no breaking changes affect production code?
-- [ ] Is merge strategy appropriate (grouped vs individual)?
-- [ ] Does commit message explain rationale and verification?
-
-**Impact of Proper Dependency Management**:
-- **Security**: Regular updates patch vulnerabilities
-- **Compatibility**: Stay current with ecosystem changes
-- **Performance**: New versions often include optimizations
-- **Developer Experience**: Latest tools and features available
-- **Technical Debt**: Prevents large, risky update batches
-
-**See Also**: `/backend/docs/development/DEPENDENCY_MANAGEMENT_PATTERNS_CODIFIED.md` for comprehensive patterns
-
----
-
-Step 4.6: Documentation Accuracy Review (Technical Docs)
+Step 4.5: Documentation Accuracy Review (Technical Docs)
 
 **CRITICAL: Technical documentation needs the same rigor as code!**
 
