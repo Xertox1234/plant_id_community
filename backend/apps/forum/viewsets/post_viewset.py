@@ -13,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.permissions import IsAuthenticatedOrReadOnly, BasePermission
 from rest_framework.serializers import Serializer
 from django.db.models import QuerySet, Count, Q
+from django.utils import timezone
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
 
@@ -78,14 +79,23 @@ class PostViewSet(viewsets.ModelViewSet):
         qs = qs.select_related('author', 'thread', 'edited_by')
 
         # Conditional optimization based on action (Issue #96)
+        # Use Prefetch to filter for active attachments only (soft delete support)
+        from django.db.models import Prefetch
+        from ..models import Attachment
+
         if self.action == 'list':
             # List view: Use annotations for reaction counts (75% faster)
             qs = self._annotate_reaction_counts(qs)
-            # Still need attachments for list view
-            qs = qs.prefetch_related('attachments')
+            # Still need active attachments for list view
+            qs = qs.prefetch_related(
+                Prefetch('attachments', queryset=Attachment.active.all())
+            )
         else:
             # Detail view: Prefetch for user-specific reaction data
-            qs = qs.prefetch_related('reactions', 'attachments')
+            qs = qs.prefetch_related(
+                'reactions',
+                Prefetch('attachments', queryset=Attachment.active.all())
+            )
 
         # Filter by thread slug (required for list view)
         thread_slug = self.request.query_params.get('thread')
@@ -258,12 +268,25 @@ class PostViewSet(viewsets.ModelViewSet):
         """
         Soft delete post by setting is_active=False.
 
+        Also cascades soft-delete to all associated attachments to maintain
+        consistency with the soft delete pattern.
+
         Note:
             We don't actually delete posts to preserve thread integrity.
             Soft deletion allows restoration if needed.
         """
         instance.is_active = False
         instance.save(update_fields=['is_active'])
+
+        # Cascade soft-delete to attachments (matching Post/Thread pattern)
+        attachments_count = instance.attachments.filter(is_active=True).count()
+        if attachments_count > 0:
+            instance.attachments.filter(is_active=True).update(
+                is_active=False,
+                deleted_at=timezone.now()
+            )
+            logger.info(f"[FORUM] Soft-deleted {attachments_count} attachments for post {instance.id}")
+
         logger.info(f"[FORUM] Post {instance.id} soft deleted by {self.request.user.username}")
 
     @action(detail=False, methods=['GET'])
