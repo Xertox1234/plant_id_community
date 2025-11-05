@@ -338,6 +338,99 @@ For Technical Documentation files (*.md with code/specs):
      from ..constants import CACHE_LOCK_TIMEOUT, CACHE_TIMEOUT_24_HOURS
      ```
 
+7. **Django SECRET_KEY Security** - Cryptographic Configuration
+   - BLOCKER: Missing or insecure SECRET_KEY configuration in settings.py
+   - Check for: SECRET_KEY configuration in Django settings files
+   - Pattern: Environment-aware validation with fail-fast production requirements
+   - Key security requirements:
+     - **Missing Import**: Must import `ImproperlyConfigured` from `django.core.exceptions`
+     - **Production Enforcement**: In production (DEBUG=False), SECRET_KEY MUST be set via environment
+     - **Pattern Validation**: Reject insecure patterns (django-insecure, password, change-me, abc123, secret)
+     - **Length Validation**: Minimum 50 characters for cryptographic strength
+     - **Development Default**: Acceptable in development (DEBUG=True) with clear "DO-NOT-USE-IN-PRODUCTION" marker
+     - **Fail-Fast**: Use `ImproperlyConfigured` exception with detailed, actionable error messages
+
+   - Example implementation:
+     ```python
+     from django.core.exceptions import ImproperlyConfigured
+
+     # Environment-aware SECRET_KEY configuration
+     if config('DEBUG', default=False, cast=bool):
+         # Development: Allow insecure default for local testing
+         SECRET_KEY = config(
+             'SECRET_KEY',
+             default='django-insecure-dev-only-DO-NOT-USE-IN-PRODUCTION-abc123xyz'
+         )
+     else:
+         # Production: MUST have SECRET_KEY set - fail loudly if missing
+         try:
+             SECRET_KEY = config('SECRET_KEY')  # Raises Exception if not set
+         except Exception:
+             raise ImproperlyConfigured(
+                 "\n"
+                 "=" * 70 + "\n"
+                 "CRITICAL: SECRET_KEY environment variable is not set!\n"
+                 "=" * 70 + "\n"
+                 "Django requires a unique SECRET_KEY for production security.\n"
+                 "This key is used for cryptographic signing of:\n"
+                 "  - Session cookies (authentication)\n"
+                 "  - CSRF tokens (security)\n"
+                 "  - Password reset tokens\n"
+                 "  - Signed cookies\n"
+                 "\n"
+                 "Generate a secure key with:\n"
+                 "  python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'\n"
+                 "\n"
+                 "Then set in environment:\n"
+                 "  export SECRET_KEY='your-generated-key-here'\n"
+                 "=" * 70 + "\n"
+             )
+
+         # Validate it's not a default/example value
+         INSECURE_PATTERNS = [
+             'django-insecure',
+             'change-me',
+             'your-secret-key-here',
+             'secret',
+             'password',
+             'abc123',
+         ]
+
+         for pattern in INSECURE_PATTERNS:
+             if pattern in SECRET_KEY.lower():
+                 raise ImproperlyConfigured(
+                     f"Production SECRET_KEY contains insecure pattern: '{pattern}'\n"
+                     f"Generate a new key with:\n"
+                     f"  python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'"
+                 )
+
+         # Validate minimum length
+         if len(SECRET_KEY) < 50:
+             raise ImproperlyConfigured(
+                 f"Production SECRET_KEY is too short ({len(SECRET_KEY)} characters).\n"
+                 f"Django recommends at least 50 characters for security.\n"
+                 f"Generate a new key with:\n"
+                 f"  python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'"
+             )
+     ```
+
+   - **Threat mitigation**: Protects against session hijacking, CSRF attacks, password reset token forgery, cookie tampering
+   - **Best practices**:
+     - Never use same SECRET_KEY as example/default value
+     - Never commit SECRET_KEY to version control
+     - Use separate SECRET_KEY for JWT signing if available (`JWT_SECRET_KEY`)
+     - Rotate SECRET_KEY if compromised (invalidates all sessions/tokens)
+     - Document SECRET_KEY validation location in code comments
+
+   - **Common mistakes to check for**:
+     - BLOCKER: Missing `from django.core.exceptions import ImproperlyConfigured` import
+     - BLOCKER: No SECRET_KEY validation in production (DEBUG=False)
+     - BLOCKER: Using default SECRET_KEY value in production
+     - BLOCKER: SECRET_KEY hardcoded in settings.py instead of environment variable
+     - WARNING: SECRET_KEY shorter than 50 characters
+     - WARNING: Duplicate SECRET_KEY validation (e.g., in validate_environment() when already validated earlier)
+     - WARNING: Using print() instead of logger for settings validation messages
+
 **Additional Django/Python Checks:**
 
 7. **Database Query Optimization** - N+1 Query Detection
