@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('forum', '0004_add_attachment_cleanup_index'),
+        ('forum', '0002_category_parent_protect'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -46,10 +46,6 @@ class Migration(migrations.Migration):
                 'verbose_name_plural': 'Moderation Actions',
                 'ordering': ['-created_at'],
             },
-        ),
-        migrations.RemoveIndex(
-            model_name='attachment',
-            name='forum_attach_cleanup_idx',
         ),
         migrations.AddField(
             model_name='flaggedcontent',
