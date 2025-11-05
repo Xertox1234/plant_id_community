@@ -92,8 +92,12 @@ class PostViewSet(viewsets.ModelViewSet):
             )
         else:
             # Detail view: Prefetch for user-specific reaction data
+            from ..models import Reaction
             qs = qs.prefetch_related(
-                'reactions',
+                Prefetch(
+                    'reactions',
+                    queryset=Reaction.objects.filter(is_active=True).select_related('user')
+                ),
                 Prefetch('attachments', queryset=Attachment.active.all())
             )
 
@@ -252,7 +256,7 @@ class PostViewSet(viewsets.ModelViewSet):
             Author is set in serializer's create() method from request.user.
         """
         serializer.save()
-        logger.info(f"[FORUM] Post created in thread {serializer.instance.thread.slug} by {self.request.user.username}")
+        logger.info(f"[FORUM] Post created in thread {serializer.instance.thread.slug}")
 
     def perform_update(self, serializer) -> None:
         """
@@ -262,7 +266,7 @@ class PostViewSet(viewsets.ModelViewSet):
             PostUpdateSerializer handles setting edited_at and edited_by automatically.
         """
         serializer.save()
-        logger.info(f"[FORUM] Post {serializer.instance.id} edited by {self.request.user.username}")
+        logger.info(f"[FORUM] Post {serializer.instance.id} edited")
 
     def perform_destroy(self, instance) -> None:
         """
@@ -287,7 +291,7 @@ class PostViewSet(viewsets.ModelViewSet):
             )
             logger.info(f"[FORUM] Soft-deleted {attachments_count} attachments for post {instance.id}")
 
-        logger.info(f"[FORUM] Post {instance.id} soft deleted by {self.request.user.username}")
+        logger.info(f"[FORUM] Post {instance.id} soft deleted")
 
     @action(detail=False, methods=['GET'])
     def first_posts(self, request: Request) -> Response:
@@ -420,7 +424,7 @@ class PostViewSet(viewsets.ModelViewSet):
             )
 
             logger.info(
-                f"[FORUM] Image uploaded to post {post.id} by {request.user.username}: "
+                f"[FORUM] Image uploaded to post {post.id}: "
                 f"{image_file.name} ({image_file.size} bytes)"
             )
 
@@ -472,7 +476,7 @@ class PostViewSet(viewsets.ModelViewSet):
         attachment.delete()
 
         logger.info(
-            f"[FORUM] Image deleted from post {post.id} by {request.user.username}: "
+            f"[FORUM] Image deleted from post {post.id}: "
             f"{filename}"
         )
 
@@ -559,7 +563,7 @@ class PostViewSet(viewsets.ModelViewSet):
         )
 
         logger.info(
-            f"[MODERATION] Post {post.id} flagged by {request.user.username} "
+            f"[MODERATION] Post {post.id} flagged "
             f"(reason: {flag.flag_reason})"
         )
 

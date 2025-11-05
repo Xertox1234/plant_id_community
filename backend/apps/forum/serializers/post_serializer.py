@@ -140,11 +140,11 @@ class PostSerializer(serializers.ModelSerializer):
                 'thanks': obj.thanks_count,
             }
 
-        # Fallback for detail view (still efficient with prefetch_related)
+        # Fallback for detail view (uses filtered prefetch from viewset)
         from ..models import Reaction
 
-        # Get active reactions for this post
-        reactions = obj.reactions.filter(is_active=True)
+        # Get active reactions for this post (already filtered by Prefetch in viewset)
+        reactions = obj.reactions.all()
 
         # Count by type
         counts = {
