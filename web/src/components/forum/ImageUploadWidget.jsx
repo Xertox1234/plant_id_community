@@ -2,6 +2,15 @@ import { useState, useRef } from 'react';
 import { uploadPostImage, deletePostImage } from '../../services/forumService';
 import Button from '../ui/Button';
 import { logger } from '../../utils/logger';
+import {
+  MAX_IMAGES,
+  MAX_FILE_SIZE,
+  ALLOWED_IMAGE_TYPES,
+  MAX_IMAGES_ERROR,
+  FILE_SIZE_ERROR,
+  INVALID_TYPE_ERROR,
+  MAX_FILE_SIZE_MB
+} from '../../utils/constants';
 
 /**
  * ImageUploadWidget Component
@@ -33,24 +42,20 @@ export default function ImageUploadWidget({
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
 
-  const MAX_IMAGES = 6;
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-  const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-
   /**
    * Validate image file
    */
   const validateFile = (file) => {
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      throw new Error(`Invalid file type. Allowed: ${ALLOWED_TYPES.join(', ')}`);
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      throw new Error(INVALID_TYPE_ERROR);
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      throw new Error(`File too large. Maximum size: ${MAX_FILE_SIZE / 1024 / 1024}MB`);
+      throw new Error(FILE_SIZE_ERROR);
     }
 
     if (attachments.length >= MAX_IMAGES) {
-      throw new Error(`Maximum ${MAX_IMAGES} images allowed`);
+      throw new Error(MAX_IMAGES_ERROR);
     }
   };
 
@@ -202,7 +207,7 @@ export default function ImageUploadWidget({
         <input
           ref={fileInputRef}
           type="file"
-          accept={ALLOWED_TYPES.join(',')}
+          accept={ALLOWED_IMAGE_TYPES.join(',')}
           onChange={handleFileInput}
           className="hidden"
           disabled={attachments.length >= MAX_IMAGES}
@@ -234,7 +239,7 @@ export default function ImageUploadWidget({
               <span className="font-semibold text-green-600">Click to upload</span> or drag and drop
             </p>
             <p className="text-xs text-gray-500 mt-1">
-              PNG, JPG, GIF, WEBP up to 10MB ({attachments.length}/{MAX_IMAGES} images)
+              PNG, JPG, GIF, WEBP up to {MAX_FILE_SIZE_MB}MB ({attachments.length}/{MAX_IMAGES} images)
             </p>
           </>
         )}
