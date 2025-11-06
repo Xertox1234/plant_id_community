@@ -68,7 +68,14 @@ def custom_exception_handler(exc: Exception, context: Dict[str, Any]) -> Optiona
         if request_id:
             error_data['request_id'] = request_id
 
-        return Response(error_data, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        # Create response with Retry-After header
+        response = Response(error_data, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # Add Retry-After header (1 hour = 3600 seconds for upload rate limit)
+        # This tells clients when they can retry the request
+        response['Retry-After'] = '3600'
+
+        return response
 
     # Call REST framework's default exception handler first
     response = drf_exception_handler(exc, context)

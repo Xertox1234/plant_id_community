@@ -526,7 +526,7 @@ class PostViewSet(viewsets.ModelViewSet):
                 ]
             ),
             429: OpenApiResponse(
-                description="Rate limit exceeded (10 uploads/hour per user)",
+                description="Rate limit exceeded (10 uploads/hour per user). Response includes Retry-After header indicating seconds until rate limit resets.",
                 examples=[
                     OpenApiExample(
                         'Rate Limit Exceeded',
@@ -535,7 +535,9 @@ class PostViewSet(viewsets.ModelViewSet):
                             "message": "Rate limit exceeded. Please try again later.",
                             "code": "rate_limit_exceeded",
                             "status_code": 429
-                        }
+                        },
+                        response_only=True,
+                        # Note: Response includes Retry-After: 3600 header (1 hour)
                     )
                 ]
             )
