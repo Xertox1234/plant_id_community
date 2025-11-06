@@ -430,8 +430,26 @@ class PermissionCheckTests(ForumTestCase):
         self.expert_user = self._create_user_with_trust_level(TRUST_LEVEL_EXPERT, 'expert_user')
         self.staff_user = UserFactory.create(username='staff_user', is_staff=True)
 
-    def _create_user_with_trust_level(self, target_level, username):
-        """Helper to create user with specific trust level."""
+    def _create_user_with_trust_level(self, target_level: str, username: str):
+        """
+        Helper to create user with specific trust level.
+
+        Creates a user with the required days_active and post_count to achieve
+        the target trust level. For EXPERT level, manually sets the trust_level
+        field since EXPERT cannot be auto-assigned.
+
+        Args:
+            target_level (str): Target trust level ('new', 'basic', 'trusted', 'veteran', 'expert')
+            username (str): Username for the created user
+
+        Returns:
+            User: Django User instance with forum_profile set to target_level
+
+        Note:
+            - Manually sets user.date_joined (freeze_time doesn't work with auto_now_add)
+            - Updates profile.post_count cache to match actual post count
+            - Refreshes user from DB to ensure profile relation is current
+        """
         from ..models import UserProfile
 
         requirements = TRUST_LEVEL_REQUIREMENTS.get(target_level, {'days': 0, 'posts': 0})
