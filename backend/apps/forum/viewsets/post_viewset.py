@@ -422,8 +422,8 @@ class PostViewSet(viewsets.ModelViewSet):
 
         Validation:
             - Trust level check: Requires BASIC or higher (via CanUploadImages permission)
-            - Rate limiting: Posts per day based on trust level
-            - Author check: Only post author or moderator can upload
+            - Rate limiting: 10 uploads/hour (via @ratelimit decorator)
+            - Author check: Only post author or moderator can upload (via IsAuthorOrModerator)
             - Maximum 6 images per post
             - Allowed formats: JPG, PNG, GIF, WebP
             - Maximum file size: 10MB
@@ -439,10 +439,13 @@ class PostViewSet(viewsets.ModelViewSet):
                     "created_at": "2025-11-03T..."
                 }
 
-            Error (403): Trust level too low or permission denied
-            Error (429): Daily rate limit exceeded
+            Error (403): Trust level too low (CanUploadImages) or not post author (IsAuthorOrModerator)
+            Error (429): Rate limit exceeded (10 uploads/hour via decorator)
 
         Phase 6: Trust Level Service Integration
+        - CanUploadImages permission blocks NEW users
+        - IsAuthorOrModerator ensures only author/moderator can upload
+        - Rate limiting via django-ratelimit decorator (10/hour)
         """
         from ..models import Attachment
         from ..serializers import AttachmentSerializer
@@ -453,54 +456,10 @@ class PostViewSet(viewsets.ModelViewSet):
             ALLOWED_IMAGE_EXTENSIONS,
             ALLOWED_IMAGE_MIME_TYPES
         )
-        from ..services.trust_level_service import TrustLevelService
-        from datetime import datetime, timedelta
-
-        # Phase 6.2: Check daily rate limit
-        if not TrustLevelService.check_daily_limit(request.user, 'posts'):
-            # Get user's trust level and limits for helpful error message
-            trust_level = TrustLevelService.get_user_trust_level(request.user)
-            info = TrustLevelService.get_trust_level_info(request.user)
-            daily_counts = TrustLevelService.get_user_daily_counts(request.user)
-
-            limit = info['limits'].get('posts_per_day', 'unlimited')
-            current_count = daily_counts.get('posts', 0)
-
-            # Calculate Retry-After header (seconds until midnight UTC)
-            from django.utils import timezone
-            now = timezone.now()
-            tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-            retry_after_seconds = int((tomorrow - now).total_seconds())
-
-            return Response(
-                {
-                    "error": "Daily post limit exceeded",
-                    "detail": (
-                        f"You have reached your daily limit of {limit} posts. "
-                        f"Current count: {current_count}. "
-                        f"Your trust level is {trust_level.upper()}. "
-                        f"Limit resets at midnight UTC."
-                    ),
-                    "trust_level": trust_level,
-                    "limit": limit,
-                    "current_count": current_count,
-                    "retry_after_seconds": retry_after_seconds
-                },
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-                headers={'Retry-After': str(retry_after_seconds)}
-            )
+        # Note: Rate limiting handled by decorator (10 uploads/hour)
+        # Note: Permission checks handled by permission_classes (CanUploadImages, IsAuthorOrModerator)
 
         post = self.get_object()
-
-        # Check permission: only post author or staff can upload images
-        if not (request.user == post.author or request.user.is_staff):
-            return Response(
-                {
-                    "error": "Permission denied",
-                    "detail": "Only the post author can upload images to this post"
-                },
-                status=status.HTTP_403_FORBIDDEN
-            )
 
         # Check max attachments limit
         if post.attachments.count() >= MAX_ATTACHMENTS_PER_POST:
