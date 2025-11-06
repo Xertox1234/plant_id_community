@@ -29,6 +29,8 @@ MAX_POST_CONTENT_LENGTH = 50000  # ~50KB
 MAX_ATTACHMENTS_PER_POST = 6
 MAX_ATTACHMENT_SIZE_MB = 10
 MAX_ATTACHMENT_SIZE_BYTES = MAX_ATTACHMENT_SIZE_MB * 1024 * 1024  # 10MB in bytes
+ATTACHMENT_CLEANUP_DAYS = 30  # Days to keep soft-deleted attachments before permanent deletion
+ATTACHMENT_CLEANUP_BATCH_SIZE = 100  # Attachments to delete per batch in cleanup job
 
 # Allowed image formats for attachments
 ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp']
@@ -58,27 +60,32 @@ TRUST_LEVEL_REQUIREMENTS = {
     TRUST_LEVEL_EXPERT: {'verified_by_admin': True},
 }
 
-# Trust level daily action limits (posts/threads per day)
+# Trust level daily action limits (posts/threads/reactions per day)
 TRUST_LEVEL_LIMITS = {
     TRUST_LEVEL_NEW: {
         'posts_per_day': 10,
         'threads_per_day': 3,
+        'reactions_per_day': 50,  # Lighter-weight action, higher limit
     },
     TRUST_LEVEL_BASIC: {
         'posts_per_day': 50,
         'threads_per_day': 10,
+        'reactions_per_day': 200,
     },
     TRUST_LEVEL_TRUSTED: {
         'posts_per_day': 100,
         'threads_per_day': 25,
+        'reactions_per_day': 500,
     },
     TRUST_LEVEL_VETERAN: {
         'posts_per_day': None,  # Unlimited
         'threads_per_day': None,  # Unlimited
+        'reactions_per_day': None,  # Unlimited
     },
     TRUST_LEVEL_EXPERT: {
         'posts_per_day': None,  # Unlimited
         'threads_per_day': None,  # Unlimited
+        'reactions_per_day': None,  # Unlimited
     },
 }
 
@@ -125,6 +132,13 @@ TRUST_LEVEL_PERMISSIONS = {
 TRUST_LEVEL_CACHE_TIMEOUT = 3600  # 1 hour (user limits change infrequently)
 CACHE_PREFIX_TRUST_LIMITS = 'trust_limits:user:'
 CACHE_PREFIX_DAILY_ACTIONS = 'daily_actions:user:'
+
+# Standardized cache key format: "forum:feature:scope:identifier"
+# This format ensures consistency across the forum app and makes cache key management easier
+CACHE_KEY_SPAM_CHECK = 'forum:spam:{content_type}:{user_id}:{content_hash}'  # Spam detection cache
+CACHE_KEY_MOD_DASHBOARD = 'forum:moderation:dashboard'  # Moderation dashboard overview
+CACHE_TIMEOUT_SPAM_CHECK = 300  # 5 minutes (prevent spam retry attacks)
+CACHE_TIMEOUT_MOD_DASHBOARD = 300  # 5 minutes (balance freshness vs load)
 
 # Performance targets (for monitoring and testing)
 TARGET_CACHE_HIT_RATE = 0.30  # 30% (lower than blog's 40% due to higher update frequency)
@@ -232,3 +246,82 @@ MODERATION_ACTIONS = [
 MAX_FLAGS_PER_USER_PER_DAY = 10  # Prevent flag spam
 MAX_EXPLANATION_LENGTH = 1000  # Max length for flag/action explanation
 MIN_FLAGS_FOR_AUTO_HIDE = 3  # Auto-hide content after N flags (trust level dependent)
+
+# Spam detection configuration (Phase 4.4)
+SPAM_URL_LIMIT_NEW = 2  # NEW users: max 2 URLs per post
+SPAM_URL_LIMIT_BASIC = 5  # BASIC users: max 5 URLs per post
+SPAM_URL_LIMIT_TRUSTED = 10  # TRUSTED+ users: max 10 URLs per post
+
+SPAM_RAPID_POST_SECONDS = 10  # Minimum seconds between posts (NEW/BASIC users)
+SPAM_DUPLICATE_SIMILARITY_THRESHOLD = 0.85  # 85% similarity = duplicate
+SPAM_DUPLICATE_CACHE_TIMEOUT = 300  # 5 minutes cache for duplicate checks
+
+# Spam keywords organized by category for better maintenance and future weighting
+SPAM_KEYWORDS_COMMERCIAL = [
+    'buy now', 'limited time', 'act now', 'special promotion',
+    'guaranteed', 'no risk', 'click here', 'order now',
+    'limited offer', 'exclusive deal', 'hurry',
+]
+
+SPAM_KEYWORDS_FINANCIAL = [
+    'free money', 'gift card', 'bitcoin', 'wire transfer',
+    'claim your prize', 'winner', 'congratulations', 'cash prize',
+    'lottery', 'inheritance', 'make money fast',
+]
+
+SPAM_KEYWORDS_PHISHING = [
+    'verify your account', 'suspended account', 'confirm your password',
+    'update payment', 'urgent', 'immediate action required',
+    'account locked', 'security alert', 'unusual activity',
+]
+
+# Combined list for backward compatibility
+SPAM_KEYWORDS = (
+    SPAM_KEYWORDS_COMMERCIAL +
+    SPAM_KEYWORDS_FINANCIAL +
+    SPAM_KEYWORDS_PHISHING
+)
+
+# Future enhancement: Weighted scoring by category
+# Phishing keywords have higher security risk and could warrant higher scores
+SPAM_KEYWORD_WEIGHTS = {
+    **{kw: 10 for kw in SPAM_KEYWORDS_COMMERCIAL},   # Lower weight (sales spam)
+    **{kw: 20 for kw in SPAM_KEYWORDS_FINANCIAL},    # Medium weight (financial spam)
+    **{kw: 30 for kw in SPAM_KEYWORDS_PHISHING},     # Higher weight (security risk)
+}
+
+# Spam pattern thresholds
+SPAM_CAPS_RATIO_THRESHOLD = 0.7  # >70% caps = likely spam
+SPAM_PUNCTUATION_RATIO_THRESHOLD = 0.3  # >30% punctuation = spam
+SPAM_REPETITION_PATTERN = r'(.)\1{4,}'  # 5+ repeated characters (e.g., "!!!!!")
+
+# Spam scoring (total >= 50 = SPAM)
+# Individual strong signals (50-60 points) trigger blocking alone:
+#   - Duplicate content: 60 points → BLOCKED (exact or 85%+ similar)
+#   - Rapid posting: 55 points → BLOCKED (NEW/BASIC users <10s between posts)
+#   - Link spam: 50 points → BLOCKED (NEW: >2 URLs, BASIC: >5 URLs, TRUSTED: >10 URLs)
+#   - Keyword spam: 50 points → BLOCKED (2+ spam keywords detected)
+#
+# Moderate signals (45 points) require combination:
+#   - Pattern spam (45) + Keyword spam (50) = 95 → BLOCKED
+#   - Pattern spam (45) + Link spam (50) = 95 → BLOCKED
+#
+# Examples:
+#   1. Obvious spam: "BUY NOW!!! http://spam1.com http://spam2.com http://spam3.com"
+#      → Link spam (50) + Keyword spam (50) + Pattern spam (45) = 145 → BLOCKED
+#
+#   2. Link spam only: "Check out http://link1.com http://link2.com http://link3.com" (NEW user)
+#      → Link spam (50) = 50 → BLOCKED
+#
+#   3. Borderline content: "Check this out: http://example.com" (1 URL, no keywords)
+#      → Score: 0 → ALLOWED
+#
+#   4. ALL CAPS with keywords: "BUY NOW LIMITED TIME OFFER"
+#      → Pattern spam (45) + Keyword spam (50) = 95 → BLOCKED
+#
+SPAM_SCORE_DUPLICATE = 60  # Duplicate content (strong signal - block immediately)
+SPAM_SCORE_RAPID_POST = 55  # Rapid posting (strong bot signal - block immediately)
+SPAM_SCORE_LINK_SPAM = 50  # Excessive URLs (strong spam signal - block immediately)
+SPAM_SCORE_KEYWORD_SPAM = 50  # Multiple spam keywords (strong signal - block immediately)
+SPAM_SCORE_PATTERN_SPAM = 45  # Spam patterns (moderate signal - needs combination)
+SPAM_SCORE_THRESHOLD = 50  # Threshold for auto-flagging

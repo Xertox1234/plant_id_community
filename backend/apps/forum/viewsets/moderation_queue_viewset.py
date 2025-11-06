@@ -15,7 +15,7 @@ from django.db import transaction
 from django.db.models import QuerySet, Count, Q
 from django.utils import timezone
 
-from ..models import FlaggedContent, ModerationAction, Post, Thread
+from ..models import FlaggedContent, ModerationAction, Post, Thread, UserProfile
 from ..serializers import (
     FlaggedContentSerializer,
     ModerationActionSerializer,
@@ -33,6 +33,8 @@ from ..constants import (
     MODERATION_ACTION_REMOVE_THREAD,
     MODERATION_ACTION_LOCK_THREAD,
     MODERATION_ACTION_WARNING,
+    CACHE_KEY_MOD_DASHBOARD,
+    CACHE_TIMEOUT_MOD_DASHBOARD,
 )
 
 logger = logging.getLogger(__name__)
@@ -168,6 +170,11 @@ class ModerationQueueViewSet(viewsets.ReadOnlyModelViewSet):
                     f"on {flag.content_type} {flag.get_flagged_object().id} "
                     f"(flag: {flag.id})"
                 )
+
+                # Invalidate dashboard cache after moderation action (standardized key)
+                from django.core.cache import cache
+                cache.delete(CACHE_KEY_MOD_DASHBOARD)
+                logger.debug("[MODERATION] Dashboard cache invalidated after action")
 
                 return Response(result, status=status.HTTP_200_OK)
 
@@ -312,6 +319,174 @@ class ModerationQueueViewSet(viewsets.ReadOnlyModelViewSet):
             'flags_by_reason': flags_by_reason,
         })
 
+    @action(detail=False, methods=['get'], url_path='dashboard')
+    def dashboard(self, request: Request) -> Response:
+        """
+        Get comprehensive moderation dashboard overview.
+
+        GET /api/v1/forum/moderation-queue/dashboard/
+
+        Returns comprehensive dashboard data including:
+        - Overview metrics (pending, flags today/week, approval rate, resolution time)
+        - Flag breakdown by type
+        - Recent flags preview
+        - Moderator statistics
+
+        Performance:
+            Dashboard metrics cached for 5 minutes to reduce load
+            during frequent moderator checks. Cache automatically
+            invalidated on flag creation/review actions.
+
+        Example response:
+        {
+            "overview": {
+                "pending_flags": 12,
+                "flags_today": 28,
+                "flags_this_week": 156,
+                "approval_rate": 0.68,
+                "average_resolution_time_hours": 2.3
+            },
+            "flag_breakdown": {
+                "spam": 8,
+                "abuse": 2,
+                "suspicious": 1,
+                "duplicate": 1
+            },
+            "recent_flags": [...],
+            "moderator_stats": {
+                "total_moderators": 5,
+                "active_moderators_today": 3,
+                "avg_flags_resolved_per_moderator": 8.2
+            }
+        }
+        """
+        from django.contrib.auth import get_user_model
+        from django.db.models import Avg, F
+        from django.core.cache import cache
+        from datetime import timedelta
+
+        User = get_user_model()
+
+        # Check cache first (standardized cache key format)
+        cached_data = cache.get(CACHE_KEY_MOD_DASHBOARD)
+        if cached_data:
+            logger.debug("[MODERATION] Dashboard cache hit")
+            return Response(cached_data)
+
+        # Time boundaries
+        now = timezone.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = today_start - timedelta(days=7)
+
+        # Overview metrics
+        pending_flags = FlaggedContent.objects.filter(status=MODERATION_STATUS_PENDING).count()
+        flags_today = FlaggedContent.objects.filter(created_at__gte=today_start).count()
+        flags_this_week = FlaggedContent.objects.filter(created_at__gte=week_start).count()
+
+        # Approval rate (approved / total reviewed)
+        reviewed_flags = FlaggedContent.objects.exclude(status=MODERATION_STATUS_PENDING)
+        total_reviewed = reviewed_flags.count()
+        approved_count = reviewed_flags.filter(status=MODERATION_STATUS_APPROVED).count()
+        approval_rate = (approved_count / total_reviewed) if total_reviewed > 0 else 0.0
+
+        # Average resolution time (hours between created_at and reviewed_at)
+        avg_resolution = reviewed_flags.filter(
+            reviewed_at__isnull=False
+        ).annotate(
+            resolution_time=F('reviewed_at') - F('created_at')
+        ).aggregate(
+            avg_seconds=Avg('resolution_time')
+        )['avg_seconds']
+
+        avg_resolution_hours = 0.0
+        if avg_resolution:
+            avg_resolution_hours = avg_resolution.total_seconds() / 3600
+
+        # Flag breakdown by reason (pending only)
+        pending_flags_qs = FlaggedContent.objects.filter(status=MODERATION_STATUS_PENDING)
+        flag_breakdown = dict(
+            pending_flags_qs.values_list('flag_reason').annotate(count=Count('id'))
+        )
+
+        # Recent flags preview (last 5 pending flags)
+        recent_flags = FlaggedContent.objects.filter(
+            status=MODERATION_STATUS_PENDING
+        ).select_related(
+            'reporter',
+            'post__author',
+            'thread__author'
+        ).order_by('-created_at')[:5]
+
+        recent_flags_data = []
+        for flag in recent_flags:
+            flagged_obj = flag.get_flagged_object()
+            content_preview = ""
+            if hasattr(flagged_obj, 'content_raw'):
+                content_preview = flagged_obj.content_raw[:100]
+            elif hasattr(flagged_obj, 'title'):
+                content_preview = flagged_obj.title[:100]
+
+            recent_flags_data.append({
+                'id': str(flag.id),
+                'flag_reason': flag.flag_reason,
+                'content_type': flag.content_type,
+                'content_preview': content_preview,
+                'reporter': flag.reporter.username if flag.reporter else 'System',
+                'created_at': flag.created_at.isoformat(),
+            })
+
+        # Moderator statistics
+        # Count users who have reviewed flags (staff/expert users)
+        from django.db.models import Exists, OuterRef
+
+        # Create subquery to check if user has expert profile
+        expert_profiles = UserProfile.objects.filter(
+            user=OuterRef('pk'),
+            trust_level='expert'
+        )
+
+        moderators = User.objects.filter(
+            Q(is_staff=True) | Q(Exists(expert_profiles))
+        ).distinct()
+        total_moderators = moderators.count()
+
+        # Active moderators today (reviewed at least one flag today)
+        active_moderators_today = FlaggedContent.objects.filter(
+            reviewed_at__gte=today_start,
+            reviewed_by__isnull=False
+        ).values('reviewed_by').distinct().count()
+
+        # Average flags resolved per moderator (all time)
+        flags_resolved_by_moderators = FlaggedContent.objects.filter(
+            reviewed_by__isnull=False
+        ).count()
+        avg_flags_per_moderator = (
+            flags_resolved_by_moderators / total_moderators
+        ) if total_moderators > 0 else 0.0
+
+        dashboard_data = {
+            'overview': {
+                'pending_flags': pending_flags,
+                'flags_today': flags_today,
+                'flags_this_week': flags_this_week,
+                'approval_rate': round(approval_rate, 2),
+                'average_resolution_time_hours': round(avg_resolution_hours, 1),
+            },
+            'flag_breakdown': flag_breakdown,
+            'recent_flags': recent_flags_data,
+            'moderator_stats': {
+                'total_moderators': total_moderators,
+                'active_moderators_today': active_moderators_today,
+                'avg_flags_resolved_per_moderator': round(avg_flags_per_moderator, 1),
+            },
+        }
+
+        # Cache for 5 minutes (standardized cache timeout)
+        cache.set(CACHE_KEY_MOD_DASHBOARD, dashboard_data, CACHE_TIMEOUT_MOD_DASHBOARD)
+        logger.debug("[MODERATION] Dashboard cache set (TTL: 5 minutes)")
+
+        return Response(dashboard_data)
+
     @action(detail=False, methods=['get'], url_path='history')
     def moderation_history(self, request: Request) -> Response:
         """
@@ -348,3 +523,137 @@ class ModerationQueueViewSet(viewsets.ReadOnlyModelViewSet):
 
         serializer = ModerationActionSerializer(actions, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='user-history/(?P<user_id>[^/.]+)')
+    def user_moderation_history(self, request: Request, user_id=None) -> Response:
+        """
+        Get moderation history for a specific user.
+
+        GET /api/v1/forum/moderation-queue/user-history/{user_id}/
+
+        Query params:
+        - limit: Max flags to return (default: 50, max: 200)
+        - offset: Skip first N flags for pagination (default: 0)
+
+        Returns all flags and actions related to a specific user (as the author of flagged content).
+        Useful for moderators to see a user's full moderation history.
+
+        Returns:
+        {
+            "user_id": 123,
+            "username": "johndoe",
+            "flags_received": [...],
+            "actions_taken": [...],
+            "summary": {
+                "total_flags": 5,
+                "pending_flags": 1,
+                "approved_flags": 3,
+                "removed_content_count": 1,
+                "warnings_count": 2
+            },
+            "pagination": {
+                "total": 5,
+                "limit": 50,
+                "offset": 0,
+                "has_more": false
+            }
+        }
+        """
+        from django.contrib.auth import get_user_model
+        from django.shortcuts import get_object_or_404
+
+        User = get_user_model()
+
+        # Get the user
+        user = get_object_or_404(User, id=user_id)
+
+        # Parse pagination params
+        try:
+            limit = min(int(request.query_params.get('limit', 50)), 200)
+            offset = int(request.query_params.get('offset', 0))
+        except ValueError:
+            return Response(
+                {'error': 'Invalid pagination parameters'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get flags queryset
+        flags_qs = FlaggedContent.objects.filter(
+            Q(post__author=user) | Q(thread__author=user)
+        ).select_related(
+            'reporter',
+            'reviewed_by',
+            'post',
+            'thread'
+        ).order_by('-created_at')
+
+        # Get total count and paginated flags
+        total_flags_count = flags_qs.count()
+        flags = flags_qs[offset:offset+limit]
+
+        flags_data = []
+        for flag in flags:
+            flagged_obj = flag.get_flagged_object()
+            content_preview = ""
+            if hasattr(flagged_obj, 'content_raw'):
+                content_preview = flagged_obj.content_raw[:100]
+            elif hasattr(flagged_obj, 'title'):
+                content_preview = flagged_obj.title[:100]
+
+            flags_data.append({
+                'id': str(flag.id),
+                'flag_reason': flag.flag_reason,
+                'status': flag.status,
+                'created_at': flag.created_at.isoformat(),
+                'reviewed_at': flag.reviewed_at.isoformat() if flag.reviewed_at else None,
+                'content_type': flag.content_type,
+                'content_preview': content_preview,
+                'reporter': flag.reporter.username if flag.reporter else 'System',
+                'reviewed_by': flag.reviewed_by.username if flag.reviewed_by else None,
+            })
+
+        # Get all moderation actions targeting this user
+        actions = ModerationAction.objects.filter(
+            affected_user=user
+        ).select_related(
+            'moderator',
+            'flag'
+        ).order_by('-created_at')
+
+        actions_data = []
+        for action in actions:
+            actions_data.append({
+                'id': str(action.id),
+                'action_type': action.action_type,
+                'reason': action.reason,
+                'created_at': action.created_at.isoformat(),
+                'moderator': action.moderator.username if action.moderator else 'System',
+                'flag_id': str(action.flag.id) if action.flag else None,
+            })
+
+        # Summary statistics (use full queryset, not paginated)
+        total_flags = flags_qs.count()
+        pending_flags = flags_qs.filter(status=MODERATION_STATUS_PENDING).count()
+        approved_flags = flags_qs.filter(status=MODERATION_STATUS_APPROVED).count()
+        removed_content_count = flags_qs.filter(status=MODERATION_STATUS_REMOVED).count()
+        warnings_count = actions.filter(action_type='warning').count()
+
+        return Response({
+            'user_id': user.id,
+            'username': user.username,
+            'flags_received': flags_data,
+            'actions_taken': actions_data,
+            'summary': {
+                'total_flags': total_flags,
+                'pending_flags': pending_flags,
+                'approved_flags': approved_flags,
+                'removed_content_count': removed_content_count,
+                'warnings_count': warnings_count,
+            },
+            'pagination': {
+                'total': total_flags_count,
+                'limit': limit,
+                'offset': offset,
+                'has_more': (offset + limit) < total_flags_count
+            }
+        })

@@ -86,9 +86,9 @@ class PostViewSet(viewsets.ModelViewSet):
         if self.action == 'list':
             # List view: Use annotations for reaction counts (75% faster)
             qs = self._annotate_reaction_counts(qs)
-            # Still need active attachments for list view
+            # Prefetch active attachments with ordering (prevents N+1 from serializer's order_by)
             qs = qs.prefetch_related(
-                Prefetch('attachments', queryset=Attachment.active.all())
+                Prefetch('attachments', queryset=Attachment.active.all().order_by('display_order'))
             )
         else:
             # Detail view: Prefetch for user-specific reaction data
@@ -98,7 +98,7 @@ class PostViewSet(viewsets.ModelViewSet):
                     'reactions',
                     queryset=Reaction.objects.filter(is_active=True).select_related('user')
                 ),
-                Prefetch('attachments', queryset=Attachment.active.all())
+                Prefetch('attachments', queryset=Attachment.active.all().order_by('display_order'))
             )
 
         # Filter by thread slug (required for list view)
@@ -227,17 +227,102 @@ class PostViewSet(viewsets.ModelViewSet):
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         """
-        Create a new post.
+        Create a new post with trust level rate limiting and spam detection.
+
+        Phase 4.3: Trust Level Integration
+        Checks daily post creation limit based on user's trust level.
+
+        Phase 4.4: Spam Detection
+        Runs spam detection checks (duplicate, rapid posting, link spam, keywords, patterns).
 
         Uses PostCreateSerializer for input validation,
         but returns PostSerializer for full response data.
 
         Returns:
-            Full post data including author, timestamps, etc.
+            201 Created: Full post data including author, timestamps, etc.
+            400 Bad Request: Spam detected (auto-flagged for moderation)
+            429 Too Many Requests: Daily post limit exceeded for trust level
+                Headers:
+                    Retry-After: Seconds until limit resets (midnight UTC)
+                    X-RateLimit-Limit: Maximum requests allowed
+                    X-RateLimit-Remaining: Requests remaining (0 when hit)
+                    X-RateLimit-Reset: Seconds until reset
         """
+        from ..services.trust_level_service import TrustLevelService
+        from ..services.spam_detection_service import SpamDetectionService
+        from django.utils import timezone
+        from datetime import timedelta
+
+        # Check daily post creation limit based on trust level
+        if not TrustLevelService.check_daily_limit(request.user, 'posts'):
+            trust_info = TrustLevelService.get_trust_level_info(request.user)
+            limit = trust_info['limits']['posts_per_day']
+
+            # Calculate seconds until midnight (when limit resets)
+            now = timezone.now()
+            midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            retry_after_seconds = int((midnight - now).total_seconds())
+
+            # Log rate limit hit for monitoring
+            logger.warning(
+                f"[RATE_LIMIT] User {request.user.username} (trust={trust_info['current_level']}) "
+                f"exceeded post limit: {limit}/day"
+            )
+
+            response = Response(
+                {
+                    "error": "Daily post limit exceeded",
+                    "detail": f"Your trust level ({trust_info['current_level']}) allows {limit} posts per day",
+                    "trust_level": trust_info['current_level'],
+                    "daily_limit": limit
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
+            # Add RFC 6585 standard headers
+            response['Retry-After'] = str(retry_after_seconds)
+            response['X-RateLimit-Limit'] = str(limit)
+            response['X-RateLimit-Remaining'] = '0'
+            response['X-RateLimit-Reset'] = str(retry_after_seconds)
+
+            return response
+
         # Validate input with PostCreateSerializer
         create_serializer = self.get_serializer(data=request.data)
         create_serializer.is_valid(raise_exception=True)
+
+        # Phase 4.4: Run spam detection on content
+        content_raw = create_serializer.validated_data.get('content_raw', '')
+        spam_result = SpamDetectionService.is_spam(request.user, content_raw, content_type='post')
+
+        if spam_result['is_spam']:
+            # Log spam detection for monitoring
+            logger.warning(
+                f"[SPAM] Post blocked for {request.user.username}: "
+                f"score={spam_result['spam_score']}, reasons={spam_result['reasons']}"
+            )
+
+            # Build error response
+            from django.conf import settings
+            from ..constants import SPAM_SCORE_THRESHOLD
+
+            error_response = {
+                "error": "Content flagged as spam",
+                "detail": f"Your post was flagged by our spam detection system. Reasons: {', '.join(spam_result['reasons'])}",
+                "spam_score": spam_result['spam_score'],
+                "reasons": spam_result['reasons']
+            }
+
+            # Add detailed breakdown in DEBUG mode for troubleshooting
+            if settings.DEBUG:
+                error_response['debug'] = {
+                    'threshold': SPAM_SCORE_THRESHOLD,
+                    'score_breakdown': spam_result['details'],
+                    'help': 'This debug information is only shown in DEBUG mode'
+                }
+
+            # Return 400 with spam details
+            return Response(error_response, status=status.HTTP_400_BAD_REQUEST)
 
         # Create post (calls PostCreateSerializer.create())
         self.perform_create(create_serializer)
@@ -362,6 +447,16 @@ class PostViewSet(viewsets.ModelViewSet):
 
         post = self.get_object()
 
+        # Check permission: only post author or staff can upload images
+        if not (request.user == post.author or request.user.is_staff):
+            return Response(
+                {
+                    "error": "Permission denied",
+                    "detail": "Only the post author can upload images to this post"
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         # Check max attachments limit
         if post.attachments.count() >= MAX_ATTACHMENTS_PER_POST:
             return Response(
@@ -414,13 +509,35 @@ class PostViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Validate that file is actually a valid image
+        try:
+            from PIL import Image as PILImage
+            from io import BytesIO
+
+            # Try to open the file as an image
+            image_file.seek(0)  # Reset file pointer to beginning
+            PILImage.open(image_file).verify()
+            image_file.seek(0)  # Reset again for actual upload
+        except Exception as e:
+            return Response(
+                {
+                    "error": "Invalid image file",
+                    "detail": f"File cannot be processed as an image: {str(e)}"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         # Create attachment
         try:
+            # Extract optional alt_text from request
+            alt_text = request.data.get('alt_text', '')
+
             attachment = Attachment.objects.create(
                 post=post,
                 image=image_file,
                 original_filename=image_file.name,
-                file_size=image_file.size
+                file_size=image_file.size,
+                alt_text=alt_text
             )
 
             logger.info(
@@ -459,6 +576,16 @@ class PostViewSet(viewsets.ModelViewSet):
 
         post = self.get_object()
 
+        # Check permission: only post author or staff can delete images
+        if not (request.user == post.author or request.user.is_staff):
+            return Response(
+                {
+                    "error": "Permission denied",
+                    "detail": "Only the post author can delete images from this post"
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         # Get attachment
         try:
             attachment = Attachment.objects.get(id=attachment_id, post=post)
@@ -471,9 +598,10 @@ class PostViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Delete the attachment (cascades to delete the image file)
+        # Delete the attachment permanently (user-initiated deletion)
+        # Note: We use hard_delete() for user actions, soft delete is for cascades
         filename = attachment.original_filename
-        attachment.delete()
+        attachment.hard_delete()
 
         logger.info(
             f"[FORUM] Image deleted from post {post.id}: "

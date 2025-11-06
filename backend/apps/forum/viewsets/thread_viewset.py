@@ -157,6 +157,103 @@ class ThreadViewSet(viewsets.ModelViewSet):
         context['request'] = self.request
         return context
 
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Create new thread with trust level rate limiting and spam detection.
+
+        Phase 4.3: Trust Level Integration
+        Checks daily thread creation limit based on user's trust level.
+
+        Phase 4.4: Spam Detection
+        Runs spam detection on thread title and first post content.
+
+        Returns:
+            201 Created: Thread created successfully
+            400 Bad Request: Spam detected (auto-flagged for moderation)
+            429 Too Many Requests: Daily thread limit exceeded for trust level
+                Headers:
+                    Retry-After: Seconds until limit resets (midnight UTC)
+                    X-RateLimit-Limit: Maximum requests allowed
+                    X-RateLimit-Remaining: Requests remaining (0 when hit)
+                    X-RateLimit-Reset: Seconds until reset
+        """
+        from ..services.trust_level_service import TrustLevelService
+        from ..services.spam_detection_service import SpamDetectionService
+        from django.utils import timezone
+        from datetime import timedelta
+
+        # Check daily thread creation limit based on trust level
+        if not TrustLevelService.check_daily_limit(request.user, 'threads'):
+            trust_info = TrustLevelService.get_trust_level_info(request.user)
+            limit = trust_info['limits']['threads_per_day']
+
+            # Calculate seconds until midnight (when limit resets)
+            now = timezone.now()
+            midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            retry_after_seconds = int((midnight - now).total_seconds())
+
+            # Log rate limit hit for monitoring
+            logger.warning(
+                f"[RATE_LIMIT] User {request.user.username} (trust={trust_info['current_level']}) "
+                f"exceeded thread limit: {limit}/day"
+            )
+
+            response = Response(
+                {
+                    "error": "Daily thread limit exceeded",
+                    "detail": f"Your trust level ({trust_info['current_level']}) allows {limit} threads per day",
+                    "trust_level": trust_info['current_level'],
+                    "daily_limit": limit
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
+            # Add RFC 6585 standard headers
+            response['Retry-After'] = str(retry_after_seconds)
+            response['X-RateLimit-Limit'] = str(limit)
+            response['X-RateLimit-Remaining'] = '0'
+            response['X-RateLimit-Reset'] = str(retry_after_seconds)
+
+            return response
+
+        # Phase 4.4: Run spam detection on thread content (title + first post)
+        title = request.data.get('title', '')
+        first_post_content = request.data.get('first_post_content', '')
+        combined_content = f"{title}\n{first_post_content}"
+
+        spam_result = SpamDetectionService.is_spam(request.user, combined_content, content_type='thread')
+
+        if spam_result['is_spam']:
+            # Log spam detection for monitoring
+            logger.warning(
+                f"[SPAM] Thread blocked for {request.user.username}: "
+                f"score={spam_result['spam_score']}, reasons={spam_result['reasons']}"
+            )
+
+            # Build error response
+            from django.conf import settings
+            from ..constants import SPAM_SCORE_THRESHOLD
+
+            error_response = {
+                "error": "Content flagged as spam",
+                "detail": f"Your thread was flagged by our spam detection system. Reasons: {', '.join(spam_result['reasons'])}",
+                "spam_score": spam_result['spam_score'],
+                "reasons": spam_result['reasons']
+            }
+
+            # Add detailed breakdown in DEBUG mode for troubleshooting
+            if settings.DEBUG:
+                error_response['debug'] = {
+                    'threshold': SPAM_SCORE_THRESHOLD,
+                    'score_breakdown': spam_result['details'],
+                    'help': 'This debug information is only shown in DEBUG mode'
+                }
+
+            # Return 400 with spam details
+            return Response(error_response, status=status.HTTP_400_BAD_REQUEST)
+
+        return super().create(request, *args, **kwargs)
+
     def perform_create(self, serializer) -> None:
         """
         Create thread with author set from request user.
