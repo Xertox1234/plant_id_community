@@ -16,6 +16,8 @@ from django.db.models import QuerySet, Count, Q
 from django.utils import timezone
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 
 from ..models import Post
 from ..serializers import (
@@ -415,45 +417,135 @@ class PostViewSet(viewsets.ModelViewSet):
         serializer = PostSerializer(first_posts, many=True, context=self.get_serializer_context())
         return Response(serializer.data)
 
+    @extend_schema(
+        summary="Upload image to post",
+        description="""
+        Upload an image attachment to a forum post.
+
+        **Trust Level Requirements:**
+        - Requires BASIC trust level or higher (NEW users blocked)
+        - Requires post authorship or moderator status
+
+        **Trust Level Progression:**
+        - NEW → BASIC: 7 days active + 5 posts
+        - Rate limit: 10 image uploads per hour (per user)
+
+        **Validation:**
+        - Max 6 images per post
+        - Allowed formats: JPG, PNG, GIF, WebP
+        - Max file size: 10MB
+        - Images are validated using PIL to ensure they are valid image files
+
+        **Staff/Superuser Bypass:**
+        - Staff and superusers bypass trust level checks
+        - Rate limiting still applies to all users
+        """,
+        request={
+            'multipart/form-data': {
+                'type': 'object',
+                'properties': {
+                    'image': {
+                        'type': 'string',
+                        'format': 'binary',
+                        'description': 'Image file to upload (JPG, PNG, GIF, WebP)'
+                    },
+                    'alt_text': {
+                        'type': 'string',
+                        'required': False,
+                        'description': 'Optional alt text for accessibility'
+                    }
+                },
+                'required': ['image']
+            }
+        },
+        responses={
+            201: OpenApiResponse(
+                description="Image uploaded successfully",
+                examples=[
+                    OpenApiExample(
+                        'Success Response',
+                        value={
+                            "id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+                            "image": "https://example.com/media/forum/attachments/photo.jpg",
+                            "image_thumbnail": "https://example.com/media/forum/attachments/photo_thumb.jpg",
+                            "original_filename": "photo.jpg",
+                            "file_size": 1024000,
+                            "alt_text": "A beautiful plant",
+                            "created_at": "2025-11-06T12:00:00Z"
+                        }
+                    )
+                ]
+            ),
+            400: OpenApiResponse(
+                description="Validation error (file too large, invalid format, max attachments exceeded)",
+                examples=[
+                    OpenApiExample(
+                        'Max Attachments Exceeded',
+                        value={
+                            "error": "Maximum 6 images allowed per post",
+                            "detail": "Please delete an existing image before uploading a new one"
+                        }
+                    ),
+                    OpenApiExample(
+                        'Invalid File Type',
+                        value={
+                            "error": "Invalid file type",
+                            "detail": "Allowed formats: JPG, PNG, GIF, WEBP"
+                        }
+                    ),
+                    OpenApiExample(
+                        'File Too Large',
+                        value={
+                            "error": "File too large",
+                            "detail": "Maximum file size is 10.0MB"
+                        }
+                    )
+                ]
+            ),
+            403: OpenApiResponse(
+                description="Permission denied (trust level too low or not post author)",
+                examples=[
+                    OpenApiExample(
+                        'NEW User - Trust Level Too Low',
+                        value={
+                            "error": True,
+                            "message": "Image uploads require BASIC trust level or higher. You are currently NEW. Requirements for BASIC: 7 days active, 5 posts. Your progress: 2 days, 1 posts.",
+                            "code": "permission_denied",
+                            "status_code": 403
+                        }
+                    ),
+                    OpenApiExample(
+                        'Not Post Author',
+                        value={
+                            "error": True,
+                            "message": "You do not have permission to perform this action.",
+                            "code": "permission_denied",
+                            "status_code": 403
+                        }
+                    )
+                ]
+            ),
+            429: OpenApiResponse(
+                description="Rate limit exceeded (10 uploads/hour per user)",
+                examples=[
+                    OpenApiExample(
+                        'Rate Limit Exceeded',
+                        value={
+                            "error": True,
+                            "message": "Rate limit exceeded. Please try again later.",
+                            "code": "rate_limit_exceeded",
+                            "status_code": 429
+                        }
+                    )
+                ]
+            )
+        },
+        tags=['forum-posts']
+    )
     @action(detail=True, methods=['POST'], permission_classes=[CanUploadImages, IsAuthorOrModerator])
     @method_decorator(ratelimit(key='user', rate='10/h', method='POST', block=True))
     def upload_image(self, request: Request, pk=None) -> Response:
-        """
-        Upload an image attachment to a post.
-
-        POST /api/v1/forum/posts/{post_id}/upload_image/
-
-        Request:
-            - Content-Type: multipart/form-data
-            - Body: image file
-
-        Validation:
-            - Trust level check: Requires BASIC or higher (via CanUploadImages permission)
-            - Rate limiting: 10 uploads/hour (via @ratelimit decorator)
-            - Author check: Only post author or moderator can upload (via IsAuthorOrModerator)
-            - Maximum 6 images per post
-            - Allowed formats: JPG, PNG, GIF, WebP
-            - Maximum file size: 10MB
-
-        Returns:
-            Success (201):
-                {
-                    "id": "uuid",
-                    "image": "https://...",
-                    "image_thumbnail": "https://...",
-                    "original_filename": "photo.jpg",
-                    "file_size": 1024000,
-                    "created_at": "2025-11-03T..."
-                }
-
-            Error (403): Trust level too low (CanUploadImages) or not post author (IsAuthorOrModerator)
-            Error (429): Rate limit exceeded (10 uploads/hour via decorator)
-
-        Phase 6: Trust Level Service Integration
-        - CanUploadImages permission blocks NEW users
-        - IsAuthorOrModerator ensures only author/moderator can upload
-        - Rate limiting via django-ratelimit decorator (10/hour)
-        """
+        """Upload image to post (see OpenAPI schema for details)."""
         from ..models import Attachment
         from ..serializers import AttachmentSerializer
         from django.core.files.uploadedfile import UploadedFile
