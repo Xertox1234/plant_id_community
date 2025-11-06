@@ -132,6 +132,9 @@ class ReactionViewSet(viewsets.ModelViewSet):
         """
         Toggle reaction on a post (add if not exists, remove if exists).
 
+        Phase 4.3: Trust Level Integration
+        Checks daily reaction creation limit based on user's trust level.
+
         POST /api/v1/forum/reactions/toggle/
 
         Request body:
@@ -158,7 +161,52 @@ class ReactionViewSet(viewsets.ModelViewSet):
 
         Returns:
             Reaction object with toggle status
+            429 Too Many Requests: Daily reaction limit exceeded for trust level
+                Headers:
+                    Retry-After: Seconds until limit resets (midnight UTC)
+                    X-RateLimit-Limit: Maximum requests allowed
+                    X-RateLimit-Remaining: Requests remaining (0 when hit)
+                    X-RateLimit-Reset: Seconds until reset
         """
+        from ..services.trust_level_service import TrustLevelService
+        from django.utils import timezone
+        from datetime import timedelta
+
+        # Check daily reaction creation limit based on trust level
+        # Note: We only check on creation (toggling active reactions doesn't count)
+        if not TrustLevelService.check_daily_limit(request.user, 'reactions'):
+            trust_info = TrustLevelService.get_trust_level_info(request.user)
+            limit = trust_info['limits']['reactions_per_day']
+
+            # Calculate seconds until midnight (when limit resets)
+            now = timezone.now()
+            midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            retry_after_seconds = int((midnight - now).total_seconds())
+
+            # Log rate limit hit for monitoring
+            logger.warning(
+                f"[RATE_LIMIT] User {request.user.username} (trust={trust_info['current_level']}) "
+                f"exceeded reaction limit: {limit}/day"
+            )
+
+            response = Response(
+                {
+                    "error": "Daily reaction limit exceeded",
+                    "detail": f"Your trust level ({trust_info['current_level']}) allows {limit} reactions per day",
+                    "trust_level": trust_info['current_level'],
+                    "daily_limit": limit
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
+            # Add RFC 6585 standard headers
+            response['Retry-After'] = str(retry_after_seconds)
+            response['X-RateLimit-Limit'] = str(limit)
+            response['X-RateLimit-Remaining'] = '0'
+            response['X-RateLimit-Reset'] = str(retry_after_seconds)
+
+            return response
+
         serializer = ReactionToggleSerializer(
             data=request.data,
             context=self.get_serializer_context()

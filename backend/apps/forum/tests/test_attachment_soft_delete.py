@@ -10,6 +10,7 @@ from django.test import TestCase
 from django.utils import timezone
 from django.core.management import call_command
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from io import BytesIO, StringIO
 from PIL import Image
 
@@ -45,16 +46,23 @@ class AttachmentSoftDeleteTests(TestCase):
 
         # Create test image
         image = Image.new('RGB', (100, 100), color='red')
-        image_file = BytesIO()
-        image.save(image_file, 'JPEG')
-        image_file.name = 'test.jpg'
-        image_file.seek(0)
+        image_buffer = BytesIO()
+        image.save(image_buffer, 'JPEG')
+        image_buffer.seek(0)
+        image_data = image_buffer.getvalue()
+
+        # Wrap in SimpleUploadedFile for Django compatibility
+        image_file = SimpleUploadedFile(
+            'test.jpg',
+            image_data,
+            content_type='image/jpeg'
+        )
 
         self.attachment = Attachment.objects.create(
             post=self.post,
             image=image_file,
             original_filename='test.jpg',
-            file_size=len(image_file.getvalue()),
+            file_size=len(image_data),
             mime_type='image/jpeg',
             display_order=1,
             is_active=True
@@ -92,16 +100,22 @@ class AttachmentSoftDeleteTests(TestCase):
         """ActiveAttachmentManager should exclude soft-deleted attachments."""
         # Create second active attachment
         image = Image.new('RGB', (100, 100), color='blue')
-        image_file = BytesIO()
-        image.save(image_file, 'JPEG')
-        image_file.name = 'test2.jpg'
-        image_file.seek(0)
+        image_buffer = BytesIO()
+        image.save(image_buffer, 'JPEG')
+        image_buffer.seek(0)
+        image_data = image_buffer.getvalue()
+
+        image_file = SimpleUploadedFile(
+            'test2.jpg',
+            image_data,
+            content_type='image/jpeg'
+        )
 
         attachment2 = Attachment.objects.create(
             post=self.post,
             image=image_file,
             original_filename='test2.jpg',
-            file_size=len(image_file.getvalue()),
+            file_size=len(image_data),
             mime_type='image/jpeg',
             display_order=2,
             is_active=True
@@ -127,16 +141,22 @@ class AttachmentSoftDeleteTests(TestCase):
         """Deleting a post should soft-delete all its attachments."""
         # Create second attachment
         image = Image.new('RGB', (100, 100), color='green')
-        image_file = BytesIO()
-        image.save(image_file, 'JPEG')
-        image_file.name = 'test3.jpg'
-        image_file.seek(0)
+        image_buffer = BytesIO()
+        image.save(image_buffer, 'JPEG')
+        image_buffer.seek(0)
+        image_data = image_buffer.getvalue()
+
+        image_file = SimpleUploadedFile(
+            'test3.jpg',
+            image_data,
+            content_type='image/jpeg'
+        )
 
         attachment2 = Attachment.objects.create(
             post=self.post,
             image=image_file,
             original_filename='test3.jpg',
-            file_size=len(image_file.getvalue()),
+            file_size=len(image_data),
             mime_type='image/jpeg',
             display_order=2,
             is_active=True

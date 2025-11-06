@@ -4,6 +4,7 @@ Test forum PostViewSet.
 Tests CRUD operations, filtering, soft deletion, and edit tracking.
 """
 
+from unittest.mock import patch
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -20,6 +21,16 @@ class PostViewSetTests(TestCase):
 
     def setUp(self):
         """Set up test data."""
+        # Mock spam detection to prevent false positives
+        self.spam_patcher = patch('apps.forum.services.spam_detection_service.SpamDetectionService.is_spam')
+        self.mock_spam = self.spam_patcher.start()
+        self.mock_spam.return_value = {
+            'is_spam': False,
+            'spam_score': 0,
+            'reasons': [],
+            'details': {}
+        }
+
         self.client = APIClient()
 
         # Create users
@@ -72,6 +83,10 @@ class PostViewSetTests(TestCase):
             is_first_post=False,
             is_active=False
         )
+
+    def tearDown(self):
+        """Clean up after each test."""
+        self.spam_patcher.stop()
 
     def test_list_posts_requires_thread_parameter(self):
         """GET /posts/ without thread parameter returns 400."""
@@ -451,7 +466,8 @@ class PostViewSetTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('Too many attachments', response.data['error'])
+        self.assertIn('Maximum', response.data['error'])
+        self.assertIn('images allowed', response.data['error'])
 
     def test_upload_image_validates_file_size(self):
         """Cannot upload images larger than MAX_ATTACHMENT_SIZE_BYTES."""

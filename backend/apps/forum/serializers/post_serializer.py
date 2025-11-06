@@ -169,10 +169,12 @@ class PostSerializer(serializers.ModelSerializer):
 
         Performance:
             - Viewset should prefetch attachments to avoid N+1
+            - Uses prefetched attachments with ordering from viewset (no additional query)
         """
         from .attachment_serializer import AttachmentSerializer
 
-        attachments = obj.attachments.all().order_by('display_order')
+        # Use prefetched attachments (ordered by display_order in viewset)
+        attachments = obj.attachments.all()
         return AttachmentSerializer(attachments, many=True, context=self.context).data
 
 

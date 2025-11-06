@@ -24,8 +24,5 @@ class Migration(migrations.Migration):
             name='is_active',
             field=models.BooleanField(db_index=True, default=True, help_text='Soft delete flag. False = deleted, True = active'),
         ),
-        migrations.AddIndex(
-            model_name='attachment',
-            index=models.Index(fields=['post', 'is_active', 'display_order'], name='forum_attach_active_idx'),
-        ),
+        # Note: Index creation moved to 0007 migration to avoid field resolution issues
     ]

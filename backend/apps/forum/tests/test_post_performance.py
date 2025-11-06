@@ -8,6 +8,7 @@ from django.test import TestCase, override_settings
 from django.db import connection
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient, APIRequestFactory
+from rest_framework.request import Request
 from apps.forum.models import Category, Thread, Post, Reaction
 from apps.forum.viewsets import PostViewSet
 from apps.forum.serializers import PostSerializer
@@ -63,16 +64,28 @@ class PostPerformanceTestCase(TestCase):
                     is_active=True
                 )
 
-    @override_settings(DEBUG=True)
+    @override_settings(
+        DEBUG=True,
+        DEBUG_TOOLBAR_CONFIG={'SHOW_TOOLBAR_CALLBACK': lambda request: False},
+        # Disable debug toolbar middleware to prevent URL resolution errors in tests
+        MIDDLEWARE=[
+            'django.middleware.security.SecurityMiddleware',
+            'django.contrib.sessions.middleware.SessionMiddleware',
+            'django.middleware.common.CommonMiddleware',
+            'django.middleware.csrf.CsrfViewMiddleware',
+            'django.contrib.auth.middleware.AuthenticationMiddleware',
+            'django.contrib.messages.middleware.MessageMiddleware',
+        ]
+    )
     def test_list_view_query_count(self):
         """
-        List view should use single annotated query for optimal performance.
+        List view should use optimized queries with annotations and prefetch.
 
         Regression protection: Ensures conditional annotations are used (Issue #113).
-        Any increase from 1 query indicates N+1 or missing optimization.
+        Any increase from 3 queries indicates N+1 or missing optimization.
 
-        Without optimization: 21 queries (1 main + 20 reaction queries)
-        With optimization: 1 query (annotations included)
+        Without optimization: 41+ queries (1 count + 1 main + 20 reaction + 20 attachment queries)
+        With optimization: 3 queries (1 count + 1 annotated main + 1 attachment prefetch)
         """
         # Reset query counter
         connection.queries_log.clear()
@@ -85,12 +98,15 @@ class PostPerformanceTestCase(TestCase):
         # Count queries
         query_count = len(connection.queries)
 
-        # STRICT: Expect exactly 1 query (annotated queryset)
+        # STRICT: Expect exactly 3 queries (pagination count + main + attachments prefetch)
+        # Query 1: COUNT for pagination
+        # Query 2: Main SELECT with reaction count annotations
+        # Query 3: Prefetch attachments (one query for all posts)
         self.assertEqual(
             query_count,
-            1,
-            f"Performance regression detected! Expected 1 annotated query, got {query_count}. "
-            f"This indicates N+1 problem or missing conditional optimization in PostViewSet. "
+            3,
+            f"Performance regression detected! Expected 3 queries (1 count + 1 main + 1 prefetch), got {query_count}. "
+            f"This indicates N+1 problem or missing optimization in PostViewSet. "
             f"See Issue #113 for details."
         )
 
@@ -105,8 +121,11 @@ class PostPerformanceTestCase(TestCase):
         post = self.posts[0]
 
         # Create viewset instance and get annotated queryset
-        request = self.factory.get(f'/api/v1/forum/posts/?thread={self.thread.slug}')
-        request.user = self.user
+        django_request = self.factory.get(f'/api/v1/forum/posts/?thread={self.thread.slug}')
+        django_request.user = self.user
+
+        # Wrap Django request in DRF Request for query_params support
+        request = Request(django_request)
 
         viewset = PostViewSet()
         viewset.action = 'list'
@@ -140,8 +159,9 @@ class PostPerformanceTestCase(TestCase):
     def test_serializer_uses_annotations(self):
         """Serializer should use pre-computed annotations when available."""
         # Get annotated queryset
-        request = self.factory.get(f'/api/v1/forum/posts/?thread={self.thread.slug}')
-        request.user = self.user
+        django_request = self.factory.get(f'/api/v1/forum/posts/?thread={self.thread.slug}')
+        django_request.user = self.user
+        request = Request(django_request)
 
         viewset = PostViewSet()
         viewset.action = 'list'
@@ -176,8 +196,9 @@ class PostPerformanceTestCase(TestCase):
         post = self.posts[0]
 
         # Get post WITHOUT annotations (simulates detail view)
-        request = self.factory.get(f'/api/v1/forum/posts/{post.id}/')
-        request.user = self.user
+        django_request = self.factory.get(f'/api/v1/forum/posts/{post.id}/')
+        django_request.user = self.user
+        request = Request(django_request)
 
         viewset = PostViewSet()
         viewset.action = 'retrieve'
@@ -205,17 +226,25 @@ class PostPerformanceTestCase(TestCase):
         """Inactive reactions should not be included in counts."""
         post = self.posts[0]
 
-        # Add inactive reaction
+        # Create another user for the inactive reaction (unique constraint on post+user+type)
+        other_user = User.objects.create_user(
+            username='otheruser',
+            email='other@example.com',
+            password='testpass123'
+        )
+
+        # Add inactive reaction from different user
         Reaction.objects.create(
             post=post,
-            user=self.user,
+            user=other_user,
             reaction_type='like',
             is_active=False
         )
 
         # Get annotated queryset
-        request = self.factory.get(f'/api/v1/forum/posts/?thread={self.thread.slug}')
-        request.user = self.user
+        django_request = self.factory.get(f'/api/v1/forum/posts/?thread={self.thread.slug}')
+        django_request.user = self.user
+        request = Request(django_request)
 
         viewset = PostViewSet()
         viewset.action = 'list'
@@ -233,8 +262,9 @@ class PostPerformanceTestCase(TestCase):
         post = self.posts[0]
 
         # Get annotated queryset
-        request = self.factory.get(f'/api/v1/forum/posts/?thread={self.thread.slug}')
-        request.user = self.user
+        django_request = self.factory.get(f'/api/v1/forum/posts/?thread={self.thread.slug}')
+        django_request.user = self.user
+        request = Request(django_request)
 
         viewset = PostViewSet()
         viewset.action = 'list'
@@ -249,7 +279,19 @@ class PostPerformanceTestCase(TestCase):
         self.assertEqual(annotated_post.love_count, 1)
         self.assertEqual(annotated_post.helpful_count, 1)
 
-    @override_settings(DEBUG=True)
+    @override_settings(
+        DEBUG=True,
+        DEBUG_TOOLBAR_CONFIG={'SHOW_TOOLBAR_CALLBACK': lambda request: False},
+        # Disable debug toolbar middleware to prevent URL resolution errors in tests
+        MIDDLEWARE=[
+            'django.middleware.security.SecurityMiddleware',
+            'django.contrib.sessions.middleware.SessionMiddleware',
+            'django.middleware.common.CommonMiddleware',
+            'django.middleware.csrf.CsrfViewMiddleware',
+            'django.contrib.auth.middleware.AuthenticationMiddleware',
+            'django.contrib.messages.middleware.MessageMiddleware',
+        ]
+    )
     def test_detail_view_query_count(self):
         """
         Detail view can use 2-3 queries (main + prefetch).

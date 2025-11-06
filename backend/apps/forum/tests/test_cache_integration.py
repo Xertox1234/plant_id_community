@@ -139,7 +139,7 @@ class CacheIntegrationTests(TestCase):
 
         # Verify thread cache was invalidated
         mock_service.invalidate_thread.assert_called_once_with(thread.slug)
-        mock_service.invalidate_post_lists.assert_called_once()
+        mock_service.invalidate_post_list.assert_called_once_with(str(thread.id))
 
     @patch('apps.forum.signals.get_forum_cache_service')
     def test_updating_post_invalidates_thread_cache(self, mock_get_service):
@@ -165,7 +165,7 @@ class CacheIntegrationTests(TestCase):
 
         # Verify thread cache was invalidated
         mock_service.invalidate_thread.assert_called_once_with(thread.slug)
-        mock_service.invalidate_post_lists.assert_called_once()
+        mock_service.invalidate_post_list.assert_called_once_with(str(thread.id))
 
     @patch('apps.forum.signals.get_forum_cache_service')
     def test_deleting_post_invalidates_thread_cache(self, mock_get_service):
@@ -187,11 +187,12 @@ class CacheIntegrationTests(TestCase):
         mock_service.reset_mock()
 
         # Delete post (triggers post_delete signal)
+        thread_id = str(thread.id)
         post.delete()
 
         # Verify thread cache was invalidated
         mock_service.invalidate_thread.assert_called_once_with(thread_slug)
-        mock_service.invalidate_post_lists.assert_called_once()
+        mock_service.invalidate_post_list.assert_called_once_with(thread_id)
 
     @patch('apps.forum.signals.get_forum_cache_service')
     def test_reactions_dont_invalidate_thread_cache(self, mock_get_service):

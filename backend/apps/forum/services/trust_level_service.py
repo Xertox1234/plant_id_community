@@ -207,7 +207,7 @@ class TrustLevelService:
 
         Args:
             user: Django User instance
-            action_type: 'posts' or 'threads'
+            action_type: 'posts', 'threads', or 'reactions'
 
         Returns:
             bool: True if user can perform action, False if limit exceeded
@@ -241,6 +241,14 @@ class TrustLevelService:
                 created_at__gte=today_start,
                 is_active=True
             ).count()
+        elif action_type == 'reactions':
+            # Count created reactions (not just toggles)
+            from ..models import Reaction
+            count = Reaction.objects.filter(
+                user=user,
+                created_at__gte=today_start,
+                is_active=True
+            ).count()
         else:
             logger.warning(f"[TRUST] Unknown action type: {action_type}")
             return False
@@ -261,12 +269,14 @@ class TrustLevelService:
         Get today's action counts for user.
 
         Returns:
-            Dict with 'posts' and 'threads' counts
+            Dict with 'posts', 'threads', and 'reactions' counts
         """
+        from ..models import Reaction
         today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
         posts_count = 0
         threads_count = 0
+        reactions_count = 0
 
         if hasattr(user, 'forum_posts'):
             posts_count = user.forum_posts.filter(
@@ -280,9 +290,16 @@ class TrustLevelService:
                 is_active=True
             ).count()
 
+        reactions_count = Reaction.objects.filter(
+            user=user,
+            created_at__gte=today_start,
+            is_active=True
+        ).count()
+
         return {
             'posts': posts_count,
             'threads': threads_count,
+            'reactions': reactions_count,
         }
 
     # ==================== Permission Checks ====================
