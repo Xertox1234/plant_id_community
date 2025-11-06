@@ -23,7 +23,7 @@ from ..serializers import (
     PostCreateSerializer,
     PostUpdateSerializer,
 )
-from ..permissions import IsAuthorOrReadOnly, IsModerator, IsAuthorOrModerator
+from ..permissions import IsAuthorOrReadOnly, IsModerator, IsAuthorOrModerator, CanUploadImages
 
 logger = logging.getLogger(__name__)
 
@@ -408,7 +408,7 @@ class PostViewSet(viewsets.ModelViewSet):
         serializer = PostSerializer(first_posts, many=True, context=self.get_serializer_context())
         return Response(serializer.data)
 
-    @action(detail=True, methods=['POST'], permission_classes=[IsAuthorOrModerator])
+    @action(detail=True, methods=['POST'], permission_classes=[CanUploadImages, IsAuthorOrModerator])
     @method_decorator(ratelimit(key='user', rate='10/h', method='POST', block=True))
     def upload_image(self, request: Request, pk=None) -> Response:
         """
@@ -421,19 +421,28 @@ class PostViewSet(viewsets.ModelViewSet):
             - Body: image file
 
         Validation:
+            - Trust level check: Requires BASIC or higher (via CanUploadImages permission)
+            - Rate limiting: Posts per day based on trust level
+            - Author check: Only post author or moderator can upload
             - Maximum 6 images per post
             - Allowed formats: JPG, PNG, GIF, WebP
             - Maximum file size: 10MB
 
         Returns:
-            {
-                "id": "uuid",
-                "image": "https://...",
-                "image_thumbnail": "https://...",
-                "original_filename": "photo.jpg",
-                "file_size": 1024000,
-                "created_at": "2025-11-03T..."
-            }
+            Success (201):
+                {
+                    "id": "uuid",
+                    "image": "https://...",
+                    "image_thumbnail": "https://...",
+                    "original_filename": "photo.jpg",
+                    "file_size": 1024000,
+                    "created_at": "2025-11-03T..."
+                }
+
+            Error (403): Trust level too low or permission denied
+            Error (429): Daily rate limit exceeded
+
+        Phase 6: Trust Level Service Integration
         """
         from ..models import Attachment
         from ..serializers import AttachmentSerializer
@@ -444,6 +453,42 @@ class PostViewSet(viewsets.ModelViewSet):
             ALLOWED_IMAGE_EXTENSIONS,
             ALLOWED_IMAGE_MIME_TYPES
         )
+        from ..services.trust_level_service import TrustLevelService
+        from datetime import datetime, timedelta
+
+        # Phase 6.2: Check daily rate limit
+        if not TrustLevelService.check_daily_limit(request.user, 'posts'):
+            # Get user's trust level and limits for helpful error message
+            trust_level = TrustLevelService.get_user_trust_level(request.user)
+            info = TrustLevelService.get_trust_level_info(request.user)
+            daily_counts = TrustLevelService.get_user_daily_counts(request.user)
+
+            limit = info['limits'].get('posts_per_day', 'unlimited')
+            current_count = daily_counts.get('posts', 0)
+
+            # Calculate Retry-After header (seconds until midnight UTC)
+            from django.utils import timezone
+            now = timezone.now()
+            tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            retry_after_seconds = int((tomorrow - now).total_seconds())
+
+            return Response(
+                {
+                    "error": "Daily post limit exceeded",
+                    "detail": (
+                        f"You have reached your daily limit of {limit} posts. "
+                        f"Current count: {current_count}. "
+                        f"Your trust level is {trust_level.upper()}. "
+                        f"Limit resets at midnight UTC."
+                    ),
+                    "trust_level": trust_level,
+                    "limit": limit,
+                    "current_count": current_count,
+                    "retry_after_seconds": retry_after_seconds
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers={'Retry-After': str(retry_after_seconds)}
+            )
 
         post = self.get_object()
 

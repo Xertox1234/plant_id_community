@@ -10,7 +10,7 @@ from django.contrib.auth.models import Group
 from rest_framework.test import APIRequestFactory
 from rest_framework.request import Request
 
-from ..permissions import IsAuthorOrReadOnly, IsModerator, CanCreateThread
+from ..permissions import IsAuthorOrReadOnly, IsModerator, CanCreateThread, CanUploadImages
 from ..models import Thread, Post, Category, UserProfile
 
 User = get_user_model()
@@ -258,3 +258,188 @@ class CanCreateThreadTests(TestCase):
         has_permission = self.permission.has_permission(request, None)
 
         self.assertFalse(has_permission)
+
+
+class CanUploadImagesTests(TestCase):
+    """
+    Test CanUploadImages permission class.
+
+    Phase 6.1: Trust Level Service - ViewSet Integration
+    Tests image upload permissions based on trust levels.
+    """
+
+    def setUp(self):
+        """Set up test data."""
+        from django.utils import timezone
+        from datetime import timedelta
+
+        self.factory = APIRequestFactory()
+        self.permission = CanUploadImages()
+
+        # Create users with different trust levels
+        # NEW user: 0 days, 0 posts
+        self.new_user = User.objects.create_user(username='newuser', password='pass')
+        self.new_user.date_joined = timezone.now()
+        self.new_user.save()
+        UserProfile.objects.create(user=self.new_user, trust_level='new', post_count=0)
+
+        # BASIC user: 7 days, 5 posts (meets BASIC requirements)
+        self.basic_user = User.objects.create_user(username='basic', password='pass')
+        self.basic_user.date_joined = timezone.now() - timedelta(days=7)
+        self.basic_user.save()
+        UserProfile.objects.create(user=self.basic_user, trust_level='basic', post_count=5)
+
+        # TRUSTED user: 30 days, 25 posts (meets TRUSTED requirements)
+        self.trusted_user = User.objects.create_user(username='trusted', password='pass')
+        self.trusted_user.date_joined = timezone.now() - timedelta(days=30)
+        self.trusted_user.save()
+        UserProfile.objects.create(user=self.trusted_user, trust_level='trusted', post_count=25)
+
+        # VETERAN user: 90 days, 100 posts (meets VETERAN requirements)
+        self.veteran_user = User.objects.create_user(username='veteran', password='pass')
+        self.veteran_user.date_joined = timezone.now() - timedelta(days=90)
+        self.veteran_user.save()
+        UserProfile.objects.create(user=self.veteran_user, trust_level='veteran', post_count=100)
+
+        # EXPERT user: Manually set (ignores activity requirements)
+        self.expert_user = User.objects.create_user(username='expert', password='pass')
+        UserProfile.objects.create(user=self.expert_user, trust_level='expert', post_count=0)
+
+        # Staff user (bypasses trust level checks)
+        self.staff_user = User.objects.create_user(
+            username='staff', password='pass', is_staff=True
+        )
+
+        # Superuser (bypasses trust level checks)
+        self.superuser = User.objects.create_user(
+            username='superuser', password='pass', is_superuser=True
+        )
+
+    def test_new_users_cannot_upload_images(self):
+        """
+        NEW users denied image upload (can_upload_images=False).
+
+        Trust level requirements:
+        - NEW: CANNOT upload images
+        - BASIC+: CAN upload images
+
+        Expected: 403 Forbidden with helpful error message
+        """
+        request = self.factory.post('/api/v1/forum/posts/1/upload_image/')
+        request.user = self.new_user
+
+        has_permission = self.permission.has_permission(request, None)
+
+        self.assertFalse(has_permission)
+        # Verify error message is helpful
+        self.assertIn('BASIC trust level or higher', self.permission.message)
+        self.assertIn('NEW', self.permission.message)
+
+    def test_basic_users_can_upload_images(self):
+        """BASIC users can upload images (can_upload_images=True)."""
+        request = self.factory.post('/api/v1/forum/posts/1/upload_image/')
+        request.user = self.basic_user
+
+        has_permission = self.permission.has_permission(request, None)
+
+        self.assertTrue(has_permission)
+
+    def test_trusted_users_can_upload_images(self):
+        """TRUSTED users can upload images (can_upload_images=True)."""
+        request = self.factory.post('/api/v1/forum/posts/1/upload_image/')
+        request.user = self.trusted_user
+
+        has_permission = self.permission.has_permission(request, None)
+
+        self.assertTrue(has_permission)
+
+    def test_veteran_users_can_upload_images(self):
+        """VETERAN users can upload images (can_upload_images=True)."""
+        request = self.factory.post('/api/v1/forum/posts/1/upload_image/')
+        request.user = self.veteran_user
+
+        has_permission = self.permission.has_permission(request, None)
+
+        self.assertTrue(has_permission)
+
+    def test_expert_users_can_upload_images(self):
+        """EXPERT users can upload images (can_upload_images=True)."""
+        request = self.factory.post('/api/v1/forum/posts/1/upload_image/')
+        request.user = self.expert_user
+
+        has_permission = self.permission.has_permission(request, None)
+
+        self.assertTrue(has_permission)
+
+    def test_staff_users_bypass_trust_level(self):
+        """
+        Staff users can upload images regardless of trust level.
+
+        Security: Staff should have all permissions for moderation.
+        """
+        request = self.factory.post('/api/v1/forum/posts/1/upload_image/')
+        request.user = self.staff_user
+
+        has_permission = self.permission.has_permission(request, None)
+
+        self.assertTrue(has_permission)
+
+    def test_superusers_bypass_trust_level(self):
+        """
+        Superusers can upload images regardless of trust level.
+
+        Security: Superusers should have all permissions.
+        """
+        request = self.factory.post('/api/v1/forum/posts/1/upload_image/')
+        request.user = self.superuser
+
+        has_permission = self.permission.has_permission(request, None)
+
+        self.assertTrue(has_permission)
+
+    def test_anonymous_users_denied(self):
+        """
+        Anonymous users cannot upload images.
+
+        Expected: 403 Forbidden with "Authentication required" message
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        request = self.factory.post('/api/v1/forum/posts/1/upload_image/')
+        request.user = AnonymousUser()
+
+        has_permission = self.permission.has_permission(request, None)
+
+        self.assertFalse(has_permission)
+        self.assertIn('Authentication required', self.permission.message)
+
+    def test_error_message_includes_progression_info(self):
+        """
+        Error message includes progression requirements for BASIC level.
+
+        Example: "Requirements for BASIC: 7 days active, 5 posts. Your progress: 2 days, 1 posts."
+        """
+        request = self.factory.post('/api/v1/forum/posts/1/upload_image/')
+        request.user = self.new_user
+
+        has_permission = self.permission.has_permission(request, None)
+
+        self.assertFalse(has_permission)
+        # Check that error message includes specific requirements
+        self.assertIn('7 days active', self.permission.message)
+        self.assertIn('5 posts', self.permission.message)
+        self.assertIn('Your progress:', self.permission.message)
+
+    def test_non_post_methods_allowed(self):
+        """
+        Non-POST methods allowed regardless of trust level.
+
+        Note: This is defensive - upload_image should only accept POST,
+        but permission class shouldn't break on other methods.
+        """
+        request = self.factory.get('/api/v1/forum/posts/1/upload_image/')
+        request.user = self.new_user
+
+        has_permission = self.permission.has_permission(request, None)
+
+        self.assertTrue(has_permission)
