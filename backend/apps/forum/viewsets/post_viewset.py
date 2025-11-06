@@ -185,11 +185,18 @@ class PostViewSet(viewsets.ModelViewSet):
         Returns:
             - IsAuthorOrReadOnly | IsModerator for update/delete
             - IsAuthenticatedOrReadOnly for list/retrieve/create
+            - Action-level permissions for custom actions (upload_image, delete_image, etc.)
         """
+        # For custom actions with their own permission_classes in @action decorator,
+        # use super().get_permissions() to respect action-level permissions
+        if self.action in ['upload_image', 'delete_image', 'flag_post']:
+            return super().get_permissions()
+
         if self.action in ['update', 'partial_update', 'destroy']:
             # Editing requires being author OR moderator
             # Use combined permission class for proper OR logic
             return [IsAuthorOrModerator()]
+
         return [IsAuthenticatedOrReadOnly()]
 
     def get_serializer_context(self) -> Dict[str, Any]:

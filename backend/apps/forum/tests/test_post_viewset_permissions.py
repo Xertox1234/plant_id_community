@@ -214,6 +214,8 @@ class PostViewSetPermissionIntegrationTests(TestCase):
         # Create moderator user (in 'Moderators' group)
         self.moderator_group, _ = Group.objects.get_or_create(name='Moderators')
         self.moderator_user = User.objects.create_user(username='moderator', password='pass')
+        self.moderator_user.date_joined = timezone.now() - timedelta(days=7)  # Meet BASIC requirements
+        self.moderator_user.save()
         self.moderator_user.groups.add(self.moderator_group)
         UserProfile.objects.create(user=self.moderator_user, trust_level='basic', post_count=10)
 
@@ -241,6 +243,24 @@ class PostViewSetPermissionIntegrationTests(TestCase):
         self.trust_level_signal_patcher.stop()
         cache.clear()  # Clear rate limit cache
 
+    def get_error_detail(self, response_data: dict) -> str:
+        """
+        Extract error detail message from response data.
+
+        Handles both formats:
+        - Custom error handler: {'errors': {'detail': 'message'}}
+        - Standard DRF: {'detail': 'message'}
+
+        Args:
+            response_data: Response data dictionary
+
+        Returns:
+            Error detail message string
+        """
+        if 'errors' in response_data and 'detail' in response_data['errors']:
+            return response_data['errors']['detail']
+        return response_data.get('detail', '')
+
     # ========================================================================
     # Permission Integration Tests (8 tests)
     # ========================================================================
@@ -264,12 +284,13 @@ class PostViewSetPermissionIntegrationTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn('detail', response.data)
+
         # Verify error message includes trust level info
-        self.assertIn('BASIC trust level or higher', response.data['detail'])
-        self.assertIn('NEW', response.data['detail'])
-        self.assertIn('7 days active', response.data['detail'])
-        self.assertIn('5 posts', response.data['detail'])
+        detail_message = self.get_error_detail(response.data)
+        self.assertIn('BASIC trust level or higher', detail_message)
+        self.assertIn('NEW', detail_message)
+        self.assertIn('7 days active', detail_message)
+        self.assertIn('5 posts', detail_message)
 
     def test_basic_user_upload_image_succeeds(self):
         """
@@ -436,14 +457,29 @@ class PostViewSetPermissionIntegrationTests(TestCase):
         Expected: First 10 succeed, 11th returns 429 Too Many Requests
 
         Rate limit: 10 uploads/hour (via @ratelimit decorator)
+        Note: Creates multiple posts since each post has 6 image limit
         """
         self.client.force_authenticate(user=self.basic_user)
 
-        # Upload 10 images (should succeed)
+        # Create additional posts for rate limit testing (need more than 1 post for 10+ uploads)
+        extra_posts = []
+        for i in range(2):  # Create 2 extra posts (total 3 posts allows 18 images)
+            post = Post.objects.create(
+                thread=self.basic_user_thread,
+                author=self.basic_user,
+                content_raw=f'Extra post {i+1} for rate limit testing',
+                is_active=True
+            )
+            extra_posts.append(post)
+
+        # Upload 10 images to different posts (should succeed)
+        posts_to_use = [self.basic_user_post] + extra_posts
         for i in range(10):
+            # Rotate through posts to avoid MAX_ATTACHMENTS_PER_POST limit
+            post = posts_to_use[i // 6]  # Use different post every 6 uploads
             image_file = ForumTestUtils.create_test_image_file(f'test{i}.jpg')
             response = self.client.post(
-                f'/api/v1/forum/posts/{self.basic_user_post.id}/upload_image/',
+                f'/api/v1/forum/posts/{post.id}/upload_image/',
                 {'image': image_file},
                 format='multipart'
             )
@@ -452,7 +488,7 @@ class PostViewSetPermissionIntegrationTests(TestCase):
         # 11th upload should be rate limited
         image_file = ForumTestUtils.create_test_image_file('test11.jpg')
         response = self.client.post(
-            f'/api/v1/forum/posts/{self.basic_user_post.id}/upload_image/',
+            f'/api/v1/forum/posts/{posts_to_use[1].id}/upload_image/',
             {'image': image_file},
             format='multipart'
         )
@@ -467,11 +503,24 @@ class PostViewSetPermissionIntegrationTests(TestCase):
         """
         self.client.force_authenticate(user=self.basic_user)
 
-        # Upload 10 images to hit rate limit
+        # Create additional posts for rate limit testing
+        extra_posts = []
+        for i in range(2):
+            post = Post.objects.create(
+                thread=self.basic_user_thread,
+                author=self.basic_user,
+                content_raw=f'Extra post {i+1} for rate limit testing',
+                is_active=True
+            )
+            extra_posts.append(post)
+
+        # Upload 10 images to hit rate limit (rotate through posts)
+        posts_to_use = [self.basic_user_post] + extra_posts
         for i in range(10):
+            post = posts_to_use[i // 6]
             image_file = ForumTestUtils.create_test_image_file(f'test{i}.jpg')
             self.client.post(
-                f'/api/v1/forum/posts/{self.basic_user_post.id}/upload_image/',
+                f'/api/v1/forum/posts/{post.id}/upload_image/',
                 {'image': image_file},
                 format='multipart'
             )
@@ -479,7 +528,7 @@ class PostViewSetPermissionIntegrationTests(TestCase):
         # 11th upload should return 429 with Retry-After header
         image_file = ForumTestUtils.create_test_image_file('test11.jpg')
         response = self.client.post(
-            f'/api/v1/forum/posts/{self.basic_user_post.id}/upload_image/',
+            f'/api/v1/forum/posts/{posts_to_use[1].id}/upload_image/',
             {'image': image_file},
             format='multipart'
         )
@@ -500,11 +549,24 @@ class PostViewSetPermissionIntegrationTests(TestCase):
         """
         self.client.force_authenticate(user=self.basic_user)
 
-        # Upload 10 images at 10:00 AM
+        # Create additional posts for rate limit testing
+        extra_posts = []
+        for i in range(2):
+            post = Post.objects.create(
+                thread=self.basic_user_thread,
+                author=self.basic_user,
+                content_raw=f'Extra post {i+1} for rate limit testing',
+                is_active=True
+            )
+            extra_posts.append(post)
+
+        # Upload 10 images at 10:00 AM (rotate through posts)
+        posts_to_use = [self.basic_user_post] + extra_posts
         for i in range(10):
+            post = posts_to_use[i // 6]
             image_file = ForumTestUtils.create_test_image_file(f'test{i}.jpg')
             response = self.client.post(
-                f'/api/v1/forum/posts/{self.basic_user_post.id}/upload_image/',
+                f'/api/v1/forum/posts/{post.id}/upload_image/',
                 {'image': image_file},
                 format='multipart'
             )
@@ -513,7 +575,7 @@ class PostViewSetPermissionIntegrationTests(TestCase):
         # 11th upload at 10:00 AM should be rate limited
         image_file = ForumTestUtils.create_test_image_file('test11.jpg')
         response = self.client.post(
-            f'/api/v1/forum/posts/{self.basic_user_post.id}/upload_image/',
+            f'/api/v1/forum/posts/{posts_to_use[1].id}/upload_image/',
             {'image': image_file},
             format='multipart'
         )
@@ -527,7 +589,7 @@ class PostViewSetPermissionIntegrationTests(TestCase):
             # Upload should succeed after rate limit resets
             image_file = ForumTestUtils.create_test_image_file('test_after_reset.jpg')
             response = self.client.post(
-                f'/api/v1/forum/posts/{self.basic_user_post.id}/upload_image/',
+                f'/api/v1/forum/posts/{posts_to_use[1].id}/upload_image/',
                 {'image': image_file},
                 format='multipart'
             )
@@ -539,12 +601,25 @@ class PostViewSetPermissionIntegrationTests(TestCase):
 
         Expected: Each has independent 10/hour limit
         """
-        # User 1: Upload 10 images
+        # Create additional posts for User 1 rate limit testing
+        extra_posts = []
+        for i in range(2):
+            post = Post.objects.create(
+                thread=self.basic_user_thread,
+                author=self.basic_user,
+                content_raw=f'Extra post {i+1} for rate limit testing',
+                is_active=True
+            )
+            extra_posts.append(post)
+
+        # User 1: Upload 10 images (rotate through posts)
         self.client.force_authenticate(user=self.basic_user)
+        posts_to_use = [self.basic_user_post] + extra_posts
         for i in range(10):
+            post = posts_to_use[i // 6]
             image_file = ForumTestUtils.create_test_image_file(f'user1_test{i}.jpg')
             response = self.client.post(
-                f'/api/v1/forum/posts/{self.basic_user_post.id}/upload_image/',
+                f'/api/v1/forum/posts/{post.id}/upload_image/',
                 {'image': image_file},
                 format='multipart'
             )
@@ -553,7 +628,7 @@ class PostViewSetPermissionIntegrationTests(TestCase):
         # User 1: 11th upload should be rate limited
         image_file = ForumTestUtils.create_test_image_file('user1_test11.jpg')
         response = self.client.post(
-            f'/api/v1/forum/posts/{self.basic_user_post.id}/upload_image/',
+            f'/api/v1/forum/posts/{posts_to_use[1].id}/upload_image/',
             {'image': image_file},
             format='multipart'
         )
@@ -587,10 +662,9 @@ class PostViewSetPermissionIntegrationTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn('detail', response.data)
 
         # Verify error message contains all required information
-        error_detail = response.data['detail']
+        error_detail = self.get_error_detail(response.data)
         self.assertIn('BASIC trust level or higher', error_detail)
         self.assertIn('NEW', error_detail)  # Current trust level
         self.assertIn('7 days active', error_detail)  # BASIC requirement
@@ -679,7 +753,7 @@ class PostViewSetPermissionIntegrationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
         # Verify error message is helpful and actionable
-        error_detail = response.data['detail']
+        error_detail = self.get_error_detail(response.data)
 
         # Check for key elements of helpful error message
         self.assertIn('BASIC trust level or higher', error_detail, "Should mention required trust level")

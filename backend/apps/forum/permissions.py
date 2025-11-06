@@ -348,7 +348,7 @@ class CanUploadImages(permissions.BasePermission):
                 f"Requirements for BASIC: {required_days} days active, {required_posts} posts. "
                 f"Your progress: {current_days} days, {current_posts} posts."
             )
-        except Exception as e:
+        except Exception:
             # Fallback to generic message if trust level info cannot be retrieved
             self.message = "Image uploads require BASIC trust level or higher."
 
