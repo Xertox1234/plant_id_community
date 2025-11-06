@@ -252,3 +252,104 @@ class IsModeratorOrStaff(permissions.BasePermission):
         """
         # Same logic as has_permission
         return self.has_permission(request, view)
+
+
+class CanUploadImages(permissions.BasePermission):
+    """
+    Require minimum trust level to upload images.
+
+    Phase 6.1: Trust Level Service - ViewSet Integration
+    Prevents NEW users from uploading images (trust level too low).
+
+    Trust level requirements:
+    - NEW users: CANNOT upload images (can_upload_images=False)
+    - BASIC+ users (basic, trusted, veteran, expert): CAN upload images
+    - Staff/superuser: Always allowed (bypass)
+
+    This prevents abuse from new accounts while allowing established members
+    to share images freely.
+
+    Permissions:
+    - POST (upload): Requires trust_level != 'new' OR staff
+    - Other methods: Allowed
+
+    Usage:
+        Apply to PostViewSet.upload_image action only.
+
+    Example:
+        >>> @action(detail=True, methods=['POST'], permission_classes=[CanUploadImages])
+        >>> def upload_image(self, request, pk=None):
+        >>>     ...
+
+    Error Response (403 Forbidden):
+        {
+            "detail": "Image uploads require BASIC trust level or higher. You are currently NEW. "
+                     "Requirements for BASIC: 7 days active, 5 posts. Your progress: 2 days, 1 posts."
+        }
+    """
+
+    message = "Image uploads require BASIC trust level or higher."
+
+    def has_permission(self, request: Any, view: Any) -> bool:
+        """
+        Check if user can upload images based on trust level.
+
+        Args:
+            request: Django request object
+            view: ViewSet instance
+
+        Returns:
+            True if user can upload images, False otherwise
+        """
+        # Allow all non-POST requests (should not be reached for upload_image, but defensive)
+        if request.method != 'POST':
+            return True
+
+        # Require authenticated user
+        if not request.user.is_authenticated:
+            self.message = "Authentication required to upload images."
+            return False
+
+        # Import TrustLevelService here to avoid circular imports
+        from .services.trust_level_service import TrustLevelService
+        from .constants import TRUST_LEVEL_NEW, TRUST_LEVEL_BASIC, TRUST_LEVEL_REQUIREMENTS
+
+        # Staff/superuser always allowed
+        if request.user.is_staff or request.user.is_superuser:
+            return True
+
+        # Check permission via TrustLevelService
+        if TrustLevelService.can_perform_action(request.user, 'can_upload_images'):
+            return True
+
+        # Permission denied - generate helpful error message
+        try:
+            trust_level = TrustLevelService.get_user_trust_level(request.user)
+            info = TrustLevelService.get_trust_level_info(request.user)
+
+            # Calculate progression requirements
+            basic_req = TRUST_LEVEL_REQUIREMENTS[TRUST_LEVEL_BASIC]
+            required_days = basic_req['days']
+            required_posts = basic_req['posts']
+
+            # Get current progress from progress_to_next if it exists
+            if info.get('progress_to_next'):
+                current_days = info['progress_to_next']['current_days']
+                current_posts = info['progress_to_next']['current_posts']
+            else:
+                # If no progress_to_next (e.g., EXPERT level), calculate directly
+                from django.utils import timezone
+                current_days = (timezone.now() - request.user.date_joined).days
+                current_posts = request.user.forum_posts.filter(is_active=True).count() if hasattr(request.user, 'forum_posts') else 0
+
+            self.message = (
+                f"Image uploads require BASIC trust level or higher. "
+                f"You are currently {trust_level.upper()}. "
+                f"Requirements for BASIC: {required_days} days active, {required_posts} posts. "
+                f"Your progress: {current_days} days, {current_posts} posts."
+            )
+        except Exception as e:
+            # Fallback to generic message if trust level info cannot be retrieved
+            self.message = "Image uploads require BASIC trust level or higher."
+
+        return False

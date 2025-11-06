@@ -23,7 +23,7 @@ from ..serializers import (
     PostCreateSerializer,
     PostUpdateSerializer,
 )
-from ..permissions import IsAuthorOrReadOnly, IsModerator, IsAuthorOrModerator
+from ..permissions import IsAuthorOrReadOnly, IsModerator, IsAuthorOrModerator, CanUploadImages
 
 logger = logging.getLogger(__name__)
 
@@ -408,7 +408,7 @@ class PostViewSet(viewsets.ModelViewSet):
         serializer = PostSerializer(first_posts, many=True, context=self.get_serializer_context())
         return Response(serializer.data)
 
-    @action(detail=True, methods=['POST'], permission_classes=[IsAuthorOrModerator])
+    @action(detail=True, methods=['POST'], permission_classes=[CanUploadImages, IsAuthorOrModerator])
     @method_decorator(ratelimit(key='user', rate='10/h', method='POST', block=True))
     def upload_image(self, request: Request, pk=None) -> Response:
         """
@@ -421,19 +421,31 @@ class PostViewSet(viewsets.ModelViewSet):
             - Body: image file
 
         Validation:
+            - Trust level check: Requires BASIC or higher (via CanUploadImages permission)
+            - Rate limiting: 10 uploads/hour (via @ratelimit decorator)
+            - Author check: Only post author or moderator can upload (via IsAuthorOrModerator)
             - Maximum 6 images per post
             - Allowed formats: JPG, PNG, GIF, WebP
             - Maximum file size: 10MB
 
         Returns:
-            {
-                "id": "uuid",
-                "image": "https://...",
-                "image_thumbnail": "https://...",
-                "original_filename": "photo.jpg",
-                "file_size": 1024000,
-                "created_at": "2025-11-03T..."
-            }
+            Success (201):
+                {
+                    "id": "uuid",
+                    "image": "https://...",
+                    "image_thumbnail": "https://...",
+                    "original_filename": "photo.jpg",
+                    "file_size": 1024000,
+                    "created_at": "2025-11-03T..."
+                }
+
+            Error (403): Trust level too low (CanUploadImages) or not post author (IsAuthorOrModerator)
+            Error (429): Rate limit exceeded (10 uploads/hour via decorator)
+
+        Phase 6: Trust Level Service Integration
+        - CanUploadImages permission blocks NEW users
+        - IsAuthorOrModerator ensures only author/moderator can upload
+        - Rate limiting via django-ratelimit decorator (10/hour)
         """
         from ..models import Attachment
         from ..serializers import AttachmentSerializer
@@ -444,18 +456,10 @@ class PostViewSet(viewsets.ModelViewSet):
             ALLOWED_IMAGE_EXTENSIONS,
             ALLOWED_IMAGE_MIME_TYPES
         )
+        # Note: Rate limiting handled by decorator (10 uploads/hour)
+        # Note: Permission checks handled by permission_classes (CanUploadImages, IsAuthorOrModerator)
 
         post = self.get_object()
-
-        # Check permission: only post author or staff can upload images
-        if not (request.user == post.author or request.user.is_staff):
-            return Response(
-                {
-                    "error": "Permission denied",
-                    "detail": "Only the post author can upload images to this post"
-                },
-                status=status.HTTP_403_FORBIDDEN
-            )
 
         # Check max attachments limit
         if post.attachments.count() >= MAX_ATTACHMENTS_PER_POST:
