@@ -133,47 +133,100 @@ class TestPlantIdCaching(TestCase):
     @patch('apps.plant_identification.services.plant_id_service.requests.Session')
     def test_cache_miss_calls_api(self, mock_session):
         """Verify cache miss results in API call."""
-        # Setup mock response
-        mock_response = Mock()
-        mock_response.json.return_value = {
-            'suggestions': [{'plant_name': 'Test Plant', 'probability': 0.95}],
-            'health_assessment': {'is_healthy': True}
+        # Setup mock responses for v3 API (identification + health_assessment)
+        identification_response = Mock()
+        identification_response.json.return_value = {
+            'result': {
+                'is_plant': {'binary': True, 'probability': 1.0},
+                'classification': {
+                    'suggestions': [
+                        {
+                            'name': 'Test Plant',
+                            'probability': 0.95,
+                            'details': {
+                                'common_names': ['Test'],
+                                'url': 'https://example.com'
+                            }
+                        }
+                    ]
+                }
+            }
         }
-        mock_response.raise_for_status = Mock()
-        mock_session.return_value.post.return_value = mock_response
+        identification_response.raise_for_status = Mock()
+        identification_response.status_code = 201
+
+        health_response = Mock()
+        health_response.json.return_value = {
+            'result': {
+                'is_healthy': {'binary': True, 'probability': 0.9},
+                'disease': {'suggestions': []}
+            }
+        }
+        health_response.raise_for_status = Mock()
+        health_response.status_code = 201
+
+        # Return different responses for each call
+        mock_session.return_value.post.side_effect = [identification_response, health_response]
 
         service = PlantIDAPIService()
         result = service.identify_plant(BytesIO(self.test_image_data), include_diseases=True)
 
-        # Verify API was called
-        mock_session.return_value.post.assert_called_once()
+        # Verify API was called (v3 makes 2 calls: identification + health_assessment)
+        self.assertEqual(mock_session.return_value.post.call_count, 2,
+                        "Should call identification + health_assessment endpoints")
         self.assertIsNotNone(result)
 
     @patch('apps.plant_identification.services.plant_id_service.requests.Session')
     def test_cache_hit_skips_api(self, mock_session):
         """Verify cache hit returns cached result without API call."""
-        # Setup mock response for first call
-        mock_response = Mock()
-        mock_response.json.return_value = {
-            'suggestions': [{'plant_name': 'Cached Plant', 'probability': 0.95}],
-            'health_assessment': {'is_healthy': True}
+        # Setup mock responses for v3 API
+        identification_response = Mock()
+        identification_response.json.return_value = {
+            'result': {
+                'is_plant': {'binary': True, 'probability': 1.0},
+                'classification': {
+                    'suggestions': [
+                        {
+                            'name': 'Cached Plant',
+                            'probability': 0.95,
+                            'details': {
+                                'common_names': ['Cached'],
+                                'url': 'https://example.com'
+                            }
+                        }
+                    ]
+                }
+            }
         }
-        mock_response.raise_for_status = Mock()
-        mock_session.return_value.post.return_value = mock_response
+        identification_response.raise_for_status = Mock()
+        identification_response.status_code = 201
+
+        health_response = Mock()
+        health_response.json.return_value = {
+            'result': {
+                'is_healthy': {'binary': True, 'probability': 0.9},
+                'disease': {'suggestions': []}
+            }
+        }
+        health_response.raise_for_status = Mock()
+        health_response.status_code = 201
+
+        # Return responses for both endpoints
+        mock_session.return_value.post.side_effect = [identification_response, health_response]
 
         service = PlantIDAPIService()
 
-        # First call - cache miss
+        # First call - cache miss (v3 makes 2 calls: identification + health_assessment)
         result1 = service.identify_plant(BytesIO(self.test_image_data), include_diseases=True)
         first_call_count = mock_session.return_value.post.call_count
 
-        # Second call - cache hit
+        # Second call - cache hit (should use cached result, no additional API calls)
         result2 = service.identify_plant(BytesIO(self.test_image_data), include_diseases=True)
         second_call_count = mock_session.return_value.post.call_count
 
-        # Verify API was only called once (cache hit on second call)
-        self.assertEqual(first_call_count, 1, "First call should hit API")
-        self.assertEqual(second_call_count, 1, "Second call should use cache")
+        # Verify API was only called for first request (cache hit on second call)
+        self.assertEqual(first_call_count, 2, "First call should hit both v3 endpoints")
+        self.assertEqual(second_call_count, 2, "Second call should use cache (no additional calls)")
         self.assertEqual(result1, result2, "Results should be identical")
 
     def test_cache_key_includes_api_version(self):

@@ -310,54 +310,62 @@ class PlantIDAPIService:
             requests.exceptions.RequestException: On API failure (triggers circuit)
         """
         # Encode image
-        encoded_image = base64.b64encode(image_data).decode('utf-8')
+        encoded_image = base64.b64encode(image_data).decode('ascii')
 
-        # Prepare request payload
+        # Prepare request headers
         headers = {
             'Api-Key': self.api_key,
             'Content-Type': 'application/json',
         }
 
-        data = {
-            'images': [encoded_image],
-            'modifiers': ['crops', 'similar_images'],
-            'plant_language': 'en',
-            'plant_details': [
-                'common_names',
-                'taxonomy',
-                'url',
-                'description',
-                'synonyms',
-                'image',
-                'edible_parts',
-                'watering',
-                'propagation_methods',
-            ],
-        }
+        # Plant.id v3 API uses query params for details, not JSON body
+        # Only images go in the JSON body
+        details = ','.join([
+            'common_names',
+            'taxonomy',
+            'url',
+            'description',
+            'synonyms',
+            'image',
+            'edible_parts',
+            'watering',
+            'propagation_methods',
+        ])
 
-        # Add disease detection if requested
-        if include_diseases:
-            data['disease_details'] = [
-                'common_names',
-                'description',
-                'treatment',
-                'classification',
-                'url',
-            ]
-
-        # Make API request (will be timed by circuit breaker)
+        # Make identification API request
         response = self.session.post(
             f"{self.BASE_URL}/identification",
-            json=data,
+            params={'details': details},
             headers=headers,
+            json={'images': [encoded_image]},
             timeout=self.timeout
         )
         response.raise_for_status()
+        identification_result = response.json()
 
-        result = response.json()
-        formatted_result = self._format_response(result)
+        # Get health assessment if requested (separate endpoint in v3)
+        health_result = None
+        if include_diseases:
+            try:
+                health_response = self.session.post(
+                    f"{self.BASE_URL}/health_assessment",
+                    params={'details': 'description,treatment,classification'},
+                    headers=headers,
+                    json={'images': [encoded_image]},
+                    timeout=self.timeout
+                )
+                health_response.raise_for_status()
+                health_result = health_response.json()
+            except Exception as e:
+                logger.warning(f"[HEALTH] Health assessment failed: {e}, continuing with identification only")
 
-        logger.info(f"Plant.id identification successful: {result.get('suggestions', [{}])[0].get('plant_name', 'Unknown')}")
+        # Format combined results
+        formatted_result = self._format_response(identification_result, health_result)
+
+        # Log success
+        suggestions = identification_result.get('result', {}).get('classification', {}).get('suggestions', [])
+        if suggestions:
+            logger.info(f"Plant.id identification successful: {suggestions[0].get('name', 'Unknown')}")
 
         # Increment quota counter after successful API call
         self.quota_manager.increment_plant_id()
@@ -368,54 +376,84 @@ class PlantIDAPIService:
 
         return formatted_result
     
-    def _format_response(self, raw_response: Dict[str, Any]) -> Dict[str, Any]:
+    def _format_response(self, identification_response: Dict[str, Any], health_response: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Format Plant.id API response into a standardized structure.
-        
+        Format Plant.id API v3 response into a standardized structure.
+
         Args:
-            raw_response: Raw API response
-            
+            identification_response: Raw identification API response
+            health_response: Optional raw health assessment API response
+
         Returns:
             Formatted response dictionary
         """
-        suggestions = raw_response.get('suggestions', [])
-        health_assessment = raw_response.get('health_assessment', {})
-        
+        # Parse identification results (v3 structure)
+        result = identification_response.get('result', {})
+        classification = result.get('classification', {})
+        suggestions = classification.get('suggestions', [])
+
         formatted_suggestions = []
         for suggestion in suggestions[:5]:  # Top 5 results
-            plant_details = suggestion.get('plant_details', {})
-            
+            details = suggestion.get('details', {})
+
+            # Extract description value (can be string or dict with 'value' key)
+            description = details.get('description')
+            if isinstance(description, dict):
+                description = description.get('value')
+
             formatted_suggestions.append({
-                'plant_name': suggestion.get('plant_name'),
-                'scientific_name': plant_details.get('scientific_name'),
+                'plant_name': suggestion.get('name'),  # v3 uses 'name', not 'plant_name'
+                'scientific_name': suggestion.get('name'),  # Scientific name is the 'name' field
                 'probability': suggestion.get('probability', 0),
-                'common_names': plant_details.get('common_names', []),
-                'description': plant_details.get('description', {}).get('value'),
-                'taxonomy': plant_details.get('taxonomy', {}),
-                'edible_parts': plant_details.get('edible_parts'),
-                'watering': plant_details.get('watering', {}).get('max', 'Unknown'),
-                'propagation_methods': plant_details.get('propagation_methods'),
+                'common_names': details.get('common_names', []),
+                'description': description,
+                'taxonomy': details.get('taxonomy', {}),
+                'edible_parts': details.get('edible_parts'),
+                'watering': details.get('watering', {}).get('max', 'Unknown') if isinstance(details.get('watering'), dict) else details.get('watering'),
+                'propagation_methods': details.get('propagation_methods'),
                 'similar_images': suggestion.get('similar_images', []),
-                'url': plant_details.get('url'),
+                'url': details.get('url'),
                 'source': 'plant_id',
             })
-        
-        # Format disease/health assessment
+
+        # Parse health assessment if available (v3 structure)
         disease_info = None
-        if health_assessment and health_assessment.get('diseases'):
-            diseases = health_assessment.get('diseases', [])
-            if diseases:
-                top_disease = diseases[0]
+        if health_response:
+            health_result = health_response.get('result', {})
+            is_healthy_info = health_result.get('is_healthy', {})
+            disease_data = health_result.get('disease', {})
+            disease_suggestions = disease_data.get('suggestions', [])
+
+            if disease_suggestions:
+                top_disease = disease_suggestions[0]
+                disease_details = top_disease.get('details', {})
+
+                # Extract treatment info
+                treatment = disease_details.get('treatment', {})
+                treatment_text = None
+                if isinstance(treatment, dict):
+                    # Combine biological, chemical, and prevention methods
+                    methods = []
+                    if treatment.get('biological'):
+                        methods.extend(treatment['biological'])
+                    if treatment.get('chemical'):
+                        methods.extend(treatment['chemical'])
+                    if treatment.get('prevention'):
+                        methods.extend(treatment['prevention'])
+                    treatment_text = ' '.join(methods) if methods else None
+                else:
+                    treatment_text = treatment
+
                 disease_info = {
-                    'is_healthy': health_assessment.get('is_healthy', True),
-                    'is_plant': health_assessment.get('is_plant', True),
+                    'is_healthy': is_healthy_info.get('binary', True),
+                    'is_plant': result.get('is_plant', {}).get('binary', True),
                     'disease_name': top_disease.get('name'),
                     'probability': top_disease.get('probability'),
-                    'description': top_disease.get('disease_details', {}).get('description'),
-                    'treatment': top_disease.get('disease_details', {}).get('treatment'),
-                    'classification': top_disease.get('disease_details', {}).get('classification'),
+                    'description': disease_details.get('description'),
+                    'treatment': treatment_text,
+                    'classification': disease_details.get('classification', []),
                 }
-        
+
         return {
             'suggestions': formatted_suggestions,
             'health_assessment': disease_info,
