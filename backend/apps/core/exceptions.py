@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any
 
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.http import Http404
+from django_ratelimit.exceptions import Ratelimited
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.response import Response
@@ -29,14 +30,46 @@ def custom_exception_handler(exc: Exception, context: Dict[str, Any]) -> Optiona
     """
     Custom exception handler that logs errors with context and returns
     consistent error response format.
-    
+
     Args:
         exc: The exception instance
         context: Dictionary containing request and view information
-        
+
     Returns:
         Response object with standardized error format
     """
+    # Handle Ratelimited exception before DRF processing
+    # Ratelimited inherits from PermissionDenied, which DRF converts to 403
+    # We need to return 429 instead
+    if isinstance(exc, Ratelimited):
+        request = context.get('request')
+        view = context.get('view')
+        request_id = get_request_id(request) if request else None
+
+        log_context = {
+            'request_id': request_id,
+            'path': request.path if request else None,
+            'method': request.method if request else None,
+            'user': str(request.user) if request and hasattr(request, 'user') else 'anonymous',
+            'view': view.__class__.__name__ if view else None,
+            'exception_type': 'Ratelimited',
+            'exception_message': str(exc),
+        }
+
+        logger.warning("429 Rate Limit Exceeded", extra=log_context)
+
+        error_data = {
+            'error': True,
+            'message': 'Rate limit exceeded. Please try again later.',
+            'code': 'rate_limit_exceeded',
+            'status_code': status.HTTP_429_TOO_MANY_REQUESTS,
+        }
+
+        if request_id:
+            error_data['request_id'] = request_id
+
+        return Response(error_data, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
     # Call REST framework's default exception handler first
     response = drf_exception_handler(exc, context)
     
@@ -99,20 +132,27 @@ def custom_exception_handler(exc: Exception, context: Dict[str, Any]) -> Optiona
     error_message = 'An unexpected error occurred'
     status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
     error_code = 'internal_error'
-    
+
     # Handle specific Django exceptions
-    if isinstance(exc, Http404):
+    # IMPORTANT: Check Ratelimited before PermissionDenied since Ratelimited inherits from PermissionDenied
+    if isinstance(exc, Ratelimited):
+        error_message = 'Rate limit exceeded. Please try again later.'
+        status_code = status.HTTP_429_TOO_MANY_REQUESTS
+        error_code = 'rate_limit_exceeded'
+        logger.warning(f"429 Rate Limit Exceeded", extra=log_context)
+
+    elif isinstance(exc, Http404):
         error_message = 'Resource not found'
         status_code = status.HTTP_404_NOT_FOUND
         error_code = 'not_found'
         logger.warning(f"404 Not Found", extra=log_context)
-        
+
     elif isinstance(exc, PermissionDenied):
         error_message = 'Permission denied'
         status_code = status.HTTP_403_FORBIDDEN
         error_code = 'permission_denied'
         logger.warning(f"403 Forbidden", extra=log_context)
-        
+
     elif isinstance(exc, ValidationError):
         error_message = 'Validation error'
         status_code = status.HTTP_400_BAD_REQUEST
