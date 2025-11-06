@@ -448,6 +448,8 @@ class PostViewSetPermissionIntegrationTests(TestCase):
 
     # ========================================================================
     # Rate Limiting Tests (10 tests)
+    # NOTE: 4 tests currently failing due to django-ratelimit config issues
+    # See Issue #133: https://github.com/Xertox1234/plant_id_community/issues/133
     # ========================================================================
 
     def test_rate_limit_enforced_after_10_uploads(self):
