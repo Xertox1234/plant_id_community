@@ -301,7 +301,6 @@ describe('ThreadDetailPage', () => {
   });
 
   it('submits reply when authenticated user posts', async () => {
-    const user = userEvent.setup();
     const mockThread = createMockThread({ id: 'thread-1' });
     const mockPosts = { items: [], meta: { count: 0 } };
     const newPost = createMockPost({ id: 'new-post', content_raw: '<p>My reply</p>' });
@@ -323,11 +322,11 @@ describe('ThreadDetailPage', () => {
 
     // Find TipTap editor and type content
     const editor = container.querySelector('.ProseMirror');
-    await user.click(editor);
-    await user.keyboard('My reply');
+    await userEvent.click(editor);
+    await userEvent.keyboard('My reply');
 
     const submitButton = screen.getByText('Post Reply');
-    await user.click(submitButton);
+    await userEvent.click(submitButton);
 
     await waitFor(() => {
       expect(createPostSpy).toHaveBeenCalledWith({
@@ -339,7 +338,6 @@ describe('ThreadDetailPage', () => {
   });
 
   it('shows validation error when submitting empty reply', async () => {
-    const user = userEvent.setup();
     const mockThread = createMockThread();
 
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
@@ -364,7 +362,6 @@ describe('ThreadDetailPage', () => {
   });
 
   it('deletes post when user confirms deletion', async () => {
-    const user = userEvent.setup();
     const mockThread = createMockThread();
     const mockPosts = {
       items: [createMockPost({ id: 'post-1', content_raw: '<p>Test post</p>' })],
@@ -432,7 +429,6 @@ describe('ThreadDetailPage', () => {
   });
 
   it('loads more posts when Load More button is clicked', async () => {
-    const user = userEvent.setup();
     const mockThread = createMockThread();
     const initialPosts = {
       items: Array(20)
@@ -460,7 +456,7 @@ describe('ThreadDetailPage', () => {
     });
 
     const loadMoreButton = screen.getByText(/Load More Posts/i);
-    await user.click(loadMoreButton);
+    await userEvent.click(loadMoreButton);
 
     await waitFor(() => {
       expect(fetchPostsSpy).toHaveBeenCalledWith({
@@ -489,7 +485,6 @@ describe('ThreadDetailPage', () => {
   });
 
   it('updates post count when new post is submitted', async () => {
-    const user = userEvent.setup();
     const mockThread = createMockThread({ id: 'thread-1' });
     const mockPosts = { items: [], meta: { count: 5 } };
     const newPost = createMockPost({ id: 'new-post' });
@@ -509,11 +504,11 @@ describe('ThreadDetailPage', () => {
 
     // Submit a reply
     const editor = container.querySelector('.ProseMirror');
-    await user.click(editor);
-    await user.keyboard('New post');
+    await userEvent.click(editor);
+    await userEvent.keyboard('New post');
 
     const submitButton = screen.getByText('Post Reply');
-    await user.click(submitButton);
+    await userEvent.click(submitButton);
 
     // Post count should increment to 6
     await waitFor(() => {

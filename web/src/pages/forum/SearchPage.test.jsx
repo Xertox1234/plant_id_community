@@ -255,7 +255,6 @@ describe('SearchPage', () => {
     });
 
     it('applies category filter when selected', async () => {
-      const user = userEvent.setup();
       const mockCategories = [
         createMockCategory({ id: '1', name: 'Plant Care', slug: 'plant-care' }),
       ];
@@ -271,7 +270,7 @@ describe('SearchPage', () => {
       });
 
       const categorySelect = screen.getByLabelText('Category');
-      await user.selectOptions(categorySelect, 'plant-care');
+      await userEvent.selectOptions(categorySelect, 'plant-care');
 
       await waitFor(() => {
         expect(forumService.searchForum).toHaveBeenCalledWith(
@@ -292,7 +291,6 @@ describe('SearchPage', () => {
     });
 
     it('clears all filters when clear button clicked', async () => {
-      const user = userEvent.setup();
 
       renderSearchPage('/forum/search?q=watering&category=plant-care&author=john');
 
@@ -301,7 +299,7 @@ describe('SearchPage', () => {
       });
 
       const clearButton = screen.getByText('Clear filters');
-      await user.click(clearButton);
+      await userEvent.click(clearButton);
 
       await waitFor(() => {
         expect(forumService.searchForum).toHaveBeenCalledWith(
@@ -379,7 +377,6 @@ describe('SearchPage', () => {
     });
 
     it('navigates to next page when next button clicked', async () => {
-      const user = userEvent.setup();
       const mockResults = createMockSearchResults({
         query: 'watering',
         threads: [createMockThread()],
@@ -396,7 +393,7 @@ describe('SearchPage', () => {
       });
 
       const nextButton = screen.getByText('Next');
-      await user.click(nextButton);
+      await userEvent.click(nextButton);
 
       await waitFor(() => {
         expect(forumService.searchForum).toHaveBeenCalledWith(
@@ -409,7 +406,6 @@ describe('SearchPage', () => {
     });
 
     it('navigates to previous page when previous button clicked', async () => {
-      const user = userEvent.setup();
       const mockResults = createMockSearchResults({
         query: 'watering',
         threads: [createMockThread()],
@@ -425,7 +421,7 @@ describe('SearchPage', () => {
       });
 
       const prevButton = screen.getByText('Previous');
-      await user.click(prevButton);
+      await userEvent.click(prevButton);
 
       await waitFor(() => {
         expect(forumService.searchForum).toHaveBeenCalledWith(

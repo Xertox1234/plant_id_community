@@ -185,7 +185,6 @@ describe('ThreadListPage', () => {
   });
 
   it('submits search form and updates URL params', async () => {
-    const user = userEvent.setup();
     const mockCategory = createMockCategory({ slug: 'plant-care' });
 
     vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
@@ -203,8 +202,8 @@ describe('ThreadListPage', () => {
     const searchInput = screen.getByPlaceholderText('Search threads...');
     const searchButton = screen.getByText('Search');
 
-    await user.type(searchInput, 'watering');
-    await user.click(searchButton);
+    await userEvent.type(searchInput, 'watering');
+    await userEvent.click(searchButton);
 
     // fetchThreads should be called again with search param
     await waitFor(() => {
@@ -215,7 +214,6 @@ describe('ThreadListPage', () => {
   });
 
   it('changes ordering when dropdown selection changes', async () => {
-    const user = userEvent.setup();
     const mockCategory = createMockCategory({ slug: 'plant-care' });
 
     vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
@@ -231,7 +229,7 @@ describe('ThreadListPage', () => {
     });
 
     const orderingSelect = screen.getByDisplayValue('Recent Activity');
-    await user.selectOptions(orderingSelect, 'Most Viewed');
+    await userEvent.selectOptions(orderingSelect, 'Most Viewed');
 
     // fetchThreads should be called with new ordering
     await waitFor(() => {
@@ -242,7 +240,6 @@ describe('ThreadListPage', () => {
   });
 
   it('displays active search filter with clear button', async () => {
-    const user = userEvent.setup();
     const mockCategory = createMockCategory({ slug: 'plant-care' });
 
     vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
@@ -263,7 +260,7 @@ describe('ThreadListPage', () => {
     expect(clearButton).toBeInTheDocument();
 
     // Click clear button
-    await user.click(clearButton);
+    await userEvent.click(clearButton);
 
     // Search should be cleared
     await waitFor(() => {

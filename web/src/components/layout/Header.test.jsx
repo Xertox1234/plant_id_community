@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import Header from './Header';
 import { renderWithRouter } from '../../tests/utils';
 import * as authService from '../../services/authService';
@@ -229,7 +229,8 @@ describe('Header', () => {
       const menuButton = screen.getByLabelText('Toggle menu');
       fireEvent.click(menuButton);
 
-      await screen.findByText('Mobile User');
+      // Wait for user name to appear (may be in multiple places: desktop + mobile)
+      await screen.findAllByText('Mobile User');
 
       expect(screen.getAllByText('Mobile User').length).toBeGreaterThan(0);
     });
@@ -249,7 +250,7 @@ describe('Header', () => {
       const menuButton = screen.getByLabelText('Toggle menu');
       fireEvent.click(menuButton);
 
-      await screen.findByText('Test User');
+      await screen.findAllByText('Test User');
 
       expect(screen.getByText('Profile')).toBeInTheDocument();
       expect(screen.getByText('Settings')).toBeInTheDocument();
@@ -271,7 +272,7 @@ describe('Header', () => {
       const menuButton = screen.getByLabelText('Toggle menu');
       fireEvent.click(menuButton);
 
-      await screen.findByText('Test User');
+      await screen.findAllByText('Test User');
 
       const logoutButton = screen.getByText('Log out');
       expect(logoutButton).toBeInTheDocument();
@@ -293,16 +294,20 @@ describe('Header', () => {
       const menuButton = screen.getByLabelText('Toggle menu');
       fireEvent.click(menuButton);
 
-      await screen.findByText('Test User');
+      await screen.findAllByText('Test User');
 
       const logoutButton = screen.getByText('Log out');
       fireEvent.click(logoutButton);
 
       // Logout should be called
-      expect(authService.logout).toHaveBeenCalled();
+      await waitFor(() => {
+        expect(authService.logout).toHaveBeenCalled();
+      });
 
-      // Menu should close
-      expect(menuButton).toHaveAttribute('aria-expanded', 'false');
+      // Menu should close after logout completes
+      await waitFor(() => {
+        expect(menuButton).toHaveAttribute('aria-expanded', 'false');
+      });
     });
 
     it('closes menu when profile link clicked', async () => {
@@ -320,7 +325,7 @@ describe('Header', () => {
       const menuButton = screen.getByLabelText('Toggle menu');
       fireEvent.click(menuButton);
 
-      await screen.findByText('Test User');
+      await screen.findAllByText('Test User');
       expect(menuButton).toHaveAttribute('aria-expanded', 'true');
 
       const profileLink = screen.getByText('Profile');

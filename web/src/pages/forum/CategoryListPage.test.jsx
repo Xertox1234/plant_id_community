@@ -4,9 +4,20 @@ import { BrowserRouter } from 'react-router';
 import CategoryListPage from './CategoryListPage';
 import { createMockCategory } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
+import { logger } from '../../utils/logger';
 
 // Mock the forumService
 vi.mock('../../services/forumService');
+
+// Mock logger
+vi.mock('../../utils/logger', () => ({
+  logger: {
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
 
 /**
  * Helper to render CategoryListPage with Router context
@@ -155,7 +166,6 @@ describe('CategoryListPage', () => {
   });
 
   it('logs errors to console when API fails', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const errorMessage = 'Network error';
 
     vi.spyOn(forumService, 'fetchCategoryTree').mockRejectedValue(
@@ -165,14 +175,16 @@ describe('CategoryListPage', () => {
     renderCategoryListPage();
 
     await waitFor(() => {
-      expect(consoleErrorSpy).toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalled();
     });
 
-    const errorCall = consoleErrorSpy.mock.calls.find(call =>
-      call[0].includes('[CategoryListPage]')
+    // Check that error was logged with correct format
+    expect(logger.error).toHaveBeenCalledWith(
+      'Error loading forum categories',
+      expect.objectContaining({
+        component: 'CategoryListPage',
+        error: expect.any(Error)
+      })
     );
-    expect(errorCall).toBeDefined();
-
-    consoleErrorSpy.mockRestore();
   });
 });
