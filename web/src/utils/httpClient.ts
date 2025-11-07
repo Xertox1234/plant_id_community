@@ -30,26 +30,7 @@
 
 import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import { logger } from './logger'
-
-/**
- * Get CSRF token from cookies
- * Django sets csrftoken cookie that we need to include in requests
- *
- * @returns CSRF token or null if not found
- */
-function getCsrfToken(): string | null {
-  try {
-    const name = 'csrftoken'
-    const value = `; ${document.cookie}`
-    const parts = value.split(`; ${name}=`)
-    if (parts.length === 2) {
-      return parts.pop()?.split(';').shift() || null
-    }
-  } catch {
-    // Silently fail if cookie parsing fails
-  }
-  return null
-}
+import { getCsrfToken } from './csrf'
 
 /**
  * Create axios instance with base configuration

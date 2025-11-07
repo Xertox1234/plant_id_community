@@ -13,7 +13,7 @@ export default defineConfig({
     environment: 'jsdom',
 
     // Setup files to run before tests
-    setupFiles: ['./src/tests/setup.js'],
+    setupFiles: ['./src/tests/setup.ts'],
 
     // Coverage configuration
     coverage: {
