@@ -1,8 +1,11 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Sparkles } from 'lucide-react'
 import FileUpload from '../components/PlantIdentification/FileUpload'
 import IdentificationResults from '../components/PlantIdentification/IdentificationResults'
 import { plantIdService } from '../services/plantIdService'
+import { useAuth } from '../contexts/AuthContext'
+import { getPlantKey } from '../utils/plantUtils'
 
 /**
  * IdentifyPage Component
@@ -15,51 +18,42 @@ export default function IdentifyPage() {
   const [results, setResults] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [saveError, setSaveError] = useState(null) // Separate error state for save operations
+  const [savedPlants, setSavedPlants] = useState(new Map()) // Track which plants have been saved
+  const [savingPlant, setSavingPlant] = useState(null) // Track which plant is currently being saved
 
-  console.log('[IdentifyPage] Render - selectedFile:', selectedFile)
-  console.log('[IdentifyPage] Render - results:', results)
-  console.log('[IdentifyPage] Render - loading:', loading)
-  console.log('[IdentifyPage] Button should show:', selectedFile && !results)
+  const { isAuthenticated } = useAuth()
+  const navigate = useNavigate()
 
   const handleFileSelect = (file) => {
-    console.log('[IdentifyPage] File selected:', file)
     setSelectedFile(file)
     setResults(null)
     setError(null)
-    console.log('[IdentifyPage] State updated - selectedFile should now be set')
+    setSaveError(null)
   }
 
   const handleIdentify = async () => {
-    console.log('[IdentifyPage] handleIdentify called')
-    console.log('[IdentifyPage] selectedFile:', selectedFile)
-
     if (!selectedFile) {
-      console.log('[IdentifyPage] No file selected, returning')
       return
     }
 
-    console.log('[IdentifyPage] Setting loading to true')
     setLoading(true)
     setError(null)
+    setSaveError(null)
 
     try {
-      console.log('[IdentifyPage] Calling plantIdService.identifyPlant...')
       const data = await plantIdService.identifyPlant(selectedFile)
-      console.log('[IdentifyPage] Got results:', data)
 
       // Check if the response indicates failure
       if (data.success === false || data.error) {
-        console.log('[IdentifyPage] API returned error:', data.error)
         setError(data.error || 'Identification failed')
         setResults(null)
       } else {
         setResults(data)
       }
     } catch (err) {
-      console.error('[IdentifyPage] Error caught:', err)
       setError(err.message)
     } finally {
-      console.log('[IdentifyPage] Setting loading to false')
       setLoading(false)
     }
   }
@@ -68,6 +62,46 @@ export default function IdentifyPage() {
     setSelectedFile(null)
     setResults(null)
     setError(null)
+    setSaveError(null)
+  }
+
+  const handleSavePlant = async (suggestion) => {
+    // Check authentication first
+    if (!isAuthenticated) {
+      navigate('/login', { state: { from: '/identify' } })
+      return
+    }
+
+    // Prevent duplicate saves
+    const plantKey = getPlantKey(suggestion)
+    if (savedPlants.has(plantKey)) {
+      return // Already saved
+    }
+
+    setSavingPlant(plantKey)
+    setSaveError(null)
+
+    try {
+      // Use the plantIdService to save to collection
+      await plantIdService.saveToCollection({
+        plant_name: suggestion.plant_name,
+        scientific_name: suggestion.scientific_name,
+        confidence: suggestion.probability,
+        common_names: suggestion.common_names || [],
+        description: suggestion.description,
+        watering: suggestion.watering,
+        propagation_methods: suggestion.propagation_methods,
+        care_instructions: suggestion.care_instructions,
+        source: suggestion.source || 'plant_id',
+      })
+
+      // Mark as saved (Map.set returns a new Map)
+      setSavedPlants(prev => new Map(prev).set(plantKey, true))
+    } catch (err) {
+      setSaveError(err.message || 'Failed to save plant to collection')
+    } finally {
+      setSavingPlant(null)
+    }
   }
 
   return (
@@ -132,24 +166,24 @@ export default function IdentifyPage() {
                 results={results}
                 loading={loading}
                 error={error}
+                onSavePlant={handleSavePlant}
+                savedPlants={savedPlants}
+                savingPlant={savingPlant}
               />
 
+              {saveError && (
+                <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4" role="alert">
+                  <p className="text-sm text-red-800">{saveError}</p>
+                </div>
+              )}
+
               {results && (
-                <div className="mt-6 flex justify-center gap-4">
+                <div className="mt-6 flex justify-center">
                   <button
                     onClick={handleReset}
                     className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
                   >
                     Identify Another Plant
-                  </button>
-                  <button
-                    onClick={() => {
-                      /* TODO: Implement save to collection */
-                      alert('Save to collection feature coming soon!')
-                    }}
-                    className="px-6 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
-                  >
-                    Save to My Collection
                   </button>
                 </div>
               )}

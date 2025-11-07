@@ -1,6 +1,7 @@
-import { Loader2 } from 'lucide-react'
+import { Loader2, Check } from 'lucide-react'
+import { getPlantKey } from '../../utils/plantUtils'
 
-export default function IdentificationResults({ results, loading, error }) {
+export default function IdentificationResults({ results, loading, error, onSavePlant, savedPlants, savingPlant }) {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-12">
@@ -86,6 +87,36 @@ export default function IdentificationResults({ results, loading, error }) {
                   </div>
                 </div>
               )}
+
+              {onSavePlant && (() => {
+                const plantKey = getPlantKey(suggestion)
+                const isSaved = savedPlants?.has(plantKey)
+                const isSaving = savingPlant === plantKey
+
+                return (
+                  <button
+                    onClick={() => onSavePlant(suggestion)}
+                    disabled={isSaved || isSaving}
+                    aria-busy={isSaving}
+                    aria-label={
+                      isSaved
+                        ? `${suggestion.plant_name} saved to collection`
+                        : `Save ${suggestion.plant_name} to collection`
+                    }
+                    className={`mt-4 w-full px-4 py-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 flex items-center justify-center gap-2 ${
+                      isSaved
+                        ? 'bg-gray-100 text-gray-600 cursor-not-allowed'
+                        : isSaving
+                        ? 'bg-green-500 text-white cursor-wait'
+                        : 'bg-green-600 text-white hover:bg-green-700 focus:ring-green-500'
+                    }`}
+                  >
+                    {isSaving && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
+                    {isSaved && <Check className="w-4 h-4" aria-hidden="true" />}
+                    {isSaved ? 'Saved to Collection' : isSaving ? 'Saving...' : 'Save to My Collection'}
+                  </button>
+                )
+              })()}
             </div>
           ))}
         </div>
