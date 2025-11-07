@@ -27,7 +27,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks(id) {
+        manualChunks(id: string) {
           // React and core libraries in vendor chunk
           if (id.includes('node_modules/react') ||
               id.includes('node_modules/react-dom') ||

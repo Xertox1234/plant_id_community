@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
@@ -21,10 +21,10 @@ export default defineConfig({
       exclude: [
         'node_modules/',
         'src/tests/',
-        '**/*.test.{js,jsx}',
-        '**/*.spec.{js,jsx}',
-        '**/vite.config.js',
-        '**/vitest.config.js',
+        '**/*.test.{js,jsx,ts,tsx}',
+        '**/*.spec.{js,jsx,ts,tsx}',
+        '**/vite.config.{js,ts}',
+        '**/vitest.config.{js,ts}',
       ],
       // Thresholds for failing tests if coverage is too low
       thresholds: {
@@ -35,8 +35,8 @@ export default defineConfig({
       },
     },
 
-    // Test file patterns
-    include: ['**/*.{test,spec}.{js,jsx}'],
+    // Test file patterns (now includes TypeScript)
+    include: ['**/*.{test,spec}.{js,jsx,ts,tsx}'],
 
     // Global test settings
     globals: true,
@@ -50,14 +50,9 @@ export default defineConfig({
     // Mock reset behavior
     mockReset: true,
     restoreMocks: true,
-
-    // Watch mode settings (for npm run test:watch)
-    watch: {
-      exclude: ['node_modules', 'dist'],
-    },
   },
 
-  // Resolve configuration (same as vite.config.js)
+  // Resolve configuration (same as vite.config.ts)
   resolve: {
     alias: {
       // Add path aliases if needed
