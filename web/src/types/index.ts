@@ -43,6 +43,15 @@ export type {
   BlogPost,
 } from './blog';
 
+// Plant Identification types
+export type {
+  PlantIdentificationResult,
+  Collection,
+  UserPlant,
+  IdentificationHistoryItem,
+  SavePlantInput,
+} from './plantId';
+
 // Diagnosis types
 export type {
   PlantIdentification,
@@ -50,4 +59,17 @@ export type {
   DiagnosisResponse,
   HealthAssessment,
   Disease,
+  TreatmentStatus,
+  DiseaseType,
+  SeverityAssessment,
+  ReminderType,
+  DiagnosisCard,
+  CreateDiagnosisCardInput,
+  UpdateDiagnosisCardInput,
+  FetchDiagnosisCardsOptions,
+  DiagnosisReminder,
+  CreateReminderInput,
+  FetchRemindersOptions,
+  PaginatedDiagnosisCardsResponse,
+  PaginatedRemindersResponse,
 } from './diagnosis';
