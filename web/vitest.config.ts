@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import path from 'path';
 
 // Vitest configuration
 // https://vitest.dev/config/
@@ -12,7 +13,7 @@ export default defineConfig({
     environment: 'jsdom',
 
     // Setup files to run before tests
-    setupFiles: ['./src/tests/setup.js'],
+    setupFiles: ['./src/tests/setup.ts'],
 
     // Coverage configuration
     coverage: {
@@ -55,8 +56,7 @@ export default defineConfig({
   // Resolve configuration (same as vite.config.ts)
   resolve: {
     alias: {
-      // Add path aliases if needed
-      // '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(__dirname, './src'),
     },
   },
 });
