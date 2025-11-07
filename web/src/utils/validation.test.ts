@@ -73,7 +73,8 @@ describe('validation utilities', () => {
     });
 
     it('should reject XSS attempts', () => {
-      expect(() => validateSlug('<script>alert(1)</script>')).toThrow('Invalid slug format');
+      // <script> tags contain '/' which triggers path traversal check
+      expect(() => validateSlug('<script>alert(1)</script>')).toThrow('Invalid slug: path traversal patterns are not allowed');
       expect(() => validateSlug('javascript:alert(1)')).toThrow('Invalid slug format');
       expect(() => validateSlug('onload=alert(1)')).toThrow('Invalid slug format');
     });
@@ -199,7 +200,8 @@ describe('validation utilities', () => {
     });
 
     it('should reject XSS attempts', () => {
-      expect(() => validateContentType('<script>.alert</script>')).toThrow('Invalid content type format');
+      // <script> tags contain '/' which triggers path traversal check
+      expect(() => validateContentType('<script>.alert</script>')).toThrow('Invalid content type: path traversal patterns are not allowed');
       expect(() => validateContentType('javascript:alert(1)')).toThrow('Invalid content type format');
     });
   });
@@ -478,7 +480,8 @@ describe('validation utilities', () => {
       expect(() => validateCategorySlug('../admin')).toThrow(
         'Invalid slug: path traversal patterns are not allowed'
       );
-      expect(() => validateCategorySlug('<script>alert(1)</script>')).toThrow('Invalid slug format');
+      // <script> tags contain '/' which triggers path traversal check
+      expect(() => validateCategorySlug('<script>alert(1)</script>')).toThrow('Invalid slug: path traversal patterns are not allowed');
       expect(() => validateCategorySlug('invalid slug')).toThrow('Invalid slug format'); // Space
     });
 
@@ -637,9 +640,10 @@ describe('validation utilities', () => {
     });
 
     it('should handle whitespace-only inputs', () => {
-      expect(() => validateSlug('   ')).toThrow('Invalid slug format');
+      // Whitespace-only strings become empty after trim, so "required" error is correct
+      expect(() => validateSlug('   ')).toThrow('Slug is required and must be a string');
       expect(sanitizeSearchQuery('   ')).toBe('');
-      expect(() => validateEmail('   ')).toThrow('Invalid email address format');
+      expect(() => validateEmail('   ')).toThrow('Email is required and must be a string');
     });
   });
 });

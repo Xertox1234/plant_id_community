@@ -85,8 +85,8 @@ export function validateContentType(contentType: unknown): string {
     throw new Error('Invalid content type: path traversal patterns are not allowed')
   }
 
-  // Format check (app.Model format - alphanumeric and dot only, no underscores in format)
-  if (!/^[a-zA-Z0-9]+\.[a-zA-Z0-9]+$/.test(contentType)) {
+  // Format check (app.Model format - alphanumeric, underscores, and dot)
+  if (!/^[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+$/.test(contentType)) {
     if (!contentType.includes('.')) {
       throw new Error('Invalid content type format: must be in app.model format')
     }
@@ -169,6 +169,11 @@ export function validateInteger(
   value: unknown,
   options: { min?: number; max?: number } = {}
 ): number {
+  // Check if string contains decimal point (float)
+  if (typeof value === 'string' && value.includes('.')) {
+    throw new Error('Value must be a valid integer')
+  }
+
   // Convert string to number if needed
   const num = typeof value === 'string' ? parseInt(value, 10) : value
 

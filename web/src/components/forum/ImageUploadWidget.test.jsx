@@ -111,7 +111,6 @@ describe('ImageUploadWidget', () => {
 
   describe('File Upload', () => {
     it('uploads image when file is selected', async () => {
-      const user = userEvent.setup();
       const mockAttachment = createMockAttachment();
       vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue(mockAttachment);
 
@@ -127,7 +126,7 @@ describe('ImageUploadWidget', () => {
       const fileInput = screen.getByLabelText('File input');
       const file = createMockFile();
 
-      await user.upload(fileInput, file);
+      await userEvent.upload(fileInput, file);
 
       await waitFor(() => {
         expect(forumService.uploadPostImage).toHaveBeenCalledWith(mockPostId, file);
@@ -139,7 +138,6 @@ describe('ImageUploadWidget', () => {
     });
 
     it('shows loading state during upload', async () => {
-      const user = userEvent.setup();
       vi.spyOn(forumService, 'uploadPostImage').mockImplementation(
         () => new Promise(() => {}) // Never resolves
       );
@@ -156,7 +154,7 @@ describe('ImageUploadWidget', () => {
       const fileInput = screen.getByLabelText('File input');
       const file = createMockFile();
 
-      await user.upload(fileInput, file);
+      await userEvent.upload(fileInput, file);
 
       await waitFor(() => {
         expect(screen.getByText('Uploading...')).toBeInTheDocument();
@@ -164,7 +162,6 @@ describe('ImageUploadWidget', () => {
     });
 
     it('displays error when upload fails', async () => {
-      const user = userEvent.setup();
       vi.spyOn(forumService, 'uploadPostImage').mockRejectedValue(
         new Error('Upload failed')
       );
@@ -181,7 +178,7 @@ describe('ImageUploadWidget', () => {
       const fileInput = screen.getByLabelText('File input');
       const file = createMockFile();
 
-      await user.upload(fileInput, file);
+      await userEvent.upload(fileInput, file);
 
       await waitFor(() => {
         expect(screen.getByText('Upload failed')).toBeInTheDocument();
@@ -289,7 +286,6 @@ describe('ImageUploadWidget', () => {
 
   describe('Image Deletion', () => {
     it('deletes image when delete button clicked', async () => {
-      const user = userEvent.setup();
       const attachment = createMockAttachment();
       vi.spyOn(forumService, 'deletePostImage').mockResolvedValue();
 
@@ -303,7 +299,7 @@ describe('ImageUploadWidget', () => {
       );
 
       const deleteButton = screen.getByLabelText('Delete image');
-      await user.click(deleteButton);
+      await userEvent.click(deleteButton);
 
       await waitFor(() => {
         expect(forumService.deletePostImage).toHaveBeenCalledWith(
@@ -318,7 +314,6 @@ describe('ImageUploadWidget', () => {
     });
 
     it('displays error when delete fails', async () => {
-      const user = userEvent.setup();
       const attachment = createMockAttachment();
       vi.spyOn(forumService, 'deletePostImage').mockRejectedValue(
         new Error('Delete failed')
@@ -334,7 +329,7 @@ describe('ImageUploadWidget', () => {
       );
 
       const deleteButton = screen.getByLabelText('Delete image');
-      await user.click(deleteButton);
+      await userEvent.click(deleteButton);
 
       await waitFor(() => {
         expect(screen.getByText('Delete failed')).toBeInTheDocument();
@@ -440,7 +435,6 @@ describe('ImageUploadWidget', () => {
     });
 
     it('supports keyboard navigation', async () => {
-      const user = userEvent.setup();
 
       render(
         <ImageUploadWidget
@@ -498,7 +492,6 @@ describe('ImageUploadWidget', () => {
     });
 
     it('handles missing onUploadComplete callback', async () => {
-      const user = userEvent.setup();
       const mockAttachment = createMockAttachment();
       vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue(mockAttachment);
 
@@ -514,7 +507,7 @@ describe('ImageUploadWidget', () => {
       const file = createMockFile();
 
       // Should not throw error
-      await user.upload(fileInput, file);
+      await userEvent.upload(fileInput, file);
 
       await waitFor(() => {
         expect(forumService.uploadPostImage).toHaveBeenCalled();
@@ -522,7 +515,6 @@ describe('ImageUploadWidget', () => {
     });
 
     it('handles missing onDeleteComplete callback', async () => {
-      const user = userEvent.setup();
       const attachment = createMockAttachment();
       vi.spyOn(forumService, 'deletePostImage').mockResolvedValue();
 
@@ -537,7 +529,7 @@ describe('ImageUploadWidget', () => {
       const deleteButton = screen.getByLabelText('Delete image');
 
       // Should not throw error
-      await user.click(deleteButton);
+      await userEvent.click(deleteButton);
 
       await waitFor(() => {
         expect(forumService.deletePostImage).toHaveBeenCalled();
