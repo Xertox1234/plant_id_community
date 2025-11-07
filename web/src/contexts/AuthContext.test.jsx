@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { AuthProvider, AuthContext } from './AuthContext';
+import { AuthProvider, useAuth } from './AuthContext';
 import * as authService from '../services/authService';
 
 // Mock the auth service
@@ -36,7 +36,7 @@ describe('AuthContext', () => {
       authService.getStoredUser.mockReturnValue(null);
       authService.getCurrentUser.mockResolvedValue(null);
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -50,7 +50,7 @@ describe('AuthContext', () => {
       authService.getStoredUser.mockReturnValue(mockUser);
       authService.getCurrentUser.mockResolvedValue(mockUser);
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -69,7 +69,7 @@ describe('AuthContext', () => {
       authService.getStoredUser.mockReturnValue(storedUser);
       authService.getCurrentUser.mockResolvedValue(currentUser);
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -86,7 +86,7 @@ describe('AuthContext', () => {
       authService.getStoredUser.mockReturnValue(null);
       authService.getCurrentUser.mockRejectedValue(new Error('Network error'));
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -108,7 +108,7 @@ describe('AuthContext', () => {
       authService.getCurrentUser.mockResolvedValue(null);
       authService.login.mockResolvedValue(mockUser);
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -136,7 +136,7 @@ describe('AuthContext', () => {
       authService.getCurrentUser.mockResolvedValue(null);
       authService.login.mockRejectedValue(error);
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -166,7 +166,7 @@ describe('AuthContext', () => {
         () => new Promise((resolve) => setTimeout(() => resolve(mockUser), 100))
       );
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -193,7 +193,7 @@ describe('AuthContext', () => {
       // First login fails
       authService.login.mockRejectedValueOnce(new Error('First error'));
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -235,7 +235,7 @@ describe('AuthContext', () => {
       authService.getCurrentUser.mockResolvedValue(null);
       authService.signup.mockResolvedValue(mockUser);
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -267,7 +267,7 @@ describe('AuthContext', () => {
       authService.getCurrentUser.mockResolvedValue(null);
       authService.signup.mockRejectedValue(error);
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -296,7 +296,7 @@ describe('AuthContext', () => {
         () => new Promise((resolve) => setTimeout(() => resolve(mockUser), 100))
       );
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -324,7 +324,7 @@ describe('AuthContext', () => {
       authService.getCurrentUser.mockResolvedValue(mockUser);
       authService.logout.mockResolvedValue();
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -349,7 +349,7 @@ describe('AuthContext', () => {
       authService.getCurrentUser.mockResolvedValue(mockUser);
       authService.logout.mockRejectedValue(new Error('Network error'));
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -372,7 +372,7 @@ describe('AuthContext', () => {
       authService.getStoredUser.mockReturnValue(null);
       authService.getCurrentUser.mockResolvedValue(null);
 
-      const { result, rerender } = renderHook(() => AuthContext.read(), {
+      const { result, rerender } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -396,7 +396,7 @@ describe('AuthContext', () => {
       authService.getStoredUser.mockReturnValue(mockUser);
       authService.getCurrentUser.mockResolvedValue(mockUser);
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
@@ -409,7 +409,7 @@ describe('AuthContext', () => {
       authService.getStoredUser.mockReturnValue(null);
       authService.getCurrentUser.mockResolvedValue(null);
 
-      const { result } = renderHook(() => AuthContext.read(), {
+      const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
