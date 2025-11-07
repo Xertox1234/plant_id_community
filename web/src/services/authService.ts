@@ -14,6 +14,7 @@
 
 import { logger } from '../utils/logger';
 import type { User, LoginCredentials, SignupData, AuthResponse } from '../types/auth';
+import type { ApiError } from '../types/api';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -119,7 +120,7 @@ export async function signup(userData: SignupData): Promise<User> {
     });
 
     if (!response.ok) {
-      let errorData: any;
+      let errorData: ApiError | { error?: { message?: string }; message?: string };
       try {
         errorData = await response.json();
       } catch (e) {
@@ -133,7 +134,9 @@ export async function signup(userData: SignupData): Promise<User> {
       });
 
       // Extract error message from backend
-      const errorMessage = errorData.error?.message || errorData.message || JSON.stringify(errorData);
+      const errorMessage = ('error' in errorData && errorData.error && typeof errorData.error === 'object' && 'message' in errorData.error)
+        ? errorData.error.message
+        : ('message' in errorData ? errorData.message : JSON.stringify(errorData));
       throw new Error(errorMessage);
     }
 

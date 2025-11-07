@@ -5,6 +5,7 @@
  * Uses cookie-based JWT authentication with CSRF protection.
  */
 
+import { logger } from '../utils/logger';
 import type {
   PlantIdentificationResult,
   Collection,
@@ -36,7 +37,7 @@ async function fetchCsrfToken(): Promise<void> {
       credentials: 'include',
     });
   } catch (error) {
-    console.error('Failed to fetch CSRF token:', error);
+    logger.warn('[plantIdService] Failed to fetch CSRF token:', error);
   }
 }
 

@@ -66,12 +66,17 @@ async function handleResponse<T>(response: Response): Promise<T> {
 export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = {}): Promise<PaginatedDiagnosisCardsResponse> {
   const params = new URLSearchParams();
 
+  // String parameters: use falsy check (empty string is falsy, which we want to skip)
   if (options.treatment_status) params.append('treatment_status', options.treatment_status);
-  if (options.is_favorite !== undefined) params.append('is_favorite', options.is_favorite.toString());
-  if (options.plant_recovered !== undefined) params.append('plant_recovered', options.plant_recovered.toString());
   if (options.disease_type) params.append('disease_type', options.disease_type);
   if (options.search) params.append('search', options.search);
   if (options.ordering) params.append('ordering', options.ordering);
+
+  // Boolean parameters: MUST use !== undefined (false is a valid value)
+  if (options.is_favorite !== undefined) params.append('is_favorite', options.is_favorite.toString());
+  if (options.plant_recovered !== undefined) params.append('plant_recovered', options.plant_recovered.toString());
+
+  // Number parameters: use falsy check when 0 is not a valid value (pagination starts at 1)
   if (options.page) params.append('page', options.page.toString());
 
   const queryString = params.toString();
@@ -249,10 +254,13 @@ export async function toggleFavorite(uuid: string): Promise<DiagnosisCard> {
 export async function fetchReminders(options: FetchRemindersOptions = {}): Promise<PaginatedRemindersResponse> {
   const params = new URLSearchParams();
 
+  // String parameters: use falsy check (empty string is falsy, which we want to skip)
   if (options.diagnosis_card) params.append('diagnosis_card', options.diagnosis_card);
+  if (options.reminder_type) params.append('reminder_type', options.reminder_type);
+
+  // Boolean parameters: MUST use !== undefined (false is a valid value)
   if (options.is_active !== undefined) params.append('is_active', options.is_active.toString());
   if (options.sent !== undefined) params.append('sent', options.sent.toString());
-  if (options.reminder_type) params.append('reminder_type', options.reminder_type);
 
   const queryString = params.toString();
   const url = `${API_URL}/api/plant-identification/diagnosis-reminders/${queryString ? `?${queryString}` : ''}`;
