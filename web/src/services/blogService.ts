@@ -8,23 +8,21 @@
  * and structured logging for distributed tracing.
  */
 
-import apiClient from '../utils/httpClient'
-import { logger } from '../utils/logger'
+import apiClient from '../utils/httpClient';
+import { logger } from '../utils/logger';
+import type {
+  BlogPost,
+  BlogPostListResponse,
+  BlogCategory,
+  BlogCategoryListResponse,
+  FetchBlogPostsOptions,
+  FetchPopularPostsOptions,
+} from '../types/blog';
 
 /**
  * Fetch blog posts with optional filters and pagination.
- *
- * @param {Object} options - Query options
- * @param {number} options.page - Page number (default: 1)
- * @param {number} options.limit - Posts per page (default: 10)
- * @param {string} options.search - Search query
- * @param {string} options.category - Category slug
- * @param {string} options.tag - Tag name
- * @param {string} options.author - Author username
- * @param {string} options.order - Sort order (latest, popular, oldest)
- * @returns {Promise<Object>} - { items, meta: { total_count } }
  */
-export async function fetchBlogPosts(options = {}) {
+export async function fetchBlogPosts(options: FetchBlogPostsOptions = {}): Promise<BlogPostListResponse> {
   const {
     page = 1,
     limit = 10,
@@ -68,97 +66,87 @@ export async function fetchBlogPosts(options = {}) {
   }
 
   try {
-    const response = await apiClient.get(`/api/v2/blog-posts/?${params}`)
+    const response = await apiClient.get(`/api/v2/blog-posts/?${params}`);
 
     return {
       items: response.data.items || [],
       meta: response.data.meta || { total_count: 0 },
-    }
+    };
   } catch (error) {
     logger.error('Error fetching blog posts', {
       component: 'BlogService',
       error,
       context: { params: options },
-    })
-    throw error
+    });
+    throw error;
   }
 }
 
 /**
  * Fetch a single blog post by slug.
- *
- * @param {string} slug - Post slug
- * @returns {Promise<Object>} - Blog post data
  */
-export async function fetchBlogPost(slug) {
+export async function fetchBlogPost(slug: string): Promise<BlogPost> {
   try {
     const params = new URLSearchParams({
       type: 'blog.BlogPostPage',
       slug: slug,
       fields: '*', // Get all fields for detail view
-    })
+    });
 
-    const response = await apiClient.get(`/api/v2/blog-posts/?${params}`)
+    const response = await apiClient.get(`/api/v2/blog-posts/?${params}`);
 
     if (!response.data.items || response.data.items.length === 0) {
-      throw new Error('Blog post not found')
+      throw new Error('Blog post not found');
     }
 
-    return response.data.items[0]
+    return response.data.items[0];
   } catch (error) {
     logger.error('Error fetching blog post', {
       component: 'BlogService',
       error,
       context: { slug },
-    })
-    throw error
+    });
+    throw error;
   }
 }
 
 /**
  * Fetch popular blog posts.
- *
- * @param {Object} options - Query options
- * @param {number} options.limit - Number of posts (default: 5)
- * @param {number} options.days - Time period in days (default: 30, 0 = all time)
- * @returns {Promise<Array>} - Array of popular blog posts
  */
-export async function fetchPopularPosts(options = {}) {
+export async function fetchPopularPosts(options: FetchPopularPostsOptions = {}): Promise<BlogPost[]> {
   const { limit = 5, days = 30 } = options;
 
   try {
     const params = new URLSearchParams({
       limit: limit.toString(),
       days: days.toString(),
-    })
+    });
 
-    const response = await apiClient.get(`/api/v2/blog-posts/popular/?${params}`)
-    return response.data || []
+    const response = await apiClient.get(`/api/v2/blog-posts/popular/?${params}`);
+    return response.data || [];
   } catch (error) {
     logger.error('Error fetching popular posts', {
       component: 'BlogService',
       error,
       context: { limit, days },
-    })
-    throw error
+    });
+    throw error;
   }
 }
 
 /**
  * Fetch blog categories.
- *
- * @returns {Promise<Array>} - Array of categories
  */
-export async function fetchCategories() {
+export async function fetchCategories(): Promise<BlogCategory[]> {
   try {
-    const response = await apiClient.get('/api/v2/categories/')
-    return response.data.items || []
+    const response = await apiClient.get('/api/v2/categories/');
+    return response.data.items || [];
   } catch (error) {
     logger.error('Error fetching categories', {
       component: 'BlogService',
       error,
-    })
-    return [] // Return empty array on error (non-critical)
+    });
+    return []; // Return empty array on error (non-critical)
   }
 }
 
@@ -167,9 +155,9 @@ export async function fetchCategories() {
  * This function is kept for backwards compatibility but is no longer needed.
  * The related_posts field is already populated in fetchBlogPost().
  *
- * @returns {Promise<Array>} - Array of related posts (always empty - use post.related_posts instead)
+ * @returns Array of related posts (always empty - use post.related_posts instead)
  */
-export async function fetchRelatedPosts() {
+export async function fetchRelatedPosts(): Promise<BlogPost[]> {
   // Related posts are now included in the blog post detail API response
   // No need for a separate endpoint call
   return [];

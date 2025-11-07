@@ -102,4 +102,54 @@ export interface BlogPost {
   published_date: string;
   author?: string;
   tags?: string[];
+  related_posts?: BlogPost[];
+  view_count?: number;
+}
+
+/**
+ * Blog post list response
+ */
+export interface BlogPostListResponse {
+  items: BlogPost[];
+  meta: {
+    total_count: number;
+  };
+}
+
+/**
+ * Blog category
+ */
+export interface BlogCategory {
+  id: number;
+  name: string;
+  slug: string;
+  description?: string;
+}
+
+/**
+ * Blog category list response
+ */
+export interface BlogCategoryListResponse {
+  items: BlogCategory[];
+}
+
+/**
+ * Fetch blog posts options
+ */
+export interface FetchBlogPostsOptions {
+  page?: number;
+  limit?: number;
+  search?: string;
+  category?: string;
+  tag?: string;
+  author?: string;
+  order?: 'latest' | 'popular' | 'oldest';
+}
+
+/**
+ * Fetch popular posts options
+ */
+export interface FetchPopularPostsOptions {
+  limit?: number;
+  days?: number;
 }
