@@ -11,7 +11,7 @@ export interface User {
   username: string;
   first_name?: string;
   last_name?: string;
-  trust_level?: 'NEW' | 'BASIC' | 'TRUSTED' | 'VETERAN' | 'EXPERT';
+  trust_level?: 'new' | 'basic' | 'trusted' | 'veteran' | 'expert';
   date_joined?: string;
   is_active?: boolean;
 }
