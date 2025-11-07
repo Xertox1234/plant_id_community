@@ -28,8 +28,28 @@
  * const response = await apiClient.get('/api/v2/blog-posts')
  */
 
-import axios from 'axios'
+import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import { logger } from './logger'
+
+/**
+ * Get CSRF token from cookies
+ * Django sets csrftoken cookie that we need to include in requests
+ *
+ * @returns CSRF token or null if not found
+ */
+function getCsrfToken(): string | null {
+  try {
+    const name = 'csrftoken'
+    const value = `; ${document.cookie}`
+    const parts = value.split(`; ${name}=`)
+    if (parts.length === 2) {
+      return parts.pop()?.split(';').shift() || null
+    }
+  } catch {
+    // Silently fail if cookie parsing fails
+  }
+  return null
+}
 
 /**
  * Create axios instance with base configuration
@@ -48,7 +68,7 @@ const apiClient = axios.create({
  * Adds X-Request-ID header and logs outgoing requests
  */
 apiClient.interceptors.request.use(
-  (config) => {
+  (config: InternalAxiosRequestConfig) => {
     try {
       // Add X-Request-ID header from session storage
       const requestId = sessionStorage.getItem('requestId')
@@ -81,7 +101,7 @@ apiClient.interceptors.request.use(
 
     return config
   },
-  (error) => {
+  (error: AxiosError) => {
     logger.error('Request interceptor error', {
       component: 'httpClient',
       error,
@@ -95,7 +115,7 @@ apiClient.interceptors.request.use(
  * Logs responses and handles errors
  */
 apiClient.interceptors.response.use(
-  (response) => {
+  (response: AxiosResponse) => {
     // Log successful response (development only)
     if (import.meta.env.DEV) {
       logger.debug('HTTP response', {
@@ -106,11 +126,11 @@ apiClient.interceptors.response.use(
     }
     return response
   },
-  (error) => {
+  (error: AxiosError) => {
     // Log error response
     const status = error.response?.status
     const url = error.config?.url
-    const message = error.response?.data?.message || error.message
+    const message = (error.response?.data as { message?: string })?.message || error.message
 
     logger.error('HTTP error', {
       component: 'httpClient',
@@ -123,25 +143,5 @@ apiClient.interceptors.response.use(
     return Promise.reject(error)
   }
 )
-
-/**
- * Get CSRF token from cookies
- * Django sets csrftoken cookie that we need to include in requests
- *
- * @returns {string|null} CSRF token or null if not found
- */
-function getCsrfToken() {
-  try {
-    const name = 'csrftoken'
-    const value = `; ${document.cookie}`
-    const parts = value.split(`; ${name}=`)
-    if (parts.length === 2) {
-      return parts.pop()?.split(';').shift() || null
-    }
-  } catch {
-    // Silently fail if cookie parsing fails
-  }
-  return null
-}
 
 export default apiClient

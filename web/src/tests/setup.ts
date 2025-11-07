@@ -31,6 +31,10 @@ Object.defineProperty(window, 'matchMedia', {
 
 // Mock IntersectionObserver (not available in jsdom)
 global.IntersectionObserver = class IntersectionObserver {
+  root = null;
+  rootMargin = '';
+  thresholds: number[] = [];
+
   constructor() {}
   disconnect() {}
   observe() {}
@@ -38,7 +42,7 @@ global.IntersectionObserver = class IntersectionObserver {
     return [];
   }
   unobserve() {}
-};
+} as any;
 
 // Mock ResizeObserver (not available in jsdom)
 global.ResizeObserver = class ResizeObserver {
@@ -61,10 +65,13 @@ if (!navigator.share) {
 
 // Mock navigator.clipboard (for copy functionality tests)
 if (!navigator.clipboard) {
-  navigator.clipboard = {
-    writeText: vi.fn().mockResolvedValue(undefined),
-    readText: vi.fn().mockResolvedValue(''),
-  };
+  Object.defineProperty(navigator, 'clipboard', {
+    value: {
+      writeText: vi.fn().mockResolvedValue(undefined),
+      readText: vi.fn().mockResolvedValue(''),
+    },
+    writable: true,
+  });
 }
 
 // Suppress console errors during tests (optional - comment out to see errors)

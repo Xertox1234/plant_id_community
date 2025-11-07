@@ -18,6 +18,16 @@ import DOMPurify from 'dompurify'
 import { logger } from './logger'
 
 /**
+ * DOMPurify configuration options
+ */
+interface SanitizeConfig {
+  ALLOWED_TAGS: readonly string[] | string[]
+  ALLOWED_ATTR: readonly string[] | string[]
+  ALLOWED_CLASSES?: Record<string, string[]>
+  ALLOW_DATA_ATTR?: boolean
+}
+
+/**
  * Sanitization Preset Configurations
  *
  * Provides consistent XSS protection across all components.
@@ -32,7 +42,7 @@ export const SANITIZE_PRESETS = {
   MINIMAL: {
     ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u'],
     ALLOWED_ATTR: [],
-  },
+  } as const,
 
   /**
    * BASIC: Basic formatting + links
@@ -42,7 +52,7 @@ export const SANITIZE_PRESETS = {
   BASIC: {
     ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a'],
     ALLOWED_ATTR: ['href', 'target', 'rel'],
-  },
+  } as const,
 
   /**
    * STANDARD: Rich text formatting
@@ -66,7 +76,7 @@ export const SANITIZE_PRESETS = {
       'blockquote',
     ],
     ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
-  },
+  } as const,
 
   /**
    * FULL: All safe content blocks
@@ -94,7 +104,7 @@ export const SANITIZE_PRESETS = {
       'img',
     ],
     ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'src', 'alt', 'title'],
-  },
+  } as const,
 
   /**
    * STREAMFIELD: Wagtail StreamField blocks
@@ -126,7 +136,7 @@ export const SANITIZE_PRESETS = {
       'div',
     ],
     ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'src', 'alt', 'title', 'id'],
-  },
+  } as const,
 
   /**
    * FORUM: Rich forum posts with mentions, code blocks, images
@@ -174,15 +184,15 @@ export const SANITIZE_PRESETS = {
       div: ['code-block'],
     },
     ALLOW_DATA_ATTR: false,
-  },
+  } as const,
 }
 
 /**
  * Sanitize HTML content with preset or custom configuration
  *
- * @param {string} html - HTML content to sanitize
- * @param {object} options - DOMPurify options (defaults to STANDARD preset)
- * @returns {string} Sanitized HTML
+ * @param html - HTML content to sanitize
+ * @param options - DOMPurify options (defaults to STANDARD preset)
+ * @returns Sanitized HTML
  *
  * @example
  * // Using preset
@@ -194,7 +204,7 @@ export const SANITIZE_PRESETS = {
  * // Default (STANDARD preset)
  * const safe = sanitizeHtml(html)
  */
-export function sanitizeHtml(html, options = null) {
+export function sanitizeHtml(html: unknown, options: Partial<SanitizeConfig> | null = null): string {
   if (!html || typeof html !== 'string') {
     return ''
   }
@@ -202,12 +212,12 @@ export function sanitizeHtml(html, options = null) {
   try {
     // Use STANDARD preset by default
     const config = options || SANITIZE_PRESETS.STANDARD
-    return DOMPurify.sanitize(html, config)
+    return DOMPurify.sanitize(html, config as any) as unknown as string
   } catch (error) {
     logger.error('DOMPurify sanitization failed', {
       component: 'sanitize',
       error,
-      context: { htmlLength: html?.length },
+      context: { htmlLength: (html as string)?.length },
     })
     return ''
   }
@@ -216,14 +226,14 @@ export function sanitizeHtml(html, options = null) {
 /**
  * Create safe markup object for React's dangerouslySetInnerHTML
  *
- * @param {string} html - HTML content to sanitize
- * @param {object} options - DOMPurify options (defaults to STANDARD preset)
- * @returns {object} Object with __html property containing sanitized HTML
+ * @param html - HTML content to sanitize
+ * @param options - DOMPurify options (defaults to STANDARD preset)
+ * @returns Object with __html property containing sanitized HTML
  *
  * @example
  * <div dangerouslySetInnerHTML={createSafeMarkup(content, SANITIZE_PRESETS.FULL)} />
  */
-export function createSafeMarkup(html, options = null) {
+export function createSafeMarkup(html: unknown, options: Partial<SanitizeConfig> | null = null): { __html: string } {
   return {
     __html: sanitizeHtml(html, options),
   }
@@ -233,14 +243,14 @@ export function createSafeMarkup(html, options = null) {
  * Strip all HTML tags, returning only text content
  * Use for: Search indexing, excerpts, plain text display
  *
- * @param {string} html - HTML content to strip
- * @returns {string} Plain text with all HTML removed
+ * @param html - HTML content to strip
+ * @returns Plain text with all HTML removed
  *
  * @example
  * const text = stripHtml('<p>Hello <strong>world</strong>!</p>')
  * // Returns: "Hello world!"
  */
-export function stripHtml(html) {
+export function stripHtml(html: unknown): string {
   if (!html || typeof html !== 'string') {
     return ''
   }
@@ -256,15 +266,15 @@ export function stripHtml(html) {
  * Check if HTML contains potentially dangerous content
  * Returns true if HTML is safe, false if suspicious patterns detected
  *
- * @param {string} html - HTML to check
- * @returns {boolean} True if safe, false if dangerous patterns found
+ * @param html - HTML to check
+ * @returns True if safe, false if dangerous patterns found
  *
  * @example
  * if (!isSafeHtml(userInput)) {
  *   console.warn('Suspicious content detected')
  * }
  */
-export function isSafeHtml(html) {
+export function isSafeHtml(html: unknown): boolean {
   if (!html || typeof html !== 'string') {
     return true
   }
@@ -287,14 +297,14 @@ export function isSafeHtml(html) {
  * Sanitize form input (email, name, password fields)
  * Strips all HTML tags to prevent XSS in form fields
  *
- * @param {string} input - User input to sanitize
- * @returns {string} Sanitized input with no HTML tags
+ * @param input - User input to sanitize
+ * @returns Sanitized input with no HTML tags
  *
  * @example
  * const email = sanitizeInput(formData.email)
  * // "<script>alert('xss')</script>" → "alert('xss')"
  */
-export function sanitizeInput(input) {
+export function sanitizeInput(input: unknown): unknown {
   if (!input || typeof input !== 'string') {
     return input
   }
@@ -307,8 +317,8 @@ export function sanitizeInput(input) {
  * Sanitize HTML content (for displaying rich text safely)
  * Allows safe HTML tags but removes scripts and dangerous attributes
  *
- * @param {string} html - HTML content to sanitize
- * @returns {string} Sanitized HTML
+ * @param html - HTML content to sanitize
+ * @returns Sanitized HTML
  * @deprecated Use sanitizeHtml() with presets instead
  *
  * @example
@@ -316,7 +326,7 @@ export function sanitizeInput(input) {
  * // Safe: <p>Hello</p>
  * // Blocked: <script>alert('xss')</script>
  */
-export function sanitizeHTML(html) {
+export function sanitizeHTML(html: unknown): string {
   return sanitizeHtml(html, SANITIZE_PRESETS.STANDARD)
 }
 
@@ -324,15 +334,15 @@ export function sanitizeHTML(html) {
  * Sanitize error messages from server
  * Prevents XSS if server includes user input in error messages
  *
- * @param {string} error - Error message from server
- * @returns {string} Sanitized error message
+ * @param error - Error message from server
+ * @returns Sanitized error message
  *
  * @example
  * const safeError = sanitizeError(apiResponse.error)
  * // "Email 'user@example.com' already exists" → safe
  * // "Email '<script>xss</script>' already exists" → script removed
  */
-export function sanitizeError(error) {
+export function sanitizeError(error: unknown): unknown {
   if (!error || typeof error !== 'string') {
     return error
   }

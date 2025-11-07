@@ -21,7 +21,7 @@ export const ALLOWED_IMAGE_TYPES = [
   'image/png',
   'image/gif',
   'image/webp'
-];
+] as const;
 
 // =============================================================================
 // VALIDATION ERROR MESSAGES

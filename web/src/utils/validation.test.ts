@@ -33,9 +33,9 @@ describe('validation utilities', () => {
     });
 
     it('should reject non-string types', () => {
-      expect(() => validateSlug(123)).toThrow('Slug is required and must be a string');
-      expect(() => validateSlug({})).toThrow('Slug is required and must be a string');
-      expect(() => validateSlug([])).toThrow('Slug is required and must be a string');
+      expect(() => validateSlug(123 as unknown as string)).toThrow('Slug is required and must be a string');
+      expect(() => validateSlug({} as unknown as string)).toThrow('Slug is required and must be a string');
+      expect(() => validateSlug([] as unknown as string)).toThrow('Slug is required and must be a string');
     });
 
     it('should reject slugs exceeding 200 characters', () => {
@@ -239,9 +239,9 @@ describe('validation utilities', () => {
     });
 
     it('should return empty string for non-string types', () => {
-      expect(sanitizeSearchQuery(123)).toBe('');
-      expect(sanitizeSearchQuery({})).toBe('');
-      expect(sanitizeSearchQuery([])).toBe('');
+      expect(sanitizeSearchQuery(123 as unknown as string)).toBe('');
+      expect(sanitizeSearchQuery({} as unknown as string)).toBe('');
+      expect(sanitizeSearchQuery([] as unknown as string)).toBe('');
     });
 
     it('should preserve special characters (not a validator, just sanitizer)', () => {
@@ -513,7 +513,7 @@ describe('validation utilities', () => {
     it('should reject invalid allowed extensions', () => {
       expect(() => validateFileType('image.jpg', null)).toThrow('Allowed extensions must be a non-empty array');
       expect(() => validateFileType('image.jpg', [])).toThrow('Allowed extensions must be a non-empty array');
-      expect(() => validateFileType('image.jpg', 'jpg')).toThrow('Allowed extensions must be a non-empty array');
+      expect(() => validateFileType('image.jpg', 'jpg' as unknown as string[])).toThrow('Allowed extensions must be a non-empty array');
     });
 
     it('should reject disallowed file types', () => {
