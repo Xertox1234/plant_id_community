@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useSearchParams, Link } from 'react-router';
+import { useSearchParams, Link } from 'react-router-dom';
 import { searchForum, fetchCategories } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
 import PostCard from '../../components/forum/PostCard';

@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router-dom';
 
 /**
  * Footer Component
@@ -75,5 +75,5 @@ export default function Footer() {
         </div>
       </div>
     </footer>
-  )
+  );
 }

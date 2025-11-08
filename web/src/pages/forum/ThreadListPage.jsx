@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useSearchParams, Link } from 'react-router';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { fetchThreads, fetchCategory } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';

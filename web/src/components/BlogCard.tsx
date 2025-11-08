@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useMemo, memo } from 'react';
-import PropTypes from 'prop-types';
 import { stripHtml } from '../utils/sanitize';
+import { BlogPost } from '../types/blog';
 
 /**
  * BlogCard Component
@@ -10,7 +10,14 @@ import { stripHtml } from '../utils/sanitize';
  * Used in blog list pages and related posts sections.
  * Memoized to prevent unnecessary re-renders when parent component updates.
  */
-function BlogCard({ post, showImage = true, compact = false }) {
+
+interface BlogCardProps {
+  post: BlogPost;
+  showImage?: boolean;
+  compact?: boolean;
+}
+
+function BlogCard({ post, showImage = true, compact = false }: BlogCardProps) {
   const {
     slug,
     title,
@@ -157,35 +164,6 @@ function BlogCard({ post, showImage = true, compact = false }) {
     </Link>
   );
 }
-
-BlogCard.propTypes = {
-  post: PropTypes.shape({
-    slug: PropTypes.string.isRequired,
-    title: PropTypes.string.isRequired,
-    introduction: PropTypes.string,
-    featured_image: PropTypes.shape({
-      url: PropTypes.string,
-      thumbnail: PropTypes.shape({
-        url: PropTypes.string,
-      }),
-      title: PropTypes.string,
-    }),
-    author: PropTypes.shape({
-      first_name: PropTypes.string,
-      last_name: PropTypes.string,
-    }),
-    publish_date: PropTypes.string,
-    categories: PropTypes.arrayOf(
-      PropTypes.shape({
-        name: PropTypes.string,
-      })
-    ),
-    tags: PropTypes.arrayOf(PropTypes.string),
-    view_count: PropTypes.number,
-  }).isRequired,
-  showImage: PropTypes.bool,
-  compact: PropTypes.bool,
-};
 
 // Export memoized component to prevent re-renders when props don't change
 export default memo(BlogCard);

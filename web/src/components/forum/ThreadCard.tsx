@@ -1,8 +1,13 @@
 import { memo, useMemo } from 'react';
-import { Link } from 'react-router';
-import PropTypes from 'prop-types';
+import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { logger } from '../../utils/logger';
+import type { Thread } from '@/types';
+
+interface ThreadCardProps {
+  thread: Thread;
+  compact?: boolean;
+}
 
 /**
  * ThreadCard Component
@@ -10,7 +15,7 @@ import { logger } from '../../utils/logger';
  * Displays a thread preview in the thread list.
  * Shows title, excerpt, author, stats, and activity time.
  */
-function ThreadCard({ thread, compact = false }) {
+function ThreadCard({ thread, compact = false }: ThreadCardProps) {
   // Memoize formatted date to prevent recalculation
   const formattedDate = useMemo(() => {
     try {
@@ -108,33 +113,5 @@ function ThreadCard({ thread, compact = false }) {
     </div>
   );
 }
-
-ThreadCard.propTypes = {
-  thread: PropTypes.shape({
-    id: PropTypes.string.isRequired,
-    title: PropTypes.string.isRequired,
-    slug: PropTypes.string.isRequired,
-    excerpt: PropTypes.string,
-    author: PropTypes.shape({
-      id: PropTypes.number.isRequired,
-      username: PropTypes.string.isRequired,
-      display_name: PropTypes.string,
-    }).isRequired,
-    category: PropTypes.shape({
-      id: PropTypes.string.isRequired,
-      name: PropTypes.string.isRequired,
-      slug: PropTypes.string.isRequired,
-      icon: PropTypes.string,
-    }).isRequired,
-    is_pinned: PropTypes.bool,
-    is_locked: PropTypes.bool,
-    is_active: PropTypes.bool,
-    view_count: PropTypes.number,
-    post_count: PropTypes.number,
-    last_activity_at: PropTypes.string.isRequired,
-    created_at: PropTypes.string,
-  }).isRequired,
-  compact: PropTypes.bool,
-};
 
 export default memo(ThreadCard);

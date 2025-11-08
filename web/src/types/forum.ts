@@ -11,10 +11,12 @@ export interface Category {
   id: string;
   name: string;
   slug: string;
-  description: string;
-  thread_count: number;
-  post_count: number;
+  description?: string;
+  icon?: string;
+  thread_count?: number;
+  post_count?: number;
   created_at: string;
+  children?: Category[];
 }
 
 /**
@@ -24,13 +26,17 @@ export interface Thread {
   id: string;
   title: string;
   slug: string;
+  excerpt?: string;
   category: Category;
   author: User;
   created_at: string;
-  updated_at: string;
-  post_count: number;
-  is_pinned: boolean;
-  is_locked: boolean;
+  updated_at?: string;
+  last_activity_at: string;
+  post_count?: number;
+  view_count?: number;
+  is_pinned?: boolean;
+  is_locked?: boolean;
+  is_active?: boolean;
 }
 
 /**
@@ -39,13 +45,24 @@ export interface Thread {
 export interface Post {
   id: string;
   thread: string;
-  author: User;
+  author: User & {
+    trust_level?: string;
+  };
   content_raw: string;
   content_html?: string;
+  content_format?: string;
   created_at: string;
-  updated_at: string;
-  attachments: Attachment[];
-  is_edited: boolean;
+  updated_at?: string;
+  edited_at?: string;
+  edited_by?: {
+    username: string;
+    display_name?: string;
+  };
+  attachments?: Attachment[];
+  is_edited?: boolean;
+  is_first_post?: boolean;
+  is_active?: boolean;
+  reaction_counts?: Record<string, number>;
 }
 
 /**

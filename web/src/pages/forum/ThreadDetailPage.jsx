@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { fetchThread, fetchPosts, createPost, deletePost } from '../../services/forumService';
 import { useAuth } from '../../contexts/AuthContext';
 import PostCard from '../../components/forum/PostCard';

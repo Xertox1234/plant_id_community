@@ -1,8 +1,25 @@
 import { memo, useMemo, useState } from 'react';
-import PropTypes from 'prop-types';
 import { formatDistanceToNow } from 'date-fns';
 import { sanitizeHtml, SANITIZE_PRESETS } from '../../utils/sanitize';
 import { useAuth } from '../../contexts/AuthContext';
+import type { Post } from '@/types';
+
+interface PostCardProps {
+  post: Post;
+  onEdit?: (post: Post) => void;
+  onDelete?: (post: Post) => void;
+}
+
+// Helper function for reaction emojis
+function getReactionEmoji(type: string): string {
+  const emojis: Record<string, string> = {
+    like: '👍',
+    love: '❤️',
+    helpful: '💡',
+    thanks: '🙏',
+  };
+  return emojis[type] || '✨';
+}
 
 /**
  * PostCard Component
@@ -10,7 +27,7 @@ import { useAuth } from '../../contexts/AuthContext';
  * Displays a single post in a thread.
  * Includes author info, content, reactions, and edit/delete options.
  */
-function PostCard({ post, onEdit, onDelete }) {
+function PostCard({ post, onEdit, onDelete }: PostCardProps) {
   const { user } = useAuth();
   const [showActions, setShowActions] = useState(false);
 
@@ -135,41 +152,5 @@ function PostCard({ post, onEdit, onDelete }) {
     </div>
   );
 }
-
-// Helper function for reaction emojis
-function getReactionEmoji(type) {
-  const emojis = {
-    like: '👍',
-    love: '❤️',
-    helpful: '💡',
-    thanks: '🙏',
-  };
-  return emojis[type] || '✨';
-}
-
-PostCard.propTypes = {
-  post: PropTypes.shape({
-    id: PropTypes.string.isRequired,
-    author: PropTypes.shape({
-      id: PropTypes.number.isRequired,
-      username: PropTypes.string.isRequired,
-      display_name: PropTypes.string,
-      trust_level: PropTypes.string,
-    }).isRequired,
-    content_raw: PropTypes.string.isRequired,
-    content_format: PropTypes.string,
-    is_first_post: PropTypes.bool,
-    is_active: PropTypes.bool,
-    reaction_counts: PropTypes.object,
-    created_at: PropTypes.string.isRequired,
-    edited_at: PropTypes.string,
-    edited_by: PropTypes.shape({
-      username: PropTypes.string,
-      display_name: PropTypes.string,
-    }),
-  }).isRequired,
-  onEdit: PropTypes.func,
-  onDelete: PropTypes.func,
-};
 
 export default memo(PostCard);

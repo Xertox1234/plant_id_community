@@ -14,6 +14,14 @@
  *   required
  * />
  */
+
+import { InputHTMLAttributes } from 'react'
+
+interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+  label?: string
+  error?: string
+}
+
 export default function Input({
   type = 'text',
   label,
@@ -26,7 +34,7 @@ export default function Input({
   disabled = false,
   className = '',
   ...props
-}) {
+}: InputProps) {
   const inputId = name || label?.toLowerCase().replace(/\s+/g, '-')
 
   // Input styles - red border on error

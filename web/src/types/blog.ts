@@ -84,6 +84,32 @@ export interface ListBlock {
 }
 
 /**
+ * Blog post author
+ */
+export interface BlogPostAuthor {
+  first_name: string;
+  last_name: string;
+}
+
+/**
+ * Blog post featured image
+ */
+export interface BlogPostImage {
+  url: string;
+  thumbnail?: {
+    url: string;
+  };
+  title?: string;
+}
+
+/**
+ * Blog post category
+ */
+export interface BlogPostCategory {
+  name: string;
+}
+
+/**
  * Blog post (Wagtail page)
  */
 export interface BlogPost {
@@ -95,13 +121,15 @@ export interface BlogPost {
     slug: string;
     first_published_at: string;
   };
+  slug: string;
   title: string;
-  introduction: string;
+  introduction?: string;
   content_blocks: StreamFieldBlock[];
-  featured_image?: string;
-  published_date: string;
-  author?: string;
+  featured_image?: BlogPostImage;
+  publish_date?: string;
+  author?: BlogPostAuthor;
   tags?: string[];
+  categories?: BlogPostCategory[];
   related_posts?: BlogPost[];
   view_count?: number;
 }

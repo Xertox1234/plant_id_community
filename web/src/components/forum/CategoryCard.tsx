@@ -1,6 +1,10 @@
 import { memo } from 'react';
-import { Link } from 'react-router';
-import PropTypes from 'prop-types';
+import { Link } from 'react-router-dom';
+import type { Category } from '@/types';
+
+interface CategoryCardProps {
+  category: Category;
+}
 
 /**
  * CategoryCard Component
@@ -8,7 +12,7 @@ import PropTypes from 'prop-types';
  * Displays a forum category with stats and subcategories.
  * Used in category list view.
  */
-function CategoryCard({ category }) {
+function CategoryCard({ category }: CategoryCardProps) {
   const hasChildren = category.children && category.children.length > 0;
 
   return (
@@ -73,25 +77,5 @@ function CategoryCard({ category }) {
     </div>
   );
 }
-
-CategoryCard.propTypes = {
-  category: PropTypes.shape({
-    id: PropTypes.string.isRequired,
-    name: PropTypes.string.isRequired,
-    slug: PropTypes.string.isRequired,
-    description: PropTypes.string,
-    icon: PropTypes.string,
-    thread_count: PropTypes.number,
-    post_count: PropTypes.number,
-    children: PropTypes.arrayOf(
-      PropTypes.shape({
-        id: PropTypes.string.isRequired,
-        name: PropTypes.string.isRequired,
-        slug: PropTypes.string.isRequired,
-        icon: PropTypes.string,
-      })
-    ),
-  }).isRequired,
-};
 
 export default memo(CategoryCard);

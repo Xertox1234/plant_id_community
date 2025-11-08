@@ -1,8 +1,8 @@
-import { useState } from 'react'
-import { Link, NavLink } from 'react-router-dom'
-import { Menu, X, User, Settings as SettingsIcon } from 'lucide-react'
-import { useAuth } from '../../contexts/AuthContext'
-import UserMenu from './UserMenu'
+import { useState } from 'react';
+import { Link, NavLink } from 'react-router-dom';
+import { Menu, X, User, Settings as SettingsIcon } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import UserMenu from './UserMenu';
 
 /**
  * Header Component
@@ -17,16 +17,16 @@ import UserMenu from './UserMenu'
  * - Phase 3: Basic auth integration (enhanced in Phase 5 with UserMenu)
  */
 export default function Header() {
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const { user, isAuthenticated, logout } = useAuth()
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { user, isAuthenticated, logout } = useAuth();
 
-  const toggleMenu = () => setIsMenuOpen(!isMenuOpen)
-  const closeMenu = () => setIsMenuOpen(false)
+  const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
+  const closeMenu = () => setIsMenuOpen(false);
 
   const handleLogout = async () => {
-    await logout()
-    closeMenu()
-  }
+    await logout();
+    closeMenu();
+  };
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
@@ -170,7 +170,7 @@ export default function Header() {
                 <>
                   <div className="flex items-center gap-2 px-3 py-2 text-gray-700 mb-2">
                     <User className="w-5 h-5 text-green-600" />
-                    <span className="font-medium">{user?.name || user?.email}</span>
+                    <span className="font-medium">{user?.username || user?.email}</span>
                   </div>
                   <Link
                     to="/profile"
@@ -218,5 +218,5 @@ export default function Header() {
         </div>
       )}
     </nav>
-  )
+  );
 }

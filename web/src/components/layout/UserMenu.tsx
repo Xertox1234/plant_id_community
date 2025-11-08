@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { User, Settings, LogOut, ChevronDown } from 'lucide-react'
-import { useAuth } from '../../contexts/AuthContext'
+import { useState, useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { User, Settings, LogOut, ChevronDown } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 /**
  * UserMenu Component
@@ -18,63 +18,63 @@ import { useAuth } from '../../contexts/AuthContext'
  * <UserMenu />
  */
 export default function UserMenu() {
-  const { user, logout } = useAuth()
-  const [isOpen, setIsOpen] = useState(false)
-  const menuRef = useRef(null)
+  const { user, logout } = useAuth();
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   /**
    * Get user initials from name or email
    * @returns {string} Two-letter initials
    */
-  const getInitials = () => {
-    if (user?.name) {
-      const names = user.name.split(' ')
+  const getInitials = (): string => {
+    if (user?.username) {
+      const names = user.username.split(' ');
       if (names.length >= 2) {
-        return `${names[0][0]}${names[1][0]}`.toUpperCase()
+        return `${names[0][0]}${names[1][0]}`.toUpperCase();
       }
-      return user.name.substring(0, 2).toUpperCase()
+      return user.username.substring(0, 2).toUpperCase();
     }
     if (user?.email) {
-      return user.email.substring(0, 2).toUpperCase()
+      return user.email.substring(0, 2).toUpperCase();
     }
-    return 'U'
-  }
+    return 'U';
+  };
 
   /**
    * Handle click outside to close menu
    */
   useEffect(() => {
-    function handleClickOutside(event) {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
-        setIsOpen(false)
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
       }
     }
 
     // Handle Escape key to close menu
-    function handleEscape(event) {
+    function handleEscape(event: KeyboardEvent) {
       if (event.key === 'Escape') {
-        setIsOpen(false)
+        setIsOpen(false);
       }
     }
 
     if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
-      document.addEventListener('keydown', handleEscape)
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleEscape);
 
       return () => {
-        document.removeEventListener('mousedown', handleClickOutside)
-        document.removeEventListener('keydown', handleEscape)
-      }
+        document.removeEventListener('mousedown', handleClickOutside);
+        document.removeEventListener('keydown', handleEscape);
+      };
     }
-  }, [isOpen])
+  }, [isOpen]);
 
   /**
    * Handle logout
    */
   const handleLogout = async () => {
-    setIsOpen(false)
-    await logout()
-  }
+    setIsOpen(false);
+    await logout();
+  };
 
   return (
     <div className="relative" ref={menuRef}>
@@ -92,7 +92,7 @@ export default function UserMenu() {
 
         {/* User Name (desktop only) */}
         <span className="hidden md:inline font-medium">
-          {user?.name || user?.email}
+          {user?.username || user?.email}
         </span>
 
         {/* Chevron Icon */}
@@ -113,7 +113,7 @@ export default function UserMenu() {
           {/* User Info Header */}
           <div className="px-4 py-3 border-b border-gray-200">
             <p className="text-sm font-medium text-gray-900">
-              {user?.name || 'User'}
+              {user?.username || 'User'}
             </p>
             <p className="text-xs text-gray-500 truncate">{user?.email}</p>
           </div>
@@ -155,5 +155,5 @@ export default function UserMenu() {
         </div>
       )}
     </div>
-  )
+  );
 }
