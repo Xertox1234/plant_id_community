@@ -8,7 +8,8 @@
 export interface User {
   id: number;
   email: string;
-  username: string;
+  username?: string;
+  name?: string; // Full name (may be used instead of first_name/last_name)
   first_name?: string;
   last_name?: string;
   trust_level?: 'new' | 'basic' | 'trusted' | 'veteran' | 'expert';
@@ -25,14 +26,12 @@ export interface LoginCredentials {
 }
 
 /**
- * Signup data
+ * Signup data (matches frontend form)
  */
 export interface SignupData {
   email: string;
-  username: string;
+  name: string;
   password: string;
-  first_name?: string;
-  last_name?: string;
 }
 
 /**

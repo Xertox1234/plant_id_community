@@ -53,3 +53,150 @@ export interface Disease {
   description?: string;
   treatment?: string;
 }
+
+/**
+ * Treatment status types
+ */
+export type TreatmentStatus = 'not_started' | 'in_progress' | 'successful' | 'failed' | 'monitoring';
+
+/**
+ * Disease type categories
+ */
+export type DiseaseType = 'fungal' | 'bacterial' | 'viral' | 'pest' | 'nutrient' | 'environmental';
+
+/**
+ * Severity assessment levels
+ */
+export type SeverityAssessment = 'mild' | 'moderate' | 'severe' | 'critical';
+
+/**
+ * Reminder types
+ */
+export type ReminderType = 'check_progress' | 'treatment_step' | 'follow_up' | 'reapply';
+
+/**
+ * Diagnosis card (saved diagnosis with care instructions)
+ */
+export interface DiagnosisCard {
+  uuid: string;
+  diagnosis_result: string;
+  plant_scientific_name: string;
+  plant_common_name?: string;
+  custom_nickname?: string;
+  disease_name: string;
+  disease_type: DiseaseType;
+  severity_assessment: SeverityAssessment;
+  confidence_score: number;
+  care_instructions: unknown[]; // StreamField blocks
+  personal_notes?: string;
+  treatment_status: TreatmentStatus;
+  plant_recovered: boolean;
+  share_with_community: boolean;
+  is_favorite: boolean;
+  saved_at: string;
+  last_updated: string;
+}
+
+/**
+ * Create diagnosis card input
+ */
+export interface CreateDiagnosisCardInput {
+  diagnosis_result: string;
+  plant_scientific_name: string;
+  plant_common_name?: string;
+  custom_nickname?: string;
+  disease_name: string;
+  disease_type: DiseaseType;
+  severity_assessment: SeverityAssessment;
+  confidence_score: number;
+  care_instructions: unknown[]; // StreamField blocks
+  personal_notes?: string;
+  treatment_status?: TreatmentStatus;
+  share_with_community?: boolean;
+  is_favorite?: boolean;
+}
+
+/**
+ * Update diagnosis card input
+ */
+export interface UpdateDiagnosisCardInput {
+  custom_nickname?: string;
+  care_instructions?: unknown[];
+  personal_notes?: string;
+  treatment_status?: TreatmentStatus;
+  plant_recovered?: boolean;
+  share_with_community?: boolean;
+  is_favorite?: boolean;
+}
+
+/**
+ * Fetch diagnosis cards options
+ */
+export interface FetchDiagnosisCardsOptions {
+  treatment_status?: TreatmentStatus;
+  is_favorite?: boolean;
+  plant_recovered?: boolean;
+  disease_type?: DiseaseType;
+  search?: string;
+  ordering?: string;
+  page?: number;
+}
+
+/**
+ * Diagnosis reminder
+ */
+export interface DiagnosisReminder {
+  uuid: string;
+  diagnosis_card: string;
+  reminder_type: ReminderType;
+  reminder_title: string;
+  reminder_message?: string;
+  scheduled_date: string;
+  is_active: boolean;
+  sent: boolean;
+  sent_at?: string;
+  snoozed_until?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Create reminder input
+ */
+export interface CreateReminderInput {
+  diagnosis_card: string;
+  reminder_type: ReminderType;
+  reminder_title: string;
+  reminder_message?: string;
+  scheduled_date: string; // ISO date string
+}
+
+/**
+ * Fetch reminders options
+ */
+export interface FetchRemindersOptions {
+  diagnosis_card?: string;
+  is_active?: boolean;
+  sent?: boolean;
+  reminder_type?: ReminderType;
+}
+
+/**
+ * Paginated diagnosis cards response
+ */
+export interface PaginatedDiagnosisCardsResponse {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: DiagnosisCard[];
+}
+
+/**
+ * Paginated reminders response
+ */
+export interface PaginatedRemindersResponse {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: DiagnosisReminder[];
+}
