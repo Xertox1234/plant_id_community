@@ -99,10 +99,10 @@ describe('RequestContext', () => {
 
       Storage.prototype.getItem = vi.fn(() => {
         throw new Error('QuotaExceededError');
-      });
+      }) as typeof Storage.prototype.getItem;
       Storage.prototype.setItem = vi.fn(() => {
         throw new Error('QuotaExceededError');
-      });
+      }) as typeof Storage.prototype.setItem;
 
       const { result } = renderHook(() => useRequestId(), {
         wrapper: RequestProvider,
