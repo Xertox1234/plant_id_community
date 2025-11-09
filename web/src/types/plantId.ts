@@ -19,6 +19,16 @@ export interface PlantIdentificationResult {
   };
   source: string;
   image_url?: string;
+  // Properties for compatibility with IdentificationResults component
+  scientific_name?: string;
+  probability?: number;
+  similar_images?: Array<{ url: string }>;
+  suggestions?: PlantIdentificationResult[];
+  disease_suggestions?: Array<{
+    name: string;
+    probability: number;
+    description?: string;
+  }>;
 }
 
 /**

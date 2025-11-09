@@ -23,7 +23,7 @@ import { logger } from './logger'
 interface SanitizeConfig {
   ALLOWED_TAGS: readonly string[] | string[]
   ALLOWED_ATTR: readonly string[] | string[]
-  ALLOWED_CLASSES?: Record<string, string[]>
+  ALLOWED_CLASSES?: Record<string, readonly string[] | string[]>
   ALLOW_DATA_ATTR?: boolean
 }
 

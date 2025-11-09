@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { BrowserRouter, MemoryRouter } from 'react-router';
-import * as ReactRouter from 'react-router';
+import { BrowserRouter, MemoryRouter } from 'react-router-dom';
+import * as ReactRouter from 'react-router-dom';
 import ThreadListPage from './ThreadListPage';
 import { createMockCategory, createMockThread } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';

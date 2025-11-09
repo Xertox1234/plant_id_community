@@ -10,7 +10,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
 
-    /* Type Checking - LENIENT (Phase 1) */
+    /* Type Checking - LENIENT (Migration Complete - Can enable strict mode incrementally) */
     "strict": false,
     "noImplicitAny": false,
     "strictNullChecks": false,
@@ -20,8 +20,8 @@
     "noImplicitThis": false,
     "alwaysStrict": false,
 
-    /* Allow JavaScript files during migration */
-    "allowJs": true,
+    /* JavaScript files no longer needed - migration complete */
+    "allowJs": false,
     "checkJs": false,
 
     /* Interop Constraints */

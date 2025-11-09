@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { BrowserRouter } from 'react-router';
+import { BrowserRouter } from 'react-router-dom';
 import CategoryListPage from './CategoryListPage';
 import { createMockCategory } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
