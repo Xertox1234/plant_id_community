@@ -1,28 +1,43 @@
-/**
- * SaveDiagnosisModal Component
- *
- * Modal for saving identification results as a diagnosis card.
- * Allows users to add custom nickname and personal notes.
- */
-
-import { useState } from 'react'
+import { useState, FormEvent, ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createDiagnosisCard } from '../../services/diagnosisService'
-import logger from '../../utils/logger'
+import { logger } from '../../utils/logger'
 
-export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, identificationData }) {
+interface DiseaseInfo {
+  diagnosis_result_id?: string;
+  disease_name: string;
+  disease_type?: string;
+  severity?: string;
+  probability?: number;
+  care_instructions?: unknown[];
+  plant_name?: string;
+}
+
+interface IdentificationData {
+  scientific_name?: string;
+  plant_name?: string;
+}
+
+interface SaveDiagnosisModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  diseaseInfo: DiseaseInfo | null;
+  identificationData?: IdentificationData;
+}
+
+export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, identificationData }: SaveDiagnosisModalProps) {
   const navigate = useNavigate()
   const [formData, setFormData] = useState({
     custom_nickname: '',
     personal_notes: '',
   })
-  const [isSaving, setIsSaving] = useState(false)
-  const [error, setError] = useState(null)
+  const [isSaving, setIsSaving] = useState<boolean>(false)
+  const [error, setError] = useState<string | null>(null)
 
   /**
    * Handle form submission
    */
-  const handleSave = async (e) => {
+  const handleSave = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault()
 
     if (!diseaseInfo) {
@@ -35,7 +50,7 @@ export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, ident
       setError(null)
 
       // Prepare diagnosis card data
-      const cardData = {
+      const cardData: any = {
         // diagnosis_result is optional - only include if we have an ID from backend
         ...(diseaseInfo.diagnosis_result_id && { diagnosis_result: diseaseInfo.diagnosis_result_id }),
         plant_scientific_name: identificationData?.scientific_name || diseaseInfo.plant_name || 'Unknown',
@@ -62,8 +77,9 @@ export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, ident
       // Navigate to the new diagnosis card
       navigate(`/diagnosis/${createdCard.uuid}`)
     } catch (err) {
-      logger.error('[SaveDiagnosisModal] Failed to save diagnosis:', err)
-      setError(err.message || 'Failed to save diagnosis card')
+      const error = err as Error;
+      logger.error('[SaveDiagnosisModal] Failed to save diagnosis:', error)
+      setError(error.message || 'Failed to save diagnosis card')
       setIsSaving(false)
     }
   }
@@ -125,7 +141,7 @@ export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, ident
                 type="text"
                 id="nickname"
                 value={formData.custom_nickname}
-                onChange={(e) => setFormData({ ...formData, custom_nickname: e.target.value })}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, custom_nickname: e.target.value })}
                 placeholder="e.g., Kitchen Aloe, Balcony Tomato"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
               />
@@ -142,9 +158,9 @@ export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, ident
               <textarea
                 id="notes"
                 value={formData.personal_notes}
-                onChange={(e) => setFormData({ ...formData, personal_notes: e.target.value })}
+                onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setFormData({ ...formData, personal_notes: e.target.value })}
                 placeholder="Add any observations or notes about the plant's condition..."
-                rows="4"
+                rows={4}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
               />
             </div>

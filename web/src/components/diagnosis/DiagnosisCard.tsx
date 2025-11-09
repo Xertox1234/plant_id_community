@@ -1,20 +1,14 @@
-/**
- * DiagnosisCard Component
- *
- * Displays a plant diagnosis card with disease information, treatment status,
- * and quick actions (favorite, view details, delete).
- */
-
 import { Link } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, MouseEvent } from 'react'
 import { toggleFavorite, deleteDiagnosisCard } from '../../services/diagnosisService'
-import logger from '../../utils/logger'
+import { logger } from '../../utils/logger'
+import type { DiagnosisCard as DiagnosisCardType } from '@/types/diagnosis'
 
 /**
  * Get status badge color based on treatment status
  */
-function getStatusColor(status) {
-  const colors = {
+function getStatusColor(status: string): string {
+  const colors: Record<string, string> = {
     not_started: 'bg-gray-100 text-gray-800',
     in_progress: 'bg-blue-100 text-blue-800',
     successful: 'bg-green-100 text-green-800',
@@ -27,8 +21,8 @@ function getStatusColor(status) {
 /**
  * Get severity badge color
  */
-function getSeverityColor(severity) {
-  const colors = {
+function getSeverityColor(severity: string): string {
+  const colors: Record<string, string> = {
     mild: 'bg-green-50 text-green-700 ring-green-600/20',
     moderate: 'bg-yellow-50 text-yellow-700 ring-yellow-600/20',
     severe: 'bg-orange-50 text-orange-700 ring-orange-600/20',
@@ -40,7 +34,7 @@ function getSeverityColor(severity) {
 /**
  * Format date to readable string
  */
-function formatDate(dateString) {
+function formatDate(dateString: string): string {
   const date = new Date(dateString)
   return new Intl.DateTimeFormat('en-US', {
     year: 'numeric',
@@ -49,15 +43,22 @@ function formatDate(dateString) {
   }).format(date)
 }
 
-export default function DiagnosisCard({ card, onUpdate, onDelete, compact = false }) {
-  const [isFavorite, setIsFavorite] = useState(card.is_favorite)
-  const [isDeleting, setIsDeleting] = useState(false)
-  const [isTogglingFavorite, setIsTogglingFavorite] = useState(false)
+interface DiagnosisCardProps {
+  card: DiagnosisCardType;
+  onUpdate?: (card: DiagnosisCardType) => void;
+  onDelete?: (uuid: string) => void;
+  compact?: boolean;
+}
+
+export default function DiagnosisCard({ card, onUpdate, onDelete, compact = false }: DiagnosisCardProps) {
+  const [isFavorite, setIsFavorite] = useState<boolean>(card.is_favorite)
+  const [isDeleting, setIsDeleting] = useState<boolean>(false)
+  const [isTogglingFavorite, setIsTogglingFavorite] = useState<boolean>(false)
 
   /**
    * Handle favorite toggle
    */
-  const handleToggleFavorite = async (e) => {
+  const handleToggleFavorite = async (e: MouseEvent<HTMLButtonElement>): Promise<void> => {
     e.preventDefault() // Prevent navigation
     e.stopPropagation()
 
@@ -78,7 +79,7 @@ export default function DiagnosisCard({ card, onUpdate, onDelete, compact = fals
   /**
    * Handle card deletion
    */
-  const handleDelete = async (e) => {
+  const handleDelete = async (e: MouseEvent<HTMLButtonElement>): Promise<void> => {
     e.preventDefault()
     e.stopPropagation()
 

@@ -1,8 +1,16 @@
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
-import PropTypes from 'prop-types';
+import { ReactNode } from 'react';
+
+interface TipTapEditorProps {
+  content?: string;
+  onChange?: (html: string) => void;
+  placeholder?: string;
+  editable?: boolean;
+  className?: string;
+}
 
 /**
  * TipTapEditor Component
@@ -16,7 +24,7 @@ export default function TipTapEditor({
   placeholder = 'Write your post...',
   editable = true,
   className = '',
-}) {
+}: TipTapEditorProps) {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -177,7 +185,14 @@ export default function TipTapEditor({
 }
 
 // Toolbar button component
-function ToolbarButton({ onClick, isActive, title, children }) {
+interface ToolbarButtonProps {
+  onClick: () => void;
+  isActive?: boolean;
+  title?: string;
+  children: ReactNode;
+}
+
+function ToolbarButton({ onClick, isActive, title, children }: ToolbarButtonProps) {
   return (
     <button
       onClick={onClick}
@@ -195,18 +210,3 @@ function ToolbarButton({ onClick, isActive, title, children }) {
     </button>
   );
 }
-
-ToolbarButton.propTypes = {
-  onClick: PropTypes.func.isRequired,
-  isActive: PropTypes.bool,
-  title: PropTypes.string,
-  children: PropTypes.node.isRequired,
-};
-
-TipTapEditor.propTypes = {
-  content: PropTypes.string,
-  onChange: PropTypes.func,
-  placeholder: PropTypes.string,
-  editable: PropTypes.bool,
-  className: PropTypes.string,
-};

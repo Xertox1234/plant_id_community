@@ -1,15 +1,4 @@
-/**
- * ReminderManager Component
- *
- * Manage reminders for a diagnosis card:
- * - View active reminders
- * - Create new reminders
- * - Snooze reminders
- * - Cancel reminders
- * - Acknowledge reminders
- */
-
-import { useState, useEffect } from 'react'
+import { useState, useEffect, FormEvent, ChangeEvent } from 'react'
 import {
   fetchReminders,
   createReminder,
@@ -17,15 +6,16 @@ import {
   cancelReminder,
   deleteReminder,
 } from '../../services/diagnosisService'
-import logger from '../../utils/logger'
+import { logger } from '../../utils/logger'
+import type { DiagnosisReminder, ReminderType, PaginatedRemindersResponse } from '@/types/diagnosis'
 
 /**
  * Format date to readable string
  */
-function formatDate(dateString) {
+function formatDate(dateString: string): string {
   const date = new Date(dateString)
   const now = new Date()
-  const diffMs = date - now
+  const diffMs = date.getTime() - now.getTime()
   const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
 
   // If within 7 days, show relative
@@ -45,7 +35,7 @@ function formatDate(dateString) {
 /**
  * Reminder type options
  */
-const REMINDER_TYPES = [
+const REMINDER_TYPES: Array<{ value: ReminderType; label: string }> = [
   { value: 'check_progress', label: 'Check Progress' },
   { value: 'treatment_step', label: 'Treatment Step' },
   { value: 'follow_up', label: 'Follow-up' },
@@ -55,12 +45,18 @@ const REMINDER_TYPES = [
 /**
  * Individual reminder card
  */
-function ReminderCard({ reminder, onUpdate, onDelete }) {
-  const [isSnoozing, setIsSnoozing] = useState(false)
-  const [isCancelling, setIsCancelling] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
+interface ReminderCardProps {
+  reminder: DiagnosisReminder;
+  onUpdate: (reminder: DiagnosisReminder) => void;
+  onDelete: (uuid: string) => void;
+}
 
-  const handleSnooze = async (hours) => {
+function ReminderCard({ reminder, onUpdate, onDelete }: ReminderCardProps) {
+  const [isSnoozing, setIsSnoozing] = useState<boolean>(false)
+  const [isCancelling, setIsCancelling] = useState<boolean>(false)
+  const [isDeleting, setIsDeleting] = useState<boolean>(false)
+
+  const handleSnooze = async (hours: number): Promise<void> => {
     try {
       setIsSnoozing(true)
       const updated = await snoozeReminder(reminder.uuid, hours)
@@ -74,7 +70,7 @@ function ReminderCard({ reminder, onUpdate, onDelete }) {
     }
   }
 
-  const handleCancel = async () => {
+  const handleCancel = async (): Promise<void> => {
     if (!confirm('Are you sure you want to cancel this reminder?')) {
       return
     }
@@ -92,7 +88,7 @@ function ReminderCard({ reminder, onUpdate, onDelete }) {
     }
   }
 
-  const handleDelete = async () => {
+  const handleDelete = async (): Promise<void> => {
     if (!confirm('Are you sure you want to delete this reminder permanently?')) {
       return
     }
@@ -201,20 +197,24 @@ function ReminderCard({ reminder, onUpdate, onDelete }) {
 /**
  * Main ReminderManager Component
  */
-export default function ReminderManager({ diagnosisCardUuid }) {
-  const [reminders, setReminders] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+interface ReminderManagerProps {
+  diagnosisCardUuid: string;
+}
+
+export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerProps) {
+  const [reminders, setReminders] = useState<DiagnosisReminder[]>([])
+  const [loading, setLoading] = useState<boolean>(true)
+  const [error, setError] = useState<string | null>(null)
 
   // Create reminder form
-  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [showCreateForm, setShowCreateForm] = useState<boolean>(false)
   const [formData, setFormData] = useState({
-    reminder_type: 'check_progress',
+    reminder_type: 'check_progress' as ReminderType,
     reminder_title: '',
     reminder_message: '',
     scheduled_date: '',
   })
-  const [isCreating, setIsCreating] = useState(false)
+  const [isCreating, setIsCreating] = useState<boolean>(false)
 
   /**
    * Load reminders
@@ -223,12 +223,12 @@ export default function ReminderManager({ diagnosisCardUuid }) {
     loadReminders()
   }, [diagnosisCardUuid])
 
-  const loadReminders = async () => {
+  const loadReminders = async (): Promise<void> => {
     try {
       setLoading(true)
       setError(null)
 
-      const data = await fetchReminders({
+      const data: PaginatedRemindersResponse = await fetchReminders({
         diagnosis_card: diagnosisCardUuid,
         is_active: true,
       })
@@ -238,8 +238,9 @@ export default function ReminderManager({ diagnosisCardUuid }) {
         count: data.results?.length || 0,
       })
     } catch (err) {
-      logger.error('[ReminderManager] Failed to load reminders:', err)
-      setError(err.message || 'Failed to load reminders')
+      const error = err as Error;
+      logger.error('[ReminderManager] Failed to load reminders:', error)
+      setError(error.message || 'Failed to load reminders')
     } finally {
       setLoading(false)
     }
@@ -248,7 +249,7 @@ export default function ReminderManager({ diagnosisCardUuid }) {
   /**
    * Handle reminder update
    */
-  const handleReminderUpdate = (updatedReminder) => {
+  const handleReminderUpdate = (updatedReminder: DiagnosisReminder): void => {
     setReminders(reminders.map(r =>
       r.uuid === updatedReminder.uuid ? updatedReminder : r
     ))
@@ -257,14 +258,14 @@ export default function ReminderManager({ diagnosisCardUuid }) {
   /**
    * Handle reminder deletion
    */
-  const handleReminderDelete = (uuid) => {
+  const handleReminderDelete = (uuid: string): void => {
     setReminders(reminders.filter(r => r.uuid !== uuid))
   }
 
   /**
    * Handle create reminder
    */
-  const handleCreateReminder = async (e) => {
+  const handleCreateReminder = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault()
 
     if (!formData.reminder_title || !formData.scheduled_date) {
@@ -291,8 +292,9 @@ export default function ReminderManager({ diagnosisCardUuid }) {
 
       logger.info('[ReminderManager] Created reminder', { uuid: newReminder.uuid })
     } catch (err) {
-      logger.error('[ReminderManager] Failed to create reminder:', err)
-      alert(`Failed to create reminder: ${err.message}`)
+      const error = err as Error;
+      logger.error('[ReminderManager] Failed to create reminder:', error)
+      alert(`Failed to create reminder: ${error.message}`)
     } finally {
       setIsCreating(false)
     }
@@ -301,7 +303,7 @@ export default function ReminderManager({ diagnosisCardUuid }) {
   /**
    * Get minimum date for reminder (tomorrow)
    */
-  const getMinDate = () => {
+  const getMinDate = (): string => {
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
     return tomorrow.toISOString().split('T')[0]
@@ -350,7 +352,7 @@ export default function ReminderManager({ diagnosisCardUuid }) {
             <select
               id="reminder-type"
               value={formData.reminder_type}
-              onChange={(e) => setFormData({ ...formData, reminder_type: e.target.value })}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) => setFormData({ ...formData, reminder_type: e.target.value as ReminderType })}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
             >
               {REMINDER_TYPES.map(type => (
@@ -369,7 +371,7 @@ export default function ReminderManager({ diagnosisCardUuid }) {
               type="text"
               id="reminder-title"
               value={formData.reminder_title}
-              onChange={(e) => setFormData({ ...formData, reminder_title: e.target.value })}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, reminder_title: e.target.value })}
               placeholder="e.g., Check for new growth"
               required
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
@@ -383,9 +385,9 @@ export default function ReminderManager({ diagnosisCardUuid }) {
             <textarea
               id="reminder-message"
               value={formData.reminder_message}
-              onChange={(e) => setFormData({ ...formData, reminder_message: e.target.value })}
+              onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setFormData({ ...formData, reminder_message: e.target.value })}
               placeholder="Additional notes or instructions..."
-              rows="3"
+              rows={3}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
             />
           </div>
@@ -398,7 +400,7 @@ export default function ReminderManager({ diagnosisCardUuid }) {
               type="date"
               id="scheduled-date"
               value={formData.scheduled_date}
-              onChange={(e) => setFormData({ ...formData, scheduled_date: e.target.value })}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, scheduled_date: e.target.value })}
               min={getMinDate()}
               required
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"

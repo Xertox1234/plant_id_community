@@ -1,7 +1,35 @@
 import { Loader2, Check } from 'lucide-react'
 import { getPlantKey } from '../../utils/plantUtils'
 
-export default function IdentificationResults({ results, loading, error, onSavePlant, savedPlants, savingPlant }) {
+interface PlantSuggestion {
+  plant_name: string;
+  scientific_name?: string;
+  probability: number;
+  description?: string;
+  similar_images?: Array<{ url: string }>;
+}
+
+interface DiseaseSuggestion {
+  name: string;
+  probability: number;
+  description?: string;
+}
+
+interface IdentificationResult {
+  suggestions?: PlantSuggestion[];
+  disease_suggestions?: DiseaseSuggestion[];
+}
+
+interface IdentificationResultsProps {
+  results: IdentificationResult | null;
+  loading: boolean;
+  error: string | null;
+  onSavePlant?: (plant: PlantSuggestion) => void;
+  savedPlants?: Set<string>;
+  savingPlant?: string | null;
+}
+
+export default function IdentificationResults({ results, loading, error, onSavePlant, savedPlants, savingPlant }: IdentificationResultsProps) {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-12">

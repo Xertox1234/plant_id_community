@@ -83,14 +83,18 @@ export interface DiagnosisCard {
   plant_scientific_name: string;
   plant_common_name?: string;
   custom_nickname?: string;
+  display_name: string; // Derived field (custom_nickname || plant_common_name || plant_scientific_name)
   disease_name: string;
   disease_type: DiseaseType;
+  disease_type_display?: string; // Human-readable disease type
   severity_assessment: SeverityAssessment;
+  severity_display: string; // Human-readable severity
   confidence_score: number;
   care_instructions: unknown[]; // StreamField blocks
   personal_notes?: string;
   treatment_status: TreatmentStatus;
-  plant_recovered: boolean;
+  treatment_status_display: string; // Human-readable treatment status
+  plant_recovered: boolean | null;
   share_with_community: boolean;
   is_favorite: boolean;
   saved_at: string;
@@ -149,6 +153,7 @@ export interface DiagnosisReminder {
   uuid: string;
   diagnosis_card: string;
   reminder_type: ReminderType;
+  reminder_type_display: string; // Human-readable reminder type
   reminder_title: string;
   reminder_message?: string;
   scheduled_date: string;
@@ -156,6 +161,7 @@ export interface DiagnosisReminder {
   sent: boolean;
   sent_at?: string;
   snoozed_until?: string;
+  cancelled?: boolean;
   created_at: string;
   updated_at: string;
 }

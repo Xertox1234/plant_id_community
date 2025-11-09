@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import PropTypes from 'prop-types';
+import { FallbackProps } from 'react-error-boundary';
 
 /**
  * Error Fallback Component
@@ -7,7 +7,7 @@ import PropTypes from 'prop-types';
  * Displayed when an error is caught by the ErrorBoundary.
  * Provides user-friendly error message and recovery options.
  */
-export function ErrorFallback({ error, resetErrorBoundary }) {
+export function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
   const handleReload = useCallback(() => {
     window.location.href = '/';
   }, []);
@@ -93,11 +93,3 @@ export function ErrorFallback({ error, resetErrorBoundary }) {
     </div>
   );
 }
-
-ErrorFallback.propTypes = {
-  error: PropTypes.shape({
-    message: PropTypes.string,
-    stack: PropTypes.string,
-  }),
-  resetErrorBoundary: PropTypes.func.isRequired,
-};

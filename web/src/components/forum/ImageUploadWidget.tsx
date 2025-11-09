@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, ChangeEvent, DragEvent, KeyboardEvent } from 'react';
 import { uploadPostImage, deletePostImage } from '../../services/forumService';
 import Button from '../ui/Button';
 import { logger } from '../../utils/logger';
@@ -11,6 +11,14 @@ import {
   INVALID_TYPE_ERROR,
   MAX_FILE_SIZE_MB
 } from '../../utils/constants';
+import type { Attachment } from '@/types';
+
+interface ImageUploadWidgetProps {
+  postId: string;
+  attachments?: Attachment[];
+  onUploadComplete?: (attachment: Attachment) => void;
+  onDeleteComplete?: (attachmentId: string) => void;
+}
 
 /**
  * ImageUploadWidget Component
@@ -24,28 +32,22 @@ import {
  * - Delete uploaded images
  * - Validation (max 6 images, 10MB per image, image types only)
  * - Progress indication
- *
- * @param {Object} props
- * @param {string} props.postId - Post UUID
- * @param {Array} props.attachments - Current attachments array
- * @param {Function} props.onUploadComplete - Callback when upload completes
- * @param {Function} props.onDeleteComplete - Callback when delete completes
  */
 export default function ImageUploadWidget({
   postId,
   attachments = [],
   onUploadComplete,
   onDeleteComplete,
-}) {
-  const [isDragging, setIsDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState(null);
-  const fileInputRef = useRef(null);
+}: ImageUploadWidgetProps) {
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [uploading, setUploading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   /**
    * Validate image file
    */
-  const validateFile = (file) => {
+  const validateFile = (file: File): void => {
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
       throw new Error(INVALID_TYPE_ERROR);
     }
@@ -62,7 +64,7 @@ export default function ImageUploadWidget({
   /**
    * Handle file selection or drop
    */
-  const handleFiles = async (files) => {
+  const handleFiles = async (files: File[]): Promise<void> => {
     setError(null);
 
     // Only process first file if multiple selected
@@ -90,11 +92,12 @@ export default function ImageUploadWidget({
         onUploadComplete(attachment);
       }
     } catch (err) {
+      const error = err as Error;
       logger.error('[IMAGE_UPLOAD] Upload failed', {
         postId,
-        error: err.message,
+        error: error.message,
       });
-      setError(err.message);
+      setError(error.message);
     } finally {
       setUploading(false);
       // Reset file input
@@ -107,15 +110,15 @@ export default function ImageUploadWidget({
   /**
    * Handle file input change
    */
-  const handleFileInput = (e) => {
-    const files = Array.from(e.target.files);
+  const handleFileInput = (e: ChangeEvent<HTMLInputElement>): void => {
+    const files = Array.from(e.target.files || []);
     handleFiles(files);
   };
 
   /**
    * Handle drag over
    */
-  const handleDragOver = (e) => {
+  const handleDragOver = (e: DragEvent<HTMLDivElement>): void => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(true);
@@ -124,7 +127,7 @@ export default function ImageUploadWidget({
   /**
    * Handle drag leave
    */
-  const handleDragLeave = (e) => {
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>): void => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
@@ -133,7 +136,7 @@ export default function ImageUploadWidget({
   /**
    * Handle drop
    */
-  const handleDrop = (e) => {
+  const handleDrop = (e: DragEvent<HTMLDivElement>): void => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
@@ -145,7 +148,7 @@ export default function ImageUploadWidget({
   /**
    * Handle delete image
    */
-  const handleDelete = async (attachmentId) => {
+  const handleDelete = async (attachmentId: string): Promise<void> => {
     try {
       setError(null);
       logger.info('[IMAGE_UPLOAD] Deleting image', {
@@ -164,19 +167,20 @@ export default function ImageUploadWidget({
         onDeleteComplete(attachmentId);
       }
     } catch (err) {
+      const error = err as Error;
       logger.error('[IMAGE_UPLOAD] Delete failed', {
         postId,
         attachmentId,
-        error: err.message,
+        error: error.message,
       });
-      setError(err.message);
+      setError(error.message);
     }
   };
 
   /**
    * Open file picker
    */
-  const handleClick = () => {
+  const handleClick = (): void => {
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
@@ -198,7 +202,7 @@ export default function ImageUploadWidget({
         role="button"
         tabIndex={0}
         aria-label="Upload image"
-        onKeyPress={(e) => {
+        onKeyPress={(e: KeyboardEvent<HTMLDivElement>) => {
           if (e.key === 'Enter' || e.key === ' ') {
             handleClick();
           }

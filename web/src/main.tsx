@@ -1,14 +1,14 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
-import { ErrorBoundary } from 'react-error-boundary'
+import { ErrorBoundary, FallbackProps } from 'react-error-boundary'
 import { AuthProvider } from './contexts/AuthContext'
 import { RequestProvider } from './contexts/RequestContext'
 import { ErrorFallback } from './components/ErrorBoundary'
 import { initSentry } from './config/sentry'
 import { logger, initLogger } from './utils/logger'
 import './index.css'
-import App from './App.jsx'
+import App from './App'
 
 // Initialize Sentry error tracking (production only)
 initSentry()
@@ -55,11 +55,11 @@ initLogger({
  * - Sentry logs errors to monitoring service (production)
  * - ErrorFallback provides user-friendly error UI with recovery options
  */
-createRoot(document.getElementById('root')).render(
+createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary
       FallbackComponent={ErrorFallback}
-      onError={(error, errorInfo) => {
+      onError={(error: Error, errorInfo: { componentStack: string }) => {
         // Log errors using structured logger
         logger.error('ErrorBoundary caught error', {
           component: 'ErrorBoundary',

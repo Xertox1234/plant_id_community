@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import PropTypes from 'prop-types';
 import { createSafeMarkup } from '../utils/domSanitizer';
+import type { StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
 
 /**
  * SafeHTML Component
@@ -8,8 +8,13 @@ import { createSafeMarkup } from '../utils/domSanitizer';
  * Wrapper component that handles async HTML sanitization with DOMPurify.
  * DOMPurify is dynamically imported to reduce initial bundle size.
  */
-function SafeHTML({ html, className = '' }) {
-  const [safeMarkup, setSafeMarkup] = useState(null);
+interface SafeHTMLProps {
+  html: string;
+  className?: string;
+}
+
+function SafeHTML({ html, className = '' }: SafeHTMLProps) {
+  const [safeMarkup, setSafeMarkup] = useState<{ __html: string } | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -32,18 +37,17 @@ function SafeHTML({ html, className = '' }) {
   return <div className={className} dangerouslySetInnerHTML={safeMarkup} />;
 }
 
-SafeHTML.propTypes = {
-  html: PropTypes.string.isRequired,
-  className: PropTypes.string,
-};
-
 /**
  * StreamFieldRenderer Component
  *
  * Renders Wagtail StreamField blocks based on their type.
  * Supports all standard blog content blocks.
  */
-export default function StreamFieldRenderer({ blocks }) {
+interface StreamFieldRendererProps {
+  blocks: StreamFieldBlockType[];
+}
+
+export default function StreamFieldRenderer({ blocks }: StreamFieldRendererProps) {
   if (!blocks || blocks.length === 0) {
     return null;
   }
@@ -57,37 +61,31 @@ export default function StreamFieldRenderer({ blocks }) {
   );
 }
 
-StreamFieldRenderer.propTypes = {
-  blocks: PropTypes.arrayOf(
-    PropTypes.shape({
-      id: PropTypes.string,
-      type: PropTypes.string.isRequired,
-      value: PropTypes.any.isRequired,
-    })
-  ).isRequired,
-};
-
 /**
  * StreamFieldBlock Component
  *
  * Renders individual StreamField blocks based on their type.
  */
-function StreamFieldBlock({ block }) {
+interface StreamFieldBlockProps {
+  block: StreamFieldBlockType;
+}
+
+function StreamFieldBlock({ block }: StreamFieldBlockProps) {
   const { type, value } = block;
 
   switch (type) {
     case 'heading':
-      return <h2 className="text-3xl font-bold mt-8 mb-4 text-gray-900">{value}</h2>;
+      return <h2 className="text-3xl font-bold mt-8 mb-4 text-gray-900">{value as string}</h2>;
 
     case 'paragraph':
-      return <SafeHTML html={value} className="mb-4 text-gray-700 leading-relaxed" />;
+      return <SafeHTML html={value as string} className="mb-4 text-gray-700 leading-relaxed" />;
 
     // Removed: image block (no backend definition, use paragraph with embedded images)
 
     case 'quote': {
       // Handle both possible quote structures
-      const quoteText = typeof value === 'string' ? value : (value.quote || value.quote_text || '');
-      const attribution = typeof value === 'object' ? value.attribution : null;
+      const quoteText = typeof value === 'string' ? value : ((value as any).quote || (value as any).quote_text || '');
+      const attribution = typeof value === 'object' ? (value as any).attribution : null;
 
       return (
         <blockquote className="border-l-4 border-green-600 pl-6 py-4 my-8 italic text-gray-700 bg-gray-50 rounded-r-lg">
@@ -104,8 +102,8 @@ function StreamFieldBlock({ block }) {
     case 'code':
       return (
         <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto my-6 shadow-inner">
-          <code className={`language-${value.language || 'text'}`}>
-            {value.code}
+          <code className={`language-${(value as any).language || 'text'}`}>
+            {(value as any).code}
           </code>
         </pre>
       );
@@ -114,17 +112,17 @@ function StreamFieldBlock({ block }) {
       return (
         <div className="my-8 p-6 bg-green-50 border-2 border-green-200 rounded-lg shadow-sm">
           <h3 className="text-2xl font-bold text-gray-900 mb-3">
-            🌿 {value.heading}
+            🌿 {(value as any).heading}
           </h3>
-          {value.image && (
+          {(value as any).image && (
             <img
-              src={value.image.url}
-              alt={value.heading}
+              src={(value as any).image.url}
+              alt={(value as any).heading}
               className="w-full h-64 object-cover rounded-lg mb-4 shadow-md"
             />
           )}
-          <SafeHTML html={value.description} className="text-gray-700 mb-4" />
-          {value.care_level && (
+          <SafeHTML html={(value as any).description} className="text-gray-700 mb-4" />
+          {(value as any).care_level && (
             <p className="mt-4 text-sm font-semibold text-green-700 flex items-center">
               <svg
                 className="w-5 h-5 mr-2"
@@ -133,7 +131,7 @@ function StreamFieldBlock({ block }) {
               >
                 <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
               </svg>
-              Care Level: {value.care_level}
+              Care Level: {(value as any).care_level}
             </p>
           )}
         </div>
@@ -142,13 +140,13 @@ function StreamFieldBlock({ block }) {
     case 'call_to_action':
       return (
         <div className="my-8 p-8 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg text-center shadow-lg">
-          <h3 className="text-2xl font-bold mb-2">{value.heading}</h3>
-          <p className="mb-6 text-green-50">{value.description}</p>
+          <h3 className="text-2xl font-bold mb-2">{(value as any).heading}</h3>
+          <p className="mb-6 text-green-50">{(value as any).description}</p>
           <a
-            href={value.button_url}
+            href={(value as any).button_url}
             className="inline-block px-8 py-3 bg-white text-green-600 font-semibold rounded-lg hover:bg-gray-100 transition-colors shadow-md"
           >
-            {value.button_text}
+            {(value as any).button_text}
           </a>
         </div>
       );
@@ -166,11 +164,3 @@ function StreamFieldBlock({ block }) {
       );
   }
 }
-
-StreamFieldBlock.propTypes = {
-  block: PropTypes.shape({
-    type: PropTypes.string.isRequired,
-    value: PropTypes.any.isRequired,
-    id: PropTypes.string,
-  }).isRequired,
-};

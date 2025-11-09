@@ -71,7 +71,8 @@ export interface Post {
 export interface Attachment {
   id: string;
   image: string;
-  thumbnail?: string;
+  image_thumbnail?: string; // Thumbnail URL
+  thumbnail?: string; // Alias for compatibility
   uploaded_at: string;
 }
 

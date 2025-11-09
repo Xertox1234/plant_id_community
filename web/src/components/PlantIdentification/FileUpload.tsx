@@ -1,13 +1,24 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, ChangeEvent, DragEvent } from 'react'
 import { Upload, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { compressImage, formatFileSize, shouldCompressImage } from '../../utils/imageCompression'
 
-export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 }) {
-  const [dragActive, setDragActive] = useState(false)
-  const [error, setError] = useState(null)
-  const [preview, setPreview] = useState(null)
-  const [isCompressing, setIsCompressing] = useState(false)
-  const [compressionStats, setCompressionStats] = useState(null)
+interface FileUploadProps {
+  onFileSelect: (file: File | null) => void;
+  maxSize?: number;
+}
+
+interface CompressionStats {
+  originalSize: number;
+  compressedSize: number;
+  reduction: number;
+}
+
+export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 }: FileUploadProps) {
+  const [dragActive, setDragActive] = useState<boolean>(false)
+  const [error, setError] = useState<string | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
+  const [isCompressing, setIsCompressing] = useState<boolean>(false)
+  const [compressionStats, setCompressionStats] = useState<CompressionStats | null>(null)
 
   // Cleanup Object URL when component unmounts or preview changes
   useEffect(() => {
@@ -18,7 +29,7 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
     }
   }, [preview])
 
-  const validateFile = useCallback((file) => {
+  const validateFile = useCallback((file: File): boolean => {
     // Check file type
     if (!file.type.startsWith('image/')) {
       setError('Please upload an image file')
@@ -35,9 +46,9 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
     return true
   }, [maxSize])
 
-  const handleFile = useCallback(async (file) => {
+  const handleFile = useCallback(async (file: File): Promise<void> => {
     if (validateFile(file)) {
-      let finalFile = file
+      let finalFile: File = file
       const originalSize = file.size
 
       // Compress if file > 2MB
@@ -78,7 +89,7 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
     }
   }, [onFileSelect, validateFile])
 
-  const handleDrag = useCallback((e) => {
+  const handleDrag = useCallback((e: DragEvent<HTMLDivElement>): void => {
     e.preventDefault()
     e.stopPropagation()
     if (e.type === 'dragenter' || e.type === 'dragover') {
@@ -88,7 +99,7 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
     }
   }, [])
 
-  const handleDrop = useCallback((e) => {
+  const handleDrop = useCallback((e: DragEvent<HTMLDivElement>): void => {
     e.preventDefault()
     e.stopPropagation()
     setDragActive(false)
@@ -98,14 +109,14 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 })
     }
   }, [handleFile])
 
-  const handleChange = (e) => {
+  const handleChange = (e: ChangeEvent<HTMLInputElement>): void => {
     e.preventDefault()
     if (e.target.files && e.target.files[0]) {
       handleFile(e.target.files[0])
     }
   }
 
-  const clearPreview = useCallback(() => {
+  const clearPreview = useCallback((): void => {
     // Cleanup Object URL before clearing preview
     if (preview && preview.startsWith('blob:')) {
       URL.revokeObjectURL(preview)
