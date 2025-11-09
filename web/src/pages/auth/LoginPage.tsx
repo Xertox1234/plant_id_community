@@ -126,7 +126,7 @@ export default function LoginPage() {
       } else {
         // Show error from backend (sanitized to prevent XSS)
         const rawError = result.error || 'Login failed. Please try again.'
-        setServerError(sanitizeError(rawError))
+        setServerError(String(sanitizeError(rawError)))
       }
     } catch (error) {
       logger.error('[LoginPage] Login error:', error)

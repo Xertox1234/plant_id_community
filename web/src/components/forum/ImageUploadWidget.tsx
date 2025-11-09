@@ -48,7 +48,7 @@ export default function ImageUploadWidget({
    * Validate image file
    */
   const validateFile = (file: File): void => {
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type as typeof ALLOWED_IMAGE_TYPES[number])) {
       throw new Error(INVALID_TYPE_ERROR);
     }
 
@@ -272,8 +272,8 @@ export default function ImageUploadWidget({
               <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-opacity flex items-center justify-center">
                 <Button
                   onClick={() => handleDelete(attachment.id)}
-                  variant="danger"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity"
+                  variant="secondary"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-600 hover:bg-red-700 text-white"
                   aria-label="Delete image"
                 >
                   Delete

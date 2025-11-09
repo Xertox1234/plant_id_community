@@ -16,6 +16,8 @@ export interface User {
   trust_level?: 'new' | 'basic' | 'trusted' | 'veteran' | 'expert';
   date_joined?: string;
   is_active?: boolean;
+  is_staff?: boolean; // Django staff user
+  is_moderator?: boolean; // Forum moderator
 }
 
 /**
@@ -30,9 +32,12 @@ export interface LoginCredentials {
  * Signup data (matches frontend form)
  */
 export interface SignupData {
+  username: string;
+  first_name: string;
+  last_name: string;
   email: string;
-  name: string;
   password: string;
+  confirmPassword?: string; // Optional for frontend validation
 }
 
 /**

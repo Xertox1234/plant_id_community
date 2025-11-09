@@ -3,6 +3,15 @@
  */
 
 /**
+ * Diagnosis StreamField block types
+ */
+export interface DiagnosisBlock {
+  type: 'heading' | 'paragraph' | 'treatment_step' | 'symptom_check' | 'prevention_tip' | 'list_block';
+  value: unknown;
+  id?: string;
+}
+
+/**
  * Plant identification result
  */
 export interface PlantIdentification {

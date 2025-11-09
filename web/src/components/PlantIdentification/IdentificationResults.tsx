@@ -1,31 +1,13 @@
 import { Loader2, Check } from 'lucide-react'
 import { getPlantKey } from '../../utils/plantUtils'
-
-interface PlantSuggestion {
-  plant_name: string;
-  scientific_name?: string;
-  probability: number;
-  description?: string;
-  similar_images?: Array<{ url: string }>;
-}
-
-interface DiseaseSuggestion {
-  name: string;
-  probability: number;
-  description?: string;
-}
-
-interface IdentificationResult {
-  suggestions?: PlantSuggestion[];
-  disease_suggestions?: DiseaseSuggestion[];
-}
+import type { PlantIdentificationResult } from '@/types'
 
 interface IdentificationResultsProps {
-  results: IdentificationResult | null;
+  results: PlantIdentificationResult | null;
   loading: boolean;
   error: string | null;
-  onSavePlant?: (plant: PlantSuggestion) => void;
-  savedPlants?: Set<string>;
+  onSavePlant?: (plant: PlantIdentificationResult) => void;
+  savedPlants?: Map<string, boolean>;
   savingPlant?: string | null;
 }
 

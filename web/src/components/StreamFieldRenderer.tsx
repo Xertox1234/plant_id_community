@@ -74,8 +74,10 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
   const { type, value } = block;
 
   switch (type) {
-    case 'heading':
-      return <h2 className="text-3xl font-bold mt-8 mb-4 text-gray-900">{value as string}</h2>;
+    case 'heading': {
+      const headingValue = typeof value === 'string' ? value : (value as any)?.text || '';
+      return <h2 className="text-3xl font-bold mt-8 mb-4 text-gray-900">{headingValue}</h2>;
+    }
 
     case 'paragraph':
       return <SafeHTML html={value as string} className="mb-4 text-gray-700 leading-relaxed" />;

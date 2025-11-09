@@ -41,6 +41,7 @@ export type {
   CodeBlock,
   ListBlock,
   BlogPost,
+  BlogCategory,
 } from './blog';
 
 // Plant Identification types
@@ -54,6 +55,7 @@ export type {
 
 // Diagnosis types
 export type {
+  DiagnosisBlock,
   PlantIdentification,
   DiagnosisRequest,
   DiagnosisResponse,

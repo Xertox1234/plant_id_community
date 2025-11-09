@@ -155,7 +155,7 @@ export default function SignupPage() {
       } else {
         // Show error from backend (sanitized to prevent XSS)
         const rawError = result.error || 'Signup failed. Please try again.'
-        setServerError(sanitizeError(rawError))
+        setServerError(String(sanitizeError(rawError)))
       }
     } catch (error) {
       logger.error('[SignupPage] Signup error:', error)

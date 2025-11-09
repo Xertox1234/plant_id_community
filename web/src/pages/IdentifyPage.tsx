@@ -6,7 +6,7 @@ import IdentificationResults from '../components/PlantIdentification/Identificat
 import { plantIdService } from '../services/plantIdService'
 import { useAuth } from '../contexts/AuthContext'
 import { getPlantKey } from '../utils/plantUtils'
-import type { IdentificationResult, PlantSuggestion } from '@/types'
+import type { PlantIdentificationResult } from '@/types'
 
 interface InfoCardProps {
   title: string
@@ -22,7 +22,7 @@ interface InfoCardProps {
  */
 export default function IdentifyPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [results, setResults] = useState<IdentificationResult | null>(null)
+  const [results, setResults] = useState<PlantIdentificationResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null) // Separate error state for save operations
@@ -50,14 +50,7 @@ export default function IdentifyPage() {
 
     try {
       const data = await plantIdService.identifyPlant(selectedFile)
-
-      // Check if the response indicates failure
-      if (data.success === false || data.error) {
-        setError(data.error || 'Identification failed')
-        setResults(null)
-      } else {
-        setResults(data)
-      }
+      setResults(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred')
     } finally {
@@ -72,7 +65,7 @@ export default function IdentifyPage() {
     setSaveError(null)
   }
 
-  const handleSavePlant = async (suggestion: PlantSuggestion) => {
+  const handleSavePlant = async (suggestion: PlantIdentificationResult) => {
     // Check authentication first
     if (!isAuthenticated) {
       navigate('/login', { state: { from: '/identify' } })
@@ -92,14 +85,13 @@ export default function IdentifyPage() {
       // Use the plantIdService to save to collection
       await plantIdService.saveToCollection({
         plant_name: suggestion.plant_name,
-        scientific_name: suggestion.scientific_name,
-        confidence: suggestion.probability,
-        common_names: suggestion.common_names || [],
+        confidence: suggestion.confidence,
+        common_names: suggestion.common_names,
         description: suggestion.description,
         watering: suggestion.watering,
         propagation_methods: suggestion.propagation_methods,
         care_instructions: suggestion.care_instructions,
-        source: suggestion.source || 'plant_id',
+        source: suggestion.source,
       })
 
       // Mark as saved (Map.set returns a new Map)

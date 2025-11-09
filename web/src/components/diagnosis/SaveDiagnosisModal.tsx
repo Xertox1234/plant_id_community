@@ -78,7 +78,7 @@ export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, ident
       navigate(`/diagnosis/${createdCard.uuid}`)
     } catch (err) {
       const error = err as Error;
-      logger.error('[SaveDiagnosisModal] Failed to save diagnosis:', error)
+      logger.error('[SaveDiagnosisModal] Failed to save diagnosis', { error })
       setError(error.message || 'Failed to save diagnosis card')
       setIsSaving(false)
     }

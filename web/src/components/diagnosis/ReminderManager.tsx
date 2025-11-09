@@ -239,7 +239,7 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
       })
     } catch (err) {
       const error = err as Error;
-      logger.error('[ReminderManager] Failed to load reminders:', error)
+      logger.error('[ReminderManager] Failed to load reminders', { error })
       setError(error.message || 'Failed to load reminders')
     } finally {
       setLoading(false)
@@ -293,7 +293,7 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
       logger.info('[ReminderManager] Created reminder', { uuid: newReminder.uuid })
     } catch (err) {
       const error = err as Error;
-      logger.error('[ReminderManager] Failed to create reminder:', error)
+      logger.error('[ReminderManager] Failed to create reminder', { error })
       alert(`Failed to create reminder: ${error.message}`)
     } finally {
       setIsCreating(false)

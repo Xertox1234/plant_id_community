@@ -3,6 +3,36 @@
  */
 
 /**
+ * Plant Spotlight block
+ */
+export interface PlantSpotlightBlock {
+  type: 'plant_spotlight';
+  value: {
+    heading: string;
+    description: string;
+    image?: {
+      url: string;
+    };
+    care_level?: string;
+  };
+  id: string;
+}
+
+/**
+ * Call to Action block
+ */
+export interface CallToActionBlock {
+  type: 'call_to_action';
+  value: {
+    heading: string;
+    description: string;
+    button_text: string;
+    button_url: string;
+  };
+  id: string;
+}
+
+/**
  * StreamField block types
  */
 export type StreamFieldBlock =
@@ -11,7 +41,9 @@ export type StreamFieldBlock =
   | ImageBlock
   | QuoteBlock
   | CodeBlock
-  | ListBlock;
+  | ListBlock
+  | PlantSpotlightBlock
+  | CallToActionBlock;
 
 /**
  * Paragraph block

@@ -1,3 +1,7 @@
+import { useState } from 'react';
+import type { DiagnosisBlock } from '@/types';
+import { logger } from '@/utils/logger';
+
 /**
  * Block type options
  */
@@ -23,7 +27,7 @@ interface BlockEditorProps {
   isLast: boolean;
 }
 
-function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst, isLast }) {
+function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst, isLast }: BlockEditorProps) {
   const { type, value } = block
 
   const handleValueChange = (newValue) => {
@@ -52,7 +56,7 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
           </div>
           <input
             type="text"
-            value={value || ''}
+            value={(value as string) || ''}
             onChange={(e) => handleValueChange(e.target.value)}
             placeholder="Enter heading text..."
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
@@ -79,16 +83,17 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
             />
           </div>
           <textarea
-            value={value || ''}
+            value={(value as string) || ''}
             onChange={(e) => handleValueChange(e.target.value)}
             placeholder="Enter paragraph text..."
-            rows="3"
+            rows={3}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
           />
         </div>
       )
 
-    case 'treatment_step':
+    case 'treatment_step': {
+      const stepValue = value as { title?: string; description?: string; frequency?: string } | undefined;
       return (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
@@ -113,8 +118,8 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
               </label>
               <input
                 type="text"
-                value={value?.title || ''}
-                onChange={(e) => handleValueChange({ ...value, title: e.target.value })}
+                value={stepValue?.title || ''}
+                onChange={(e) => handleValueChange({ ...stepValue, title: e.target.value })}
                 placeholder="e.g., Apply fungicide spray"
                 className="w-full px-3 py-2 border border-blue-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               />
@@ -124,10 +129,10 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
                 Description
               </label>
               <textarea
-                value={value?.description || ''}
-                onChange={(e) => handleValueChange({ ...value, description: e.target.value })}
+                value={stepValue?.description || ''}
+                onChange={(e) => handleValueChange({ ...stepValue, description: e.target.value })}
                 placeholder="Detailed instructions for this step..."
-                rows="3"
+                rows={3}
                 className="w-full px-3 py-2 border border-blue-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -137,8 +142,8 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
               </label>
               <input
                 type="text"
-                value={value?.frequency || ''}
-                onChange={(e) => handleValueChange({ ...value, frequency: e.target.value })}
+                value={stepValue?.frequency || ''}
+                onChange={(e) => handleValueChange({ ...stepValue, frequency: e.target.value })}
                 placeholder="e.g., Every 7 days"
                 className="w-full px-3 py-2 border border-blue-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               />
@@ -146,8 +151,10 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
           </div>
         </div>
       )
+    }
 
-    case 'symptom_check':
+    case 'symptom_check': {
+      const symptomValue = value as { symptom?: string; what_to_look_for?: string } | undefined;
       return (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
@@ -172,8 +179,8 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
               </label>
               <input
                 type="text"
-                value={value?.symptom || ''}
-                onChange={(e) => handleValueChange({ ...value, symptom: e.target.value })}
+                value={symptomValue?.symptom || ''}
+                onChange={(e) => handleValueChange({ ...symptomValue, symptom: e.target.value })}
                 placeholder="e.g., Leaf discoloration"
                 className="w-full px-3 py-2 border border-yellow-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500"
               />
@@ -183,16 +190,17 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
                 What to Look For
               </label>
               <textarea
-                value={value?.what_to_look_for || ''}
-                onChange={(e) => handleValueChange({ ...value, what_to_look_for: e.target.value })}
+                value={symptomValue?.what_to_look_for || ''}
+                onChange={(e) => handleValueChange({ ...symptomValue, what_to_look_for: e.target.value })}
                 placeholder="Description of what to monitor..."
-                rows="3"
+                rows={3}
                 className="w-full px-3 py-2 border border-yellow-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500"
               />
             </div>
           </div>
         </div>
       )
+    }
 
     case 'prevention_tip':
       return (
@@ -213,16 +221,17 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
             />
           </div>
           <textarea
-            value={value || ''}
+            value={(value as string) || ''}
             onChange={(e) => handleValueChange(e.target.value)}
             placeholder="Enter prevention tip..."
-            rows="3"
+            rows={3}
             className="w-full px-3 py-2 border border-green-300 rounded-md focus:ring-green-500 focus:border-green-500"
           />
         </div>
       )
 
-    case 'list_block':
+    case 'list_block': {
+      const listValue = value as { items?: string[] } | undefined;
       return (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
@@ -241,11 +250,12 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
             />
           </div>
           <ListEditor
-            items={value?.items || []}
+            items={listValue?.items || []}
             onChange={(newItems) => handleValueChange({ items: newItems })}
           />
         </div>
       )
+    }
 
     default:
       return (
