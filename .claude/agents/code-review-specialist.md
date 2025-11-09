@@ -1124,6 +1124,76 @@ For Wagtail models:
      - [ ] Can all interactive elements be operated via keyboard?
      - [ ] Are decorative elements hidden from screen readers (aria-hidden)?
 
+17. **TypeScript Migration Pattern** - Type Safety and React Router v7 (Issue #134)
+   - BLOCKER: Importing from `react-router` instead of `react-router-dom`
+   - CRITICAL: Missing type definitions for component props
+   - WARNING: Using `any` type without justification
+   - Check for: TypeScript files with incorrect imports or missing types
+   - Example React Router v7 fix:
+     ```typescript
+     // ❌ WRONG - Will fail at runtime with "Cannot read properties of undefined"
+     import { useNavigate, useParams, useLocation } from 'react-router'
+
+     // ✅ CORRECT - Use react-router-dom
+     import { useNavigate, useParams, useLocation } from 'react-router-dom'
+     ```
+   - TypeScript component pattern:
+     ```typescript
+     import type { BlogPost } from '../types/blog'
+
+     interface BlogCardProps {
+       post: BlogPost
+       showImage?: boolean
+       className?: string
+     }
+
+     export function BlogCard({ post, showImage = true, className = '' }: BlogCardProps) {
+       // Fully typed component with explicit interfaces
+       return (
+         <div className={className}>
+           {showImage && <img src={post.featured_image} alt={post.title} />}
+           <h2>{post.title}</h2>
+         </div>
+       )
+     }
+     ```
+   - Anti-patterns to avoid:
+     ```typescript
+     // ❌ Implicit any (lenient mode allows but should avoid)
+     function handleSubmit(event) {  // Missing type
+       event.preventDefault()
+     }
+
+     // ❌ Unnecessary any type
+     const data: any = await response.json()
+
+     // ✅ CORRECT - Explicit types
+     function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+       event.preventDefault()
+     }
+
+     const data: BlogPost = await response.json()
+     ```
+   - Detection patterns:
+     ```bash
+     # Check for react-router imports (BLOCKER)
+     grep -n "from 'react-router'" web/src/**/*.{ts,tsx}
+
+     # Find any types (should minimize)
+     grep -n ": any" web/src/**/*.{ts,tsx}
+
+     # Check for missing interface definitions
+     grep -n "export function.*Props" web/src/**/*.{ts,tsx}
+     ```
+   - Review checklist:
+     - [ ] All React Router imports from `react-router-dom` not `react-router`?
+     - [ ] Component props have explicit interface definitions?
+     - [ ] No `any` types without JSDoc justification comment?
+     - [ ] Types imported from `src/types/` directory?
+     - [ ] `npm run type-check` passes with zero errors?
+     - [ ] Event handlers have proper React event types?
+     - [ ] Utility types used where appropriate (Partial, Required, Pick)?
+
 18. **Protected Routes Pattern** - Authentication-Aware Navigation
    - BLOCKER: Protected pages accessible without authentication
    - WARNING: Missing loading states during auth verification

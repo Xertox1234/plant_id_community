@@ -126,24 +126,54 @@ jobs:
           flutter-version: '3.27.x'
           channel: 'stable'
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies for security scanner
+        run: |
+          pip install --upgrade pip
+          pip install PyYAML
+
       - name: Get Flutter dependencies
         run: |
           cd plant_community_mobile
           flutter pub get
 
-      - name: Check for outdated packages
+      - name: Run Flutter security scanner
         run: |
-          cd plant_community_mobile
-          flutter pub outdated --json > flutter-outdated.json || true
-        continue-on-error: true
+          python scripts/check_flutter_security.py
+        continue-on-error: false
 
-      - name: Upload Flutter outdated report
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: flutter-sbom
+          path: plant_community_mobile/sbom.json
+          retention-days: 90
+
+      - name: Upload Flutter outdated report (if exists)
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: flutter-outdated-report
           path: plant_community_mobile/flutter-outdated.json
           retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Comment PR with outdated packages (if any)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '⚠️ **Flutter dependency issues detected**\n\nPlease check the Flutter security report in the workflow artifacts for details.\n\nRun locally: `source backend/venv/bin/activate && python scripts/check_flutter_security.py`'
+            })
 
   security-summary:
     name: Security Scan Summary
@@ -160,7 +190,8 @@ jobs:
           echo "Mobile: ${{ needs.mobile-security.result }}"
 
           if [[ "${{ needs.backend-security.result }}" == "failure" ]] || \
-             [[ "${{ needs.frontend-security.result }}" == "failure" ]]; then
+             [[ "${{ needs.frontend-security.result }}" == "failure" ]] || \
+             [[ "${{ needs.mobile-security.result }}" == "failure" ]]; then
             echo "⚠️ Security vulnerabilities detected! Please review the reports."
             exit 1
           else
