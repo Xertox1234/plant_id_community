@@ -15,15 +15,17 @@ import { logger } from './logger'
  */
 export const DEFAULT_LOCALE = 'en-US';
 
+type DateInput = string | Date | null | undefined;
+
 /**
  * Format a publish date in long format (e.g., "January 15, 2025").
  *
  * This is the standard format used throughout the blog for publish dates.
  * Returns null for invalid dates rather than throwing errors.
  *
- * @param {string|Date|null|undefined} dateString - Date to format
- * @param {string} [locale=DEFAULT_LOCALE] - Locale code for formatting
- * @returns {string|null} Formatted date string, or null if invalid
+ * @param dateString - Date to format
+ * @param locale - Locale code for formatting
+ * @returns Formatted date string, or null if invalid
  *
  * @example
  * formatPublishDate('2025-01-15')
@@ -37,7 +39,7 @@ export const DEFAULT_LOCALE = 'en-US';
  * formatPublishDate('2025-01-15', 'fr-FR')
  * // Returns: '15 janvier 2025' (in French)
  */
-export function formatPublishDate(dateString, locale = DEFAULT_LOCALE) {
+export function formatPublishDate(dateString: DateInput, locale: string = DEFAULT_LOCALE): string | null {
   if (!dateString) {
     return null;
   }
@@ -74,15 +76,15 @@ export function formatPublishDate(dateString, locale = DEFAULT_LOCALE) {
  *
  * Useful for compact displays like cards, lists, or mobile views.
  *
- * @param {string|Date|null|undefined} dateString - Date to format
- * @param {string} [locale=DEFAULT_LOCALE] - Locale code for formatting
- * @returns {string|null} Formatted date string, or null if invalid
+ * @param dateString - Date to format
+ * @param locale - Locale code for formatting
+ * @returns Formatted date string, or null if invalid
  *
  * @example
  * formatShortDate('2025-01-15')
  * // Returns: 'Jan 15, 2025'
  */
-export function formatShortDate(dateString, locale = DEFAULT_LOCALE) {
+export function formatShortDate(dateString: DateInput, locale: string = DEFAULT_LOCALE): string | null {
   if (!dateString) {
     return null;
   }
@@ -118,9 +120,8 @@ export function formatShortDate(dateString, locale = DEFAULT_LOCALE) {
  *
  * Useful for showing how recent a post or comment is.
  *
- * @param {string|Date|null|undefined} dateString - Date to format
- * @param {string} [locale=DEFAULT_LOCALE] - Locale code for formatting
- * @returns {string|null} Relative time string, or null if invalid
+ * @param dateString - Date to format
+ * @returns Relative time string, or null if invalid
  *
  * @example
  * formatRelativeDate('2025-01-15T10:00:00')
@@ -130,7 +131,7 @@ export function formatShortDate(dateString, locale = DEFAULT_LOCALE) {
  * formatRelativeDate('2025-01-10')
  * // Returns: '5 days ago' (if today is 2025-01-15)
  */
-export function formatRelativeDate(dateString) {
+export function formatRelativeDate(dateString: DateInput): string | null {
   if (!dateString) {
     return null;
   }
@@ -147,7 +148,7 @@ export function formatRelativeDate(dateString) {
     }
 
     const now = new Date();
-    const diffMs = now - date;
+    const diffMs = now.getTime() - date.getTime();
     const diffSec = Math.floor(diffMs / 1000);
     const diffMin = Math.floor(diffSec / 60);
     const diffHour = Math.floor(diffMin / 60);
@@ -186,15 +187,15 @@ export function formatRelativeDate(dateString) {
  *
  * Useful for showing exact timestamps for comments, updates, or events.
  *
- * @param {string|Date|null|undefined} dateString - Date to format
- * @param {string} [locale=DEFAULT_LOCALE] - Locale code for formatting
- * @returns {string|null} Formatted date/time string, or null if invalid
+ * @param dateString - Date to format
+ * @param locale - Locale code for formatting
+ * @returns Formatted date/time string, or null if invalid
  *
  * @example
  * formatDateTime('2025-01-15T15:30:00')
  * // Returns: 'January 15, 2025 at 3:30 PM'
  */
-export function formatDateTime(dateString, locale = DEFAULT_LOCALE) {
+export function formatDateTime(dateString: DateInput, locale: string = DEFAULT_LOCALE): string | null {
   if (!dateString) {
     return null;
   }
@@ -238,8 +239,8 @@ export function formatDateTime(dateString, locale = DEFAULT_LOCALE) {
  *
  * Useful for API requests, database queries, or machine-readable dates.
  *
- * @param {string|Date|null|undefined} dateString - Date to format
- * @returns {string|null} ISO date string (YYYY-MM-DD), or null if invalid
+ * @param dateString - Date to format
+ * @returns ISO date string (YYYY-MM-DD), or null if invalid
  *
  * @example
  * formatISODate('January 15, 2025')
@@ -249,7 +250,7 @@ export function formatDateTime(dateString, locale = DEFAULT_LOCALE) {
  * formatISODate(new Date(2025, 0, 15))
  * // Returns: '2025-01-15'
  */
-export function formatISODate(dateString) {
+export function formatISODate(dateString: DateInput): string | null {
   if (!dateString) {
     return null;
   }
@@ -279,15 +280,15 @@ export function formatISODate(dateString) {
 /**
  * Check if a date is valid.
  *
- * @param {string|Date|null|undefined} dateString - Date to validate
- * @returns {boolean} True if date is valid, false otherwise
+ * @param dateString - Date to validate
+ * @returns True if date is valid, false otherwise
  *
  * @example
  * isValidDate('2025-01-15')  // true
  * isValidDate('invalid')      // false
  * isValidDate(null)           // false
  */
-export function isValidDate(dateString) {
+export function isValidDate(dateString: DateInput): boolean {
   if (!dateString) {
     return false;
   }
@@ -303,14 +304,14 @@ export function isValidDate(dateString) {
 /**
  * Get the start of day for a given date (midnight).
  *
- * @param {string|Date|null|undefined} dateString - Date to process
- * @returns {Date|null} Date object at midnight, or null if invalid
+ * @param dateString - Date to process
+ * @returns Date object at midnight, or null if invalid
  *
  * @example
  * getStartOfDay('2025-01-15T15:30:00')
  * // Returns: Date object for 2025-01-15T00:00:00
  */
-export function getStartOfDay(dateString) {
+export function getStartOfDay(dateString: DateInput): Date | null {
   if (!dateString) {
     return null;
   }
@@ -332,14 +333,14 @@ export function getStartOfDay(dateString) {
 /**
  * Get the end of day for a given date (23:59:59.999).
  *
- * @param {string|Date|null|undefined} dateString - Date to process
- * @returns {Date|null} Date object at end of day, or null if invalid
+ * @param dateString - Date to process
+ * @returns Date object at end of day, or null if invalid
  *
  * @example
  * getEndOfDay('2025-01-15T10:00:00')
  * // Returns: Date object for 2025-01-15T23:59:59.999
  */
-export function getEndOfDay(dateString) {
+export function getEndOfDay(dateString: DateInput): Date | null {
   if (!dateString) {
     return null;
   }

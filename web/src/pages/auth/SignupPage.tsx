@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, FormEvent, ChangeEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import Button from '../../components/ui/Button'
@@ -11,6 +11,24 @@ import {
 } from '../../utils/validation'
 import { sanitizeInput, sanitizeError } from '../../utils/sanitize'
 import { logger } from '../../utils/logger'
+
+interface FormData {
+  username: string
+  firstName: string
+  lastName: string
+  email: string
+  password: string
+  confirmPassword: string
+}
+
+interface FormErrors {
+  username?: string
+  firstName?: string
+  lastName?: string
+  email?: string
+  password?: string
+  confirmPassword?: string
+}
 
 /**
  * SignupPage Component
@@ -28,7 +46,7 @@ export default function SignupPage() {
   const navigate = useNavigate()
   const { signup } = useAuth()
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     username: '',
     firstName: '',
     lastName: '',
@@ -37,14 +55,14 @@ export default function SignupPage() {
     confirmPassword: '',
   })
 
-  const [errors, setErrors] = useState({})
+  const [errors, setErrors] = useState<FormErrors>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [serverError, setServerError] = useState(null)
+  const [serverError, setServerError] = useState<string | null>(null)
 
   /**
    * Handle input changes and clear field-specific errors
    */
-  const handleChange = (e) => {
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
 
     // Sanitize input to prevent XSS
@@ -56,10 +74,10 @@ export default function SignupPage() {
     }))
 
     // Clear error for this field when user starts typing
-    if (errors[name]) {
+    if (errors[name as keyof FormErrors]) {
       setErrors((prev) => ({
         ...prev,
-        [name]: null,
+        [name]: undefined,
       }))
     }
 
@@ -73,8 +91,8 @@ export default function SignupPage() {
    * Validate form fields
    * @returns {boolean} True if form is valid
    */
-  const validateForm = () => {
-    const newErrors = {}
+  const validateForm = (): boolean => {
+    const newErrors: FormErrors = {}
 
     // Username validation (required)
     if (!formData.username.trim()) {
@@ -110,7 +128,7 @@ export default function SignupPage() {
   /**
    * Handle form submission
    */
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setServerError(null)
 

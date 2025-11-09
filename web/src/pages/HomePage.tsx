@@ -1,5 +1,11 @@
 import { Link } from 'react-router-dom'
 
+interface FeatureCardProps {
+  title: string
+  description: string
+  href: string
+}
+
 /**
  * HomePage Component
  *
@@ -19,10 +25,10 @@ export default function HomePage() {
             </span>
           </h1>
           <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
-            Join our community of plant enthusiasts. Identify plants with AI, 
+            Join our community of plant enthusiasts. Identify plants with AI,
             share your garden, and learn from experts and fellow plant lovers.
           </p>
-          
+
           <div className="flex gap-4 justify-center">
             <Link
               to="/identify"
@@ -51,7 +57,7 @@ export default function HomePage() {
               From AI-powered identification to community knowledge sharing
             </p>
           </div>
-          
+
           <div className="grid md:grid-cols-3 gap-8">
             <FeatureCard
               title="AI Plant Identification"
@@ -75,7 +81,7 @@ export default function HomePage() {
   )
 }
 
-function FeatureCard({ title, description, href }) {
+function FeatureCard({ title, description, href }: FeatureCardProps) {
   return (
     <div className="bg-white rounded-xl p-8 shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
       <h3 className="text-xl font-semibold text-gray-900 mb-3">{title}</h3>

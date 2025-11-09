@@ -6,6 +6,13 @@ import IdentificationResults from '../components/PlantIdentification/Identificat
 import { plantIdService } from '../services/plantIdService'
 import { useAuth } from '../contexts/AuthContext'
 import { getPlantKey } from '../utils/plantUtils'
+import type { IdentificationResult, PlantSuggestion } from '@/types'
+
+interface InfoCardProps {
+  title: string
+  description: string
+  step: string
+}
 
 /**
  * IdentifyPage Component
@@ -14,18 +21,18 @@ import { getPlantKey } from '../utils/plantUtils'
  * Page header and navigation now handled by RootLayout.
  */
 export default function IdentifyPage() {
-  const [selectedFile, setSelectedFile] = useState(null)
-  const [results, setResults] = useState(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [results, setResults] = useState<IdentificationResult | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [saveError, setSaveError] = useState(null) // Separate error state for save operations
-  const [savedPlants, setSavedPlants] = useState(new Map()) // Track which plants have been saved
-  const [savingPlant, setSavingPlant] = useState(null) // Track which plant is currently being saved
+  const [error, setError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null) // Separate error state for save operations
+  const [savedPlants, setSavedPlants] = useState(new Map<string, boolean>()) // Track which plants have been saved
+  const [savingPlant, setSavingPlant] = useState<string | null>(null) // Track which plant is currently being saved
 
   const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
 
-  const handleFileSelect = (file) => {
+  const handleFileSelect = (file: File | null) => {
     setSelectedFile(file)
     setResults(null)
     setError(null)
@@ -52,7 +59,7 @@ export default function IdentifyPage() {
         setResults(data)
       }
     } catch (err) {
-      setError(err.message)
+      setError(err instanceof Error ? err.message : 'An error occurred')
     } finally {
       setLoading(false)
     }
@@ -65,7 +72,7 @@ export default function IdentifyPage() {
     setSaveError(null)
   }
 
-  const handleSavePlant = async (suggestion) => {
+  const handleSavePlant = async (suggestion: PlantSuggestion) => {
     // Check authentication first
     if (!isAuthenticated) {
       navigate('/login', { state: { from: '/identify' } })
@@ -98,7 +105,7 @@ export default function IdentifyPage() {
       // Mark as saved (Map.set returns a new Map)
       setSavedPlants(prev => new Map(prev).set(plantKey, true))
     } catch (err) {
-      setSaveError(err.message || 'Failed to save plant to collection')
+      setSaveError(err instanceof Error ? err.message : 'Failed to save plant to collection')
     } finally {
       setSavingPlant(null)
     }
@@ -214,7 +221,7 @@ export default function IdentifyPage() {
   )
 }
 
-function InfoCard({ title, description, step }) {
+function InfoCard({ title, description, step }: InfoCardProps) {
   return (
     <div className="bg-white rounded-xl p-6 border border-gray-200">
       <div className="w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-bold mb-3">

@@ -1,8 +1,9 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, FormEvent, ChangeEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import BlogCard from '../components/BlogCard';
 import { fetchBlogPosts, fetchPopularPosts, fetchCategories } from '../services/blogService';
 import { logger } from '../utils/logger';
+import type { BlogPost, BlogCategory } from '@/types';
 
 /**
  * BlogListPage Component
@@ -13,18 +14,18 @@ export default function BlogListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // State
-  const [posts, setPosts] = useState([]);
-  const [popularPosts, setPopularPosts] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [posts, setPosts] = useState<BlogPost[]>([]);
+  const [popularPosts, setPopularPosts] = useState<BlogPost[]>([]);
+  const [categories, setCategories] = useState<BlogCategory[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [totalCount, setTotalCount] = useState(0);
 
   // Get query parameters
   const page = parseInt(searchParams.get('page') || '1');
   const search = searchParams.get('search') || '';
   const category = searchParams.get('category') || '';
-  const order = searchParams.get('order') || 'latest';
+  const order = (searchParams.get('order') || 'latest') as 'latest' | 'popular' | 'oldest';
   const limit = 9; // Posts per page
 
   // Fetch data
@@ -51,7 +52,7 @@ export default function BlogListPage() {
           error: err,
           context: { page, search, category, order },
         });
-        setError(err.message);
+        setError(err instanceof Error ? err.message : 'Failed to load blog posts');
       } finally {
         setLoading(false);
       }
@@ -84,10 +85,10 @@ export default function BlogListPage() {
   }, []);
 
   // Handlers (memoized to prevent recreation on every render)
-  const handleSearch = useCallback((e) => {
+  const handleSearch = useCallback((e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.target);
-    const searchValue = formData.get('search');
+    const formData = new FormData(e.currentTarget);
+    const searchValue = formData.get('search') as string;
 
     const newParams = new URLSearchParams(searchParams);
     if (searchValue) {
@@ -99,7 +100,7 @@ export default function BlogListPage() {
     setSearchParams(newParams);
   }, [searchParams, setSearchParams]);
 
-  const handleCategoryFilter = useCallback((categorySlug) => {
+  const handleCategoryFilter = useCallback((categorySlug: string) => {
     const newParams = new URLSearchParams(searchParams);
     if (categorySlug) {
       newParams.set('category', categorySlug);
@@ -110,14 +111,14 @@ export default function BlogListPage() {
     setSearchParams(newParams);
   }, [searchParams, setSearchParams]);
 
-  const handleOrderChange = useCallback((newOrder) => {
+  const handleOrderChange = useCallback((newOrder: string) => {
     const newParams = new URLSearchParams(searchParams);
     newParams.set('order', newOrder);
     newParams.set('page', '1');
     setSearchParams(newParams);
   }, [searchParams, setSearchParams]);
 
-  const handlePageChange = useCallback((newPage) => {
+  const handlePageChange = useCallback((newPage: number) => {
     const newParams = new URLSearchParams(searchParams);
     newParams.set('page', newPage.toString());
     setSearchParams(newParams);

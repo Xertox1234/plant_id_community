@@ -20,11 +20,11 @@ import {
  * Sanitizes HTML content to prevent XSS attacks.
  * Async wrapper for backward compatibility.
  *
- * @param {string} html - The HTML content to sanitize
- * @param {object} options - DOMPurify configuration options
- * @returns {Promise<string>} Sanitized HTML string
+ * @param html - The HTML content to sanitize
+ * @param options - DOMPurify configuration options
+ * @returns Sanitized HTML string
  */
-export async function sanitizeHTML(html, options = {}) {
+export async function sanitizeHTML(html: string, options: Record<string, unknown> = {}): Promise<string> {
   // Convert to synchronous call wrapped in Promise for API compatibility
   return Promise.resolve(syncSanitizeHtml(html, options))
 }
@@ -33,11 +33,11 @@ export async function sanitizeHTML(html, options = {}) {
  * Creates a safe markup object for React's dangerouslySetInnerHTML.
  * Async wrapper for backward compatibility.
  *
- * @param {string} html - The HTML content to sanitize
- * @param {object} options - DOMPurify configuration options
- * @returns {Promise<object>} Object with __html property containing sanitized HTML
+ * @param html - The HTML content to sanitize
+ * @param options - DOMPurify configuration options
+ * @returns Object with __html property containing sanitized HTML
  */
-export async function createSafeMarkup(html, options = {}) {
+export async function createSafeMarkup(html: string, options: Record<string, unknown> = {}): Promise<{ __html: string }> {
   // Convert to synchronous call wrapped in Promise for API compatibility
   return Promise.resolve(syncCreateSafeMarkup(html, options))
 }

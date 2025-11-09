@@ -14,7 +14,7 @@ export default function BlogPage() {
         <p className="text-gray-600 mb-8">
           Articles and guides from plant experts and enthusiasts.
         </p>
-        
+
         <div className="text-center py-12 text-gray-500">
           Blog posts coming soon...
         </div>

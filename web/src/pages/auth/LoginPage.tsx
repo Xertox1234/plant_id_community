@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, FormEvent, ChangeEvent } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import Button from '../../components/ui/Button'
@@ -6,6 +6,22 @@ import Input from '../../components/ui/Input'
 import { getEmailError, getPasswordError } from '../../utils/validation'
 import { sanitizeInput, sanitizeError } from '../../utils/sanitize'
 import { logger } from '../../utils/logger'
+
+interface FormData {
+  email: string
+  password: string
+}
+
+interface FormErrors {
+  email?: string
+  password?: string
+}
+
+interface LocationState {
+  from?: {
+    pathname: string
+  }
+}
 
 /**
  * LoginPage Component
@@ -24,21 +40,21 @@ export default function LoginPage() {
   const { login } = useAuth()
 
   // Get the page user was trying to access (for redirect after login)
-  const from = location.state?.from?.pathname || '/'
+  const from = (location.state as LocationState)?.from?.pathname || '/'
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     email: '',
     password: '',
   })
 
-  const [errors, setErrors] = useState({})
+  const [errors, setErrors] = useState<FormErrors>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [serverError, setServerError] = useState(null)
+  const [serverError, setServerError] = useState<string | null>(null)
 
   /**
    * Handle input changes and clear field-specific errors
    */
-  const handleChange = (e) => {
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
 
     // Sanitize input to prevent XSS
@@ -50,10 +66,10 @@ export default function LoginPage() {
     }))
 
     // Clear error for this field when user starts typing
-    if (errors[name]) {
+    if (errors[name as keyof FormErrors]) {
       setErrors((prev) => ({
         ...prev,
-        [name]: null,
+        [name]: undefined,
       }))
     }
 
@@ -67,8 +83,8 @@ export default function LoginPage() {
    * Validate form fields
    * @returns {boolean} True if form is valid
    */
-  const validateForm = () => {
-    const newErrors = {}
+  const validateForm = (): boolean => {
+    const newErrors: FormErrors = {}
 
     const emailError = getEmailError(formData.email)
     if (emailError) {
@@ -87,7 +103,7 @@ export default function LoginPage() {
   /**
    * Handle form submission
    */
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setServerError(null)
 
