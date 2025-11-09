@@ -46,14 +46,14 @@ class AppTheme {
       ),
 
       // Card
-      cardTheme: CardTheme(
+      cardTheme: const CardThemeData(
         color: AppColors.lightCard,
         elevation: AppSpacing.elevationSM,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusLG),
+          borderRadius: BorderRadius.all(Radius.circular(AppSpacing.radiusLG)),
         ),
-        margin: const EdgeInsets.all(AppSpacing.sm),
-      ) as CardThemeData,
+        margin: EdgeInsets.all(AppSpacing.sm),
+      ),
 
       // Input decoration
       inputDecorationTheme: InputDecorationTheme(
@@ -206,14 +206,14 @@ class AppTheme {
       ),
 
       // Card
-      cardTheme: CardTheme(
+      cardTheme: const CardThemeData(
         color: AppColors.darkCard,
         elevation: AppSpacing.elevationSM,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusLG),
+          borderRadius: BorderRadius.all(Radius.circular(AppSpacing.radiusLG)),
         ),
-        margin: const EdgeInsets.all(AppSpacing.sm),
-      ) as CardThemeData,
+        margin: EdgeInsets.all(AppSpacing.sm),
+      ),
 
       // Input decoration
       inputDecorationTheme: InputDecorationTheme(

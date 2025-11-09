@@ -12,6 +12,10 @@
 .swiftpm/
 migrate_working_dir/
 
+# Security scanning artifacts
+sbom.json
+flutter-outdated.json
+
 # IntelliJ related
 *.iml
 *.ipr

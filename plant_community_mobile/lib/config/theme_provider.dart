@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+part 'theme_provider.g.dart';
 
 /// Theme mode notifier that manages theme state.
-class ThemeModeNotifier extends StateNotifier<ThemeMode> {
-  ThemeModeNotifier() : super(ThemeMode.system) {
+@riverpod
+class ThemeModeNotifier extends _$ThemeModeNotifier {
+  @override
+  ThemeMode build() {
     // TODO: Load saved preference from local storage
+    return ThemeMode.system;
   }
 
   /// Set theme to light mode
@@ -34,8 +39,3 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
     }
   }
 }
-
-/// Provider for theme mode state
-final themeModeProvider = StateNotifierProvider<ThemeModeNotifier, ThemeMode>(
-  (ref) => ThemeModeNotifier(),
-);

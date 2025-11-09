@@ -113,8 +113,8 @@ class AppColors {
 
   /// Hero background gradient (dark)
   static List<Color> get heroGradientDark => [
-        green900.withOpacity(0.3),
-        emerald900.withOpacity(0.3),
+        green900.withValues(alpha: 0.3),
+        emerald900.withValues(alpha: 0.3),
       ];
 
   // ============================================
