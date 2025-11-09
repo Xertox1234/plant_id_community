@@ -212,6 +212,7 @@ MIDDLEWARE = [
     'apps.core.security.SecurityMiddleware',  # Security monitoring
     'apps.core.middleware.RateLimitMonitoringMiddleware',  # Rate limit monitoring
     'apps.core.middleware.SecurityMetricsMiddleware',  # Security metrics collection
+    'apps.core.middleware.PermissionsPolicyMiddleware',  # Permissions-Policy header (Issue #145)
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -881,6 +882,19 @@ CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=False, cas
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
+
+# Permissions-Policy (Issue #145 fix) - Restrict browser features to prevent abuse
+# See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy
+PERMISSIONS_POLICY = {
+    'accelerometer': [],  # No accelerometer access
+    'camera': ['self'],  # Camera only from same origin (plant photo uploads)
+    'geolocation': ['self'],  # Geolocation only from same origin (plant location)
+    'gyroscope': [],  # No gyroscope access
+    'magnetometer': [],  # No magnetometer access
+    'microphone': [],  # No microphone access
+    'payment': [],  # No payment API
+    'usb': [],  # No USB access
+}
 SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 
 # Additional security headers
@@ -891,7 +905,7 @@ SECURE_SSL_REDIRECT = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True
-CSRF_COOKIE_HTTPONLY = False  # Must be False so JavaScript can read it
+CSRF_COOKIE_HTTPONLY = True  # ✅ Secure - prevents XSS attacks from stealing CSRF tokens (JavaScript reads from meta tag instead)
 # SameSite policy - stricter in production if workflows allow
 SESSION_COOKIE_SAMESITE = 'Strict' if not DEBUG else 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'  # Keep Lax for CSRF to handle standard POST flows
@@ -916,15 +930,19 @@ if DEBUG:
         }
     }
 else:
-    # Strict CSP in production with nonces
+    # Strict CSP in production with nonces (Issue #145 fix)
     CONTENT_SECURITY_POLICY = {
         'DIRECTIVES': {
             'base-uri': ("'self'",),
-            'connect-src': ("'self'",),
+            'connect-src': (
+                "'self'",
+                "https://api.plant.id",  # Plant.id API
+                "https://my-api.plantnet.org",  # PlantNet API
+            ),
             'default-src': ("'self'",),
             'font-src': ("'self'", "data:", "https://fonts.gstatic.com"),
             'form-action': ("'self'",),
-            'frame-ancestors': ("'none'",),
+            'frame-ancestors': ("'none'",),  # Anti-clickjacking
             'img-src': ("'self'", "data:", "https:", "blob:"),
             'media-src': ("'self'",),
             'object-src': ("'none'",),
@@ -1096,6 +1114,7 @@ def validate_environment():
         (not SECURE_SSL_REDIRECT and not DEBUG, "SECURE_SSL_REDIRECT should be True in production"),
         (not SESSION_COOKIE_SECURE and not DEBUG, "SESSION_COOKIE_SECURE should be True in production"),
         (not CSRF_COOKIE_SECURE and not DEBUG, "CSRF_COOKIE_SECURE should be True in production"),
+        (not CSRF_COOKIE_HTTPONLY, "CSRF_COOKIE_HTTPONLY should be True (prevents XSS attacks from stealing CSRF tokens)"),
     ]
     
     for condition, message in security_checks:

@@ -3,6 +3,7 @@ Simple migration to add search vectors without complex queries.
 """
 
 from django.db import migrations, connection
+from psycopg2 import sql
 
 
 def add_simple_search_vectors(apps, schema_editor):
@@ -28,8 +29,19 @@ def add_simple_search_vectors(apps, schema_editor):
             )
             if cursor.fetchone()[0]:
                 try:
-                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS search_vector tsvector;")
-                    cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_{table.split('_')[-1]}_search_vector ON {table} USING gin(search_vector);")
+                    # Use sql.Identifier to safely escape table names (prevents SQL injection)
+                    cursor.execute(
+                        sql.SQL("ALTER TABLE {} ADD COLUMN IF NOT EXISTS search_vector tsvector;").format(
+                            sql.Identifier(table)
+                        )
+                    )
+                    index_name = f"idx_{table.split('_')[-1]}_search_vector"
+                    cursor.execute(
+                        sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} USING gin(search_vector);").format(
+                            sql.Identifier(index_name),
+                            sql.Identifier(table)
+                        )
+                    )
                 except Exception as e:
                     print(f"Skipping {table}: {e}")
 
@@ -50,8 +62,18 @@ def remove_simple_search_vectors(apps, schema_editor):
         
         for table in tables_to_modify:
             try:
-                cursor.execute(f"DROP INDEX IF EXISTS idx_{table.split('_')[-1]}_search_vector;")
-                cursor.execute(f"ALTER TABLE {table} DROP COLUMN IF EXISTS search_vector;")
+                # Use sql.Identifier to safely escape table/index names (prevents SQL injection)
+                index_name = f"idx_{table.split('_')[-1]}_search_vector"
+                cursor.execute(
+                    sql.SQL("DROP INDEX IF EXISTS {};").format(
+                        sql.Identifier(index_name)
+                    )
+                )
+                cursor.execute(
+                    sql.SQL("ALTER TABLE {} DROP COLUMN IF EXISTS search_vector;").format(
+                        sql.Identifier(table)
+                    )
+                )
             except Exception as e:
                 print(f"Error removing search vectors from {table}: {e}")
 

@@ -30,7 +30,7 @@
 
 import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import { logger } from './logger'
-import { getCsrfToken } from './csrf'
+import { getCsrfToken, clearCsrfToken } from './csrf'
 
 /**
  * Create axios instance with base configuration
@@ -46,10 +46,10 @@ const apiClient = axios.create({
 
 /**
  * Request interceptor
- * Adds X-Request-ID header and logs outgoing requests
+ * Adds X-Request-ID header and CSRF token, logs outgoing requests
  */
 apiClient.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
+  async (config: InternalAxiosRequestConfig) => {
     try {
       // Add X-Request-ID header from session storage
       const requestId = sessionStorage.getItem('requestId')
@@ -57,10 +57,16 @@ apiClient.interceptors.request.use(
         config.headers['X-Request-ID'] = requestId
       }
 
-      // Add CSRF token from cookies if available
-      const csrfToken = getCsrfToken()
-      if (csrfToken) {
-        config.headers['X-CSRFToken'] = csrfToken
+      // Add CSRF token from API endpoint (Issue #144 fix)
+      // Only fetch token for state-changing requests
+      const needsCsrfToken = ['post', 'put', 'patch', 'delete'].includes(
+        config.method?.toLowerCase() || ''
+      )
+      if (needsCsrfToken) {
+        const csrfToken = await getCsrfToken()
+        if (csrfToken) {
+          config.headers['X-CSRFToken'] = csrfToken
+        }
       }
 
       // Log outgoing request (development only)
@@ -93,7 +99,7 @@ apiClient.interceptors.request.use(
 
 /**
  * Response interceptor
- * Logs responses and handles errors
+ * Logs responses, handles errors, auto-retries CSRF failures
  */
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => {
@@ -107,12 +113,31 @@ apiClient.interceptors.response.use(
     }
     return response
   },
-  (error: AxiosError) => {
-    // Log error response
+  async (error: AxiosError) => {
     const status = error.response?.status
     const url = error.config?.url
     const message = (error.response?.data as { message?: string })?.message || error.message
 
+    // Handle CSRF token expiration (Issue #144 fix)
+    // If we get a 403 CSRF error, refresh token and retry once
+    if (status === 403 && message?.toLowerCase().includes('csrf')) {
+      logger.warn('CSRF token expired, refreshing and retrying', {
+        component: 'httpClient',
+        url,
+      })
+
+      // Clear cached token and fetch new one
+      clearCsrfToken()
+      const newToken = await getCsrfToken()
+
+      if (newToken && error.config) {
+        // Retry the original request with new token
+        error.config.headers['X-CSRFToken'] = newToken
+        return apiClient.request(error.config)
+      }
+    }
+
+    // Log error response
     logger.error('HTTP error', {
       component: 'httpClient',
       error,

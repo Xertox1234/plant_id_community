@@ -328,3 +328,54 @@ def get_security_metrics() -> dict:
         'status': 'active',
         'monitoring_enabled': True,
     }
+
+
+class PermissionsPolicyMiddleware:
+    """
+    Add Permissions-Policy header to all responses (Issue #145 fix).
+
+    Permissions-Policy restricts which browser features can be used,
+    preventing abuse of sensitive APIs like camera, microphone, geolocation.
+
+    Example header:
+    Permissions-Policy: camera=(self), geolocation=(self), microphone=()
+
+    See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy
+    """
+
+    def __init__(self, get_response) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        """Process request and add Permissions-Policy header to response."""
+        response = self.get_response(request)
+        self._add_permissions_policy(response)
+        return response
+
+    def _add_permissions_policy(self, response: HttpResponse) -> None:
+        """
+        Add Permissions-Policy header to response.
+
+        Args:
+            response: Django HTTP response object
+        """
+        from django.conf import settings
+
+        if not hasattr(settings, 'PERMISSIONS_POLICY'):
+            return
+
+        policy_parts = []
+        for feature, allowed_origins in settings.PERMISSIONS_POLICY.items():
+            if not allowed_origins:
+                # Empty list means feature is disabled
+                policy_parts.append(f'{feature}=()')
+            elif allowed_origins == ['self']:
+                # Allow same origin only
+                policy_parts.append(f'{feature}=(self)')
+            else:
+                # Allow specific origins
+                origins = ' '.join(f'"{origin}"' for origin in allowed_origins)
+                policy_parts.append(f'{feature}=({origins})')
+
+        if policy_parts:
+            response['Permissions-Policy'] = ', '.join(policy_parts)

@@ -51,6 +51,9 @@ from apps.plant_identification.api.endpoints import (
     PlantCategoryIndexPageViewSet
 )
 
+# Import core views
+from apps.core.views import csrf_token_view
+
 # Create the Wagtail API router
 api_router = WagtailAPIRouter('wagtailapi')
 
@@ -90,6 +93,9 @@ urlpatterns = [
     # API Authentication
     path('api/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
+
+    # CSRF Token endpoint for SPA (Issue #144 fix)
+    path('api/csrf/', csrf_token_view, name='csrf-token'),
 
     # API Documentation (OpenAPI 3.0)
     path('api/schema/', SpectacularAPIView.as_view(), name='api-schema'),
