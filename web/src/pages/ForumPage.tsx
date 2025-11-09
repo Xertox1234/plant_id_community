@@ -14,11 +14,11 @@ export default function ForumPage() {
         <p className="text-gray-600 mb-8">
           Connect with fellow plant enthusiasts and share your knowledge.
         </p>
-        
+
         <div className="text-center py-12 text-gray-500">
           Forum coming soon...
         </div>
       </div>
     </div>
-  )
+  );
 }

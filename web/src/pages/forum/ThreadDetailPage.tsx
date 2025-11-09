@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, FormEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { fetchThread, fetchPosts, createPost, deletePost } from '../../services/forumService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -7,6 +7,14 @@ import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import { logger } from '../../utils/logger';
+import type { Thread, Post } from '@/types';
+
+interface PostsData {
+  items: Post[];
+  meta: {
+    count: number;
+  };
+}
 
 /**
  * ThreadDetailPage Component
@@ -15,29 +23,31 @@ import { logger } from '../../utils/logger';
  * Route: /forum/:categorySlug/:threadSlug
  */
 export default function ThreadDetailPage() {
-  const { categorySlug, threadSlug } = useParams();
+  const { categorySlug, threadSlug } = useParams<{ categorySlug: string; threadSlug: string }>();
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
 
-  const [thread, setThread] = useState(null);
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [thread, setThread] = useState<Thread | null>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPosts, setTotalPosts] = useState(0);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [totalPosts, setTotalPosts] = useState<number>(0);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const postsPerPage = 20;
 
   // Reply form state
-  const [replyContent, setReplyContent] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [replyError, setReplyError] = useState(null);
+  const [replyContent, setReplyContent] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
 
   // Load thread and initial posts
   useEffect(() => {
     const loadData = async () => {
+      if (!threadSlug) return;
+
       try {
         setLoading(true);
         setError(null);
@@ -45,7 +55,7 @@ export default function ThreadDetailPage() {
         const [threadData, postsData] = await Promise.all([
           fetchThread(threadSlug),
           fetchPosts({ thread: threadSlug, page: 1, limit: postsPerPage }),
-        ]);
+        ]) as [Thread, PostsData];
 
         setThread(threadData);
         setPosts(postsData.items);
@@ -57,17 +67,17 @@ export default function ThreadDetailPage() {
           error: err,
           context: { categorySlug, threadSlug },
         });
-        setError(err.message);
+        setError(err instanceof Error ? err.message : 'Failed to load thread');
       } finally {
         setLoading(false);
       }
     };
 
     loadData();
-  }, [threadSlug]);
+  }, [threadSlug, categorySlug]);
 
   // Handle reply submission
-  const handleReplySubmit = useCallback(async (e) => {
+  const handleReplySubmit = useCallback(async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!isAuthenticated) {
@@ -80,6 +90,11 @@ export default function ThreadDetailPage() {
       return;
     }
 
+    if (!thread) {
+      setReplyError('Thread not found');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setReplyError(null);
@@ -88,7 +103,7 @@ export default function ThreadDetailPage() {
         thread: thread.id,
         content_raw: replyContent,
         content_format: 'rich', // TipTap outputs HTML
-      });
+      }) as Post;
 
       setPosts(prev => [...prev, newPost]);
       setTotalPosts(prev => prev + 1);
@@ -105,14 +120,14 @@ export default function ThreadDetailPage() {
         error: err,
         context: { threadId: thread?.id, contentLength: replyContent?.length },
       });
-      setReplyError(err.message);
+      setReplyError(err instanceof Error ? err.message : 'Failed to create post');
     } finally {
       setIsSubmitting(false);
     }
   }, [isAuthenticated, navigate, replyContent, thread]);
 
   // Handle post deletion
-  const handleDeletePost = useCallback(async (post) => {
+  const handleDeletePost = useCallback(async (post: Post) => {
     if (!window.confirm('Are you sure you want to delete this post?')) {
       return;
     }
@@ -125,14 +140,16 @@ export default function ThreadDetailPage() {
       logger.error('Error deleting post', {
         component: 'ThreadDetailPage',
         error: err,
-        context: { postId },
+        context: { postId: post.id },
       });
-      alert(`Failed to delete post: ${err.message}`);
+      alert(`Failed to delete post: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }, []);
 
   // Load more posts (pagination)
   const handleLoadMore = useCallback(async () => {
+    if (!threadSlug) return;
+
     try {
       setLoadingMore(true);
       const nextPage = currentPage + 1;
@@ -141,7 +158,7 @@ export default function ThreadDetailPage() {
         thread: threadSlug,
         page: nextPage,
         limit: postsPerPage,
-      });
+      }) as PostsData;
 
       setPosts(prev => [...prev, ...postsData.items]);
       setCurrentPage(nextPage);
@@ -149,13 +166,13 @@ export default function ThreadDetailPage() {
       logger.error('Error loading more posts', {
         component: 'ThreadDetailPage',
         error: err,
-        context: { threadId: thread?.id, page: nextPage },
+        context: { threadId: thread?.id, page: currentPage + 1 },
       });
-      alert(`Failed to load more posts: ${err.message}`);
+      alert(`Failed to load more posts: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setLoadingMore(false);
     }
-  }, [currentPage, threadSlug]);
+  }, [currentPage, threadSlug, thread?.id]);
 
   if (loading) {
     return (

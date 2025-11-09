@@ -10,6 +10,7 @@ export interface User {
   email: string;
   username?: string;
   name?: string; // Full name (may be used instead of first_name/last_name)
+  display_name?: string; // Display name for forum/posts
   first_name?: string;
   last_name?: string;
   trust_level?: 'new' | 'basic' | 'trusted' | 'veteran' | 'expert';

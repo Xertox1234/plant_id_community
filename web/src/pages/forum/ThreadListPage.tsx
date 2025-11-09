@@ -1,10 +1,18 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, FormEvent } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { fetchThreads, fetchCategory } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import { logger } from '../../utils/logger';
+import type { Thread, Category } from '@/types';
+
+interface ThreadsData {
+  items: Thread[];
+  meta: {
+    count: number;
+  };
+}
 
 /**
  * ThreadListPage Component
@@ -13,14 +21,14 @@ import { logger } from '../../utils/logger';
  * Route: /forum/:categorySlug
  */
 export default function ThreadListPage() {
-  const { categorySlug } = useParams();
+  const { categorySlug } = useParams<{ categorySlug: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [category, setCategory] = useState(null);
-  const [threads, setThreads] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [totalCount, setTotalCount] = useState(0);
+  const [category, setCategory] = useState<Category | null>(null);
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState<number>(0);
 
   // Get search params
   const page = parseInt(searchParams.get('page') || '1', 10);
@@ -32,6 +40,8 @@ export default function ThreadListPage() {
   // Load category and threads
   useEffect(() => {
     const loadData = async () => {
+      if (!categorySlug) return;
+
       try {
         setLoading(true);
         setError(null);
@@ -46,7 +56,7 @@ export default function ThreadListPage() {
             search,
             ordering
           }),
-        ]);
+        ]) as [Category, ThreadsData];
 
         setCategory(categoryData);
         setThreads(threadsData.items);
@@ -57,7 +67,7 @@ export default function ThreadListPage() {
           error: err,
           context: { categorySlug, page, search },
         });
-        setError(err.message);
+        setError(err instanceof Error ? err.message : 'Failed to load threads');
       } finally {
         setLoading(false);
       }
@@ -67,10 +77,10 @@ export default function ThreadListPage() {
   }, [categorySlug, page, search, ordering]);
 
   // Handle search form submission
-  const handleSearch = useCallback((e) => {
+  const handleSearch = useCallback((e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.target);
-    const searchQuery = formData.get('search');
+    const formData = new FormData(e.currentTarget);
+    const searchQuery = formData.get('search') as string;
 
     setSearchParams(prev => {
       const newParams = new URLSearchParams(prev);
@@ -85,7 +95,7 @@ export default function ThreadListPage() {
   }, [setSearchParams]);
 
   // Handle ordering change
-  const handleOrderChange = useCallback((e) => {
+  const handleOrderChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     const newOrder = e.target.value;
     setSearchParams(prev => {
       const newParams = new URLSearchParams(prev);
@@ -96,7 +106,7 @@ export default function ThreadListPage() {
   }, [setSearchParams]);
 
   // Handle pagination
-  const handlePageChange = useCallback((newPage) => {
+  const handlePageChange = useCallback((newPage: number) => {
     setSearchParams(prev => {
       const newParams = new URLSearchParams(prev);
       newParams.set('page', newPage.toString());

@@ -9,8 +9,8 @@
  * - Plant recovery tracking
  */
 
-import { useState, useEffect } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect, ChangeEvent } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   fetchDiagnosisCard,
   updateDiagnosisCard,
@@ -18,74 +18,101 @@ import {
   toggleFavorite,
   fetchReminders,
   createReminder,
-} from '../../services/diagnosisService'
-import logger from '../../utils/logger'
+} from '../../services/diagnosisService';
+import { logger } from '../../utils/logger';
+import type { DiagnosisCard, DiagnosisReminder, TreatmentStatus, SeverityAssessment } from '@/types';
+
+/**
+ * Custom StreamFieldBlock for diagnosis care instructions
+ * (extends beyond blog types to include treatment-specific blocks)
+ */
+interface StreamFieldBlock {
+  type: string;
+  value: unknown;
+}
+
+interface StreamFieldValue {
+  title?: string;
+  description?: string;
+  frequency?: string;
+  symptom?: string;
+  what_to_look_for?: string;
+  items?: string[];
+  url?: string;
+  alt_text?: string;
+  caption?: string;
+}
+
+interface ReminderResults {
+  results: DiagnosisReminder[];
+}
 
 /**
  * Get status badge color based on treatment status
  */
-function getStatusColor(status) {
-  const colors = {
+function getStatusColor(status: TreatmentStatus): string {
+  const colors: Record<TreatmentStatus, string> = {
     not_started: 'bg-gray-100 text-gray-800',
     in_progress: 'bg-blue-100 text-blue-800',
     successful: 'bg-green-100 text-green-800',
     failed: 'bg-red-100 text-red-800',
     monitoring: 'bg-yellow-100 text-yellow-800'
-  }
-  return colors[status] || 'bg-gray-100 text-gray-800'
+  };
+  return colors[status] || 'bg-gray-100 text-gray-800';
 }
 
 /**
  * Get severity badge color
  */
-function getSeverityColor(severity) {
-  const colors = {
+function getSeverityColor(severity: SeverityAssessment): string {
+  const colors: Record<SeverityAssessment, string> = {
     mild: 'bg-green-50 text-green-700 ring-green-600/20',
     moderate: 'bg-yellow-50 text-yellow-700 ring-yellow-600/20',
     severe: 'bg-orange-50 text-orange-700 ring-orange-600/20',
     critical: 'bg-red-50 text-red-700 ring-red-600/20'
-  }
-  return colors[severity] || 'bg-gray-50 text-gray-700 ring-gray-600/20'
+  };
+  return colors[severity] || 'bg-gray-50 text-gray-700 ring-gray-600/20';
 }
 
 /**
  * Format date to readable string
  */
-function formatDate(dateString) {
-  const date = new Date(dateString)
+function formatDate(dateString: string): string {
+  const date = new Date(dateString);
   return new Intl.DateTimeFormat('en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric'
-  }).format(date)
+  }).format(date);
 }
 
 /**
  * Format datetime to readable string
  */
-function formatDateTime(dateString) {
-  const date = new Date(dateString)
+function formatDateTime(dateString: string): string {
+  const date = new Date(dateString);
   return new Intl.DateTimeFormat('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit'
-  }).format(date)
+  }).format(date);
 }
 
 /**
  * StreamField Block Renderer
  */
-function StreamFieldBlock({ block }) {
-  const { type, value } = block
+function StreamFieldBlockComponent({ block }: { block: StreamFieldBlock }) {
+  const { type, value } = block;
+  const typedValue = value as StreamFieldValue;
 
   switch (type) {
     case 'heading':
-      return <h3 className="text-xl font-semibold text-gray-900 mt-6 mb-3">{value}</h3>
+      return <h3 className="text-xl font-semibold text-gray-900 mt-6 mb-3">{typedValue as unknown as string}</h3>;
 
     case 'paragraph':
-      return <p className="text-gray-700 mb-4 leading-relaxed">{value}</p>
+      return <p className="text-gray-700 mb-4 leading-relaxed">{typedValue as unknown as string}</p>;
 
     case 'treatment_step':
       return (
@@ -95,15 +122,15 @@ function StreamFieldBlock({ block }) {
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
             </svg>
             <div className="flex-1">
-              <h4 className="font-semibold text-blue-900 mb-1">{value.title}</h4>
-              <p className="text-blue-800">{value.description}</p>
-              {value.frequency && (
-                <p className="text-sm text-blue-700 mt-2">Frequency: {value.frequency}</p>
+              <h4 className="font-semibold text-blue-900 mb-1">{typedValue.title}</h4>
+              <p className="text-blue-800">{typedValue.description}</p>
+              {typedValue.frequency && (
+                <p className="text-sm text-blue-700 mt-2">Frequency: {typedValue.frequency}</p>
               )}
             </div>
           </div>
         </div>
-      )
+      );
 
     case 'symptom_check':
       return (
@@ -113,12 +140,12 @@ function StreamFieldBlock({ block }) {
               <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
             <div className="flex-1">
-              <h4 className="font-semibold text-yellow-900 mb-1">Symptom Check: {value.symptom}</h4>
-              <p className="text-yellow-800">{value.what_to_look_for}</p>
+              <h4 className="font-semibold text-yellow-900 mb-1">Symptom Check: {typedValue.symptom}</h4>
+              <p className="text-yellow-800">{typedValue.what_to_look_for}</p>
             </div>
           </div>
         </div>
-      )
+      );
 
     case 'prevention_tip':
       return (
@@ -129,180 +156,200 @@ function StreamFieldBlock({ block }) {
             </svg>
             <div className="flex-1">
               <h4 className="font-semibold text-green-900 mb-1">Prevention Tip</h4>
-              <p className="text-green-800">{value}</p>
+              <p className="text-green-800">{typedValue as unknown as string}</p>
             </div>
           </div>
         </div>
-      )
+      );
 
     case 'list_block':
       return (
         <ul className="list-disc list-inside space-y-2 mb-4 text-gray-700">
-          {value.items.map((item, index) => (
+          {typedValue.items?.map((item, index) => (
             <li key={index} className="ml-4">{item}</li>
           ))}
         </ul>
-      )
+      );
 
     case 'image':
       return (
         <div className="mb-6">
           <img
-            src={value.url}
-            alt={value.alt_text || 'Care instruction image'}
+            src={typedValue.url}
+            alt={typedValue.alt_text || 'Care instruction image'}
             className="rounded-lg w-full max-w-2xl mx-auto"
           />
-          {value.caption && (
-            <p className="text-sm text-gray-600 text-center mt-2 italic">{value.caption}</p>
+          {typedValue.caption && (
+            <p className="text-sm text-gray-600 text-center mt-2 italic">{typedValue.caption}</p>
           )}
         </div>
-      )
+      );
 
     default:
-      logger.warn('[StreamFieldBlock] Unknown block type:', type)
-      return null
+      logger.warn('[StreamFieldBlock] Unknown block type', {
+        component: 'StreamFieldBlock',
+        context: { type }
+      });
+      return null;
   }
 }
 
 export default function DiagnosisDetailPage() {
-  const { uuid } = useParams()
-  const navigate = useNavigate()
+  const { uuid } = useParams<{ uuid: string }>();
+  const navigate = useNavigate();
 
   // Card data
-  const [card, setCard] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [card, setCard] = useState<DiagnosisCard | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Edit mode
-  const [isEditingNotes, setIsEditingNotes] = useState(false)
-  const [editedNotes, setEditedNotes] = useState('')
-  const [isSavingNotes, setIsSavingNotes] = useState(false)
+  const [isEditingNotes, setIsEditingNotes] = useState<boolean>(false);
+  const [editedNotes, setEditedNotes] = useState<string>('');
+  const [isSavingNotes, setIsSavingNotes] = useState<boolean>(false);
 
   // Treatment status update
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
 
   // Reminders
-  const [reminders, setReminders] = useState([])
-  const [showReminderForm, setShowReminderForm] = useState(false)
+  const [reminders, setReminders] = useState<DiagnosisReminder[]>([]);
+  const [showReminderForm, setShowReminderForm] = useState<boolean>(false);
 
   /**
    * Load card data
    */
   useEffect(() => {
-    loadCard()
-    loadReminders()
-  }, [uuid])
+    loadCard();
+    loadReminders();
+  }, [uuid]);
 
   const loadCard = async () => {
+    if (!uuid) return;
+
     try {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
 
-      logger.info('[DiagnosisDetailPage] Loading card', { uuid })
+      logger.info('[DiagnosisDetailPage] Loading card', { uuid });
 
-      const data = await fetchDiagnosisCard(uuid)
-      setCard(data)
-      setEditedNotes(data.personal_notes || '')
+      const data = await fetchDiagnosisCard(uuid) as DiagnosisCard;
+      setCard(data);
+      setEditedNotes(data.personal_notes || '');
 
-      logger.info('[DiagnosisDetailPage] Card loaded', { uuid, display_name: data.display_name })
+      logger.info('[DiagnosisDetailPage] Card loaded', {
+        component: 'DiagnosisDetailPage',
+        context: { uuid, display_name: data.display_name }
+      });
     } catch (err) {
-      logger.error('[DiagnosisDetailPage] Failed to load card:', err)
-      setError(err.message || 'Failed to load diagnosis card')
+      logger.error('[DiagnosisDetailPage] Failed to load card:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load diagnosis card');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const loadReminders = async () => {
+    if (!uuid) return;
+
     try {
-      const data = await fetchReminders({ diagnosis_card: uuid, is_active: true })
-      setReminders(data.results || [])
+      const data = await fetchReminders({ diagnosis_card: uuid, is_active: true }) as ReminderResults;
+      setReminders(data.results || []);
     } catch (err) {
-      logger.error('[DiagnosisDetailPage] Failed to load reminders:', err)
+      logger.error('[DiagnosisDetailPage] Failed to load reminders:', err);
     }
-  }
+  };
 
   /**
    * Handle favorite toggle
    */
   const handleToggleFavorite = async () => {
+    if (!uuid) return;
+
     try {
-      const updated = await toggleFavorite(uuid)
-      setCard(updated)
-      logger.info('[DiagnosisDetailPage] Toggled favorite', { uuid, isFavorite: updated.is_favorite })
+      const updated = await toggleFavorite(uuid) as DiagnosisCard;
+      setCard(updated);
+      logger.info('[DiagnosisDetailPage] Toggled favorite', { uuid, isFavorite: updated.is_favorite });
     } catch (err) {
-      logger.error('[DiagnosisDetailPage] Failed to toggle favorite:', err)
-      alert('Failed to update favorite status. Please try again.')
+      logger.error('[DiagnosisDetailPage] Failed to toggle favorite:', err);
+      alert('Failed to update favorite status. Please try again.');
     }
-  }
+  };
 
   /**
    * Handle treatment status update
    */
-  const handleStatusUpdate = async (newStatus) => {
+  const handleStatusUpdate = async (newStatus: TreatmentStatus) => {
+    if (!uuid) return;
+
     try {
-      setIsUpdatingStatus(true)
-      const updated = await updateDiagnosisCard(uuid, { treatment_status: newStatus })
-      setCard(updated)
-      logger.info('[DiagnosisDetailPage] Updated status', { uuid, status: newStatus })
+      setIsUpdatingStatus(true);
+      const updated = await updateDiagnosisCard(uuid, { treatment_status: newStatus }) as DiagnosisCard;
+      setCard(updated);
+      logger.info('[DiagnosisDetailPage] Updated status', { uuid, status: newStatus });
     } catch (err) {
-      logger.error('[DiagnosisDetailPage] Failed to update status:', err)
-      alert('Failed to update treatment status. Please try again.')
+      logger.error('[DiagnosisDetailPage] Failed to update status:', err);
+      alert('Failed to update treatment status. Please try again.');
     } finally {
-      setIsUpdatingStatus(false)
+      setIsUpdatingStatus(false);
     }
-  }
+  };
 
   /**
    * Handle plant recovery toggle
    */
   const handleRecoveryToggle = async () => {
+    if (!card || !uuid) return;
+
     try {
-      const newRecoveryStatus = card.plant_recovered === null ? true : !card.plant_recovered
-      const updated = await updateDiagnosisCard(uuid, { plant_recovered: newRecoveryStatus })
-      setCard(updated)
-      logger.info('[DiagnosisDetailPage] Updated recovery status', { uuid, recovered: newRecoveryStatus })
+      const newRecoveryStatus = card.plant_recovered === null ? true : !card.plant_recovered;
+      const updated = await updateDiagnosisCard(uuid, { plant_recovered: newRecoveryStatus }) as DiagnosisCard;
+      setCard(updated);
+      logger.info('[DiagnosisDetailPage] Updated recovery status', { uuid, recovered: newRecoveryStatus });
     } catch (err) {
-      logger.error('[DiagnosisDetailPage] Failed to update recovery status:', err)
-      alert('Failed to update recovery status. Please try again.')
+      logger.error('[DiagnosisDetailPage] Failed to update recovery status:', err);
+      alert('Failed to update recovery status. Please try again.');
     }
-  }
+  };
 
   /**
    * Handle notes save
    */
   const handleSaveNotes = async () => {
+    if (!uuid) return;
+
     try {
-      setIsSavingNotes(true)
-      const updated = await updateDiagnosisCard(uuid, { personal_notes: editedNotes })
-      setCard(updated)
-      setIsEditingNotes(false)
-      logger.info('[DiagnosisDetailPage] Saved notes', { uuid })
+      setIsSavingNotes(true);
+      const updated = await updateDiagnosisCard(uuid, { personal_notes: editedNotes }) as DiagnosisCard;
+      setCard(updated);
+      setIsEditingNotes(false);
+      logger.info('[DiagnosisDetailPage] Saved notes', { uuid });
     } catch (err) {
-      logger.error('[DiagnosisDetailPage] Failed to save notes:', err)
-      alert('Failed to save notes. Please try again.')
+      logger.error('[DiagnosisDetailPage] Failed to save notes:', err);
+      alert('Failed to save notes. Please try again.');
     } finally {
-      setIsSavingNotes(false)
+      setIsSavingNotes(false);
     }
-  }
+  };
 
   /**
    * Handle card deletion
    */
   const handleDelete = async () => {
+    if (!card || !uuid) return;
+
     if (!confirm(`Are you sure you want to delete this diagnosis for "${card.display_name}"? This cannot be undone.`)) {
-      return
+      return;
     }
 
     try {
-      await deleteDiagnosisCard(uuid)
-      logger.info('[DiagnosisDetailPage] Deleted card', { uuid })
-      navigate('/diagnosis')
+      await deleteDiagnosisCard(uuid);
+      logger.info('[DiagnosisDetailPage] Deleted card', { uuid });
+      navigate('/diagnosis');
     } catch (err) {
-      logger.error('[DiagnosisDetailPage] Failed to delete:', err)
-      alert('Failed to delete diagnosis card. Please try again.')
+      logger.error('[DiagnosisDetailPage] Failed to delete:', err);
+      alert('Failed to delete diagnosis card. Please try again.');
     }
-  }
+  };
 
   // Loading state
   if (loading) {
@@ -315,7 +362,7 @@ export default function DiagnosisDetailPage() {
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   // Error state
@@ -346,7 +393,7 @@ export default function DiagnosisDetailPage() {
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -399,9 +446,6 @@ export default function DiagnosisDetailPage() {
               {/* Metadata */}
               <div className="text-sm text-gray-600 space-y-1">
                 <p>Saved on {formatDate(card.saved_at)}</p>
-                {card.last_viewed_at && (
-                  <p>Last viewed on {formatDate(card.last_viewed_at)}</p>
-                )}
               </div>
             </div>
 
@@ -447,7 +491,7 @@ export default function DiagnosisDetailPage() {
               </label>
               <select
                 value={card.treatment_status}
-                onChange={(e) => handleStatusUpdate(e.target.value)}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => handleStatusUpdate(e.target.value as TreatmentStatus)}
                 disabled={isUpdatingStatus}
                 className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:opacity-50"
               >
@@ -517,7 +561,7 @@ export default function DiagnosisDetailPage() {
           {card.care_instructions && card.care_instructions.length > 0 ? (
             <div className="prose prose-green max-w-none">
               {card.care_instructions.map((block, index) => (
-                <StreamFieldBlock key={index} block={block} />
+                <StreamFieldBlockComponent key={index} block={block as StreamFieldBlock} />
               ))}
             </div>
           ) : (
@@ -543,8 +587,8 @@ export default function DiagnosisDetailPage() {
             <div>
               <textarea
                 value={editedNotes}
-                onChange={(e) => setEditedNotes(e.target.value)}
-                rows="6"
+                onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setEditedNotes(e.target.value)}
+                rows={6}
                 placeholder="Add your observations, progress notes, or reminders..."
                 className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
               />
@@ -558,8 +602,8 @@ export default function DiagnosisDetailPage() {
                 </button>
                 <button
                   onClick={() => {
-                    setIsEditingNotes(false)
-                    setEditedNotes(card.personal_notes || '')
+                    setIsEditingNotes(false);
+                    setEditedNotes(card.personal_notes || '');
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors"
                 >
@@ -577,33 +621,7 @@ export default function DiagnosisDetailPage() {
             </div>
           )}
         </div>
-
-        {/* Diagnosis Info */}
-        {card.diagnosis_result_info && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Diagnosis Information</h2>
-            <div className="space-y-2 text-sm text-gray-600">
-              <p>
-                <span className="font-medium">Source:</span>{' '}
-                {card.diagnosis_result_info.diagnosis_source === 'plant_id' ? 'Plant.id' : 'PlantNet'}
-              </p>
-              <p>
-                <span className="font-medium">Diagnosed on:</span>{' '}
-                {formatDateTime(card.diagnosis_result_info.diagnosed_at)}
-              </p>
-              <Link
-                to={`/results/${card.diagnosis_result_info.id}`}
-                className="inline-flex items-center text-green-600 hover:text-green-700 font-medium mt-2"
-              >
-                View Original Diagnosis
-                <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                </svg>
-              </Link>
-            </div>
-          </div>
-        )}
       </div>
     </div>
-  )
+  );
 }

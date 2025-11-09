@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { searchForum, fetchCategories } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
@@ -6,6 +6,20 @@ import PostCard from '../../components/forum/PostCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import { logger } from '../../utils/logger';
+import type { Thread, Post, Category } from '@/types';
+
+interface SearchResults {
+  threads: Thread[];
+  posts: Post[];
+  total_threads: number;
+  total_posts: number;
+  has_next_threads: boolean;
+  has_next_posts: boolean;
+}
+
+interface CategoriesResponse {
+  results: Category[];
+}
 
 /**
  * SearchPage Component
@@ -23,14 +37,14 @@ import { logger } from '../../utils/logger';
 export default function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [searchResults, setSearchResults] = useState(null);
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [searchInput, setSearchInput] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState<string>('');
 
   // Use ref for debounce timer to prevent memory leaks
-  const debounceTimerRef = useRef(null);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get search params
   const query = searchParams.get('q') || '';
@@ -54,7 +68,7 @@ export default function SearchPage() {
     const loadCategories = async () => {
       try {
         const data = await fetchCategories();
-        setCategories(data.results || []);
+        setCategories((data as unknown as CategoriesResponse).results || []);
       } catch (err) {
         logger.error('Error loading categories', {
           component: 'SearchPage',
@@ -88,11 +102,12 @@ export default function SearchPage() {
           page_size: pageSize,
         });
 
-        setSearchResults(results);
+        const searchResults = results as unknown as SearchResults;
+        setSearchResults(searchResults);
         logger.info('[SEARCH] Results loaded', {
           query,
-          totalThreads: results.total_threads,
-          totalPosts: results.total_posts,
+          totalThreads: searchResults.total_threads,
+          totalPosts: searchResults.total_posts,
         });
       } catch (err) {
         logger.error('Error performing search', {
@@ -100,7 +115,7 @@ export default function SearchPage() {
           error: err,
           context: { query, category, author },
         });
-        setError(err.message);
+        setError(err instanceof Error ? err.message : 'Search failed');
       } finally {
         setLoading(false);
       }
@@ -119,7 +134,7 @@ export default function SearchPage() {
   }, []);
 
   // Handle search input with debouncing
-  const handleSearchInput = useCallback((e) => {
+  const handleSearchInput = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearchInput(value);
 
@@ -148,7 +163,7 @@ export default function SearchPage() {
   }, [setSearchParams]);
 
   // Handle filter changes
-  const handleCategoryFilter = useCallback((e) => {
+  const handleCategoryFilter = useCallback((e: ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
     setSearchParams(prev => {
       const newParams = new URLSearchParams(prev);
@@ -162,7 +177,7 @@ export default function SearchPage() {
     });
   }, [setSearchParams]);
 
-  const handleAuthorFilter = useCallback((e) => {
+  const handleAuthorFilter = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearchParams(prev => {
       const newParams = new URLSearchParams(prev);
@@ -177,7 +192,7 @@ export default function SearchPage() {
   }, [setSearchParams]);
 
   // Handle pagination
-  const handlePageChange = useCallback((newPage) => {
+  const handlePageChange = useCallback((newPage: number) => {
     setSearchParams(prev => {
       const newParams = new URLSearchParams(prev);
       newParams.set('page', newPage.toString());
@@ -292,7 +307,7 @@ export default function SearchPage() {
       {/* Search Results */}
       {loading && (
         <div className="flex justify-center py-12">
-          <LoadingSpinner size="large" />
+          <LoadingSpinner />
         </div>
       )}
 

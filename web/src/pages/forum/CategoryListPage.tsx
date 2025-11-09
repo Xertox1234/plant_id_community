@@ -3,6 +3,7 @@ import { fetchCategoryTree } from '../../services/forumService';
 import CategoryCard from '../../components/forum/CategoryCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { logger } from '../../utils/logger';
+import type { Category } from '@/types';
 
 /**
  * CategoryListPage Component
@@ -11,9 +12,9 @@ import { logger } from '../../utils/logger';
  * Route: /forum
  */
 export default function CategoryListPage() {
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadCategories = async () => {
@@ -28,7 +29,7 @@ export default function CategoryListPage() {
           component: 'CategoryListPage',
           error: err,
         });
-        setError(err.message);
+        setError(err instanceof Error ? err.message : 'Failed to load categories');
       } finally {
         setLoading(false);
       }

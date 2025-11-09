@@ -5,36 +5,37 @@
  * Features: filtering, search, sorting, pagination, favorites.
  */
 
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import DiagnosisCard from '../../components/diagnosis/DiagnosisCard'
-import { fetchDiagnosisCards } from '../../services/diagnosisService'
-import logger from '../../utils/logger'
+import { useState, useEffect, ChangeEvent } from 'react';
+import { Link } from 'react-router-dom';
+import DiagnosisCard from '../../components/diagnosis/DiagnosisCard';
+import { fetchDiagnosisCards } from '../../services/diagnosisService';
+import { logger } from '../../utils/logger';
+import type { DiagnosisCard as DiagnosisCardType, PaginatedDiagnosisCardsResponse, TreatmentStatus, DiseaseType } from '@/types';
 
 export default function DiagnosisListPage() {
-  const [cards, setCards] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [cards, setCards] = useState<DiagnosisCardType[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Filters
-  const [searchQuery, setSearchQuery] = useState('')
-  const [treatmentFilter, setTreatmentFilter] = useState('')
-  const [diseaseTypeFilter, setDiseaseTypeFilter] = useState('')
-  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
-  const [sortOrder, setSortOrder] = useState('-saved_at')
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [treatmentFilter, setTreatmentFilter] = useState<TreatmentStatus | ''>('');
+  const [diseaseTypeFilter, setDiseaseTypeFilter] = useState<DiseaseType | ''>('');
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState<boolean>(false);
+  const [sortOrder, setSortOrder] = useState<string>('-saved_at');
 
   // Pagination
-  const [currentPage, setCurrentPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
-  const [totalCount, setTotalCount] = useState(0)
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [totalCount, setTotalCount] = useState<number>(0);
 
   /**
    * Fetch diagnosis cards with current filters
    */
   const loadCards = async () => {
     try {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
 
       const options = {
         search: searchQuery || undefined,
@@ -43,68 +44,68 @@ export default function DiagnosisListPage() {
         is_favorite: showFavoritesOnly ? true : undefined,
         ordering: sortOrder,
         page: currentPage,
-      }
+      };
 
-      logger.info('[DiagnosisListPage] Loading cards with filters', options)
+      logger.info('[DiagnosisListPage] Loading cards with filters', options);
 
-      const response = await fetchDiagnosisCards(options)
+      const response = await fetchDiagnosisCards(options) as PaginatedDiagnosisCardsResponse;
 
-      setCards(response.results || [])
-      setTotalCount(response.count || 0)
-      setTotalPages(Math.ceil((response.count || 0) / 20)) // Backend uses 20 per page
+      setCards(response.results || []);
+      setTotalCount(response.count || 0);
+      setTotalPages(Math.ceil((response.count || 0) / 20)); // Backend uses 20 per page
 
       logger.info('[DiagnosisListPage] Loaded cards', {
         count: response.results?.length || 0,
         total: response.count || 0,
-      })
+      });
     } catch (err) {
-      logger.error('[DiagnosisListPage] Failed to load cards:', err)
-      setError(err.message || 'Failed to load diagnosis cards')
+      logger.error('[DiagnosisListPage] Failed to load cards:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load diagnosis cards');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   /**
    * Load cards when filters or page changes
    */
   useEffect(() => {
-    loadCards()
-  }, [searchQuery, treatmentFilter, diseaseTypeFilter, showFavoritesOnly, sortOrder, currentPage])
+    loadCards();
+  }, [searchQuery, treatmentFilter, diseaseTypeFilter, showFavoritesOnly, sortOrder, currentPage]);
 
   /**
    * Handle card update (favorite toggle)
    */
-  const handleCardUpdate = (updatedCard) => {
+  const handleCardUpdate = (updatedCard: DiagnosisCardType) => {
     setCards(cards.map(card =>
       card.uuid === updatedCard.uuid ? updatedCard : card
-    ))
-  }
+    ));
+  };
 
   /**
    * Handle card deletion
    */
-  const handleCardDelete = (uuid) => {
-    setCards(cards.filter(card => card.uuid !== uuid))
-    setTotalCount(totalCount - 1)
-  }
+  const handleCardDelete = (uuid: string) => {
+    setCards(cards.filter(card => card.uuid !== uuid));
+    setTotalCount(totalCount - 1);
+  };
 
   /**
    * Clear all filters
    */
   const clearFilters = () => {
-    setSearchQuery('')
-    setTreatmentFilter('')
-    setDiseaseTypeFilter('')
-    setShowFavoritesOnly(false)
-    setSortOrder('-saved_at')
-    setCurrentPage(1)
-  }
+    setSearchQuery('');
+    setTreatmentFilter('');
+    setDiseaseTypeFilter('');
+    setShowFavoritesOnly(false);
+    setSortOrder('-saved_at');
+    setCurrentPage(1);
+  };
 
   /**
    * Check if any filters are active
    */
-  const hasActiveFilters = searchQuery || treatmentFilter || diseaseTypeFilter || showFavoritesOnly || sortOrder !== '-saved_at'
+  const hasActiveFilters = searchQuery || treatmentFilter || diseaseTypeFilter || showFavoritesOnly || sortOrder !== '-saved_at';
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -129,7 +130,7 @@ export default function DiagnosisListPage() {
                 type="text"
                 id="search"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
                 placeholder="Plant or disease name..."
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
               />
@@ -143,7 +144,7 @@ export default function DiagnosisListPage() {
               <select
                 id="treatment-status"
                 value={treatmentFilter}
-                onChange={(e) => setTreatmentFilter(e.target.value)}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setTreatmentFilter(e.target.value as TreatmentStatus | '')}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
               >
                 <option value="">All Statuses</option>
@@ -163,7 +164,7 @@ export default function DiagnosisListPage() {
               <select
                 id="disease-type"
                 value={diseaseTypeFilter}
-                onChange={(e) => setDiseaseTypeFilter(e.target.value)}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setDiseaseTypeFilter(e.target.value as DiseaseType | '')}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
               >
                 <option value="">All Types</option>
@@ -184,7 +185,7 @@ export default function DiagnosisListPage() {
               <select
                 id="sort-order"
                 value={sortOrder}
-                onChange={(e) => setSortOrder(e.target.value)}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setSortOrder(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
               >
                 <option value="-saved_at">Newest First</option>
@@ -204,7 +205,7 @@ export default function DiagnosisListPage() {
                 <input
                   type="checkbox"
                   checked={showFavoritesOnly}
-                  onChange={(e) => setShowFavoritesOnly(e.target.checked)}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setShowFavoritesOnly(e.target.checked)}
                   className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
                 />
                 <span className="text-sm text-gray-700">Favorites Only</span>
@@ -322,15 +323,15 @@ export default function DiagnosisListPage() {
                   {/* Page Numbers */}
                   <div className="hidden sm:flex items-center gap-1">
                     {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      let pageNum
+                      let pageNum: number;
                       if (totalPages <= 5) {
-                        pageNum = i + 1
+                        pageNum = i + 1;
                       } else if (currentPage <= 3) {
-                        pageNum = i + 1
+                        pageNum = i + 1;
                       } else if (currentPage >= totalPages - 2) {
-                        pageNum = totalPages - 4 + i
+                        pageNum = totalPages - 4 + i;
                       } else {
-                        pageNum = currentPage - 2 + i
+                        pageNum = currentPage - 2 + i;
                       }
 
                       return (
@@ -345,7 +346,7 @@ export default function DiagnosisListPage() {
                         >
                           {pageNum}
                         </button>
-                      )
+                      );
                     })}
                   </div>
 
@@ -364,5 +365,5 @@ export default function DiagnosisListPage() {
         )}
       </div>
     </div>
-  )
+  );
 }
