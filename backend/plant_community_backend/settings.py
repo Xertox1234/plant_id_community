@@ -221,10 +221,16 @@ MIDDLEWARE = [
     'allauth.account.middleware.AccountMiddleware',  # OAuth middleware
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'csp.middleware.CSPMiddleware',  # Content Security Policy
     'wagtail.contrib.redirects.middleware.RedirectMiddleware',
     'apps.blog.middleware.BlogViewTrackingMiddleware',  # Blog analytics (Phase 6.2)
 ]
+
+# Add CSP middleware only in production (disabled in dev to allow Wagtail admin widgets)
+if not DEBUG:
+    MIDDLEWARE.insert(
+        MIDDLEWARE.index('django.middleware.clickjacking.XFrameOptionsMiddleware') + 1,
+        'csp.middleware.CSPMiddleware'
+    )
 
 if _HAS_REQUEST_ID:
     MIDDLEWARE.append('request_id.middleware.RequestIdMiddleware')  # Request ID tracking
@@ -924,7 +930,7 @@ if DEBUG:
             'img-src': ("'self'", "data:", "https:", "blob:"),
             'media-src': ("'self'",),
             'object-src': ("'none'",),
-            'script-src': ("'self'", "'unsafe-inline'", "http://localhost:*", "ws://localhost:*"),
+            'script-src': ("'self'", "'unsafe-inline'", "'unsafe-eval'", "http://localhost:*", "ws://localhost:*"),
             'style-src': ("'self'", "'unsafe-inline'"),
             'worker-src': ("'self'", "blob:")
         }
