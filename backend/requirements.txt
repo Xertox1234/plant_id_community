@@ -121,7 +121,7 @@ pyasn1_modules==0.4.2
 pybreaker==1.4.1
 pycparser==2.23
 pydantic==2.12.3
-pydantic_core==2.41.4
+pydantic_core==2.41.5
 Pygments==2.19.2
 PyJWT==2.10.1
 pyOpenSSL==25.3.0
