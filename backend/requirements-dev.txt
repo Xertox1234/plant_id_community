@@ -123,7 +123,7 @@ pydantic_core==2.41.4
 Pygments==2.19.2
 PyJWT==2.10.1
 pyOpenSSL==25.3.0
-pytest==8.4.2
+pytest==9.0.0
 pytest-cov==7.0.0
 pytest-django==4.11.1
 python-crontab==3.3.0
