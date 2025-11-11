@@ -353,9 +353,29 @@ class BlogAIIntegration:
 
         # Generate AI content
         try:
+            import logging
+            import time
+            logger = logging.getLogger(__name__)
+
+            # Log request start
+            start_time = time.time()
+            logger.info(
+                f"[AI] Generating {field_name} content "
+                f"(user: {user_id if user else 0}, "
+                f"prompt_length: {len(prompt)} chars)"
+            )
+
             from wagtail_ai.utils import get_ai_text
 
             ai_content = get_ai_text(prompt)
+
+            # Calculate generation time
+            generation_time = time.time() - start_time
+            logger.info(
+                f"[AI] Generation completed for {field_name} "
+                f"in {generation_time:.2f}s "
+                f"(length: {len(ai_content)} chars)"
+            )
 
             # Cache the response
             response = {'text': ai_content}
@@ -366,17 +386,36 @@ class BlogAIIntegration:
                 is_staff if user else False
             )
 
+            # Log success metrics
+            logger.info(
+                f"[AI] Success for {field_name} "
+                f"(cached: False, remaining: {remaining}, time: {generation_time:.2f}s)"
+            )
+
             return {
                 'success': True,
                 'content': ai_content,
                 'cached': False,
-                'remaining_calls': remaining
+                'remaining_calls': remaining,
+                'generation_time': generation_time
             }
 
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"[AI] Content generation failed for {field_name}: {str(e)}")
+
+            # Log detailed error for debugging
+            logger.error(
+                f"[AI] Content generation failed for {field_name}: {str(e)}",
+                exc_info=True,  # Include stack trace
+                extra={
+                    'field_name': field_name,
+                    'user_id': user_id if user else 0,
+                    'is_staff': is_staff if user else False,
+                    'prompt_length': len(prompt),
+                    'error_type': type(e).__name__
+                }
+            )
 
             return {
                 'success': False,

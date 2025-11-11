@@ -808,7 +808,13 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
         if not self.reading_time:
             self.reading_time = self.calculate_reading_time()
         super().save(*args, **kwargs)
-    
+
+    # Phase 4: AI Widget Integration (Issue #157)
+    class Media:
+        """Load custom JavaScript and CSS for AI content generation widgets."""
+        js = ['blog/js/ai_widget.js']
+        css = {'all': ['blog/css/ai_widget.css']}
+
     class Meta:
         verbose_name = "Blog Post"
         indexes = [
