@@ -129,7 +129,7 @@ WAGTAIL_APPS = [
     'wagtail.admin',
     'wagtail',
     'wagtail.api.v2',
-    # 'wagtail_ai',  # Optional AI features - disabled for now
+    'wagtail_ai',  # AI-powered content generation (Phase 1: Issue #157)
     'wagtail_headless_preview',  # Phase 3: Headless preview for React/Flutter
     'modelcluster',
     'taggit',
@@ -1031,17 +1031,29 @@ SOCIALACCOUNT_PROVIDERS = {
 SOCIALACCOUNT_ADAPTER = 'apps.users.oauth_adapters.CustomSocialAccountAdapter'
 ACCOUNT_ADAPTER = 'apps.users.oauth_adapters.CustomAccountAdapter'
 
-# Wagtail AI Configuration
+# Wagtail AI Configuration (Phase 1: Issue #157)
+# Provides AI-powered content generation for blog posts and CMS content
+# Cost-effective configuration using GPT-4o-mini (~$0.003/request)
+# Expected usage: ~500 requests/month = $1.50/month (before 80% caching)
 WAGTAIL_AI = {
     "BACKENDS": {
         "default": {
             "CLASS": "wagtail_ai.ai.openai.OpenAIBackend",
             "CONFIG": {
-                "MODEL_ID": "gpt-4o",
-                "TOKEN_LIMIT": 8192,
+                "MODEL_ID": "gpt-4o-mini",  # Cost-effective model for text generation
+                "TOKEN_LIMIT": 16384,  # GPT-4o-mini supports up to 16K tokens
                 "OPENAI_API_KEY": config('OPENAI_API_KEY', default=''),
             },
-        }
+        },
+        # Future: Add vision backend for image alt text generation (Phase 3)
+        # "vision": {
+        #     "CLASS": "wagtail_ai.ai.openai.OpenAIBackend",
+        #     "CONFIG": {
+        #         "MODEL_ID": "gpt-4o-vision-preview",
+        #         "TOKEN_LIMIT": 8192,
+        #         "OPENAI_API_KEY": config('OPENAI_API_KEY', default=''),
+        #     },
+        # }
     }
 }
 

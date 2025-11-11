@@ -1,0 +1,192 @@
+/**
+ * AI Widget Styling (Phase 4: Issue #157)
+ *
+ * Styles for AI content generation buttons and UI elements in Wagtail admin.
+ */
+
+/* AI Widget Container */
+.ai-widget-container {
+    margin-top: 8px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+/* AI Generate Button */
+.ai-generate-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #0ea5e9;
+    background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
+    border: 1px solid #bae6fd;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px rgba(14, 165, 233, 0.1);
+}
+
+.ai-generate-button:hover:not(:disabled) {
+    background: linear-gradient(135deg, #bae6fd 0%, #e0f2fe 100%);
+    border-color: #0ea5e9;
+    color: #0284c7;
+    box-shadow: 0 2px 6px rgba(14, 165, 233, 0.2);
+    transform: translateY(-1px);
+}
+
+.ai-generate-button:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px rgba(14, 165, 233, 0.1);
+}
+
+.ai-generate-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.ai-generate-button .icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
+/* Loading State */
+.ai-generate-button.button-loading {
+    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+    border-color: #d1d5db;
+    color: #6b7280;
+}
+
+.ai-generate-button.button-loading .icon {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Quota Display */
+.ai-quota-display {
+    font-size: 12px;
+    color: #666;
+    font-weight: 500;
+}
+
+.ai-quota-display span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Toast Notifications */
+.ai-toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 12px 16px;
+    background: #2196f3;
+    color: white;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    z-index: 10000;
+    font-size: 14px;
+    font-weight: 500;
+    max-width: 400px;
+    animation: slideIn 0.3s ease-out;
+}
+
+.ai-toast-success {
+    background: #4caf50;
+}
+
+.ai-toast-error {
+    background: #f44336;
+}
+
+.ai-toast-warning {
+    background: #ff9800;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+}
+
+/* Field Highlight Animation */
+.ai-field-highlight {
+    animation: highlight 2s ease-out;
+}
+
+@keyframes highlight {
+    0% {
+        background-color: #d4edda;
+    }
+    100% {
+        background-color: transparent;
+    }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .ai-widget-container {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .ai-toast {
+        top: 10px;
+        right: 10px;
+        left: 10px;
+        max-width: none;
+    }
+}
+
+/* Wagtail Admin Integration */
+.w-field .ai-widget-container {
+    margin-top: 12px;
+}
+
+/* Dark Mode Support (if Wagtail adds dark mode) */
+@media (prefers-color-scheme: dark) {
+    .ai-generate-button {
+        color: #38bdf8;
+        background: linear-gradient(135deg, #0c4a6e 0%, #075985 100%);
+        border-color: #0e7490;
+    }
+
+    .ai-generate-button:hover:not(:disabled) {
+        background: linear-gradient(135deg, #075985 0%, #0c4a6e 100%);
+        border-color: #38bdf8;
+        color: #7dd3fc;
+    }
+
+    .ai-quota-display {
+        color: #9ca3af;
+    }
+}
