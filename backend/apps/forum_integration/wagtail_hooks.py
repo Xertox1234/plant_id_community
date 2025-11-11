@@ -61,7 +61,7 @@ def forum_page_listing_buttons(page, page_perms=None, user=None, is_parent=False
     Add custom buttons to forum page listings in Wagtail admin.
     """
     if isinstance(page, (ForumIndexPage, ForumCategoryPage)):
-        yield wagtailadmin_widgets.PageListingButton(
+        yield wagtailadmin_widgets.ListingButton(
             'View Forum Stats',
             '/forum/',
             icon_name='view',
@@ -72,7 +72,7 @@ def forum_page_listing_buttons(page, page_perms=None, user=None, is_parent=False
         try:
             forum = Forum.objects.get(id=page.machina_forum_id)
             forum_url = f'/forum/category/{forum.id}/'
-            yield wagtailadmin_widgets.PageListingButton(
+            yield wagtailadmin_widgets.ListingButton(
                 'View Live Forum',
                 forum_url,
                 icon_name='link-external',

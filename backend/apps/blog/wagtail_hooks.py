@@ -179,7 +179,7 @@ def blog_page_listing_buttons(page, page_perms=None, user=None, is_parent=False,
     if isinstance(page, BlogPostPage):
         # View live blog post button
         if page.live:
-            yield wagtailadmin_widgets.PageListingButton(
+            yield wagtailadmin_widgets.ListingButton(
                 'View Live',
                 page.get_url(),
                 icon_name='view',
@@ -188,7 +188,7 @@ def blog_page_listing_buttons(page, page_perms=None, user=None, is_parent=False,
 
         # Phase 6.2: View count button
         if page.view_count > 0:
-            yield wagtailadmin_widgets.PageListingButton(
+            yield wagtailadmin_widgets.ListingButton(
                 f'{page.view_count:,} views',
                 f'#',  # Could link to detailed analytics
                 icon_name='view',
@@ -199,7 +199,7 @@ def blog_page_listing_buttons(page, page_perms=None, user=None, is_parent=False,
         # Comments button
         comment_count = page.comments.filter(is_approved=True).count()
         if comment_count > 0:
-            yield wagtailadmin_widgets.PageListingButton(
+            yield wagtailadmin_widgets.ListingButton(
                 f'Comments ({comment_count})',
                 f'/blog-admin/posts/{page.id}/comments/',
                 icon_name='comment',
@@ -208,7 +208,7 @@ def blog_page_listing_buttons(page, page_perms=None, user=None, is_parent=False,
 
         # AI content suggestions button (if content is short)
         if page.reading_time and page.reading_time < 3:
-            yield wagtailadmin_widgets.PageListingButton(
+            yield wagtailadmin_widgets.ListingButton(
                 'AI Suggestions',
                 f'/blog-admin/posts/{page.id}/ai-suggestions/',
                 icon_name='help',
