@@ -17,6 +17,7 @@ from wagtail.fields import StreamField, RichTextField
 from wagtail import blocks
 from wagtail.images.blocks import ImageChooserBlock
 from wagtail.admin.panels import FieldPanel, MultiFieldPanel, InlinePanel
+from wagtail.admin import widgets
 from wagtail.search import index
 from wagtail.snippets.models import register_snippet
 from wagtail_headless_preview.models import HeadlessPreviewMixin
@@ -665,11 +666,14 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
         default=0,
         help_text="Number of times this post has been viewed"
     )
-    
+
+    # Custom widgets
+    date_widget = widgets.AdminDateInput(attrs={'placeholder': 'YYYY-MM-DD'})
+
     content_panels = BlogBasePage.content_panels + [
         MultiFieldPanel([
             FieldPanel('author'),
-            FieldPanel('publish_date'),
+            FieldPanel('publish_date', widget=date_widget),
         ], heading="Publishing"),
         FieldPanel('introduction'),
         FieldPanel('content_blocks'),
