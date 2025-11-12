@@ -1,28 +1,12 @@
 ---
-status: completed
+status: pending
 priority: p1
 issue_id: "006"
 tags: [code-review, performance, django, indexing, blog]
 dependencies: []
-completed_date: 2025-11-03
-completed_by: Code Audit Quick Wins
 ---
 
-# ✅ Missing Index - BlogPostView Trending Analytics
-
-**Status:** COMPLETED on November 3, 2025
-
-**Solution Implemented:**
-- Added composite index `blog_view_trending_idx` on `(viewed_at, post)` fields
-- Migration: `backend/apps/blog/migrations/0011_add_trending_index.py`
-- Performance: 100x improvement (5-10s → <100ms)
-
-**Commits:**
-- `24a9506` - fix: resolve 4 critical issues from code audit (quick wins)
-
----
-
-# Original Problem Statement
+# Missing Index - BlogPostView Trending Analytics
 
 ## Problem Statement
 

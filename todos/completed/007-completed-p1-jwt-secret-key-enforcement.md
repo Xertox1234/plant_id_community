@@ -1,30 +1,12 @@
 ---
-status: completed
+status: pending
 priority: p1
 issue_id: "007"
 tags: [code-review, security, django, authentication]
 dependencies: []
-completed_date: 2025-11-03
-completed_by: Code Audit Quick Wins
 ---
 
-# ✅ JWT Secret Key Separation - Development Fallback
-
-**Status:** COMPLETED on November 3, 2025
-
-**Solution Implemented:**
-- Enforced `JWT_SECRET_KEY` separation in all environments (dev + prod)
-- Added validation: JWT_SECRET_KEY must differ from SECRET_KEY
-- Added minimum length requirement (50 characters)
-- Documentation: `backend/docs/deployment/UPGRADE_JWT_SECRET_KEY.md` (410 lines)
-
-**Commits:**
-- `24a9506` - fix: resolve 4 critical issues from code audit (quick wins)
-- `82e7c89` - docs: add deployment checklist for quick wins
-
----
-
-# Original Problem Statement
+# JWT Secret Key Separation - Development Fallback
 
 ## Problem Statement
 
