@@ -16,6 +16,15 @@ migrate_working_dir/
 sbom.json
 flutter-outdated.json
 
+# Environment files (contains sensitive API keys)
+.env
+.env.*
+!.env.example
+
+# Firebase configuration (generated, contains API keys)
+lib/firebase_options.dart
+lib/firebase_options_*.dart
+
 # IntelliJ related
 *.iml
 *.ipr

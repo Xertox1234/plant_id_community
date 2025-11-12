@@ -5,17 +5,96 @@ Following pattern from apps/blog/admin.py
 """
 
 from django.contrib import admin
+from django.contrib import messages
+from django.db.models import ProtectedError
 from .models import Category, Thread, Post, Attachment, Reaction, UserProfile, FlaggedContent, ModerationAction
 
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    """Admin interface for Categories."""
-    list_display = ['name', 'slug', 'parent', 'is_active', 'display_order', 'created_at']
+    """Admin interface for Categories with cascade protection."""
+    list_display = ['name', 'slug', 'parent', 'is_active', 'display_order', 'thread_count_display', 'created_at']
     list_filter = ['is_active', 'parent']
     search_fields = ['name', 'slug', 'description']
     prepopulated_fields = {'slug': ('name',)}
     ordering = ['display_order', 'name']
+
+    def thread_count_display(self, obj):
+        """Display thread count for category."""
+        count = obj.get_thread_count()
+        return f"{count} thread{'s' if count != 1 else ''}"
+    thread_count_display.short_description = 'Threads'
+
+    def delete_queryset(self, request, queryset):
+        """
+        Override bulk delete to provide clear error messages for PROTECT constraint.
+
+        Prevents accidental cascade deletion of child categories and threads.
+        """
+        for category in queryset:
+            child_count = category.children.count()
+            thread_count = category.get_thread_count()
+
+            if child_count > 0:
+                messages.error(
+                    request,
+                    f"Cannot delete category '{category.name}': Contains {child_count} "
+                    f"subcategor{'ies' if child_count != 1 else 'y'}. Delete or move "
+                    f"subcategories first to prevent data loss."
+                )
+                return
+
+            if thread_count > 0:
+                messages.warning(
+                    request,
+                    f"Category '{category.name}' contains {thread_count} thread{'s' if thread_count != 1 else ''}. "
+                    f"Deleting will CASCADE delete all threads and their posts!"
+                )
+
+        try:
+            super().delete_queryset(request, queryset)
+            messages.success(request, f"Successfully deleted {queryset.count()} categor{'ies' if queryset.count() != 1 else 'y'}.")
+        except ProtectedError as e:
+            messages.error(
+                request,
+                f"Cannot delete categories: They contain child categories. "
+                f"Delete or move subcategories first."
+            )
+
+    def delete_model(self, request, obj):
+        """
+        Override single delete to provide clear error messages for PROTECT constraint.
+
+        Prevents accidental cascade deletion of child categories and threads.
+        """
+        child_count = obj.children.count()
+        thread_count = obj.get_thread_count()
+
+        if child_count > 0:
+            messages.error(
+                request,
+                f"Cannot delete category '{obj.name}': Contains {child_count} "
+                f"subcategor{'ies' if child_count != 1 else 'y'}. Delete or move "
+                f"subcategories first to prevent data loss."
+            )
+            return
+
+        if thread_count > 0:
+            messages.warning(
+                request,
+                f"Category '{obj.name}' contains {thread_count} thread{'s' if thread_count != 1 else ''}. "
+                f"Deleting will CASCADE delete all threads and their posts!"
+            )
+
+        try:
+            super().delete_model(request, obj)
+            messages.success(request, f"Successfully deleted category '{obj.name}'.")
+        except ProtectedError:
+            messages.error(
+                request,
+                f"Cannot delete category '{obj.name}': Contains child categories. "
+                f"Delete or move subcategories first."
+            )
 
 
 @admin.register(Thread)

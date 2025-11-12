@@ -30,8 +30,7 @@ urlpatterns = [
     # AI content suggestions
     path('ai-suggestions/', admin_views.ai_content_suggestions, name='ai_suggestions'),
 
-    # AI content generation (Phase 3: Issue #157)
-    path('api/generate-field-content/', api_views.generate_blog_field_content, name='generate_field_content'),
+    # Plant lookup APIs
     path('api/plant-lookup/', api_views.PlantLookupView.as_view(), name='plant_lookup'),
     path('api/plant-suggestions/', api_views.PlantSuggestionsView.as_view(), name='plant_suggestions'),
 

@@ -1322,8 +1322,13 @@ class DiseaseCareInstructions(models.Model):
 class PlantDiseaseResult(models.Model):
     """
     Model representing a disease diagnosis result.
+
+    CASCADE POLICY:
+    - request: CASCADE (diagnosis results are meaningless without the request)
+    - identified_disease: SET_NULL (preserves historical diagnosis data if disease deleted)
+    - diagnosed_by: CASCADE (community/expert diagnoses deleted with user per GDPR)
     """
-    
+
     # UUID for secure references
     uuid = models.UUIDField(
         default=uuid.uuid4,
@@ -1331,22 +1336,25 @@ class PlantDiseaseResult(models.Model):
         unique=True,
         help_text="Unique identifier for secure references"
     )
-    
+
     # Link to the diagnosis request
     request = models.ForeignKey(
         PlantDiseaseRequest,
         on_delete=models.CASCADE,
         related_name='diagnosis_results'
     )
-    
+
     # Disease identification
+    # CASCADE POLICY: SET_NULL to preserve historical diagnosis data
+    # If a disease is removed from the database, the diagnosis result
+    # remains with suggested_disease_name and suggested_disease_type as fallback
     identified_disease = models.ForeignKey(
         PlantDiseaseDatabase,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name='diagnosis_results',
-        help_text="Disease identified from our local database"
+        help_text="Disease identified from our local database. SET_NULL preserves historical data."
     )
     
     # Alternative identification (if not in local database yet)

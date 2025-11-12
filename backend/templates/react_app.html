@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    {# CSRF token for JavaScript (secure meta tag pattern - Issue #013 fix) #}
+    {# This allows CSRF_COOKIE_HTTPONLY = True for better XSS protection #}
+    {# Frontend reads token from this meta tag instead of cookie #}
+    <meta name="csrf-token" content="{{ csrf_token }}">
+
+    <title>Plant ID Community</title>
+
+    {# Vite development server for React app #}
+    {# In production, these will be replaced with built assets #}
+    {% if debug %}
+        <script type="module" src="http://localhost:5174/@vite/client"></script>
+        <script type="module" src="http://localhost:5174/src/main.tsx"></script>
+    {% else %}
+        {# Production: Load built assets from Django static files #}
+        {% load static %}
+        <link rel="stylesheet" href="{% static 'dist/assets/index.css' %}">
+        <script type="module" src="{% static 'dist/assets/index.js' %}"></script>
+    {% endif %}
+</head>
+<body>
+    <div id="root"></div>
+</body>
+</html>

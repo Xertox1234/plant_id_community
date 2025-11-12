@@ -2,7 +2,7 @@ import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
 
 interface TipTapEditorProps {
   content?: string;
@@ -53,6 +53,15 @@ export default function TipTapEditor({
       onChange?.(html);
     },
   });
+
+  // Cleanup: Destroy editor instance on unmount to prevent memory leak
+  useEffect(() => {
+    return () => {
+      if (editor) {
+        editor.destroy();
+      }
+    };
+  }, [editor]);
 
   if (!editor) {
     return <div className="p-4 text-gray-500">Loading editor...</div>;

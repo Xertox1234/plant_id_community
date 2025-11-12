@@ -119,6 +119,7 @@ DJANGO_APPS = [
 WAGTAIL_APPS = [
     'wagtail.contrib.forms',
     'wagtail.contrib.redirects',
+    'wagtail.contrib.settings',  # Required for Wagtail AI 3.0 admin UI
     'wagtail.embeds',
     'wagtail.sites',
     'wagtail.users',
@@ -521,17 +522,17 @@ SPECTACULAR_SETTINGS = {
 }
 
 # JWT Settings
-# SECURITY: Access token lifetime should be short (15-60 minutes) per OWASP recommendations
-# Current: 1 hour (Phase 1 - OWASP compliant compromise)
-# Target: 15 minutes with auto-refresh (Phase 2 - requires frontend changes)
+# SECURITY: Access token lifetime should be short (15 minutes) per OWASP recommendations
+# Changed: 15 minutes (OWASP compliant - Issue #018)
+# Previous: 60 minutes (too long for security best practices)
 # See: https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html
 #
 # Environment variables:
-#   JWT_ACCESS_TOKEN_LIFETIME - Access token lifetime in MINUTES (default: 60 = 1 hour)
+#   JWT_ACCESS_TOKEN_LIFETIME - Access token lifetime in MINUTES (default: 15 minutes)
 #   JWT_REFRESH_TOKEN_LIFETIME - Refresh token lifetime in DAYS (default: 7 days)
 #   JWT_ACCESS_TOKEN_LIFETIME_DEBUG - Debug mode access token lifetime in MINUTES (default: 120 = 2 hours)
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=config('JWT_ACCESS_TOKEN_LIFETIME', default=60, cast=int)),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=config('JWT_ACCESS_TOKEN_LIFETIME', default=15, cast=int)),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=config('JWT_REFRESH_TOKEN_LIFETIME', default=7, cast=int)),
     'ACCESS_TOKEN_LIFETIME_DEBUG': timedelta(minutes=config('JWT_ACCESS_TOKEN_LIFETIME_DEBUG', default=120, cast=int)) if DEBUG else None,
     'ROTATE_REFRESH_TOKENS': True,
@@ -560,25 +561,79 @@ SIMPLE_JWT = {
 # JWT_SECRET_KEY Validation (CRITICAL SECURITY)
 # JWT tokens MUST use a separate signing key from Django's SECRET_KEY
 # This prevents SECRET_KEY compromise from affecting JWT authentication
-# JWT_SECRET_KEY is REQUIRED in all environments (production and development)
-# SECURITY: Separate signing keys prevent cascade compromise
-JWT_SECRET_KEY = config('JWT_SECRET_KEY', default=None)
-if not JWT_SECRET_KEY:
+#
+# SECURITY REQUIREMENTS (TODO #007):
+# 1. JWT_SECRET_KEY MUST be set in ALL environments (no fallbacks allowed)
+# 2. JWT_SECRET_KEY MUST be different from SECRET_KEY (no key reuse)
+# 3. JWT_SECRET_KEY MUST be at least 50 characters (cryptographic strength)
+# 4. NO default values allowed (fail loudly if missing)
+#
+# IMPORTANT: Do NOT add default=None or any fallback behavior
+# Settings should fail immediately if JWT_SECRET_KEY is not configured
+try:
+    JWT_SECRET_KEY = config('JWT_SECRET_KEY')  # No default - fail if not set
+except Exception as e:
     raise ImproperlyConfigured(
-        "JWT_SECRET_KEY environment variable is required. "
-        "Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
-    )
+        "\n"
+        "=" * 70 + "\n"
+        "CRITICAL: JWT_SECRET_KEY environment variable is not set!\n"
+        "=" * 70 + "\n"
+        "JWT authentication requires a separate signing key from SECRET_KEY.\n"
+        "This is REQUIRED in ALL environments (development and production).\n"
+        "\n"
+        "Why this is critical:\n"
+        "  - Prevents cascade compromise if SECRET_KEY is leaked\n"
+        "  - Isolates JWT authentication from Django session security\n"
+        "  - Enables independent key rotation without affecting sessions\n"
+        "\n"
+        "Generate a secure JWT_SECRET_KEY with:\n"
+        "  python -c 'import secrets; print(secrets.token_urlsafe(64))'\n"
+        "\n"
+        "Then add to your .env file (do NOT commit):\n"
+        "  JWT_SECRET_KEY=your-generated-key-here\n"
+        "\n"
+        "See: backend/.env.example for complete configuration\n"
+        "=" * 70 + "\n"
+    ) from e
+
+# Validate JWT_SECRET_KEY is different from SECRET_KEY
 if JWT_SECRET_KEY == SECRET_KEY:
     raise ImproperlyConfigured(
-        "JWT_SECRET_KEY must be different from SECRET_KEY. "
-        "Using the same key for both JWT and Django session/CSRF tokens is a security vulnerability. "
-        "Generate a separate JWT_SECRET_KEY with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
+        "\n"
+        "=" * 70 + "\n"
+        "CRITICAL: JWT_SECRET_KEY cannot be the same as SECRET_KEY!\n"
+        "=" * 70 + "\n"
+        "Using the same key for both JWT and Django session/CSRF tokens\n"
+        "creates a single point of failure and security vulnerability.\n"
+        "\n"
+        "If one key is compromised, ALL authentication mechanisms are broken.\n"
+        "\n"
+        "Generate a DIFFERENT JWT_SECRET_KEY with:\n"
+        "  python -c 'import secrets; print(secrets.token_urlsafe(64))'\n"
+        "\n"
+        "Your .env should have TWO separate keys:\n"
+        "  SECRET_KEY=<django-secret-key>\n"
+        "  JWT_SECRET_KEY=<different-jwt-secret-key>\n"
+        "=" * 70 + "\n"
     )
+
+# Validate minimum length for cryptographic strength
 if len(JWT_SECRET_KEY) < 50:
     raise ImproperlyConfigured(
-        f"JWT_SECRET_KEY must be at least 50 characters (got {len(JWT_SECRET_KEY)}). "
-        "Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
+        "\n"
+        "=" * 70 + "\n"
+        f"CRITICAL: JWT_SECRET_KEY is too short ({len(JWT_SECRET_KEY)} characters)!\n"
+        "=" * 70 + "\n"
+        "JWT secret keys must be at least 50 characters for cryptographic security.\n"
+        "\n"
+        "Generate a secure key with:\n"
+        "  python -c 'import secrets; print(secrets.token_urlsafe(64))'\n"
+        "\n"
+        "This will generate an 86-character URL-safe key.\n"
+        "=" * 70 + "\n"
     )
+
+# Set JWT signing key (validation passed)
 SIMPLE_JWT['SIGNING_KEY'] = JWT_SECRET_KEY
 
 # CORS settings - Secure configuration
@@ -884,24 +939,25 @@ CELERY_TASK_TIME_LIMIT = config('CELERY_TASK_TIME_LIMIT', default=120, cast=int)
 CELERY_TASK_SOFT_TIME_LIMIT = config('CELERY_TASK_SOFT_TIME_LIMIT', default=90, cast=int)
 CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=False, cast=bool)
 
-# Security settings - Apply to both development and production
-SECURE_BROWSER_XSS_FILTER = True
-SECURE_CONTENT_TYPE_NOSNIFF = True
-X_FRAME_OPTIONS = 'DENY'
+# Security settings - Apply to both development and production (Issue #014)
+SECURE_BROWSER_XSS_FILTER = True  # Enable XSS filtering in IE/Edge (legacy browsers)
+SECURE_CONTENT_TYPE_NOSNIFF = True  # Prevent MIME type sniffing
+X_FRAME_OPTIONS = 'DENY'  # Anti-clickjacking - prevent embedding in iframes
 
 # Permissions-Policy (Issue #145 fix) - Restrict browser features to prevent abuse
 # See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy
+# Format: 'feature': [] (deny all) or ['self'] (allow same origin only)
 PERMISSIONS_POLICY = {
-    'accelerometer': [],  # No accelerometer access
+    'accelerometer': [],  # Deny accelerometer access (not needed)
     'camera': ['self'],  # Camera only from same origin (plant photo uploads)
-    'geolocation': ['self'],  # Geolocation only from same origin (plant location)
-    'gyroscope': [],  # No gyroscope access
-    'magnetometer': [],  # No magnetometer access
-    'microphone': [],  # No microphone access
-    'payment': [],  # No payment API
-    'usb': [],  # No USB access
+    'geolocation': ['self'],  # Geolocation only from same origin (plant location tracking)
+    'gyroscope': [],  # Deny gyroscope access (not needed)
+    'magnetometer': [],  # Deny magnetometer access (not needed)
+    'microphone': [],  # Deny microphone access (not needed)
+    'payment': [],  # Deny payment API (no e-commerce)
+    'usb': [],  # Deny USB access (not needed)
 }
-SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'  # Privacy-preserving referrer policy
 
 # Additional security headers
 SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
@@ -916,9 +972,12 @@ CSRF_COOKIE_HTTPONLY = True  # ✅ Secure - prevents XSS attacks from stealing C
 SESSION_COOKIE_SAMESITE = 'Strict' if not DEBUG else 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'  # Keep Lax for CSRF to handle standard POST flows
 
-# Content Security Policy using django-csp 4.0+ format
+# Content Security Policy using django-csp 4.0+ format (Issue #014)
+# CSP provides defense-in-depth against XSS by restricting resource origins
+# Report violations to /api/v1/security/csp-report/ for monitoring and refinement
 if DEBUG:
     # More permissive in development for hot reload
+    # REPORT_ONLY mode doesn't block resources, just logs violations
     CONTENT_SECURITY_POLICY_REPORT_ONLY = {
         'DIRECTIVES': {
             'base-uri': ("'self'",),
@@ -926,17 +985,19 @@ if DEBUG:
             'default-src': ("'self'",),
             'font-src': ("'self'", "data:", "https://fonts.gstatic.com"),
             'form-action': ("'self'",),
-            'frame-ancestors': ("'none'",),
+            'frame-ancestors': ("'none'",),  # Anti-clickjacking (also enforced by X-Frame-Options)
             'img-src': ("'self'", "data:", "https:", "blob:"),
             'media-src': ("'self'",),
-            'object-src': ("'none'",),
+            'object-src': ("'none'",),  # Block Flash, Java applets, etc.
             'script-src': ("'self'", "'unsafe-inline'", "'unsafe-eval'", "http://localhost:*", "ws://localhost:*"),
             'style-src': ("'self'", "'unsafe-inline'"),
-            'worker-src': ("'self'", "blob:")
-        }
+            'worker-src': ("'self'", "blob:"),
+        },
+        'REPORT_URI': '/api/v1/security/csp-report/',  # Log violations for refinement
     }
 else:
     # Strict CSP in production with nonces (Issue #145 fix)
+    # Enforcing mode - blocks resources that violate policy
     CONTENT_SECURITY_POLICY = {
         'DIRECTIVES': {
             'base-uri': ("'self'",),
@@ -948,15 +1009,17 @@ else:
             'default-src': ("'self'",),
             'font-src': ("'self'", "data:", "https://fonts.gstatic.com"),
             'form-action': ("'self'",),
-            'frame-ancestors': ("'none'",),  # Anti-clickjacking
-            'img-src': ("'self'", "data:", "https:", "blob:"),
+            'frame-ancestors': ("'none'",),  # Anti-clickjacking (redundant with X-Frame-Options but defense-in-depth)
+            'img-src': ("'self'", "data:", "https:", "blob:"),  # Allow HTTPS images (plant photos from external sources)
             'media-src': ("'self'",),
-            'object-src': ("'none'",),
-            'script-src': ("'self'",),  # Will add nonces dynamically
-            'style-src': ("'self'",),  # Will add nonces dynamically
-            'worker-src': ("'self'", "blob:")
+            'object-src': ("'none'",),  # Block Flash, Java applets, etc.
+            'script-src': ("'self'",),  # Will add nonces dynamically for inline scripts
+            'style-src': ("'self'",),  # Will add nonces dynamically for inline styles
+            'worker-src': ("'self'", "blob:"),
+            'upgrade-insecure-requests': True,  # Force HTTPS for all resources
         },
-        'INCLUDE_NONCE_IN': ['script-src', 'style-src']
+        'INCLUDE_NONCE_IN': ['script-src', 'style-src'],  # Allow inline with nonces
+        'REPORT_URI': '/api/v1/security/csp-report/',  # Monitor violations in production
     }
 
 # Debug toolbar settings
@@ -1036,6 +1099,24 @@ ACCOUNT_ADAPTER = 'apps.users.oauth_adapters.CustomAccountAdapter'
 # Cost-effective configuration using GPT-4o-mini (~$0.003/request)
 # Expected usage: ~500 requests/month = $1.50/month (before 80% caching)
 WAGTAIL_AI = {
+    # v3.0 Provider Configuration (replaces BACKENDS)
+    # https://github.com/wagtail/wagtail-ai/blob/main/docs/configuration.md
+    "PROVIDERS": {
+        "default": {
+            "provider": "openai",  # LLM provider (openai, anthropic, etc.)
+            "model": "gpt-4o-mini",  # Cost-effective model for text generation
+            "api_key": config('OPENAI_API_KEY', default=''),
+        },
+        # Future: Add vision provider for image alt text generation (Phase 3)
+        # "vision": {
+        #     "provider": "openai",
+        #     "model": "gpt-4o-vision-preview",
+        #     "api_key": config('OPENAI_API_KEY', default=''),
+        # },
+    },
+
+    # Legacy BACKENDS configuration (deprecated but kept for backward compatibility)
+    # Will be removed when all code migrates to PROVIDERS
     "BACKENDS": {
         "default": {
             "CLASS": "wagtail_ai.ai.openai.OpenAIBackend",
@@ -1045,16 +1126,30 @@ WAGTAIL_AI = {
                 "OPENAI_API_KEY": config('OPENAI_API_KEY', default=''),
             },
         },
-        # Future: Add vision backend for image alt text generation (Phase 3)
-        # "vision": {
-        #     "CLASS": "wagtail_ai.ai.openai.OpenAIBackend",
-        #     "CONFIG": {
-        #         "MODEL_ID": "gpt-4o-vision-preview",
-        #         "TOKEN_LIMIT": 8192,
-        #         "OPENAI_API_KEY": config('OPENAI_API_KEY', default=''),
-        #     },
-        # }
-    }
+    },
+
+    # Custom prompts for plant-specific content (Wagtail AI 3.0)
+    # These override the default prompts with plant care and gardening context
+    "AGENT_SETTINGS": {
+        "wai_basic_prompt": {
+            # Title generation - Optimized for plant blog posts
+            "page_title_prompt": (
+                "Generate an SEO-optimized blog post title about plants, gardening, or plant care. "
+                "Make it compelling, informative, and under 60 characters for optimal SEO. "
+                "Focus on actionable benefits and specific plant topics. "
+                "Context: {context}"
+            ),
+
+            # Meta description - Optimized for search engines and plant content
+            "page_description_prompt": (
+                "Write a compelling meta description (150-160 characters) for this plant care or "
+                "gardening blog post. Focus on specific benefits, care tips, or plant characteristics "
+                "that would attract readers. Include relevant keywords naturally. "
+                "Make it actionable and engaging. "
+                "Context: {context}"
+            ),
+        }
+    },
 }
 
 # Additional Feature Flags

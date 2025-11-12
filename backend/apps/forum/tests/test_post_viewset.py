@@ -34,8 +34,28 @@ class PostViewSetTests(TestCase):
         self.client = APIClient()
 
         # Create users
+        from datetime import timedelta
+        from django.utils import timezone
+
         self.author = User.objects.create_user(username='author', password='pass')
         self.other_user = User.objects.create_user(username='other', password='pass')
+
+        # Give author BASIC trust level by simulating 7 days of activity and 5 posts
+        # This is required for image uploads (trust level check)
+        self.author.date_joined = timezone.now() - timedelta(days=7)  # 7 days active
+        self.author.save()
+
+        from ..models import UserProfile
+        from ..constants import TRUST_LEVEL_BASIC
+        from django.core.cache import cache
+
+        author_profile, _ = UserProfile.objects.get_or_create(user=self.author)
+        author_profile.trust_level = TRUST_LEVEL_BASIC
+        author_profile.post_count = 5  # Meet BASIC requirement
+        author_profile.save()
+
+        # Invalidate cache to ensure trust level is recognized
+        cache.clear()
 
         # Create moderator
         self.moderator_group = Group.objects.get_or_create(name="Moderators")[0]
@@ -513,6 +533,173 @@ class PostViewSetTests(TestCase):
         response = self.client.post(
             f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
             {'image': text_file},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Invalid image file', response.data['error'])
+
+    def test_upload_image_validates_magic_number(self):
+        """
+        Magic number validation: Reject files with wrong content type.
+        Phase 6: Comprehensive image validation.
+
+        Tests that executable files (.exe, .sh) renamed as images are rejected.
+        This prevents attackers from uploading malicious files with renamed extensions.
+        The magic number (file signature) check detects the actual file type.
+        """
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.author)
+
+        # Create a fake executable file with .jpg extension
+        # Real executable files have specific magic numbers (e.g., MZ for .exe, #! for shell scripts)
+        # For testing, we use a text file which Pillow will reject
+        fake_image = SimpleUploadedFile(
+            'malicious.jpg',  # Claims to be .jpg
+            b'#!/bin/bash\necho "malicious script"',  # Actually a shell script
+            content_type='image/jpeg'  # Claims to be JPEG MIME
+        )
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
+            {'image': fake_image},
+            format='multipart'
+        )
+
+        # Should reject because Pillow detects content is not a valid image
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Invalid image file', response.data['error'])
+
+    def test_upload_image_validates_dimensions(self):
+        """
+        Dimension validation: Reject images exceeding size limits.
+        Phase 6: Prevent resource exhaustion attacks.
+
+        Tests that excessively large images are rejected to prevent
+        server resource exhaustion and DoS attacks.
+        """
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from io import BytesIO
+        from PIL import Image as PILImage
+        from ..constants import MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT
+
+        self.client.force_authenticate(user=self.author)
+
+        # Create an image larger than allowed dimensions
+        # Use MAX_IMAGE_WIDTH + 1 to trigger validation
+        oversized_image = PILImage.new('RGB', (MAX_IMAGE_WIDTH + 1, 100), color='green')
+        buffer = BytesIO()
+        oversized_image.save(buffer, format='JPEG')
+
+        oversized_file = SimpleUploadedFile(
+            'oversized.jpg',
+            buffer.getvalue(),
+            content_type='image/jpeg'
+        )
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
+            {'image': oversized_file},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('dimensions too large', response.data['error'])
+        self.assertIn(f'{MAX_IMAGE_WIDTH}x{MAX_IMAGE_HEIGHT}', response.data['detail'])
+
+    def test_upload_image_rejects_decompression_bomb(self):
+        """
+        Decompression bomb protection: Reject potential zip bombs.
+        Phase 6: Security hardening against resource exhaustion.
+
+        Tests that Pillow's decompression bomb detection rejects files
+        that would consume excessive memory when decompressed.
+
+        Note: This test simulates the scenario by attempting to create
+        an image that would trigger MAX_IMAGE_PIXELS limit.
+        """
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from io import BytesIO
+        from PIL import Image as PILImage
+        from ..constants import MAX_IMAGE_PIXELS
+
+        self.client.force_authenticate(user=self.author)
+
+        # Create an image that would exceed MAX_IMAGE_PIXELS when opened
+        # We use sqrt(MAX_IMAGE_PIXELS) + 1 for each dimension to trigger the limit
+        import math
+        dim = int(math.sqrt(MAX_IMAGE_PIXELS)) + 1000  # Well over the limit
+
+        # Pillow will detect this during open() and raise DecompressionBombError
+        try:
+            bomb_image = PILImage.new('RGB', (dim, dim), color='yellow')
+            buffer = BytesIO()
+
+            # Configure Pillow to use our limit for this test
+            old_limit = PILImage.MAX_IMAGE_PIXELS
+            PILImage.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
+            try:
+                bomb_image.save(buffer, format='JPEG')
+            finally:
+                PILImage.MAX_IMAGE_PIXELS = old_limit
+
+            bomb_file = SimpleUploadedFile(
+                'bomb.jpg',
+                buffer.getvalue(),
+                content_type='image/jpeg'
+            )
+
+            response = self.client.post(
+                f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
+                {'image': bomb_file},
+                format='multipart'
+            )
+
+            # Should reject the decompression bomb
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            # Check for either dimension error or decompression bomb error
+            self.assertTrue(
+                'dimensions too large' in response.data['error'] or
+                'decompression bomb' in response.data['error']
+            )
+        except PILImage.DecompressionBombError:
+            # If Pillow prevents us from even creating the test image,
+            # that's actually good - it means the protection is working
+            pass
+
+    def test_upload_image_validates_corrupt_file(self):
+        """
+        Corrupt file detection: Reject malformed image data.
+        Phase 6: Defense against malicious file uploads.
+
+        Tests that truncated or corrupt image files are properly rejected
+        to prevent server crashes or unexpected behavior.
+        """
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from io import BytesIO
+        from PIL import Image as PILImage
+
+        self.client.force_authenticate(user=self.author)
+
+        # Create a valid JPEG, then truncate it to make it corrupt
+        valid_image = PILImage.new('RGB', (100, 100), color='purple')
+        buffer = BytesIO()
+        valid_image.save(buffer, format='JPEG')
+
+        # Truncate to first 50 bytes (corrupt JPEG header)
+        corrupt_data = buffer.getvalue()[:50]
+
+        corrupt_file = SimpleUploadedFile(
+            'corrupt.jpg',
+            corrupt_data,
+            content_type='image/jpeg'
+        )
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
+            {'image': corrupt_file},
             format='multipart'
         )
 

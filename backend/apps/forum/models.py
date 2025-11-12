@@ -15,7 +15,8 @@ Pattern follows apps/blog/models.py structure.
 
 import uuid
 from typing import Optional, Tuple, Dict, Any
-from django.db import models, IntegrityError
+from django.db import models, IntegrityError, transaction
+from django.db.models import F
 from django.conf import settings
 from django.utils import timezone
 from django.utils.text import slugify
@@ -353,14 +354,31 @@ class Post(models.Model):
         return f"Post by {self.author.username} in {self.thread.title}"
 
     def save(self, *args, **kwargs) -> None:
-        """Update thread statistics on post creation."""
-        is_new = not self.pk
-        super().save(*args, **kwargs)
+        """
+        Update thread statistics on post creation.
 
-        if is_new and self.is_active:
-            # Update thread post count and activity timestamp
-            self.thread.update_post_count()
-            self.thread.update_last_activity()
+        Uses transaction.atomic() with F() expressions to prevent race conditions
+        when multiple posts are created concurrently.
+
+        Note: Since Post uses UUID primary keys with default=uuid.uuid4, self.pk
+        is set during __init__, so we must use self._state.adding to detect new instances.
+        """
+        # Check if this is a new instance (not yet saved to database)
+        # For models with auto-generated UUIDs, self.pk is set during __init__,
+        # so we use Django's internal _state.adding flag
+        is_new = self._state.adding
+
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+
+            if is_new and self.is_active:
+                # Use F() expressions for atomic updates to prevent race conditions
+                Thread.objects.filter(pk=self.thread_id).update(
+                    post_count=F('post_count') + 1,
+                    last_activity_at=timezone.now()
+                )
+                # Refresh thread from database to get updated values
+                self.thread.refresh_from_db(fields=['post_count', 'last_activity_at'])
 
     def mark_edited(self, editor) -> None:
         """Mark post as edited by given user."""
@@ -631,26 +649,72 @@ class Reaction(models.Model):
     @classmethod
     def toggle_reaction(cls, post_id: uuid.UUID, user_id: int, reaction_type: str) -> Tuple['Reaction', bool]:
         """
-        Toggle a reaction on/off.
+        Toggle a reaction on/off with row-level locking to prevent race conditions.
 
         If reaction exists and is active, mark as inactive.
         If reaction exists and is inactive, mark as active.
         If reaction doesn't exist, create it.
 
+        Uses select_for_update() to prevent concurrent toggle requests from
+        producing incorrect final state. This is critical for preventing the
+        scenario where a user's reaction appears removed when they intended to add it.
+
+        Handles race conditions during creation by catching IntegrityError and
+        retrying the toggle operation on the now-existing reaction.
+
         Returns:
             tuple: (reaction, created) where created is True if new reaction
-        """
-        reaction, created = cls.objects.get_or_create(
-            post_id=post_id,
-            user_id=user_id,
-            reaction_type=reaction_type,
-            defaults={'is_active': True}
-        )
 
-        if not created:
-            # Toggle existing reaction
-            reaction.is_active = not reaction.is_active
-            reaction.save(update_fields=['is_active', 'updated_at'])
+        Example race conditions prevented:
+            1. Concurrent toggles on existing reaction:
+               Request 1: Locks row, toggles is_active=True → False
+               Request 2: Waits for lock, sees is_active=False, toggles False → True
+               Result: ✓ User's reaction correctly added (is_active=True)
+
+            2. Concurrent creates:
+               Request 1: Tries to create, succeeds
+               Request 2: Tries to create, gets IntegrityError, retries toggle
+               Result: ✓ Only one reaction created, second request toggles it
+        """
+        from django.db import transaction, IntegrityError
+
+        with transaction.atomic():
+            # Try to get existing reaction with row-level lock
+            try:
+                reaction = cls.objects.select_for_update().get(
+                    post_id=post_id,
+                    user_id=user_id,
+                    reaction_type=reaction_type
+                )
+                # Toggle existing reaction (atomic due to lock)
+                reaction.is_active = not reaction.is_active
+                reaction.save(update_fields=['is_active', 'updated_at'])
+                created = False
+
+            except cls.DoesNotExist:
+                # Try to create new reaction (is_active=True by default)
+                # Use savepoint to handle potential IntegrityError without breaking outer transaction
+                try:
+                    with transaction.atomic():
+                        reaction = cls.objects.create(
+                            post_id=post_id,
+                            user_id=user_id,
+                            reaction_type=reaction_type,
+                            is_active=True
+                        )
+                        created = True
+
+                except IntegrityError:
+                    # Another thread created it while we were trying - retry toggle
+                    # This handles the race condition during creation
+                    reaction = cls.objects.select_for_update().get(
+                        post_id=post_id,
+                        user_id=user_id,
+                        reaction_type=reaction_type
+                    )
+                    reaction.is_active = not reaction.is_active
+                    reaction.save(update_fields=['is_active', 'updated_at'])
+                    created = False
 
         return reaction, created
 

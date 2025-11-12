@@ -62,11 +62,9 @@ def get_csrf_token(request: Request) -> Response:
     return Response({'detail': 'CSRF cookie set'})
 
 
-from django.views.decorators.csrf import csrf_exempt
-
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
-@csrf_exempt
+@csrf_protect  # SECURITY: Enforce CSRF protection for registration
 @ratelimit(
     key='ip',
     rate=RATE_LIMITS['auth_endpoints']['register'],
@@ -76,6 +74,9 @@ from django.views.decorators.csrf import csrf_exempt
 def register(request: Request) -> Response:
     """
     Register a new user account.
+
+    SECURITY: CSRF protection is enforced to prevent automated bot registrations
+    and cross-site request forgery attacks. Frontend must include X-CSRFToken header.
     """
     # Log registration attempt (without sensitive data)
     username = request.data.get('username', 'unknown')

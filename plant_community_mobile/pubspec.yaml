@@ -60,6 +60,9 @@ dependencies:
   uuid: ^4.5.2
   logger: ^2.5.0
 
+  # Environment Configuration
+  flutter_dotenv: ^5.2.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -86,7 +89,11 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # To add assets to your application, add an assets section, like this:
+  # Environment configuration (contains Firebase API keys)
+  assets:
+    - .env
+
+  # To add more assets to your application, uncomment and add paths:
   # assets:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg

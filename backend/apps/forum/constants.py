@@ -36,6 +36,14 @@ ATTACHMENT_CLEANUP_BATCH_SIZE = 100  # Attachments to delete per batch in cleanu
 ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp']
 ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 
+# Image validation and security
+# Pillow decompression bomb protection (prevent zip bombs, fork bombs)
+# Default is 178 million pixels (89478485), we use 100 million for safety
+MAX_IMAGE_PIXELS = 100_000_000  # ~100 megapixels (e.g., 10000x10000)
+# Maximum image dimensions (width, height)
+MAX_IMAGE_WIDTH = 10000  # pixels
+MAX_IMAGE_HEIGHT = 10000  # pixels
+
 # Trust levels
 TRUST_LEVEL_NEW = 'new'
 TRUST_LEVEL_BASIC = 'basic'

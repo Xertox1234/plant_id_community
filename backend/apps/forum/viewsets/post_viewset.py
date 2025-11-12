@@ -614,20 +614,77 @@ class PostViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Validate that file is actually a valid image
+        # Validate image content (magic number check + decompression bomb protection)
+        # Phase 6: Comprehensive image validation with Pillow
         try:
             from PIL import Image as PILImage
-            from io import BytesIO
+            from ..constants import MAX_IMAGE_PIXELS, MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT
 
-            # Try to open the file as an image
-            image_file.seek(0)  # Reset file pointer to beginning
-            PILImage.open(image_file).verify()
-            image_file.seek(0)  # Reset again for actual upload
+            # Configure decompression bomb protection
+            # Set max pixel limit to prevent zip bombs and fork bombs
+            # This must be done BEFORE opening the image
+            PILImage.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
+            # Reset file pointer to beginning
+            image_file.seek(0)
+
+            # Open and verify the image
+            # This checks:
+            # 1. Magic number (file signature) matches the format
+            # 2. File header is valid for the detected format
+            # 3. Image can be parsed without errors
+            with PILImage.open(image_file) as img:
+                # verify() checks file integrity without loading full image data
+                img.verify()
+
+                # Get image dimensions for additional validation
+                width, height = img.size
+
+                # Check dimensions are reasonable (prevent resource exhaustion)
+                if width > MAX_IMAGE_WIDTH or height > MAX_IMAGE_HEIGHT:
+                    return Response(
+                        {
+                            "error": "Image dimensions too large",
+                            "detail": f"Maximum dimensions: {MAX_IMAGE_WIDTH}x{MAX_IMAGE_HEIGHT} pixels. Your image: {width}x{height}"
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # Verify the format matches allowed types
+                # This catches cases where extension is .jpg but content is .exe
+                if img.format.lower() not in ['jpeg', 'png', 'gif', 'webp']:
+                    return Response(
+                        {
+                            "error": "Invalid image format",
+                            "detail": f"File reports format '{img.format}' which is not allowed"
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            # Reset file pointer for actual upload
+            image_file.seek(0)
+
+        except PILImage.DecompressionBombError as e:
+            # Pillow detected a potential decompression bomb (zip bomb, fork bomb)
+            logger.warning(
+                f"[SECURITY] Decompression bomb detected in upload by {request.user.username}: {str(e)}"
+            )
+            return Response(
+                {
+                    "error": "Image file rejected",
+                    "detail": "Image appears to be a decompression bomb (excessive pixel count)"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
+            # Catch-all for any other PIL errors (corrupt files, unsupported formats, etc.)
+            logger.warning(
+                f"[SECURITY] Invalid image file rejected from {request.user.username}: {str(e)}"
+            )
             return Response(
                 {
                     "error": "Invalid image file",
-                    "detail": f"File cannot be processed as an image: {str(e)}"
+                    "detail": "File cannot be processed as a valid image"
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )

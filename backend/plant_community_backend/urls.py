@@ -52,7 +52,7 @@ from apps.plant_identification.api.endpoints import (
 )
 
 # Import core views
-from apps.core.views import csrf_token_view
+from apps.core.views import csrf_token_view, ReactAppView, csp_report_view
 
 # Create the Wagtail API router
 api_router = WagtailAPIRouter('wagtailapi')
@@ -97,6 +97,9 @@ urlpatterns = [
     # CSRF Token endpoint for SPA (Issue #144 fix)
     path('api/csrf/', csrf_token_view, name='csrf-token'),
 
+    # CSP Violation Report endpoint (Issue #014)
+    path('api/v1/security/csp-report/', csp_report_view, name='csp-report'),
+
     # API Documentation (OpenAPI 3.0)
     path('api/schema/', SpectacularAPIView.as_view(), name='api-schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='api-schema'), name='api-docs-swagger'),
@@ -140,12 +143,22 @@ urlpatterns = [
     
     # Blog Administration Interface
     path('blog-admin/', include('apps.blog.admin_urls')),
-    
+
     # Forum Integration (optional)
     # Only include when ENABLE_FORUM=True to avoid migration issues during smoke tests
     # *([path('forum/', include('apps.forum_integration.urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),  # Temporarily disabled (depends on Machina)
     # *([path('machina/', include('machina.urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),  # Temporarily disabled
-    
+
+    # React SPA routes (Issue #013 - Meta tag pattern for CSRF)
+    # These routes serve the React app with CSRF token in meta tag
+    # Allows CSRF_COOKIE_HTTPONLY = True for XSS protection
+    path('app/', ReactAppView.as_view(), name='react-app-root'),
+    path('app/blog/', ReactAppView.as_view(), name='react-app-blog'),
+    path('app/forum/', ReactAppView.as_view(), name='react-app-forum'),
+    path('app/identify/', ReactAppView.as_view(), name='react-app-identify'),
+    path('app/login/', ReactAppView.as_view(), name='react-app-login'),
+    path('app/register/', ReactAppView.as_view(), name='react-app-register'),
+
     # Default redirect to Wagtail admin for development
     path('', RedirectView.as_view(url='/cms/', permanent=False)),
     

@@ -6,14 +6,15 @@ Complete guide for creating and managing blog content in the Plant Community Wag
 
 1. [Getting Started](#getting-started)
 2. [Creating Blog Posts](#creating-blog-posts)
-3. [Using Content Blocks](#using-content-blocks)
-4. [Working with Images](#working-with-images)
-5. [Managing Categories & Series](#managing-categories--series)
-6. [Publishing Workflow](#publishing-workflow)
-7. [SEO & Social Media](#seo--social-media)
-8. [Preview & Testing](#preview--testing)
-9. [Common Tasks](#common-tasks)
-10. [Tips & Best Practices](#tips--best-practices)
+3. [🤖 AI-Powered Content Generation](#ai-powered-content-generation) ⭐ NEW
+4. [Using Content Blocks](#using-content-blocks)
+5. [Working with Images](#working-with-images)
+6. [Managing Categories & Series](#managing-categories--series)
+7. [Publishing Workflow](#publishing-workflow)
+8. [SEO & Social Media](#seo--social-media)
+9. [Preview & Testing](#preview--testing)
+10. [Common Tasks](#common-tasks)
+11. [Tips & Best Practices](#tips--best-practices)
 
 ---
 
@@ -122,6 +123,113 @@ The slug is auto-generated from your title:
 2. Search by common or scientific name
 3. Select relevant plants mentioned in post
 4. Used for linking to plant database
+
+---
+
+## 🤖 AI-Powered Content Generation
+
+**✨ NEW FEATURE**: Generate high-quality, plant-specific content using AI assistance!
+
+### What Can AI Generate?
+
+1. **Blog Post Titles** - SEO-optimized, under 60 characters
+2. **Meta Descriptions** - Compelling, 150-160 characters
+3. **Introduction Paragraphs** - Engaging 2-3 sentence hooks
+
+**Key Benefits**:
+- ⚡ **20-30x faster** for common prompts (cached responses < 100ms)
+- 🎯 **Plant-specific** - Trained on gardening and plant care topics
+- 📈 **SEO-optimized** - Proper character limits and keywords
+- ✅ **Starting point** - Always review and edit AI content
+
+### How to Use AI Generation
+
+#### Step 1: Provide Context
+
+Before generating AI content, give it context to work with:
+
+✅ **Fill in the introduction field** with a brief outline
+✅ **Include specific plant names** (e.g., "fiddle leaf fig" not "houseplant")
+✅ **Add existing content** that provides topic details
+
+**Why?** The AI uses your existing content as context to generate relevant suggestions.
+
+#### Step 2: Click the AI Actions Button
+
+Look for the sparkle icon (✨) next to these fields:
+- **Title** field
+- **Meta Description** field (in SEO Settings)
+- **Introduction** field
+
+1. Click the **AI Actions** button (✨)
+2. Select the generation action from the menu
+3. Wait 2-3 seconds (or < 100ms if cached)
+4. Review the generated content
+
+#### Step 3: Review and Edit
+
+**⚠️ IMPORTANT**: AI-generated content is a **starting point**, not final content!
+
+✅ **Always review** before publishing
+✅ **Verify plant care facts** - Check against reliable sources
+✅ **Personalize** - Add your unique voice and experience
+✅ **Check character limits** - Titles < 60 chars, descriptions 150-160 chars
+
+### Best Practices
+
+**1. Generate in Order**
+
+For best results, generate content in this sequence:
+1. **Introduction** first (provides context)
+2. **Title** second (uses introduction as context)
+3. **Meta Description** last (uses title + introduction)
+
+**2. Provide Good Context**
+
+✅ Write a brief introduction before generating title
+✅ Include specific plant names and care topics
+✅ Add any existing body content
+
+**3. Use AI as a Writing Assistant**
+
+Think of AI as helping you brainstorm, not replacing you:
+- **Good**: Generate title ideas, pick the best one
+- **Better**: Generate title, edit to add your unique angle
+- **Best**: Generate multiple options, combine best parts
+
+### Rate Limits
+
+AI generation is rate-limited by subscription tier to ensure fair usage:
+
+| Tier | Generations per Hour |
+|------|---------------------|
+| Free | 10 |
+| Basic | 50 |
+| Premium | 100 |
+
+**If you hit the limit**: Wait until the next hour, or edit content manually.
+
+### Troubleshooting
+
+**"Rate limit exceeded" message**:
+- Your hourly limit has been reached
+- Limits reset every hour
+- Consider upgrading for higher limits
+
+**Generated content seems off-topic**:
+- Add more context in the introduction field
+- Include specific plant names and topics
+- Write a brief outline before generating
+
+**Titles are too long**:
+- Edit to shorten (remove "Essential", "Complete", etc.)
+- Use abbreviations where appropriate
+
+### 📚 Learn More
+
+For detailed information about AI features:
+- **Full AI Features Guide**: See `docs/blog/AI_FEATURES.md`
+- **Technical Details**: See `WAGTAIL_AI_CUSTOM_PROMPTS.md`
 
 ---
 

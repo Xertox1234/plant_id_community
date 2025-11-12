@@ -4,30 +4,35 @@
 
 /**
  * Plant Spotlight block
+ * Backend: StructBlock with plant_name, scientific_name, description, care_difficulty, image
  */
 export interface PlantSpotlightBlock {
   type: 'plant_spotlight';
   value: {
-    heading: string;
-    description: string;
+    plant_name: string; // CharBlock (required)
+    scientific_name?: string; // CharBlock (optional, auto-populated)
+    description: string; // RichTextBlock (HTML string, auto-populated or AI-generated)
+    care_difficulty?: 'easy' | 'moderate' | 'difficult'; // ChoiceBlock (optional)
     image?: {
       url: string;
-    };
-    care_level?: string;
+      title?: string;
+    }; // ImageChooserBlock (optional)
   };
   id: string;
 }
 
 /**
  * Call to Action block
+ * Backend: StructBlock with cta_title, cta_description, button_text, button_url, button_style
  */
 export interface CallToActionBlock {
   type: 'call_to_action';
   value: {
-    heading: string;
-    description: string;
-    button_text: string;
-    button_url: string;
+    cta_title: string; // CharBlock (required)
+    cta_description?: string; // RichTextBlock (optional, HTML string)
+    button_text: string; // CharBlock (required)
+    button_url: string; // URLBlock (required)
+    button_style?: 'primary' | 'secondary' | 'outline'; // ChoiceBlock (optional, default: primary)
   };
   id: string;
 }
@@ -56,18 +61,17 @@ export interface ParagraphBlock {
 
 /**
  * Heading block
+ * Backend: CharBlock (simple string, not structured)
  */
 export interface HeadingBlock {
   type: 'heading';
-  value: {
-    text: string;
-    level: 1 | 2 | 3 | 4 | 5 | 6;
-  };
+  value: string;
   id: string;
 }
 
 /**
  * Image block
+ * NOTE: Removed from backend - use paragraph with embedded images instead
  */
 export interface ImageBlock {
   type: 'image';
@@ -81,30 +85,33 @@ export interface ImageBlock {
 
 /**
  * Quote block
+ * Backend: StructBlock with quote_text (RichTextBlock) and attribution (CharBlock)
  */
 export interface QuoteBlock {
   type: 'quote';
   value: {
-    text: string;
-    attribution?: string;
+    quote_text: string; // RichTextBlock (HTML string)
+    attribution?: string; // CharBlock (optional)
   };
   id: string;
 }
 
 /**
  * Code block
+ * Backend: StructBlock with language (ChoiceBlock) and code (TextBlock)
  */
 export interface CodeBlock {
   type: 'code';
   value: {
-    code: string;
-    language: string;
+    code: string; // TextBlock
+    language?: string; // ChoiceBlock (optional: python, javascript, html, css, bash, json)
   };
   id: string;
 }
 
 /**
  * List block
+ * NOTE: Not defined in backend BlogStreamBlocks
  */
 export interface ListBlock {
   type: 'list';

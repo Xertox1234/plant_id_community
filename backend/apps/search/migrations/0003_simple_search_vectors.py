@@ -6,22 +6,35 @@ from django.db import migrations, connection
 from psycopg2 import sql
 
 
+# Whitelist of allowed tables (defense in depth)
+ALLOWED_TABLES = {
+    'machina_forum_conversation_topic',
+    'machina_forum_conversation_post',
+    'plant_identification_plantspecies',
+    'plant_identification_plantdiseasedatabase',
+    'blog_blogpostpage'
+}
+
+
 def add_simple_search_vectors(apps, schema_editor):
     """Add search vector fields only, without initial data."""
     if connection.vendor != 'postgresql':
         return  # Skip for non-PostgreSQL databases
-    
+
     with connection.cursor() as cursor:
         # Add search vector columns without populating them initially
         tables_to_modify = [
             'machina_forum_conversation_topic',
-            'machina_forum_conversation_post', 
+            'machina_forum_conversation_post',
             'plant_identification_plantspecies',
             'plant_identification_plantdiseasedatabase',
             'blog_blogpostpage'
         ]
-        
+
         for table in tables_to_modify:
+            # Validate table name against whitelist (defense in depth)
+            if table not in ALLOWED_TABLES:
+                raise ValueError(f"[SECURITY] Table not in whitelist: {table}")
             # Check if table exists
             cursor.execute(
                 "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = %s)",
@@ -50,17 +63,20 @@ def remove_simple_search_vectors(apps, schema_editor):
     """Remove search vector fields."""
     if connection.vendor != 'postgresql':
         return  # Skip for non-PostgreSQL databases
-        
+
     with connection.cursor() as cursor:
         tables_to_modify = [
             'machina_forum_conversation_topic',
-            'machina_forum_conversation_post', 
+            'machina_forum_conversation_post',
             'plant_identification_plantspecies',
             'plant_identification_plantdiseasedatabase',
             'blog_blogpostpage'
         ]
-        
+
         for table in tables_to_modify:
+            # Validate table name against whitelist (defense in depth)
+            if table not in ALLOWED_TABLES:
+                raise ValueError(f"[SECURITY] Table not in whitelist: {table}")
             try:
                 # Use sql.Identifier to safely escape table/index names (prevents SQL injection)
                 index_name = f"idx_{table.split('_')[-1]}_search_vector"
