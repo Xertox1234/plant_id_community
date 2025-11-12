@@ -1,9 +1,13 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from 'react'
 import * as authService from '../services/authService'
 import { logger } from '../utils/logger'
 import { AuthErrorCode } from '../types/auth'
 import type { User, LoginCredentials, SignupData, AuthError } from '../types/auth'
+
+// Token refresh interval: 10 minutes (before 15-minute expiry)
+// SECURITY: OWASP recommends 15-minute access tokens
+const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000 // 10 minutes in milliseconds
 
 // Re-export all auth types for convenience (single import source)
 export type { User, LoginCredentials, SignupData, AuthError } from '../types/auth'
@@ -134,6 +138,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<AuthError | null>(null)
 
+  // Use ref for refresh timer to avoid memory leaks and prevent re-renders
+  const refreshTimerRef = useRef<number | null>(null)
+
   // Initialize auth state on mount
   useEffect(() => {
     async function initAuth() {
@@ -157,6 +164,51 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     initAuth()
   }, [])
+
+  // Automatic token refresh for authenticated users
+  // SECURITY: OWASP-compliant 15-minute access tokens require automatic refresh
+  useEffect(() => {
+    // Only set up refresh if user is authenticated
+    if (!user) {
+      // Clear any existing timer if user logs out
+      if (refreshTimerRef.current) {
+        clearInterval(refreshTimerRef.current)
+        refreshTimerRef.current = null
+      }
+      return
+    }
+
+    logger.info('[AuthContext] Setting up automatic token refresh (10-minute interval)')
+
+    // Set up automatic token refresh every 10 minutes
+    refreshTimerRef.current = window.setInterval(async () => {
+      logger.info('[AuthContext] Refreshing access token...')
+      const success = await authService.refreshAccessToken()
+
+      if (!success) {
+        logger.warn('[AuthContext] Token refresh failed - logging out user')
+        // Token refresh failed - log out user
+        setUser(null)
+        setError({
+          message: 'Your session has expired. Please log in again.',
+          code: AuthErrorCode.SESSION_EXPIRED,
+        })
+        // Clear refresh timer
+        if (refreshTimerRef.current) {
+          clearInterval(refreshTimerRef.current)
+          refreshTimerRef.current = null
+        }
+      }
+    }, TOKEN_REFRESH_INTERVAL)
+
+    // Cleanup on unmount or when user changes
+    return () => {
+      if (refreshTimerRef.current) {
+        clearInterval(refreshTimerRef.current)
+        refreshTimerRef.current = null
+      }
+    }
+  }, [user]) // Re-run when user changes (login/logout)
 
   /**
    * Login user with email and password
