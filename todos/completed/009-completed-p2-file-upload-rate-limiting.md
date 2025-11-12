@@ -1,29 +1,12 @@
 ---
-status: completed
+status: pending
 priority: p2
 issue_id: "009"
 tags: [code-review, security, performance, rate-limiting, forum]
 dependencies: []
-completed_date: 2025-11-03
-completed_by: Code Audit Quick Wins
 ---
 
-# ✅ Missing Rate Limiting on File Upload Endpoints
-
-**Status:** COMPLETED on November 3, 2025
-
-**Solution Implemented:**
-- Added rate limiting to `upload_image`: 10 uploads/hour per user
-- Added rate limiting to `delete_image`: 20 deletes/hour per user
-- Tests Added: `backend/apps/forum/tests/test_post_viewset.py:341-475`
-- Documentation: `backend/docs/patterns/RATE_LIMITING_PATTERNS.md` (600+ lines)
-
-**Commits:**
-- `24a9506` - fix: resolve 4 critical issues from code audit (quick wins)
-
----
-
-# Original Problem Statement
+# Missing Rate Limiting on File Upload Endpoints
 
 ## Problem Statement
 
