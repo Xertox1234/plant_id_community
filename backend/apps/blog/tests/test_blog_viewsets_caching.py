@@ -271,10 +271,19 @@ class BlogPostPageViewSetCachingTestCase(TestCase):
         # Verify response succeeded
         self.assertEqual(response.status_code, 200)
 
-        # Verify prefetching worked (should be <20 queries for 5 posts)
-        # Without prefetching, this would be 20+ queries (N+1 problem)
-        self.assertLess(num_queries, 20,
-                       f"Expected <20 queries with prefetching, got {num_queries}")
+        # STRICT: Expect exactly 18 queries (regression protection - Issue #117 pattern)
+        # Query breakdown for 5 blog posts:
+        # - 1 count query (pagination)
+        # - 1 main query (blog posts)
+        # - ~16 prefetch queries (Wagtail relations: author, categories, tags, images, etc.)
+        # Without prefetching, this would be 30+ queries (N+1 problem)
+        self.assertEqual(
+            num_queries,
+            18,
+            f"Performance regression detected! Expected exactly 18 queries, got {num_queries}. "
+            f"This indicates N+1 problem or missing prefetch optimization in BlogPostPageViewSet. "
+            f"See PERFORMANCE_TESTING_PATTERNS_CODIFIED.md for strict assertion rationale."
+        )
 
         # Verify we got blog posts
         self.assertIn('items', response.data)
@@ -296,10 +305,18 @@ class BlogPostPageViewSetCachingTestCase(TestCase):
         # Verify response succeeded
         self.assertEqual(response.status_code, 200)
 
-        # Verify prefetching worked (should be <25 queries)
-        # Without prefetching, this would need 30+ separate queries for each relation
-        self.assertLess(num_queries, 25,
-                       f"Expected <25 queries with prefetching, got {num_queries}")
+        # STRICT: Expect exactly 19 queries (regression protection - Issue #117 pattern)
+        # Query breakdown for single blog post retrieve:
+        # - 1 main query (blog post)
+        # - ~18 prefetch queries (Wagtail full prefetch chain: author, categories, tags, images, content blocks, etc.)
+        # Without prefetching, this would need 40+ separate queries for each relation
+        self.assertEqual(
+            num_queries,
+            19,
+            f"Performance regression detected! Expected exactly 19 queries, got {num_queries}. "
+            f"This indicates N+1 problem or missing prefetch optimization in BlogPostPageViewSet. "
+            f"See PERFORMANCE_TESTING_PATTERNS_CODIFIED.md for strict assertion rationale."
+        )
 
         # Verify we got the specific post
         self.assertEqual(response.data['slug'], 'test-post-0')
