@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework.permissions import IsAuthenticatedOrReadOnly, BasePermission
 from rest_framework.serializers import Serializer
-from django.db.models import QuerySet, Prefetch, Q
+from django.db.models import QuerySet, Prefetch, Q, F
 from django.utils import timezone
 
 from ..models import Thread, Post
@@ -271,12 +271,20 @@ class ThreadViewSet(viewsets.ModelViewSet):
 
         Returns:
             Thread detail with first post content
+
+        Security (Issue #154 - Race Condition Fix):
+            Uses atomic database update to prevent lost view count increments
+            when multiple users view the same thread simultaneously.
         """
         instance = self.get_object()
 
-        # Increment view count
-        instance.view_count += 1
-        instance.save(update_fields=['view_count'])
+        # Atomic view count increment (Issue #154 fix)
+        # Use F() expression with update() to prevent race conditions
+        # This ensures thread-safe increment without SELECT-then-UPDATE pattern
+        Thread.objects.filter(pk=instance.pk).update(view_count=F('view_count') + 1)
+
+        # Refresh instance to get updated view_count for serializer
+        instance.refresh_from_db()
 
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
