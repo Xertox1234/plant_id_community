@@ -231,10 +231,55 @@ export function getStoredUser(): User | null {
   }
 }
 
+/**
+ * Refresh JWT access token using refresh token from cookie
+ * SECURITY: Implements OWASP-compliant short access token lifetime (15 minutes)
+ * Must be called every 10 minutes to prevent token expiration
+ *
+ * @returns true if refresh succeeded, false if failed (user should be logged out)
+ */
+export async function refreshAccessToken(): Promise<boolean> {
+  try {
+    // Fetch CSRF token first if we don't have one
+    if (!getCsrfToken()) {
+      await fetchCsrfToken();
+    }
+
+    const csrfToken = getCsrfToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    // Add CSRF token (required by backend)
+    if (csrfToken) {
+      headers['X-CSRFToken'] = csrfToken;
+    }
+
+    const response = await fetch(`${API_URL}/api/v1/auth/token/refresh/`, {
+      method: 'POST',
+      headers,
+      credentials: 'include', // Include cookies (refresh token)
+    });
+
+    if (!response.ok) {
+      logger.warn('[authService] Token refresh failed:', response.status);
+      return false;
+    }
+
+    // Token successfully refreshed (new tokens set in httpOnly cookies)
+    logger.info('[authService] Access token refreshed successfully');
+    return true;
+  } catch (error) {
+    logger.error('[authService] Token refresh error:', error);
+    return false;
+  }
+}
+
 export const authService = {
   login,
   signup,
   logout,
   getCurrentUser,
   getStoredUser,
+  refreshAccessToken,
 };
