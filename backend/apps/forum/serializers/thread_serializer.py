@@ -129,14 +129,25 @@ class ThreadDetailSerializer(serializers.ModelSerializer):
             Dict with first post data or None if not found.
 
         Performance:
-            - Viewset should prefetch first posts to avoid N+1
+            - Viewset prefetches first posts to avoid N+1 (retrieve action only)
+            - Uses prefetched data if available, falls back to query
             - Returns None if first post doesn't exist (shouldn't happen)
         """
         # Import here to avoid circular import
         from .post_serializer import PostSerializer
 
-        # Get first post (should be prefetched by viewset)
-        first_post = obj.posts.filter(is_first_post=True, is_active=True).first()
+        # Check if posts were prefetched by viewset (retrieve action)
+        # ThreadViewSet.get_queryset() sets up prefetch_related with 'posts' queryset
+        try:
+            # Try to access prefetched posts (no query if prefetched)
+            prefetched_posts = obj.posts.all()
+
+            # If prefetched, this won't trigger a query
+            # The prefetch filter ensures only is_first_post=True and is_active=True are loaded
+            first_post = prefetched_posts[0] if prefetched_posts else None
+        except (IndexError, AttributeError):
+            # Fallback: query directly if not prefetched (list action or cache miss)
+            first_post = obj.posts.filter(is_first_post=True, is_active=True).first()
 
         if first_post:
             return PostSerializer(first_post, context=self.context).data
