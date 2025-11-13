@@ -13,6 +13,7 @@
  */
 
 import { logger } from '../utils/logger';
+import { getCsrfToken } from '../utils/csrf';
 import type { User, LoginCredentials, SignupData, AuthResponse } from '../types/auth';
 import type { ApiError } from '../types/api';
 
@@ -25,40 +26,12 @@ if (import.meta.env.PROD && API_URL.startsWith('http://')) {
 }
 
 /**
- * Get CSRF token from cookie
- * Django sets csrftoken cookie that must be sent as X-CSRFToken header
- */
-function getCsrfToken(): string | null {
-  const match = document.cookie.match(/csrftoken=([^;]+)/);
-  return match ? match[1] : null;
-}
-
-/**
- * Fetch CSRF token from Django backend
- * This endpoint sets the csrftoken cookie
- */
-async function fetchCsrfToken(): Promise<void> {
-  try {
-    await fetch(`${API_URL}/api/v1/auth/csrf/`, {
-      method: 'GET',
-      credentials: 'include', // Include cookies
-    });
-  } catch (error) {
-    logger.warn('[authService] Failed to fetch CSRF token:', error);
-  }
-}
-
-/**
  * Login user with email and password
  */
 export async function login(credentials: LoginCredentials): Promise<User> {
   try {
-    // Fetch CSRF token first if we don't have one
-    if (!getCsrfToken()) {
-      await fetchCsrfToken();
-    }
-
-    const csrfToken = getCsrfToken();
+    // Get CSRF token from centralized utility (handles caching + meta tag/API fallback)
+    const csrfToken = await getCsrfToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -97,12 +70,8 @@ export async function login(credentials: LoginCredentials): Promise<User> {
  */
 export async function signup(userData: SignupData): Promise<User> {
   try {
-    // Fetch CSRF token first if we don't have one
-    if (!getCsrfToken()) {
-      await fetchCsrfToken();
-    }
-
-    const csrfToken = getCsrfToken();
+    // Get CSRF token from centralized utility (handles caching + meta tag/API fallback)
+    const csrfToken = await getCsrfToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -158,7 +127,8 @@ export async function signup(userData: SignupData): Promise<User> {
  */
 export async function logout(): Promise<void> {
   try {
-    const csrfToken = getCsrfToken();
+    // Get CSRF token from centralized utility (handles caching + meta tag/API fallback)
+    const csrfToken = await getCsrfToken();
     const headers: Record<string, string> = {};
 
     // Add CSRF token if available (required by Django backend)
@@ -240,12 +210,8 @@ export function getStoredUser(): User | null {
  */
 export async function refreshAccessToken(): Promise<boolean> {
   try {
-    // Fetch CSRF token first if we don't have one
-    if (!getCsrfToken()) {
-      await fetchCsrfToken();
-    }
-
-    const csrfToken = getCsrfToken();
+    // Get CSRF token from centralized utility (handles caching + meta tag/API fallback)
+    const csrfToken = await getCsrfToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };

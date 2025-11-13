@@ -6,6 +6,7 @@
  */
 
 import { logger } from '../utils/logger';
+import { getCsrfToken } from '../utils/csrf';
 import type {
   PlantIdentificationResult,
   Collection,
@@ -19,49 +20,15 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const API_VERSION = 'v1';
 
 /**
- * Get CSRF token from Django cookies
- * Django sets csrftoken cookie that must be sent as X-CSRFToken header
- */
-function getCsrfToken(): string | null {
-  const match = document.cookie.match(/csrftoken=([^;]+)/);
-  return match ? match[1] : null;
-}
-
-/**
- * Fetch CSRF token from Django backend
- * This endpoint sets the csrftoken cookie
- */
-async function fetchCsrfToken(): Promise<void> {
-  try {
-    await fetch(`${API_BASE_URL}/api/${API_VERSION}/users/csrf/`, {
-      credentials: 'include',
-    });
-  } catch (error) {
-    logger.warn('[plantIdService] Failed to fetch CSRF token:', error);
-  }
-}
-
-/**
- * Ensure CSRF token exists before making authenticated requests
- */
-async function ensureCsrfToken(): Promise<void> {
-  if (!getCsrfToken()) {
-    await fetchCsrfToken();
-  }
-}
-
-/**
  * Identify a plant from an uploaded image
+ * Uses centralized CSRF utility (handles caching + meta tag/API fallback)
  */
 async function identifyPlant(imageFile: File): Promise<PlantIdentificationResult> {
-  // Ensure CSRF token is available
-  await ensureCsrfToken();
-
   const formData = new FormData();
   formData.append('image', imageFile);
 
-  // Get CSRF token for Django CSRF protection
-  const csrfToken = getCsrfToken();
+  // Get CSRF token from centralized utility
+  const csrfToken = await getCsrfToken();
 
   try {
     const response = await fetch(
@@ -93,10 +60,10 @@ async function identifyPlant(imageFile: File): Promise<PlantIdentificationResult
 
 /**
  * Get plant identification history
+ * Uses centralized CSRF utility (handles caching + meta tag/API fallback)
  */
 async function getHistory(): Promise<IdentificationHistoryItem[]> {
-  await ensureCsrfToken();
-  const csrfToken = getCsrfToken();
+  const csrfToken = await getCsrfToken();
 
   try {
     const response = await fetch(
@@ -121,10 +88,10 @@ async function getHistory(): Promise<IdentificationHistoryItem[]> {
 
 /**
  * Save identified plant to user's collection
+ * Uses centralized CSRF utility (handles caching + meta tag/API fallback)
  */
 async function saveToCollection(plantData: SavePlantInput): Promise<UserPlant> {
-  await ensureCsrfToken();
-  const csrfToken = getCsrfToken();
+  const csrfToken = await getCsrfToken();
 
   try {
     // First, get user's collections to find the default one

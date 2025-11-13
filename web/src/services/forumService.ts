@@ -7,6 +7,7 @@
  * Uses cookie-based JWT authentication with CSRF protection.
  */
 
+import { getCsrfToken } from '../utils/csrf';
 import type {
   Category,
   Thread,
@@ -27,20 +28,11 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const FORUM_BASE = `${API_URL}/api/v1/forum`;
 
 /**
- * Helper to get CSRF token from cookies
- */
-function getCsrfToken(): string | undefined {
-  return document.cookie
-    .split('; ')
-    .find(row => row.startsWith('csrftoken='))
-    ?.split('=')[1];
-}
-
-/**
  * Helper for authenticated requests with generic return type
+ * Uses centralized CSRF utility (handles caching + meta tag/API fallback)
  */
 async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const csrfToken = getCsrfToken();
+  const csrfToken = await getCsrfToken();
 
   const response = await fetch(url, {
     ...options,
@@ -311,9 +303,10 @@ export async function searchForum(options: SearchForumOptions): Promise<{
 
 /**
  * Upload image to a post (requires authentication)
+ * Uses centralized CSRF utility (handles caching + meta tag/API fallback)
  */
 export async function uploadPostImage(postId: string, imageFile: File): Promise<Attachment> {
-  const csrfToken = getCsrfToken();
+  const csrfToken = await getCsrfToken();
   const formData = new FormData();
   formData.append('image', imageFile);
 
