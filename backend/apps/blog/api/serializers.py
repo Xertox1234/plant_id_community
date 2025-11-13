@@ -214,21 +214,60 @@ class BlogPostPageSerializer(serializers.ModelSerializer):
         return ''
     
     def get_comment_count(self, obj):
-        """Get approved comment count."""
-        if obj.allow_comments:
-            return obj.comments.filter(is_approved=True).count()
-        return 0
+        """
+        Get approved comment count.
+
+        Performance (Issue #182):
+        - Uses annotated _comment_count from viewset if available
+        - Falls back to query if annotation not present (e.g., in tests)
+        """
+        if not obj.allow_comments:
+            return 0
+
+        # Check if viewset added annotation (list/retrieve actions)
+        if hasattr(obj, '_comment_count'):
+            return obj._comment_count
+
+        # Fallback: direct query (only in edge cases without optimization)
+        return obj.comments.filter(is_approved=True).count()
     
     def get_related_posts(self, obj):
-        """Get related posts based on categories and tags."""
-        # Get posts with same categories
-        related_posts = BlogPostPage.objects.live().public().exclude(
-            id=obj.id
-        ).filter(
-            categories__in=obj.categories.all()
-        ).distinct().order_by('-first_published_at')[:3]
-        
+        """
+        Get related posts based on categories and tags.
+
+        Performance (Issue #182):
+        - Uses prefetched categories with related posts from viewset if available
+        - Falls back to query if prefetch not present (e.g., in tests or list view)
+        """
         request = self.context.get('request')
+
+        # Check if viewset prefetched related posts through categories
+        if hasattr(obj, '_prefetched_categories_with_posts'):
+            # Use prefetched data (retrieve action)
+            related_posts_set = set()
+            for category in obj._prefetched_categories_with_posts:
+                if hasattr(category, '_prefetched_related_posts'):
+                    for post in category._prefetched_related_posts:
+                        if post.id != obj.id:  # Exclude current post
+                            related_posts_set.add(post)
+                            if len(related_posts_set) >= 3:
+                                break
+                if len(related_posts_set) >= 3:
+                    break
+
+            related_posts = sorted(
+                list(related_posts_set),
+                key=lambda p: p.first_published_at,
+                reverse=True
+            )[:3]
+        else:
+            # Fallback: direct query (list action or tests)
+            related_posts = BlogPostPage.objects.live().public().exclude(
+                id=obj.id
+            ).filter(
+                categories__in=obj.categories.all()
+            ).distinct().order_by('-first_published_at')[:3]
+
         return [{
             'id': post.id,
             'title': post.title,
@@ -331,10 +370,22 @@ class BlogPostPageListSerializer(serializers.ModelSerializer):
         return ''
     
     def get_comment_count(self, obj):
-        """Get approved comment count."""
-        if obj.allow_comments:
-            return obj.comments.filter(is_approved=True).count()
-        return 0
+        """
+        Get approved comment count.
+
+        Performance (Issue #182):
+        - Uses annotated _comment_count from viewset if available
+        - Falls back to query if annotation not present (e.g., in tests)
+        """
+        if not obj.allow_comments:
+            return 0
+
+        # Check if viewset added annotation (list/retrieve actions)
+        if hasattr(obj, '_comment_count'):
+            return obj._comment_count
+
+        # Fallback: direct query (only in edge cases without optimization)
+        return obj.comments.filter(is_approved=True).count()
 
 
 class BlogIndexPageSerializer(PageSerializer):

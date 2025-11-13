@@ -158,6 +158,9 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         if action == 'list':
             # List view: Optimized for multiple posts with limited related data
+            from django.db.models import Count
+            from ..models import BlogComment
+
             queryset = queryset.select_related(
                 'author',  # ForeignKey - reduces queries for author info
                 'series',  # ForeignKey - reduces queries for series info
@@ -165,6 +168,9 @@ class BlogPostPageViewSet(PagesAPIViewSet):
                 'categories',  # ManyToMany - fetch all categories (usually <5 per post)
                 'tags',  # ManyToMany - tags prefetched but limited in serializer
                 'related_plant_species',  # Prefetch all, limit in serializer (MAX_RELATED_PLANT_SPECIES)
+            ).annotate(
+                # Issue #182: Prevent N+1 query in get_comment_count()
+                _comment_count=Count('comments', filter=Q(comments__is_approved=True))
             )
 
             # List view: Only prefetch thumbnail renditions
@@ -183,6 +189,8 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         elif action == 'retrieve':
             # Detail view: Prefetch full data and larger renditions
+            from django.db.models import Count
+
             queryset = queryset.select_related(
                 'author',
                 'series',
@@ -190,7 +198,28 @@ class BlogPostPageViewSet(PagesAPIViewSet):
                 'categories',
                 'tags',
                 'related_plant_species',  # All related species for detail view
+            ).annotate(
+                # Issue #182: Prevent N+1 query in get_comment_count()
+                _comment_count=Count('comments', filter=Q(comments__is_approved=True))
             )
+
+            # Issue #182: Prefetch related posts to prevent N+1 in get_related_posts()
+            # Use Prefetch to limit to 3 related posts and optimize query
+            try:
+                related_posts_prefetch = Prefetch(
+                    'categories',
+                    queryset=BlogCategory.objects.prefetch_related(
+                        Prefetch(
+                            'blogpostpage_set',
+                            queryset=BlogPostPage.objects.live().public().order_by('-first_published_at')[:3],
+                            to_attr='_prefetched_related_posts'
+                        )
+                    ),
+                    to_attr='_prefetched_categories_with_posts'
+                )
+                queryset = queryset.prefetch_related(related_posts_prefetch)
+            except Exception as e:
+                logger.warning(f"[PERF] Could not prefetch related posts: {e}")
 
             # Detail view: Prefetch full-size renditions
             try:
