@@ -162,17 +162,35 @@ def login(request: Request) -> Response:
             status.HTTP_429_TOO_MANY_REQUESTS
         )
 
-    # Try to authenticate with username first
-    user = authenticate(username=username, password=password)
+    # SECURITY FIX (Issue #183 - CWE-204): Constant-time authentication
+    # Always compute password hash to prevent timing attacks that reveal user existence
+    from django.contrib.auth.hashers import check_password
 
-    # If authentication fails and the identifier looks like an email,
-    # try to find the user by email and authenticate with their username
-    if not user and '@' in username:
-        try:
-            from_email = User.objects.get(email=username)
-            user = authenticate(username=from_email.username, password=password)
-        except User.DoesNotExist:
-            pass
+    user = None
+    user_obj = None
+
+    # Try to find user by username first
+    try:
+        user_obj = User.objects.get(username=username)
+    except User.DoesNotExist:
+        # If username not found and identifier looks like email, try email lookup
+        if '@' in username:
+            try:
+                user_obj = User.objects.get(email=username)
+            except User.DoesNotExist:
+                pass
+
+    # Always perform password check (constant time)
+    if user_obj:
+        # Real user: check actual password hash
+        if check_password(password, user_obj.password):
+            user = user_obj
+    else:
+        # No user found: compute dummy hash to prevent timing oracle
+        # This ensures both paths (user exists / doesn't exist) take similar time
+        from django.contrib.auth.hashers import make_password
+        dummy_hash = make_password(password)
+        user = None  # Explicitly set to None after dummy computation
 
     if user:
         if user.is_active:

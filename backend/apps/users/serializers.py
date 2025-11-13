@@ -23,9 +23,17 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         ]
     
     def validate(self, data):
-        """Validate password confirmation and other fields."""
+        """
+        Validate password confirmation and check for duplicate accounts.
+
+        Security (Issue #155 - CWE-204):
+        Returns generic error message for duplicate username OR email to prevent
+        account enumeration attacks. Attacker cannot distinguish which field is duplicate.
+        """
         password = data.get('password')
         password_confirm = data.get('password_confirm') or data.get('confirmPassword')
+        username = data.get('username')
+        email = data.get('email')
 
         # Validate password strength FIRST (better UX - show strength issues before confirmation)
         if password:
@@ -38,13 +46,21 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         if password_confirm and password != password_confirm:
             raise serializers.ValidationError({"confirmPassword": ["Passwords do not match."]})
 
+        # SECURITY FIX (Issue #155): Check for duplicate username OR email
+        # Return generic error to prevent enumeration
+        if username and User.objects.filter(username=username).exists():
+            raise serializers.ValidationError(
+                "An account with these credentials already exists. "
+                "Please use a different username or email."
+            )
+
+        if email and User.objects.filter(email=email).exists():
+            raise serializers.ValidationError(
+                "An account with these credentials already exists. "
+                "Please use a different username or email."
+            )
+
         return data
-    
-    def validate_email(self, value):
-        """Ensure email is unique."""
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("A user with this email already exists.")
-        return value
     
     def create(self, validated_data):
         """Create new user account."""
