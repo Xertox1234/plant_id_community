@@ -276,6 +276,10 @@ class ModerationQueueViewSet(viewsets.ReadOnlyModelViewSet):
 
         GET /api/v1/forum/moderation-queue/stats/
 
+        Performance (Issue #147):
+            OPTIMIZATION: Uses single aggregated query with conditional counting
+            instead of 5 sequential COUNT queries (5 queries → 2 queries).
+
         Returns:
         {
             "pending_count": 42,
@@ -290,24 +294,71 @@ class ModerationQueueViewSet(viewsets.ReadOnlyModelViewSet):
             }
         }
         """
-        # Pending flags by content type
-        pending_flags = FlaggedContent.objects.filter(status=MODERATION_STATUS_PENDING)
-        pending_count = pending_flags.count()
-        pending_posts = pending_flags.filter(content_type='post').count()
-        pending_threads = pending_flags.filter(content_type='thread').count()
+        from django.db.models import Sum, Case, When, IntegerField
 
-        # Reviewed today
+        # Time boundaries
         today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        reviewed_today = FlaggedContent.objects.filter(
-            reviewed_at__gte=today_start
-        ).count()
 
-        # Total flags
-        total_flags = FlaggedContent.objects.count()
+        # OPTIMIZATION: Single aggregated query replaces 5 COUNT queries
+        # Old: 5 separate .count() calls (lines 295-306)
+        # New: 1 aggregated query with conditional counting
+        aggregated_stats = FlaggedContent.objects.aggregate(
+            # Total flags count
+            total_flags=Count('id'),
+            # Pending flags count
+            pending_count=Sum(
+                Case(
+                    When(status=MODERATION_STATUS_PENDING, then=1),
+                    default=0,
+                    output_field=IntegerField()
+                )
+            ),
+            # Pending posts count
+            pending_posts=Sum(
+                Case(
+                    When(
+                        status=MODERATION_STATUS_PENDING,
+                        content_type='post',
+                        then=1
+                    ),
+                    default=0,
+                    output_field=IntegerField()
+                )
+            ),
+            # Pending threads count
+            pending_threads=Sum(
+                Case(
+                    When(
+                        status=MODERATION_STATUS_PENDING,
+                        content_type='thread',
+                        then=1
+                    ),
+                    default=0,
+                    output_field=IntegerField()
+                )
+            ),
+            # Reviewed today count
+            reviewed_today=Sum(
+                Case(
+                    When(reviewed_at__gte=today_start, then=1),
+                    default=0,
+                    output_field=IntegerField()
+                )
+            ),
+        )
 
-        # Flags by reason (pending only)
+        # Extract with defaults (Sum returns None if no rows)
+        total_flags = aggregated_stats['total_flags'] or 0
+        pending_count = aggregated_stats['pending_count'] or 0
+        pending_posts = aggregated_stats['pending_posts'] or 0
+        pending_threads = aggregated_stats['pending_threads'] or 0
+        reviewed_today = aggregated_stats['reviewed_today'] or 0
+
+        # Flags by reason (pending only) - Requires separate GROUP BY query
         flags_by_reason = dict(
-            pending_flags.values_list('flag_reason').annotate(count=Count('id'))
+            FlaggedContent.objects.filter(
+                status=MODERATION_STATUS_PENDING
+            ).values_list('flag_reason').annotate(count=Count('id'))
         )
 
         return Response({
