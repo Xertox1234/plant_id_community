@@ -1,6 +1,6 @@
 # Generated manually for PostgreSQL GIN indexes on Post.content_raw
 # Performance optimization for full-text search queries (ICONTAINS)
-# Issue: https://github.com/yourusername/plant_community/issues/xxx
+# Issue #151: Missing GIN Index on Post.content_raw for Full-Text Search
 
 from django.db import connection, migrations
 from psycopg2 import sql
