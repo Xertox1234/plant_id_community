@@ -52,6 +52,74 @@ class ForumTestCase(TestCase):
         # Clear cache after test
         cache.clear()
 
+    # Helper methods for creating test users with trust levels
+
+    def _create_user_with_trust_level(self, target_level: str, username: str):
+        """
+        Create user with specific trust level.
+
+        This helper creates a user that actually qualifies for the target trust level
+        by meeting the requirements (days active + post count). For EXPERT level,
+        manually sets trust_level since it cannot be auto-assigned.
+
+        Args:
+            target_level: One of TRUST_LEVEL_* constants
+            username: Username for the created user
+
+        Returns:
+            User instance with forum_profile.trust_level set to target_level
+
+        Note:
+            - Manually sets user.date_joined (freeze_time doesn't work with auto_now_add)
+            - Updates profile.post_count cache to match actual post count
+            - Refreshes user from DB to ensure profile relation is current
+        """
+        from datetime import timedelta
+        from django.utils import timezone
+        from ..models import UserProfile
+        from ..constants import TRUST_LEVEL_REQUIREMENTS, TRUST_LEVEL_EXPERT
+
+        requirements = TRUST_LEVEL_REQUIREMENTS.get(target_level, {'days': 0, 'posts': 0})
+
+        # Create user
+        user = UserFactory.create(username=username)
+
+        # Set date_joined to meet days requirement
+        days_offset = requirements.get('days', 0)
+        if days_offset > 0:
+            user.date_joined = timezone.now() - timedelta(days=days_offset)
+            user.save()
+
+        # Create profile
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+
+        # Create required posts to meet post count requirement
+        post_count = requirements.get('posts', 0)
+        if post_count > 0:
+            category = CategoryFactory.create()
+            thread = ThreadFactory.create(author=user, category=category)
+            for i in range(post_count):
+                PostFactory.create(thread=thread, author=user, is_active=True)
+
+            # Update cached post count
+            profile.update_post_count()
+
+        # Set trust level
+        if target_level == TRUST_LEVEL_EXPERT:
+            # Expert must be manually assigned
+            profile.trust_level = TRUST_LEVEL_EXPERT
+            profile.save()
+        else:
+            # Calculate trust level (should match target if requirements met)
+            calculated_level = profile.calculate_trust_level()
+            profile.trust_level = calculated_level
+            profile.save()
+
+        # Refresh user from DB
+        user.refresh_from_db()
+
+        return user
+
     # Helper methods for common assertions
 
     def assertCacheHit(self, cache_key: str, msg: Optional[str] = None):
