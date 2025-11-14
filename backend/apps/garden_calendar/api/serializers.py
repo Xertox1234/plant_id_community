@@ -298,7 +298,7 @@ class PlantListSerializer(serializers.ModelSerializer):
         fields = [
             'uuid', 'garden_bed', 'garden_bed_name', 'common_name', 'variety',
             'health_status', 'health_status_display', 'growth_stage', 'growth_stage_display',
-            'planted_date', 'expected_harvest_date', 'primary_image',
+            'planted_date', 'primary_image',
             'days_since_planted', 'age_display', 'is_active'
         ]
         read_only_fields = [
@@ -359,10 +359,11 @@ class PlantCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plant
         fields = [
-            'garden_bed', 'plant_species', 'common_name', 'variety',
+            'uuid', 'garden_bed', 'plant_species', 'common_name', 'variety',
             'health_status', 'growth_stage', 'planted_date',
-            'expected_harvest_date', 'position_x', 'position_y', 'notes', 'is_active'
+            'position_x', 'position_y', 'notes', 'is_active'
         ]
+        read_only_fields = ['uuid']
 
     def validate_garden_bed(self, value):
         """Ensure user owns the garden bed."""
@@ -437,9 +438,10 @@ class CareTaskCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = CareTask
         fields = [
-            'plant', 'task_type', 'priority', 'scheduled_date',
+            'uuid', 'plant', 'task_type', 'title', 'priority', 'scheduled_date',
             'is_recurring', 'recurrence_interval_days', 'notes'
         ]
+        read_only_fields = ['uuid', 'title']
 
     def validate_plant(self, value):
         """Ensure user owns the plant."""
@@ -494,11 +496,11 @@ class HarvestSerializer(serializers.ModelSerializer):
     class Meta:
         model = Harvest
         fields = [
-            'uuid', 'plant', 'plant_name', 'harvest_date', 'quantity', 'unit',
-            'quality_rating', 'taste_rating', 'notes', 'shared_with_community',
+            'id', 'plant', 'plant_name', 'harvest_date', 'quantity', 'unit',
+            'quality_rating', 'notes',
             'days_from_planting', 'created_at'
         ]
-        read_only_fields = ['uuid', 'plant_name', 'days_from_planting', 'created_at']
+        read_only_fields = ['id', 'plant_name', 'days_from_planting', 'created_at']
 
     def validate_quality_rating(self, value):
         """Validate quality rating range."""

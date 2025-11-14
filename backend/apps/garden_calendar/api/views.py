@@ -755,7 +755,7 @@ class CareTaskViewSet(viewsets.ModelViewSet):
             )
 
         # Use model method to handle skipping and recurrence
-        task.mark_skipped()
+        task.mark_skip(request.user, reason=request.data.get('reason', ''))
 
         return Response({
             'message': 'Task skipped successfully.',
