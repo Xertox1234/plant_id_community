@@ -56,7 +56,7 @@ class GardenBedViewSetTest(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['name'], 'My First Garden')
-        self.assertEqual(response.data['owner'], self.user1.id)
+        self.assertEqual(response.data['owner']['uuid'], str(self.user1.uuid))
         self.assertIsNotNone(response.data['uuid'])
 
     def test_create_garden_bed_unauthenticated(self):

@@ -440,10 +440,7 @@ class GardenBedViewSet(viewsets.ModelViewSet):
         qs = qs.select_related('owner')
 
         # Conditional optimization based on action
-        if self.action == 'list':
-            # Annotate plant count for list view
-            qs = qs.annotate(plant_count=Count('plants', filter=Q(plants__is_active=True)))
-        elif self.action == 'retrieve':
+        if self.action == 'retrieve':
             # Prefetch plants for detail view
             from django.db.models import Prefetch
             qs = qs.prefetch_related(
@@ -700,6 +697,10 @@ class CareTaskViewSet(viewsets.ModelViewSet):
             qs = qs.filter(scheduled_date__lte=to_date)
 
         return qs
+
+    def perform_create(self, serializer):
+        """Set created_by to current user."""
+        serializer.save(created_by=self.request.user)
 
     @action(detail=True, methods=['post'])
     def complete(self, request, uuid=None):

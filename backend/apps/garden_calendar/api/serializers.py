@@ -251,8 +251,8 @@ class GardenOwnerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['uuid', 'username', 'first_name', 'last_name', 'avatar_thumbnail']
-        read_only_fields = ['uuid', 'username', 'first_name', 'last_name', 'avatar_thumbnail']
+        fields = ['uuid', 'username', 'first_name', 'last_name']
+        read_only_fields = ['uuid', 'username', 'first_name', 'last_name']
 
 
 class PlantImageSerializer(serializers.ModelSerializer):
@@ -374,7 +374,7 @@ class PlantCreateUpdateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         """Validate plant limit per bed."""
-        from ..constants import MAX_PLANTS_PER_BED
+        from ..constants import MAX_PLANTS_PER_GARDEN_BED
 
         garden_bed = data.get('garden_bed')
         if garden_bed:
@@ -383,9 +383,9 @@ class PlantCreateUpdateSerializer(serializers.ModelSerializer):
             if self.instance:
                 current_count -= 1
 
-            if current_count >= MAX_PLANTS_PER_BED:
+            if current_count >= MAX_PLANTS_PER_GARDEN_BED:
                 raise serializers.ValidationError({
-                    'garden_bed': f"Garden bed already has maximum of {MAX_PLANTS_PER_BED} plants."
+                    'garden_bed': f"Garden bed already has maximum of {MAX_PLANTS_PER_GARDEN_BED} plants."
                 })
 
         return data
@@ -545,7 +545,7 @@ class GardenBedDetailSerializer(GardenBedListSerializer):
 
     class Meta(GardenBedListSerializer.Meta):
         fields = GardenBedListSerializer.Meta.fields + [
-            'notes', 'last_fertilized', 'last_watered', 'layout_data',
+            'notes', 'layout_data',
             'plants', 'can_edit', 'created_at', 'updated_at'
         ]
 
@@ -560,13 +560,17 @@ class GardenBedDetailSerializer(GardenBedListSerializer):
 class GardenBedCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating and updating garden beds."""
 
+    owner = GardenOwnerSerializer(read_only=True)
+
     class Meta:
         model = GardenBed
         fields = [
+            'uuid', 'owner',
             'name', 'bed_type', 'length_inches', 'width_inches', 'depth_inches',
             'sun_exposure', 'soil_type', 'soil_ph', 'notes',
-            'last_fertilized', 'last_watered', 'layout_data', 'is_active'
+            'layout_data', 'is_active'
         ]
+        read_only_fields = ['uuid', 'owner']
 
     def validate_soil_ph(self, value):
         """Validate soil pH range."""
@@ -576,7 +580,7 @@ class GardenBedCreateUpdateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         """Validate bed dimensions and user limits."""
-        from ..constants import MAX_BEDS_PER_USER
+        from ..constants import MAX_GARDEN_BEDS_PER_USER
 
         # Check user bed limit for new beds
         if not self.instance:
@@ -587,9 +591,9 @@ class GardenBedCreateUpdateSerializer(serializers.ModelSerializer):
                     is_active=True
                 ).count()
 
-                if current_count >= MAX_BEDS_PER_USER:
+                if current_count >= MAX_GARDEN_BEDS_PER_USER:
                     raise serializers.ValidationError({
-                        'non_field_errors': f"You have reached the maximum of {MAX_BEDS_PER_USER} active garden beds."
+                        'non_field_errors': f"You have reached the maximum of {MAX_GARDEN_BEDS_PER_USER} active garden beds."
                     })
 
         # Validate dimensions make sense
