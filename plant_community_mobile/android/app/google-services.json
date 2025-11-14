@@ -7,20 +7,37 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:190351417275:android:b0ff3bc42c952da769ae9e",
+        "mobilesdk_app_id": "1:190351417275:android:53aa5e82b6e221ad69ae9e",
         "android_client_info": {
           "package_name": "com.plantcommunity.plant_community_mobile"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "190351417275-p9mtdnq4qcfca7poku95cdcueoradtnp.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSy_PLACEHOLDER_KEY_DO_NOT_COMMIT_REAL_KEY"
+          "current_key": "AIzaSyDpRChSGfwYei1xfyjxcCNWjjnVJN2mBEA"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "190351417275-p9mtdnq4qcfca7poku95cdcueoradtnp.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "190351417275-3ahlfr6n95rc4pli8bv9b7gvr3u80ttn.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.plantcommunity.plantCommunityMobile"
+              }
+            }
+          ]
         }
       }
     }
