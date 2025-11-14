@@ -8,31 +8,94 @@ This checklist consolidates all critical security findings from the codebase aud
 
 ## 🚨 Critical (P0) - Must Fix Before Deployment
 
-### 1. Firebase API Keys (Issue #142)
+### 1. Firebase API Keys (Issue #142 / #011)
 
-**Status:** [ ] Not Started | [ ] In Progress | [ ] Complete
+**Status:** [✅] Complete (Resolved November 11, 2025)
 
-- [ ] **Rotate all Firebase keys immediately** (production keys exposed in git history)
-  - [ ] Generate new API keys in Firebase Console
-  - [ ] Update production environment variables
-  - [ ] Verify old keys are revoked
-- [ ] **Remove hardcoded keys** from `plant_community_mobile/lib/firebase_options.dart`
-- [ ] **Implement flutter_dotenv** for environment-based configuration
-  ```dart
-  // ✅ Correct pattern
-  apiKey: dotenv.env['FIREBASE_API_KEY']!,
-  ```
-- [ ] **Add Firebase Security Rules** to restrict API key usage
-  ```javascript
-  // Restrict to your app bundle ID
-  if(request.auth != null && request.app.name == 'com.yourcompany.plantid')
-  ```
-- [ ] **Verify .env files** are in .gitignore
-- [ ] **Run security scan:** `python scripts/check_flutter_security.py`
+**Important Context:** Firebase client API keys are NOT secret - they're designed for client apps. Security is enforced by **Firebase Security Rules**, not key secrecy. The real vulnerability was missing Security Rules.
 
-**Risk if skipped:** Anyone with git access can use your Firebase project, incur costs, access user data
+#### Completed Actions:
+- [✅] **Firebase Security Rules deployed** (deny by default, authenticated access only)
+- [✅] **flutter_dotenv implemented** for environment-based configuration
+- [✅] **Keys moved to .env** (gitignored)
+- [✅] **firebase_options.dart updated** to read from environment variables
+- [✅] **Security scan passing** (`python scripts/check_flutter_security.py`)
 
-**Reference:** `todos/011-pending-p0-firebase-api-keys-exposed.md`
+#### Firebase Security Rules (Reference)
+
+**Firestore Rules** - Deny by default, authenticated access only:
+```javascript
+// Firebase Console → Firestore Database → Rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default: Deny all access (CRITICAL)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // User data: Only authenticated users can access their own data
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Plant identifications: Authenticated access only
+    match /plant_identifications/{docId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null
+                            && request.auth.uid == resource.data.userId;
+    }
+
+    // Garden data: Owner access only
+    match /gardens/{gardenId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == resource.data.userId;
+    }
+  }
+}
+```
+
+**Storage Rules** - Authenticated only with 10MB file size limit:
+```javascript
+// Firebase Console → Storage → Rules
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Default: Deny all access (CRITICAL)
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // User uploads: Authenticated only, 10MB max
+    match /users/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                  && request.auth.uid == userId
+                  && request.resource.size < 10 * 1024 * 1024;  // 10MB
+    }
+
+    // Plant images: Authenticated read, owner write
+    match /plant_images/{imageId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+  }
+}
+```
+
+#### Maintenance Checklist (Periodic Review):
+- [ ] **Audit Firebase activity** monthly (Firebase Console → Analytics → Usage)
+- [ ] **Review Security Rules** after schema changes
+- [ ] **Monitor quota usage** (check for unusual spikes)
+- [ ] **Verify .env exclusion** in .gitignore
+- [ ] **Run security scan** before deployments
+
+**Risk Assessment:**
+- **Before fix:** CVSS 7.5 (HIGH) - Complete database/storage access by anyone
+- **After fix:** CVSS 2.0 (LOW) - Normal Firebase security posture
+
+**Reference:** `P0_FIREBASE_SECURITY_FIX_REPORT.md` (archived), Issue #011 resolved
 
 ---
 

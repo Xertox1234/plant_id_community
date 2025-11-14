@@ -13,7 +13,7 @@ A multi-platform plant identification system featuring AI-powered plant recognit
 
 ```bash
 # 1. Start the backend
-cd existing_implementation/backend
+cd backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
