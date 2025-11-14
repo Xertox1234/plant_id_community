@@ -430,7 +430,7 @@ class CareTaskViewSetTest(TestCase):
         )
 
         response = self.client.post(
-            f'/api/v1/calendar/api/care-tasks/{task.uuid}/mark_complete/'
+            f'/api/v1/calendar/api/care-tasks/{task.uuid}/complete/'
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -456,7 +456,7 @@ class CareTaskViewSetTest(TestCase):
         data = {'reason': 'Heavy rainfall'}
 
         response = self.client.post(
-            f'/api/v1/calendar/api/care-tasks/{task.uuid}/mark_skip/',
+            f'/api/v1/calendar/api/care-tasks/{task.uuid}/skip/',
             data
         )
 
