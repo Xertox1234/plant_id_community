@@ -265,9 +265,9 @@ class PlantImageSerializer(serializers.ModelSerializer):
         model = PlantImage
         fields = [
             'uuid', 'image', 'image_url', 'thumbnail_url',
-            'caption', 'is_primary', 'created_at'
+            'caption', 'is_primary', 'uploaded_at'
         ]
-        read_only_fields = ['uuid', 'image_url', 'thumbnail_url', 'created_at']
+        read_only_fields = ['uuid', 'image_url', 'thumbnail_url', 'uploaded_at']
 
     def get_image_url(self, obj):
         """Get full image URL."""

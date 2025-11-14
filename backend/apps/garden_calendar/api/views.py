@@ -7,7 +7,9 @@ API endpoints for community events, seasonal templates, and weather alerts.
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.request import Request
 from django.shortcuts import get_object_or_404
+from typing import Optional
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.db.models import Q, Count
@@ -41,6 +43,7 @@ from ..constants import (
     RATE_LIMIT_PLANT_CREATE, RATE_LIMIT_PLANT_UPDATE, RATE_LIMIT_PLANT_DELETE,
     RATE_LIMIT_CARE_TASK_CREATE, RATE_LIMIT_CARE_TASK_COMPLETE, RATE_LIMIT_CARE_TASK_SKIP,
     RATE_LIMIT_EVENT_CREATE, RATE_LIMIT_EVENT_RSVP,
+    RATE_LIMIT_IMAGE_UPLOAD,
 )
 
 
@@ -853,8 +856,8 @@ class PlantViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     @extend_schema(
-        summary="Upload plant image",
-        description="Upload an image for a plant. Maximum 10 images per plant. Set is_primary=true to make this the primary image.",
+        summary="Upload plant image with 4-layer security validation",
+        description="Upload an image for a plant with comprehensive security validation. Maximum 10 images per plant. Set is_primary=true to make this the primary image.",
         tags=['Plants'],
         request={
             'multipart/form-data': {
@@ -868,39 +871,152 @@ class PlantViewSet(viewsets.ModelViewSet):
         },
         responses={
             201: OpenApiResponse(description="Image uploaded successfully"),
-            400: OpenApiResponse(description="Maximum images reached or validation error")
+            400: OpenApiResponse(description="Validation error (invalid extension, MIME type, size, or corrupted image)"),
+            403: OpenApiResponse(description="Permission denied"),
+            429: OpenApiResponse(description="Rate limit exceeded - max 20 uploads per hour")
         }
     )
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_IMAGE_UPLOAD, method='POST', block=True))
     @action(detail=True, methods=['post'])
-    def upload_image(self, request, uuid=None):
+    def upload_image(self, request: Request, uuid: Optional[str] = None) -> Response:
         """
-        Upload an image for a plant.
+        Upload an image for a plant with 4-layer security validation.
+
+        Security Layers:
+        1. File extension validation (allows: jpg, jpeg, png, gif, webp)
+        2. MIME type validation (prevents content-type spoofing)
+        3. File size validation (max: 10MB, prevents DoS)
+        4. PIL magic number check (prevents fake images, decompression bombs)
 
         Request body:
-        - image: Image file
+        - image: Image file (required)
         - caption: Optional caption
         - is_primary: Boolean (default: False)
+
+        Returns:
+            201: Image uploaded successfully
+            400: Validation failed (extension, MIME, size, corrupted image)
+            403: Permission denied
         """
+        from PIL import Image as PILImage
+        from ..constants import (
+            ALLOWED_IMAGE_EXTENSIONS,
+            ALLOWED_IMAGE_MIME_TYPES,
+            MAX_PLANT_IMAGE_SIZE_BYTES,
+            MAX_IMAGES_PER_PLANT,
+            MAX_IMAGE_WIDTH,
+            MAX_IMAGE_HEIGHT,
+            MAX_IMAGE_PIXELS,
+        )
+        import logging
+
+        logger = logging.getLogger(__name__)
+
         plant = self.get_object()
 
         # Check image count limit
-        from ..constants import MAX_IMAGES_PER_PLANT
         if plant.images.count() >= MAX_IMAGES_PER_PLANT:
             return Response(
-                {"error": f"Maximum {MAX_IMAGES_PER_PLANT} images allowed per plant."},
+                {"error": f"Maximum {MAX_IMAGES_PER_PLANT} images allowed per plant"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        serializer = PlantImageSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            # If setting as primary, unset other primary images
-            if request.data.get('is_primary', False):
-                plant.images.filter(is_primary=True).update(is_primary=False)
+        image_file = request.FILES.get('image')
+        if not image_file:
+            return Response({'error': 'No image file provided'}, status=status.HTTP_400_BAD_REQUEST)
 
-            serializer.save(plant=plant)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        # ===== LAYER 1: File Extension Validation =====
+        file_extension = image_file.name.split('.')[-1].lower() if '.' in image_file.name else ''
+        if file_extension not in ALLOWED_IMAGE_EXTENSIONS:
+            return Response({
+                'error': 'Invalid file type',
+                'detail': f'Allowed formats: {", ".join(ext.upper() for ext in ALLOWED_IMAGE_EXTENSIONS)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        # ===== LAYER 2: MIME Type Validation (Defense in Depth) =====
+        if image_file.content_type not in ALLOWED_IMAGE_MIME_TYPES:
+            return Response({
+                'error': 'Invalid file content type',
+                'detail': f'MIME type "{image_file.content_type}" not allowed'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # ===== LAYER 3: File Size Validation =====
+        if image_file.size > MAX_PLANT_IMAGE_SIZE_BYTES:
+            return Response({
+                'error': 'File too large',
+                'detail': f'Maximum file size is {MAX_PLANT_IMAGE_SIZE_BYTES / 1024 / 1024}MB'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # ===== LAYER 4: Magic Number Check + Decompression Bomb Protection =====
+        try:
+            # Configure decompression bomb protection BEFORE opening image
+            PILImage.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
+            # Reset file pointer
+            image_file.seek(0)
+
+            # Open and verify image
+            with PILImage.open(image_file) as img:
+                # Verify file integrity (checks magic number)
+                img.verify()
+
+                # Get dimensions
+                width, height = img.size
+
+                # Validate dimensions (prevent resource exhaustion)
+                if width > MAX_IMAGE_WIDTH or height > MAX_IMAGE_HEIGHT:
+                    return Response({
+                        'error': 'Image dimensions too large',
+                        'detail': f'Max: {MAX_IMAGE_WIDTH}x{MAX_IMAGE_HEIGHT}. Yours: {width}x{height}'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # Verify format matches allowed types
+                if img.format.lower() not in ['jpeg', 'png', 'gif', 'webp']:
+                    return Response({
+                        'error': 'Invalid image format',
+                        'detail': f'Format "{img.format}" not allowed'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Reset file pointer for actual upload
+            image_file.seek(0)
+
+        except PILImage.DecompressionBombError as e:
+            logger.warning(
+                f'[SECURITY] Decompression bomb detected: '
+                f'user={request.user.username}, plant={plant.uuid}, '
+                f'filename={image_file.name}, size={image_file.size} bytes'
+            )
+            return Response({
+                'error': 'Image file rejected',
+                'detail': 'Image appears to be a decompression bomb'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            logger.warning(
+                f'[SECURITY] Invalid image rejected: '
+                f'user={request.user.username}, plant={plant.uuid}, '
+                f'filename={image_file.name}, size={image_file.size} bytes, '
+                f'error={str(e)}'
+            )
+            return Response({
+                'error': 'Invalid image file',
+                'detail': 'File cannot be processed as a valid image'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create PlantImage
+        plant_image = PlantImage.objects.create(
+            plant=plant,
+            image=image_file,
+            caption=request.data.get('caption', ''),
+            is_primary=request.data.get('is_primary', False)
+        )
+
+        # If setting as primary, unset other images
+        if plant_image.is_primary:
+            plant.images.exclude(uuid=plant_image.uuid).update(is_primary=False)
+
+        serializer = PlantImageSerializer(plant_image, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['get'])
     def care_schedule(self, request, uuid=None):

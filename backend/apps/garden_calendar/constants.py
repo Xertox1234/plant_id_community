@@ -62,6 +62,9 @@ RATE_LIMIT_COMPANION_SUGGESTIONS = "50/hour"
 RATE_LIMIT_EVENT_CREATE = "10/day"
 RATE_LIMIT_EVENT_RSVP = "100/hour"
 
+# Image Upload Operations (prevents DoS via upload spam)
+RATE_LIMIT_IMAGE_UPLOAD = "20/hour"  # Max 20 image uploads per hour per user
+
 # =============================================================================
 # Model Limits
 # =============================================================================
@@ -92,6 +95,9 @@ MAX_LOG_CONTENT_LENGTH = 5000
 # =============================================================================
 # File Upload Configuration
 # =============================================================================
+# Security Pattern: backend/docs/patterns/security/file-upload.md
+# 4-layer validation: extension → MIME type → file size → PIL magic number
+# Rate limiting: backend/docs/patterns/architecture/rate-limiting.md
 
 # Allowed image formats (4-layer security validation)
 ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp']

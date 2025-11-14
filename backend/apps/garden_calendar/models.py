@@ -1058,6 +1058,15 @@ class PlantImage(models.Model):
     Model for storing multiple images per plant to track growth progress.
     """
 
+    # Primary Key
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        primary_key=True,
+        help_text="Unique identifier for secure references"
+    )
+
     plant = models.ForeignKey(
         Plant,
         on_delete=models.CASCADE,
