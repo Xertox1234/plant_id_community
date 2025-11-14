@@ -1164,88 +1164,187 @@ logger = logging.getLogger(__name__)
 
 def validate_environment():
     """
-    Validate critical environment variables and warn about missing configurations.
-    This prevents silent failures and provides clear guidance for setup.
+    Validate critical environment variables on startup (Issue #156).
+
+    FAIL FAST in production if critical configurations are missing.
+    This prevents runtime failures and provides clear setup guidance.
+
+    Critical Validations:
+    - PLANT_ID_API_KEY: Required for plant identification
+    - REDIS_URL: Required for caching (connection tested)
+    - API key format: Minimum 32 characters
+    - ALLOWED_HOSTS: Production domains configured
+    - CORS_ALLOWED_ORIGINS: Production origins configured
     """
     warnings = []
     critical_errors = []
-    
-    # Critical settings that MUST be set in production
-    # Note: SECRET_KEY is validated earlier in settings.py (lines 35-95)
-    # with comprehensive checks for pattern matching, length, and production requirements
+
+    # ========================================
+    # CRITICAL: Production-only requirements
+    # ========================================
     if not DEBUG:
+        # Required: ALLOWED_HOSTS
         if not ALLOWED_HOSTS or ALLOWED_HOSTS == ['localhost', '127.0.0.1']:
             critical_errors.append("ALLOWED_HOSTS must be configured for production domains")
 
+        # Required: CSRF_TRUSTED_ORIGINS
         if not config('CSRF_TRUSTED_ORIGINS', default=''):
             critical_errors.append("CSRF_TRUSTED_ORIGINS must be set in production")
-    
-    # API Keys validation - warn if features are enabled but keys missing
-    api_checks = [
+
+        # Required: PLANT_ID_API_KEY (Issue #156)
+        if not PLANT_ID_API_KEY:
+            critical_errors.append(
+                "PLANT_ID_API_KEY is required in production for plant identification. "
+                "Get your API key from https://admin.kindwise.com/"
+            )
+
+        # Required: CORS_ALLOWED_ORIGINS (Issue #156)
+        if not CORS_ALLOWED_ORIGINS or CORS_ALLOWED_ORIGINS == ['https://plantcommunity.com']:
+            critical_errors.append(
+                "CORS_ALLOWED_ORIGINS must be configured with actual production domains. "
+                "Set CORS_ALLOWED_ORIGINS=https://yourdomain.com in environment."
+            )
+
+    # ========================================
+    # API Key Format Validation (Issue #156)
+    # ========================================
+    api_key_checks = [
+        ('PLANT_ID_API_KEY', PLANT_ID_API_KEY, 32, 'Plant.id API'),
+        ('PLANTNET_API_KEY', PLANTNET_API_KEY, 32, 'PlantNet API (fallback provider)'),
+    ]
+
+    for key_name, key_value, min_length, description in api_key_checks:
+        if key_value and len(key_value) < min_length:
+            critical_errors.append(
+                f"{key_name} appears invalid (too short: {len(key_value)} chars, minimum {min_length}). "
+                f"Check your {description} key configuration."
+            )
+
+    # ========================================
+    # Redis Connection Test (Issue #156)
+    # ========================================
+    redis_url = config('REDIS_URL', default='')
+    if not redis_url:
+        if not DEBUG:
+            critical_errors.append(
+                "REDIS_URL is required in production for caching and session storage. "
+                "Install Redis and set REDIS_URL=redis://localhost:6379/1"
+            )
+        else:
+            warnings.append("Redis not configured - caching will use in-memory fallback (not recommended)")
+    else:
+        # Test Redis connection (Issue #156)
+        try:
+            import redis
+            r = redis.from_url(redis_url)
+            r.ping()
+            logger.info(f"✅ Redis connection successful: {redis_url}")
+        except redis.ConnectionError as e:
+            critical_errors.append(
+                f"Redis connection failed: {e}. "
+                f"Verify Redis is running: redis-cli ping"
+            )
+        except redis.TimeoutError as e:
+            critical_errors.append(f"Redis connection timeout: {e}")
+        except Exception as e:
+            critical_errors.append(f"Redis error: {e}")
+
+    # ========================================
+    # Optional API Keys (warnings only)
+    # ========================================
+    optional_api_checks = [
         ('TREFLE_API_KEY', TREFLE_API_KEY, ENABLE_TREFLE_ENRICHMENT, 'Plant data enrichment'),
-        ('PLANTNET_API_KEY', PLANTNET_API_KEY, True, 'Plant identification'),
         ('PLANT_HEALTH_API_KEY', PLANT_HEALTH_API_KEY, ENABLE_DISEASE_DIAGNOSIS, 'Disease diagnosis'),
         ('OPENAI_API_KEY', OPENAI_API_KEY, ENABLE_AI_CONTENT_GENERATION, 'AI content generation'),
     ]
-    
-    for key_name, key_value, feature_enabled, feature_description in api_checks:
+
+    for key_name, key_value, feature_enabled, feature_description in optional_api_checks:
         if feature_enabled and not key_value:
             warnings.append(f"{key_name} not set - {feature_description} will not work")
-    
-    # OAuth validation - warn if providers configured but keys missing
-    oauth_checks = [
-        ('GOOGLE_OAUTH2_CLIENT_ID', config('GOOGLE_OAUTH2_CLIENT_ID', default=''), 'Google OAuth'),
-        ('GOOGLE_OAUTH2_CLIENT_SECRET', config('GOOGLE_OAUTH2_CLIENT_SECRET', default=''), 'Google OAuth'),
-        ('GITHUB_CLIENT_ID', config('GITHUB_CLIENT_ID', default=''), 'GitHub OAuth'),
-        ('GITHUB_CLIENT_SECRET', config('GITHUB_CLIENT_SECRET', default=''), 'GitHub OAuth'),
-    ]
-    
-    google_configured = bool(config('GOOGLE_OAUTH2_CLIENT_ID', default='') and config('GOOGLE_OAUTH2_CLIENT_SECRET', default=''))
-    github_configured = bool(config('GITHUB_CLIENT_ID', default='') and config('GITHUB_CLIENT_SECRET', default=''))
-    
+
+    # ========================================
+    # OAuth Providers (warnings only)
+    # ========================================
+    google_configured = bool(
+        config('GOOGLE_OAUTH2_CLIENT_ID', default='') and
+        config('GOOGLE_OAUTH2_CLIENT_SECRET', default='')
+    )
+    github_configured = bool(
+        config('GITHUB_CLIENT_ID', default='') and
+        config('GITHUB_CLIENT_SECRET', default='')
+    )
+
     if not google_configured and not github_configured:
         warnings.append("No OAuth providers configured - users can only register with username/password")
-    
-    # Database validation
+
+    # ========================================
+    # Database Configuration
+    # ========================================
     try:
         db_config = DATABASES['default']
         if 'sqlite' in db_config['ENGINE'] and not DEBUG:
-            warnings.append("SQLite database detected in production - consider PostgreSQL for better performance")
+            warnings.append(
+                "SQLite database detected in production - PostgreSQL strongly recommended for performance. "
+                "Set DATABASE_URL=postgresql://user:pass@localhost/dbname"
+            )
     except Exception:
         critical_errors.append("Database configuration is invalid")
-    
-    # Redis validation
-    if not config('REDIS_URL', default=''):
-        warnings.append("Redis not configured - caching and session storage will use database")
-    
-    # Email configuration
+
+    # ========================================
+    # Email Configuration
+    # ========================================
     if EMAIL_BACKEND == 'django.core.mail.backends.console.EmailBackend' and not DEBUG:
-        warnings.append("Email backend is set to console in production - emails will not be sent")
-    
-    # Security configuration warnings
+        warnings.append("Email backend is console in production - emails will not be sent")
+
+    # ========================================
+    # Security Headers
+    # ========================================
     security_checks = [
         (not SECURE_SSL_REDIRECT and not DEBUG, "SECURE_SSL_REDIRECT should be True in production"),
         (not SESSION_COOKIE_SECURE and not DEBUG, "SESSION_COOKIE_SECURE should be True in production"),
         (not CSRF_COOKIE_SECURE and not DEBUG, "CSRF_COOKIE_SECURE should be True in production"),
-        (not CSRF_COOKIE_HTTPONLY, "CSRF_COOKIE_HTTPONLY should be True (prevents XSS attacks from stealing CSRF tokens)"),
+        (not CSRF_COOKIE_HTTPONLY, "CSRF_COOKIE_HTTPONLY should be True (prevents XSS token theft)"),
     ]
-    
+
     for condition, message in security_checks:
         if condition:
             warnings.append(message)
-    
-    # Log results
+
+    # ========================================
+    # Results - FAIL FAST in production
+    # ========================================
     if critical_errors:
+        error_message = (
+            "\n" + "="*70 + "\n"
+            "CRITICAL ENVIRONMENT CONFIGURATION ERRORS\n"
+            "="*70 + "\n"
+            "The following critical configuration issues must be fixed:\n\n"
+        )
+        for idx, error in enumerate(critical_errors, 1):
+            error_message += f"{idx}. {error}\n"
+
+        error_message += (
+            "\n"
+            "="*70 + "\n"
+            "See: backend/.env.example for configuration template\n"
+            "="*70 + "\n"
+        )
+
         for error in critical_errors:
-            logger.error(f"CRITICAL CONFIGURATION ERROR: {error}")
+            logger.error(f"[ENV VALIDATION] {error}")
+
+        # FAIL FAST in production (Issue #156)
         if not DEBUG:
-            raise Exception(f"Critical configuration errors detected: {'; '.join(critical_errors)}")
-    
+            raise ImproperlyConfigured(error_message)
+        else:
+            # In development, just print errors but allow startup
+            print(error_message)
+
     if warnings:
-        logger.warning("Configuration warnings detected:")
+        logger.warning("[ENV VALIDATION] Configuration warnings detected:")
         for warning in warnings:
             logger.warning(f"  - {warning}")
-        
+
         if DEBUG:
             print("\n" + "="*60)
             print("🔧 CONFIGURATION WARNINGS")
@@ -1253,10 +1352,10 @@ def validate_environment():
             for warning in warnings:
                 print(f"⚠️  {warning}")
             print("="*60 + "\n")
-    
+
     # Success message
     if not warnings and not critical_errors:
-        logger.info("✅ All critical environment variables are properly configured")
+        logger.info("[ENV VALIDATION] ✅ All critical environment variables properly configured")
         if DEBUG:
             print("✅ Environment configuration validated successfully")
 
