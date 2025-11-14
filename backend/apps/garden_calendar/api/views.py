@@ -12,6 +12,10 @@ from django.utils import timezone
 from django.db.models import Q, Count
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter, SearchFilter
+from drf_spectacular.utils import (
+    extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample, OpenApiResponse
+)
+from drf_spectacular.types import OpenApiTypes
 # GIS imports removed - using simpler location filtering
 import math
 
@@ -391,6 +395,110 @@ class WeatherAlertViewSet(viewsets.ReadOnlyModelViewSet):
 # ============================================================================
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List user's garden beds",
+        description="Retrieve all garden beds owned by the authenticated user with pagination.",
+        tags=['Garden Beds'],
+        parameters=[
+            OpenApiParameter('bed_type', OpenApiTypes.STR, description="Filter by bed type (raised, inground, container, hydroponic)"),
+            OpenApiParameter('sun_exposure', OpenApiTypes.STR, description="Filter by sun exposure (full_sun, partial_sun, partial_shade, full_shade)"),
+            OpenApiParameter('soil_type', OpenApiTypes.STR, description="Filter by soil type"),
+            OpenApiParameter('is_active', OpenApiTypes.BOOL, description="Filter by active status"),
+            OpenApiParameter('search', OpenApiTypes.STR, description="Search by name or notes"),
+            OpenApiParameter('ordering', OpenApiTypes.STR, description="Order by: name, created_at, updated_at"),
+        ],
+        examples=[
+            OpenApiExample(
+                'Garden Bed List Response',
+                value={
+                    'count': 3,
+                    'results': [{
+                        'uuid': '123e4567-e89b-12d3-a456-426614174000',
+                        'name': 'Raised Bed 1',
+                        'bed_type': 'raised',
+                        'dimensions': '8ft x 4ft x 12in',
+                        'area_square_feet': 32.0,
+                        'plant_count': 12,
+                        'utilization_rate': 0.75,
+                        'sun_exposure': 'full_sun',
+                        'is_active': True
+                    }]
+                },
+                response_only=True
+            )
+        ]
+    ),
+    retrieve=extend_schema(
+        summary="Get garden bed details",
+        description="Retrieve detailed information about a specific garden bed including plants.",
+        tags=['Garden Beds'],
+        examples=[
+            OpenApiExample(
+                'Garden Bed Detail Response',
+                value={
+                    'uuid': '123e4567-e89b-12d3-a456-426614174000',
+                    'name': 'Raised Bed 1',
+                    'description': 'Main vegetable garden bed',
+                    'bed_type': 'raised',
+                    'length_inches': 96,
+                    'width_inches': 48,
+                    'depth_inches': 12,
+                    'area_square_feet': 32.0,
+                    'plant_count': 12,
+                    'utilization_rate': 0.75,
+                    'plants': [
+                        {
+                            'uuid': '456e7890-e89b-12d3-a456-426614174111',
+                            'common_name': 'Tomato',
+                            'variety': 'Cherokee Purple',
+                            'health_status': 'healthy',
+                            'planted_date': '2025-05-15'
+                        }
+                    ]
+                },
+                response_only=True
+            )
+        ]
+    ),
+    create=extend_schema(
+        summary="Create a garden bed",
+        description="Create a new garden bed. Owner is automatically set to the authenticated user.",
+        tags=['Garden Beds'],
+        examples=[
+            OpenApiExample(
+                'Create Garden Bed Request',
+                value={
+                    'name': 'Raised Bed 2',
+                    'description': 'Herb garden bed',
+                    'bed_type': 'raised',
+                    'length_inches': 48,
+                    'width_inches': 24,
+                    'depth_inches': 12,
+                    'sun_exposure': 'partial_sun',
+                    'soil_type': 'loam',
+                    'soil_ph': 6.5
+                },
+                request_only=True
+            )
+        ]
+    ),
+    update=extend_schema(
+        summary="Update a garden bed",
+        description="Update all fields of a garden bed.",
+        tags=['Garden Beds']
+    ),
+    partial_update=extend_schema(
+        summary="Partially update a garden bed",
+        description="Update specific fields of a garden bed.",
+        tags=['Garden Beds']
+    ),
+    destroy=extend_schema(
+        summary="Delete a garden bed",
+        description="Soft delete a garden bed by setting is_active=False.",
+        tags=['Garden Beds']
+    )
+)
 class GardenBedViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing garden beds.
@@ -463,6 +571,38 @@ class GardenBedViewSet(viewsets.ModelViewSet):
         """Set the owner to the current user when creating garden beds."""
         serializer.save(owner=self.request.user)
 
+    @extend_schema(
+        summary="Get garden bed analytics",
+        description="Retrieve comprehensive analytics for a specific garden bed including plant health, utilization, and care task statistics.",
+        tags=['Garden Beds'],
+        responses={
+            200: OpenApiResponse(
+                description="Garden bed analytics data",
+                examples=[
+                    OpenApiExample(
+                        'Analytics Response',
+                        value={
+                            'uuid': '123e4567-e89b-12d3-a456-426614174000',
+                            'name': 'Raised Bed 1',
+                            'plant_count': 12,
+                            'utilization_rate': 0.75,
+                            'area_square_feet': 32.0,
+                            'health_status_breakdown': {
+                                'healthy': 8,
+                                'struggling': 3,
+                                'thriving': 1
+                            },
+                            'care_tasks': {
+                                'total': 45,
+                                'overdue': 3,
+                                'completion_rate': 93.3
+                            }
+                        }
+                    )
+                ]
+            )
+        }
+    )
     @action(detail=True, methods=['get'])
     def analytics(self, request, uuid=None):
         """
@@ -510,6 +650,85 @@ class GardenBedViewSet(viewsets.ModelViewSet):
         })
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List user's plants",
+        description="Retrieve all plants owned by the authenticated user with pagination and filtering.",
+        tags=['Plants'],
+        parameters=[
+            OpenApiParameter('garden_bed__uuid', OpenApiTypes.UUID, description="Filter by garden bed UUID"),
+            OpenApiParameter('health_status', OpenApiTypes.STR, description="Filter by health status (healthy, struggling, diseased, etc.)"),
+            OpenApiParameter('growth_stage', OpenApiTypes.STR, description="Filter by growth stage (seedling, vegetative, flowering, fruiting, dormant)"),
+            OpenApiParameter('is_active', OpenApiTypes.BOOL, description="Filter by active status"),
+            OpenApiParameter('search', OpenApiTypes.STR, description="Search by common name, variety, or notes"),
+        ],
+        examples=[
+            OpenApiExample(
+                'Plant List Response',
+                value={
+                    'count': 15,
+                    'results': [{
+                        'uuid': '456e7890-e89b-12d3-a456-426614174111',
+                        'common_name': 'Tomato',
+                        'variety': 'Cherokee Purple',
+                        'health_status': 'healthy',
+                        'growth_stage': 'fruiting',
+                        'planted_date': '2025-05-15',
+                        'primary_image': {
+                            'image': '/media/plants/tomato.jpg',
+                            'caption': 'First fruits!'
+                        },
+                        'garden_bed': {
+                            'uuid': '123e4567-e89b-12d3-a456-426614174000',
+                            'name': 'Raised Bed 1'
+                        }
+                    }]
+                },
+                response_only=True
+            )
+        ]
+    ),
+    retrieve=extend_schema(
+        summary="Get plant details",
+        description="Retrieve detailed information about a specific plant including images, care tasks, and logs.",
+        tags=['Plants'],
+    ),
+    create=extend_schema(
+        summary="Create a plant",
+        description="Add a new plant to a garden bed.",
+        tags=['Plants'],
+        examples=[
+            OpenApiExample(
+                'Create Plant Request',
+                value={
+                    'garden_bed': '123e4567-e89b-12d3-a456-426614174000',
+                    'common_name': 'Tomato',
+                    'variety': 'Cherokee Purple',
+                    'health_status': 'healthy',
+                    'growth_stage': 'seedling',
+                    'planted_date': '2025-06-01',
+                    'notes': 'Started from seed indoors'
+                },
+                request_only=True
+            )
+        ]
+    ),
+    update=extend_schema(
+        summary="Update a plant",
+        description="Update all fields of a plant.",
+        tags=['Plants']
+    ),
+    partial_update=extend_schema(
+        summary="Partially update a plant",
+        description="Update specific fields of a plant.",
+        tags=['Plants']
+    ),
+    destroy=extend_schema(
+        summary="Delete a plant",
+        description="Soft delete a plant by setting is_active=False.",
+        tags=['Plants']
+    )
+)
 class PlantViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing plants.
@@ -579,6 +798,25 @@ class PlantViewSet(viewsets.ModelViewSet):
 
         return qs
 
+    @extend_schema(
+        summary="Upload plant image",
+        description="Upload an image for a plant. Maximum 10 images per plant. Set is_primary=true to make this the primary image.",
+        tags=['Plants'],
+        request={
+            'multipart/form-data': {
+                'type': 'object',
+                'properties': {
+                    'image': {'type': 'string', 'format': 'binary'},
+                    'caption': {'type': 'string'},
+                    'is_primary': {'type': 'boolean'}
+                }
+            }
+        },
+        responses={
+            201: OpenApiResponse(description="Image uploaded successfully"),
+            400: OpenApiResponse(description="Maximum images reached or validation error")
+        }
+    )
     @action(detail=True, methods=['post'])
     def upload_image(self, request, uuid=None):
         """
@@ -639,6 +877,65 @@ class PlantViewSet(viewsets.ModelViewSet):
         })
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List user's care tasks",
+        description="Retrieve all care tasks for the authenticated user's plants with filtering options.",
+        tags=['Care Tasks'],
+        parameters=[
+            OpenApiParameter('plant__uuid', OpenApiTypes.UUID, description="Filter by plant UUID"),
+            OpenApiParameter('task_type', OpenApiTypes.STR, description="Filter by task type (watering, fertilizing, pruning, etc.)"),
+            OpenApiParameter('priority', OpenApiTypes.STR, description="Filter by priority (low, medium, high, urgent)"),
+            OpenApiParameter('completed', OpenApiTypes.BOOL, description="Filter by completion status"),
+            OpenApiParameter('skipped', OpenApiTypes.BOOL, description="Filter by skipped status"),
+            OpenApiParameter('overdue_only', OpenApiTypes.BOOL, description="Show only overdue tasks"),
+            OpenApiParameter('from_date', OpenApiTypes.DATE, description="Filter tasks from this date"),
+            OpenApiParameter('to_date', OpenApiTypes.DATE, description="Filter tasks up to this date"),
+        ],
+        examples=[
+            OpenApiExample(
+                'Care Task List Response',
+                value={
+                    'count': 25,
+                    'results': [{
+                        'uuid': '789e4567-e89b-12d3-a456-426614174222',
+                        'task_type': 'watering',
+                        'title': 'Water tomatoes',
+                        'scheduled_date': '2025-06-15',
+                        'priority': 'high',
+                        'completed': False,
+                        'skipped': False,
+                        'is_overdue': True,
+                        'is_recurring': True,
+                        'recurrence_interval': 3,
+                        'plant_name': 'Tomato - Cherokee Purple'
+                    }]
+                },
+                response_only=True
+            )
+        ]
+    ),
+    create=extend_schema(
+        summary="Create a care task",
+        description="Create a new care task for a plant.",
+        tags=['Care Tasks'],
+    ),
+    update=extend_schema(
+        summary="Update a care task",
+        description="Update all fields of a care task.",
+        tags=['Care Tasks']
+    ),
+    partial_update=extend_schema(
+        summary="Partially update a care task",
+        description="Update specific fields of a care task.",
+        tags=['Care Tasks']
+    ),
+    destroy=extend_schema(
+        summary="Delete a care task",
+        description="Permanently delete a care task.",
+        tags=['Care Tasks']
+    )
+)
 class CareTaskViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing care tasks.
@@ -712,6 +1009,29 @@ class CareTaskViewSet(viewsets.ModelViewSet):
         """Set created_by to current user."""
         serializer.save(created_by=self.request.user)
 
+    @extend_schema(
+        summary="Complete a care task",
+        description="Mark a care task as completed. For recurring tasks, automatically creates the next occurrence based on the recurrence interval.",
+        tags=['Care Tasks'],
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                description="Task completed successfully",
+                examples=[
+                    OpenApiExample(
+                        'Complete Task Response',
+                        value={
+                            'message': 'Task completed successfully.',
+                            'uuid': '789e4567-e89b-12d3-a456-426614174222',
+                            'completed_at': '2025-06-15T10:30:00Z',
+                            'next_occurrence_created': True
+                        }
+                    )
+                ]
+            ),
+            400: OpenApiResponse(description="Task already completed or skipped")
+        }
+    )
     @action(detail=True, methods=['post'])
     def complete(self, request, uuid=None):
         """
@@ -743,6 +1063,35 @@ class CareTaskViewSet(viewsets.ModelViewSet):
             'next_occurrence_created': task.is_recurring
         })
 
+    @extend_schema(
+        summary="Skip a care task",
+        description="Skip a care task with an optional reason. For recurring tasks, automatically creates the next occurrence.",
+        tags=['Care Tasks'],
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'reason': {'type': 'string', 'description': 'Optional reason for skipping'}
+                }
+            }
+        },
+        responses={
+            200: OpenApiResponse(
+                description="Task skipped successfully",
+                examples=[
+                    OpenApiExample(
+                        'Skip Task Response',
+                        value={
+                            'message': 'Task skipped successfully.',
+                            'uuid': '789e4567-e89b-12d3-a456-426614174222',
+                            'next_occurrence_created': True
+                        }
+                    )
+                ]
+            ),
+            400: OpenApiResponse(description="Task already completed or skipped")
+        }
+    )
     @action(detail=True, methods=['post'])
     def skip(self, request, uuid=None):
         """
