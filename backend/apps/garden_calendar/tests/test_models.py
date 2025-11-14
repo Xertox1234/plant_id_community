@@ -428,3 +428,197 @@ class HarvestModelTest(TestCase):
 
         # Plant was planted 90 days ago
         self.assertEqual(harvest.days_from_planting, 90)
+
+
+class CareLogModelTest(TestCase):
+    """Test CareLog model."""
+
+    def setUp(self):
+        """Set up test user, bed, and plant."""
+        self.user = User.objects.create_user(
+            username='gardener',
+            email='gardener@test.com',
+            password='testpass123'
+        )
+        self.bed = GardenBed.objects.create(
+            owner=self.user,
+            name='Test Bed',
+            bed_type='raised'
+        )
+        self.plant = Plant.objects.create(
+            garden_bed=self.bed,
+            common_name='Tomato',
+            health_status='healthy',
+            growth_stage='vegetative',
+            planted_date=timezone.now().date()
+        )
+
+    def test_create_care_log_minimal(self):
+        """Test creating a care log with minimal required fields."""
+        care_log = CareLog.objects.create(
+            plant=self.plant,
+            user=self.user,
+            activity_type='watering',
+            notes='Watered plants thoroughly'
+        )
+
+        self.assertEqual(care_log.plant, self.plant)
+        self.assertEqual(care_log.user, self.user)
+        self.assertEqual(care_log.activity_type, 'watering')
+        self.assertEqual(care_log.notes, 'Watered plants thoroughly')
+        self.assertIsNotNone(care_log.uuid)
+        self.assertIsNotNone(care_log.log_date)
+
+    def test_create_care_log_full_fields(self):
+        """Test creating a care log with all optional fields."""
+        care_log = CareLog.objects.create(
+            plant=self.plant,
+            user=self.user,
+            activity_type='fertilizing',
+            notes='Applied organic fertilizer',
+            plant_health_before='fair',
+            plant_health_after='healthy',
+            hours_spent=Decimal('1.5'),
+            materials_used='Organic compost, 5-10-10 fertilizer',
+            cost=Decimal('25.50'),
+            weather_conditions='Sunny, 75°F',
+            temperature=75,
+            humidity=60,
+            tags=['fertilizing', 'spring', 'organic']
+        )
+
+        self.assertEqual(care_log.activity_type, 'fertilizing')
+        self.assertEqual(care_log.plant_health_before, 'fair')
+        self.assertEqual(care_log.plant_health_after, 'healthy')
+        self.assertEqual(care_log.hours_spent, Decimal('1.5'))
+        self.assertEqual(care_log.materials_used, 'Organic compost, 5-10-10 fertilizer')
+        self.assertEqual(care_log.cost, Decimal('25.50'))
+        self.assertEqual(care_log.weather_conditions, 'Sunny, 75°F')
+        self.assertEqual(care_log.temperature, 75)
+        self.assertEqual(care_log.humidity, 60)
+        self.assertIn('fertilizing', care_log.tags)
+
+    def test_uuid_auto_generated(self):
+        """Test that UUID is automatically generated."""
+        care_log = CareLog.objects.create(
+            plant=self.plant,
+            user=self.user,
+            notes='Test log'
+        )
+
+        self.assertIsNotNone(care_log.uuid)
+        self.assertEqual(len(str(care_log.uuid)), 36)  # Standard UUID length
+
+    def test_uuid_unique(self):
+        """Test that UUID is unique."""
+        log1 = CareLog.objects.create(
+            plant=self.plant,
+            user=self.user,
+            notes='Log 1'
+        )
+        log2 = CareLog.objects.create(
+            plant=self.plant,
+            user=self.user,
+            notes='Log 2'
+        )
+
+        self.assertNotEqual(log1.uuid, log2.uuid)
+
+    def test_uuid_is_primary_key(self):
+        """Test that UUID is the primary key."""
+        care_log = CareLog.objects.create(
+            plant=self.plant,
+            user=self.user,
+            notes='Test log'
+        )
+
+        # Should be able to retrieve by UUID
+        retrieved = CareLog.objects.get(uuid=care_log.uuid)
+        self.assertEqual(retrieved, care_log)
+
+    def test_log_date_auto_set(self):
+        """Test that log_date is automatically set."""
+        before = timezone.now()
+        care_log = CareLog.objects.create(
+            plant=self.plant,
+            user=self.user,
+            notes='Test log'
+        )
+        after = timezone.now()
+
+        self.assertIsNotNone(care_log.log_date)
+        self.assertGreaterEqual(care_log.log_date, before)
+        self.assertLessEqual(care_log.log_date, after)
+
+    def test_plant_relationship(self):
+        """Test relationship with Plant model."""
+        care_log = CareLog.objects.create(
+            plant=self.plant,
+            user=self.user,
+            notes='Test log'
+        )
+
+        # Test forward relationship
+        self.assertEqual(care_log.plant, self.plant)
+
+        # Test reverse relationship
+        self.assertIn(care_log, self.plant.care_logs.all())
+
+    def test_user_relationship(self):
+        """Test relationship with User model."""
+        care_log = CareLog.objects.create(
+            plant=self.plant,
+            user=self.user,
+            notes='Test log'
+        )
+
+        # Test forward relationship
+        self.assertEqual(care_log.user, self.user)
+
+        # Test reverse relationship
+        self.assertIn(care_log, self.user.plant_care_logs.all())
+
+    def test_optional_fields_can_be_blank(self):
+        """Test that optional fields can be blank."""
+        care_log = CareLog.objects.create(
+            plant=self.plant,
+            user=self.user
+            # All other fields blank
+        )
+
+        self.assertEqual(care_log.activity_type, '')
+        self.assertEqual(care_log.notes, '')
+        self.assertEqual(care_log.plant_health_before, '')
+        self.assertEqual(care_log.plant_health_after, '')
+        self.assertIsNone(care_log.hours_spent)
+        self.assertEqual(care_log.materials_used, '')
+        self.assertIsNone(care_log.cost)
+        self.assertEqual(care_log.weather_conditions, '')
+
+    def test_cascade_delete_with_plant(self):
+        """Test that care logs are deleted when plant is deleted."""
+        care_log = CareLog.objects.create(
+            plant=self.plant,
+            user=self.user,
+            notes='Test log'
+        )
+
+        log_uuid = care_log.uuid
+        self.plant.delete()
+
+        # Care log should be deleted
+        self.assertFalse(CareLog.objects.filter(uuid=log_uuid).exists())
+
+    def test_cascade_delete_with_user(self):
+        """Test that care logs are deleted when user is deleted."""
+        care_log = CareLog.objects.create(
+            plant=self.plant,
+            user=self.user,
+            notes='Test log'
+        )
+
+        log_uuid = care_log.uuid
+        self.user.delete()
+
+        # Care log should be deleted
+        self.assertFalse(CareLog.objects.filter(uuid=log_uuid).exists())

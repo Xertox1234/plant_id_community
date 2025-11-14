@@ -80,18 +80,26 @@ class IsPlantOwner(permissions.BasePermission):
 
     def has_object_permission(self, request: Request, view: APIView, obj: Model) -> bool:
         """
-        Check object-level permission for plant.
+        Check object-level permission for plant or related objects.
 
         Args:
             request: DRF request object
             view: The view being accessed
-            obj: The Plant instance
+            obj: The Plant, Harvest, or related instance
 
         Returns:
             True if user owns the garden bed containing this plant
         """
-        # Check ownership via garden bed
-        return obj.garden_bed.owner == request.user
+        # Handle different object types that relate to plants
+        if hasattr(obj, 'garden_bed'):
+            # Direct Plant object
+            return obj.garden_bed.owner == request.user
+        elif hasattr(obj, 'plant'):
+            # Harvest or other object related through plant
+            return obj.plant.garden_bed.owner == request.user
+
+        # Fallback: deny if no ownership path found
+        return False
 
     message = 'You do not have permission to access this plant.'
 

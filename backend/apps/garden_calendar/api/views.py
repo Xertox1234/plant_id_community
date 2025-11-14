@@ -564,7 +564,7 @@ class PlantViewSet(viewsets.ModelViewSet):
                 ),
                 Prefetch(
                     'care_logs',
-                    queryset=CareLog.objects.order_by('-created_at')[:5]
+                    queryset=CareLog.objects.order_by('-log_date')
                 )
             )
 
@@ -838,8 +838,8 @@ class CareLogViewSet(viewsets.ModelViewSet):
     serializer_class = CareLogSerializer
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['plant__uuid', 'activity_type']
-    ordering_fields = ['created_at']
-    ordering = ['-created_at']
+    ordering_fields = ['log_date']
+    ordering = ['-log_date']
     lookup_field = 'uuid'
 
     def get_queryset(self):
@@ -854,14 +854,14 @@ class CareLogViewSet(viewsets.ModelViewSet):
         qs = qs.select_related(
             'plant',
             'plant__garden_bed',
-            'logged_by'
+            'user'
         )
 
         return qs
 
     def perform_create(self, serializer):
-        """Set logged_by to current user."""
-        serializer.save(logged_by=self.request.user)
+        """Set user to current user."""
+        serializer.save(user=self.request.user)
 
 
 class HarvestViewSet(viewsets.ModelViewSet):
@@ -878,7 +878,7 @@ class HarvestViewSet(viewsets.ModelViewSet):
     filterset_fields = ['plant__uuid', 'harvest_date']
     ordering_fields = ['harvest_date', 'created_at']
     ordering = ['-harvest_date']
-    lookup_field = 'uuid'
+    lookup_field = 'id'  # Harvest uses auto-increment id, not uuid
 
     def get_queryset(self):
         """Filter harvests to user's own plants."""

@@ -342,7 +342,7 @@ class PlantDetailSerializer(PlantListSerializer):
 
     def get_recent_logs(self, obj):
         """Get last 5 care logs."""
-        logs = obj.care_logs.order_by('-created_at')[:5]
+        logs = obj.care_logs.order_by('-log_date')[:5]
         return CareLogSerializer(logs, many=True, context=self.context).data
 
     def get_can_edit(self, obj):
@@ -404,11 +404,11 @@ class CareTaskListSerializer(serializers.ModelSerializer):
         model = CareTask
         fields = [
             'uuid', 'plant', 'plant_name', 'task_type', 'task_type_display',
-            'priority', 'priority_display', 'scheduled_date', 'completed',
+            'title', 'priority', 'priority_display', 'scheduled_date', 'completed',
             'skipped', 'is_recurring', 'is_overdue'
         ]
         read_only_fields = [
-            'uuid', 'plant_name', 'task_type_display', 'priority_display', 'is_overdue'
+            'uuid', 'plant_name', 'task_type_display', 'priority_display', 'is_overdue', 'title'
         ]
 
 
@@ -441,7 +441,7 @@ class CareTaskCreateUpdateSerializer(serializers.ModelSerializer):
             'uuid', 'plant', 'task_type', 'title', 'priority', 'scheduled_date',
             'is_recurring', 'recurrence_interval_days', 'notes'
         ]
-        read_only_fields = ['uuid', 'title']
+        read_only_fields = ['uuid']
 
     def validate_plant(self, value):
         """Ensure user owns the plant."""
@@ -472,7 +472,7 @@ class CareTaskCreateUpdateSerializer(serializers.ModelSerializer):
 class CareLogSerializer(serializers.ModelSerializer):
     """Serializer for care logs."""
 
-    logged_by = GardenOwnerSerializer(read_only=True)
+    logged_by = GardenOwnerSerializer(source='user', read_only=True)
     plant_name = serializers.CharField(source='plant.common_name', read_only=True)
     activity_type_display = serializers.CharField(source='get_activity_type_display', read_only=True)
 
@@ -482,9 +482,9 @@ class CareLogSerializer(serializers.ModelSerializer):
             'uuid', 'plant', 'plant_name', 'activity_type', 'activity_type_display',
             'notes', 'plant_health_before', 'plant_health_after', 'hours_spent',
             'materials_used', 'cost', 'weather_conditions', 'logged_by',
-            'created_at'
+            'log_date'
         ]
-        read_only_fields = ['uuid', 'plant_name', 'activity_type_display', 'logged_by', 'created_at']
+        read_only_fields = ['uuid', 'plant_name', 'activity_type_display', 'logged_by', 'log_date']
 
 
 class HarvestSerializer(serializers.ModelSerializer):

@@ -1307,6 +1307,14 @@ class CareLog(models.Model):
     Model for logging care activities and observations for plants.
     """
 
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        primary_key=True,
+        help_text="Unique identifier for secure references"
+    )
+
     plant = models.ForeignKey(
         Plant,
         on_delete=models.CASCADE,
@@ -1332,11 +1340,55 @@ class CareLog(models.Model):
         help_text="Type of activity (watering, fertilizing, etc.)"
     )
 
-    content = models.TextField(
+    notes = models.TextField(
+        blank=True,
         help_text="Log entry content/observations"
     )
 
-    # Optional metrics
+    # Plant health tracking
+    plant_health_before = models.CharField(
+        max_length=20,
+        blank=True,
+        choices=HEALTH_STATUS_CHOICES,
+        help_text="Plant health status before this care activity"
+    )
+
+    plant_health_after = models.CharField(
+        max_length=20,
+        blank=True,
+        choices=HEALTH_STATUS_CHOICES,
+        help_text="Plant health status after this care activity"
+    )
+
+    # Activity metrics
+    hours_spent = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Hours spent on this activity"
+    )
+
+    materials_used = models.TextField(
+        blank=True,
+        help_text="Materials or products used"
+    )
+
+    cost = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Cost of materials/service"
+    )
+
+    # Weather conditions
+    weather_conditions = models.TextField(
+        blank=True,
+        help_text="Weather conditions during activity"
+    )
+
+    # Optional metrics (legacy fields - kept for backward compatibility)
     temperature = models.SmallIntegerField(
         null=True,
         blank=True,
