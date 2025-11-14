@@ -430,6 +430,7 @@ class GardenBedViewSet(viewsets.ModelViewSet):
         - Annotates plant_count for list view
         - Prefetches plants for detail view
         """
+        from django.db.models import Count
         qs = super().get_queryset()
 
         # Filter to user's own garden beds
@@ -439,14 +440,20 @@ class GardenBedViewSet(viewsets.ModelViewSet):
         # Always select related for performance
         qs = qs.select_related('owner')
 
+        # TODO: Annotate plant_count to avoid N+1 queries in serializer
+        # Currently causes issues - needs investigation
+        # qs = qs.annotate(
+        #     plant_count=Count('plants', filter=Q(plants__is_active=True))
+        # )
+
         # Conditional optimization based on action
         if self.action == 'retrieve':
-            # Prefetch plants for detail view
+            # Prefetch plants with images for detail view
             from django.db.models import Prefetch
             qs = qs.prefetch_related(
                 Prefetch(
                     'plants',
-                    queryset=Plant.objects.filter(is_active=True).select_related('plant_species')
+                    queryset=Plant.objects.filter(is_active=True).select_related('plant_species').prefetch_related('images')
                 )
             )
 
@@ -549,12 +556,14 @@ class PlantViewSet(viewsets.ModelViewSet):
         # Always select related for performance
         qs = qs.select_related('garden_bed', 'garden_bed__owner', 'plant_species')
 
+        # Always prefetch images to avoid N+1 for primary_image
+        qs = qs.prefetch_related('images')
+
         # Conditional optimization based on action
         if self.action == 'retrieve':
             # Prefetch related data for detail view
             from django.db.models import Prefetch
             qs = qs.prefetch_related(
-                'images',
                 Prefetch(
                     'care_tasks',
                     queryset=CareTask.objects.filter(
@@ -675,6 +684,7 @@ class CareTaskViewSet(viewsets.ModelViewSet):
             'plant',
             'plant__garden_bed',
             'plant__garden_bed__owner',
+            'created_by',
             'completed_by'
         )
 

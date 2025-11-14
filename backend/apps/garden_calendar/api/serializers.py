@@ -307,10 +307,11 @@ class PlantListSerializer(serializers.ModelSerializer):
         ]
 
     def get_primary_image(self, obj):
-        """Get primary image for plant."""
-        primary = obj.images.filter(is_primary=True).first()
-        if primary:
-            return PlantImageSerializer(primary, context=self.context).data
+        """Get primary image for plant using prefetched images."""
+        # Use prefetched images to avoid N+1 queries
+        for image in obj.images.all():
+            if image.is_primary:
+                return PlantImageSerializer(image, context=self.context).data
         return None
 
 
@@ -331,18 +332,15 @@ class PlantDetailSerializer(PlantListSerializer):
         ]
 
     def get_upcoming_tasks(self, obj):
-        """Get next 3 upcoming care tasks."""
-        from django.utils import timezone
-        tasks = obj.care_tasks.filter(
-            completed=False,
-            skipped=False,
-            scheduled_date__gte=timezone.now()
-        ).order_by('scheduled_date')[:3]
+        """Get next 3 upcoming care tasks using prefetched data."""
+        # Use prefetched care_tasks to avoid additional query
+        tasks = list(obj.care_tasks.all())[:3]
         return CareTaskListSerializer(tasks, many=True, context=self.context).data
 
     def get_recent_logs(self, obj):
-        """Get last 5 care logs."""
-        logs = obj.care_logs.order_by('-log_date')[:5]
+        """Get last 5 care logs using prefetched data."""
+        # Use prefetched care_logs to avoid additional query
+        logs = list(obj.care_logs.all())[:5]
         return CareLogSerializer(logs, many=True, context=self.context).data
 
     def get_can_edit(self, obj):
