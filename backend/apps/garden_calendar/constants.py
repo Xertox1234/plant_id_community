@@ -93,11 +93,12 @@ MAX_LOG_CONTENT_LENGTH = 5000
 # File Upload Configuration
 # =============================================================================
 
-# Allowed image formats
-ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp']
+# Allowed image formats (4-layer security validation)
+ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp']
 ALLOWED_IMAGE_MIME_TYPES = [
     'image/jpeg',
     'image/png',
+    'image/gif',
     'image/webp'
 ]
 
@@ -112,7 +113,9 @@ MAX_IMAGES_PER_GARDEN_BED = 20
 MAX_IMAGES_PER_CARE_LOG = 5
 
 # Image dimension limits (decompression bomb protection)
-MAX_IMAGE_PIXELS = 100_000_000  # 100 megapixels
+MAX_IMAGE_PIXELS = 100_000_000  # 100 megapixels (PIL decompression bomb threshold)
+MAX_IMAGE_WIDTH = 5000  # Max width in pixels
+MAX_IMAGE_HEIGHT = 5000  # Max height in pixels
 
 # =============================================================================
 # Health Status Configuration
