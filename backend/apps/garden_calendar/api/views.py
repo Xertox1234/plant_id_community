@@ -9,9 +9,11 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.db.models import Q, Count
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter, SearchFilter
+from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import (
     extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample, OpenApiResponse
 )
@@ -34,6 +36,12 @@ from .serializers import (
     GrowingZoneSerializer
 )
 from ..permissions import IsGardenOwner, IsPlantOwner, IsCareTaskOwner
+from ..constants import (
+    RATE_LIMIT_GARDEN_BED_CREATE, RATE_LIMIT_GARDEN_BED_UPDATE, RATE_LIMIT_GARDEN_BED_DELETE,
+    RATE_LIMIT_PLANT_CREATE, RATE_LIMIT_PLANT_UPDATE, RATE_LIMIT_PLANT_DELETE,
+    RATE_LIMIT_CARE_TASK_CREATE, RATE_LIMIT_CARE_TASK_COMPLETE, RATE_LIMIT_CARE_TASK_SKIP,
+    RATE_LIMIT_EVENT_CREATE, RATE_LIMIT_EVENT_RSVP,
+)
 
 
 class CommunityEventViewSet(viewsets.ModelViewSet):
@@ -117,6 +125,11 @@ class CommunityEventViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(hardiness_zone=user.hardiness_zone)
         return queryset.distinct()
     
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_EVENT_CREATE, method='POST', block=True))
+    def create(self, request, *args, **kwargs):
+        """Create a new community event with rate limiting."""
+        return super().create(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         """Set the organizer to the current user when creating events."""
         serializer.save(organizer=self.request.user)
@@ -135,6 +148,7 @@ class CommunityEventViewSet(viewsets.ModelViewSet):
         super().perform_destroy(instance)
     
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_EVENT_RSVP, method='POST', block=True))
     def rsvp(self, request, pk=None):
         """
         RSVP to an event.
@@ -567,9 +581,29 @@ class GardenBedViewSet(viewsets.ModelViewSet):
 
         return qs
 
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_GARDEN_BED_CREATE, method='POST', block=True))
+    def create(self, request, *args, **kwargs):
+        """Create a new garden bed with rate limiting."""
+        return super().create(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         """Set the owner to the current user when creating garden beds."""
         serializer.save(owner=self.request.user)
+
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_GARDEN_BED_UPDATE, method=['PUT', 'PATCH'], block=True))
+    def update(self, request, *args, **kwargs):
+        """Update a garden bed with rate limiting."""
+        return super().update(request, *args, **kwargs)
+
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_GARDEN_BED_UPDATE, method=['PUT', 'PATCH'], block=True))
+    def partial_update(self, request, *args, **kwargs):
+        """Partially update a garden bed with rate limiting."""
+        return super().partial_update(request, *args, **kwargs)
+
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_GARDEN_BED_DELETE, method='DELETE', block=True))
+    def destroy(self, request, *args, **kwargs):
+        """Delete a garden bed with rate limiting."""
+        return super().destroy(request, *args, **kwargs)
 
     @extend_schema(
         summary="Get garden bed analytics",
@@ -798,6 +832,26 @@ class PlantViewSet(viewsets.ModelViewSet):
 
         return qs
 
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_PLANT_CREATE, method='POST', block=True))
+    def create(self, request, *args, **kwargs):
+        """Create a new plant with rate limiting."""
+        return super().create(request, *args, **kwargs)
+
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_PLANT_UPDATE, method=['PUT', 'PATCH'], block=True))
+    def update(self, request, *args, **kwargs):
+        """Update a plant with rate limiting."""
+        return super().update(request, *args, **kwargs)
+
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_PLANT_UPDATE, method=['PUT', 'PATCH'], block=True))
+    def partial_update(self, request, *args, **kwargs):
+        """Partially update a plant with rate limiting."""
+        return super().partial_update(request, *args, **kwargs)
+
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_PLANT_DELETE, method='DELETE', block=True))
+    def destroy(self, request, *args, **kwargs):
+        """Delete a plant with rate limiting."""
+        return super().destroy(request, *args, **kwargs)
+
     @extend_schema(
         summary="Upload plant image",
         description="Upload an image for a plant. Maximum 10 images per plant. Set is_primary=true to make this the primary image.",
@@ -1005,6 +1059,11 @@ class CareTaskViewSet(viewsets.ModelViewSet):
 
         return qs
 
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_CARE_TASK_CREATE, method='POST', block=True))
+    def create(self, request, *args, **kwargs):
+        """Create a new care task with rate limiting."""
+        return super().create(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         """Set created_by to current user."""
         serializer.save(created_by=self.request.user)
@@ -1033,6 +1092,7 @@ class CareTaskViewSet(viewsets.ModelViewSet):
         }
     )
     @action(detail=True, methods=['post'])
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_CARE_TASK_COMPLETE, method='POST', block=True))
     def complete(self, request, uuid=None):
         """
         Mark a care task as completed.
@@ -1093,6 +1153,7 @@ class CareTaskViewSet(viewsets.ModelViewSet):
         }
     )
     @action(detail=True, methods=['post'])
+    @method_decorator(ratelimit(key='user', rate=RATE_LIMIT_CARE_TASK_SKIP, method='POST', block=True))
     def skip(self, request, uuid=None):
         """
         Skip a care task.
