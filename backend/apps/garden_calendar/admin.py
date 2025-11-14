@@ -9,7 +9,10 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
 from django.utils.safestring import mark_safe
-from .models import CommunityEvent, EventAttendee, SeasonalTemplate, WeatherAlert
+from .models import (
+    CommunityEvent, EventAttendee, SeasonalTemplate, WeatherAlert,
+    GrowingZone, GardenBed, Plant, PlantImage, CareTask, CareLog, Harvest
+)
 
 
 @admin.register(CommunityEvent)
@@ -167,3 +170,340 @@ class WeatherAlertAdmin(admin.ModelAdmin):
         return obj.is_current
     is_current.boolean = True
     is_current.short_description = 'Currently Active'
+
+
+# =============================================================================
+# Garden Planner Admin (Phase 1 - Nov 2025)
+# =============================================================================
+
+
+@admin.register(GrowingZone)
+class GrowingZoneAdmin(admin.ModelAdmin):
+    """Admin for USDA Hardiness Zones"""
+
+    list_display = [
+        'zone_code', 'temp_range_display', 'growing_season_days',
+        'frost_dates_display'
+    ]
+    search_fields = ['zone_code', 'description']
+    readonly_fields = ['created_at', 'updated_at']
+    ordering = ['zone_code']
+
+    fieldsets = (
+        ('Zone Information', {
+            'fields': ('zone_code', 'temp_min', 'temp_max', 'description')
+        }),
+        ('Frost Dates', {
+            'fields': ('first_frost_date', 'last_frost_date', 'growing_season_days')
+        }),
+        ('System Fields', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def temp_range_display(self, obj):
+        return f"{obj.temp_min}°F to {obj.temp_max}°F"
+    temp_range_display.short_description = 'Temperature Range'
+
+    def frost_dates_display(self, obj):
+        if obj.first_frost_date and obj.last_frost_date:
+            return f"{obj.last_frost_date} to {obj.first_frost_date}"
+        return "Not set"
+    frost_dates_display.short_description = 'Frost-Free Period'
+
+
+class PlantImageInline(admin.TabularInline):
+    """Inline for managing plant images"""
+    model = PlantImage
+    extra = 1
+    fields = ['image', 'caption', 'is_primary', 'taken_date']
+    readonly_fields = ['taken_date', 'uploaded_at']
+
+
+@admin.register(GardenBed)
+class GardenBedAdmin(admin.ModelAdmin):
+    """Admin for garden beds"""
+
+    list_display = [
+        'name', 'owner', 'bed_type', 'area_display',
+        'plant_count', 'utilization_display', 'is_active'
+    ]
+    list_filter = ['bed_type', 'sun_exposure', 'is_active', 'hardiness_zone']
+    search_fields = ['name', 'description', 'owner__username', 'location_name']
+    readonly_fields = [
+        'uuid', 'created_at', 'updated_at', 'area_square_feet',
+        'area_square_inches', 'volume_cubic_inches', 'plant_count',
+        'utilization_rate'
+    ]
+
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('owner', 'name', 'description', 'bed_type', 'is_active')
+        }),
+        ('Dimensions', {
+            'fields': (
+                'length_inches', 'width_inches', 'depth_inches',
+                'area_square_feet', 'volume_cubic_inches'
+            )
+        }),
+        ('Location & Climate', {
+            'fields': (
+                'location_name', 'sun_exposure', 'hardiness_zone'
+            )
+        }),
+        ('Soil Information', {
+            'fields': ('soil_type', 'soil_ph')
+        }),
+        ('Layout Data', {
+            'fields': ('layout_data',),
+            'classes': ('collapse',)
+        }),
+        ('Statistics', {
+            'fields': ('plant_count', 'utilization_rate'),
+            'classes': ('collapse',)
+        }),
+        ('Notes & System', {
+            'fields': ('notes', 'uuid', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def area_display(self, obj):
+        area = obj.area_square_feet
+        if area:
+            return f"{area} sq ft"
+        return "Not set"
+    area_display.short_description = 'Area'
+
+    def utilization_display(self, obj):
+        rate = obj.utilization_rate
+        if rate is not None:
+            percentage = int(rate * 100)
+            if percentage < 25:
+                color = 'red'
+            elif percentage < 60:
+                color = 'orange'
+            elif percentage < 85:
+                color = 'green'
+            else:
+                color = 'blue'
+            return format_html(
+                '<span style="color: {};">{:d}%</span>',
+                color, percentage
+            )
+        return "N/A"
+    utilization_display.short_description = 'Utilization'
+
+
+@admin.register(Plant)
+class PlantAdmin(admin.ModelAdmin):
+    """Admin for individual plants"""
+
+    list_display = [
+        'common_name', 'garden_bed', 'health_status_display',
+        'growth_stage', 'age_display', 'planted_date', 'is_active'
+    ]
+    list_filter = [
+        'health_status', 'growth_stage', 'is_active',
+        'garden_bed__bed_type', 'planted_date'
+    ]
+    search_fields = [
+        'common_name', 'scientific_name', 'variety',
+        'garden_bed__name', 'garden_bed__owner__username'
+    ]
+    readonly_fields = [
+        'uuid', 'created_at', 'updated_at', 'days_since_planted',
+        'age_display', 'pending_care_tasks_count'
+    ]
+    inlines = [PlantImageInline]
+
+    fieldsets = (
+        ('Basic Information', {
+            'fields': (
+                'garden_bed', 'common_name', 'scientific_name',
+                'variety', 'plant_species'
+            )
+        }),
+        ('Planting Details', {
+            'fields': ('planted_date', 'source', 'age_display', 'days_since_planted')
+        }),
+        ('Position (Canvas Layout)', {
+            'fields': ('position_x', 'position_y'),
+            'classes': ('collapse',)
+        }),
+        ('Health & Growth', {
+            'fields': ('health_status', 'growth_stage')
+        }),
+        ('Status', {
+            'fields': ('is_active', 'removed_date', 'removal_reason')
+        }),
+        ('Care Tasks', {
+            'fields': ('pending_care_tasks_count',),
+            'classes': ('collapse',)
+        }),
+        ('Notes & System', {
+            'fields': ('notes', 'uuid', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def health_status_display(self, obj):
+        from .constants import HEALTH_STATUS_COLORS
+        color = HEALTH_STATUS_COLORS.get(obj.health_status, '#6B7280')
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">●</span> {}',
+            color,
+            obj.get_health_status_display()
+        )
+    health_status_display.short_description = 'Health'
+
+
+@admin.register(PlantImage)
+class PlantImageAdmin(admin.ModelAdmin):
+    """Admin for plant images"""
+
+    list_display = ['plant', 'caption', 'taken_date', 'is_primary', 'uploaded_at']
+    list_filter = ['is_primary', 'taken_date']
+    search_fields = ['plant__common_name', 'caption']
+    readonly_fields = ['taken_date', 'uploaded_at']
+
+
+@admin.register(CareTask)
+class CareTaskAdmin(admin.ModelAdmin):
+    """Admin for care tasks and reminders"""
+
+    list_display = [
+        'title', 'plant', 'task_type', 'priority_display',
+        'scheduled_date', 'status_display', 'is_recurring'
+    ]
+    list_filter = [
+        'task_type', 'priority', 'completed', 'skipped',
+        'is_recurring', 'scheduled_date'
+    ]
+    search_fields = [
+        'title', 'notes', 'plant__common_name',
+        'plant__garden_bed__name', 'created_by__username'
+    ]
+    readonly_fields = [
+        'uuid', 'created_at', 'updated_at', 'completed_at',
+        'skipped_at', 'is_overdue', 'is_pending'
+    ]
+
+    fieldsets = (
+        ('Task Details', {
+            'fields': (
+                'plant', 'created_by', 'task_type',
+                'custom_task_name', 'title', 'notes', 'priority'
+            )
+        }),
+        ('Scheduling', {
+            'fields': (
+                'scheduled_date', 'is_recurring',
+                'recurrence_interval_days', 'recurrence_end_date'
+            )
+        }),
+        ('Completion', {
+            'fields': (
+                'completed', 'completed_at', 'completed_by'
+            )
+        }),
+        ('Skip Status', {
+            'fields': ('skipped', 'skip_reason', 'skipped_at'),
+            'classes': ('collapse',)
+        }),
+        ('Status Info', {
+            'fields': ('is_overdue', 'is_pending', 'notification_sent'),
+            'classes': ('collapse',)
+        }),
+        ('System Fields', {
+            'fields': ('uuid', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def priority_display(self, obj):
+        colors = {
+            'low': '#10B981',       # Green
+            'medium': '#F59E0B',    # Amber
+            'high': '#EF4444',      # Red
+            'urgent': '#991B1B'     # Dark Red
+        }
+        color = colors.get(obj.priority, '#6B7280')
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color,
+            obj.get_priority_display()
+        )
+    priority_display.short_description = 'Priority'
+
+    def status_display(self, obj):
+        if obj.completed:
+            return format_html('<span style="color: green;">✓ Completed</span>')
+        elif obj.skipped:
+            return format_html('<span style="color: gray;">⊘ Skipped</span>')
+        elif obj.is_overdue:
+            return format_html('<span style="color: red;">⚠ Overdue</span>')
+        else:
+            return format_html('<span style="color: blue;">○ Pending</span>')
+    status_display.short_description = 'Status'
+
+
+@admin.register(CareLog)
+class CareLogAdmin(admin.ModelAdmin):
+    """Admin for care logs"""
+
+    list_display = [
+        'plant', 'user', 'activity_type', 'log_date',
+        'temperature', 'humidity'
+    ]
+    list_filter = ['activity_type', 'log_date']
+    search_fields = [
+        'content', 'plant__common_name', 'user__username',
+        'activity_type'
+    ]
+    readonly_fields = ['log_date']
+
+    fieldsets = (
+        ('Log Information', {
+            'fields': ('plant', 'user', 'activity_type', 'content')
+        }),
+        ('Environmental Data', {
+            'fields': ('temperature', 'humidity'),
+            'classes': ('collapse',)
+        }),
+        ('Tags & Metadata', {
+            'fields': ('tags', 'log_date'),
+            'classes': ('collapse',)
+        }),
+    )
+
+
+@admin.register(Harvest)
+class HarvestAdmin(admin.ModelAdmin):
+    """Admin for harvest records"""
+
+    list_display = [
+        'plant', 'harvest_date', 'quantity_display',
+        'quality_rating', 'days_from_planting'
+    ]
+    list_filter = ['unit', 'quality_rating', 'harvest_date']
+    search_fields = ['plant__common_name', 'notes']
+    readonly_fields = ['created_at', 'days_from_planting']
+
+    fieldsets = (
+        ('Harvest Information', {
+            'fields': ('plant', 'harvest_date', 'quantity', 'unit')
+        }),
+        ('Quality & Notes', {
+            'fields': ('quality_rating', 'notes')
+        }),
+        ('Statistics', {
+            'fields': ('days_from_planting', 'created_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def quantity_display(self, obj):
+        return f"{obj.quantity} {obj.get_unit_display()}"
+    quantity_display.short_description = 'Quantity'

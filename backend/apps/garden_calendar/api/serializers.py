@@ -7,7 +7,10 @@ Serializers for community events, seasonal templates, and weather alerts.
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.utils import timezone
-from ..models import CommunityEvent, EventAttendee, SeasonalTemplate, WeatherAlert
+from ..models import (
+    CommunityEvent, EventAttendee, SeasonalTemplate, WeatherAlert,
+    GardenBed, Plant, PlantImage, CareTask, CareLog, Harvest, GrowingZone
+)
 
 User = get_user_model()
 
@@ -227,12 +230,398 @@ class WeatherAlertSerializer(serializers.ModelSerializer):
 
 class RSVPSerializer(serializers.Serializer):
     """Serializer for RSVP actions."""
-    
+
     status = serializers.ChoiceField(choices=EventAttendee.RSVP_STATUS)
     notes = serializers.CharField(max_length=500, required=False, allow_blank=True)
-    
+
     def validate_status(self, value):
         """Additional validation for RSVP status."""
         if value not in ['going', 'maybe', 'not_going']:
             raise serializers.ValidationError("Invalid RSVP status.")
         return value
+
+
+# ============================================================================
+# Garden Planner Serializers
+# ============================================================================
+
+
+class GardenOwnerSerializer(serializers.ModelSerializer):
+    """Basic owner information for garden listings."""
+
+    class Meta:
+        model = User
+        fields = ['uuid', 'username', 'first_name', 'last_name']
+        read_only_fields = ['uuid', 'username', 'first_name', 'last_name']
+
+
+class PlantImageSerializer(serializers.ModelSerializer):
+    """Serializer for plant images."""
+
+    image_url = serializers.SerializerMethodField()
+    thumbnail_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PlantImage
+        fields = [
+            'uuid', 'image', 'image_url', 'thumbnail_url',
+            'caption', 'is_primary', 'uploaded_at'
+        ]
+        read_only_fields = ['uuid', 'image_url', 'thumbnail_url', 'uploaded_at']
+
+    def get_image_url(self, obj):
+        """Get full image URL."""
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
+
+    def get_thumbnail_url(self, obj):
+        """Get thumbnail URL (could use image service in future)."""
+        return self.get_image_url(obj)
+
+
+class PlantListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for plant listings."""
+
+    garden_bed_name = serializers.CharField(source='garden_bed.name', read_only=True)
+    primary_image = serializers.SerializerMethodField()
+    health_status_display = serializers.CharField(source='get_health_status_display', read_only=True)
+    growth_stage_display = serializers.CharField(source='get_growth_stage_display', read_only=True)
+    days_since_planted = serializers.IntegerField(read_only=True)
+    age_display = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Plant
+        fields = [
+            'uuid', 'garden_bed', 'garden_bed_name', 'common_name', 'variety',
+            'health_status', 'health_status_display', 'growth_stage', 'growth_stage_display',
+            'planted_date', 'primary_image',
+            'days_since_planted', 'age_display', 'is_active'
+        ]
+        read_only_fields = [
+            'uuid', 'garden_bed_name', 'health_status_display', 'growth_stage_display',
+            'days_since_planted', 'age_display', 'primary_image'
+        ]
+
+    def get_primary_image(self, obj):
+        """Get primary image for plant using prefetched images."""
+        # Use prefetched images to avoid N+1 queries
+        for image in obj.images.all():
+            if image.is_primary:
+                return PlantImageSerializer(image, context=self.context).data
+        return None
+
+
+class PlantDetailSerializer(PlantListSerializer):
+    """Detailed serializer for individual plants."""
+
+    plant_species = serializers.StringRelatedField(read_only=True)
+    images = PlantImageSerializer(many=True, read_only=True)
+    upcoming_tasks = serializers.SerializerMethodField()
+    recent_logs = serializers.SerializerMethodField()
+    can_edit = serializers.SerializerMethodField()
+
+    class Meta(PlantListSerializer.Meta):
+        fields = PlantListSerializer.Meta.fields + [
+            'plant_species', 'position_x', 'position_y', 'notes',
+            'images', 'upcoming_tasks', 'recent_logs', 'can_edit',
+            'created_at', 'updated_at'
+        ]
+
+    def get_upcoming_tasks(self, obj):
+        """Get next 3 upcoming care tasks using prefetched data."""
+        # Use prefetched care_tasks to avoid additional query
+        tasks = list(obj.care_tasks.all())[:3]
+        return CareTaskListSerializer(tasks, many=True, context=self.context).data
+
+    def get_recent_logs(self, obj):
+        """Get last 5 care logs using prefetched data."""
+        # Use prefetched care_logs to avoid additional query
+        logs = list(obj.care_logs.all())[:5]
+        return CareLogSerializer(logs, many=True, context=self.context).data
+
+    def get_can_edit(self, obj):
+        """Check if current user can edit this plant."""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.garden_bed.owner == request.user
+        return False
+
+
+class PlantCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating and updating plants."""
+
+    class Meta:
+        model = Plant
+        fields = [
+            'uuid', 'garden_bed', 'plant_species', 'common_name', 'variety',
+            'health_status', 'growth_stage', 'planted_date',
+            'position_x', 'position_y', 'notes', 'is_active'
+        ]
+        read_only_fields = ['uuid']
+
+    def validate_garden_bed(self, value):
+        """Ensure user owns the garden bed."""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            if value.owner != request.user:
+                raise serializers.ValidationError("You can only add plants to your own garden beds.")
+        return value
+
+    def validate(self, data):
+        """Validate plant limit per bed."""
+        from ..constants import MAX_PLANTS_PER_GARDEN_BED
+
+        garden_bed = data.get('garden_bed')
+        if garden_bed:
+            # For updates, exclude current plant from count
+            current_count = garden_bed.plants.filter(is_active=True).count()
+            if self.instance:
+                current_count -= 1
+
+            if current_count >= MAX_PLANTS_PER_GARDEN_BED:
+                raise serializers.ValidationError({
+                    'garden_bed': f"Garden bed already has maximum of {MAX_PLANTS_PER_GARDEN_BED} plants."
+                })
+
+        return data
+
+
+class CareTaskListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for care task listings."""
+
+    plant_name = serializers.CharField(source='plant.common_name', read_only=True)
+    task_type_display = serializers.CharField(source='get_task_type_display', read_only=True)
+    priority_display = serializers.CharField(source='get_priority_display', read_only=True)
+    is_overdue = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = CareTask
+        fields = [
+            'uuid', 'plant', 'plant_name', 'task_type', 'task_type_display',
+            'title', 'priority', 'priority_display', 'scheduled_date', 'completed',
+            'skipped', 'is_recurring', 'is_overdue'
+        ]
+        read_only_fields = [
+            'uuid', 'plant_name', 'task_type_display', 'priority_display', 'is_overdue', 'title'
+        ]
+
+
+class CareTaskDetailSerializer(CareTaskListSerializer):
+    """Detailed serializer for individual care tasks."""
+
+    completed_by = GardenOwnerSerializer(read_only=True)
+    can_edit = serializers.SerializerMethodField()
+
+    class Meta(CareTaskListSerializer.Meta):
+        fields = CareTaskListSerializer.Meta.fields + [
+            'notes', 'completed_at', 'completed_by', 'recurrence_interval_days',
+            'can_edit', 'created_at', 'updated_at'
+        ]
+
+    def get_can_edit(self, obj):
+        """Check if current user can edit this task."""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.plant.garden_bed.owner == request.user
+        return False
+
+
+class CareTaskCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating and updating care tasks."""
+
+    class Meta:
+        model = CareTask
+        fields = [
+            'uuid', 'plant', 'task_type', 'title', 'priority', 'scheduled_date',
+            'is_recurring', 'recurrence_interval_days', 'notes'
+        ]
+        read_only_fields = ['uuid']
+
+    def validate_plant(self, value):
+        """Ensure user owns the plant."""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            if value.garden_bed.owner != request.user:
+                raise serializers.ValidationError("You can only create tasks for your own plants.")
+        return value
+
+    def validate(self, data):
+        """Validate recurring task configuration."""
+        is_recurring = data.get('is_recurring', False)
+        recurrence_interval = data.get('recurrence_interval_days')
+
+        if is_recurring and not recurrence_interval:
+            raise serializers.ValidationError({
+                'recurrence_interval_days': "Recurring tasks must have a recurrence interval."
+            })
+
+        if recurrence_interval and recurrence_interval < 1:
+            raise serializers.ValidationError({
+                'recurrence_interval_days': "Recurrence interval must be at least 1 day."
+            })
+
+        return data
+
+
+class CareLogSerializer(serializers.ModelSerializer):
+    """Serializer for care logs."""
+
+    logged_by = GardenOwnerSerializer(source='user', read_only=True)
+    plant_name = serializers.CharField(source='plant.common_name', read_only=True)
+    activity_type_display = serializers.CharField(source='get_activity_type_display', read_only=True)
+
+    class Meta:
+        model = CareLog
+        fields = [
+            'uuid', 'plant', 'plant_name', 'activity_type', 'activity_type_display',
+            'notes', 'plant_health_before', 'plant_health_after', 'hours_spent',
+            'materials_used', 'cost', 'weather_conditions', 'logged_by',
+            'log_date'
+        ]
+        read_only_fields = ['uuid', 'plant_name', 'activity_type_display', 'logged_by', 'log_date']
+
+
+class HarvestSerializer(serializers.ModelSerializer):
+    """Serializer for harvest records."""
+
+    plant_name = serializers.CharField(source='plant.common_name', read_only=True)
+    days_from_planting = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Harvest
+        fields = [
+            'id', 'plant', 'plant_name', 'harvest_date', 'quantity', 'unit',
+            'quality_rating', 'notes',
+            'days_from_planting', 'created_at'
+        ]
+        read_only_fields = ['id', 'plant_name', 'days_from_planting', 'created_at']
+
+    def validate_quality_rating(self, value):
+        """Validate quality rating range."""
+        if value is not None and (value < 1 or value > 5):
+            raise serializers.ValidationError("Quality rating must be between 1 and 5.")
+        return value
+
+    def validate_taste_rating(self, value):
+        """Validate taste rating range."""
+        if value is not None and (value < 1 or value > 5):
+            raise serializers.ValidationError("Taste rating must be between 1 and 5.")
+        return value
+
+
+class GardenBedListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for garden bed listings."""
+
+    owner = GardenOwnerSerializer(read_only=True)
+    bed_type_display = serializers.CharField(source='get_bed_type_display', read_only=True)
+    sun_exposure_display = serializers.CharField(source='get_sun_exposure_display', read_only=True)
+    plant_count = serializers.IntegerField(read_only=True)
+    area_square_feet = serializers.FloatField(read_only=True)
+    utilization_rate = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = GardenBed
+        fields = [
+            'uuid', 'owner', 'name', 'bed_type', 'bed_type_display',
+            'length_inches', 'width_inches', 'depth_inches',
+            'sun_exposure', 'sun_exposure_display', 'soil_type', 'soil_ph',
+            'plant_count', 'area_square_feet', 'utilization_rate', 'is_active'
+        ]
+        read_only_fields = [
+            'uuid', 'owner', 'bed_type_display', 'sun_exposure_display',
+            'plant_count', 'area_square_feet', 'utilization_rate'
+        ]
+
+
+class GardenBedDetailSerializer(GardenBedListSerializer):
+    """Detailed serializer for individual garden beds."""
+
+    plants = PlantListSerializer(many=True, read_only=True)
+    can_edit = serializers.SerializerMethodField()
+
+    class Meta(GardenBedListSerializer.Meta):
+        fields = GardenBedListSerializer.Meta.fields + [
+            'notes', 'layout_data',
+            'plants', 'can_edit', 'created_at', 'updated_at'
+        ]
+
+    def get_can_edit(self, obj):
+        """Check if current user can edit this garden bed."""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.owner == request.user
+        return False
+
+
+class GardenBedCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating and updating garden beds."""
+
+    owner = GardenOwnerSerializer(read_only=True)
+
+    class Meta:
+        model = GardenBed
+        fields = [
+            'uuid', 'owner',
+            'name', 'bed_type', 'length_inches', 'width_inches', 'depth_inches',
+            'sun_exposure', 'soil_type', 'soil_ph', 'notes',
+            'layout_data', 'is_active'
+        ]
+        read_only_fields = ['uuid', 'owner']
+
+    def validate_soil_ph(self, value):
+        """Validate soil pH range."""
+        if value is not None and (value < 0 or value > 14):
+            raise serializers.ValidationError("Soil pH must be between 0 and 14.")
+        return value
+
+    def validate(self, data):
+        """Validate bed dimensions and user limits."""
+        from ..constants import MAX_GARDEN_BEDS_PER_USER
+
+        # Check user bed limit for new beds
+        if not self.instance:
+            request = self.context.get('request')
+            if request and request.user.is_authenticated:
+                current_count = GardenBed.objects.filter(
+                    owner=request.user,
+                    is_active=True
+                ).count()
+
+                if current_count >= MAX_GARDEN_BEDS_PER_USER:
+                    raise serializers.ValidationError({
+                        'non_field_errors': f"You have reached the maximum of {MAX_GARDEN_BEDS_PER_USER} active garden beds."
+                    })
+
+        # Validate dimensions make sense
+        length = data.get('length_inches')
+        width = data.get('width_inches')
+
+        if length is not None and width is not None:
+            if length < 1 or width < 1:
+                raise serializers.ValidationError({
+                    'non_field_errors': "Garden bed dimensions must be at least 1 inch."
+                })
+
+            # Reasonable maximum (100 feet = 1200 inches)
+            if length > 1200 or width > 1200:
+                raise serializers.ValidationError({
+                    'non_field_errors': "Garden bed dimensions cannot exceed 100 feet (1200 inches)."
+                })
+
+        return data
+
+
+class GrowingZoneSerializer(serializers.ModelSerializer):
+    """Serializer for growing zone reference data."""
+
+    class Meta:
+        model = GrowingZone
+        fields = [
+            'id', 'zone_code', 'temp_min', 'temp_max',
+            'first_frost_date', 'last_frost_date', 'growing_season_days'
+        ]
+        read_only_fields = ['id']
