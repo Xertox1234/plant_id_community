@@ -13,6 +13,7 @@ This service handles:
 import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
+from decimal import Decimal
 from django.db.models import Count, Q, Avg, Sum, F
 from django.utils import timezone
 from django.core.cache import cache
@@ -70,8 +71,6 @@ class GardenAnalyticsService:
         beds = GardenBed.objects.filter(
             owner=user,
             is_active=True
-        ).annotate(
-            plant_count=Count('plants', filter=Q(plants__is_active=True))
         )
 
         if not beds.exists():
@@ -304,25 +303,23 @@ class GardenAnalyticsService:
                 'total_harvests': 0,
                 'total_weight_lbs': 0.0,
                 'average_quality': None,
-                'average_taste': None,
                 'by_plant': [],
                 'by_month': []
             }
 
         # Total weight in lbs (convert oz to lbs)
-        total_lbs = harvests.filter(unit='lbs').aggregate(total=Sum('quantity'))['total'] or 0
-        total_oz = harvests.filter(unit='oz').aggregate(total=Sum('quantity'))['total'] or 0
-        total_weight_lbs = total_lbs + (total_oz / 16)
+        total_lbs = harvests.filter(unit='lb').aggregate(total=Sum('quantity'))['total'] or Decimal('0')
+        total_oz = harvests.filter(unit='oz').aggregate(total=Sum('quantity'))['total'] or Decimal('0')
+        total_weight_lbs = total_lbs + (total_oz / Decimal('16'))
 
         # Average ratings
         avg_quality = harvests.aggregate(avg=Avg('quality_rating'))['avg']
-        avg_taste = harvests.aggregate(avg=Avg('taste_rating'))['avg']
 
         # By plant
         by_plant = harvests.values(
             'plant__uuid', 'plant__common_name'
         ).annotate(
-            harvest_count=Count('uuid'),
+            harvest_count=Count('id'),
             total_quantity=Sum('quantity')
         ).order_by('-harvest_count')[:10]
 
@@ -330,14 +327,13 @@ class GardenAnalyticsService:
         by_month = harvests.extra(
             select={'month': 'EXTRACT(month FROM harvest_date)'}
         ).values('month').annotate(
-            harvest_count=Count('uuid')
+            harvest_count=Count('id')
         ).order_by('month')
 
         return {
             'total_harvests': total_harvests,
             'total_weight_lbs': round(total_weight_lbs, 2),
             'average_quality': round(avg_quality, 1) if avg_quality else None,
-            'average_taste': round(avg_taste, 1) if avg_taste else None,
             'by_plant': list(by_plant),
             'by_month': list(by_month)
         }
