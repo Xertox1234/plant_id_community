@@ -40,6 +40,7 @@ dependencies:
   firebase_auth: ^6.1.2
   cloud_firestore: ^6.1.0
   firebase_storage: ^13.0.4
+  firebase_messaging: ^16.0.4  # Push notifications
 
   # State Management
   flutter_riverpod: ^3.0.3
@@ -54,6 +55,7 @@ dependencies:
 
   # HTTP
   dio: ^5.8.1
+  http: ^1.2.2  # For weather API calls
 
   # Utils
   intl: ^0.20.1
@@ -62,6 +64,22 @@ dependencies:
 
   # Environment Configuration
   flutter_dotenv: ^5.2.1
+
+  # Notifications
+  flutter_local_notifications: ^18.0.1  # Local notification scheduling
+
+  # Offline-first persistence
+  drift: ^2.22.0  # SQLite-based database for offline storage
+  sqlite3_flutter_libs: ^0.5.24  # SQLite native libraries
+  path_provider: ^2.1.5  # For database file paths
+  path: ^1.9.1  # Path manipulation
+
+  # Location services (for weather data)
+  geolocator: ^14.0.2  # GPS location
+  geocoding: ^3.0.0  # Reverse geocoding
+
+  # Permissions
+  permission_handler: ^11.3.1  # For notification and location permissions
 
 dev_dependencies:
   flutter_test:
@@ -74,9 +92,10 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
-  # Riverpod code generation
+  # Code generation
   build_runner: ^2.7.1
   riverpod_generator: ^3.0.3
+  drift_dev: ^2.22.0  # Drift code generation
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
