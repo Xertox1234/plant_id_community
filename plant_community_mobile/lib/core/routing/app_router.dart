@@ -9,6 +9,7 @@ import '../../features/splash/splash_screen.dart';
 import '../../features/home/home_page.dart';
 import '../../features/camera/camera_screen.dart';
 import '../../features/results/results_screen.dart';
+import '../../features/profile/profile_screen.dart';
 import '../../models/plant.dart';
 import '../../services/auth_service.dart';
 
@@ -20,6 +21,7 @@ abstract class AppRoutes {
   static const home = '/home';
   static const camera = '/camera';
   static const results = '/results';
+  static const profile = '/profile';
   static const settings = '/settings';
   // Auth routes (screens not yet implemented)
   static const login = '/login';
@@ -105,6 +107,15 @@ GoRouter appRouter(Ref ref) {
             child: ResultsScreen(plant: plant),
           );
         },
+      ),
+      GoRoute(
+        path: AppRoutes.profile,
+        name: 'profile',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: const ProfileScreen(),
+        ),
       ),
       GoRoute(
         path: AppRoutes.settings,
