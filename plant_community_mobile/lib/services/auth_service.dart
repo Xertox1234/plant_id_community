@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -67,13 +69,17 @@ class AuthService extends _$AuthService {
   static const String _jwtKey = 'django_jwt_token';
   static const String _refreshTokenKey = 'django_refresh_token';
 
+  // Store StreamSubscription to prevent memory leak
+  StreamSubscription<User?>? _authStateSubscription;
+
   @override
   AuthState build() {
     // Initialize with current Firebase user
     final currentUser = _firebaseAuth.currentUser;
 
     // Listen to Firebase auth state changes
-    _firebaseAuth.authStateChanges().listen((user) async {
+    // Store subscription so we can cancel it on disposal
+    _authStateSubscription = _firebaseAuth.authStateChanges().listen((user) async {
       if (kDebugMode) {
         debugPrint('[AUTH] Firebase auth state changed: ${user?.email}');
       }
@@ -86,6 +92,14 @@ class AuthService extends _$AuthService {
         await _clearJWT();
         state = const AuthState();
       }
+    });
+
+    // Cancel subscription when provider is disposed to prevent memory leak
+    ref.onDispose(() {
+      if (kDebugMode) {
+        debugPrint('[AUTH] Cancelling auth state subscription');
+      }
+      _authStateSubscription?.cancel();
     });
 
     // If user is already signed in, exchange token
