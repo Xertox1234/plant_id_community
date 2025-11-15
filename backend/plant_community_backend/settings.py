@@ -187,6 +187,7 @@ LOCAL_APPS = [
     'apps.core',
     # 'apps.search',  # Temporarily disabled (depends on Machina)
     'apps.garden_calendar',
+    'apps.garden',  # Garden planner feature (Phase 1 - Backend)
 ]
 # Temporarily disable forum_integration (depends on Machina)
 # if ENABLE_FORUM:

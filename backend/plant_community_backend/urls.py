@@ -126,6 +126,7 @@ urlpatterns = [
         path('forum/', include('apps.forum.urls')),  # Forum API
         # path('search/', include('apps.search.urls')),  # Temporarily disabled (depends on Machina)
         path('calendar/', include('apps.garden_calendar.urls')),
+        path('garden/', include('apps.garden.urls')),  # Garden Planner API
         # *([path('forum/', include('apps.forum_integration.api_urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),  # Temporarily disabled (depends on Machina)
     ], 'v1'))),
 
@@ -138,6 +139,7 @@ urlpatterns = [
         path('blog-api/', include('apps.blog.api_urls')),
         # path('search/', include('apps.search.urls')),  # Temporarily disabled (depends on Machina)
         path('calendar/', include('apps.garden_calendar.urls')),
+        path('garden/', include('apps.garden.urls')),  # Garden Planner API
         # *([path('forum/', include('apps.forum_integration.api_urls'))] if getattr(settings, 'ENABLE_FORUM', False) else []),  # Temporarily disabled (depends on Machina)
     ])),
     
