@@ -143,7 +143,7 @@ final class FirestoreServiceProvider
   }
 }
 
-String _$firestoreServiceHash() => r'c7a82a21052f533f9286079176604272b0e1173c';
+String _$firestoreServiceHash() => r'7a0e0dc724b821fd01be2a2b67ad0f8f42500c98';
 
 /// Firestore service for offline data persistence and cross-device sync
 ///
@@ -265,7 +265,7 @@ final class PlantsStreamProvider
   }
 }
 
-String _$plantsStreamHash() => r'953c4ca087d53060c50f5acab4ab2ef241240251';
+String _$plantsStreamHash() => r'a3741e4f6e9cf3513ae0ff0817f5b5dbfeabd1c1';
 
 /// Provider for plants stream by user ID
 ///
