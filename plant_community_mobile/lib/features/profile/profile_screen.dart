@@ -432,9 +432,22 @@ class _SettingsSection extends ConsumerWidget {
               subtitle: const Text('Receive email updates'),
               value: profile.emailNotifications,
               onChanged: (value) async {
-                await ref.read(userProfileServiceProvider.notifier).updateProfile(
-                      emailNotifications: value,
+                try {
+                  await ref.read(userProfileServiceProvider.notifier).updateProfile(
+                        emailNotifications: value,
+                      );
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to update preferences: $e'),
+                        backgroundColor: Theme.of(context).colorScheme.error,
+                      ),
                     );
+                    // Refresh to revert UI to actual backend state
+                    ref.read(userProfileServiceProvider.notifier).refresh();
+                  }
+                }
               },
               secondary: const Icon(Icons.email_outlined),
             ),
@@ -445,9 +458,22 @@ class _SettingsSection extends ConsumerWidget {
               subtitle: const Text('Get notified about plant identifications'),
               value: profile.plantIdNotifications,
               onChanged: (value) async {
-                await ref.read(userProfileServiceProvider.notifier).updateProfile(
-                      plantIdNotifications: value,
+                try {
+                  await ref.read(userProfileServiceProvider.notifier).updateProfile(
+                        plantIdNotifications: value,
+                      );
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to update preferences: $e'),
+                        backgroundColor: Theme.of(context).colorScheme.error,
+                      ),
                     );
+                    // Refresh to revert UI to actual backend state
+                    ref.read(userProfileServiceProvider.notifier).refresh();
+                  }
+                }
               },
               secondary: const Icon(Icons.eco),
             ),
@@ -458,9 +484,22 @@ class _SettingsSection extends ConsumerWidget {
               subtitle: const Text('Get notified about forum activity'),
               value: profile.forumNotifications,
               onChanged: (value) async {
-                await ref.read(userProfileServiceProvider.notifier).updateProfile(
-                      forumNotifications: value,
+                try {
+                  await ref.read(userProfileServiceProvider.notifier).updateProfile(
+                        forumNotifications: value,
+                      );
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to update preferences: $e'),
+                        backgroundColor: Theme.of(context).colorScheme.error,
+                      ),
                     );
+                    // Refresh to revert UI to actual backend state
+                    ref.read(userProfileServiceProvider.notifier).refresh();
+                  }
+                }
               },
               secondary: const Icon(Icons.forum),
             ),
@@ -514,7 +553,10 @@ class _LogoutButton extends ConsumerWidget {
           ),
         );
 
-        if (confirmed == true && context.mounted) {
+        if (confirmed == true) {
+          // Check context is still mounted before async operation
+          if (!context.mounted) return;
+
           try {
             // Logout
             await ref.read(authServiceProvider.notifier).signOut();
@@ -522,25 +564,26 @@ class _LogoutButton extends ConsumerWidget {
             // Clear profile
             ref.read(userProfileServiceProvider.notifier).clear();
 
+            // Check context is still mounted after async operation
+            if (!context.mounted) return;
+
             // Show success message
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Logged out successfully'),
-                ),
-              );
-            }
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Logged out successfully'),
+              ),
+            );
 
             // Navigate to login screen (TODO: implement navigation)
           } catch (e) {
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Logout failed: $e'),
-                  backgroundColor: Theme.of(context).colorScheme.error,
-                ),
-              );
-            }
+            if (!context.mounted) return;
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Logout failed: $e'),
+                backgroundColor: Theme.of(context).colorScheme.error,
+              ),
+            );
           }
         }
       },
