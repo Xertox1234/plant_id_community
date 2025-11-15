@@ -18,6 +18,11 @@
 8. [File Organization Patterns](#8-file-organization-patterns)
 9. [Material Design 3 Patterns](#9-material-design-3-patterns)
 10. [Null Safety Patterns](#10-null-safety-patterns)
+11. [**Firestore Offline Sync Patterns** ✅ NEW](#11-firestore-offline-sync-patterns)
+
+**Comprehensive Documentation**:
+- **Firestore Patterns**: See `docs/FIRESTORE_PATTERNS.md` (10 patterns, 400+ lines)
+- **Security Rules**: See `docs/FIRESTORE_SECURITY_RULES.md` (comprehensive guide)
 
 ---
 
