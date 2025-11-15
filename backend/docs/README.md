@@ -117,6 +117,40 @@ Week 2 and Week 4 performance optimizations and benchmarking results.
 
 ---
 
+### Firebase Authentication Integration ✅ **NEW**
+**Location:** [`FIREBASE_AUTHENTICATION.md`](./FIREBASE_AUTHENTICATION.md) | [`FIREBASE_SETUP.md`](./FIREBASE_SETUP.md)
+
+Firebase Auth → Django JWT token exchange for Flutter mobile app (PR #200 - Nov 15, 2025).
+
+**Documentation:**
+- [Firebase Authentication Guide](./FIREBASE_AUTHENTICATION.md) - Complete architecture and implementation
+- [Firebase Setup Instructions](./FIREBASE_SETUP.md) - Configuration guide (213 lines)
+- [Test Suite](../apps/users/tests/test_firebase_auth.py) - 17 comprehensive tests
+
+**Implementation Complete (Nov 15, 2025):**
+- ✅ Email/password, Google, Apple authentication via Firebase Auth
+- ✅ Automatic Django JWT token exchange (firebase-admin >=6.6.0,<7.0.0)
+- ✅ Secure token storage with flutter_secure_storage
+- ✅ StreamSubscription memory leak prevention
+- ✅ GDPR-compliant email redaction in logs
+- ✅ Username collision handling with UUID fallback
+- ✅ 17/17 tests passing (100%)
+- ✅ Code Review: Grade A (All BLOCKER and IMPORTANT issues resolved)
+
+**Architecture:**
+- **Backend**: `apps/users/firebase_auth_views.py` (Firebase token validation + JWT generation)
+- **Flutter**: `lib/services/auth_service.dart` (Riverpod provider with memory leak prevention)
+- **API**: `lib/services/api_service.dart` (Centralized HTTP client with JWT injection)
+
+**Key Features:**
+- Lazy Firebase initialization (test-friendly)
+- Email redaction for GDPR compliance (te***@example.com)
+- UUID-based username collision handling
+- Null-safe error handling
+- Comprehensive test coverage
+
+---
+
 ### Security Documentation
 **Location:** [`security/`](./security/)
 
