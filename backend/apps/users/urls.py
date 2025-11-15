@@ -3,19 +3,22 @@ URL configuration for user authentication and profile management.
 """
 
 from django.urls import path
-from . import views, oauth_views, email_preferences_views
+from . import views, oauth_views, email_preferences_views, firebase_auth_views
 
 app_name = 'users'
 
 urlpatterns = [
     # CSRF token endpoint
     path('csrf/', views.get_csrf_token, name='get_csrf_token'),
-    
+
     # Authentication endpoints
     path('register/', views.register, name='register'),
     path('login/', views.login, name='login'),
     path('logout/', views.logout, name='logout'),
-    
+
+    # Firebase authentication (mobile app)
+    path('firebase-token-exchange/', firebase_auth_views.firebase_token_exchange, name='firebase_token_exchange'),
+
     # OAuth endpoints
     path('oauth/<str:provider>/login/', oauth_views.oauth_login, name='oauth_login'),
     path('oauth/<str:provider>/callback/', oauth_views.oauth_callback, name='oauth_callback'),

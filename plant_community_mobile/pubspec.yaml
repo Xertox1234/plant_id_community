@@ -65,6 +65,9 @@ dependencies:
   # Environment Configuration
   flutter_dotenv: ^5.2.1
 
+  # Secure Storage
+  flutter_secure_storage: ^9.2.2  # Secure JWT token storage
+
   # Notifications
   flutter_local_notifications: ^18.0.1  # Local notification scheduling
 
