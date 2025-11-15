@@ -51,4 +51,30 @@ class Plant {
       timestamp: timestamp ?? this.timestamp,
     );
   }
+
+  /// Convert Plant to JSON for Firestore
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'scientificName': scientificName,
+      'description': description,
+      'care': care,
+      'imageUrl': imageUrl,
+      'timestamp': timestamp.toIso8601String(),
+    };
+  }
+
+  /// Create Plant from JSON (Firestore document)
+  factory Plant.fromJson(Map<String, dynamic> json) {
+    return Plant(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      scientificName: json['scientificName'] as String,
+      description: json['description'] as String,
+      care: (json['care'] as List<dynamic>).cast<String>(),
+      imageUrl: json['imageUrl'] as String?,
+      timestamp: DateTime.parse(json['timestamp'] as String),
+    );
+  }
 }
