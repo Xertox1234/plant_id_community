@@ -51,6 +51,16 @@ class UserProfileService extends _$UserProfileService {
       }
 
       final apiService = ref.read(apiServiceProvider);
+
+      // Backend response: GET /api/v1/auth/user/
+      // Returns UserProfileSerializer data directly (no wrapper):
+      // {
+      //   "id": 1,
+      //   "username": "john_doe",
+      //   "email": "john@example.com",
+      //   "first_name": "John",
+      //   ... (all profile fields)
+      // }
       final response = await apiService.get('/auth/user/');
 
       if (kDebugMode) {
@@ -141,7 +151,17 @@ class UserProfileService extends _$UserProfileService {
         updateData['forum_notifications'] = forumNotifications;
       }
 
-      // Call backend
+      // Backend response: PATCH /api/v1/auth/user/update/
+      // Returns wrapped response with message and user data:
+      // {
+      //   "message": "Profile updated successfully",
+      //   "user": {
+      //     "id": 1,
+      //     "username": "john_doe",
+      //     "email": "john@example.com",
+      //     ... (all profile fields)
+      //   }
+      // }
       final apiService = ref.read(apiServiceProvider);
       final response = await apiService.patch(
         '/auth/user/update/',
@@ -152,7 +172,7 @@ class UserProfileService extends _$UserProfileService {
         debugPrint('[USER_PROFILE] Profile updated successfully');
       }
 
-      // Parse updated profile from response
+      // Parse updated profile from response (nested under 'user' key)
       final updatedProfile = UserProfile.fromJson(
         response.data['user'] as Map<String, dynamic>,
       );
