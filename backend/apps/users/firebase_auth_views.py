@@ -4,8 +4,11 @@ Firebase Authentication Views for Mobile App Integration
 This module handles authentication between Firebase (mobile app) and Django (backend).
 It validates Firebase ID tokens and exchanges them for Django JWT tokens.
 """
+from __future__ import annotations
+
 import logging
-from typing import Dict, Any
+import uuid
+from typing import Dict, Any, Tuple, Optional
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -21,19 +24,61 @@ from firebase_admin import auth as firebase_auth, credentials
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
-# Initialize Firebase Admin SDK
-# NOTE: Firebase credentials should be configured via environment variable:
-# export GOOGLE_APPLICATION_CREDENTIALS="/path/to/serviceAccountKey.json"
-try:
-    # Check if Firebase app is already initialized
-    firebase_admin.get_app()
-    logger.info("[FIREBASE] Firebase Admin SDK already initialized")
-except ValueError:
-    # Initialize Firebase app if not already done
-    # This will use GOOGLE_APPLICATION_CREDENTIALS env variable
-    cred = credentials.ApplicationDefault()
-    firebase_admin.initialize_app(cred)
-    logger.info("[FIREBASE] Firebase Admin SDK initialized")
+# Firebase initialization flag (lazy initialization)
+_firebase_initialized = False
+
+
+def redact_email(email: str) -> str:
+    """
+    Redact email for GDPR-compliant logging.
+
+    Shows first 2 characters of local part + domain.
+    Example: john.doe@example.com -> jo***@example.com
+
+    Args:
+        email: Email address to redact
+
+    Returns:
+        Redacted email string safe for logs
+    """
+    if not email or '@' not in email:
+        return '***'
+
+    local, domain = email.split('@', 1)
+    if len(local) <= 2:
+        return f"{'*' * len(local)}@{domain}"
+
+    return f"{local[:2]}***@{domain}"
+
+
+def _ensure_firebase_initialized() -> None:
+    """
+    Initialize Firebase Admin SDK if not already done.
+
+    This is called lazily on first use, allowing:
+    - Tests to run without Firebase credentials (with mocking)
+    - CI/CD to skip Firebase initialization if not needed
+    - Local dev to work without Firebase setup
+
+    Initialization uses GOOGLE_APPLICATION_CREDENTIALS environment variable.
+    See FIREBASE_SETUP.md for configuration instructions.
+    """
+    global _firebase_initialized
+
+    if _firebase_initialized:
+        return
+
+    try:
+        firebase_admin.get_app()
+        logger.info("[FIREBASE] Firebase Admin SDK already initialized")
+    except ValueError:
+        # Initialize Firebase app if not already done
+        # This will use GOOGLE_APPLICATION_CREDENTIALS env variable
+        cred = credentials.ApplicationDefault()
+        firebase_admin.initialize_app(cred)
+        logger.info("[FIREBASE] Firebase Admin SDK initialized")
+
+    _firebase_initialized = True
 
 
 @api_view(['POST'])
@@ -75,6 +120,9 @@ def firebase_token_exchange(request: Request) -> Response:
             "error": "Invalid Firebase token"
         }
     """
+    # Initialize Firebase Admin SDK (lazy initialization)
+    _ensure_firebase_initialized()
+
     try:
         # Extract Firebase token from request
         firebase_token = request.data.get('firebase_token')
@@ -92,7 +140,7 @@ def firebase_token_exchange(request: Request) -> Response:
             firebase_uid = decoded_token['uid']
             firebase_email = decoded_token.get('email')
 
-            logger.info(f"[FIREBASE AUTH] Token validated for uid={firebase_uid}, email={firebase_email}")
+            logger.info(f"[FIREBASE AUTH] Token validated for uid={firebase_uid}, email={redact_email(firebase_email)}")
 
         except firebase_auth.ExpiredIdTokenError as e:
             # NOTE: ExpiredIdTokenError must be caught before InvalidIdTokenError
@@ -123,9 +171,9 @@ def firebase_token_exchange(request: Request) -> Response:
         )
 
         if created:
-            logger.info(f"[FIREBASE AUTH] Created new user: {user.email}")
+            logger.info(f"[FIREBASE AUTH] Created new user: {redact_email(user.email)}")
         else:
-            logger.info(f"[FIREBASE AUTH] Existing user authenticated: {user.email}")
+            logger.info(f"[FIREBASE AUTH] Existing user authenticated: {redact_email(user.email)}")
 
         # Generate Django JWT tokens
         refresh = RefreshToken.for_user(user)
@@ -155,10 +203,14 @@ def firebase_token_exchange(request: Request) -> Response:
 def get_or_create_user_from_firebase(
     firebase_uid: str,
     firebase_email: str,
-    display_name: str | None = None,
-) -> tuple[User, bool]:
+    display_name: Optional[str] = None,
+) -> Tuple[User, bool]:
     """
     Get or create a Django user from Firebase credentials.
+
+    Handles username collisions by appending UUID suffix if needed.
+    Example: john@gmail.com and john@yahoo.com would create
+    'john' and 'john_a1b2c3d4' respectively.
 
     Args:
         firebase_uid: Firebase user ID
@@ -167,28 +219,63 @@ def get_or_create_user_from_firebase(
 
     Returns:
         Tuple of (User instance, created boolean)
+
+    Raises:
+        ValueError: If email is invalid or empty
     """
-    # Try to find user by email
-    user, created = User.objects.get_or_create(
-        email=firebase_email,
-        defaults={
-            'username': firebase_email.split('@')[0],  # Use email prefix as username
-            'first_name': display_name or '',
-            'is_active': True,
-        }
-    )
+    if not firebase_email or '@' not in firebase_email:
+        raise ValueError(f"Invalid Firebase email: {firebase_email}")
 
-    # Update display name if provided and user exists
-    if not created and display_name and not user.first_name:
-        user.first_name = display_name
-        user.save()
+    # Try to find existing user by email
+    try:
+        user = User.objects.get(email=firebase_email)
+        created = False
 
-    # Store Firebase UID in user profile if needed
-    # NOTE: This requires a UserProfile model with firebase_uid field
-    # If you have such a model, uncomment this:
-    # if hasattr(user, 'profile'):
-    #     if not user.profile.firebase_uid:
-    #         user.profile.firebase_uid = firebase_uid
-    #         user.profile.save()
+        # Update display name if provided and user has none
+        if display_name and not user.first_name:
+            user.first_name = display_name
+            user.save()
+            logger.info(f"[FIREBASE AUTH] Updated display name for {redact_email(user.email)}")
 
-    return user, created
+        return user, created
+
+    except User.DoesNotExist:
+        pass
+
+    # User doesn't exist - create new user with collision-safe username
+    base_username = firebase_email.split('@')[0]
+    username = base_username
+
+    # Check for username collision
+    if User.objects.filter(username=username).exists():
+        # Append UUID suffix to make username unique
+        username = f"{base_username}_{uuid.uuid4().hex[:8]}"
+        logger.info(
+            f"[FIREBASE AUTH] Username collision for '{base_username}', "
+            f"using '{username}' for {redact_email(firebase_email)}"
+        )
+
+    # Create new user
+    try:
+        user = User.objects.create(
+            email=firebase_email,
+            username=username,
+            first_name=display_name or '',
+            is_active=True,
+        )
+        logger.info(f"[FIREBASE AUTH] Created user '{user.username}' for {redact_email(firebase_email)}")
+
+        return user, True
+
+    except Exception as e:
+        logger.error(
+            f"[FIREBASE AUTH ERROR] Failed to create user for {redact_email(firebase_email)}: {str(e)}"
+        )
+        raise
+
+    # NOTE: Store Firebase UID in user profile if you have a UserProfile model
+    # with firebase_uid field:
+    #
+    # if hasattr(user, 'profile') and not user.profile.firebase_uid:
+    #     user.profile.firebase_uid = firebase_uid
+    #     user.profile.save()
