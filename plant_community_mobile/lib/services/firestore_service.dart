@@ -56,12 +56,45 @@ class FirestoreService extends _$FirestoreService {
     }
   }
 
+  /// Validate userId is non-empty and safe for Firestore paths
+  ///
+  /// Throws [FirestoreException] if userId is invalid
+  void _validateUserId(String userId) {
+    if (userId.isEmpty) {
+      throw FirestoreException('userId cannot be empty');
+    }
+
+    // Firestore document IDs have specific rules:
+    // - Cannot contain forward slashes
+    // - Cannot solely be "." or ".."
+    // - Cannot exceed 1500 bytes
+    if (userId.contains('/')) {
+      throw FirestoreException(
+        'Invalid userId: cannot contain forward slashes',
+      );
+    }
+
+    if (userId == '.' || userId == '..') {
+      throw FirestoreException(
+        'Invalid userId: cannot be "." or ".."',
+      );
+    }
+
+    if (userId.length > 1500) {
+      throw FirestoreException(
+        'Invalid userId: exceeds maximum length of 1500 characters',
+      );
+    }
+  }
+
   /// Save identified plant to Firestore
   ///
   /// Data will be cached locally and synced when online
   ///
-  /// Throws [FirestoreException] if save fails
+  /// Throws [FirestoreException] if save fails or userId is invalid
   Future<void> savePlant(String userId, Plant plant) async {
+    _validateUserId(userId);
+
     try {
       if (kDebugMode) {
         debugPrint(
@@ -94,9 +127,34 @@ class FirestoreService extends _$FirestoreService {
 
   /// Get real-time stream of identified plants
   ///
-  /// Returns cached data when offline, syncs when online
-  /// Ordered by timestamp (most recent first)
+  /// Returns cached data when offline, syncs when online.
+  /// Ordered by timestamp (most recent first).
+  ///
+  /// ⚠️ **IMPORTANT - StreamSubscription Cleanup**:
+  /// When calling this method directly (not via `plantsStreamProvider`),
+  /// you MUST cancel the StreamSubscription to prevent memory leaks:
+  /// ```dart
+  /// final subscription = firestoreService.getPlantsStream(userId).listen(...);
+  /// // Later, when done:
+  /// subscription.cancel();
+  /// ```
+  /// Prefer using `plantsStreamProvider` which handles cleanup automatically.
+  ///
+  /// ⚠️ **IMPORTANT - Firestore Index Required**:
+  /// This query requires a Firestore composite index on the
+  /// `identified_plants` collection with field `timestamp` (descending).
+  ///
+  /// On first run, if the index doesn't exist, you'll see an error like:
+  /// ```
+  /// [cloud_firestore/failed-precondition] The query requires an index.
+  /// You can create it here: https://console.firebase.google.com/...
+  /// ```
+  /// Click the URL in the error message to auto-create the index in Firebase Console.
+  ///
+  /// Throws [FirestoreException] if userId is invalid
   Stream<List<Plant>> getPlantsStream(String userId) {
+    _validateUserId(userId);
+
     if (kDebugMode) {
       debugPrint('[FIRESTORE] Creating plants stream for user $userId');
     }
@@ -139,8 +197,10 @@ class FirestoreService extends _$FirestoreService {
   ///
   /// Deletion will sync when online
   ///
-  /// Throws [FirestoreException] if deletion fails
+  /// Throws [FirestoreException] if deletion fails or userId is invalid
   Future<void> deletePlant(String userId, String plantId) async {
+    _validateUserId(userId);
+
     try {
       if (kDebugMode) {
         debugPrint('[FIRESTORE] Deleting plant $plantId for user $userId');
@@ -174,7 +234,11 @@ class FirestoreService extends _$FirestoreService {
   /// Returns cached data when offline
   ///
   /// Returns null if plant not found
+  ///
+  /// Throws [FirestoreException] if userId is invalid
   Future<Plant?> getPlant(String userId, String plantId) async {
+    _validateUserId(userId);
+
     try {
       if (kDebugMode) {
         debugPrint('[FIRESTORE] Fetching plant $plantId for user $userId');
@@ -219,7 +283,11 @@ class FirestoreService extends _$FirestoreService {
   /// Clear all plants for a user (useful for testing or account deletion)
   ///
   /// WARNING: This is irreversible!
+  ///
+  /// Throws [FirestoreException] if userId is invalid
   Future<void> clearAllPlants(String userId) async {
+    _validateUserId(userId);
+
     try {
       if (kDebugMode) {
         debugPrint('[FIRESTORE] Clearing all plants for user $userId');
