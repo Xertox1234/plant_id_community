@@ -1,12 +1,14 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/routing/app_router.dart';
-import '../../services/mock_plant_service.dart';
+import '../../services/plant_identification_service.dart';
+import '../../services/api_service.dart';
 import '../../models/plant.dart';
 
 /// Camera screen for plant identification
@@ -16,19 +18,20 @@ import '../../models/plant.dart';
 /// Features:
 /// - Take photo with camera
 /// - Upload from gallery
-/// - Sample images for testing
-/// - Mock plant identification
-class CameraScreen extends StatefulWidget {
+/// - Sample images for testing (optional)
+/// - Real plant identification via Django backend
+class CameraScreen extends ConsumerStatefulWidget {
   const CameraScreen({super.key});
 
   @override
-  State<CameraScreen> createState() => _CameraScreenState();
+  ConsumerState<CameraScreen> createState() => _CameraScreenState();
 }
 
-class _CameraScreenState extends State<CameraScreen> {
+class _CameraScreenState extends ConsumerState<CameraScreen> {
   final ImagePicker _picker = ImagePicker();
   String? _selectedImagePath;
   bool _isIdentifying = false;
+  double _uploadProgress = 0.0;
 
   /// Handle photo from camera
   Future<void> _takePhoto() async {
@@ -77,28 +80,51 @@ class _CameraScreenState extends State<CameraScreen> {
     });
   }
 
-  /// Identify the plant
+  /// Identify the plant using real backend API
   Future<void> _identifyPlant() async {
     if (_selectedImagePath == null) return;
 
     setState(() {
       _isIdentifying = true;
+      _uploadProgress = 0.0;
     });
 
     try {
-      // Call mock identification service
-      final Plant plant = await MockPlantService.identifyPlant(_selectedImagePath!);
+      // Call real plant identification service
+      final plantIdService = ref.read(plantIdentificationServiceProvider.notifier);
+
+      final Plant plant = await plantIdService.identifyPlant(
+        _selectedImagePath!,
+        onUploadProgress: (progress) {
+          if (mounted) {
+            setState(() {
+              _uploadProgress = progress;
+            });
+          }
+        },
+      );
 
       if (!mounted) return;
 
       // Navigate to results screen with plant data (passed as extra)
       context.go(AppRoutes.results, extra: plant);
+    } on ApiException catch (e) {
+      // Handle API-specific errors (network, auth, etc.)
+      if (!mounted) return;
+      _showError('API Error: ${e.message}');
+    } on PlantIdentificationException catch (e) {
+      // Handle plant identification errors
+      if (!mounted) return;
+      _showError(e.message);
     } catch (e) {
-      _showError('Failed to identify plant: $e');
+      // Handle unexpected errors
+      if (!mounted) return;
+      _showError('Failed to identify plant. Please try again.');
     } finally {
       if (mounted) {
         setState(() {
           _isIdentifying = false;
+          _uploadProgress = 0.0;
         });
       }
     }
@@ -136,8 +162,9 @@ class _CameraScreenState extends State<CameraScreen> {
               _buildActionButtons(),
               const SizedBox(height: AppSpacing.xl),
 
-              // Sample Images (shown when no image selected)
-              if (_selectedImagePath == null) _buildSampleImages(),
+              // Sample Images (optional, can be removed for production)
+              // Uncomment to enable test images from MockPlantService
+              // if (_selectedImagePath == null) _buildSampleImages(),
             ],
           ),
         ),
@@ -265,7 +292,8 @@ class _CameraScreenState extends State<CameraScreen> {
     );
   }
 
-  /// Sample images grid
+  /// Sample images grid (commented out - can be re-enabled for testing)
+  /*
   Widget _buildSampleImages() {
     return Column(
       children: [
@@ -285,9 +313,9 @@ class _CameraScreenState extends State<CameraScreen> {
             crossAxisSpacing: AppSpacing.sm,
             mainAxisSpacing: AppSpacing.sm,
           ),
-          itemCount: MockPlantService.sampleImages.length,
+          itemCount: sampleImages.length,
           itemBuilder: (context, index) {
-            final imageUrl = MockPlantService.sampleImages[index];
+            final imageUrl = sampleImages[index];
             return _buildSampleImageTile(imageUrl, index);
           },
         ),
@@ -326,4 +354,13 @@ class _CameraScreenState extends State<CameraScreen> {
       ),
     );
   }
+
+  /// Sample images (can be used for testing without real API)
+  static const List<String> sampleImages = [
+    'https://images.unsplash.com/photo-1717130082324-00781001faba?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzdWNjdWxlbnQlMjBwbGFudCUyMGNsb3NlfGVufDF8fHx8MTc2MTA1OTEwOHww&ixlib=rb-4.1.0&q=80&w=1080',
+    'https://images.unsplash.com/photo-1680593384685-1d8c68f37872?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmZXJuJTIwbGVhdmVzJTIwbmF0dXJlfGVufDF8fHx8MTc2MTA1OTEwOHww&ixlib=rb-4.1.0&q=80&w=1080',
+    'https://images.unsplash.com/photo-1648528203163-8604bf696e7c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb25zdGVyYSUyMHBsYW50JTIwaW5kb29yfGVufDF8fHx8MTc2MTAxNjkzOXww&ixlib=rb-4.1.0&q=80&w=1080',
+    'https://images.unsplash.com/photo-1631791222734-2f1cb65e2fa9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxsYXZlbmRlciUyMGZsb3dlcnMlMjBmaWVsZHxlbnwxfHx8fDE3NjEwMjEzMTh8MA&ixlib=rb-4.1.0&q=80&w=1080',
+  ];
+  */
 }
