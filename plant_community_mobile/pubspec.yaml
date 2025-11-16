@@ -63,7 +63,7 @@ dependencies:
   logger: ^2.5.0
 
   # Environment Configuration
-  flutter_dotenv: ^5.2.1
+  flutter_dotenv: ^6.0.0
 
   # Secure Storage
   flutter_secure_storage: ^9.2.2  # Secure JWT token storage
@@ -79,10 +79,10 @@ dependencies:
 
   # Location services (for weather data)
   geolocator: ^14.0.2  # GPS location
-  geocoding: ^3.0.0  # Reverse geocoding
+  geocoding: ^4.0.0  # Reverse geocoding
 
   # Permissions
-  permission_handler: ^11.3.1  # For notification and location permissions
+  permission_handler: ^12.0.1  # For notification and location permissions
 
 dev_dependencies:
   flutter_test:
