@@ -290,40 +290,64 @@ class OfflineApiService implements ApiService {
   Future<Response> uploadFile(
     String path, {
     required String filePath,
-    required String fieldName,
+    String fieldName = 'image',
     Map<String, dynamic>? data,
-    Function(int, int)? onSendProgress,
+    void Function(int sent, int total)? onSendProgress,
   }) async {
     await Future.delayed(const Duration(milliseconds: 100));
     throw ApiException('No internet connection');
   }
 
   @override
-  Future<Response> get(String path, {Map<String, dynamic>? queryParameters}) async {
+  Future<Response> get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
     await Future.delayed(const Duration(milliseconds: 100));
     throw ApiException('No internet connection');
   }
 
   @override
-  Future<Response> post(String path, {dynamic data}) async {
+  Future<Response> post(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
     await Future.delayed(const Duration(milliseconds: 100));
     throw ApiException('No internet connection');
   }
 
   @override
-  Future<Response> put(String path, {dynamic data}) async {
+  Future<Response> put(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
     await Future.delayed(const Duration(milliseconds: 100));
     throw ApiException('No internet connection');
   }
 
   @override
-  Future<Response> patch(String path, {dynamic data}) async {
+  Future<Response> patch(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
     await Future.delayed(const Duration(milliseconds: 100));
     throw ApiException('No internet connection');
   }
 
   @override
-  Future<Response> delete(String path) async {
+  Future<Response> delete(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
     await Future.delayed(const Duration(milliseconds: 100));
     throw ApiException('No internet connection');
   }
@@ -343,9 +367,9 @@ class OnlineApiService implements ApiService {
   Future<Response> uploadFile(
     String path, {
     required String filePath,
-    required String fieldName,
+    String fieldName = 'image',
     Map<String, dynamic>? data,
-    Function(int, int)? onSendProgress,
+    void Function(int sent, int total)? onSendProgress,
   }) async {
     await Future.delayed(const Duration(milliseconds: 500));
 
@@ -365,7 +389,11 @@ class OnlineApiService implements ApiService {
   }
 
   @override
-  Future<Response> get(String path, {Map<String, dynamic>? queryParameters}) async {
+  Future<Response> get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
     await Future.delayed(const Duration(milliseconds: 200));
 
     return Response(
@@ -376,7 +404,12 @@ class OnlineApiService implements ApiService {
   }
 
   @override
-  Future<Response> post(String path, {dynamic data}) async {
+  Future<Response> post(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
     await Future.delayed(const Duration(milliseconds: 200));
 
     return Response(
@@ -387,7 +420,12 @@ class OnlineApiService implements ApiService {
   }
 
   @override
-  Future<Response> put(String path, {dynamic data}) async {
+  Future<Response> put(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
     await Future.delayed(const Duration(milliseconds: 200));
 
     return Response(
@@ -398,7 +436,12 @@ class OnlineApiService implements ApiService {
   }
 
   @override
-  Future<Response> patch(String path, {dynamic data}) async {
+  Future<Response> patch(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
     await Future.delayed(const Duration(milliseconds: 200));
 
     return Response(
@@ -409,7 +452,12 @@ class OnlineApiService implements ApiService {
   }
 
   @override
-  Future<Response> delete(String path) async {
+  Future<Response> delete(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
     await Future.delayed(const Duration(milliseconds: 200));
 
     return Response(
