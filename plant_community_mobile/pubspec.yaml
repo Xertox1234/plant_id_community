@@ -63,7 +63,7 @@ dependencies:
   logger: ^2.5.0
 
   # Environment Configuration
-  flutter_dotenv: ^5.2.1
+  flutter_dotenv: ^6.0.0
 
   # Secure Storage
   flutter_secure_storage: ^9.2.2  # Secure JWT token storage
