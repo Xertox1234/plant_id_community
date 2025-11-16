@@ -82,7 +82,7 @@ dependencies:
   geocoding: ^3.0.0  # Reverse geocoding
 
   # Permissions
-  permission_handler: ^11.3.1  # For notification and location permissions
+  permission_handler: ^12.0.1  # For notification and location permissions
 
 dev_dependencies:
   flutter_test:
