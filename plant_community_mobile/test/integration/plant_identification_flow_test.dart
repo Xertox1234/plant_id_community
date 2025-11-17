@@ -33,7 +33,7 @@ void main() {
           }),
           // Mock Firebase Storage service
           firebaseStorageServiceProvider.overrideWith(
-            (ref) => MockFirebaseStorageService(),
+            () => MockFirebaseStorageService(),
           ),
         ],
       );
@@ -132,7 +132,7 @@ void main() {
               return FailingApiService();
             }),
             firebaseStorageServiceProvider.overrideWith(
-              (ref) => MockFirebaseStorageService(),
+              () => MockFirebaseStorageService(),
             ),
           ],
         );
@@ -161,7 +161,7 @@ void main() {
         overrides: [
           apiServiceProvider.overrideWith((ref) => MockApiService()),
           firebaseStorageServiceProvider.overrideWith(
-            (ref) => MockFirebaseStorageService(),
+            () => MockFirebaseStorageService(),
           ),
         ],
       );
@@ -192,7 +192,7 @@ void main() {
         overrides: [
           apiServiceProvider.overrideWith((ref) => FailingApiService()),
           firebaseStorageServiceProvider.overrideWith(
-            (ref) => MockFirebaseStorageService(),
+            () => MockFirebaseStorageService(),
           ),
         ],
       );
@@ -214,7 +214,7 @@ void main() {
         overrides: [
           apiServiceProvider.overrideWith((ref) => EmptyResponseApiService()),
           firebaseStorageServiceProvider.overrideWith(
-            (ref) => MockFirebaseStorageService(),
+            () => MockFirebaseStorageService(),
           ),
         ],
       );
@@ -246,9 +246,9 @@ class MockApiService implements ApiService {
   Future<Response> uploadFile(
     String path, {
     required String filePath,
-    required String fieldName,
+    String fieldName = 'image',
     Map<String, dynamic>? data,
-    Function(int, int)? onSendProgress,
+    void Function(int sent, int total)? onSendProgress,
   }) async {
     // Simulate API delay
     await Future.delayed(const Duration(milliseconds: 500));
@@ -275,27 +275,51 @@ class MockApiService implements ApiService {
   }
 
   @override
-  Future<Response> get(String path, {Map<String, dynamic>? queryParameters}) {
+  Future<Response> get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<Response> post(String path, {dynamic data}) {
+  Future<Response> post(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<Response> put(String path, {dynamic data}) {
+  Future<Response> put(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<Response> patch(String path, {dynamic data}) {
+  Future<Response> patch(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<Response> delete(String path) {
+  Future<Response> delete(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 }
@@ -312,36 +336,60 @@ class FailingApiService implements ApiService {
   Future<Response> uploadFile(
     String path, {
     required String filePath,
-    required String fieldName,
+    String fieldName = 'image',
     Map<String, dynamic>? data,
-    Function(int, int)? onSendProgress,
+    void Function(int sent, int total)? onSendProgress,
   }) async {
     await Future.delayed(const Duration(milliseconds: 100));
     throw ApiException('Network error: Failed to connect to server');
   }
 
   @override
-  Future<Response> get(String path, {Map<String, dynamic>? queryParameters}) {
+  Future<Response> get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<Response> post(String path, {dynamic data}) {
+  Future<Response> post(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<Response> put(String path, {dynamic data}) {
+  Future<Response> put(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<Response> patch(String path, {dynamic data}) {
+  Future<Response> patch(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<Response> delete(String path) {
+  Future<Response> delete(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 }
@@ -358,9 +406,9 @@ class EmptyResponseApiService implements ApiService {
   Future<Response> uploadFile(
     String path, {
     required String filePath,
-    required String fieldName,
+    String fieldName = 'image',
     Map<String, dynamic>? data,
-    Function(int, int)? onSendProgress,
+    void Function(int sent, int total)? onSendProgress,
   }) async {
     await Future.delayed(const Duration(milliseconds: 100));
     return Response(
@@ -376,27 +424,51 @@ class EmptyResponseApiService implements ApiService {
   }
 
   @override
-  Future<Response> get(String path, {Map<String, dynamic>? queryParameters}) {
+  Future<Response> get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<Response> post(String path, {dynamic data}) {
+  Future<Response> post(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<Response> put(String path, {dynamic data}) {
+  Future<Response> put(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<Response> patch(String path, {dynamic data}) {
+  Future<Response> patch(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<Response> delete(String path) {
+  Future<Response> delete(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) {
     throw UnimplementedError();
   }
 }
