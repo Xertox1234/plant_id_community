@@ -22,7 +22,7 @@ void main() {
     setUp(() {
       container = ProviderContainer(
         overrides: [
-          firestoreServiceProvider.overrideWith((ref) {
+          firestoreServiceProvider.overrideWith(() {
             return MockFirestoreService();
           }),
           apiServiceProvider.overrideWith((ref) {
@@ -119,7 +119,7 @@ void main() {
     setUp(() {
       container = ProviderContainer(
         overrides: [
-          firestoreServiceProvider.overrideWith((ref) {
+          firestoreServiceProvider.overrideWith(() {
             return MockFirestoreService();
           }),
           apiServiceProvider.overrideWith((ref) {
