@@ -72,7 +72,7 @@ dependencies:
   flutter_local_notifications: ^18.0.1  # Local notification scheduling
 
   # Offline-first persistence
-  drift: ^2.22.0  # SQLite-based database for offline storage
+  drift: ^2.30.0  # SQLite-based database for offline storage
   sqlite3_flutter_libs: ^0.5.24  # SQLite native libraries
   path_provider: ^2.1.5  # For database file paths
   path: ^1.9.1  # Path manipulation
