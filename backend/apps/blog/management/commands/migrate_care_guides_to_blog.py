@@ -289,20 +289,20 @@ class Command(BaseCommand):
                         # Convert seasonal care to heading + paragraph
                         seasonal_data = block.value
                         season = seasonal_data.get('season', '').title()
-                        blocks.append(('heading', f"🌿 {season} Care\"))
+                        blocks.append(('heading', f"🌿 {season} Care"))
                         blocks.append(('paragraph', seasonal_data.get('care_instructions', '')))
                         if seasonal_data.get('special_notes'):
-                            blocks.append(('paragraph', f"Special notes: {seasonal_data['special_notes']}\"))
+                            blocks.append(('paragraph', f"Special notes: {seasonal_data['special_notes']}"))
                     elif block.block_type == 'problem_solution':
                         # Convert problem/solution to structured content
                         problem_data = block.value
-                        blocks.append(('heading', f"⚠️ Problem: {problem_data.get('problem', '')}\"))
+                        blocks.append(('heading', f"⚠️ Problem: {problem_data.get('problem', '')}"))
                         if problem_data.get('symptoms'):
-                            blocks.append(('paragraph', f"Symptoms: {problem_data['symptoms']}\"))
+                            blocks.append(('paragraph', f"Symptoms: {problem_data['symptoms']}"))
                         if problem_data.get('solution'):
-                            blocks.append(('paragraph', f"Solution: {problem_data['solution']}\"))
+                            blocks.append(('paragraph', f"Solution: {problem_data['solution']}"))
                         if problem_data.get('prevention'):
-                            blocks.append(('paragraph', f"Prevention: {problem_data['prevention']}\"))
+                            blocks.append(('paragraph', f"Prevention: {problem_data['prevention']}"))
                     elif block.block_type == 'gallery':
                         blocks.append(('gallery', block.value))
             except Exception as e:

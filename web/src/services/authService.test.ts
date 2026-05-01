@@ -72,7 +72,7 @@ describe('authService', () => {
   beforeEach(() => {
     // Mock fetch
     fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    global.fetch = fetchMock as unknown as typeof fetch;
 
     // Mock sessionStorage
     sessionStorageMock = {

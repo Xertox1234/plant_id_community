@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// Centralized HTTP client service for Django backend communication.
 ///
@@ -374,11 +373,18 @@ class ApiException implements Exception {
 /// This provider creates a singleton instance of ApiService
 /// that can be injected into any widget or service.
 ///
-/// The base URL is loaded from .env file for environment-specific configuration.
+/// The base URL is loaded from --dart-define for environment-specific
+/// configuration.
 final apiServiceProvider = Provider<ApiService>((ref) {
-  // Load base URL from environment variables
-  // Default to localhost for development if not set
-  final baseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost:8000/api/v1';
+  // Load base URL from --dart-define.
+  // Default to localhost for development if not set.
+  const dartDefinedBaseUrl = String.fromEnvironment('API_BASE_URL');
+  if (dartDefinedBaseUrl.isEmpty && kReleaseMode) {
+    throw StateError(
+      'Missing API_BASE_URL. Pass --dart-define=API_BASE_URL=... for release builds.',
+    );
+  }
+  final baseUrl = dartDefinedBaseUrl.isNotEmpty ? dartDefinedBaseUrl : 'http://localhost:8000/api/v1';
 
   if (kDebugMode) {
     debugPrint('[API] Initializing ApiService with baseUrl: $baseUrl');

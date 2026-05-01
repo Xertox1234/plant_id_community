@@ -228,7 +228,7 @@ export async function refreshAccessToken(): Promise<boolean> {
     });
 
     if (!response.ok) {
-      logger.warn('[authService] Token refresh failed:', response.status);
+      logger.warn('[authService] Token refresh failed', { status: response.status });
       return false;
     }
 

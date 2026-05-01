@@ -116,7 +116,7 @@ let documentCookieMock: string;
 
 beforeEach(() => {
   fetchMock = vi.fn();
-  global.fetch = fetchMock;
+  global.fetch = fetchMock as unknown as typeof fetch;
 
   // Mock document.cookie
   documentCookieMock = 'csrftoken=test-csrf-token';

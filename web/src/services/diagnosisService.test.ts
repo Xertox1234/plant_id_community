@@ -113,7 +113,7 @@ describe('diagnosisService', () => {
   beforeEach(() => {
     // Mock fetch
     fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    global.fetch = fetchMock as unknown as typeof fetch;
 
     // Mock document.cookie with JWT access token
     documentCookieMock = 'access_token=test-jwt-token';

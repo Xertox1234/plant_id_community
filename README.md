@@ -5,9 +5,9 @@ A multi-platform plant identification system featuring AI-powered plant recognit
 ## 🚀 Quick Start
 
 ### Prerequisites
-- **Web**: Node.js 18+, npm
-- **Mobile**: Flutter 3.37+, Dart 3.10+
-- **Backend**: Python 3.10+, Django 5.2
+- **Web**: Node.js 24.x, npm 11.x
+- **Mobile**: Flutter 3.35+, Dart 3.9.x
+- **Backend**: Python 3.12.x, Django 5.2
 
 ### 3-Minute Setup
 
@@ -41,7 +41,7 @@ Visit:
 
 ### Multi-Platform Stack
 - **Web Frontend**: React 19 + Vite + Tailwind CSS 4
-- **Mobile App**: Flutter 3.37 + Firebase (primary platform)
+- **Mobile App**: Flutter 3.35+ / Dart 3.9.x + Firebase (primary platform)
 - **Backend**: Django 5.2 + Django REST Framework + Wagtail 7.0.3 CMS
 - **Database**: SQLite (dev), PostgreSQL (production)
 - **Cache**: Redis (40% hit rate, <50ms responses)
@@ -66,20 +66,18 @@ plant_id_community/
 │   │   └── main.dart
 │   └── pubspec.yaml
 │
-├── existing_implementation/      # Reference (Django backend)
-│   └── backend/                 # Backend services
-│       ├── apps/
-│       │   ├── plant_identification/
-│       │   ├── blog/
-│       │   └── users/
-│       └── requirements.txt
+├── backend/                      # Django backend services
+│   ├── apps/
+│   │   ├── plant_identification/
+│   │   ├── blog/
+│   │   └── users/
+│   └── requirements.txt
 │
 ├── firebase/                     # Firebase config
 │   ├── firestore.rules
 │   └── storage.rules
 │
-├── PLANNING/                     # Architecture docs
-└── CLAUDE.md                     # Development guide
+└── PLANNING/                     # Architecture docs
 ```
 
 ## 🎨 Features
@@ -128,7 +126,7 @@ flutter analyze                 # Static analysis
 
 ### Backend
 ```bash
-cd existing_implementation/backend
+cd backend
 source venv/bin/activate
 python manage.py runserver      # Dev server (port 8000)
 python manage.py migrate        # Run migrations
@@ -137,12 +135,12 @@ python manage.py test           # Run tests
 
 ## 🔑 Environment Setup
 
-### Web (`.env` in `/web`)
+### Web (`web/.env`)
 ```bash
 VITE_API_URL=http://localhost:8000
 ```
 
-### Backend (`.env` in `/existing_implementation/backend`)
+### Backend (`backend/.env`)
 ```bash
 SECRET_KEY=your-secret-key
 DEBUG=True
@@ -159,8 +157,8 @@ PLANTNET_API_KEY=your-plantnet-key
 
 ## 📖 Documentation
 
-- **[CLAUDE.md](CLAUDE.md)** - Complete development guide for Claude Code
 - **[PLANNING/](PLANNING/)** - Architecture decisions and technical specs
+- **[API Documentation](PLANNING/07_API_DOCUMENTATION.md)** - Endpoint and schema reference
 - **[Web README](web/README.md)** - React frontend docs
 - **[Mobile README](plant_community_mobile/README.md)** - Flutter app docs
 - **[Archive](docs/archive/)** - Historical documentation and audit reports
@@ -183,7 +181,7 @@ flutter test --coverage         # With coverage
 
 ### Backend
 ```bash
-cd existing_implementation/backend
+cd backend
 python manage.py test apps.plant_identification
 ```
 
@@ -224,7 +222,7 @@ Content-Type: multipart/form-data
 Body: { image: <file> }
 ```
 
-See `CLAUDE.md` for complete API documentation.
+See [PLANNING/07_API_DOCUMENTATION.md](PLANNING/07_API_DOCUMENTATION.md) for complete API documentation.
 
 ## 🤝 Architecture Decisions
 
@@ -291,4 +289,4 @@ Copyright © 2025 Plant Community. All rights reserved.
 
 ---
 
-**For detailed setup and development instructions, see [CLAUDE.md](CLAUDE.md)**
+**For detailed setup and development instructions, see [PLANNING/](PLANNING/) and component README files.**

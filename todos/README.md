@@ -8,6 +8,24 @@
 
 ## Quick Reference
 
+### Current Stabilization Sweep (May 1, 2026)
+
+These todos were created after a fresh codebase assessment to make the repository safe to resume before new feature work:
+
+| ID | Priority | Issue | File |
+|----|----------|-------|------|
+| 046 | P1 | Backend syntax error | completed/046-completed-p1-backend-syntax-error.md |
+| 047 | P1 | Web build/type-check failures | completed/047-completed-p1-web-build-typecheck-failures.md |
+| 048 | P2 | Web Vitest suite failures | 048-pending-p2-web-test-suite-failures.md |
+| 049 | P2 | Web npm audit vulnerabilities | 049-pending-p2-web-dependency-vulnerabilities.md |
+| 050 | P1 | Flutter fresh-checkout build | 050-pending-p1-flutter-fresh-checkout-build.md |
+| 051 | P2 | Flutter core reliability features | 051-pending-p2-flutter-core-feature-completion.md |
+| 052 | P2 | CI toolchain drift | 052-pending-p2-ci-toolchain-drift.md |
+| 053 | P3 | Tracked generated artifacts / Firebase config policy | 053-pending-p3-repository-hygiene-generated-artifacts.md |
+| 054 | P3 | Stale setup and status docs | 054-pending-p3-update-stale-documentation.md |
+
+Recommended order: **046 → 047 → 050 → 052 → 048 → 049 → 051 → 053 → 054**.
+
 ### Priority Levels
 
 - **P1 (Critical)**: Production blockers, security incidents, data integrity issues

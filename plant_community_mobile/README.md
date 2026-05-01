@@ -7,7 +7,7 @@ Flutter mobile application for Plant ID Community with Firebase authentication a
 ## Quick Start
 
 ### Prerequisites
-- Flutter 3.27+ with Dart SDK 3.9.x
+- Flutter 3.35+ with Dart SDK 3.9.x
 - Xcode 15+ (iOS development)
 - Android Studio (Android development)
 - Firebase project configured
@@ -18,19 +18,42 @@ Flutter mobile application for Plant ID Community with Firebase authentication a
 # Install dependencies
 flutter pub get
 
-# Configure environment
-cp .env.example .env
-# Edit .env with your API endpoints
+# Review required environment keys in .env.example.
+# Pass those values to Flutter with --dart-define when running/building.
 
 # Run code generation
 flutter pub run build_runner build --delete-conflicting-outputs
 
-# Run on iOS
-flutter run -d ios
+# Run on iOS with local configuration values
+flutter run -d ios \
+	--dart-define=API_BASE_URL=http://localhost:8000/api/v1 \
+	--dart-define=FIREBASE_API_KEY=your-firebase-api-key \
+	--dart-define=FIREBASE_IOS_APP_ID=your-ios-app-id \
+	--dart-define=FIREBASE_MESSAGING_SENDER_ID=your-sender-id \
+	--dart-define=FIREBASE_PROJECT_ID=your-project-id \
+	--dart-define=FIREBASE_STORAGE_BUCKET=your-storage-bucket
 
-# Run on Android
-flutter run -d android
+# Run on Android with local configuration values
+flutter run -d android \
+	--dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1 \
+	--dart-define=FIREBASE_API_KEY=your-firebase-api-key \
+	--dart-define=FIREBASE_ANDROID_APP_ID=your-android-app-id \
+	--dart-define=FIREBASE_MESSAGING_SENDER_ID=your-sender-id \
+	--dart-define=FIREBASE_PROJECT_ID=your-project-id \
+	--dart-define=FIREBASE_STORAGE_BUCKET=your-storage-bucket
+
+# Or pass the same values in CI/release builds with --dart-define.
 ```
+
+Use `http://10.0.2.2:8000` for the Android emulator to reach a backend running
+on the host machine. Use the host LAN IP for physical Android devices. iOS
+simulator and local desktop/web runs can use `http://localhost:8000`.
+
+The committed `lib/firebase_options.dart` intentionally contains no Firebase
+project keys. It reads values from `--dart-define`, allowing a fresh checkout to
+compile without generated secret/config files. If required Firebase values are
+missing at runtime, the app shows an actionable configuration screen instead of
+crashing during startup.
 
 ---
 
@@ -68,5 +91,5 @@ This comprehensive guide includes:
 
 **Last Updated**: November 15, 2025
 **Status**: Active Development
-**Flutter Version**: 3.27
+**Flutter Version**: 3.35+
 **Dart SDK**: 3.9.x
