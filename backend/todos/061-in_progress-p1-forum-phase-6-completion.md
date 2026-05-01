@@ -36,7 +36,7 @@ Phase 6 (React Frontend) is 85% complete with 3 remaining tasks that block Phase
 - ❌ No real-time updates
 
 **Technical Requirements**:
-- **Image Upload**: Max 6 images per post, drag-and-drop reordering, 5MB limit, thumbnails
+- **Image Upload**: Max 6 images per post, drag-and-drop reordering, 10MB limit, thumbnails
 - **Search**: PostgreSQL full-text search, filters (category, author, date), highlighted results, <200ms response
 - **Accessibility**: WCAG 2.2 AA compliance, keyboard navigation, ARIA labels
 
@@ -110,7 +110,7 @@ Only implement search, defer image upload and real-time.
    - Preview grid with thumbnails (150x150px)
    - Drag-and-drop reordering (@dnd-kit/core)
    - Delete with confirmation
-   - Validation (max 6, 5MB, JPEG/PNG/WebP/GIF only)
+   - Validation (max 6, 10MB, JPEG/PNG/WebP/GIF only)
    - Loading states and error messages
    - Accessibility (keyboard nav, ARIA labels)
 
@@ -286,7 +286,7 @@ python manage.py test apps.forum.tests.test_search_viewset --keepdb -v 2
 - **Permissions**: `IsAuthenticated` + ownership check
 - **Storage**: Django's `ImageField` with `upload_to` pattern
 - **Thumbnails**: PIL/Pillow (150x150 with LANCZOS resampling)
-- **Validation**: Size (5MB), MIME type, count (max 6)
+- **Validation**: Size (10MB), MIME type, count (max 6)
 
 **Database**:
 ```sql
@@ -368,27 +368,27 @@ CREATE INDEX idx_postimage_post_order ON forum_postimage(post_id, order);
 ## Acceptance Criteria
 
 ### Task 13.2: Image Upload
-- [ ] Can upload 1-6 images to forum posts
-- [ ] See preview thumbnails immediately after upload
-- [ ] Reorder images via drag-and-drop
-- [ ] Delete images with confirmation
-- [ ] Validation errors display clearly (size, type, count)
-- [ ] Images stored in backend with thumbnails
-- [ ] Keyboard accessible (tab, enter, space for actions)
-- [ ] Screen reader announces upload progress and errors
-- [ ] 7 component tests passing (100%)
+- [x] Can upload 1-6 images to forum posts
+- [x] See preview thumbnails immediately after upload
+- [x] Reorder images via drag-and-drop
+- [x] Delete images with confirmation
+- [x] Validation errors display clearly (size, type, count)
+- [x] Images stored in backend with thumbnails
+- [x] Keyboard accessible (tab, enter, space for actions)
+- [x] Screen reader announces upload progress and errors
+- [x] 7 component tests passing (100%)
 - [ ] Backend integration test passing
 
 ### Task 13.3: Search Interface
-- [ ] Search bar debounces input (300ms)
+- [x] Search bar debounces input (300ms)
 - [ ] Results appear in <200ms (backend optimization)
-- [ ] Filter by category, author, date range
-- [ ] Search terms highlighted in results (`<mark>` tags)
-- [ ] Pagination works (20 results per page)
-- [ ] "No results" message displays when appropriate
-- [ ] URL reflects search query and filters (shareable links)
-- [ ] Keyboard accessible (tab through results, enter to navigate)
-- [ ] 6 component tests passing (100%)
+- [x] Filter by category, author, date range
+- [x] Search terms highlighted in results (`<mark>` tags)
+- [x] Pagination works (20 results per page)
+- [x] "No results" message displays when appropriate
+- [x] URL reflects search query and filters (shareable links)
+- [x] Keyboard accessible (tab through results, enter to navigate)
+- [x] 6 component tests passing (100%)
 - [ ] Backend search tests passing
 
 ### Overall Phase 6 Success
@@ -457,3 +457,18 @@ Source: Issue #61 - Forum Implementation Tracker
 Created: November 2, 2025
 Phase: 6 (React Frontend)
 Status: In Progress (85% → 100%)
+
+### 2026-05-01 - Phase 6 Follow-up
+**Actions:**
+- Fixed frontend attachment compatibility with backend `AttachmentSerializer` fields (`image_url`, `thumbnail_url`, `medium_url`, `large_url`).
+- Updated `ImageUploadWidget` to support multi-select/multi-drop uploads up to the 6-image limit, add delete confirmation, expose clearer max-count feedback, and announce errors/status changes for assistive tech.
+- Fixed backend `upload_image` to count only active attachments and persist `mime_type`, preventing required-field failures when creating attachments.
+- Added drag-and-drop and keyboard button image reordering in `ImageUploadWidget`, backed by a new `reorder_images` post action that persists `display_order` for active attachments.
+- Fixed review findings: action-level permissions now apply to image reordering, uploads append `display_order` under a post row lock, `alt_text` is validated before database writes, moderator image deletion honors the `Moderators` group, the upload drop zone exposes disabled/in-progress state, and drag start sets transfer data for Firefox compatibility.
+- Added search date range filters, switched search input debounce to 300ms, and added highlighted result snippets with `<mark>` tags.
+- Added backend tests for image reorder success, incomplete/duplicate reorder payloads, permissions, upload append order, alt text validation, and active-only upload counts.
+- Validated frontend with `npm run type-check` and targeted Vitest coverage: `ImageUploadWidget` + `SearchPage` (50 tests passing).
+- Validated backend syntax with `python -m py_compile apps/forum/viewsets/post_viewset.py apps/forum/tests/test_post_viewset.py`.
+
+**Remaining:**
+- Backend integration/search tests could not be run in the current container because Django/DRF are not installed.

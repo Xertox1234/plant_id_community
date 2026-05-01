@@ -34,9 +34,11 @@ describe('ImageUploadWidget', () => {
   const mockPostId = 'post-123';
   const mockOnUploadComplete = vi.fn();
   const mockOnDeleteComplete = vi.fn();
+  const mockOnReorderComplete = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
   describe('Initial Render', () => {
@@ -159,6 +161,38 @@ describe('ImageUploadWidget', () => {
       await waitFor(() => {
         expect(screen.getByText('Uploading...')).toBeInTheDocument();
       });
+    });
+
+    it('ignores dropped files while an upload is in progress', async () => {
+      vi.spyOn(forumService, 'uploadPostImage').mockImplementation(
+        () => new Promise(() => {}) // Never resolves
+      );
+
+      render(
+        <ImageUploadWidget
+          postId={mockPostId}
+          attachments={[]}
+          onUploadComplete={mockOnUploadComplete}
+          onDeleteComplete={mockOnDeleteComplete}
+        />
+      );
+
+      const fileInput = screen.getByLabelText('File input');
+      await userEvent.upload(fileInput, createMockFile('first.jpg'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Uploading...')).toBeInTheDocument();
+      });
+
+      const uploadArea = screen.getByRole('button', { name: 'Upload image' });
+      const dropEvent = new Event('drop', { bubbles: true });
+      Object.defineProperty(dropEvent, 'dataTransfer', {
+        value: { files: [createMockFile('second.jpg')] },
+      });
+
+      uploadArea.dispatchEvent(dropEvent);
+
+      expect(forumService.uploadPostImage).toHaveBeenCalledTimes(1);
     });
 
     it('displays error when upload fails', async () => {
@@ -415,6 +449,68 @@ describe('ImageUploadWidget', () => {
 
       await waitFor(() => {
         expect(forumService.uploadPostImage).toHaveBeenCalledWith(mockPostId, file);
+      });
+    });
+
+    it('reorders images when an image preview is dropped on another preview', async () => {
+      const attachments = [
+        createMockAttachment({ id: '1', image_thumbnail: 'https://example.com/1-thumb.jpg' }),
+        createMockAttachment({ id: '2', image_thumbnail: 'https://example.com/2-thumb.jpg' }),
+      ];
+      const reorderedAttachments = [attachments[1], attachments[0]];
+      vi.spyOn(forumService, 'reorderPostImages').mockResolvedValue(reorderedAttachments);
+
+      render(
+        <ImageUploadWidget
+          postId={mockPostId}
+          attachments={attachments}
+          onUploadComplete={mockOnUploadComplete}
+          onDeleteComplete={mockOnDeleteComplete}
+          onReorderComplete={mockOnReorderComplete}
+        />
+      );
+
+      const previews = screen.getAllByRole('listitem');
+      const dataTransfer = {
+        effectAllowed: 'move',
+        dropEffect: 'move',
+        setData: vi.fn(),
+      };
+      fireEvent.dragStart(previews[0], { dataTransfer });
+      fireEvent.dragOver(previews[1], { dataTransfer });
+      fireEvent.drop(previews[1], { dataTransfer });
+
+      await waitFor(() => {
+        expect(forumService.reorderPostImages).toHaveBeenCalledWith(mockPostId, ['2', '1']);
+      });
+
+      await waitFor(() => {
+        expect(mockOnReorderComplete).toHaveBeenCalledWith(reorderedAttachments);
+      });
+    });
+
+    it('reorders images with keyboard-accessible move buttons', async () => {
+      const attachments = [
+        createMockAttachment({ id: '1', image_thumbnail: 'https://example.com/1-thumb.jpg' }),
+        createMockAttachment({ id: '2', image_thumbnail: 'https://example.com/2-thumb.jpg' }),
+      ];
+      const reorderedAttachments = [attachments[1], attachments[0]];
+      vi.spyOn(forumService, 'reorderPostImages').mockResolvedValue(reorderedAttachments);
+
+      render(
+        <ImageUploadWidget
+          postId={mockPostId}
+          attachments={attachments}
+          onUploadComplete={mockOnUploadComplete}
+          onDeleteComplete={mockOnDeleteComplete}
+          onReorderComplete={mockOnReorderComplete}
+        />
+      );
+
+      await userEvent.click(screen.getAllByLabelText('Move image left')[1]);
+
+      await waitFor(() => {
+        expect(forumService.reorderPostImages).toHaveBeenCalledWith(mockPostId, ['2', '1']);
       });
     });
   });

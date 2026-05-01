@@ -50,6 +50,10 @@ async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Pr
     throw new Error(error.detail || `HTTP ${response.status}`);
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return response.json();
 }
 
@@ -334,5 +338,15 @@ export async function uploadPostImage(postId: string, imageFile: File): Promise<
 export async function deletePostImage(postId: string, attachmentId: string): Promise<void> {
   return authenticatedFetch<void>(`${FORUM_BASE}/posts/${postId}/delete_image/${attachmentId}/`, {
     method: 'DELETE',
+  });
+}
+
+/**
+ * Reorder images on a post (requires authentication)
+ */
+export async function reorderPostImages(postId: string, attachmentIds: string[]): Promise<Attachment[]> {
+  return authenticatedFetch<Attachment[]>(`${FORUM_BASE}/posts/${postId}/reorder_images/`, {
+    method: 'POST',
+    body: JSON.stringify({ attachment_ids: attachmentIds }),
   });
 }

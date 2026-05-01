@@ -1,5 +1,5 @@
-import { useState, useRef, ChangeEvent, DragEvent, KeyboardEvent } from 'react';
-import { uploadPostImage, deletePostImage } from '../../services/forumService';
+import { useState, useRef, useEffect, ChangeEvent, DragEvent, KeyboardEvent } from 'react';
+import { uploadPostImage, deletePostImage, reorderPostImages } from '../../services/forumService';
 import Button from '../ui/Button';
 import { logger } from '../../utils/logger';
 import {
@@ -18,6 +18,11 @@ interface ImageUploadWidgetProps {
   attachments?: Attachment[];
   onUploadComplete?: (attachment: Attachment) => void;
   onDeleteComplete?: (attachmentId: string) => void;
+  onReorderComplete?: (attachments: Attachment[]) => void;
+}
+
+function getAttachmentImageUrl(attachment: Attachment): string {
+  return attachment.thumbnail_url || attachment.image_thumbnail || attachment.thumbnail || attachment.image_url || attachment.image || '';
 }
 
 /**
@@ -38,16 +43,26 @@ export default function ImageUploadWidget({
   attachments = [],
   onUploadComplete,
   onDeleteComplete,
+  onReorderComplete,
 }: ImageUploadWidgetProps) {
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [uploading, setUploading] = useState<boolean>(false);
+  const [reordering, setReordering] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [orderedAttachments, setOrderedAttachments] = useState<Attachment[]>(attachments);
+  const [draggedAttachmentId, setDraggedAttachmentId] = useState<string | null>(null);
+  const [dragOverAttachmentId, setDragOverAttachmentId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isUploadDisabled = uploading || attachments.length >= MAX_IMAGES;
+
+  useEffect(() => {
+    setOrderedAttachments(attachments);
+  }, [attachments]);
 
   /**
    * Validate image file
    */
-  const validateFile = (file: File): void => {
+  const validateFile = (file: File, selectedCount: number): void => {
     if (!ALLOWED_IMAGE_TYPES.includes(file.type as typeof ALLOWED_IMAGE_TYPES[number])) {
       throw new Error(INVALID_TYPE_ERROR);
     }
@@ -56,7 +71,7 @@ export default function ImageUploadWidget({
       throw new Error(FILE_SIZE_ERROR);
     }
 
-    if (attachments.length >= MAX_IMAGES) {
+    if (attachments.length + selectedCount > MAX_IMAGES) {
       throw new Error(MAX_IMAGES_ERROR);
     }
   };
@@ -67,29 +82,38 @@ export default function ImageUploadWidget({
   const handleFiles = async (files: File[]): Promise<void> => {
     setError(null);
 
-    // Only process first file if multiple selected
-    const file = files[0];
-    if (!file) return;
+    if (uploading) return;
+
+    if (files.length === 0) return;
+
+    const remainingSlots = MAX_IMAGES - attachments.length;
+    if (remainingSlots <= 0 || files.length > remainingSlots) {
+      setError(MAX_IMAGES_ERROR);
+      return;
+    }
+
+    const filesToUpload = files.slice(0, remainingSlots);
 
     try {
-      validateFile(file);
+      filesToUpload.forEach((file) => validateFile(file, filesToUpload.length));
 
       setUploading(true);
-      logger.info('[IMAGE_UPLOAD] Uploading image', {
+      logger.info('[IMAGE_UPLOAD] Uploading image(s)', {
         postId,
-        fileName: file.name,
-        fileSize: file.size,
+        fileCount: filesToUpload.length,
       });
 
-      const attachment = await uploadPostImage(postId, file);
+      for (const file of filesToUpload) {
+        const attachment = await uploadPostImage(postId, file);
 
-      logger.info('[IMAGE_UPLOAD] Upload successful', {
-        postId,
-        attachmentId: attachment.id,
-      });
+        logger.info('[IMAGE_UPLOAD] Upload successful', {
+          postId,
+          attachmentId: attachment.id,
+        });
 
-      if (onUploadComplete) {
-        onUploadComplete(attachment);
+        if (onUploadComplete) {
+          onUploadComplete(attachment);
+        }
       }
     } catch (err) {
       const error = err as Error;
@@ -121,6 +145,9 @@ export default function ImageUploadWidget({
   const handleDragOver = (e: DragEvent<HTMLDivElement>): void => {
     e.preventDefault();
     e.stopPropagation();
+
+    if (isUploadDisabled) return;
+
     setIsDragging(true);
   };
 
@@ -141,6 +168,13 @@ export default function ImageUploadWidget({
     e.stopPropagation();
     setIsDragging(false);
 
+    if (isUploadDisabled) {
+      if (attachments.length >= MAX_IMAGES) {
+        setError(MAX_IMAGES_ERROR);
+      }
+      return;
+    }
+
     const files = Array.from(e.dataTransfer.files);
     handleFiles(files);
   };
@@ -149,6 +183,12 @@ export default function ImageUploadWidget({
    * Handle delete image
    */
   const handleDelete = async (attachmentId: string): Promise<void> => {
+    const shouldDelete = typeof window.confirm === 'function'
+      ? window.confirm('Delete this image? This action cannot be undone.')
+      : true;
+
+    if (!shouldDelete) return;
+
     try {
       setError(null);
       logger.info('[IMAGE_UPLOAD] Deleting image', {
@@ -178,9 +218,91 @@ export default function ImageUploadWidget({
   };
 
   /**
+   * Persist a reordered attachment list.
+   */
+  const persistReorder = async (nextAttachments: Attachment[]): Promise<void> => {
+    const previousAttachments = orderedAttachments;
+
+    try {
+      setError(null);
+      setReordering(true);
+      setOrderedAttachments(nextAttachments);
+
+      const reorderedAttachments = await reorderPostImages(
+        postId,
+        nextAttachments.map((attachment) => attachment.id)
+      );
+
+      setOrderedAttachments(reorderedAttachments);
+
+      if (onReorderComplete) {
+        onReorderComplete(reorderedAttachments);
+      }
+    } catch (err) {
+      const error = err as Error;
+      setOrderedAttachments(previousAttachments);
+      logger.error('[IMAGE_UPLOAD] Reorder failed', {
+        postId,
+        error: error.message,
+      });
+      setError(error.message);
+    } finally {
+      setReordering(false);
+      setDraggedAttachmentId(null);
+      setDragOverAttachmentId(null);
+    }
+  };
+
+  /**
+   * Move one attachment to another index.
+   */
+  const reorderAttachments = async (fromIndex: number, toIndex: number): Promise<void> => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+
+    const nextAttachments = [...orderedAttachments];
+    const [movedAttachment] = nextAttachments.splice(fromIndex, 1);
+    nextAttachments.splice(toIndex, 0, movedAttachment);
+
+    await persistReorder(nextAttachments);
+  };
+
+  /**
+   * Handle preview drag start for image reordering.
+   */
+  const handlePreviewDragStart = (attachmentId: string): void => {
+    setDraggedAttachmentId(attachmentId);
+  };
+
+  /**
+   * Handle preview drop for image reordering.
+   */
+  const handlePreviewDrop = async (attachmentId: string): Promise<void> => {
+    if (!draggedAttachmentId || draggedAttachmentId === attachmentId) {
+      setDraggedAttachmentId(null);
+      setDragOverAttachmentId(null);
+      return;
+    }
+
+    const fromIndex = orderedAttachments.findIndex((attachment) => attachment.id === draggedAttachmentId);
+    const toIndex = orderedAttachments.findIndex((attachment) => attachment.id === attachmentId);
+    await reorderAttachments(fromIndex, toIndex);
+  };
+
+  const moveAttachment = async (index: number, direction: -1 | 1): Promise<void> => {
+    await reorderAttachments(index, index + direction);
+  };
+
+  /**
    * Open file picker
    */
   const handleClick = (): void => {
+    if (isUploadDisabled) {
+      if (attachments.length >= MAX_IMAGES) {
+        setError(MAX_IMAGES_ERROR);
+      }
+      return;
+    }
+
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
@@ -193,7 +315,7 @@ export default function ImageUploadWidget({
         className={`
           border-2 border-dashed rounded-lg p-6 text-center transition-colors
           ${isDragging ? 'border-green-500 bg-green-50' : 'border-gray-300 hover:border-gray-400'}
-          ${attachments.length >= MAX_IMAGES ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+          ${isUploadDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
         `}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -201,9 +323,11 @@ export default function ImageUploadWidget({
         onClick={handleClick}
         role="button"
         tabIndex={0}
+        aria-disabled={isUploadDisabled}
         aria-label="Upload image"
-        onKeyPress={(e: KeyboardEvent<HTMLDivElement>) => {
+        onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
           if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
             handleClick();
           }
         }}
@@ -214,8 +338,9 @@ export default function ImageUploadWidget({
           accept={ALLOWED_IMAGE_TYPES.join(',')}
           onChange={handleFileInput}
           className="hidden"
-          disabled={attachments.length >= MAX_IMAGES}
+          disabled={isUploadDisabled}
           aria-label="File input"
+          multiple
         />
 
         {uploading ? (
@@ -249,39 +374,97 @@ export default function ImageUploadWidget({
         )}
       </div>
 
+      {attachments.length >= MAX_IMAGES && !error && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3" role="status" aria-live="polite">
+          <p className="text-sm text-amber-800">{MAX_IMAGES_ERROR}</p>
+        </div>
+      )}
+
       {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3" role="alert" aria-live="assertive">
           <p className="text-sm text-red-800">{error}</p>
         </div>
       )}
 
       {/* Image Previews */}
-      {attachments.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          {attachments.map((attachment) => (
+      {orderedAttachments.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4" role="list" aria-label="Uploaded images">
+          {orderedAttachments.map((attachment, index) => (
             <div
               key={attachment.id}
-              className="relative group rounded-lg overflow-hidden border border-gray-200"
+              className={`relative group rounded-lg overflow-hidden border ${dragOverAttachmentId === attachment.id ? 'border-green-500 ring-2 ring-green-200' : 'border-gray-200'}`}
+              role="listitem"
+              draggable={!reordering}
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', attachment.id);
+                handlePreviewDragStart(attachment.id);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                setDragOverAttachmentId(attachment.id);
+              }}
+              onDragLeave={() => setDragOverAttachmentId(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                handlePreviewDrop(attachment.id);
+              }}
+              onDragEnd={() => {
+                setDraggedAttachmentId(null);
+                setDragOverAttachmentId(null);
+              }}
+              aria-label={`Image ${index + 1} of ${orderedAttachments.length}. Drag to reorder.`}
             >
               <img
-                src={attachment.image_thumbnail || attachment.image}
-                alt="Uploaded image"
+                src={getAttachmentImageUrl(attachment)}
+                alt={attachment.alt_text || attachment.original_filename || 'Uploaded image'}
                 className="w-full h-32 object-cover"
               />
+              <div className="absolute top-2 left-2 rounded bg-black bg-opacity-60 px-2 py-1 text-xs text-white">
+                {index + 1}
+              </div>
               <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-opacity flex items-center justify-center">
-                <Button
-                  onClick={() => handleDelete(attachment.id)}
-                  variant="secondary"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-600 hover:bg-red-700 text-white"
-                  aria-label="Delete image"
-                >
-                  Delete
-                </Button>
+                <div className="flex flex-wrap justify-center gap-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                  <Button
+                    onClick={() => moveAttachment(index, -1)}
+                    variant="secondary"
+                    className="bg-white text-gray-900 hover:bg-gray-100 disabled:opacity-50"
+                    aria-label="Move image left"
+                    disabled={index === 0 || reordering}
+                  >
+                    ←
+                  </Button>
+                  <Button
+                    onClick={() => moveAttachment(index, 1)}
+                    variant="secondary"
+                    className="bg-white text-gray-900 hover:bg-gray-100 disabled:opacity-50"
+                    aria-label="Move image right"
+                    disabled={index === orderedAttachments.length - 1 || reordering}
+                  >
+                    →
+                  </Button>
+                  <Button
+                    onClick={() => handleDelete(attachment.id)}
+                    variant="secondary"
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                    aria-label="Delete image"
+                    disabled={reordering}
+                  >
+                    Delete
+                  </Button>
+                </div>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {reordering && (
+        <p className="text-sm text-gray-600" role="status" aria-live="polite">
+          Saving image order...
+        </p>
       )}
     </div>
   );

@@ -108,6 +108,34 @@ class PostViewSetTests(TestCase):
         """Clean up after each test."""
         self.spam_patcher.stop()
 
+    def create_test_attachment(self, post=None, filename='test.jpg', display_order=0):
+        """Create a valid image attachment for post viewset tests."""
+        from io import BytesIO
+        from PIL import Image as PILImage
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from ..models import Attachment
+
+        post = post or self.first_post
+        image = PILImage.new('RGB', (100, 100), color='red')
+        buffer = BytesIO()
+        image.save(buffer, format='JPEG')
+        image_data = buffer.getvalue()
+
+        image_file = SimpleUploadedFile(
+            filename,
+            image_data,
+            content_type='image/jpeg'
+        )
+
+        return Attachment.objects.create(
+            post=post,
+            image=image_file,
+            original_filename=filename,
+            file_size=len(image_data),
+            mime_type='image/jpeg',
+            display_order=display_order,
+        )
+
     def test_list_posts_requires_thread_parameter(self):
         """GET /posts/ without thread parameter returns 400."""
         self.client.force_authenticate(user=self.author)
@@ -398,6 +426,52 @@ class PostViewSetTests(TestCase):
         self.assertIn('thumbnail_url', response.data)
         self.assertIn('medium_url', response.data)
         self.assertEqual(response.data['alt_text'], 'Test image')
+        self.assertEqual(response.data['display_order'], 0)
+
+    def test_upload_image_appends_display_order(self):
+        """New uploads are appended after existing active attachments."""
+        from io import BytesIO
+        from PIL import Image as PILImage
+
+        self.client.force_authenticate(user=self.author)
+        self.create_test_attachment(filename='existing.jpg', display_order=4)
+
+        image = PILImage.new('RGB', (100, 100), color='green')
+        image_file = BytesIO()
+        image.save(image_file, format='JPEG')
+        image_file.seek(0)
+        image_file.name = 'new.jpg'
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
+            {'image': image_file},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['display_order'], 5)
+
+    def test_upload_image_validates_alt_text_length(self):
+        """Overly long alt text returns a validation error."""
+        from io import BytesIO
+        from PIL import Image as PILImage
+
+        self.client.force_authenticate(user=self.author)
+
+        image = PILImage.new('RGB', (100, 100), color='green')
+        image_file = BytesIO()
+        image.save(image_file, format='JPEG')
+        image_file.seek(0)
+        image_file.name = 'new.jpg'
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
+            {'image': image_file, 'alt_text': 'a' * 256},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Alt text too long', response.data['error'])
 
     def test_upload_image_requires_authentication(self):
         """Anonymous users cannot upload images."""
@@ -446,27 +520,13 @@ class PostViewSetTests(TestCase):
         from io import BytesIO
         from PIL import Image as PILImage
         from django.core.files.uploadedfile import SimpleUploadedFile
-        from ..models import Attachment
         from ..constants import MAX_ATTACHMENTS_PER_POST
 
         self.client.force_authenticate(user=self.author)
 
         # Create MAX_ATTACHMENTS_PER_POST attachments
         for i in range(MAX_ATTACHMENTS_PER_POST):
-            image = PILImage.new('RGB', (100, 100), color='red')
-            buffer = BytesIO()
-            image.save(buffer, format='JPEG')
-
-            image_file = SimpleUploadedFile(
-                f'test{i}.jpg',
-                buffer.getvalue(),
-                content_type='image/jpeg'
-            )
-
-            Attachment.objects.create(
-                post=self.first_post,
-                image=image_file
-            )
+            self.create_test_attachment(filename=f'test{i}.jpg', display_order=i)
 
         # Try to upload one more
         image = PILImage.new('RGB', (100, 100), color='red')
@@ -488,6 +548,38 @@ class PostViewSetTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('Maximum', response.data['error'])
         self.assertIn('images allowed', response.data['error'])
+
+    def test_upload_image_counts_only_active_attachments(self):
+        """Soft-deleted attachments do not count toward the upload limit."""
+        from io import BytesIO
+        from PIL import Image as PILImage
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from ..constants import MAX_ATTACHMENTS_PER_POST
+
+        self.client.force_authenticate(user=self.author)
+
+        for i in range(MAX_ATTACHMENTS_PER_POST):
+            attachment = self.create_test_attachment(filename=f'test{i}.jpg', display_order=i)
+            if i == 0:
+                attachment.delete()
+
+        image = PILImage.new('RGB', (100, 100), color='blue')
+        buffer = BytesIO()
+        image.save(buffer, format='JPEG')
+
+        image_file = SimpleUploadedFile(
+            'replacement.jpg',
+            buffer.getvalue(),
+            content_type='image/jpeg'
+        )
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/upload_image/',
+            {'image': image_file},
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_upload_image_validates_file_size(self):
         """Cannot upload images larger than MAX_ATTACHMENT_SIZE_BYTES."""
@@ -708,28 +800,12 @@ class PostViewSetTests(TestCase):
 
     def test_delete_image_success(self):
         """DELETE /posts/{id}/delete_image/{attachment_id}/ succeeds for author."""
-        from io import BytesIO
-        from PIL import Image as PILImage
-        from django.core.files.uploadedfile import SimpleUploadedFile
         from ..models import Attachment
 
         self.client.force_authenticate(user=self.author)
 
         # Create an attachment
-        image = PILImage.new('RGB', (100, 100), color='red')
-        buffer = BytesIO()
-        image.save(buffer, format='JPEG')
-
-        image_file = SimpleUploadedFile(
-            'test.jpg',
-            buffer.getvalue(),
-            content_type='image/jpeg'
-        )
-
-        attachment = Attachment.objects.create(
-            post=self.first_post,
-            image=image_file
-        )
+        attachment = self.create_test_attachment()
 
         response = self.client.delete(
             f'/api/v1/forum/posts/{self.first_post.id}/delete_image/{attachment.id}/'
@@ -740,26 +816,10 @@ class PostViewSetTests(TestCase):
 
     def test_delete_image_requires_post_ownership(self):
         """Non-authors cannot delete images from others' posts."""
-        from io import BytesIO
-        from PIL import Image as PILImage
-        from django.core.files.uploadedfile import SimpleUploadedFile
         from ..models import Attachment
 
         # Create an attachment as author
-        image = PILImage.new('RGB', (100, 100), color='red')
-        buffer = BytesIO()
-        image.save(buffer, format='JPEG')
-
-        image_file = SimpleUploadedFile(
-            'test.jpg',
-            buffer.getvalue(),
-            content_type='image/jpeg'
-        )
-
-        attachment = Attachment.objects.create(
-            post=self.first_post,
-            image=image_file
-        )
+        attachment = self.create_test_attachment()
 
         # Try to delete as other user
         self.client.force_authenticate(user=self.other_user)
@@ -772,26 +832,10 @@ class PostViewSetTests(TestCase):
 
     def test_staff_can_delete_any_image(self):
         """Staff users can delete images from any post."""
-        from io import BytesIO
-        from PIL import Image as PILImage
-        from django.core.files.uploadedfile import SimpleUploadedFile
         from ..models import Attachment
 
         # Create an attachment as author
-        image = PILImage.new('RGB', (100, 100), color='red')
-        buffer = BytesIO()
-        image.save(buffer, format='JPEG')
-
-        image_file = SimpleUploadedFile(
-            'test.jpg',
-            buffer.getvalue(),
-            content_type='image/jpeg'
-        )
-
-        attachment = Attachment.objects.create(
-            post=self.first_post,
-            image=image_file
-        )
+        attachment = self.create_test_attachment()
 
         # Create staff user
         staff_user = User.objects.create_user(username='staff', password='pass', is_staff=True)
@@ -803,3 +847,70 @@ class PostViewSetTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Attachment.objects.filter(id=attachment.id).exists())
+
+    def test_reorder_images_success(self):
+        """POST /posts/{id}/reorder_images/ updates display order."""
+        self.client.force_authenticate(user=self.author)
+
+        first_attachment = self.create_test_attachment(filename='first.jpg', display_order=0)
+        second_attachment = self.create_test_attachment(filename='second.jpg', display_order=1)
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/reorder_images/',
+            {'attachment_ids': [str(second_attachment.id), str(first_attachment.id)]},
+            format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        first_attachment.refresh_from_db()
+        second_attachment.refresh_from_db()
+
+        self.assertEqual(second_attachment.display_order, 0)
+        self.assertEqual(first_attachment.display_order, 1)
+        self.assertEqual(response.data[0]['id'], str(second_attachment.id))
+        self.assertEqual(response.data[1]['id'], str(first_attachment.id))
+
+    def test_reorder_images_requires_complete_active_attachment_list(self):
+        """Reorder payload must include every active attachment exactly once."""
+        self.client.force_authenticate(user=self.author)
+
+        first_attachment = self.create_test_attachment(filename='first.jpg', display_order=0)
+        self.create_test_attachment(filename='second.jpg', display_order=1)
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/reorder_images/',
+            {'attachment_ids': [str(first_attachment.id)]},
+            format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('mismatch', response.data['error'].lower())
+
+    def test_reorder_images_rejects_duplicate_attachment_ids(self):
+        """Reorder payload cannot include duplicate attachment IDs."""
+        self.client.force_authenticate(user=self.author)
+
+        first_attachment = self.create_test_attachment(filename='first.jpg', display_order=0)
+
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/reorder_images/',
+            {'attachment_ids': [str(first_attachment.id), str(first_attachment.id)]},
+            format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Duplicate', response.data['error'])
+
+    def test_reorder_images_requires_post_ownership(self):
+        """Non-authors cannot reorder images from others' posts."""
+        first_attachment = self.create_test_attachment(filename='first.jpg', display_order=0)
+
+        self.client.force_authenticate(user=self.other_user)
+        response = self.client.post(
+            f'/api/v1/forum/posts/{self.first_post.id}/reorder_images/',
+            {'attachment_ids': [str(first_attachment.id)]},
+            format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

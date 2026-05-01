@@ -8,6 +8,28 @@ import Button from '../../components/ui/Button';
 import { logger } from '../../utils/logger';
 import type { Thread, Post, Category } from '@/types';
 
+function highlightText(text: string | undefined, query: string) {
+  if (!text || !query.trim()) return text || '';
+
+  const terms = query.trim().split(/\s+/).filter(Boolean).map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (terms.length === 0) return text;
+
+  const regex = new RegExp(`(${terms.join('|')})`, 'gi');
+  return text.split(regex).map((part, index) => (
+    new RegExp(`^(${terms.join('|')})$`, 'i').test(part) ? (
+      <mark key={`${part}-${index}`} className="bg-yellow-200 rounded px-0.5">{part}</mark>
+    ) : part
+  ));
+}
+
+function hasSearchMatch(text: string | undefined, query: string): boolean {
+  if (!text || !query.trim()) return false;
+
+  return query.trim().split(/\s+/).filter(Boolean).some((term) => (
+    text.toLowerCase().includes(term.toLowerCase())
+  ));
+}
+
 interface SearchResults {
   threads: Thread[];
   posts: Post[];
@@ -17,9 +39,9 @@ interface SearchResults {
   has_next_posts: boolean;
 }
 
-interface CategoriesResponse {
+type CategoriesResponse = Category[] | {
   results: Category[];
-}
+};
 
 /**
  * SearchPage Component
@@ -28,7 +50,7 @@ interface CategoriesResponse {
  * Route: /forum/search
  *
  * Features:
- * - Debounced search input (500ms)
+ * - Debounced search input (300ms)
  * - Category, author, date range filters
  * - Separate results for threads and posts
  * - Pagination
@@ -68,7 +90,8 @@ export default function SearchPage() {
     const loadCategories = async () => {
       try {
         const data = await fetchCategories();
-        setCategories((data as unknown as CategoriesResponse).results || []);
+        const categoriesResponse = data as unknown as CategoriesResponse;
+        setCategories(Array.isArray(categoriesResponse) ? categoriesResponse : categoriesResponse.results || []);
       } catch (err) {
         logger.error('Error loading categories', {
           component: 'SearchPage',
@@ -159,7 +182,7 @@ export default function SearchPage() {
           return newParams;
         });
       }
-    }, 500); // 500ms debounce
+    }, 300); // 300ms debounce
   }, [setSearchParams]);
 
   // Handle filter changes
@@ -185,6 +208,19 @@ export default function SearchPage() {
         newParams.set('author', value);
       } else {
         newParams.delete('author');
+      }
+      newParams.set('page', '1');
+      return newParams;
+    });
+  }, [setSearchParams]);
+
+  const handleDateFilter = useCallback((key: 'date_from' | 'date_to', value: string) => {
+    setSearchParams(prev => {
+      const newParams = new URLSearchParams(prev);
+      if (value) {
+        newParams.set(key, value);
+      } else {
+        newParams.delete(key);
       }
       newParams.set('page', '1');
       return newParams;
@@ -301,6 +337,34 @@ export default function SearchPage() {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
             />
           </div>
+
+          {/* Date From Filter */}
+          <div>
+            <label htmlFor="date-from-filter" className="block text-sm font-medium text-gray-700 mb-2">
+              From
+            </label>
+            <input
+              id="date-from-filter"
+              type="date"
+              value={dateFrom}
+              onChange={(e) => handleDateFilter('date_from', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            />
+          </div>
+
+          {/* Date To Filter */}
+          <div>
+            <label htmlFor="date-to-filter" className="block text-sm font-medium text-gray-700 mb-2">
+              To
+            </label>
+            <input
+              id="date-to-filter"
+              type="date"
+              value={dateTo}
+              onChange={(e) => handleDateFilter('date_to', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            />
+          </div>
         </div>
       </div>
 
@@ -359,7 +423,15 @@ export default function SearchPage() {
               </h2>
               <div className="space-y-4">
                 {searchResults.threads.map(thread => (
-                  <ThreadCard key={thread.id} thread={thread} />
+                  <div key={thread.id}>
+                    <ThreadCard thread={thread} />
+                    {(hasSearchMatch(thread.title, query) || hasSearchMatch(thread.excerpt, query)) && (
+                      <p className="mt-2 text-sm text-gray-700 bg-yellow-50 border border-yellow-100 rounded-lg p-3" aria-label="Highlighted thread match">
+                        {highlightText(thread.title, query)}
+                        {thread.excerpt && <span> — {highlightText(thread.excerpt, query)}</span>}
+                      </p>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
@@ -373,7 +445,14 @@ export default function SearchPage() {
               </h2>
               <div className="space-y-4">
                 {searchResults.posts.map(post => (
-                  <PostCard key={post.id} post={post} />
+                  <div key={post.id}>
+                    <PostCard post={post} />
+                    {hasSearchMatch(post.content_raw, query) && (
+                      <p className="mt-2 text-sm text-gray-700 bg-yellow-50 border border-yellow-100 rounded-lg p-3" aria-label="Highlighted post match">
+                        {highlightText(post.content_raw, query)}
+                      </p>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>

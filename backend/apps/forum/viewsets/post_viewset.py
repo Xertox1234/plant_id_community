@@ -12,7 +12,8 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework.permissions import IsAuthenticatedOrReadOnly, BasePermission
 from rest_framework.serializers import Serializer
-from django.db.models import QuerySet, Count, Q
+from django.db import transaction
+from django.db.models import QuerySet, Count, Q, Max
 from django.utils import timezone
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
@@ -191,7 +192,7 @@ class PostViewSet(viewsets.ModelViewSet):
         """
         # For custom actions with their own permission_classes in @action decorator,
         # use super().get_permissions() to respect action-level permissions
-        if self.action in ['upload_image', 'delete_image', 'flag_post']:
+        if self.action in ['upload_image', 'delete_image', 'reorder_images', 'flag_post']:
             return super().get_permissions()
 
         if self.action in ['update', 'partial_update', 'destroy']:
@@ -562,8 +563,8 @@ class PostViewSet(viewsets.ModelViewSet):
 
         post = self.get_object()
 
-        # Check max attachments limit
-        if post.attachments.count() >= MAX_ATTACHMENTS_PER_POST:
+        # Check max active attachments limit
+        if post.attachments.filter(is_active=True).count() >= MAX_ATTACHMENTS_PER_POST:
             return Response(
                 {
                     "error": f"Maximum {MAX_ATTACHMENTS_PER_POST} images allowed per post",
@@ -692,15 +693,50 @@ class PostViewSet(viewsets.ModelViewSet):
         # Create attachment
         try:
             # Extract optional alt_text from request
-            alt_text = request.data.get('alt_text', '')
+            alt_text = request.data.get('alt_text', '') or ''
+            if not isinstance(alt_text, str):
+                return Response(
+                    {
+                        "error": "Invalid alt text",
+                        "detail": "Alt text must be a string"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-            attachment = Attachment.objects.create(
-                post=post,
-                image=image_file,
-                original_filename=image_file.name,
-                file_size=image_file.size,
-                alt_text=alt_text
-            )
+            if len(alt_text) > 255:
+                return Response(
+                    {
+                        "error": "Alt text too long",
+                        "detail": "Alt text must be 255 characters or fewer"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            with transaction.atomic():
+                locked_post = Post.objects.select_for_update().get(pk=post.pk)
+                active_attachments = locked_post.attachments.filter(is_active=True)
+
+                if active_attachments.count() >= MAX_ATTACHMENTS_PER_POST:
+                    return Response(
+                        {
+                            "error": f"Maximum {MAX_ATTACHMENTS_PER_POST} images allowed per post",
+                            "detail": "Please delete an existing image before uploading a new one"
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                next_display_order = active_attachments.aggregate(Max('display_order'))['display_order__max']
+                next_display_order = 0 if next_display_order is None else next_display_order + 1
+
+                attachment = Attachment.objects.create(
+                    post=locked_post,
+                    image=image_file,
+                    original_filename=image_file.name,
+                    file_size=image_file.size,
+                    mime_type=image_file.content_type,
+                    display_order=next_display_order,
+                    alt_text=alt_text
+                )
 
             logger.info(
                 f"[FORUM] Image uploaded to post {post.id}: "
@@ -738,12 +774,16 @@ class PostViewSet(viewsets.ModelViewSet):
 
         post = self.get_object()
 
-        # Check permission: only post author or staff can delete images
-        if not (request.user == post.author or request.user.is_staff):
+        # Check permission: only post author or moderators can delete images
+        is_moderator = (
+            request.user.is_staff or
+            request.user.groups.filter(name='Moderators').exists()
+        )
+        if not (request.user == post.author or is_moderator):
             return Response(
                 {
                     "error": "Permission denied",
-                    "detail": "Only the post author can delete images from this post"
+                    "detail": "Only the post author or a moderator can delete images from this post"
                 },
                 status=status.HTTP_403_FORBIDDEN
             )
@@ -771,6 +811,76 @@ class PostViewSet(viewsets.ModelViewSet):
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['POST'], permission_classes=[IsAuthorOrModerator], url_path='reorder_images')
+    @method_decorator(ratelimit(key='user', rate='60/h', method='POST', block=True))
+    def reorder_images(self, request: Request, pk=None) -> Response:
+        """
+        Reorder active image attachments for a post.
+
+        POST /api/v1/forum/posts/{post_id}/reorder_images/
+
+        Body:
+            {"attachment_ids": ["uuid-1", "uuid-2", ...]}
+
+        Permissions:
+            - Post author or moderator only
+        """
+        from ..models import Attachment
+        from ..serializers import AttachmentSerializer
+
+        post = self.get_object()
+        attachment_ids = request.data.get('attachment_ids')
+
+        if not isinstance(attachment_ids, list) or not attachment_ids:
+            return Response(
+                {
+                    "error": "Invalid attachment order",
+                    "detail": "Please provide a non-empty 'attachment_ids' list"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        attachment_ids = [str(attachment_id) for attachment_id in attachment_ids]
+        if len(attachment_ids) != len(set(attachment_ids)):
+            return Response(
+                {
+                    "error": "Duplicate attachments",
+                    "detail": "Each attachment ID may only appear once"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        active_attachments = list(Attachment.active.filter(post=post))
+        active_attachment_ids = {str(attachment.id) for attachment in active_attachments}
+
+        if set(attachment_ids) != active_attachment_ids:
+            return Response(
+                {
+                    "error": "Attachment list mismatch",
+                    "detail": "The attachment_ids list must include every active image for this post exactly once"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        attachments_by_id = {str(attachment.id): attachment for attachment in active_attachments}
+
+        with transaction.atomic():
+            for display_order, attachment_id in enumerate(attachment_ids):
+                attachment = attachments_by_id[attachment_id]
+                if attachment.display_order != display_order:
+                    attachment.display_order = display_order
+                    attachment.save(update_fields=['display_order'])
+
+        reordered_attachments = Attachment.active.filter(post=post).order_by('display_order', 'created_at')
+        serializer = AttachmentSerializer(reordered_attachments, many=True, context={'request': request})
+
+        logger.info(
+            f"[FORUM] Images reordered for post {post.id}: "
+            f"{len(attachment_ids)} attachment(s)"
+        )
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['POST'], permission_classes=[IsAuthenticatedOrReadOnly], url_path='flag')
     @method_decorator(ratelimit(key='user', rate='10/d', method='POST', block=True))

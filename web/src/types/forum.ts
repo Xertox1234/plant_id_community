@@ -70,10 +70,20 @@ export interface Post {
  */
 export interface Attachment {
   id: string;
-  image: string;
+  image?: string;
+  image_url?: string; // Backend serializer field for original image URL
   image_thumbnail?: string; // Thumbnail URL
+  thumbnail_url?: string; // Backend serializer field for thumbnail URL
   thumbnail?: string; // Alias for compatibility
-  uploaded_at: string;
+  medium_url?: string;
+  large_url?: string;
+  original_filename?: string;
+  file_size?: number;
+  mime_type?: string;
+  display_order?: number;
+  alt_text?: string;
+  uploaded_at?: string;
+  created_at?: string;
 }
 
 /**
