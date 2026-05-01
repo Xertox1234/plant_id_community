@@ -66,3 +66,12 @@ flutter pub run build_runner build --delete-conflicting-outputs
 - Updated mobile setup documentation and `.env.example` with required Firebase keys.
 - Updated `apiServiceProvider` to honor `API_BASE_URL` from `--dart-define`, use a debug-only localhost fallback, and fail fast in release builds when the value is missing.
 - Could not run `flutter pub get`, `flutter analyze`, or a debug build in the current GitHub cloud workspace because Flutter/Dart are not installed. Validation is intentionally deferred until a Flutter-capable local or CI environment is available.
+
+### 2026-05-01 - Fresh Checkout Build Follow-up
+
+- Added missing mobile `plant_identification_service.dart` and `firebase_storage_service.dart` imports required by `CameraScreen` and integration tests.
+- Removed the Android Google Services Gradle plugin from the app build because the required `google-services.json` file is intentionally ignored and Firebase initialization now uses explicit `FirebaseOptions`.
+- Updated API service tests to avoid loading ignored `.env` files.
+- Added Mobile Fresh Checkout CI to run `flutter pub get`, code generation, `flutter analyze`, `flutter test`, and a debug Android build with placeholder `--dart-define` values in a Flutter-capable environment.
+- Addressed review findings by aligning Android minSdk with FlutterFire, validating image upload size/type, cleaning up Firebase uploads when backend identification fails, and making generated-code CI fail on uncommitted changes.
+- Added targeted tests for Firebase upload validation and cleanup of uploaded images when plant identification fails after upload.

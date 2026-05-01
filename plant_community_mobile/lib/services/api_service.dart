@@ -59,9 +59,9 @@ class ApiService {
     if (kDebugMode) {
       _dio.interceptors.add(
         LogInterceptor(
-          requestBody: true,
-          responseBody: true,
-          requestHeader: true,
+          requestBody: false,
+          responseBody: false,
+          requestHeader: false,
           responseHeader: false,
           error: true,
           logPrint: (obj) => debugPrint('[API] $obj'),

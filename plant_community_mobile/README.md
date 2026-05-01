@@ -7,9 +7,10 @@ Flutter mobile application for Plant ID Community with Firebase authentication a
 ## Quick Start
 
 ### Prerequisites
+
 - Flutter 3.35+ with Dart SDK 3.9.x
 - Xcode 15+ (iOS development)
-- Android Studio (Android development)
+- Android Studio (Android development; Android minSdk 23)
 - Firebase project configured
 
 ### Setup
@@ -26,21 +27,21 @@ flutter pub run build_runner build --delete-conflicting-outputs
 
 # Run on iOS with local configuration values
 flutter run -d ios \
-	--dart-define=API_BASE_URL=http://localhost:8000/api/v1 \
-	--dart-define=FIREBASE_API_KEY=your-firebase-api-key \
-	--dart-define=FIREBASE_IOS_APP_ID=your-ios-app-id \
-	--dart-define=FIREBASE_MESSAGING_SENDER_ID=your-sender-id \
-	--dart-define=FIREBASE_PROJECT_ID=your-project-id \
-	--dart-define=FIREBASE_STORAGE_BUCKET=your-storage-bucket
+  --dart-define=API_BASE_URL=http://localhost:8000/api/v1 \
+  --dart-define=FIREBASE_API_KEY=your-firebase-api-key \
+  --dart-define=FIREBASE_IOS_APP_ID=your-ios-app-id \
+  --dart-define=FIREBASE_MESSAGING_SENDER_ID=your-sender-id \
+  --dart-define=FIREBASE_PROJECT_ID=your-project-id \
+  --dart-define=FIREBASE_STORAGE_BUCKET=your-storage-bucket
 
 # Run on Android with local configuration values
 flutter run -d android \
-	--dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1 \
-	--dart-define=FIREBASE_API_KEY=your-firebase-api-key \
-	--dart-define=FIREBASE_ANDROID_APP_ID=your-android-app-id \
-	--dart-define=FIREBASE_MESSAGING_SENDER_ID=your-sender-id \
-	--dart-define=FIREBASE_PROJECT_ID=your-project-id \
-	--dart-define=FIREBASE_STORAGE_BUCKET=your-storage-bucket
+  --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1 \
+  --dart-define=FIREBASE_API_KEY=your-firebase-api-key \
+  --dart-define=FIREBASE_ANDROID_APP_ID=your-android-app-id \
+  --dart-define=FIREBASE_MESSAGING_SENDER_ID=your-sender-id \
+  --dart-define=FIREBASE_PROJECT_ID=your-project-id \
+  --dart-define=FIREBASE_STORAGE_BUCKET=your-storage-bucket
 
 # Or pass the same values in CI/release builds with --dart-define.
 ```
@@ -55,6 +56,12 @@ compile without generated secret/config files. If required Firebase values are
 missing at runtime, the app shows an actionable configuration screen instead of
 crashing during startup.
 
+Android builds intentionally do not apply the Gradle Google Services plugin in
+this repository because `android/app/google-services.json` is ignored and not
+required when Firebase is initialized with explicit `FirebaseOptions`. Keep local
+native Firebase files out of git; use `--dart-define` values for CI and release
+builds.
+
 ---
 
 ## Development Patterns
@@ -64,6 +71,7 @@ crashing during startup.
 **📚 [FLUTTER_PATTERNS_CODIFIED.md](./FLUTTER_PATTERNS_CODIFIED.md)**
 
 This comprehensive guide includes:
+
 1. API Service Layer Patterns
 2. Firebase Authentication Patterns
 3. Riverpod State Management Patterns
@@ -82,6 +90,7 @@ This comprehensive guide includes:
 ## Resources
 
 ### Documentation
+
 - [Flutter Patterns (Mobile)](./FLUTTER_PATTERNS_CODIFIED.md) - **START HERE**
 - [Backend Firebase Auth](../backend/docs/FIREBASE_AUTHENTICATION.md)
 - [Web Patterns (TypeScript)](../web/TYPESCRIPT_MIGRATION_PATTERNS_CODIFIED.md)

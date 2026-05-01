@@ -277,7 +277,9 @@ class MockFirestoreService extends FirestoreService {
 }
 
 /// Mock API service that simulates offline state (no connectivity).
-class OfflineApiService implements ApiService {
+class OfflineApiService extends ApiService {
+  OfflineApiService() : super(baseUrl: 'http://localhost:8000/api/v1');
+
   @override
   String get baseUrl => 'http://localhost:8000/api/v1';
 
@@ -354,7 +356,9 @@ class OfflineApiService implements ApiService {
 }
 
 /// Mock API service that simulates online state (successful connectivity).
-class OnlineApiService implements ApiService {
+class OnlineApiService extends ApiService {
+  OnlineApiService() : super(baseUrl: 'http://localhost:8000/api/v1');
+
   @override
   String get baseUrl => 'http://localhost:8000/api/v1';
 

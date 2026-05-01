@@ -1,13 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 
 void main() {
-  // Initialize dotenv before tests
   setUpAll(() async {
-    // Load test environment variables
     TestWidgetsFlutterBinding.ensureInitialized();
-    await dotenv.load(fileName: '.env');
   });
 
   group('ApiService - Unit Tests', () {
@@ -101,16 +98,13 @@ void main() {
     });
 
     group('Environment Configuration', () {
-      test('should load API_BASE_URL from environment', () {
-        final baseUrl = dotenv.env['API_BASE_URL'];
-        expect(baseUrl, isNotNull);
-        expect(baseUrl, contains('http'));
-      });
-
       test('should have fallback to localhost for development', () {
-        // When .env doesn't have API_BASE_URL, provider uses default
-        const defaultUrl = 'http://localhost:8000/api/v1';
-        expect(defaultUrl, isNotNull);
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+
+        final service = container.read(apiServiceProvider);
+
+        expect(service.baseUrl, 'http://localhost:8000/api/v1');
       });
     });
   });

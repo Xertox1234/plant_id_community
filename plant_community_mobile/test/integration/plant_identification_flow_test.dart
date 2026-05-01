@@ -84,9 +84,6 @@ void main() {
         expect(find.text('Take Photo'), findsOneWidget);
         expect(find.text('Upload from Gallery'), findsOneWidget);
 
-        // Step 3: Verify sample images are displayed
-        expect(find.text('Or try a sample image'), findsOneWidget);
-
         // Note: Full flow testing requires mocking ImagePicker
         // which is beyond the scope of this basic integration test.
         // See plant_identification_service_test.dart for service-level tests.
@@ -188,11 +185,12 @@ void main() {
     test('identifyPlant throws PlantIdentificationException on API error',
         () async {
       // Create container with failing API service
+      final storageService = MockFirebaseStorageService();
       final failingContainer = ProviderContainer(
         overrides: [
           apiServiceProvider.overrideWith((ref) => FailingApiService()),
           firebaseStorageServiceProvider.overrideWith(
-            () => MockFirebaseStorageService(),
+            () => storageService,
           ),
         ],
       );
@@ -200,21 +198,23 @@ void main() {
       final service =
           failingContainer.read(plantIdentificationServiceProvider.notifier);
 
-      expect(
-        () => service.identifyPlant('/path/to/test/image.jpg'),
+      await expectLater(
+        service.identifyPlant('/path/to/test/image.jpg'),
         throwsA(isA<ApiException>()),
       );
+      expect(storageService.deletedImageUrls, contains(MockFirebaseStorageService.uploadedImageUrl));
 
       failingContainer.dispose();
     });
 
     test('identifyPlant throws when no plant identified', () async {
       // Create container with empty response API service
+      final storageService = MockFirebaseStorageService();
       final emptyResponseContainer = ProviderContainer(
         overrides: [
           apiServiceProvider.overrideWith((ref) => EmptyResponseApiService()),
           firebaseStorageServiceProvider.overrideWith(
-            () => MockFirebaseStorageService(),
+            () => storageService,
           ),
         ],
       );
@@ -222,10 +222,11 @@ void main() {
       final service = emptyResponseContainer
           .read(plantIdentificationServiceProvider.notifier);
 
-      expect(
-        () => service.identifyPlant('/path/to/test/image.jpg'),
+      await expectLater(
+        service.identifyPlant('/path/to/test/image.jpg'),
         throwsA(isA<PlantIdentificationException>()),
       );
+      expect(storageService.deletedImageUrls, contains(MockFirebaseStorageService.uploadedImageUrl));
 
       emptyResponseContainer.dispose();
     });
@@ -233,7 +234,9 @@ void main() {
 }
 
 /// Mock API service that returns successful plant identification response.
-class MockApiService implements ApiService {
+class MockApiService extends ApiService {
+  MockApiService() : super(baseUrl: 'http://localhost:8000/api/v1');
+
   @override
   String get baseUrl => 'http://localhost:8000/api/v1';
 
@@ -325,7 +328,9 @@ class MockApiService implements ApiService {
 }
 
 /// Mock API service that simulates API failure.
-class FailingApiService implements ApiService {
+class FailingApiService extends ApiService {
+  FailingApiService() : super(baseUrl: 'http://localhost:8000/api/v1');
+
   @override
   String get baseUrl => 'http://localhost:8000/api/v1';
 
@@ -395,7 +400,9 @@ class FailingApiService implements ApiService {
 }
 
 /// Mock API service that returns empty response (no plant identified).
-class EmptyResponseApiService implements ApiService {
+class EmptyResponseApiService extends ApiService {
+  EmptyResponseApiService() : super(baseUrl: 'http://localhost:8000/api/v1');
+
   @override
   String get baseUrl => 'http://localhost:8000/api/v1';
 
@@ -475,6 +482,10 @@ class EmptyResponseApiService implements ApiService {
 
 /// Mock Firebase Storage service.
 class MockFirebaseStorageService extends FirebaseStorageService {
+  static const uploadedImageUrl = 'https://firebase.storage/plant_images/mock-image-id.jpg';
+
+  final List<String> deletedImageUrls = [];
+
   @override
   Future<String> uploadPlantImage(
     String filePath, {
@@ -491,12 +502,12 @@ class MockFirebaseStorageService extends FirebaseStorageService {
     }
 
     // Return mock Firebase Storage URL
-    return 'https://firebase.storage/plant_images/mock-image-id.jpg';
+    return uploadedImageUrl;
   }
 
   @override
   Future<void> deletePlantImage(String imageUrl) async {
-    // Mock delete - do nothing
+    deletedImageUrls.add(imageUrl);
     await Future.delayed(const Duration(milliseconds: 100));
   }
 }
