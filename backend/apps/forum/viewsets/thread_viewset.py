@@ -369,8 +369,9 @@ class ThreadViewSet(viewsets.ModelViewSet):
 
         Performance:
             - Uses PostgreSQL SearchVector + SearchQuery + SearchRank
-            - GIN indexes on thread.title, thread.excerpt, post.content_raw
-            - Target response time: <200ms
+            - Explicit GIN index coverage exists for post.content_raw
+            - Thread title/excerpt search indexes are pending
+            - Target response time: <200ms after full index coverage
         """
         from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
         from django.db.models import Q, F

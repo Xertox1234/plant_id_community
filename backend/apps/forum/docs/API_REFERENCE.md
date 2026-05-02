@@ -3,7 +3,7 @@
 **Version**: 1.0
 **Base URL**: `/api/v1/forum/`
 **Date**: November 2, 2025
-**Status**: Production Ready ✅
+**Status**: Production Candidate - performance and accessibility validation pending
 
 ---
 
@@ -416,7 +416,7 @@ Endpoints with search support use `search` parameter:
   },
   "first_post": {
     "id": "880e8400-e29b-41d4-a716-446655440003",
-    "content": "I just got my first succulent collection and I'm not sure how often to water them. I've heard different advice from different sources. What's the best practice?",
+    "content_raw": "I just got my first succulent collection and I'm not sure how often to water them. I've heard different advice from different sources. What's the best practice?",
     "content_format": "markdown",
     "author": {
       "id": 123,
@@ -449,6 +449,7 @@ Endpoints with search support use `search` parameter:
 **Description**: Create a new thread with first post (atomic operation).
 
 **Permissions**:
+
 - Authenticated users with trust_level != 'new'
 - Creates both thread and first post in single transaction
 
@@ -457,17 +458,18 @@ Endpoints with search support use `search` parameter:
 ```json
 {
   "title": "Best soil for indoor plants?",
-  "category": "plant-care",
+  "category": "660e8400-e29b-41d4-a716-446655440001",
   "first_post_content": "What type of soil do you recommend for indoor plants? I've been using regular potting soil but wondering if there's something better.",
-  "content_format": "markdown"
+  "first_post_format": "markdown"
 }
 ```
 
 **Request Fields**:
+
 - `title` (string, required): Thread title (max 200 chars)
-- `category` (slug, required): Category slug
+- `category` (UUID, required): Category primary key
 - `first_post_content` (string, required): Content of first post (max 50,000 chars)
-- `content_format` (string, optional): `plain`, `markdown`, or `rich` (default: `markdown`)
+- `first_post_format` (string, optional): `plain`, `markdown`, or `rich` (default: `plain`)
 
 **Response** (201 Created): Full thread object with first post
 
@@ -484,7 +486,7 @@ Endpoints with search support use `search` parameter:
 ```json
 {
   "title": ["This field is required."],
-  "category": ["Invalid category slug."]
+  "category": ["Invalid category primary key."]
 }
 ```
 
@@ -564,6 +566,76 @@ Endpoints with search support use `search` parameter:
 
 ---
 
+### Search Threads and Posts
+
+**Endpoint**: `GET /api/v1/forum/threads/search/`
+
+**Description**: Unified full-text search across active forum threads and posts. Thread title matches are weighted higher than excerpts; post matches search `content_raw`.
+
+**Query Parameters**:
+
+- `q` (string, **required**): Search query
+- `category` (slug): Filter by category slug
+- `author` (username): Filter by author username
+- `date_from` (ISO datetime): Include results created on or after this date
+- `date_to` (ISO datetime): Include results created on or before this date
+- `page` (int): Page number (default: 1)
+- `page_size` (int): Results per page for each result type (default: 20, max: 50)
+
+**Permissions**: Public (AllowAny)
+
+**Response** (200 OK):
+
+```json
+{
+  "query": "watering",
+  "threads": [
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440002",
+      "title": "How often should I water succulents?",
+      "slug": "how-often-water-succulents",
+      "excerpt": "Watering frequency tips for succulents..."
+    }
+  ],
+  "posts": [
+    {
+      "id": "880e8400-e29b-41d4-a716-446655440003",
+      "content_raw": "Water deeply, then let the soil dry completely."
+    }
+  ],
+  "total_threads": 15,
+  "total_posts": 42,
+  "page": 1,
+  "page_size": 20,
+  "has_next_threads": true,
+  "has_next_posts": false,
+  "filters": {
+    "category": "plant-care",
+    "author": null,
+    "date_from": null,
+    "date_to": null
+  }
+}
+```
+
+**Response** (400 Bad Request) - Missing query:
+
+```json
+{
+  "error": "Search query required",
+  "detail": "Please provide a search query using the \"q\" parameter"
+}
+```
+
+**Performance Notes**:
+
+- Uses PostgreSQL `SearchVector`, `SearchQuery`, and `SearchRank`
+- Post content search is backed by explicit GIN indexes
+- Thread title and excerpt search currently use weighted ranking; explicit thread search indexes are pending
+- Target response time: under 200ms for typical result sets after index coverage is complete
+
+---
+
 ## Posts API
 
 ### List Posts
@@ -573,6 +645,7 @@ Endpoints with search support use `search` parameter:
 **Description**: List posts in a thread (thread parameter **required**).
 
 **Query Parameters**:
+
 - `thread` (slug, **required**): Thread slug
 - `author` (username): Filter by author username
 - `is_active` (bool): Include inactive posts (default: `true`)
@@ -592,12 +665,14 @@ Endpoints with search support use `search` parameter:
   "results": [
     {
       "id": "880e8400-e29b-41d4-a716-446655440003",
-      "thread": {
+      "thread": "770e8400-e29b-41d4-a716-446655440002",
+      "thread_info": {
         "id": "770e8400-e29b-41d4-a716-446655440002",
         "title": "How often should I water succulents?",
         "slug": "how-often-water-succulents"
       },
-      "content": "Generally, succulents need water every 1-2 weeks in summer and every 3-4 weeks in winter. Check the soil - it should be completely dry before watering again.",
+      "content_raw": "Generally, succulents need water every 1-2 weeks in summer and every 3-4 weeks in winter. Check the soil - it should be completely dry before watering again.",
+      "content_rich": null,
       "content_format": "markdown",
       "author": {
         "id": 456,
@@ -610,16 +685,13 @@ Endpoints with search support use `search` parameter:
       "updated_at": "2025-10-30T15:45:00Z",
       "edited_at": null,
       "edited_by": null,
-      "reactions": [
-        {
-          "reaction_type": "helpful",
-          "count": 5
-        },
-        {
-          "reaction_type": "thanks",
-          "count": 2
-        }
-      ],
+      "edited_by_info": null,
+      "reaction_counts": {
+        "like": 0,
+        "love": 0,
+        "helpful": 5,
+        "thanks": 2
+      },
       "attachments": []
     }
   ]
@@ -643,6 +715,7 @@ Endpoints with search support use `search` parameter:
 **Description**: Get single post by UUID.
 
 **URL Parameters**:
+
 - `id` (UUID): Post UUID
 
 **Permissions**: Public (AllowAny)
@@ -663,15 +736,17 @@ Endpoints with search support use `search` parameter:
 
 ```json
 {
-  "thread": "how-often-water-succulents",
-  "content": "Great advice! I'll try the soil test method.",
+  "thread": "770e8400-e29b-41d4-a716-446655440002",
+  "content_raw": "Great advice! I'll try the soil test method.",
   "content_format": "markdown"
 }
 ```
 
 **Request Fields**:
-- `thread` (slug, required): Thread slug
-- `content` (string, required): Post content (max 50,000 chars)
+
+- `thread` (UUID, required): Thread primary key
+- `content_raw` (string, required): Post content (max 50,000 chars)
+- `content_rich` (object, optional): Draft.js rich content JSON
 - `content_format` (string, optional): `plain`, `markdown`, or `rich` (default: `markdown`)
 
 **Response** (201 Created): Full post object
@@ -698,7 +773,7 @@ Endpoints with search support use `search` parameter:
 
 ```json
 {
-  "content": "Updated content with corrections"
+  "content_raw": "Updated content with corrections"
 }
 ```
 
@@ -736,6 +811,123 @@ Endpoints with search support use `search` parameter:
 **Response** (200 OK): Paginated list of first posts
 
 **Use Case**: Building thread previews with first post content
+
+---
+
+### Upload Post Image
+
+**Endpoint**: `POST /api/v1/forum/posts/{id}/upload_image/`
+
+**Description**: Upload an image attachment to a forum post.
+
+**Permissions**:
+
+- Authenticated users only
+- Post author or moderator only
+- BASIC trust level or higher for non-staff users
+- Rate limit: 10 uploads per hour per user
+
+**Request**: `multipart/form-data`
+
+| Field      | Type   | Required | Description                                      |
+|------------|--------|----------|--------------------------------------------------|
+| `image`    | file   | Yes      | JPG, PNG, GIF, or WebP image up to 10MB          |
+| `alt_text` | string | No       | Accessibility text, max 255 characters           |
+
+**Validation**:
+
+- Maximum 6 active images per post
+- Extension and MIME type must be allowed
+- Pillow verifies file signature and image integrity
+- Oversized dimensions and decompression bombs are rejected
+
+**Response** (201 Created):
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+  "post": "880e8400-e29b-41d4-a716-446655440003",
+  "image_url": "https://api.example.com/media/forum/attachments/photo.jpg",
+  "thumbnail_url": "https://api.example.com/media/CACHE/images/forum/attachments/photo/thumb.jpg",
+  "medium_url": "https://api.example.com/media/CACHE/images/forum/attachments/photo/medium.jpg",
+  "large_url": "https://api.example.com/media/CACHE/images/forum/attachments/photo/large.jpg",
+  "original_filename": "photo.jpg",
+  "file_size": 825,
+  "mime_type": "image/jpeg",
+  "display_order": 0,
+  "alt_text": "A healthy succulent leaf",
+  "created_at": "2026-05-02T00:00:00Z"
+}
+```
+
+**Response** (400 Bad Request) - Validation error:
+
+```json
+{
+  "error": "Maximum 6 images allowed per post",
+  "detail": "Please delete an existing image before uploading a new one"
+}
+```
+
+---
+
+### Delete Post Image
+
+**Endpoint**: `DELETE /api/v1/forum/posts/{id}/delete_image/{attachment_id}/`
+
+**Description**: Permanently delete an image attachment from a post.
+
+**Permissions**: Post author or moderator only
+
+**Response** (204 No Content)
+
+**Response** (404 Not Found):
+
+```json
+{
+  "error": "Attachment not found",
+  "detail": "No attachment with ID a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d found for this post"
+}
+```
+
+---
+
+### Reorder Post Images
+
+**Endpoint**: `POST /api/v1/forum/posts/{id}/reorder_images/`
+
+**Description**: Persist a new display order for every active image attachment on a post.
+
+**Permissions**:
+
+- Post author or moderator only
+- Rate limit: 60 reorder requests per hour per user
+
+**Request Body**:
+
+```json
+{
+  "attachment_ids": [
+    "b2c3d4e5-f6a7-4b5c-9d0e-1f2a3b4c5d6e",
+    "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d"
+  ]
+}
+```
+
+**Request Fields**:
+
+- `attachment_ids` (array, required): Every active attachment ID for the post exactly once, in desired order
+
+**Response** (200 OK): Ordered attachment array with updated `display_order` values.
+
+**Response** (400 Bad Request) - Incomplete or duplicate list:
+
+```json
+{
+  "error": "Attachment list mismatch",
+  "detail": "The attachment_ids list must include every active image for this post exactly once"
+}
+```
 
 ---
 
@@ -1130,7 +1322,7 @@ curl -X POST http://localhost:8000/api/v1/forum/threads/ \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Test Thread",
-    "category": "plant-care",
+    "category": "660e8400-e29b-41d4-a716-446655440001",
     "first_post_content": "Test post content"
   }'
 
@@ -1165,8 +1357,8 @@ response = requests.post(
     f"{BASE_URL}/posts/",
     headers=HEADERS,
     json={
-        "thread": "my-thread-slug",
-        "content": "Great discussion!"
+        "thread": "770e8400-e29b-41d4-a716-446655440002",
+        "content_raw": "Great discussion!"
     }
 )
 new_post = response.json()

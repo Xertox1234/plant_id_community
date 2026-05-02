@@ -3,26 +3,21 @@
 """
 Migration to swap PlantImage primary key from auto-incrementing 'id' to UUID.
 
-⚠️ IMPORTANT: PostgreSQL Required ⚠️
+⚠️ IMPORTANT: PostgreSQL primary-key swap ⚠️
 
 This migration uses PostgreSQL-specific raw SQL commands (ALTER TABLE, DROP CONSTRAINT).
-SQLite has limited ALTER TABLE support and cannot swap primary keys this way.
+SQLite has limited ALTER TABLE support and cannot swap primary keys this way, so SQLite
+development databases keep the legacy integer `id` column physically present while Django's
+migration state uses `uuid` as the model primary key.
 
 For Production (PostgreSQL):
     python manage.py migrate garden_calendar
 
 For Development (SQLite):
-    Option 1 - Fake the migration (if no PlantImage data exists):
-        python manage.py migrate garden_calendar 0005 --fake
-        rm db.sqlite3
-        python manage.py migrate
-
-    Option 2 - Skip this migration and use fresh database:
-        rm db.sqlite3
-        python manage.py migrate
+    python manage.py migrate
 
 Migration Steps:
-1. Add UUID field as nullable (handles existing data)
+1. Add UUID field as nullable and non-unique (handles existing data safely)
 2. Populate UUIDs for existing records (RunPython)
 3. Make UUID non-nullable
 4. Drop old primary key constraint (raw SQL - PostgreSQL only)
@@ -30,12 +25,12 @@ Migration Steps:
 6. Remove old 'id' field
 
 Reversibility:
-- Fully reversible with 'reverse_sql' defined
-- Rolling back will restore 'id' as primary key
+- Not reversible: dropping the old integer 'id' column is destructive.
+- Restore from backup if rollback to the integer primary key is required.
 """
 
 from django.db import migrations, models
-from psycopg2 import sql
+from typing import Any
 import uuid
 
 
@@ -56,7 +51,7 @@ def validate_table_name(table_name: str) -> str:
     return table_name
 
 
-def generate_uuids_for_existing_images(apps, schema_editor):
+def generate_uuids_for_existing_images(apps: Any, schema_editor: Any) -> None:
     """
     Generate UUIDs for any existing PlantImage records.
     This function will be called during migration if there are existing records.
@@ -68,6 +63,44 @@ def generate_uuids_for_existing_images(apps, schema_editor):
             image.save(update_fields=['uuid'])
 
 
+def quote_identifier(identifier: str) -> str:
+    """
+    Safely quote a whitelisted PostgreSQL identifier for migration SQL.
+
+    Django's RunSQL expects strings or (sql, params) tuples. Passing
+    psycopg2.sql.Composed objects is stringified as ``Composed(...)`` by the
+    schema editor, which breaks fresh database migrations.
+    """
+    validated_identifier = validate_table_name(identifier)
+    return f'"{validated_identifier}"'
+
+
+PLANTIMAGE_TABLE = quote_identifier('garden_calendar_plantimage')
+PLANTIMAGE_PK = '"garden_calendar_plantimage_pkey"'
+PLANTIMAGE_UUID_COLUMN = '"uuid"'
+PLANTIMAGE_ID_COLUMN = '"id"'
+
+
+def swap_plantimage_primary_key(apps: Any, schema_editor: Any) -> None:
+    """
+    Swap PlantImage primary key from integer id to uuid on PostgreSQL.
+
+    SQLite cannot drop or add primary keys in-place. For SQLite development
+    databases, the Django migration state still moves the model primary key to
+    uuid, but the physical table keeps the ignored legacy id column.
+    """
+    if schema_editor.connection.vendor != 'postgresql':
+        return
+
+    schema_editor.execute(
+        f'ALTER TABLE {PLANTIMAGE_TABLE} DROP CONSTRAINT IF EXISTS {PLANTIMAGE_PK} CASCADE;'
+    )
+    schema_editor.execute(
+        f'ALTER TABLE {PLANTIMAGE_TABLE} ADD PRIMARY KEY ({PLANTIMAGE_UUID_COLUMN});'
+    )
+    schema_editor.execute(f'ALTER TABLE {PLANTIMAGE_TABLE} DROP COLUMN {PLANTIMAGE_ID_COLUMN};')
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -75,14 +108,12 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Step 1: Add UUID field as nullable first (to handle existing data)
+        # Step 1: Add UUID field as nullable and non-unique first (to handle existing data)
         migrations.AddField(
             model_name='plantimage',
             name='uuid',
             field=models.UUIDField(
-                default=uuid.uuid4,
                 editable=False,
-                unique=True,
                 null=True,  # Temporarily nullable
                 help_text="Unique identifier for secure references"
             ),
@@ -106,33 +137,31 @@ class Migration(migrations.Migration):
             ),
         ),
 
-        # Step 4: Drop primary key constraint from 'id' using raw SQL (PostgreSQL specific)
-        # Pattern: CLAUDE.md Migration SQL Injection Prevention (psycopg2.sql.Identifier + whitelist)
-        migrations.RunSQL(
-            sql=[
-                # Validate table name against whitelist (defense in depth)
-                sql.SQL('ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}_pkey CASCADE;').format(
-                    sql.Identifier(validate_table_name('garden_calendar_plantimage')),
-                    sql.Identifier(validate_table_name('garden_calendar_plantimage'))
-                ),
-                sql.SQL('ALTER TABLE {} ADD PRIMARY KEY (uuid);').format(
-                    sql.Identifier(validate_table_name('garden_calendar_plantimage'))
+        # Step 4-6: Swap database primary key and synchronize Django migration state.
+        # Pattern: CLAUDE.md Migration SQL Injection Prevention (whitelist + static quoted identifiers)
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    swap_plantimage_primary_key,
+                    reverse_code=migrations.RunPython.noop,
                 ),
             ],
-            reverse_sql=[
-                sql.SQL('ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}_pkey CASCADE;').format(
-                    sql.Identifier(validate_table_name('garden_calendar_plantimage')),
-                    sql.Identifier(validate_table_name('garden_calendar_plantimage'))
+            state_operations=[
+                migrations.AlterField(
+                    model_name='plantimage',
+                    name='uuid',
+                    field=models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        unique=True,
+                        primary_key=True,
+                        help_text="Unique identifier for secure references"
+                    ),
                 ),
-                sql.SQL('ALTER TABLE {} ADD PRIMARY KEY (id);').format(
-                    sql.Identifier(validate_table_name('garden_calendar_plantimage'))
+                migrations.RemoveField(
+                    model_name='plantimage',
+                    name='id',
                 ),
-            ]
-        ),
-
-        # Step 5: Remove old 'id' field entirely
-        migrations.RemoveField(
-            model_name='plantimage',
-            name='id',
+            ],
         ),
     ]

@@ -467,10 +467,15 @@ class PostViewSet(viewsets.ModelViewSet):
                         'Success Response',
                         value={
                             "id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-                            "image": "https://example.com/media/forum/attachments/photo.jpg",
-                            "image_thumbnail": "https://example.com/media/forum/attachments/photo_thumb.jpg",
+                            "post": "880e8400-e29b-41d4-a716-446655440003",
+                            "image_url": "https://example.com/media/forum/attachments/photo.jpg",
+                            "thumbnail_url": "https://example.com/media/CACHE/images/forum/attachments/photo/thumb.jpg",
+                            "medium_url": "https://example.com/media/CACHE/images/forum/attachments/photo/medium.jpg",
+                            "large_url": "https://example.com/media/CACHE/images/forum/attachments/photo/large.jpg",
                             "original_filename": "photo.jpg",
                             "file_size": 1024000,
+                            "mime_type": "image/jpeg",
+                            "display_order": 0,
                             "alt_text": "A beautiful plant",
                             "created_at": "2025-11-06T12:00:00Z"
                         }
