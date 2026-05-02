@@ -196,3 +196,15 @@ export interface SearchForumOptions {
   page?: number;
   page_size?: number;
 }
+
+export interface SearchForumResponse {
+  query: string;
+  threads: Thread[];
+  posts: Post[];
+  total_threads: number;
+  total_posts: number;
+  page: number;
+  page_size: number;
+  has_next_threads: boolean;
+  has_next_posts: boolean;
+}

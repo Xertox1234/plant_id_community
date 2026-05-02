@@ -16,7 +16,7 @@ These todos were created after a fresh codebase assessment to make the repositor
 |----|----------|-------|------|
 | 046 | P1 | Backend syntax error | archive/046-completed-p1-backend-syntax-error.md |
 | 047 | P1 | Web build/type-check failures | archive/047-completed-p1-web-build-typecheck-failures.md |
-| 048 | P2 | Web Vitest suite failures | 048-pending-p2-web-test-suite-failures.md |
+| 048 | P2 | Web Vitest suite failures | completed/048-completed-p2-web-test-suite-failures.md |
 | 049 | P2 | Web npm audit vulnerabilities | 049-pending-p2-web-dependency-vulnerabilities.md |
 | 050 | P1 | Flutter fresh-checkout build | 050-pending-p1-flutter-fresh-checkout-build.md |
 | 051 | P2 | Flutter core reliability features | 051-pending-p2-flutter-core-feature-completion.md |

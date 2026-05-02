@@ -27,6 +27,8 @@
  * ```
  */
 
+import { logger } from './logger'
+
 // In-memory cache for CSRF token (single source of truth)
 let csrfToken: string | null = null
 
@@ -61,13 +63,13 @@ export async function getCsrfToken(): Promise<string | null> {
   if (meta) {
     csrfToken = meta.getAttribute('content')
     if (csrfToken) {
-      console.log('[CSRF] Token loaded from meta tag (Django standard pattern)')
+      logger.debug('[CSRF] Token loaded from meta tag')
       return csrfToken
     }
   }
 
   // Strategy 2: Fallback to API endpoint (backward compatibility)
-  console.warn('[CSRF] Meta tag not found, falling back to API endpoint')
+  logger.warn('[CSRF] Meta tag not found, falling back to API endpoint')
   try {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
     const response = await fetch(`${API_URL}/api/csrf/`, {
@@ -76,17 +78,17 @@ export async function getCsrfToken(): Promise<string | null> {
     })
 
     if (!response.ok) {
-      console.error('[CSRF] Failed to fetch token from API:', response.status)
+      logger.error('[CSRF] Failed to fetch token from API', { status: response.status })
       return null
     }
 
     const data = await response.json()
     csrfToken = data.csrfToken
 
-    console.log('[CSRF] Token loaded from API endpoint (fallback)')
+    logger.debug('[CSRF] Token loaded from API endpoint fallback')
     return csrfToken
   } catch (error) {
-    console.error('[CSRF] Error fetching token:', error)
+    logger.error('[CSRF] Error fetching token', { error })
     return null
   }
 }

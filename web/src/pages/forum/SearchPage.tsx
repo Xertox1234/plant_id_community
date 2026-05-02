@@ -6,7 +6,7 @@ import PostCard from '../../components/forum/PostCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import { logger } from '../../utils/logger';
-import type { Thread, Post, Category } from '@/types';
+import type { Category, SearchForumResponse } from '@/types';
 
 function highlightText(text: string | undefined, query: string) {
   if (!text || !query.trim()) return text || '';
@@ -30,15 +30,6 @@ function hasSearchMatch(text: string | undefined, query: string): boolean {
   ));
 }
 
-interface SearchResults {
-  threads: Thread[];
-  posts: Post[];
-  total_threads: number;
-  total_posts: number;
-  has_next_threads: boolean;
-  has_next_posts: boolean;
-}
-
 type CategoriesResponse = Category[] | {
   results: Category[];
 };
@@ -59,7 +50,7 @@ type CategoriesResponse = Category[] | {
 export default function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
+  const [searchResults, setSearchResults] = useState<SearchForumResponse | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -125,12 +116,11 @@ export default function SearchPage() {
           page_size: pageSize,
         });
 
-        const searchResults = results as unknown as SearchResults;
-        setSearchResults(searchResults);
+        setSearchResults(results);
         logger.info('[SEARCH] Results loaded', {
           query,
-          totalThreads: searchResults.total_threads,
-          totalPosts: searchResults.total_posts,
+          totalThreads: results.total_threads,
+          totalPosts: results.total_posts,
         });
       } catch (err) {
         logger.error('Error performing search', {

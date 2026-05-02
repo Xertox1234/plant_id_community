@@ -159,7 +159,7 @@ describe('Header', () => {
       const mockUser = {
         id: 1,
         email: 'test@example.com',
-        name: 'Test User',
+        username: 'Test User',
       };
 
       authService.getStoredUser.mockReturnValue(mockUser);
@@ -177,7 +177,7 @@ describe('Header', () => {
       const mockUser = {
         id: 1,
         email: 'test@example.com',
-        name: 'Test User',
+        username: 'Test User',
       };
 
       authService.getStoredUser.mockReturnValue(mockUser);
@@ -218,7 +218,7 @@ describe('Header', () => {
       const mockUser = {
         id: 1,
         email: 'mobile@example.com',
-        name: 'Mobile User',
+        username: 'Mobile User',
       };
 
       authService.getStoredUser.mockReturnValue(mockUser);
@@ -239,7 +239,7 @@ describe('Header', () => {
       const mockUser = {
         id: 1,
         email: 'test@example.com',
-        name: 'Test User',
+        username: 'Test User',
       };
 
       authService.getStoredUser.mockReturnValue(mockUser);
@@ -260,7 +260,7 @@ describe('Header', () => {
       const mockUser = {
         id: 1,
         email: 'test@example.com',
-        name: 'Test User',
+        username: 'Test User',
       };
 
       authService.getStoredUser.mockReturnValue(mockUser);
@@ -282,7 +282,7 @@ describe('Header', () => {
       const mockUser = {
         id: 1,
         email: 'test@example.com',
-        name: 'Test User',
+        username: 'Test User',
       };
 
       authService.getStoredUser.mockReturnValue(mockUser);
@@ -314,7 +314,7 @@ describe('Header', () => {
       const mockUser = {
         id: 1,
         email: 'test@example.com',
-        name: 'Test User',
+        username: 'Test User',
       };
 
       authService.getStoredUser.mockReturnValue(mockUser);

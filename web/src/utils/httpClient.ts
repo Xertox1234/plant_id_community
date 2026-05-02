@@ -32,6 +32,15 @@ import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'ax
 import { logger } from './logger'
 import { getCsrfToken, clearCsrfToken } from './csrf'
 
+function getSafeAxiosError(error: AxiosError): { message: string; name: string; code?: string; status?: number } {
+  return {
+    message: error.message,
+    name: error.name,
+    code: error.code,
+    status: error.response?.status,
+  }
+}
+
 /**
  * Create axios instance with base configuration
  */
@@ -91,7 +100,7 @@ apiClient.interceptors.request.use(
   (error: AxiosError) => {
     logger.error('Request interceptor error', {
       component: 'httpClient',
-      error,
+      error: getSafeAxiosError(error),
     })
     return Promise.reject(error)
   }
@@ -140,7 +149,7 @@ apiClient.interceptors.response.use(
     // Log error response
     logger.error('HTTP error', {
       component: 'httpClient',
-      error,
+      error: getSafeAxiosError(error),
       status,
       url,
       message,

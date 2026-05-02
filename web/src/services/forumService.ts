@@ -22,6 +22,7 @@ import type {
   UpdatePostInput,
   AddReactionInput,
   SearchForumOptions,
+  SearchForumResponse,
 } from '../types/forum';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -260,15 +261,7 @@ export async function fetchReactions(postId: string): Promise<Reaction[]> {
 /**
  * Search forum threads and posts
  */
-export async function searchForum(options: SearchForumOptions): Promise<{
-  threads: Thread[];
-  posts: Post[];
-  meta: {
-    count: number;
-    next?: string | null;
-    previous?: string | null;
-  };
-}> {
+export async function searchForum(options: SearchForumOptions): Promise<SearchForumResponse> {
   const {
     q,
     category = '',
@@ -294,15 +287,7 @@ export async function searchForum(options: SearchForumOptions): Promise<{
   if (date_from) params.append('date_from', date_from);
   if (date_to) params.append('date_to', date_to);
 
-  return authenticatedFetch<{
-    threads: Thread[];
-    posts: Post[];
-    meta: {
-      count: number;
-      next?: string | null;
-      previous?: string | null;
-    };
-  }>(`${FORUM_BASE}/threads/search/?${params}`);
+  return authenticatedFetch<SearchForumResponse>(`${FORUM_BASE}/threads/search/?${params}`);
 }
 
 /**

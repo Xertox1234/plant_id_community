@@ -16,6 +16,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { plantIdService } from './plantIdService';
+import { clearCsrfToken } from '../utils/csrf';
 import type {
   PlantIdentificationResult,
   Collection,
@@ -99,10 +100,19 @@ describe('plantIdService', () => {
       configurable: true,
     });
 
+    clearCsrfToken();
+    document.head.querySelector('meta[name="csrf-token"]')?.remove();
+    const csrfMeta = document.createElement('meta');
+    csrfMeta.setAttribute('name', 'csrf-token');
+    csrfMeta.setAttribute('content', 'test-csrf-token');
+    document.head.appendChild(csrfMeta);
+
     vi.clearAllMocks();
   });
 
   afterEach(() => {
+    clearCsrfToken();
+    document.head.querySelector('meta[name="csrf-token"]')?.remove();
     vi.restoreAllMocks();
   });
 
@@ -142,12 +152,14 @@ describe('plantIdService', () => {
     it('should fetch CSRF token if not present', async () => {
       // Arrange
       documentCookieMock = ''; // No CSRF token
+      document.head.querySelector('meta[name="csrf-token"]')?.remove();
+      clearCsrfToken();
       const imageFile = new File(['image data'], 'plant.jpg', { type: 'image/jpeg' });
 
       // Mock CSRF fetch
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({}),
+        json: async () => ({ csrfToken: 'fetched-csrf-token' }),
       });
 
       // Mock identification
@@ -163,7 +175,7 @@ describe('plantIdService', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(fetchMock).toHaveBeenNthCalledWith(
         1,
-        expect.stringContaining('/api/v1/users/csrf/'),
+        expect.stringContaining('/api/csrf/'),
         expect.objectContaining({
           credentials: 'include',
         })

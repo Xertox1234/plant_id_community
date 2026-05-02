@@ -29,6 +29,7 @@ export type {
   Attachment,
   CreateThreadData,
   CreatePostData,
+  SearchForumResponse,
 } from './forum';
 
 // Blog types

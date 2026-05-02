@@ -8,6 +8,14 @@ import { createMockThread, createMockPost } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
 import { useAuth } from '../../contexts/AuthContext';
 
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useParams: vi.fn(),
+  };
+});
+
 // Mock the forumService and AuthContext
 vi.mock('../../services/forumService');
 vi.mock('../../contexts/AuthContext', () => ({
@@ -50,7 +58,7 @@ describe('ThreadDetailPage', () => {
     vi.clearAllMocks();
 
     // Mock useParams to return categorySlug and threadSlug
-    vi.spyOn(ReactRouter, 'useParams').mockReturnValue({
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
       categorySlug: 'plant-care',
       threadSlug: 'watering-tips'
     });

@@ -34,6 +34,7 @@ import {
   uploadPostImage,
   deletePostImage,
 } from './forumService';
+import { clearCsrfToken } from '../utils/csrf';
 import type {
   Category,
   Thread,
@@ -128,10 +129,19 @@ beforeEach(() => {
     configurable: true,
   });
 
+  clearCsrfToken();
+  document.head.querySelector('meta[name="csrf-token"]')?.remove();
+  const csrfMeta = document.createElement('meta');
+  csrfMeta.setAttribute('name', 'csrf-token');
+  csrfMeta.setAttribute('content', 'test-csrf-token');
+  document.head.appendChild(csrfMeta);
+
   vi.clearAllMocks();
 });
 
 afterEach(() => {
+  clearCsrfToken();
+  document.head.querySelector('meta[name="csrf-token"]')?.remove();
   vi.restoreAllMocks();
 });
 
@@ -685,9 +695,15 @@ describe('forumService', () => {
         page_size: 20,
       };
       const response = {
+        query: 'succulents',
         threads: [mockThread],
         posts: [mockPost],
-        meta: { count: 2, next: null, previous: null },
+        total_threads: 1,
+        total_posts: 1,
+        page: 1,
+        page_size: 20,
+        has_next_threads: false,
+        has_next_posts: false,
       };
       fetchMock.mockResolvedValueOnce({
         ok: true,
@@ -700,6 +716,8 @@ describe('forumService', () => {
       // Assert
       expect(result.threads).toEqual([mockThread]);
       expect(result.posts).toEqual([mockPost]);
+      expect(result.total_threads).toBe(1);
+      expect(result.total_posts).toBe(1);
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('q=succulents'),
         expect.any(Object)
@@ -720,7 +738,17 @@ describe('forumService', () => {
       // Arrange
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ threads: [], posts: [], meta: { count: 0 } }),
+        json: async () => ({
+          query: 'test',
+          threads: [],
+          posts: [],
+          total_threads: 0,
+          total_posts: 0,
+          page: 1,
+          page_size: 20,
+          has_next_threads: false,
+          has_next_posts: false,
+        }),
       });
 
       // Act
@@ -737,7 +765,17 @@ describe('forumService', () => {
       // Arrange
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ threads: [], posts: [], meta: { count: 0 } }),
+        json: async () => ({
+          query: 'test',
+          threads: [],
+          posts: [],
+          total_threads: 0,
+          total_posts: 0,
+          page: 1,
+          page_size: 20,
+          has_next_threads: false,
+          has_next_posts: false,
+        }),
       });
 
       // Act
@@ -754,7 +792,17 @@ describe('forumService', () => {
       // Arrange
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ threads: [], posts: [], meta: { count: 0 } }),
+        json: async () => ({
+          query: 'test',
+          threads: [],
+          posts: [],
+          total_threads: 0,
+          total_posts: 0,
+          page: 1,
+          page_size: 20,
+          has_next_threads: false,
+          has_next_posts: false,
+        }),
       });
 
       // Act

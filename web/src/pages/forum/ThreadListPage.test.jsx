@@ -7,6 +7,14 @@ import ThreadListPage from './ThreadListPage';
 import { createMockCategory, createMockThread } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
 
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useParams: vi.fn(),
+  };
+});
+
 // Mock the forumService
 vi.mock('../../services/forumService');
 
@@ -26,7 +34,7 @@ describe('ThreadListPage', () => {
     vi.clearAllMocks();
 
     // Mock useParams to return categorySlug
-    vi.spyOn(ReactRouter, 'useParams').mockReturnValue({
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
       categorySlug: 'plant-care'
     });
   });

@@ -15,6 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { login, signup, logout, getCurrentUser, getStoredUser } from './authService';
+import { clearCsrfToken } from '../utils/csrf';
 import type { User, LoginCredentials, SignupData, AuthResponse } from '../types/auth';
 
 // Mock logger to prevent console noise in tests
@@ -96,11 +97,20 @@ describe('authService', () => {
       configurable: true,
     });
 
+    clearCsrfToken();
+    document.head.querySelector('meta[name="csrf-token"]')?.remove();
+    const csrfMeta = document.createElement('meta');
+    csrfMeta.setAttribute('name', 'csrf-token');
+    csrfMeta.setAttribute('content', 'test-csrf-token');
+    document.head.appendChild(csrfMeta);
+
     // Clear all mocks
     vi.clearAllMocks();
   });
 
   afterEach(() => {
+    clearCsrfToken();
+    document.head.querySelector('meta[name="csrf-token"]')?.remove();
     vi.restoreAllMocks();
   });
 
@@ -142,11 +152,13 @@ describe('authService', () => {
     it('should fetch CSRF token if not present in cookie', async () => {
       // Arrange
       documentCookieMock = ''; // No CSRF token
+      document.head.querySelector('meta[name="csrf-token"]')?.remove();
+      clearCsrfToken();
 
       // Mock CSRF fetch
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({}),
+        json: async () => ({ csrfToken: 'fetched-csrf-token' }),
       });
 
       // Mock login
@@ -162,7 +174,7 @@ describe('authService', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(fetchMock).toHaveBeenNthCalledWith(
         1,
-        expect.stringContaining('/api/v1/auth/csrf/'),
+        expect.stringContaining('/api/csrf/'),
         expect.objectContaining({
           method: 'GET',
           credentials: 'include',
@@ -326,11 +338,13 @@ describe('authService', () => {
     it('should fetch CSRF token if not present', async () => {
       // Arrange
       documentCookieMock = ''; // No CSRF token
+      document.head.querySelector('meta[name="csrf-token"]')?.remove();
+      clearCsrfToken();
 
       // Mock CSRF fetch
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({}),
+        json: async () => ({ csrfToken: 'fetched-csrf-token' }),
       });
 
       // Mock signup
@@ -346,7 +360,7 @@ describe('authService', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(fetchMock).toHaveBeenNthCalledWith(
         1,
-        expect.stringContaining('/api/v1/auth/csrf/'),
+        expect.stringContaining('/api/csrf/'),
         expect.any(Object)
       );
     });

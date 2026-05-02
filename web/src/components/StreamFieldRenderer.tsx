@@ -47,6 +47,65 @@ interface StreamFieldRendererProps {
   blocks: StreamFieldBlockType[];
 }
 
+type QuoteValue =
+  | string
+  | {
+      quote_text?: string;
+      quote?: string;
+      attribution?: string;
+    };
+
+type PlantSpotlightValue = {
+  plant_name?: string;
+  heading?: string;
+  scientific_name?: string;
+  description?: string;
+  care_difficulty?: string;
+  care_level?: string;
+  image?: {
+    url: string;
+    title?: string;
+    alt?: string;
+  };
+};
+
+type CallToActionValue = {
+  cta_title?: string;
+  heading?: string;
+  cta_description?: string;
+  description?: string;
+  button_text?: string;
+  button_url?: string;
+  button_style?: 'primary' | 'secondary' | 'outline';
+};
+
+function renderTextOrSafeHtml(content: string, className = '') {
+  return content.includes('<') ? (
+    <SafeHTML html={content} className={className} />
+  ) : (
+    <div className={className}>{content}</div>
+  );
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function getSafeHref(url: string): string {
+  const trimmedUrl = url.trim();
+
+  if (trimmedUrl.startsWith('/') && !trimmedUrl.startsWith('//')) {
+    return trimmedUrl;
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedUrl);
+    return ['http:', 'https:', 'mailto:'].includes(parsedUrl.protocol) ? trimmedUrl : '#';
+  } catch {
+    return '#';
+  }
+}
+
 export default function StreamFieldRenderer({ blocks }: StreamFieldRendererProps) {
   if (!blocks || blocks.length === 0) {
     return null;
@@ -87,11 +146,13 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
 
     case 'quote': {
       // Backend: StructBlock with quote_text (RichTextBlock) and attribution (CharBlock)
-      const { quote_text, attribution } = block.value;
+      const value = block.value as QuoteValue;
+      const quoteText = typeof value === 'string' ? value : value.quote_text ?? value.quote ?? '';
+      const attribution = typeof value === 'string' ? undefined : value.attribution;
 
       return (
         <blockquote className="border-l-4 border-green-600 pl-6 py-4 my-8 italic text-gray-700 bg-gray-50 rounded-r-lg">
-          {quote_text && <SafeHTML html={quote_text} className="text-xl mb-2" />}
+          {quoteText && renderTextOrSafeHtml(quoteText, 'text-xl mb-2')}
           {attribution && (
             <footer className="text-sm text-gray-600 not-italic">
               — {attribution}
@@ -115,34 +176,39 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
 
     case 'plant_spotlight': {
       // Backend: StructBlock with plant_name, scientific_name, description, care_difficulty, image
-      const { plant_name, scientific_name, description, care_difficulty, image } = block.value;
+      const value = block.value as PlantSpotlightValue;
+      const plantName = value.plant_name ?? value.heading ?? '';
+      const description = value.description ?? '';
+      const careValue = value.care_difficulty ?? value.care_level;
+      const careLabel = value.care_level ? 'Care Level' : 'Care Difficulty';
 
       return (
         <div className="my-8 p-6 bg-green-50 border-2 border-green-200 rounded-lg shadow-sm">
           <h3 className="text-2xl font-bold text-gray-900 mb-3">
-            🌿 {plant_name}
+            🌿 {plantName}
           </h3>
-          {scientific_name && (
-            <p className="text-sm italic text-gray-600 mb-3">{scientific_name}</p>
+          {value.scientific_name && (
+            <p className="text-sm italic text-gray-600 mb-3">{value.scientific_name}</p>
           )}
-          {image && (
+          {value.image && (
             <img
-              src={image.url}
-              alt={image.title || plant_name}
+              src={value.image.url}
+              alt={value.image.title || value.image.alt || plantName}
               className="w-full h-64 object-cover rounded-lg mb-4 shadow-md"
             />
           )}
-          <SafeHTML html={description} className="text-gray-700 mb-4" />
-          {care_difficulty && (
+          {description && renderTextOrSafeHtml(description, 'text-gray-700 mb-4')}
+          {careValue && (
             <p className="mt-4 text-sm font-semibold text-green-700 flex items-center">
               <svg
                 className="w-5 h-5 mr-2"
+                aria-hidden="true"
                 fill="currentColor"
                 viewBox="0 0 20 20"
               >
                 <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
               </svg>
-              Care Difficulty: {care_difficulty.charAt(0).toUpperCase() + care_difficulty.slice(1)}
+              {careLabel}: {capitalize(careValue)}
             </p>
           )}
         </div>
@@ -151,24 +217,29 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
 
     case 'call_to_action': {
       // Backend: StructBlock with cta_title, cta_description, button_text, button_url, button_style
-      const { cta_title, cta_description, button_text, button_url, button_style } = block.value;
+      const value = block.value as CallToActionValue;
+      const title = value.cta_title ?? value.heading ?? '';
+      const description = value.cta_description ?? value.description ?? '';
+      const buttonText = value.button_text ?? '';
+      const buttonUrl = getSafeHref(value.button_url ?? '#');
+      const buttonStyle = value.button_style;
 
       // Map button style to Tailwind classes
-      const buttonClasses = button_style === 'secondary'
+      const buttonClasses = buttonStyle === 'secondary'
         ? 'inline-block px-8 py-3 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors shadow-md'
-        : button_style === 'outline'
+        : buttonStyle === 'outline'
         ? 'inline-block px-8 py-3 bg-transparent border-2 border-white text-white font-semibold rounded-lg hover:bg-white hover:text-green-600 transition-colors shadow-md'
         : 'inline-block px-8 py-3 bg-white text-green-600 font-semibold rounded-lg hover:bg-gray-100 transition-colors shadow-md';
 
       return (
         <div className="my-8 p-8 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg text-center shadow-lg">
-          <h3 className="text-2xl font-bold mb-2">{cta_title}</h3>
-          {cta_description && <SafeHTML html={cta_description} className="mb-6 text-green-50" />}
+          <h3 className="text-2xl font-bold mb-2">{title}</h3>
+          {description && renderTextOrSafeHtml(description, 'mb-6 text-green-50')}
           <a
-            href={button_url}
+            href={buttonUrl}
             className={buttonClasses}
           >
-            {button_text}
+            {buttonText}
           </a>
         </div>
       );
