@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p1
 issue_id: "061"
 tags: [forum, frontend, image-upload, search, phase-6, enhancement]
