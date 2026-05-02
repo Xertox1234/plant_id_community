@@ -14,6 +14,7 @@
 
 import { logger } from '../utils/logger';
 import { getCsrfToken } from '../utils/csrf';
+import { getOrCreateRequestId } from '../utils/requestId';
 import type { User, LoginCredentials, SignupData, AuthResponse } from '../types/auth';
 import type { ApiError } from '../types/api';
 
@@ -34,6 +35,7 @@ export async function login(credentials: LoginCredentials): Promise<User> {
     const csrfToken = await getCsrfToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      'X-Request-ID': getOrCreateRequestId(),
     };
 
     // Add CSRF token if available (required by Django backend)
@@ -60,7 +62,7 @@ export async function login(credentials: LoginCredentials): Promise<User> {
 
     return data.user;
   } catch (error) {
-    logger.error('[authService] Login error:', error);
+    logger.error('[authService] Login error', { error });
     throw error;
   }
 }
@@ -74,6 +76,7 @@ export async function signup(userData: SignupData): Promise<User> {
     const csrfToken = await getCsrfToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      'X-Request-ID': getOrCreateRequestId(),
     };
 
     // Add CSRF token if available (required by Django backend)
@@ -116,7 +119,7 @@ export async function signup(userData: SignupData): Promise<User> {
 
     return data.user;
   } catch (error) {
-    logger.error('[authService] Signup error:', error);
+    logger.error('[authService] Signup error', { error });
     throw error;
   }
 }
@@ -129,7 +132,9 @@ export async function logout(): Promise<void> {
   try {
     // Get CSRF token from centralized utility (handles caching + meta tag/API fallback)
     const csrfToken = await getCsrfToken();
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = {
+      'X-Request-ID': getOrCreateRequestId(),
+    };
 
     // Add CSRF token if available (required by Django backend)
     if (csrfToken) {
@@ -149,7 +154,7 @@ export async function logout(): Promise<void> {
     // Always clear sessionStorage regardless of API response
     sessionStorage.removeItem('user');
   } catch (error) {
-    logger.error('[authService] Logout error:', error);
+    logger.error('[authService] Logout error', { error });
     // Still clear sessionStorage even if API fails
     sessionStorage.removeItem('user');
     throw error;
@@ -164,6 +169,9 @@ export async function getCurrentUser(): Promise<User | null> {
   try {
     const response = await fetch(`${API_URL}/api/v1/auth/user/`, {
       method: 'GET',
+      headers: {
+        'X-Request-ID': getOrCreateRequestId(),
+      },
       credentials: 'include', // Include cookies
     });
 
@@ -180,7 +188,7 @@ export async function getCurrentUser(): Promise<User | null> {
 
     return data;
   } catch (error) {
-    logger.error('[authService] Get current user error:', error);
+    logger.error('[authService] Get current user error', { error });
     // On error, try to get user from sessionStorage as fallback
     const storedUser = sessionStorage.getItem('user');
     return storedUser ? JSON.parse(storedUser) : null;
@@ -196,7 +204,7 @@ export function getStoredUser(): User | null {
     const storedUser = sessionStorage.getItem('user');
     return storedUser ? JSON.parse(storedUser) : null;
   } catch (error) {
-    logger.error('[authService] Error parsing stored user:', error);
+    logger.error('[authService] Error parsing stored user', { error });
     return null;
   }
 }
@@ -214,6 +222,7 @@ export async function refreshAccessToken(): Promise<boolean> {
     const csrfToken = await getCsrfToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      'X-Request-ID': getOrCreateRequestId(),
     };
 
     // Add CSRF token (required by backend)
@@ -236,7 +245,7 @@ export async function refreshAccessToken(): Promise<boolean> {
     logger.info('[authService] Access token refreshed successfully');
     return true;
   } catch (error) {
-    logger.error('[authService] Token refresh error:', error);
+    logger.error('[authService] Token refresh error', { error });
     return false;
   }
 }

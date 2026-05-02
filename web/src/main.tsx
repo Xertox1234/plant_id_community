@@ -7,6 +7,7 @@ import { RequestProvider } from './contexts/RequestContext'
 import { ErrorFallback } from './components/ErrorBoundary'
 import { initSentry } from './config/sentry'
 import { logger, initLogger } from './utils/logger'
+import { getOrCreateRequestId } from './utils/requestId'
 import './index.css'
 import App from './App'
 
@@ -17,14 +18,7 @@ initSentry()
 // Note: We can't directly access React context here, so we'll use a workaround
 // The logger will attempt to get context values when logging, not at init time
 initLogger({
-  getRequestId: () => {
-    try {
-      // Try to get from sessionStorage (set by RequestContext)
-      return sessionStorage.getItem('requestId')
-    } catch {
-      return null
-    }
-  },
+  getRequestId: () => getOrCreateRequestId(),
   getUserId: () => {
     try {
       // Try to get from sessionStorage (set by AuthContext)

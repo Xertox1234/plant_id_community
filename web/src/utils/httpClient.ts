@@ -31,6 +31,11 @@
 import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import { logger } from './logger'
 import { getCsrfToken, clearCsrfToken } from './csrf'
+import { getOrCreateRequestId } from './requestId'
+
+type RetriableRequestConfig = InternalAxiosRequestConfig & {
+  _csrfRetried?: boolean;
+}
 
 function getSafeAxiosError(error: AxiosError): { message: string; name: string; code?: string; status?: number } {
   return {
@@ -60,8 +65,8 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
     try {
-      // Add X-Request-ID header from session storage
-      const requestId = sessionStorage.getItem('requestId')
+      // Add X-Request-ID header from shared storage/in-memory request ID source
+      const requestId = getOrCreateRequestId()
       if (requestId) {
         config.headers['X-Request-ID'] = requestId
       }
@@ -129,7 +134,9 @@ apiClient.interceptors.response.use(
 
     // Handle CSRF token expiration (Issue #144 fix)
     // If we get a 403 CSRF error, refresh token and retry once
-    if (status === 403 && message?.toLowerCase().includes('csrf')) {
+    const requestConfig = error.config as RetriableRequestConfig | undefined
+
+    if (status === 403 && message?.toLowerCase().includes('csrf') && requestConfig && !requestConfig._csrfRetried) {
       logger.warn('CSRF token expired, refreshing and retrying', {
         component: 'httpClient',
         url,
@@ -139,10 +146,11 @@ apiClient.interceptors.response.use(
       clearCsrfToken()
       const newToken = await getCsrfToken()
 
-      if (newToken && error.config) {
+      if (newToken) {
         // Retry the original request with new token
-        error.config.headers['X-CSRFToken'] = newToken
-        return apiClient.request(error.config)
+        requestConfig._csrfRetried = true
+        requestConfig.headers['X-CSRFToken'] = newToken
+        return apiClient.request(requestConfig)
       }
     }
 

@@ -138,6 +138,7 @@ describe('authService', () => {
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
             'X-CSRFToken': 'test-csrf-token',
+            'X-Request-ID': expect.any(String),
           }),
           credentials: 'include',
           body: JSON.stringify(mockLoginCredentials),
@@ -194,7 +195,7 @@ describe('authService', () => {
       await expect(login(mockLoginCredentials)).rejects.toThrow(
         'Invalid email or password'
       );
-      expect(sessionStorageMock.setItem).not.toHaveBeenCalled();
+      expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('user', expect.any(String));
     });
 
     it('should handle network errors with retry logic', async () => {
@@ -203,7 +204,7 @@ describe('authService', () => {
 
       // Act & Assert
       await expect(login(mockLoginCredentials)).rejects.toThrow('Network error');
-      expect(sessionStorageMock.setItem).not.toHaveBeenCalled();
+      expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('user', expect.any(String));
     });
 
     it('should include CSRF token in request headers', async () => {
@@ -259,6 +260,7 @@ describe('authService', () => {
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
             'X-CSRFToken': 'test-csrf-token',
+            'X-Request-ID': expect.any(String),
           }),
           credentials: 'include',
           body: JSON.stringify(mockSignupData),
@@ -296,7 +298,7 @@ describe('authService', () => {
 
       // Act & Assert
       await expect(signup(mockSignupData)).rejects.toThrow('Email already exists');
-      expect(sessionStorageMock.setItem).not.toHaveBeenCalled();
+      expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('user', expect.any(String));
     });
 
     it('should handle validation errors (400)', async () => {
@@ -316,7 +318,7 @@ describe('authService', () => {
       await expect(signup(mockSignupData)).rejects.toThrow(
         'Password must be at least 8 characters'
       );
-      expect(sessionStorageMock.setItem).not.toHaveBeenCalled();
+      expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('user', expect.any(String));
     });
 
     it('should handle non-JSON error responses', async () => {
@@ -388,6 +390,7 @@ describe('authService', () => {
           method: 'POST',
           headers: expect.objectContaining({
             'X-CSRFToken': 'test-csrf-token',
+            'X-Request-ID': expect.any(String),
           }),
           credentials: 'include',
         })
@@ -467,7 +470,9 @@ describe('authService', () => {
     it('should fallback to sessionStorage on network error', async () => {
       // Arrange
       fetchMock.mockRejectedValueOnce(new Error('Network error'));
-      sessionStorageMock.getItem.mockReturnValueOnce(JSON.stringify(mockUser));
+      sessionStorageMock.getItem.mockImplementation((key: string) => (
+        key === 'user' ? JSON.stringify(mockUser) : null
+      ));
 
       // Act
       const result = await getCurrentUser();

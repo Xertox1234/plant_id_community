@@ -6,13 +6,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act } from 'react';
 import { renderHook } from '@testing-library/react';
 import { RequestProvider, useRequestId } from './RequestContext';
-
-// Mock uuid library as fallback
-vi.mock('uuid', () => ({
-  v4: vi.fn(() => 'fallback-uuid-1234'),
-}));
+import { resetRequestId, rotateRequestId } from '../utils/requestId';
 
 // Mock crypto.randomUUID
 const mockUUID = 'test-uuid-1234-5678-abcd';
@@ -25,6 +22,7 @@ describe('RequestContext', () => {
   beforeEach(() => {
     // Clear sessionStorage before each test
     sessionStorage.clear();
+    resetRequestId();
     vi.clearAllMocks();
 
     // Reset mock implementation
@@ -108,12 +106,39 @@ describe('RequestContext', () => {
         wrapper: RequestProvider,
       });
 
-      // Should still generate a UUID, but falls back to uuid library
-      // because sessionStorage.getItem throws, triggering catch block
+      // Should still generate a UUID because sessionStorage.getItem throws,
+      // triggering the in-memory fallback path.
       expect(result.current).toBeTruthy();
       expect(typeof result.current).toBe('string');
 
       // Restore original
+      Storage.prototype.getItem = originalGetItem;
+      Storage.prototype.setItem = originalSetItem;
+    });
+
+    it('keeps the fallback request ID stable across rerenders when sessionStorage fails', () => {
+      // Mock sessionStorage.getItem to throw error (private browsing mode)
+      const originalGetItem = Storage.prototype.getItem;
+      const originalSetItem = Storage.prototype.setItem;
+
+      Storage.prototype.getItem = vi.fn(() => {
+        throw new Error('QuotaExceededError');
+      }) as typeof Storage.prototype.getItem;
+      Storage.prototype.setItem = vi.fn(() => {
+        throw new Error('QuotaExceededError');
+      }) as typeof Storage.prototype.setItem;
+
+      const { result, rerender } = renderHook(() => useRequestId(), {
+        wrapper: RequestProvider,
+      });
+
+      const firstId = result.current;
+
+      rerender();
+
+      expect(result.current).toBe(firstId);
+      expect(mockRandomUUID).toHaveBeenCalledTimes(1);
+
       Storage.prototype.getItem = originalGetItem;
       Storage.prototype.setItem = originalSetItem;
     });
@@ -129,6 +154,24 @@ describe('RequestContext', () => {
 
       // Should be the exact same reference (memoized)
       expect(firstValue).toBe(secondValue);
+    });
+
+    it('updates context consumers when the shared request ID rotates', () => {
+      const { result } = renderHook(() => useRequestId(), {
+        wrapper: RequestProvider,
+      });
+
+      const firstId = result.current;
+      const rotatedId = 'rotated-request-id-1234';
+      mockRandomUUID.mockReturnValueOnce(rotatedId);
+
+      act(() => {
+        rotateRequestId();
+      });
+
+      expect(result.current).toBe(rotatedId);
+      expect(result.current).not.toBe(firstId);
+      expect(sessionStorage.getItem('requestId')).toBe(rotatedId);
     });
   });
 
@@ -168,9 +211,42 @@ describe('RequestContext', () => {
       expect(mockRandomUUID).toHaveBeenCalled();
     });
 
-    it.skip('falls back to uuid library when crypto is not available', async () => {
-      // Skip this test - mocking crypto is complex in JSDOM environment
-      // The fallback logic is tested in integration tests
+    it('falls back to crypto.getRandomValues when randomUUID is not available', () => {
+      sessionStorage.clear();
+
+      const getRandomValues = vi.fn((array: Uint8Array) => {
+        array.set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+        return array;
+      });
+
+      Object.defineProperty(global, 'crypto', {
+        value: { getRandomValues },
+        writable: true,
+        configurable: true,
+      });
+
+      const { result } = renderHook(() => useRequestId(), {
+        wrapper: RequestProvider,
+      });
+
+      expect(result.current).toBe('00010203-0405-4607-8809-0a0b0c0d0e0f');
+      expect(getRandomValues).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to a non-crypto request ID when Web Crypto is not available', () => {
+      sessionStorage.clear();
+
+      Object.defineProperty(global, 'crypto', {
+        value: undefined,
+        writable: true,
+        configurable: true,
+      });
+
+      const { result } = renderHook(() => useRequestId(), {
+        wrapper: RequestProvider,
+      });
+
+      expect(result.current).toMatch(/^request-[a-z0-9]+-[a-z0-9]+$/);
     });
   });
 

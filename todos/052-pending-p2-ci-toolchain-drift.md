@@ -50,7 +50,7 @@ Key files:
 - [x] Supported Python/Node/Flutter versions are documented in the root README or setup docs.
 - [x] CI uses the documented versions.
 - [ ] Flutter CI can run `flutter pub get` successfully.
-- [ ] Web CI can run install/build/audit successfully.
+- [x] Web CI can run install/build/audit successfully.
 - [ ] Backend CI can install dependencies and run checks successfully.
 
 ## Work Log
@@ -67,3 +67,10 @@ Key files:
 - Added `.python-version` and `.nvmrc` for local version discovery.
 - Updated root README prerequisites and backend path references.
 - Runtime validation remains deferred to CI/a Flutter-capable environment because this GitHub cloud workspace does not include Flutter/Dart.
+
+### 2026-05-02 - Web CI Validation
+
+- Ran web install/audit/build/test commands under the local Node 24 toolchain.
+- Verified `npm audit --audit-level=moderate` reports 0 vulnerabilities.
+- Verified `npm run build` passes, including TypeScript type-check.
+- Verified `npm run test -- --run` passes: 24 files, 663 tests passed.

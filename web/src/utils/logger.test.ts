@@ -255,7 +255,11 @@ describe('Logger', () => {
 
       const logEntry = consoleSpy.log.mock.calls[1][0];
 
-      expect(logEntry.error).toBe(testError);
+      expect(logEntry.error).toEqual({
+        message: 'Test error',
+        name: 'Error',
+        stack: expect.any(String),
+      });
     });
 
     it('handles nested context objects', () => {

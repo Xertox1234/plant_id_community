@@ -239,9 +239,9 @@ function formatLogEntry(level: LogLevel, message: string, context: LogContext = 
       context.url = sanitizeUrl(context.url) as string
     }
 
-    // Sanitize error if present in context
-    // Only sanitize if it's an object (not Error instance which should be preserved)
-    if (context.error && typeof context.error === 'object' && !(context.error instanceof Error)) {
+    // Sanitize error if present in context. AxiosError extends Error and can
+    // include sensitive config/headers, so sanitize all object-shaped errors.
+    if (context.error && typeof context.error === 'object') {
       context.error = sanitizeError(context.error)
     }
   }
@@ -329,7 +329,7 @@ function log(level: LogLevel, message: string, context: LogContext = {}): void {
     console.log(entry)
   } else {
     // Production: Send structured data to Sentry
-    sendToSentry(level, message, context)
+    sendToSentry(level, message, entry)
   }
 }
 

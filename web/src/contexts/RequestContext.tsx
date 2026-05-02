@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useMemo, ReactNode } from 'react'
-import { v4 as uuidv4 } from 'uuid'
+import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react'
+import { getOrCreateRequestId, subscribeRequestId } from '../utils/requestId'
 
 /**
  * RequestContext value type
@@ -73,27 +73,9 @@ export interface RequestProviderProps {
  * - Automatically included in structured log messages
  */
 export function RequestProvider({ children }: RequestProviderProps) {
-  // Generate or retrieve request ID from session storage
-  const getOrCreateRequestId = (): string => {
-    try {
-      // Check if request ID exists in session storage
-      const stored = sessionStorage.getItem('requestId')
-      if (stored) {
-        return stored
-      }
+  const [requestId, setRequestId] = useState(() => getOrCreateRequestId())
 
-      // Generate new UUID v4 request ID
-      const newRequestId = crypto.randomUUID()
-      sessionStorage.setItem('requestId', newRequestId)
-      return newRequestId
-    } catch (error) {
-      // Fallback if sessionStorage is not available (e.g., private browsing)
-      // Use uuid library as fallback for older browsers
-      return uuidv4()
-    }
-  }
-
-  const requestId = getOrCreateRequestId()
+  useEffect(() => subscribeRequestId(setRequestId), [])
 
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo<RequestContextValue>(

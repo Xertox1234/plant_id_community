@@ -2,6 +2,7 @@
 import { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from 'react'
 import * as authService from '../services/authService'
 import { logger } from '../utils/logger'
+import { rotateRequestId } from '../utils/requestId'
 import { AuthErrorCode } from '../types/auth'
 import type { User, LoginCredentials, SignupData, AuthError } from '../types/auth'
 
@@ -155,7 +156,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const currentUser = await authService.getCurrentUser()
         setUser(currentUser)
       } catch (err) {
-        logger.error('[AuthContext] Auth initialization failed:', err)
+        logger.error('[AuthContext] Auth initialization failed', { error: err })
         setUser(null)
       } finally {
         setIsLoading(false)
@@ -223,11 +224,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUser(userData)
 
       // Regenerate request ID for new user session (better distributed tracing)
-      try {
-        sessionStorage.removeItem('requestId')
-      } catch (e) {
-        // Ignore sessionStorage errors
-      }
+      rotateRequestId()
 
       return { success: true, user: userData }
     } catch (err) {
@@ -252,11 +249,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUser(newUser)
 
       // Regenerate request ID for new user session (better distributed tracing)
-      try {
-        sessionStorage.removeItem('requestId')
-      } catch (e) {
-        // Ignore sessionStorage errors
-      }
+      rotateRequestId()
 
       return { success: true, user: newUser }
     } catch (err) {
@@ -278,7 +271,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUser(null)
       setError(null)
     } catch (err) {
-      logger.error('[AuthContext] Logout failed:', err)
+      logger.error('[AuthContext] Logout failed', { error: err })
       // Still clear user state even if API fails
       setUser(null)
     }
