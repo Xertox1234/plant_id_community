@@ -1,7 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import '../../config/theme_provider.dart';
+import '../constants/app_spacing.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/home/home_page.dart';
 import '../../features/camera/camera_screen.dart';
@@ -107,19 +110,76 @@ CustomTransitionPage _buildPageWithTransition({
   );
 }
 
-// ============================================
-// PLACEHOLDER SCREENS (will be implemented)
-// ============================================
-
-/// Settings screen placeholder
-class SettingsScreen extends StatelessWidget {
+/// Settings screen with core app preferences.
+class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: Text('Settings Screen - To be implemented'),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+    final themeNotifier = ref.read(themeModeProvider.notifier);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Settings'),
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          children: [
+            Text(
+              'Appearance',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            SegmentedButton<ThemeMode>(
+              segments: const [
+                ButtonSegment(
+                  value: ThemeMode.system,
+                  icon: Icon(Icons.brightness_auto),
+                  label: Text('System'),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.light,
+                  icon: Icon(Icons.light_mode),
+                  label: Text('Light'),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.dark,
+                  icon: Icon(Icons.dark_mode),
+                  label: Text('Dark'),
+                ),
+              ],
+              selected: {themeMode},
+              onSelectionChanged: (selection) {
+                switch (selection.first) {
+                  case ThemeMode.light:
+                    themeNotifier.setLight();
+                  case ThemeMode.dark:
+                    themeNotifier.setDark();
+                  case ThemeMode.system:
+                    themeNotifier.setSystem();
+                }
+              },
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            Text(
+              'About',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            const ListTile(
+              leading: Icon(Icons.local_florist),
+              title: Text('Plant Community'),
+              subtitle: Text('Plant identification, care, and community features'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.api),
+              title: const Text('Backend API'),
+              subtitle: const Text('Configured with API_BASE_URL at build time'),
+            ),
+          ],
+        ),
       ),
     );
   }

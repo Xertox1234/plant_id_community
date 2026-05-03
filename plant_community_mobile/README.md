@@ -62,6 +62,38 @@ required when Firebase is initialized with explicit `FirebaseOptions`. Keep loca
 native Firebase files out of git; use `--dart-define` values for CI and release
 builds.
 
+### Validation Checklist
+
+Run these checks from `plant_community_mobile/` in a Flutter-capable local or CI
+environment before merging mobile reliability changes:
+
+```bash
+flutter pub get
+dart run build_runner build --delete-conflicting-outputs
+flutter analyze
+flutter test
+flutter test test/integration/offline_sync_test.dart
+flutter test test/integration/plant_identification_flow_test.dart
+flutter build apk --debug \
+  --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1 \
+  --dart-define=FIREBASE_API_KEY=your-firebase-api-key \
+  --dart-define=FIREBASE_ANDROID_APP_ID=your-android-app-id \
+  --dart-define=FIREBASE_MESSAGING_SENDER_ID=your-sender-id \
+  --dart-define=FIREBASE_PROJECT_ID=your-project-id \
+  --dart-define=FIREBASE_STORAGE_BUCKET=your-storage-bucket
+```
+
+Manual iOS/Android smoke checklist:
+
+- [ ] Missing Firebase `--dart-define` values show the configuration error screen.
+- [ ] Home screen opens, settings can be opened, and theme mode persists after restart.
+- [ ] Login stores JWT access/refresh tokens and logout clears them.
+- [ ] An expired access token signs the user out with a clear message. Recoverable bearer-token refresh requires backend support for JSON mobile refresh responses.
+- [ ] Camera permission prompt appears and denied permission is handled gracefully.
+- [ ] Gallery/photo picker permission prompt appears and denied permission is handled gracefully.
+- [ ] Plant identification upload shows progress, handles `429`/`5xx` retryable errors, and displays results on success.
+- [ ] Android emulator uses `http://10.0.2.2:8000/api/v1`; iOS simulator uses `http://localhost:8000/api/v1`.
+
 ---
 
 ## Development Patterns

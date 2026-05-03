@@ -10,11 +10,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:plant_community_mobile/main.dart';
+import 'package:plant_community_mobile/services/auth_service.dart';
 
 void main() {
   testWidgets('App launches and shows splash screen', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const ProviderScope(child: MyApp()));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authServiceProvider.overrideWithValue(const AuthState()),
+        ],
+        child: const MyApp(),
+      ),
+    );
 
     // Let animations start
     await tester.pump(const Duration(milliseconds: 100));

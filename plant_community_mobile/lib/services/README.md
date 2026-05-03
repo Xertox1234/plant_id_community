@@ -18,7 +18,7 @@ The `ApiService` is a centralized HTTP client for communicating with the Django 
   - Debug logging (debug mode only)
   - Error transformation (401, 429, 5xx handling)
 - **Multipart file upload** support for images
-- **Environment configuration** via `.env` file
+- **Environment configuration** via `--dart-define`
 - **Type-safe** error messages with HTTP status codes
 
 ### Usage
@@ -115,7 +115,7 @@ final response = await apiService.post(
   data: {'firebase_token': firebaseToken},
 );
 
-final jwtToken = response.data['jwt_token'];
+final jwtToken = response.data['access_token'];
 
 // Set token in ApiService
 apiService.setAuthToken(jwtToken);
@@ -140,7 +140,7 @@ try {
   // Handle specific errors
   switch (e.statusCode) {
     case 401:
-      // Token expired - redirect to login
+      // Token expired - AuthService clears local tokens and signs the user out
       break;
     case 429:
       // Rate limited - show retry message
@@ -158,7 +158,7 @@ try {
 ### Error Types
 
 | Error Type | Status Code | Description |
-|------------|-------------|-------------|
+| ------------ | ------------- | ------------- |
 | Connection Timeout | `null` | Network timeout (10s connect, 30s receive) |
 | Network Error | `null` | No internet connection (SocketException) |
 | Unauthorized | `401` | Invalid or expired authentication token |
@@ -168,18 +168,16 @@ try {
 
 ### Configuration
 
-The API base URL is configured via the `.env` file:
+The API base URL is configured with `--dart-define`:
 
-```env
-# .env
-API_BASE_URL=http://localhost:8000/api/v1
+```bash
+flutter run --dart-define=API_BASE_URL=http://localhost:8000/api/v1
 ```
 
 For production:
 
-```env
-# .env
-API_BASE_URL=https://api.yourapp.com/api/v1
+```bash
+flutter build apk --release --dart-define=API_BASE_URL=https://api.yourapp.com/api/v1
 ```
 
 ### Testing
@@ -187,12 +185,14 @@ API_BASE_URL=https://api.yourapp.com/api/v1
 Unit tests are located in `test/api_service_test.dart`.
 
 Run tests:
+
 ```bash
 flutter test test/api_service_test.dart
 ```
 
-Test results:
-- ✅ 15 unit tests passing
+Expected test behavior:
+
+- ✅ API service unit tests pass in a Flutter-capable environment
 - ⏭️ 3 integration tests skipped (require backend)
 
 ### Best Practices
@@ -201,32 +201,25 @@ Test results:
 2. **Handle ApiException** to show user-friendly error messages
 3. **Check status codes** for specific error handling
 4. **Use loading indicators** during async operations
-5. **Implement retry logic** for rate-limited requests (429)
+5. **Rely on built-in bounded retries** for safe `429` and retryable `5xx` requests
 6. **Validate user input** before sending to API
 7. **Use query parameters** for filtering, not URL construction
 8. **Upload files** using `uploadFile()`, not manual FormData
 
 ### Future Enhancements
 
-- [ ] Automatic token refresh on 401
-- [ ] Retry logic with exponential backoff for 5xx errors
+- [ ] Mobile bearer-token refresh endpoint support for recoverable 401 retries
+- [x] Retry logic with exponential backoff for 429 and retryable 5xx errors
 - [ ] Request cancellation support
 - [ ] Response caching for GET requests
 - [ ] Network connectivity monitoring
 - [ ] Request queuing for offline mode
 - [ ] Interceptor for analytics tracking
 
-## MockPlantService
+## PlantIdentificationService
 
-**Location**: `mock_plant_service.dart`
+**Location**: `plant_identification_service.dart`
 
-A mock service for plant identification during development. Will be replaced by real backend integration using `ApiService`.
-
-### Usage
-
-```dart
-final mockService = MockPlantService();
-final plant = await mockService.identifyPlant('/path/to/image.jpg');
-```
-
-**Note**: This service will be deprecated once backend integration is complete (Task 3).
+Coordinates plant image upload, backend identification, result parsing, and
+cleanup. Tests use local mock `ApiService` and `FirebaseStorageService`
+implementations rather than a separate `mock_plant_service.dart` file.

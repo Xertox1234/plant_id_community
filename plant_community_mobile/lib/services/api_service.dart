@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,9 +20,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// final response = await apiService.get('/plant-identification/');
 /// ```
 class ApiService {
+  static const int _maxRetryAttempts = 3;
+  static const String _retryAttemptKey = 'api_retry_attempt';
+  static const String retryUnsafeRequestKey = 'retry_unsafe_request';
+
   final Dio _dio;
   final String baseUrl;
   String? _authToken;
+  Future<void> Function()? _onSessionExpired;
 
   ApiService({
     required this.baseUrl,
@@ -83,12 +90,10 @@ class ApiService {
           // Handle specific error cases
           switch (statusCode) {
             case 401:
-              // Token expired or invalid - trigger re-authentication
               if (kDebugMode) {
-                debugPrint('[API ERROR] 401 Unauthorized - Token may be expired');
+                debugPrint('[API ERROR] 401 Unauthorized - session expired');
               }
-              // TODO: Implement token refresh logic
-              // For now, just pass the error through
+              await _handleSessionExpired();
               break;
 
             case 429:
@@ -97,7 +102,6 @@ class ApiService {
               if (kDebugMode) {
                 debugPrint('[API ERROR] 429 Rate Limited - Retry after: $retryAfter seconds');
               }
-              // TODO: Implement retry logic with exponential backoff
               break;
 
             case 500:
@@ -108,8 +112,16 @@ class ApiService {
               if (kDebugMode) {
                 debugPrint('[API ERROR] $statusCode Server Error - Consider retry');
               }
-              // TODO: Implement retry logic for server errors
               break;
+          }
+
+          if (_shouldRetry(error)) {
+            try {
+              final response = await _retry(error);
+              return handler.resolve(response);
+            } on DioException catch (retryError) {
+              return handler.next(retryError);
+            }
           }
 
           return handler.next(error);
@@ -118,12 +130,90 @@ class ApiService {
     );
   }
 
+  bool _shouldRetry(DioException error) {
+    final statusCode = error.response?.statusCode;
+    final retryableStatus = statusCode == 429 ||
+        statusCode == 500 ||
+        statusCode == 502 ||
+        statusCode == 503 ||
+        statusCode == 504;
+
+    if (!retryableStatus) {
+      return false;
+    }
+
+    final requestOptions = error.requestOptions;
+    final attempt = requestOptions.extra[_retryAttemptKey] as int? ?? 0;
+    if (attempt >= _maxRetryAttempts) {
+      return false;
+    }
+
+    return _isSafelyRetryable(requestOptions);
+  }
+
+  bool _isSafelyRetryable(RequestOptions requestOptions) {
+    final method = requestOptions.method.toUpperCase();
+    if (method == 'GET' || method == 'HEAD' || method == 'OPTIONS') {
+      return true;
+    }
+
+    return requestOptions.extra[retryUnsafeRequestKey] == true;
+  }
+
+  Future<Response<dynamic>> _retry(DioException error) async {
+    final requestOptions = error.requestOptions;
+    final nextAttempt = (requestOptions.extra[_retryAttemptKey] as int? ?? 0) + 1;
+    requestOptions.extra[_retryAttemptKey] = nextAttempt;
+
+    final delay = _retryDelay(error, nextAttempt);
+    if (kDebugMode) {
+      debugPrint(
+        '[API RETRY] Attempt $nextAttempt/$_maxRetryAttempts for '
+        '${requestOptions.method} ${requestOptions.path} after ${delay.inMilliseconds}ms',
+      );
+    }
+
+    await Future<void>.delayed(delay);
+    return _dio.fetch<dynamic>(requestOptions);
+  }
+
+  Duration _retryDelay(DioException error, int attempt) {
+    final retryAfter = error.response?.headers['retry-after']?.first;
+    final retryAfterSeconds = retryAfter == null ? null : int.tryParse(retryAfter);
+    if (retryAfterSeconds != null && retryAfterSeconds > 0) {
+      return Duration(seconds: retryAfterSeconds.clamp(1, 30));
+    }
+
+    final baseDelayMs = 250 * (1 << (attempt - 1));
+    return Duration(milliseconds: baseDelayMs.clamp(250, 2000));
+  }
+
+  Future<void> _handleSessionExpired() async {
+    final onSessionExpired = _onSessionExpired;
+    if (onSessionExpired == null) {
+      return;
+    }
+
+    try {
+      await onSessionExpired();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[API AUTH] Session-expired handler failed: $error');
+      }
+    }
+  }
+
   /// Update the authentication token
   ///
   /// Call this method after user login to inject JWT token
   /// into all subsequent requests.
   void setAuthToken(String? token) {
     _authToken = token;
+  }
+
+  /// Register a callback that clears local auth state after failed recovery.
+  void setSessionExpiredHandler(Future<void> Function()? onSessionExpired) {
+    _onSessionExpired = onSessionExpired;
   }
 
   /// GET request
@@ -311,6 +401,27 @@ class ApiService {
       case DioExceptionType.badResponse:
         final statusCode = e.response?.statusCode;
         String message;
+
+        if (statusCode == 401) {
+          return ApiException(
+            'Your session has expired. Please sign in again.',
+            statusCode: statusCode,
+          );
+        }
+
+        if (statusCode == 429) {
+          return ApiException(
+            'Too many requests. Please wait a moment and try again.',
+            statusCode: statusCode,
+          );
+        }
+
+        if (statusCode != null && statusCode >= 500) {
+          return ApiException(
+            'The server is temporarily unavailable. Please try again shortly.',
+            statusCode: statusCode,
+          );
+        }
 
         // Try to extract error message from response data
         final responseData = e.response?.data;

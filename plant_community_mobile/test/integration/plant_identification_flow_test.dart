@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:plant_community_mobile/main.dart';
 import 'package:plant_community_mobile/services/plant_identification_service.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/firebase_storage_service.dart';
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:dio/dio.dart';
@@ -35,6 +36,7 @@ void main() {
           firebaseStorageServiceProvider.overrideWith(
             () => MockFirebaseStorageService(),
           ),
+          authServiceProvider.overrideWithValue(const AuthState()),
         ],
       );
     });
@@ -58,11 +60,14 @@ void main() {
         await tester.pumpAndSettle(const Duration(seconds: 3));
 
         // Verify we're on the home screen
-        expect(find.text('PlantID'), findsOneWidget);
-        expect(find.text('Discover Nature\'s Secrets'), findsOneWidget);
+        expect(find.text('Welcome to PlantID'), findsOneWidget);
+        expect(
+          find.textContaining('Your pocket botanist'),
+          findsOneWidget,
+        );
 
         // Step 1: Navigate to camera screen
-        final identifyButton = find.text('Identify Plant');
+        final identifyButton = find.text('Get Started');
         expect(identifyButton, findsOneWidget);
         await tester.tap(identifyButton);
         await tester.pumpAndSettle();
@@ -104,7 +109,7 @@ void main() {
         await tester.pumpAndSettle(const Duration(seconds: 3));
 
         // Navigate to camera
-        await tester.tap(find.text('Identify Plant'));
+        await tester.tap(find.text('Get Started'));
         await tester.pumpAndSettle();
 
         // Verify we're on camera screen
@@ -115,7 +120,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Verify we're back on home screen
-        expect(find.text('Discover Nature\'s Secrets'), findsOneWidget);
+        expect(find.text('Welcome to PlantID'), findsOneWidget);
       },
     );
 
@@ -131,6 +136,7 @@ void main() {
             firebaseStorageServiceProvider.overrideWith(
               () => MockFirebaseStorageService(),
             ),
+            authServiceProvider.overrideWithValue(const AuthState()),
           ],
         );
 
@@ -160,6 +166,7 @@ void main() {
           firebaseStorageServiceProvider.overrideWith(
             () => MockFirebaseStorageService(),
           ),
+          authServiceProvider.overrideWithValue(const AuthState()),
         ],
       );
     });
@@ -192,6 +199,7 @@ void main() {
           firebaseStorageServiceProvider.overrideWith(
             () => storageService,
           ),
+          authServiceProvider.overrideWithValue(const AuthState()),
         ],
       );
 
@@ -216,6 +224,7 @@ void main() {
           firebaseStorageServiceProvider.overrideWith(
             () => storageService,
           ),
+          authServiceProvider.overrideWithValue(const AuthState()),
         ],
       );
 

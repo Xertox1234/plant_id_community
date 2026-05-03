@@ -1,7 +1,7 @@
 # Flutter Dependency Updates - Remaining Work
 
 **Date Created**: November 16, 2025
-**Status**: Pending - Major Version Updates Required
+**Status**: Updated - Pending Flutter Toolchain Validation
 **Context**: Follow-up to commit `49668ef` (Flutter dependency audit)
 
 ---
@@ -14,21 +14,23 @@ This document tracks remaining Flutter dependency updates that require major ver
 - ✅ Flutter switched to stable 3.38.1 (from beta 3.37.0-0.1.pre)
 - ✅ 5 safe dependencies updated (minor/patch versions)
 - ✅ Code regenerated with build_runner
-- ✅ API service tests passing (14/18)
+- ✅ API service tests previously passing in a Flutter-capable environment; rerun required after current source updates
 
 ---
 
-## Remaining Major Version Updates (25 packages)
+## Remaining Major Version Updates
 
 ### High Priority (Direct Dependencies)
 
-#### 1. `flutter_dotenv` (5.2.1 → 6.0.0)
-**Impact**: Environment variable management
-**Breaking Changes**: Likely API changes in how env vars are loaded
+#### 1. `flutter_dotenv` (updated to 6.0.0)
+**Impact**: Legacy tests/docs only; runtime configuration now uses `--dart-define`
+**Current State**:
+- `pubspec.yaml` uses `flutter_dotenv: ^6.0.0`
+- Fresh checkouts do not require ignored `.env` files as Flutter assets
+- API and Firebase configuration are supplied with `--dart-define`
 **Testing Required**:
-- Verify `.env` file loading still works
-- Test environment variable access in all services
-- Check error handling for missing env vars
+- Verify `flutter test test/api_service_test.dart`
+- Verify missing runtime config shows the documented configuration error screen
 
 **Files to Review**:
 - `lib/services/api_service.dart` (uses env vars for API_BASE_URL)
@@ -48,7 +50,7 @@ This document tracks remaining Flutter dependency updates that require major ver
 
 ---
 
-#### 3. `geocoding` (3.0.0 → 4.0.0)
+#### 3. `geocoding` (updated to 4.0.0)
 **Impact**: Location services (garden feature)
 **Breaking Changes**: API method signatures, error handling
 **Testing Required**:
@@ -62,7 +64,7 @@ This document tracks remaining Flutter dependency updates that require major ver
 
 ---
 
-#### 4. `permission_handler` (11.4.0 → 12.0.1)
+#### 4. `permission_handler` (updated to 12.0.1)
 **Impact**: Camera, location, storage permissions
 **Breaking Changes**: Permission request API changes
 **Testing Required**:
@@ -142,12 +144,12 @@ Future<Response> get(
 )
 ```
 
-**Fix Required for All Mock Services**:
-- `MockApiService` - all HTTP methods
-- `FailingApiService` - all HTTP methods
-- `EmptyResponseApiService` - all HTTP methods
-- `OfflineApiService` - all HTTP methods
-- `OnlineApiService` - all HTTP methods
+**Current State**:
+- `test/integration/offline_sync_test.dart` mock services match the current `ApiService` signatures.
+- `test/integration/plant_identification_flow_test.dart` mock services match the current `ApiService` signatures.
+- Flutter/Dart are not installed in the current cloud workspace, so these changes still need validation with `flutter test`.
+
+**Expected Mock Service Pattern**:
 
 **Methods to Update**:
 - `get()` - add `Options? options` parameter
@@ -157,9 +159,9 @@ Future<Response> get(
 - `delete()` - add `dynamic data, Options? options, Map<String, dynamic>? queryParameters`
 - `uploadFile()` - change `required String fieldName` to `String fieldName` (optional)
 
-**Also Fix**:
-- `MockFirestoreService` - change from `extends FirestoreService` to proper override pattern
-- `MockFirebaseStorageService` - verify override pattern
+**Provider Override Pattern**:
+- `apiServiceProvider` is a standard Provider and uses `overrideWith((ref) => MockApiService())`.
+- Generated Notifier providers such as `firestoreServiceProvider` and `firebaseStorageServiceProvider` use `overrideWith(() => MockService())`.
 
 ---
 
@@ -248,11 +250,9 @@ flutter run -d chrome    # Test login/logout (web)
 # Verify logout clears tokens
 ```
 
-### Phase 3: Fix Integration Tests
+### Phase 3: Validate Integration Tests
 
-1. **Update Mock Services** (add `Options?` parameters to all methods)
-2. **Update MockFirestoreService** (fix override pattern)
-3. **Run Tests**:
+1. **Run Tests** in a Flutter-capable environment:
    ```bash
    flutter test test/integration/offline_sync_test.dart
    flutter test test/integration/plant_identification_flow_test.dart

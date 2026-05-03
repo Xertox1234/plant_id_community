@@ -42,8 +42,8 @@
 - **Decision**: Defer until stable v10.x release
 - **Security Impact**: Current 9.2.4 version is secure and functional
 
-### 5. Integration Test Mock Service Fixes 🔨 PARTIAL
-- **Status**: PARTIAL (1 of 2 test files fixed)
+### 5. Integration Test Mock Service Fixes ✅ COMPLETE PENDING TOOLCHAIN VALIDATION
+- **Status**: Source updated; pending validation in a Flutter-capable environment
 - **Root Cause**: Dio 5.8+ API changes (http package 1.5.0 → 1.6.0 update)
 - **Completed**:
   - ✅ `test/integration/offline_sync_test.dart` (OfflineApiService, OnlineApiService)
@@ -52,57 +52,30 @@
     - Fixed uploadFile signature (fieldName default, callback type)
   - Commit: 264abeb
 
-- **Remaining**:
-  - ❌ `test/integration/plant_identification_flow_test.dart`
-    - MockApiService (6 methods)
-    - FailingApiService (6 methods)
-    - EmptyResponseApiService (6 methods)
-  - ❌ MockFirestoreService override pattern (2 occurrences)
+- **Completed Follow-up**:
+  - ✅ `test/integration/plant_identification_flow_test.dart`
+    - MockApiService signatures match `ApiService`
+    - FailingApiService signatures match `ApiService`
+    - EmptyResponseApiService signatures match `ApiService`
+  - ✅ Firestore service overrides use the current generated-provider override pattern
+  - ⚠️ Could not run `flutter test` in the current cloud workspace because Flutter/Dart are not installed
 
 ---
 
 ## 📋 Remaining Work
 
-### Phase 3: Complete Integration Test Fixes
+### Phase 3: Validate Integration Test Fixes
 **Priority**: HIGH
-**Estimated Time**: 30 minutes
+**Estimated Time**: 30 minutes in a Flutter-capable environment
 
-1. Fix `plant_identification_flow_test.dart` mock services:
-   ```dart
-   // Required changes for ALL mock services:
-   Future<Response> get(
-     String path, {
-     Map<String, dynamic>? queryParameters,
-     Options? options,
-   })
-
-   Future<Response> post/put/patch(
-     String path, {
-     dynamic data,
-     Map<String, dynamic>? queryParameters,
-     Options? options,
-   })
-
-   Future<Response> delete(
-     String path, {
-     dynamic data,
-     Map<String, dynamic>? queryParameters,
-     Options? options,
-   })
-
-   Future<Response> uploadFile(
-     String path, {
-     required String filePath,
-     String fieldName = 'image',  // Changed from required
-     Map<String, dynamic>? data,
-     void Function(int sent, int total)? onSendProgress,  // Changed type
-   })
+1. Run the integration-test compile checks:
+   ```bash
+   cd plant_community_mobile
+   flutter test test/integration/offline_sync_test.dart
+   flutter test test/integration/plant_identification_flow_test.dart
    ```
 
-2. Fix MockFirestoreService override pattern:
-   - Issue: `overrideWith((ref) { return MockFirestoreService(); })`
-   - Error: Function signature mismatch (takes `ref` parameter but should take none)
-   - Fix: Remove `(ref)` parameter or adjust override pattern
+2. If failures remain, treat them as runtime expectations rather than known mock-signature drift unless the analyzer reports new signature mismatches.
 
 ### Phase 4: Low-Priority Transitive Dependencies
 **Priority**: LOW
@@ -153,16 +126,16 @@ Update remaining 20 packages using `flutter pub upgrade`:
 **Total Packages Updated**: 7
 - ✅ Complete: 3 (flutter_dotenv, permission_handler, geocoding)
 - ⏸️ Blocked: 1 (flutter_secure_storage - awaiting stable v10)
-- 🔨 In Progress: 1 (integration test fixes - 50% complete)
-- 📋 Pending: 2 (complete test fixes, low-priority updates)
+- 🟡 Pending validation: 1 (integration test source fixes)
+- 📋 Pending: 1 (low-priority updates)
 
 **Test Status**:
-- API Service Tests: ✅ 15/15 passing
-- Integration Tests: ❌ Compilation errors (fixable)
-- Overall Status: 🟡 In Progress
+- API Service Tests: ✅ previously passing in Flutter environment
+- Integration Tests: 🟡 source updated; requires Flutter environment validation
+- Overall Status: 🟡 In Progress pending `flutter test` and `flutter analyze`
 
-**Estimated Time to Complete**: 1-2 hours
-- Integration test fixes: 30 min
+**Estimated Time to Complete**: 1-2 hours in a Flutter-capable environment
+- Integration test validation: 30 min
 - Low-priority updates: 20 min
 - Final validation: 30 min
 - Buffer: 20 min
@@ -174,20 +147,19 @@ Update remaining 20 packages using `flutter pub upgrade`:
 - Work Plan: `plant_community_mobile/FLUTTER_DEPENDENCY_UPDATES_REMAINING.md`
 - Test Files:
   - `test/integration/offline_sync_test.dart` (fixed)
-  - `test/integration/plant_identification_flow_test.dart` (needs fix)
+  - `test/integration/plant_identification_flow_test.dart` (source fixed; needs Flutter validation)
   - `test/api_service_test.dart` (passing)
 
 ---
 
 **Next Steps for Next Session**:
-1. Fix remaining mock services in `plant_identification_flow_test.dart`
-2. Fix MockFirestoreService override pattern
-3. Run integration tests to verify fixes
-4. Update low-priority dependencies
-5. Run full test suite and flutter analyze
-6. Create pull request
+1. Run integration tests to verify source-level fixes
+2. Run full test suite and flutter analyze
+3. Complete manual iOS/Android permission and auth smoke tests
+4. Update low-priority dependencies when toolchain validation is available
+5. Create pull request
 
 ---
 
 **Generated**: 2025-11-16
-**Last Updated**: 2025-11-16
+**Last Updated**: 2026-05-03

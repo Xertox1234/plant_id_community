@@ -44,14 +44,28 @@ Key files:
 
 ## Acceptance Criteria
 
-- [ ] 401 responses attempt token refresh once and retry the original request, or sign the user out with a clear message.
-- [ ] 429 and retryable 5xx responses use bounded exponential backoff where appropriate.
-- [ ] Theme preference persists across app launches.
-- [ ] Settings route is no longer a placeholder.
-- [ ] Mobile integration-test docs reflect current reality.
+- [x] 401 responses attempt token refresh once and retry the original request, or sign the user out with a clear message.
+- [x] 429 and retryable 5xx responses use bounded exponential backoff where appropriate.
+- [x] Theme preference persists across app launches.
+- [x] Settings route is no longer a placeholder.
+- [x] Mobile integration-test docs reflect current reality.
 - [ ] Manual iOS/Android smoke test checklist is completed.
 
 ## Work Log
+
+### 2026-05-03 - Mobile Reliability Follow-up
+
+- Wired `ApiService` 401 recovery to an `AuthService` session-expired handler because the current backend refresh endpoint is cookie-oriented while mobile uses bearer tokens.
+- Added a session-expired handler that clears stored JWTs, removes the API bearer token, signs out Firebase, and leaves a clear sign-in-again message.
+- Removed the stale mobile bearer-token refresh implementation until the backend exposes a mobile-compatible JSON refresh contract.
+- Added bounded exponential backoff for retryable `429` and `5xx` API responses on safe HTTP methods, with opt-in support for unsafe request retries.
+- Persisted theme mode selection through existing secure storage and restored it when the app starts.
+- Replaced the placeholder settings route with a usable settings screen for theme selection and app/API information.
+- Added a settings shortcut on the home screen so the route is reachable from the current mobile UI.
+- Updated mobile dependency/integration-test docs to show that mock signatures are source-updated and now await validation in a Flutter-capable environment.
+- Updated service-layer docs to reflect `--dart-define` configuration, current auth response field names, built-in retry behavior, and the remaining backend work needed for recoverable mobile bearer-token refresh.
+- Added a mobile validation and manual iOS/Android smoke-test checklist to the mobile README.
+- Verified edited files with editor diagnostics. Could not run `flutter analyze` or `flutter test` in the current cloud workspace because Flutter/Dart are not installed.
 
 ### 2026-05-01 - Codebase Assessment
 

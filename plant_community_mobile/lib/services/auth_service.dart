@@ -71,11 +71,16 @@ class AuthService extends _$AuthService {
 
   // Store StreamSubscription to prevent memory leak
   StreamSubscription<User?>? _authStateSubscription;
+  String? _pendingSignedOutMessage;
+  int _authGeneration = 0;
 
   @override
   AuthState build() {
     // Initialize with current Firebase user
     final currentUser = _firebaseAuth.currentUser;
+    final apiService = ref.read(apiServiceProvider);
+
+    apiService.setSessionExpiredHandler(_handleSessionExpired);
 
     // Listen to Firebase auth state changes
     // Store subscription so we can cancel it on disposal
@@ -89,8 +94,12 @@ class AuthService extends _$AuthService {
         await _exchangeFirebaseTokenForJWT(user);
       } else {
         // User signed out → clear JWT
+        _authGeneration++;
         await _clearJWT();
-        state = const AuthState();
+        ref.read(apiServiceProvider).setAuthToken(null);
+        final signedOutMessage = _pendingSignedOutMessage;
+        _pendingSignedOutMessage = null;
+        state = AuthState(error: signedOutMessage);
       }
     });
 
@@ -100,6 +109,7 @@ class AuthService extends _$AuthService {
         debugPrint('[AUTH] Cancelling auth state subscription');
       }
       _authStateSubscription?.cancel();
+      apiService.setSessionExpiredHandler(null);
     });
 
     // If user is already signed in, exchange token
@@ -131,7 +141,7 @@ class AuthService extends _$AuthService {
       }
 
       // Auth state listener will handle token exchange
-      state = state.copyWith(
+      state = AuthState(
         firebaseUser: credential.user,
         isLoading: false,
       );
@@ -175,7 +185,7 @@ class AuthService extends _$AuthService {
       }
 
       // Auth state listener will handle token exchange
-      state = state.copyWith(
+      state = AuthState(
         firebaseUser: _firebaseAuth.currentUser,
         isLoading: false,
       );
@@ -197,6 +207,7 @@ class AuthService extends _$AuthService {
         debugPrint('[AUTH] Signing out user');
       }
 
+      _authGeneration++;
       await _firebaseAuth.signOut();
       await _clearJWT();
 
@@ -219,10 +230,18 @@ class AuthService extends _$AuthService {
   ///
   /// This is called automatically when user signs in
   Future<void> _exchangeFirebaseTokenForJWT(User user) async {
+    final exchangeGeneration = ++_authGeneration;
+    final apiService = ref.read(apiServiceProvider);
+
     try {
       if (kDebugMode) {
         debugPrint('[AUTH] Exchanging Firebase token for Django JWT');
       }
+
+      // Prevent a newly signed-in user from inheriting stale bearer tokens if
+      // the exchange fails or is superseded by sign-out/user-switch events.
+      apiService.setAuthToken(null);
+      await _clearJWT();
 
       // Get Firebase ID token
       final firebaseToken = await user.getIdToken();
@@ -231,8 +250,14 @@ class AuthService extends _$AuthService {
         throw AuthException('Failed to get Firebase ID token');
       }
 
+      if (!_isCurrentExchange(user, exchangeGeneration)) {
+        if (kDebugMode) {
+          debugPrint('[AUTH] Ignoring token exchange after user changed');
+        }
+        return;
+      }
+
       // Call Django backend to exchange token
-      final apiService = ref.read(apiServiceProvider);
       final response = await apiService.post(
         '/auth/firebase-token-exchange/',
         data: {
@@ -250,10 +275,25 @@ class AuthService extends _$AuthService {
         throw AuthException('No JWT token in response');
       }
 
+      if (!_isCurrentExchange(user, exchangeGeneration)) {
+        if (kDebugMode) {
+          debugPrint('[AUTH] Ignoring token exchange for signed-out or changed user');
+        }
+        return;
+      }
+
       // Store tokens securely
       await _secureStorage.write(key: _jwtKey, value: jwtToken);
       if (refreshToken != null) {
         await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
+      }
+
+      if (!_isCurrentExchange(user, exchangeGeneration)) {
+        if (kDebugMode) {
+          debugPrint('[AUTH] Clearing tokens from superseded token exchange');
+        }
+        await _clearJWTIfMatches(jwtToken, refreshToken);
+        return;
       }
 
       // Update ApiService with new token
@@ -269,80 +309,81 @@ class AuthService extends _$AuthService {
         debugPrint('[AUTH] JWT token exchange successful');
       }
     } on ApiException catch (e) {
+      if (!_isCurrentExchange(user, exchangeGeneration)) {
+        if (kDebugMode) {
+          debugPrint('[AUTH ERROR] Ignoring stale token exchange failure: ${e.message}');
+        }
+        return;
+      }
+
       if (kDebugMode) {
         debugPrint('[AUTH ERROR] Token exchange failed: ${e.message}');
       }
 
+      await _clearJWT();
+      apiService.setAuthToken(null);
+
       // Don't throw - allow user to stay signed in to Firebase
       // They can retry later or we can implement retry logic
-      state = state.copyWith(
+      state = AuthState(
+        firebaseUser: _firebaseAuth.currentUser,
         error: 'Failed to connect to server. Some features may be unavailable.',
       );
     } catch (e) {
+      if (!_isCurrentExchange(user, exchangeGeneration)) {
+        if (kDebugMode) {
+          debugPrint('[AUTH ERROR] Ignoring stale token exchange failure: $e');
+        }
+        return;
+      }
+
       if (kDebugMode) {
         debugPrint('[AUTH ERROR] Token exchange failed: $e');
       }
 
-      state = state.copyWith(
+      await _clearJWT();
+      apiService.setAuthToken(null);
+
+      state = AuthState(
+        firebaseUser: _firebaseAuth.currentUser,
         error: 'Authentication error. Please try again.',
       );
     }
   }
 
-  /// Refresh JWT token
-  ///
-  /// Call this when API returns 401 Unauthorized
-  Future<bool> refreshToken() async {
-    try {
-      if (kDebugMode) {
-        debugPrint('[AUTH] Refreshing JWT token');
-      }
+  bool _isCurrentExchange(User user, int exchangeGeneration) {
+    return _authGeneration == exchangeGeneration &&
+        _firebaseAuth.currentUser?.uid == user.uid;
+  }
 
-      final refreshToken = await _secureStorage.read(key: _refreshTokenKey);
-
-      if (refreshToken == null) {
-        if (kDebugMode) {
-          debugPrint('[AUTH] No refresh token available');
-        }
-        return false;
-      }
-
-      // Call Django refresh endpoint
-      final apiService = ref.read(apiServiceProvider);
-      final response = await apiService.post(
-        '/auth/token/refresh/',
-        data: {'refresh': refreshToken},
-      );
-
-      final newAccessToken = response.data['access'] as String?;
-
-      if (newAccessToken == null) {
-        if (kDebugMode) {
-          debugPrint('[AUTH] No access token in refresh response');
-        }
-        return false;
-      }
-
-      // Store new access token
-      await _secureStorage.write(key: _jwtKey, value: newAccessToken);
-
-      // Update ApiService
-      apiService.setAuthToken(newAccessToken);
-
-      // Update state
-      state = state.copyWith(jwtToken: newAccessToken);
-
-      if (kDebugMode) {
-        debugPrint('[AUTH] Token refresh successful');
-      }
-
-      return true;
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[AUTH ERROR] Token refresh failed: $e');
-      }
-      return false;
+  Future<void> _clearJWTIfMatches(String accessToken, String? refreshToken) async {
+    final storedAccessToken = await _secureStorage.read(key: _jwtKey);
+    if (storedAccessToken == accessToken) {
+      await _secureStorage.delete(key: _jwtKey);
     }
+
+    if (refreshToken != null) {
+      final storedRefreshToken = await _secureStorage.read(key: _refreshTokenKey);
+      if (storedRefreshToken == refreshToken) {
+        await _secureStorage.delete(key: _refreshTokenKey);
+      }
+    }
+  }
+
+  /// Clear authentication state after an unrecoverable API 401 response.
+  Future<void> _handleSessionExpired() async {
+    if (kDebugMode) {
+      debugPrint('[AUTH] Session expired; signing out user');
+    }
+
+    const message = 'Your session expired. Please sign in again.';
+    _pendingSignedOutMessage = message;
+    _authGeneration++;
+    await _clearJWT();
+    ref.read(apiServiceProvider).setAuthToken(null);
+    await _firebaseAuth.signOut();
+
+    state = const AuthState(error: message);
   }
 
   /// Get stored JWT token

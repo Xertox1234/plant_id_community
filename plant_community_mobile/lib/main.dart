@@ -5,6 +5,9 @@ import 'firebase_options.dart';
 import 'core/theme/app_theme.dart';
 import 'config/theme_provider.dart';
 import 'core/routing/app_router.dart';
+import 'services/auth_service.dart';
+
+final _rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -70,10 +73,25 @@ class MyApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
     final router = ref.watch(appRouterProvider);
+    ref.watch(authServiceProvider);
+    ref.listen<AuthState>(authServiceProvider, (previous, next) {
+      final error = next.error;
+      if (error == null || error == previous?.error) {
+        return;
+      }
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final messenger = _rootScaffoldMessengerKey.currentState;
+        messenger
+          ?..clearSnackBars()
+          ..showSnackBar(SnackBar(content: Text(error)));
+      });
+    });
 
     return MaterialApp.router(
       title: 'Plant Community',
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: _rootScaffoldMessengerKey,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: themeMode,

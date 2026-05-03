@@ -10,13 +10,13 @@ dependencies: []
 
 ## Problem
 
-The Flutter app imports generated Firebase configuration, but `lib/firebase_options.dart` is not present in the working tree. A fresh checkout likely cannot compile until a developer manually regenerates Firebase options.
+The Flutter app previously imported generated Firebase configuration while `lib/firebase_options.dart` was not present in the working tree. A fresh checkout could not compile until a developer manually regenerated Firebase options. The file now exists and reads non-secret values from `--dart-define`; final toolchain validation is still pending.
 
 ## Findings
 
 - Discovered during May 1, 2026 codebase assessment.
 - `plant_community_mobile/lib/main.dart` imports `firebase_options.dart`.
-- `plant_community_mobile/lib/firebase_options.dart` was not found in the workspace.
+- `plant_community_mobile/lib/firebase_options.dart` was not found in the workspace during the initial assessment; it has since been added with environment-based configuration.
 - `plant_community_mobile/.gitignore` excludes generated Firebase options files.
 - Historical finding: the app expected a `.env` asset in `pubspec.yaml`, but `.env` files are intentionally ignored. The current implementation uses `--dart-define` instead.
 

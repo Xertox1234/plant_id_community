@@ -22,6 +22,11 @@ class HomePage extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
+      floatingActionButton: FloatingActionButton.small(
+        tooltip: 'Settings',
+        onPressed: () => context.push(AppRoutes.settings),
+        child: const Icon(Icons.settings),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           child: Padding(
