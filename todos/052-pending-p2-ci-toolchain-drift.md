@@ -51,7 +51,7 @@ Key files:
 - [x] CI uses the documented versions.
 - [ ] Flutter CI can run `flutter pub get` successfully.
 - [x] Web CI can run install/build/audit successfully.
-- [ ] Backend CI can install dependencies and run checks successfully.
+- [x] Backend CI can install dependencies and run checks successfully.
 
 ## Work Log
 
@@ -74,3 +74,9 @@ Key files:
 - Verified `npm audit --audit-level=moderate` reports 0 vulnerabilities.
 - Verified `npm run build` passes, including TypeScript type-check.
 - Verified `npm run test -- --run` passes: 24 files, 663 tests passed.
+
+### 2026-05-03 - Backend CI Validation
+
+- Added a dedicated Backend CI workflow that uses `.python-version`, installs `backend/requirements.txt`, runs `python -m pip check`, and runs `python manage.py check` with safe CI-only environment values.
+- Aligned backend pins with installed package metadata so dependency consistency checks pass: `django-tasks` 0.8.1 for Wagtail, Pillow 11.3.0 for Wagtail, Kombu 5.5.4 for Celery, Safety schemas 0.0.16 for Safety, and Protobuf 6.33.6 for gRPC status.
+- Verified locally that `python -m pip check` and `python manage.py check` pass under Python 3.12.

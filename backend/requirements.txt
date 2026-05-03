@@ -31,7 +31,7 @@ cryptography==46.0.3
 daphne==4.2.1
 decorator==5.2.1
 defusedxml==0.7.1
-firebase-admin>=6.6.0,<7.0.0
+firebase-admin==6.9.0
 distro==1.9.0
 dj-database-url==3.0.1
 Django==5.2.7
@@ -56,7 +56,7 @@ django-request-id==1.0.0
 django-stubs==5.2.7
 django-stubs-ext==5.2.7
 django-taggit==6.1.0
-django-tasks==0.9.0
+django-tasks==0.8.1
 django-timezone-field==7.1
 django-treebeard==4.7.1
 django-widget-tweaks==1.5.0
@@ -88,7 +88,7 @@ jedi==0.19.2
 Jinja2==3.1.6
 jiter==0.11.1
 joblib==1.5.2
-kombu==5.6.0
+kombu==5.5.4
 laces==0.1.2
 llm==0.27.1
 markdown-it-py==4.0.0
@@ -108,11 +108,12 @@ parso==0.8.5
 pathspec==0.12.1
 pexpect==4.9.0
 pilkit==3.0
-pillow==12.0.0
+pillow==11.3.0
 pillow_heif==1.1.1
 pluggy==1.6.0
 prompt_toolkit==3.0.52
 psutil==7.1.3
+protobuf==6.33.6
 psycopg2-binary==2.9.11
 ptyprocess==0.7.0
 pure_eval==0.2.3
@@ -145,7 +146,7 @@ rich==14.2.0
 ruamel.yaml==0.18.16
 ruamel.yaml.clib==0.2.14
 safety==3.6.2
-safety-schemas==0.0.17
+safety-schemas==0.0.16
 sentry-sdk==2.43.0
 service-identity==24.2.0
 setuptools==80.9.0
