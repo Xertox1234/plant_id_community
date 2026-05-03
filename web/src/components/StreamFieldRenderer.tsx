@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { createSafeMarkup } from '../utils/domSanitizer';
+import { createSafeMarkup, SANITIZE_PRESETS } from '../utils/domSanitizer';
 import type { StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
 
 /**
@@ -19,7 +19,7 @@ function SafeHTML({ html, className = '' }: SafeHTMLProps) {
   useEffect(() => {
     let isMounted = true;
 
-    createSafeMarkup(html).then((markup) => {
+    createSafeMarkup(html, SANITIZE_PRESETS.STREAMFIELD).then((markup) => {
       if (isMounted) {
         setSafeMarkup(markup);
       }
@@ -44,40 +44,8 @@ function SafeHTML({ html, className = '' }: SafeHTMLProps) {
  * Supports all standard blog content blocks.
  */
 interface StreamFieldRendererProps {
-  blocks: StreamFieldBlockType[];
+  blocks?: StreamFieldBlockType[] | null;
 }
-
-type QuoteValue =
-  | string
-  | {
-      quote_text?: string;
-      quote?: string;
-      attribution?: string;
-    };
-
-type PlantSpotlightValue = {
-  plant_name?: string;
-  heading?: string;
-  scientific_name?: string;
-  description?: string;
-  care_difficulty?: string;
-  care_level?: string;
-  image?: {
-    url: string;
-    title?: string;
-    alt?: string;
-  };
-};
-
-type CallToActionValue = {
-  cta_title?: string;
-  heading?: string;
-  cta_description?: string;
-  description?: string;
-  button_text?: string;
-  button_url?: string;
-  button_style?: 'primary' | 'secondary' | 'outline';
-};
 
 function renderTextOrSafeHtml(content: string, className = '') {
   return content.includes('<') ? (
@@ -146,7 +114,7 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
 
     case 'quote': {
       // Backend: StructBlock with quote_text (RichTextBlock) and attribution (CharBlock)
-      const value = block.value as QuoteValue;
+      const { value } = block;
       const quoteText = typeof value === 'string' ? value : value.quote_text ?? value.quote ?? '';
       const attribution = typeof value === 'string' ? undefined : value.attribution;
 
@@ -176,7 +144,7 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
 
     case 'plant_spotlight': {
       // Backend: StructBlock with plant_name, scientific_name, description, care_difficulty, image
-      const value = block.value as PlantSpotlightValue;
+      const { value } = block;
       const plantName = value.plant_name ?? value.heading ?? '';
       const description = value.description ?? '';
       const careValue = value.care_difficulty ?? value.care_level;
@@ -217,7 +185,7 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
 
     case 'call_to_action': {
       // Backend: StructBlock with cta_title, cta_description, button_text, button_url, button_style
-      const value = block.value as CallToActionValue;
+      const { value } = block;
       const title = value.cta_title ?? value.heading ?? '';
       const description = value.cta_description ?? value.description ?? '';
       const buttonText = value.button_text ?? '';
@@ -235,12 +203,14 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
         <div className="my-8 p-8 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg text-center shadow-lg">
           <h3 className="text-2xl font-bold mb-2">{title}</h3>
           {description && renderTextOrSafeHtml(description, 'mb-6 text-green-50')}
-          <a
-            href={buttonUrl}
-            className={buttonClasses}
-          >
-            {buttonText}
-          </a>
+          {buttonText && (
+            <a
+              href={buttonUrl}
+              className={buttonClasses}
+            >
+              {buttonText}
+            </a>
+          )}
         </div>
       );
     }

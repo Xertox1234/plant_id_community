@@ -4,7 +4,6 @@ import { useAuth } from '../../contexts/AuthContext'
 import Button from '../../components/ui/Button'
 import Input from '../../components/ui/Input'
 import {
-  getNameError,
   getEmailError,
   getPasswordError,
   getPasswordConfirmError,

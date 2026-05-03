@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "019"
 tags: [code-quality, typescript, frontend, refactor, medium]
@@ -36,6 +36,8 @@ Despite completing TypeScript migration (Issue #134), 15+ instances of `any` typ
 ## Proposed Solution
 
 ### Create Discriminated Union Types for StreamField Blocks
+
+> Historical proposal note: the final implementation uses backend-accurate string values for `heading` and `paragraph` blocks, because Wagtail serializes `CharBlock` and `RichTextBlock` values as strings in this project. Structured examples below are retained as the original design sketch, not the final contract.
 
 ```typescript
 // web/src/types/blog.ts
@@ -225,15 +227,15 @@ function StreamFieldBlock({ block }: { block: StreamFieldBlock }) {
 
 ## Acceptance Criteria
 
-- [ ] Discriminated union types defined in blog.ts
-- [ ] All block value types defined (Heading, Quote, Code, etc.)
-- [ ] StreamFieldRenderer updated to use type-safe access
-- [ ] All `as any` removed (0 instances)
-- [ ] TypeScript compiler shows 0 errors
-- [ ] IntelliSense works for all block types
-- [ ] All blog posts render correctly
-- [ ] Tests pass
-- [ ] Pattern documented for future block types
+- [x] Discriminated union types defined in blog.ts
+- [x] All block value types defined (Heading, Quote, Code, etc.)
+- [x] StreamFieldRenderer updated to use type-safe access
+- [x] All `as any` removed (0 instances)
+- [x] TypeScript compiler shows 0 errors
+- [x] IntelliSense works for all block types
+- [x] All blog posts render correctly
+- [x] Tests pass
+- [x] Pattern documented for future block types
 
 ## Work Log
 
@@ -288,6 +290,48 @@ class QuoteBlock(blocks.StructBlock):
     quote = blocks.TextBlock()
     attribution = blocks.CharBlock(required=False)
 ```
+
+### 2026-05-02 - Completed StreamField Type Safety Follow-up
+
+**Actions:**
+- Added exported StreamField block value types in `web/src/types/blog.ts` for heading, paragraph, quote, code, plant spotlight, and call-to-action blocks.
+- Kept backend canonical fields documented while accepting legacy generated payload aliases such as `quote`, `heading`, `care_level`, and `description`.
+- Updated `web/src/components/StreamFieldRenderer.tsx` to rely on discriminated union narrowing instead of local value casts.
+- Verified no `as any` or explicit `any` remains in StreamFieldRenderer or blog types.
+
+**Validation:**
+- `npm run type-check` ✅
+- `npm run test -- --run src/components/StreamFieldRenderer.test.jsx` ✅ 24 tests passed
+- `npm run test -- --run` ✅ 24 files, 667 tests passed
+- `npm run lint` ⚠️ initially blocked by existing ESLint flat-config migration issue (`plugins` configured as a string array); fixed on 2026-05-03.
+
+**Code Review Follow-up:**
+- Matched `StreamFieldRenderer` prop types to tested runtime behavior by allowing `blocks` to be omitted or `null`.
+- Avoided rendering empty CTA links when malformed payloads omit `button_text`.
+- Added component tests for canonical backend fields: `quote_text`, `plant_name`, `care_difficulty`, `cta_title`, and `cta_description`.
+- Clarified that the earlier proposed object-shaped heading/paragraph examples are historical, while the completed implementation uses backend-accurate string values.
+
+**Result:**
+- Issue completed; the original StreamField type-safety work is validated.
+
+### 2026-05-03 - ESLint Flat Config Follow-up
+
+**Actions:**
+- Migrated React Hooks ESLint usage to the plugin's flat-config export.
+- Strengthened TypeScript lint coverage with core recommended rules, React Refresh rules, and monorepo-safe `tsconfigRootDir`.
+- Scoped `console` allowances to test/e2e files and logger infrastructure only.
+- Removed lint-blocking unused imports/state and stale StreamField image/list block exports.
+- Switched StreamField rich HTML sanitization to the `STREAMFIELD` preset so embedded paragraph images are preserved safely.
+- Added regression tests for safe embedded images and unsafe image URL sanitization in StreamField paragraph blocks.
+
+**Validation:**
+- `npm run lint` ✅ exits successfully with 0 errors and 6 pre-existing warnings.
+- `npm run type-check` ✅
+- `npm run test -- --run src/components/StreamFieldRenderer.test.jsx src/components/forum/TipTapEditor.test.jsx src/services/authService.test.ts src/services/plantIdService.test.ts` ✅
+- `npm run test -- --run` ✅ 24 files, 669 tests passed.
+
+**Result:**
+- The ESLint flat-config failure is fixed. Remaining warnings are non-blocking existing cleanup items (`react-hooks/exhaustive-deps` and `no-explicit-any`).
 
 **Priority Justification:**
 - P2 (MEDIUM) because code currently works

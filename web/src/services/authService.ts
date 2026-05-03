@@ -95,7 +95,7 @@ export async function signup(userData: SignupData): Promise<User> {
       let errorData: ApiError | { error?: { message?: string }; message?: string };
       try {
         errorData = await response.json();
-      } catch (e) {
+      } catch {
         throw new Error(`Signup failed with status ${response.status}`);
       }
 

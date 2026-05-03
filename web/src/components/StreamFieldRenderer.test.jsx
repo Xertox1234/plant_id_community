@@ -82,6 +82,26 @@ describe('StreamFieldRenderer', () => {
       expect(screen.getByText('— Author Name')).toBeInTheDocument();
     });
 
+    it('renders quote block with canonical quote_text field', async () => {
+      const blocks = [
+        {
+          id: '1',
+          type: 'quote',
+          value: {
+            quote_text: '<p>Canonical quote</p>',
+            attribution: 'Backend Author',
+          },
+        },
+      ];
+
+      render(<StreamFieldRenderer blocks={blocks} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Canonical quote')).toBeInTheDocument();
+      });
+      expect(screen.getByText('— Backend Author')).toBeInTheDocument();
+    });
+
     it('renders code block', () => {
       const blocks = [
         {
@@ -127,6 +147,36 @@ describe('StreamFieldRenderer', () => {
       });
     });
 
+    it('renders plant_spotlight block with canonical backend fields', async () => {
+      const blocks = [
+        {
+          id: '1',
+          type: 'plant_spotlight',
+          value: {
+            plant_name: 'Pothos',
+            scientific_name: 'Epipremnum aureum',
+            description: '<p>Hardy trailing plant</p>',
+            image: {
+              url: 'https://example.com/pothos.jpg',
+              title: 'Golden pothos',
+            },
+            care_difficulty: 'moderate',
+          },
+        },
+      ];
+
+      render(<StreamFieldRenderer blocks={blocks} />);
+
+      expect(screen.getByText(/Pothos/)).toBeInTheDocument();
+      expect(screen.getByText('Epipremnum aureum')).toBeInTheDocument();
+      expect(screen.getByText('Care Difficulty: Moderate')).toBeInTheDocument();
+      expect(screen.getByAltText('Golden pothos')).toHaveAttribute('src', 'https://example.com/pothos.jpg');
+
+      await waitFor(() => {
+        expect(screen.getByText('Hardy trailing plant')).toBeInTheDocument();
+      });
+    });
+
     it('renders call_to_action block', () => {
       const blocks = [
         {
@@ -149,6 +199,49 @@ describe('StreamFieldRenderer', () => {
       const button = screen.getByText('Sign Up');
       expect(button).toBeInTheDocument();
       expect(button.closest('a')).toHaveAttribute('href', '/signup');
+    });
+
+    it('renders call_to_action block with canonical backend fields', async () => {
+      const blocks = [
+        {
+          id: '1',
+          type: 'call_to_action',
+          value: {
+            cta_title: 'Start Plant Care',
+            cta_description: '<p>Track your garden today</p>',
+            button_text: 'Open Planner',
+            button_url: '/planner',
+            button_style: 'secondary',
+          },
+        },
+      ];
+
+      render(<StreamFieldRenderer blocks={blocks} />);
+
+      expect(screen.getByText('Start Plant Care')).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText('Track your garden today')).toBeInTheDocument();
+      });
+      expect(screen.getByText('Open Planner').closest('a')).toHaveAttribute('href', '/planner');
+    });
+
+    it('does not render an empty call_to_action link when button text is missing', () => {
+      const blocks = [
+        {
+          id: '1',
+          type: 'call_to_action',
+          value: {
+            cta_title: 'Informational CTA',
+            cta_description: 'No action required',
+            button_url: '/unused',
+          },
+        },
+      ];
+
+      const { container } = render(<StreamFieldRenderer blocks={blocks} />);
+
+      expect(screen.getByText('Informational CTA')).toBeInTheDocument();
+      expect(container.querySelector('a')).not.toBeInTheDocument();
     });
 
     // Removed tests for list and embed blocks (blocks no longer supported - TODO #033)
@@ -264,6 +357,39 @@ describe('StreamFieldRenderer', () => {
       await waitFor(() => {
         expect(screen.getByText('Bold')).toBeInTheDocument();
         expect(screen.getByText('italic')).toBeInTheDocument();
+      });
+    });
+
+    it('preserves safe embedded images in paragraph StreamField rich text', async () => {
+      const blocks = [
+        {
+          id: '1',
+          type: 'paragraph',
+          value: '<p>Plant photo</p><img src="https://example.com/plant.jpg" alt="Healthy plant" title="Plant" />',
+        },
+      ];
+
+      render(<StreamFieldRenderer blocks={blocks} />);
+
+      await waitFor(() => {
+        expect(screen.getByAltText('Healthy plant')).toHaveAttribute('src', 'https://example.com/plant.jpg');
+      });
+    });
+
+    it('sanitizes unsafe embedded image URLs in paragraph StreamField rich text', async () => {
+      const blocks = [
+        {
+          id: '1',
+          type: 'paragraph',
+          value: '<p>Plant photo</p><img src="javascript:alert(1)" alt="Unsafe plant" />',
+        },
+      ];
+
+      render(<StreamFieldRenderer blocks={blocks} />);
+
+      await waitFor(() => {
+        const image = screen.getByAltText('Unsafe plant');
+        expect(image).not.toHaveAttribute('src', expect.stringContaining('javascript:'));
       });
     });
   });

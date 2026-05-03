@@ -5,7 +5,6 @@
  * Uses cookie-based JWT authentication with CSRF protection.
  */
 
-import { logger } from '../utils/logger';
 import { getCsrfToken } from '../utils/csrf';
 import type {
   PlantIdentificationResult,

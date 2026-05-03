@@ -5,6 +5,9 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 import tseslint from '@typescript-eslint/eslint-plugin'
 import tsparser from '@typescript-eslint/parser'
+import { fileURLToPath } from 'node:url'
+
+const tsconfigRootDir = fileURLToPath(new URL('.', import.meta.url))
 
 export default defineConfig([
   globalIgnores(['dist']),
@@ -13,7 +16,7 @@ export default defineConfig([
     files: ['**/*.{js,jsx}'],
     extends: [
       js.configs.recommended,
-      reactHooks.configs['recommended-latest'],
+      reactHooks.configs.flat['recommended-latest'],
       reactRefresh.configs.vite,
     ],
     languageOptions: {
@@ -47,14 +50,18 @@ export default defineConfig([
         ecmaFeatures: { jsx: true },
         sourceType: 'module',
         project: './tsconfig.json',
+        tsconfigRootDir,
       },
       globals: globals.browser,
     },
     rules: {
+      ...js.configs.recommended.rules,
       ...tseslint.configs.recommended.rules,
       ...reactHooks.configs['recommended-latest'].rules,
+      ...reactRefresh.configs.vite.rules,
       // Disable no-unused-vars in favor of TypeScript's noUnusedLocals
       'no-unused-vars': 'off',
+      'no-undef': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^_' }],
       // Enforce structured logger usage (no console.log/error/warn in production code)
       'no-console': 'error',
@@ -63,12 +70,19 @@ export default defineConfig([
     },
   },
   {
-    files: ['**/*.test.{js,jsx,ts,tsx}', '**/tests/**/*.{js,jsx,ts,tsx}', '**/test/**/*.{js,jsx,ts,tsx}'],
+    files: ['**/*.test.{js,jsx,ts,tsx}', '**/*.spec.{js,jsx,ts,tsx}', '**/tests/**/*.{js,jsx,ts,tsx}', '**/test/**/*.{js,jsx,ts,tsx}'],
     languageOptions: {
       globals: {
         ...globals.browser,
         ...globals.node,
       },
+    },
+  },
+  // E2E and test files may use console output for diagnostics.
+  {
+    files: ['e2e/**/*.{js,jsx,ts,tsx}', '**/*.test.{js,jsx,ts,tsx}', '**/*.spec.{js,jsx,ts,tsx}', '**/tests/**/*.{js,jsx,ts,tsx}', '**/test/**/*.{js,jsx,ts,tsx}'],
+    rules: {
+      'no-console': 'off',
     },
   },
   // Allow console in logger.js/ts only (implements the logger infrastructure)

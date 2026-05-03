@@ -37,10 +37,8 @@ export type {
   StreamFieldBlock,
   ParagraphBlock,
   HeadingBlock,
-  ImageBlock,
   QuoteBlock,
   CodeBlock,
-  ListBlock,
   BlogPost,
   BlogCategory,
 } from './blog';

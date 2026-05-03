@@ -106,6 +106,7 @@ export function sanitizeSearchQuery(query: unknown): string {
   }
 
   // Remove control characters (U+0000 to U+001F, U+007F)
+  // eslint-disable-next-line no-control-regex -- intentionally strips ASCII control characters from user search input
   const sanitized = query.replace(/[\x00-\x1F\x7F]/g, '').trim()
 
   // Limit length

@@ -17,7 +17,6 @@ import {
   deleteDiagnosisCard,
   toggleFavorite,
   fetchReminders,
-  createReminder,
 } from '../../services/diagnosisService';
 import { logger } from '../../utils/logger';
 import type { DiagnosisCard, DiagnosisReminder, TreatmentStatus, SeverityAssessment } from '@/types';
@@ -48,20 +47,6 @@ interface ReminderResults {
 }
 
 /**
- * Get status badge color based on treatment status
- */
-function getStatusColor(status: TreatmentStatus): string {
-  const colors: Record<TreatmentStatus, string> = {
-    not_started: 'bg-gray-100 text-gray-800',
-    in_progress: 'bg-blue-100 text-blue-800',
-    successful: 'bg-green-100 text-green-800',
-    failed: 'bg-red-100 text-red-800',
-    monitoring: 'bg-yellow-100 text-yellow-800'
-  };
-  return colors[status] || 'bg-gray-100 text-gray-800';
-}
-
-/**
  * Get severity badge color
  */
 function getSeverityColor(severity: SeverityAssessment): string {
@@ -83,20 +68,6 @@ function formatDate(dateString: string): string {
     year: 'numeric',
     month: 'long',
     day: 'numeric'
-  }).format(date);
-}
-
-/**
- * Format datetime to readable string
- */
-function formatDateTime(dateString: string): string {
-  const date = new Date(dateString);
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
   }).format(date);
 }
 
@@ -213,7 +184,6 @@ export default function DiagnosisDetailPage() {
 
   // Reminders
   const [reminders, setReminders] = useState<DiagnosisReminder[]>([]);
-  const [showReminderForm, setShowReminderForm] = useState<boolean>(false);
 
   /**
    * Load card data

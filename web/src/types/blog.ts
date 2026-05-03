@@ -2,39 +2,93 @@
  * Blog & Wagtail CMS Types
  */
 
+export type StreamFieldBlockId = string | number;
+
+interface BaseStreamFieldBlock {
+  id?: StreamFieldBlockId;
+}
+
+/**
+ * Heading block value.
+ * Backend: CharBlock serialized as a string.
+ */
+export type HeadingBlockValue = string;
+
+/**
+ * Paragraph block value.
+ * Backend: RichTextBlock serialized as an HTML string.
+ */
+export type ParagraphBlockValue = string;
+
+/**
+ * Quote block value.
+ * Backend canonical field is quote_text; quote is accepted for legacy API payloads.
+ */
+export interface QuoteBlockValue {
+  quote_text?: string;
+  quote?: string;
+  attribution?: string;
+}
+
+/**
+ * Code block value.
+ * Backend: StructBlock with language (ChoiceBlock) and code (TextBlock).
+ */
+export interface CodeBlockValue {
+  code: string;
+  language?: string;
+}
+
+/**
+ * Plant spotlight block value.
+ * Backend canonical fields use plant_name and care_difficulty; heading/care_level
+ * are accepted for older generated payloads.
+ */
+export interface PlantSpotlightBlockValue {
+  plant_name?: string;
+  heading?: string;
+  scientific_name?: string;
+  description?: string;
+  care_difficulty?: 'easy' | 'moderate' | 'difficult';
+  care_level?: string;
+  image?: {
+    url: string;
+    title?: string;
+    alt?: string;
+  };
+}
+
+/**
+ * Call to action block value.
+ * Backend canonical fields use cta_title and cta_description; heading/description
+ * are accepted for older generated payloads.
+ */
+export interface CallToActionBlockValue {
+  cta_title?: string;
+  heading?: string;
+  cta_description?: string;
+  description?: string;
+  button_text?: string;
+  button_url?: string;
+  button_style?: 'primary' | 'secondary' | 'outline';
+}
+
 /**
  * Plant Spotlight block
  * Backend: StructBlock with plant_name, scientific_name, description, care_difficulty, image
  */
-export interface PlantSpotlightBlock {
+export interface PlantSpotlightBlock extends BaseStreamFieldBlock {
   type: 'plant_spotlight';
-  value: {
-    plant_name: string; // CharBlock (required)
-    scientific_name?: string; // CharBlock (optional, auto-populated)
-    description: string; // RichTextBlock (HTML string, auto-populated or AI-generated)
-    care_difficulty?: 'easy' | 'moderate' | 'difficult'; // ChoiceBlock (optional)
-    image?: {
-      url: string;
-      title?: string;
-    }; // ImageChooserBlock (optional)
-  };
-  id: string;
+  value: PlantSpotlightBlockValue;
 }
 
 /**
  * Call to Action block
  * Backend: StructBlock with cta_title, cta_description, button_text, button_url, button_style
  */
-export interface CallToActionBlock {
+export interface CallToActionBlock extends BaseStreamFieldBlock {
   type: 'call_to_action';
-  value: {
-    cta_title: string; // CharBlock (required)
-    cta_description?: string; // RichTextBlock (optional, HTML string)
-    button_text: string; // CharBlock (required)
-    button_url: string; // URLBlock (required)
-    button_style?: 'primary' | 'secondary' | 'outline'; // ChoiceBlock (optional, default: primary)
-  };
-  id: string;
+  value: CallToActionBlockValue;
 }
 
 /**
@@ -43,83 +97,44 @@ export interface CallToActionBlock {
 export type StreamFieldBlock =
   | ParagraphBlock
   | HeadingBlock
-  | ImageBlock
   | QuoteBlock
   | CodeBlock
-  | ListBlock
   | PlantSpotlightBlock
   | CallToActionBlock;
 
 /**
  * Paragraph block
  */
-export interface ParagraphBlock {
+export interface ParagraphBlock extends BaseStreamFieldBlock {
   type: 'paragraph';
-  value: string;
-  id: string;
+  value: ParagraphBlockValue;
 }
 
 /**
  * Heading block
  * Backend: CharBlock (simple string, not structured)
  */
-export interface HeadingBlock {
+export interface HeadingBlock extends BaseStreamFieldBlock {
   type: 'heading';
-  value: string;
-  id: string;
-}
-
-/**
- * Image block
- * NOTE: Removed from backend - use paragraph with embedded images instead
- */
-export interface ImageBlock {
-  type: 'image';
-  value: {
-    image: string;
-    alt_text?: string;
-    caption?: string;
-  };
-  id: string;
+  value: HeadingBlockValue;
 }
 
 /**
  * Quote block
  * Backend: StructBlock with quote_text (RichTextBlock) and attribution (CharBlock)
  */
-export interface QuoteBlock {
+export interface QuoteBlock extends BaseStreamFieldBlock {
   type: 'quote';
-  value: {
-    quote_text: string; // RichTextBlock (HTML string)
-    attribution?: string; // CharBlock (optional)
-  };
-  id: string;
+  value: QuoteBlockValue | string;
 }
 
 /**
  * Code block
  * Backend: StructBlock with language (ChoiceBlock) and code (TextBlock)
  */
-export interface CodeBlock {
+export interface CodeBlock extends BaseStreamFieldBlock {
   type: 'code';
-  value: {
-    code: string; // TextBlock
-    language?: string; // ChoiceBlock (optional: python, javascript, html, css, bash, json)
-  };
-  id: string;
-}
-
-/**
- * List block
- * NOTE: Not defined in backend BlogStreamBlocks
- */
-export interface ListBlock {
-  type: 'list';
-  value: {
-    items: string[];
-    list_type: 'ul' | 'ol';
-  };
-  id: string;
+  value: CodeBlockValue;
 }
 
 /**
