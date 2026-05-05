@@ -51,10 +51,10 @@ export function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
               Technical Details
             </summary>
             <div className="bg-gray-100 rounded p-4 text-xs text-gray-800 font-mono overflow-auto max-h-40">
-              <p className="font-bold mb-2">{error.message}</p>
-              {error.stack && (
+              <p className="font-bold mb-2">{(error as Error).message}</p>
+              {(error as Error).stack && (
                 <pre className="whitespace-pre-wrap break-words">
-                  {error.stack}
+                  {(error as Error).stack}
                 </pre>
               )}
             </div>
