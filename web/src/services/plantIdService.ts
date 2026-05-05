@@ -53,7 +53,7 @@ async function identifyPlant(imageFile: File): Promise<PlantIdentificationResult
     if (error instanceof Error && error.message) {
       throw error;
     }
-    throw new Error('Failed to identify plant. Please try again.');
+    throw new Error('Failed to identify plant. Please try again.', { cause: error });
   }
 }
 
@@ -156,7 +156,7 @@ async function saveToCollection(plantData: SavePlantInput): Promise<UserPlant> {
     if (error instanceof Error && error.message) {
       throw error;
     }
-    throw new Error('Failed to save plant to collection');
+    throw new Error('Failed to save plant to collection', { cause: error });
   }
 }
 

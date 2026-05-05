@@ -216,13 +216,6 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
   })
   const [isCreating, setIsCreating] = useState<boolean>(false)
 
-  /**
-   * Load reminders
-   */
-  useEffect(() => {
-    loadReminders()
-  }, [diagnosisCardUuid])
-
   const loadReminders = async (): Promise<void> => {
     try {
       setLoading(true)
@@ -245,6 +238,14 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
       setLoading(false)
     }
   }
+
+  /**
+   * Load reminders
+   */
+  useEffect(() => {
+    loadReminders()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diagnosisCardUuid])
 
   /**
    * Handle reminder update
