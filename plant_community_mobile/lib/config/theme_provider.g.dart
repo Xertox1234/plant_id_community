@@ -11,13 +11,13 @@ part of 'theme_provider.dart';
 /// Theme mode notifier that manages theme state.
 
 @ProviderFor(ThemeModeNotifier)
-const themeModeProvider = ThemeModeNotifierProvider._();
+final themeModeProvider = ThemeModeNotifierProvider._();
 
 /// Theme mode notifier that manages theme state.
 final class ThemeModeNotifierProvider
     extends $NotifierProvider<ThemeModeNotifier, ThemeMode> {
   /// Theme mode notifier that manages theme state.
-  const ThemeModeNotifierProvider._()
+  ThemeModeNotifierProvider._()
     : super(
         from: null,
         argument: null,
@@ -44,7 +44,7 @@ final class ThemeModeNotifierProvider
   }
 }
 
-String _$themeModeNotifierHash() => r'b33334b9c1a7c930bc8c49d4a4b03f40ff782030';
+String _$themeModeNotifierHash() => r'c25cc35849763c2ff04fb95c7c4edb61f0b97cdb';
 
 /// Theme mode notifier that manages theme state.
 
@@ -53,7 +53,6 @@ abstract class _$ThemeModeNotifier extends $Notifier<ThemeMode> {
   @$mustCallSuper
   @override
   void runBuild() {
-    final created = build();
     final ref = this.ref as $Ref<ThemeMode, ThemeMode>;
     final element =
         ref.element
@@ -63,6 +62,6 @@ abstract class _$ThemeModeNotifier extends $Notifier<ThemeMode> {
               Object?,
               Object?
             >;
-    element.handleValue(ref, created);
+    element.handleCreate(ref, build);
   }
 }

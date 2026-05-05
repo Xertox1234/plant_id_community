@@ -44,7 +44,7 @@ dependencies:
 
   # State Management
   flutter_riverpod: ^3.0.3
-  riverpod_annotation: ^3.0.3
+  riverpod_annotation: ^4.0.0
 
   # Navigation
   go_router: ^17.0.0
@@ -63,14 +63,14 @@ dependencies:
   logger: ^2.5.0
 
   # Secure Storage
-  flutter_secure_storage: ^9.2.2  # Secure JWT token storage
+  flutter_secure_storage: ^10.0.0  # Secure JWT token storage
 
   # Notifications
-  flutter_local_notifications: ^18.0.1  # Local notification scheduling
+  flutter_local_notifications: ^21.0.0  # Local notification scheduling
 
   # Offline-first persistence
   drift: ^2.22.0  # SQLite-based database for offline storage
-  sqlite3_flutter_libs: ^0.5.24  # SQLite native libraries
+  sqlite3_flutter_libs: ^0.6.0+eol  # SQLite native libraries
   path_provider: ^2.1.5  # For database file paths
   path: ^1.9.1  # Path manipulation
 
@@ -94,7 +94,7 @@ dev_dependencies:
 
   # Code generation
   build_runner: ^2.7.1
-  riverpod_generator: ^3.0.3
+  riverpod_generator: ^4.0.0+1
   drift_dev: ^2.22.0  # Drift code generation
   flutter_dotenv: ^6.0.0  # Legacy tests/docs only; runtime config uses --dart-define
 

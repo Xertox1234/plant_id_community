@@ -32,7 +32,7 @@ part of 'auth_service.dart';
 /// ```
 
 @ProviderFor(AuthService)
-const authServiceProvider = AuthServiceProvider._();
+final authServiceProvider = AuthServiceProvider._();
 
 /// Authentication service that handles Firebase Auth + Django JWT
 ///
@@ -80,7 +80,7 @@ final class AuthServiceProvider
   ///   // User is logged in
   /// }
   /// ```
-  const AuthServiceProvider._()
+  AuthServiceProvider._()
     : super(
         from: null,
         argument: null,
@@ -107,7 +107,7 @@ final class AuthServiceProvider
   }
 }
 
-String _$authServiceHash() => r'd75532301182928f10320f8cb9455b6b8f96b10c';
+String _$authServiceHash() => r'a6e59d2326305cd054af9f63b124856e5999e942';
 
 /// Authentication service that handles Firebase Auth + Django JWT
 ///
@@ -137,7 +137,6 @@ abstract class _$AuthService extends $Notifier<AuthState> {
   @$mustCallSuper
   @override
   void runBuild() {
-    final created = build();
     final ref = this.ref as $Ref<AuthState, AuthState>;
     final element =
         ref.element
@@ -147,6 +146,6 @@ abstract class _$AuthService extends $Notifier<AuthState> {
               Object?,
               Object?
             >;
-    element.handleValue(ref, created);
+    element.handleCreate(ref, build);
   }
 }

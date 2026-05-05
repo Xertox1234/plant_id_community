@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/firestore_service.dart';
@@ -88,7 +87,10 @@ void main() {
     test('FirestoreException has correct message', () {
       final exception = FirestoreException('Test error message');
       expect(exception.message, equals('Test error message'));
-      expect(exception.toString(), equals('FirestoreException: Test error message'));
+      expect(
+        exception.toString(),
+        equals('FirestoreException: Test error message'),
+      );
     });
 
     // Integration test placeholder
@@ -160,8 +162,14 @@ void main() {
 
       expect(copiedPlant.id, equals(originalPlant.id)); // Unchanged
       expect(copiedPlant.name, equals('Updated Name')); // Changed
-      expect(copiedPlant.scientificName, equals(originalPlant.scientificName)); // Unchanged
-      expect(copiedPlant.description, equals(originalPlant.description)); // Unchanged
+      expect(
+        copiedPlant.scientificName,
+        equals(originalPlant.scientificName),
+      ); // Unchanged
+      expect(
+        copiedPlant.description,
+        equals(originalPlant.description),
+      ); // Unchanged
       expect(copiedPlant.care, equals(originalPlant.care)); // Unchanged
       expect(copiedPlant.imageUrl, equals(originalPlant.imageUrl)); // Unchanged
       expect(copiedPlant.timestamp, equals(newTimestamp)); // Changed
@@ -169,19 +177,19 @@ void main() {
 
     test('copyWith preserves imageUrl when not specified', () {
       // When imageUrl is not provided, it should preserve original value
-      final copiedPlant = originalPlant.copyWith(
-        name: 'New Name',
-      );
+      final copiedPlant = originalPlant.copyWith(name: 'New Name');
 
       expect(copiedPlant.imageUrl, equals(originalPlant.imageUrl));
     });
 
     test('copyWith can update care instructions', () {
-      final newCare = ['Water twice daily', 'Partial shade', 'Fertilize weekly'];
+      final newCare = [
+        'Water twice daily',
+        'Partial shade',
+        'Fertilize weekly',
+      ];
 
-      final copiedPlant = originalPlant.copyWith(
-        care: newCare,
-      );
+      final copiedPlant = originalPlant.copyWith(care: newCare);
 
       expect(copiedPlant.care, equals(newCare));
       expect(copiedPlant.care.length, equals(3));
@@ -236,10 +244,7 @@ void main() {
         'timestamp': 'not-a-valid-date',
       };
 
-      expect(
-        () => Plant.fromJson(json),
-        throwsFormatException,
-      );
+      expect(() => Plant.fromJson(json), throwsFormatException);
     });
 
     test('Plant fromJson throws on missing required fields', () {
@@ -249,10 +254,7 @@ void main() {
         // Missing scientificName, description, care, timestamp
       };
 
-      expect(
-        () => Plant.fromJson(json),
-        throwsA(isA<TypeError>()),
-      );
+      expect(() => Plant.fromJson(json), throwsA(isA<TypeError>()));
     });
 
     test('Plant fromJson handles care as List<dynamic>', () {

@@ -1,6 +1,8 @@
 /// Garden Models Barrel Export
 ///
 /// Central export file for all garden-related data models.
+library;
+
 export 'garden_bed.dart';
 export 'garden_plant.dart';
 export 'care_task.dart';

@@ -44,7 +44,7 @@ part of 'firestore_service.dart';
 /// ```
 
 @ProviderFor(FirestoreService)
-const firestoreServiceProvider = FirestoreServiceProvider._();
+final firestoreServiceProvider = FirestoreServiceProvider._();
 
 /// Firestore service for offline data persistence and cross-device sync
 ///
@@ -116,7 +116,7 @@ final class FirestoreServiceProvider
   ///   error: (error, stack) => ErrorWidget(error),
   /// );
   /// ```
-  const FirestoreServiceProvider._()
+  FirestoreServiceProvider._()
     : super(
         from: null,
         argument: null,
@@ -185,7 +185,6 @@ abstract class _$FirestoreService extends $Notifier<void> {
   @$mustCallSuper
   @override
   void runBuild() {
-    build();
     final ref = this.ref as $Ref<void, void>;
     final element =
         ref.element
@@ -195,7 +194,7 @@ abstract class _$FirestoreService extends $Notifier<void> {
               Object?,
               Object?
             >;
-    element.handleValue(ref, null);
+    element.handleCreate(ref, build);
   }
 }
 
@@ -204,7 +203,7 @@ abstract class _$FirestoreService extends $Notifier<void> {
 /// This provider automatically handles offline/online transitions
 
 @ProviderFor(plantsStream)
-const plantsStreamProvider = PlantsStreamFamily._();
+final plantsStreamProvider = PlantsStreamFamily._();
 
 /// Provider for plants stream by user ID
 ///
@@ -221,7 +220,7 @@ final class PlantsStreamProvider
   /// Provider for plants stream by user ID
   ///
   /// This provider automatically handles offline/online transitions
-  const PlantsStreamProvider._({
+  PlantsStreamProvider._({
     required PlantsStreamFamily super.from,
     required String super.argument,
   }) : super(
@@ -273,7 +272,7 @@ String _$plantsStreamHash() => r'a3741e4f6e9cf3513ae0ff0817f5b5dbfeabd1c1';
 
 final class PlantsStreamFamily extends $Family
     with $FunctionalFamilyOverride<Stream<List<Plant>>, String> {
-  const PlantsStreamFamily._()
+  PlantsStreamFamily._()
     : super(
         retry: null,
         name: r'plantsStreamProvider',
