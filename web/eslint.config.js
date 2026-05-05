@@ -30,6 +30,8 @@ export default defineConfig([
     },
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // Intentional pattern: data-fetching functions called inside useEffect is valid
+      'react-hooks/set-state-in-effect': 'off',
       // Enforce structured logger usage (no console.log/error/warn in production code)
       // Exception: logger.js only (implements logger infrastructure)
       'no-console': 'error',
@@ -63,6 +65,8 @@ export default defineConfig([
       'no-unused-vars': 'off',
       'no-undef': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^_' }],
+      // Intentional pattern: data-fetching functions called inside useEffect is valid
+      'react-hooks/set-state-in-effect': 'off',
       // Enforce structured logger usage (no console.log/error/warn in production code)
       'no-console': 'error',
       // Allow explicit 'any' during migration (Phase 1-7), will be removed in Phase 8

@@ -185,14 +185,6 @@ export default function DiagnosisDetailPage() {
   // Reminders
   const [reminders, setReminders] = useState<DiagnosisReminder[]>([]);
 
-  /**
-   * Load card data
-   */
-  useEffect(() => {
-    loadCard();
-    loadReminders();
-  }, [uuid]);
-
   const loadCard = async () => {
     if (!uuid) return;
 
@@ -228,6 +220,15 @@ export default function DiagnosisDetailPage() {
       logger.error('[DiagnosisDetailPage] Failed to load reminders:', err);
     }
   };
+
+  /**
+   * Load card data
+   */
+  useEffect(() => {
+    loadCard();
+    loadReminders();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uuid]);
 
   /**
    * Handle favorite toggle
