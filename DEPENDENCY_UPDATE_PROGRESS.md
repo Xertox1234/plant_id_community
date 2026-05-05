@@ -162,4 +162,24 @@ Update remaining 20 packages using `flutter pub upgrade`:
 ---
 
 **Generated**: 2025-11-16
-**Last Updated**: 2026-05-03
+**Last Updated**: 2026-05-05
+
+---
+
+## ✅ Web Frontend Major Upgrades (May 5, 2026)
+
+All 7 upgrade branches merged into `main`. Final state:
+
+| Package | Old | New | Branch |
+|---------|-----|-----|--------|
+| vite | ^7.1 | ^8.0.10 | `upgrade/vite-8` |
+| typescript | ^5.9 | ^6.0.3 | `upgrade/typescript-6` |
+| eslint | ^9.39 | ^10.3.0 | `upgrade/eslint-10` |
+| @eslint/js | ^9.39 | ^10.0.1 | `upgrade/eslint-10` |
+| @vitejs/plugin-react | ^5.2 | ^6.0.1 | `upgrade/vite-8` |
+| lucide-react | ^0.552 | ^1.14.0 | `upgrade/lucide-react-1` |
+| jsdom | ^27.1 | ^29.1.1 | `upgrade/jsdom-29` |
+| globals | ^16.5 | ^17.6.0 | `upgrade/web-remaining-majors` |
+| rollup-plugin-visualizer | ^6.0 | ^7.0.1 | `upgrade/web-remaining-majors` |
+
+**Verification**: 669/669 tests passing, 0 lint warnings, 0 TypeScript errors, build clean.

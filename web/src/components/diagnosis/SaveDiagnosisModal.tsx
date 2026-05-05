@@ -1,6 +1,7 @@
 import { useState, FormEvent, ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createDiagnosisCard } from '../../services/diagnosisService'
+import type { CreateDiagnosisCardInput } from '../../types/diagnosis'
 import { logger } from '../../utils/logger'
 
 interface DiseaseInfo {
@@ -50,7 +51,7 @@ export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, ident
       setError(null)
 
       // Prepare diagnosis card data
-      const cardData: any = {
+      const cardData: Record<string, unknown> = {
         // diagnosis_result is optional - only include if we have an ID from backend
         ...(diseaseInfo.diagnosis_result_id && { diagnosis_result: diseaseInfo.diagnosis_result_id }),
         plant_scientific_name: identificationData?.scientific_name || diseaseInfo.plant_name || 'Unknown',
@@ -70,7 +71,7 @@ export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, ident
 
       logger.info('[SaveDiagnosisModal] Creating diagnosis card', { cardData })
 
-      const createdCard = await createDiagnosisCard(cardData)
+      const createdCard = await createDiagnosisCard(cardData as unknown as CreateDiagnosisCardInput)
 
       logger.info('[SaveDiagnosisModal] Card created successfully', { uuid: createdCard.uuid })
 

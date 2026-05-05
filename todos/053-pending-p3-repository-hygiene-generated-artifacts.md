@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "053"
 tags: [repo-hygiene, gitignore, generated-files, security, cleanup]
@@ -49,8 +49,8 @@ Only remove Firebase config from Git after confirming the desired deployment/set
 
 ## Acceptance Criteria
 
-- [ ] Generated reports/screenshots are no longer tracked.
-- [ ] `.gitignore` covers Playwright reports, test results, and generated screenshots.
+- [x] Generated reports/screenshots are no longer tracked.
+- [x] `.gitignore` covers Playwright reports, test results, and generated screenshots.
 - [ ] Firebase config tracking policy is documented.
 - [ ] If Firebase configs remain tracked, key restrictions are verified and documented.
 - [ ] If Firebase configs are removed, example files and setup instructions exist.

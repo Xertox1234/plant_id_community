@@ -32,7 +32,7 @@ flutter run
 ```
 
 Visit:
-- **Web**: http://localhost:5173
+- **Web**: http://localhost:5174
 - **Backend**: http://localhost:8000
 - **API Docs**: http://localhost:8000/api/docs/ (Swagger UI)
 - **Mobile**: Opens in simulator/emulator
@@ -42,7 +42,7 @@ Visit:
 ### Multi-Platform Stack
 - **Web Frontend**: React 19 + Vite + Tailwind CSS 4
 - **Mobile App**: Flutter 3.35+ / Dart 3.9.x + Firebase (primary platform)
-- **Backend**: Django 5.2 + Django REST Framework + Wagtail 7.0.3 CMS
+- **Backend**: Django 5.2 + Django REST Framework + Wagtail 7.1.2 LTS CMS
 - **Database**: SQLite (dev), PostgreSQL (production)
 - **Cache**: Redis (40% hit rate, <50ms responses)
 - **Plant ID**: Dual API (Plant.id + PlantNet)
@@ -84,33 +84,30 @@ plant_id_community/
 
 ### Current
 - ✅ AI plant identification (Plant.id + PlantNet)
-- ✅ React web interface with plant ID workflow
-- ✅ Flutter design system (colors, typography, spacing)
-- ✅ Firebase authentication ready
-- ✅ Django REST API backend
-- ✅ **NEW: Wagtail CMS Blog** (Phase 2 Complete - Oct 24, 2025)
+- ✅ React web interface with plant ID workflow (TypeScript, 669 tests passing)
+- ✅ Flutter mobile app (Firebase Auth, Riverpod state management, go_router)
+- ✅ Django REST API backend (427+ tests passing)
+- ✅ Wagtail CMS Blog with AI content generation
   - Headless CMS with rich StreamField editor
-  - Redis caching (35%+ hit rate, <50ms cached responses)
-  - Advanced filtering (categories, tags, authors, series)
-  - SEO optimization (meta tags, OpenGraph, structured data)
-  - Image rendition caching (1-year TTL)
+  - Redis caching (80-95% hit rate, <50ms cached responses)
+  - AI-powered title/introduction/meta generation (GPT-4o-mini)
   - Access CMS admin at: http://localhost:8000/cms/
+- ✅ Community Forum (full CRUD, trust levels, spam detection, moderation)
+- ✅ Disease Diagnosis (cards, reminders, CRUD workflow)
+- ✅ Garden Calendar (beds, plants, care tasks, harvests, 149 tests)
+- ✅ Firebase Authentication (email/password, Google, Apple → Django JWT)
 
 ### Planned
-- 🚧 User authentication (Firebase Auth)
-- 🚧 Plant collection management
-- 🚧 Care tracking and reminders
-- 🚧 Community forum (read-only in mobile)
-- 🚧 Disease diagnosis
-- 🚧 Garden calendar
-- 🚧 Wagtail blog mobile integration (Phase 3)
+- 🚧 Offline-first data sync (mobile)
+- 🚧 Plant collection care reminders (mobile)
+- 🚧 Garden calendar mobile integration
 
 ## 🔧 Development
 
 ### Web Frontend
 ```bash
 cd web
-npm run dev          # Start dev server (port 5173)
+npm run dev          # Start dev server (port 5174)
 npm run build        # Production build
 npm run lint         # ESLint check
 ```

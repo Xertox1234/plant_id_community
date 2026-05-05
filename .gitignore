@@ -179,7 +179,12 @@ pids/
 CLAUDE.md
 
 # Development planning and reference
+# Playwright MCP screenshots (generated)
 playwright-mcp/
+.playwright-mcp/
+
+# Test run artifacts (generated)
+test-results/
 planning/
 design-reference/
 

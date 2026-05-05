@@ -1,6 +1,6 @@
 # Web Test Suite Baseline
 
-**Date**: May 1, 2026  
+**Date**: May 5, 2026  
 **Status**: ✅ Clean Vitest baseline
 
 ## Current Result
@@ -14,8 +14,10 @@ npm run test -- --run --reporter=dot
 Result:
 
 - Test files: 24 passed / 24 total
-- Tests: 659 passed, 1 skipped / 660 total
-- TypeScript: `npm run type-check` passes
+- Tests: 669 passed / 669 total
+- TypeScript: `npm run type-check` passes (zero errors)
+- ESLint: `npm run lint` passes (zero warnings)
+- Build: `npm run build` passes (Vite 8 / Rolldown)
 
 ## Fixes Applied
 

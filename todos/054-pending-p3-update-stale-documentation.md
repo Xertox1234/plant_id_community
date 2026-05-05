@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "054"
 tags: [documentation, onboarding, maintenance, cleanup]
@@ -42,10 +42,10 @@ Key files:
 
 ## Acceptance Criteria
 
-- [ ] Root README paths match the actual repo layout.
-- [ ] Toolchain versions are consistent across README, CI, and package config files.
-- [ ] Test-status docs reflect current test results.
-- [ ] Flutter dependency docs reflect current dependency state.
+- [x] Root README paths match the actual repo layout.
+- [x] Toolchain versions are consistent across README, CI, and package config files.
+- [x] Test-status docs reflect current test results.
+- [x] Flutter dependency docs reflect current dependency state.
 - [ ] A fresh developer can follow docs without hitting known missing steps.
 
 ## Work Log

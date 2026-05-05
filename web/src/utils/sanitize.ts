@@ -212,7 +212,7 @@ export function sanitizeHtml(html: unknown, options: Partial<SanitizeConfig> | n
   try {
     // Use STANDARD preset by default
     const config = options || SANITIZE_PRESETS.STANDARD
-    return DOMPurify.sanitize(html, config as any) as unknown as string
+    return DOMPurify.sanitize(html, config as Parameters<typeof DOMPurify.sanitize>[1]) as unknown as string
   } catch (error) {
     logger.error('DOMPurify sanitization failed', {
       component: 'sanitize',

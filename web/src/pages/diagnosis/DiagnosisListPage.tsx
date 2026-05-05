@@ -71,6 +71,7 @@ export default function DiagnosisListPage() {
    */
   useEffect(() => {
     loadCards();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, treatmentFilter, diseaseTypeFilter, showFavoritesOnly, sortOrder, currentPage]);
 
   /**
