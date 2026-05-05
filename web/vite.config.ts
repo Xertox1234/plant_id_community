@@ -31,28 +31,22 @@ export default defineConfig({
     },
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
+        // manualChunks is deprecated in Vite 8 (Rolldown); migrate to codeSplitting in a future PR
         manualChunks(id: string) {
-          // React and core libraries in vendor chunk
           if (id.includes('node_modules/react') ||
               id.includes('node_modules/react-dom') ||
               id.includes('node_modules/react-router-dom') ||
               id.includes('node_modules/scheduler')) {
             return 'vendor';
           }
-
-          // DOMPurify in sanitizer chunk (loaded with blog routes)
           if (id.includes('node_modules/dompurify')) {
             return 'sanitizer';
           }
-
-          // Sentry in its own chunk (only loaded when needed)
           if (id.includes('node_modules/@sentry')) {
             return 'sentry';
           }
-
-          // Lucide icons in separate chunk
           if (id.includes('node_modules/lucide-react')) {
             return 'icons';
           }
