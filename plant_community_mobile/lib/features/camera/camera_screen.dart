@@ -31,6 +31,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
   final ImagePicker _picker = ImagePicker();
   String? _selectedImagePath;
   bool _isIdentifying = false;
+  // ignore: unused_field -- updated by _identifyPlant onUploadProgress callback
   double _uploadProgress = 0.0;
 
   /// Handle photo from camera
@@ -73,7 +74,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
     }
   }
 
-  /// Handle sample image selection
+  // ignore: unused_element -- reserved for sample image feature (not yet wired to UI)
   void _useSampleImage(String imageUrl) {
     setState(() {
       _selectedImagePath = imageUrl;
@@ -91,7 +92,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
 
     try {
       // Call real plant identification service
-      final plantIdService = ref.read(plantIdentificationServiceProvider.notifier);
+      final plantIdService = ref.read(
+        plantIdentificationServiceProvider.notifier,
+      );
 
       final Plant plant = await plantIdService.identifyPlant(
         _selectedImagePath!,
@@ -144,10 +147,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Identify Plant'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('Identify Plant'), centerTitle: true),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(AppSpacing.lg),
@@ -193,17 +193,12 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
         ? CachedNetworkImage(
             imageUrl: _selectedImagePath!,
             fit: BoxFit.cover,
-            placeholder: (context, url) => const Center(
-              child: CircularProgressIndicator(),
-            ),
-            errorWidget: (context, url, error) => const Center(
-              child: Icon(Icons.error),
-            ),
+            placeholder: (context, url) =>
+                const Center(child: CircularProgressIndicator()),
+            errorWidget: (context, url, error) =>
+                const Center(child: Icon(Icons.error)),
           )
-        : Image.file(
-            File(_selectedImagePath!),
-            fit: BoxFit.cover,
-          );
+        : Image.file(File(_selectedImagePath!), fit: BoxFit.cover);
   }
 
   /// Placeholder when no image selected
@@ -231,8 +226,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
           Text(
             'Upload a photo to identify the plant',
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Theme.of(context).textTheme.bodySmall?.color,
-                ),
+              color: Theme.of(context).textTheme.bodySmall?.color,
+            ),
             textAlign: TextAlign.center,
           ),
         ],

@@ -1,6 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:plant_community_mobile/core/routing/app_router.dart';
 import 'package:plant_community_mobile/main.dart';
 import 'package:plant_community_mobile/services/plant_identification_service.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
@@ -50,10 +50,7 @@ void main() {
       (WidgetTester tester) async {
         // Build the app with mocked providers
         await tester.pumpWidget(
-          UncontrolledProviderScope(
-            container: container,
-            child: const MyApp(),
-          ),
+          UncontrolledProviderScope(container: container, child: const MyApp()),
         );
 
         // Wait for splash screen to complete
@@ -61,14 +58,13 @@ void main() {
 
         // Verify we're on the home screen
         expect(find.text('Welcome to PlantID'), findsOneWidget);
-        expect(
-          find.textContaining('Your pocket botanist'),
-          findsOneWidget,
-        );
+        expect(find.textContaining('Your pocket botanist'), findsOneWidget);
 
         // Step 1: Navigate to camera screen
         final identifyButton = find.text('Get Started');
         expect(identifyButton, findsOneWidget);
+        // Scroll to button if off-screen (home page may scroll)
+        await tester.ensureVisible(identifyButton);
         await tester.tap(identifyButton);
         await tester.pumpAndSettle();
 
@@ -95,65 +91,67 @@ void main() {
       },
     );
 
-    testWidgets(
-      'Navigation: Home → Camera → Back to Home',
-      (WidgetTester tester) async {
-        await tester.pumpWidget(
-          UncontrolledProviderScope(
-            container: container,
-            child: const MyApp(),
+    testWidgets('Navigation: Home → Camera → Back to Home', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(container: container, child: const MyApp()),
+      );
+
+      // Wait for splash screen
+      await tester.pumpAndSettle(const Duration(seconds: 3));
+
+      // Navigate to camera
+      final getStarted = find.text('Get Started');
+      await tester.ensureVisible(getStarted);
+      await tester.tap(getStarted);
+      await tester.pumpAndSettle();
+
+      // Verify we're on camera screen
+      expect(find.text('Take Photo'), findsOneWidget);
+
+      // Go back (use AppBar back button or router.go since GoRouter.go() replaces stack)
+      // CameraScreen uses go() not push(), so navigate back to home explicitly
+      final router = container.read(appRouterProvider);
+      router.go(AppRoutes.home);
+      await tester.pumpAndSettle();
+
+      // Verify we're back on home screen
+      expect(find.text('Welcome to PlantID'), findsOneWidget);
+    });
+
+    testWidgets('Error handling: Display error when identification fails', (
+      WidgetTester tester,
+    ) async {
+      // Override with a failing API service
+      final failingContainer = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWith((ref) {
+            return FailingApiService();
+          }),
+          firebaseStorageServiceProvider.overrideWith(
+            () => MockFirebaseStorageService(),
           ),
-        );
+          authServiceProvider.overrideWithValue(const AuthState()),
+        ],
+      );
 
-        // Wait for splash screen
-        await tester.pumpAndSettle(const Duration(seconds: 3));
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: failingContainer,
+          child: const MyApp(),
+        ),
+      );
 
-        // Navigate to camera
-        await tester.tap(find.text('Get Started'));
-        await tester.pumpAndSettle();
+      // This test would require triggering the identify flow
+      // which needs ImagePicker mocking
+      // See service-level tests for error handling verification
 
-        // Verify we're on camera screen
-        expect(find.text('Take Photo'), findsOneWidget);
+      // Drain splash screen timers before dispose
+      await tester.pump(const Duration(seconds: 4));
 
-        // Go back
-        await tester.pageBack();
-        await tester.pumpAndSettle();
-
-        // Verify we're back on home screen
-        expect(find.text('Welcome to PlantID'), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'Error handling: Display error when identification fails',
-      (WidgetTester tester) async {
-        // Override with a failing API service
-        final failingContainer = ProviderContainer(
-          overrides: [
-            apiServiceProvider.overrideWith((ref) {
-              return FailingApiService();
-            }),
-            firebaseStorageServiceProvider.overrideWith(
-              () => MockFirebaseStorageService(),
-            ),
-            authServiceProvider.overrideWithValue(const AuthState()),
-          ],
-        );
-
-        await tester.pumpWidget(
-          UncontrolledProviderScope(
-            container: failingContainer,
-            child: const MyApp(),
-          ),
-        );
-
-        // This test would require triggering the identify flow
-        // which needs ImagePicker mocking
-        // See service-level tests for error handling verification
-
-        failingContainer.dispose();
-      },
-    );
+      failingContainer.dispose();
+    });
   });
 
   group('PlantIdentificationService Integration Tests', () {
@@ -176,8 +174,9 @@ void main() {
     });
 
     test('identifyPlant returns Plant object on success', () async {
-      final service =
-          container.read(plantIdentificationServiceProvider.notifier);
+      final service = container.read(
+        plantIdentificationServiceProvider.notifier,
+      );
 
       final plant = await service.identifyPlant('/path/to/test/image.jpg');
 
@@ -189,31 +188,35 @@ void main() {
       expect(plant.imageUrl, startsWith('https://firebase.storage/'));
     });
 
-    test('identifyPlant throws PlantIdentificationException on API error',
-        () async {
-      // Create container with failing API service
-      final storageService = MockFirebaseStorageService();
-      final failingContainer = ProviderContainer(
-        overrides: [
-          apiServiceProvider.overrideWith((ref) => FailingApiService()),
-          firebaseStorageServiceProvider.overrideWith(
-            () => storageService,
-          ),
-          authServiceProvider.overrideWithValue(const AuthState()),
-        ],
-      );
+    test(
+      'identifyPlant throws PlantIdentificationException on API error',
+      () async {
+        // Create container with failing API service
+        final storageService = MockFirebaseStorageService();
+        final failingContainer = ProviderContainer(
+          overrides: [
+            apiServiceProvider.overrideWith((ref) => FailingApiService()),
+            firebaseStorageServiceProvider.overrideWith(() => storageService),
+            authServiceProvider.overrideWithValue(const AuthState()),
+          ],
+        );
 
-      final service =
-          failingContainer.read(plantIdentificationServiceProvider.notifier);
+        final service = failingContainer.read(
+          plantIdentificationServiceProvider.notifier,
+        );
 
-      await expectLater(
-        service.identifyPlant('/path/to/test/image.jpg'),
-        throwsA(isA<ApiException>()),
-      );
-      expect(storageService.deletedImageUrls, contains(MockFirebaseStorageService.uploadedImageUrl));
+        await expectLater(
+          service.identifyPlant('/path/to/test/image.jpg'),
+          throwsA(isA<ApiException>()),
+        );
+        expect(
+          storageService.deletedImageUrls,
+          contains(MockFirebaseStorageService.uploadedImageUrl),
+        );
 
-      failingContainer.dispose();
-    });
+        failingContainer.dispose();
+      },
+    );
 
     test('identifyPlant throws when no plant identified', () async {
       // Create container with empty response API service
@@ -221,21 +224,23 @@ void main() {
       final emptyResponseContainer = ProviderContainer(
         overrides: [
           apiServiceProvider.overrideWith((ref) => EmptyResponseApiService()),
-          firebaseStorageServiceProvider.overrideWith(
-            () => storageService,
-          ),
+          firebaseStorageServiceProvider.overrideWith(() => storageService),
           authServiceProvider.overrideWithValue(const AuthState()),
         ],
       );
 
-      final service = emptyResponseContainer
-          .read(plantIdentificationServiceProvider.notifier);
+      final service = emptyResponseContainer.read(
+        plantIdentificationServiceProvider.notifier,
+      );
 
       await expectLater(
         service.identifyPlant('/path/to/test/image.jpg'),
         throwsA(isA<PlantIdentificationException>()),
       );
-      expect(storageService.deletedImageUrls, contains(MockFirebaseStorageService.uploadedImageUrl));
+      expect(
+        storageService.deletedImageUrls,
+        contains(MockFirebaseStorageService.uploadedImageUrl),
+      );
 
       emptyResponseContainer.dispose();
     });
@@ -491,7 +496,8 @@ class EmptyResponseApiService extends ApiService {
 
 /// Mock Firebase Storage service.
 class MockFirebaseStorageService extends FirebaseStorageService {
-  static const uploadedImageUrl = 'https://firebase.storage/plant_images/mock-image-id.jpg';
+  static const uploadedImageUrl =
+      'https://firebase.storage/plant_images/mock-image-id.jpg';
 
   final List<String> deletedImageUrls = [];
 

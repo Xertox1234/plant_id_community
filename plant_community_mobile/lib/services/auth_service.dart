@@ -22,7 +22,7 @@ class AuthState {
     this.error,
   });
 
-  bool get isAuthenticated => firebaseUser != null && jwtToken != null;
+  bool get isAuthenticated => jwtToken != null;
 
   AuthState copyWith({
     User? firebaseUser,
@@ -63,7 +63,11 @@ class AuthState {
 /// ```
 @riverpod
 class AuthService extends _$AuthService {
-  final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
+  // Protected getter allows test subclasses to inject a mock FirebaseAuth
+  // without triggering Firebase.initializeApp() at construction time.
+  @visibleForTesting
+  FirebaseAuth get firebaseAuth => FirebaseAuth.instance;
+  FirebaseAuth get _firebaseAuth => firebaseAuth;
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
   static const String _jwtKey = 'django_jwt_token';
@@ -84,7 +88,9 @@ class AuthService extends _$AuthService {
 
     // Listen to Firebase auth state changes
     // Store subscription so we can cancel it on disposal
-    _authStateSubscription = _firebaseAuth.authStateChanges().listen((user) async {
+    _authStateSubscription = _firebaseAuth.authStateChanges().listen((
+      user,
+    ) async {
       if (kDebugMode) {
         debugPrint('[AUTH] Firebase auth state changed: ${user?.email}');
       }
@@ -137,14 +143,13 @@ class AuthService extends _$AuthService {
       );
 
       if (kDebugMode) {
-        debugPrint('[AUTH] Firebase sign in successful: ${credential.user?.email}');
+        debugPrint(
+          '[AUTH] Firebase sign in successful: ${credential.user?.email}',
+        );
       }
 
       // Auth state listener will handle token exchange
-      state = AuthState(
-        firebaseUser: credential.user,
-        isLoading: false,
-      );
+      state = AuthState(firebaseUser: credential.user, isLoading: false);
     } on FirebaseAuthException catch (e) {
       final errorMessage = _handleFirebaseAuthException(e);
       state = state.copyWith(isLoading: false, error: errorMessage);
@@ -277,7 +282,9 @@ class AuthService extends _$AuthService {
 
       if (!_isCurrentExchange(user, exchangeGeneration)) {
         if (kDebugMode) {
-          debugPrint('[AUTH] Ignoring token exchange for signed-out or changed user');
+          debugPrint(
+            '[AUTH] Ignoring token exchange for signed-out or changed user',
+          );
         }
         return;
       }
@@ -300,10 +307,7 @@ class AuthService extends _$AuthService {
       apiService.setAuthToken(jwtToken);
 
       // Update state
-      state = state.copyWith(
-        firebaseUser: user,
-        jwtToken: jwtToken,
-      );
+      state = state.copyWith(firebaseUser: user, jwtToken: jwtToken);
 
       if (kDebugMode) {
         debugPrint('[AUTH] JWT token exchange successful');
@@ -311,7 +315,9 @@ class AuthService extends _$AuthService {
     } on ApiException catch (e) {
       if (!_isCurrentExchange(user, exchangeGeneration)) {
         if (kDebugMode) {
-          debugPrint('[AUTH ERROR] Ignoring stale token exchange failure: ${e.message}');
+          debugPrint(
+            '[AUTH ERROR] Ignoring stale token exchange failure: ${e.message}',
+          );
         }
         return;
       }
@@ -356,14 +362,19 @@ class AuthService extends _$AuthService {
         _firebaseAuth.currentUser?.uid == user.uid;
   }
 
-  Future<void> _clearJWTIfMatches(String accessToken, String? refreshToken) async {
+  Future<void> _clearJWTIfMatches(
+    String accessToken,
+    String? refreshToken,
+  ) async {
     final storedAccessToken = await _secureStorage.read(key: _jwtKey);
     if (storedAccessToken == accessToken) {
       await _secureStorage.delete(key: _jwtKey);
     }
 
     if (refreshToken != null) {
-      final storedRefreshToken = await _secureStorage.read(key: _refreshTokenKey);
+      final storedRefreshToken = await _secureStorage.read(
+        key: _refreshTokenKey,
+      );
       if (storedRefreshToken == refreshToken) {
         await _secureStorage.delete(key: _refreshTokenKey);
       }

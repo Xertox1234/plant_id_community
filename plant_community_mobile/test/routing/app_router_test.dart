@@ -1,8 +1,10 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
 import 'package:plant_community_mobile/core/routing/navigation_extensions.dart';
+import 'package:plant_community_mobile/features/splash/splash_screen.dart';
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 
@@ -19,85 +21,96 @@ import 'package:plant_community_mobile/services/auth_service.dart';
 
 void main() {
   group('AppRouter Tests', () {
-    testWidgets('Initial route should be splash screen',
-        (WidgetTester tester) async {
+    testWidgets('Initial route should be splash screen', (
+      WidgetTester tester,
+    ) async {
       final container = ProviderContainer(
         overrides: [
-          authServiceProvider.overrideWith(_MockUnauthenticatedAuthService.new),
+          authServiceProvider.overrideWith(
+            _MockUnauthenticatedAuthNotifier.new,
+          ),
         ],
       );
       addTearDown(container.dispose);
 
       final router = container.read(appRouterProvider);
 
-      await tester.pumpWidget(
-        MaterialApp.router(
-          routerConfig: router,
-        ),
-      );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+
+      // One frame to build the initial route (without settling timers)
+      await tester.pump();
 
       // Initial route should be splash (/)
       expect(router.routerDelegate.currentConfiguration.uri.path, equals('/'));
+
+      // Cancel pending timers by advancing past splash auto-navigation
+      await tester.pump(const Duration(seconds: 3));
     });
 
     testWidgets('Should navigate to home screen', (WidgetTester tester) async {
       final container = ProviderContainer(
         overrides: [
-          authServiceProvider.overrideWith(_MockUnauthenticatedAuthService.new),
+          authServiceProvider.overrideWith(
+            _MockUnauthenticatedAuthNotifier.new,
+          ),
         ],
       );
       addTearDown(container.dispose);
 
       final router = container.read(appRouterProvider);
 
-      await tester.pumpWidget(
-        MaterialApp.router(
-          routerConfig: router,
-        ),
-      );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
 
       // Navigate to home
       router.go(AppRoutes.home);
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(
         router.routerDelegate.currentConfiguration.uri.path,
         equals(AppRoutes.home),
       );
+
+      await tester.pump(const Duration(seconds: 4));
     });
 
-    testWidgets('Should navigate to camera screen',
-        (WidgetTester tester) async {
+    testWidgets('Should navigate to camera screen', (
+      WidgetTester tester,
+    ) async {
       final container = ProviderContainer(
         overrides: [
-          authServiceProvider.overrideWith(_MockUnauthenticatedAuthService.new),
+          authServiceProvider.overrideWith(
+            _MockUnauthenticatedAuthNotifier.new,
+          ),
         ],
       );
       addTearDown(container.dispose);
 
       final router = container.read(appRouterProvider);
 
-      await tester.pumpWidget(
-        MaterialApp.router(
-          routerConfig: router,
-        ),
-      );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
 
       // Navigate to camera
       router.go(AppRoutes.camera);
-      await tester.pumpAndSettle();
+      // Pump one frame to complete navigation (before splash timer fires at ~1.8s)
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(
         router.routerDelegate.currentConfiguration.uri.path,
         equals(AppRoutes.camera),
       );
+
+      // Drain remaining splash timers
+      await tester.pump(const Duration(seconds: 4));
     });
 
-    testWidgets('Should navigate to results with plant data',
-        (WidgetTester tester) async {
+    testWidgets('Should navigate to results with plant data', (
+      WidgetTester tester,
+    ) async {
       final container = ProviderContainer(
         overrides: [
-          authServiceProvider.overrideWith(_MockUnauthenticatedAuthService.new),
+          authServiceProvider.overrideWith(
+            _MockUnauthenticatedAuthNotifier.new,
+          ),
         ],
       );
       addTearDown(container.dispose);
@@ -113,111 +126,122 @@ void main() {
         timestamp: DateTime.now(),
       );
 
-      await tester.pumpWidget(
-        MaterialApp.router(
-          routerConfig: router,
-        ),
-      );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
 
       // Navigate to results with plant data
       router.go(AppRoutes.results, extra: testPlant);
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(
         router.routerDelegate.currentConfiguration.uri.path,
         equals(AppRoutes.results),
       );
+
+      await tester.pump(const Duration(seconds: 4));
     });
 
-    testWidgets('Should show error screen when navigating to results without plant data',
-        (WidgetTester tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          authServiceProvider.overrideWith(_MockUnauthenticatedAuthService.new),
-        ],
-      );
-      addTearDown(container.dispose);
+    testWidgets(
+      'Should show error screen when navigating to results without plant data',
+      (WidgetTester tester) async {
+        final container = ProviderContainer(
+          overrides: [
+            authServiceProvider.overrideWith(
+              _MockUnauthenticatedAuthNotifier.new,
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
 
-      final router = container.read(appRouterProvider);
+        final router = container.read(appRouterProvider);
 
-      await tester.pumpWidget(
-        MaterialApp.router(
-          routerConfig: router,
-        ),
-      );
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
 
-      // Navigate to results WITHOUT plant data
-      router.go(AppRoutes.results);
-      await tester.pumpAndSettle();
+        // Navigate to results WITHOUT plant data
+        router.go(AppRoutes.results);
+        // Pump one frame to unmount SplashScreen (cancelling its timer), then settle
+        await tester.pump();
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
 
-      // Should show error screen
-      expect(find.text('Oops! Something went wrong'), findsOneWidget);
-      expect(find.byIcon(Icons.error_outline), findsOneWidget);
-    });
+        // Should show error screen
+        expect(find.text('Oops! Something went wrong'), findsOneWidget);
+        expect(find.byIcon(Icons.error_outline), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
 
     testWidgets('Should handle invalid route', (WidgetTester tester) async {
       final container = ProviderContainer(
         overrides: [
-          authServiceProvider.overrideWith(_MockUnauthenticatedAuthService.new),
+          authServiceProvider.overrideWith(
+            _MockUnauthenticatedAuthNotifier.new,
+          ),
         ],
       );
       addTearDown(container.dispose);
 
       final router = container.read(appRouterProvider);
 
-      await tester.pumpWidget(
-        MaterialApp.router(
-          routerConfig: router,
-        ),
-      );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
 
       // Navigate to invalid route
       router.go('/this-route-does-not-exist');
-      await tester.pumpAndSettle();
+      // Pump one frame to unmount SplashScreen (cancelling its timer), then settle
+      await tester.pump();
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
 
       // Should show error screen
       expect(find.text('Oops! Something went wrong'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 4));
     });
 
     group('Authentication Guard Tests', () {
-      testWidgets('Should redirect unauthenticated user to login when accessing protected route',
-          (WidgetTester tester) async {
-        // Create container with unauthenticated state
-        final container = ProviderContainer(
-          overrides: [
-            authServiceProvider.overrideWith(_MockUnauthenticatedAuthService.new),
-          ],
-        );
-        addTearDown(container.dispose);
+      testWidgets(
+        'Should redirect unauthenticated user to login when accessing protected route',
+        (WidgetTester tester) async {
+          // Create container with unauthenticated state
+          final container = ProviderContainer(
+            overrides: [
+              authServiceProvider.overrideWith(
+                _MockUnauthenticatedAuthNotifier.new,
+              ),
+            ],
+          );
+          addTearDown(container.dispose);
 
-        final router = container.read(appRouterProvider);
+          final router = container.read(appRouterProvider);
 
-        await tester.pumpWidget(
-          UncontrolledProviderScope(
-            container: container,
-            child: MaterialApp.router(
-              routerConfig: router,
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp.router(routerConfig: router),
             ),
-          ),
-        );
+          );
 
-        // Try to navigate to protected route (profile)
-        router.go(AppRoutes.profile);
-        await tester.pumpAndSettle();
+          // Try to navigate to protected route (profile)
+          router.go(AppRoutes.profile);
+          await tester.pump(const Duration(milliseconds: 100));
 
-        // Should be redirected to login
-        expect(
-          router.routerDelegate.currentConfiguration.uri.path,
-          equals(AppRoutes.login),
-        );
-      });
+          // Should be redirected to login
+          expect(
+            router.routerDelegate.currentConfiguration.uri.path,
+            equals(AppRoutes.login),
+          );
 
-      testWidgets('Should allow authenticated user to access protected route',
-          (WidgetTester tester) async {
+          await tester.pump(const Duration(seconds: 4));
+        },
+      );
+
+      testWidgets('Should allow authenticated user to access protected route', (
+        WidgetTester tester,
+      ) async {
         // Create container with authenticated state
         final container = ProviderContainer(
           overrides: [
-            authServiceProvider.overrideWith(_MockAuthenticatedAuthService.new),
+            authServiceProvider.overrideWith(
+              _MockAuthenticatedAuthNotifier.new,
+            ),
           ],
         );
         addTearDown(container.dispose);
@@ -227,29 +251,32 @@ void main() {
         await tester.pumpWidget(
           UncontrolledProviderScope(
             container: container,
-            child: MaterialApp.router(
-              routerConfig: router,
-            ),
+            child: MaterialApp.router(routerConfig: router),
           ),
         );
 
         // Navigate to protected route (profile)
         router.go(AppRoutes.profile);
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 100));
 
         // Should be allowed to access profile
         expect(
           router.routerDelegate.currentConfiguration.uri.path,
           equals(AppRoutes.profile),
         );
+
+        await tester.pump(const Duration(seconds: 4));
       });
 
-      testWidgets('Should redirect authenticated user away from login screen',
-          (WidgetTester tester) async {
+      testWidgets('Should redirect authenticated user away from login screen', (
+        WidgetTester tester,
+      ) async {
         // Create container with authenticated state
         final container = ProviderContainer(
           overrides: [
-            authServiceProvider.overrideWith(_MockAuthenticatedAuthService.new),
+            authServiceProvider.overrideWith(
+              _MockAuthenticatedAuthNotifier.new,
+            ),
           ],
         );
         addTearDown(container.dispose);
@@ -259,84 +286,89 @@ void main() {
         await tester.pumpWidget(
           UncontrolledProviderScope(
             container: container,
-            child: MaterialApp.router(
-              routerConfig: router,
-            ),
+            child: MaterialApp.router(routerConfig: router),
           ),
         );
 
         // Try to navigate to login while authenticated
         router.go(AppRoutes.login);
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 100));
 
         // Should be redirected to home
         expect(
           router.routerDelegate.currentConfiguration.uri.path,
           equals(AppRoutes.home),
         );
+
+        await tester.pump(const Duration(seconds: 4));
       });
     });
 
     group('Navigation Extension Tests', () {
-      testWidgets('goToHome() should navigate to home',
-          (WidgetTester tester) async {
+      testWidgets('goToHome() should navigate to home', (
+        WidgetTester tester,
+      ) async {
         final container = ProviderContainer(
           overrides: [
-            authServiceProvider.overrideWith(_MockUnauthenticatedAuthService.new),
+            authServiceProvider.overrideWith(
+              _MockUnauthenticatedAuthNotifier.new,
+            ),
           ],
         );
         addTearDown(container.dispose);
 
         final router = container.read(appRouterProvider);
 
-        await tester.pumpWidget(
-          MaterialApp.router(
-            routerConfig: router,
-          ),
-        );
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
 
-        final context = tester.element(find.byType(MaterialApp));
+        final context = tester.element(find.byType(SplashScreen));
         context.goToHome();
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 100));
 
         expect(
           router.routerDelegate.currentConfiguration.uri.path,
           equals(AppRoutes.home),
         );
+
+        await tester.pump(const Duration(seconds: 4));
       });
 
-      testWidgets('goToCamera() should navigate to camera',
-          (WidgetTester tester) async {
+      testWidgets('goToCamera() should navigate to camera', (
+        WidgetTester tester,
+      ) async {
         final container = ProviderContainer(
           overrides: [
-            authServiceProvider.overrideWith(_MockUnauthenticatedAuthService.new),
+            authServiceProvider.overrideWith(
+              _MockUnauthenticatedAuthNotifier.new,
+            ),
           ],
         );
         addTearDown(container.dispose);
 
         final router = container.read(appRouterProvider);
 
-        await tester.pumpWidget(
-          MaterialApp.router(
-            routerConfig: router,
-          ),
-        );
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
 
-        final context = tester.element(find.byType(MaterialApp));
+        final context = tester.element(find.byType(SplashScreen));
         context.goToCamera();
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 100));
 
         expect(
           router.routerDelegate.currentConfiguration.uri.path,
           equals(AppRoutes.camera),
         );
+
+        await tester.pump(const Duration(seconds: 4));
       });
 
-      testWidgets('goToResults() should navigate to results with plant data',
-          (WidgetTester tester) async {
+      testWidgets('goToResults() should navigate to results with plant data', (
+        WidgetTester tester,
+      ) async {
         final container = ProviderContainer(
           overrides: [
-            authServiceProvider.overrideWith(_MockUnauthenticatedAuthService.new),
+            authServiceProvider.overrideWith(
+              _MockUnauthenticatedAuthNotifier.new,
+            ),
           ],
         );
         addTearDown(container.dispose);
@@ -352,20 +384,18 @@ void main() {
           timestamp: DateTime.now(),
         );
 
-        await tester.pumpWidget(
-          MaterialApp.router(
-            routerConfig: router,
-          ),
-        );
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
 
-        final context = tester.element(find.byType(MaterialApp));
+        final context = tester.element(find.byType(SplashScreen));
         context.goToResults(testPlant);
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 100));
 
         expect(
           router.routerDelegate.currentConfiguration.uri.path,
           equals(AppRoutes.results),
         );
+
+        await tester.pump(const Duration(seconds: 4));
       });
     });
 
@@ -403,12 +433,21 @@ void main() {
 // MOCK AUTH SERVICES FOR TESTING
 // ============================================
 //
-// NOTE: These mocks currently fail because they require Firebase initialization.
-// See test/routing/TEST_STATUS.md for solutions.
-//
-// To enable these tests, add firebase_auth_mocks package and initialize Firebase.
+// These mocks extend AuthService and override the firebaseAuth getter to avoid
+// triggering Firebase.initializeApp() at construction time.
 
-class _MockUnauthenticatedAuthService extends AuthService {
+class _MockFirebaseAuth extends Fake implements FirebaseAuth {
+  @override
+  User? get currentUser => null;
+
+  @override
+  Stream<User?> authStateChanges() => const Stream.empty();
+}
+
+class _MockUnauthenticatedAuthNotifier extends AuthService {
+  @override
+  FirebaseAuth get firebaseAuth => _MockFirebaseAuth();
+
   @override
   AuthState build() {
     return const AuthState(
@@ -419,11 +458,14 @@ class _MockUnauthenticatedAuthService extends AuthService {
   }
 }
 
-class _MockAuthenticatedAuthService extends AuthService {
+class _MockAuthenticatedAuthNotifier extends AuthService {
+  @override
+  FirebaseAuth get firebaseAuth => _MockFirebaseAuth();
+
   @override
   AuthState build() {
     return const AuthState(
-      firebaseUser: null,  // Would be User object in real scenario
+      firebaseUser: null,
       jwtToken: 'mock-jwt-token',
       isLoading: false,
     );

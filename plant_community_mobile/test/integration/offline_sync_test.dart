@@ -37,7 +37,7 @@ void main() {
     });
 
     test('Firestore caches identified plants offline', () async {
-      final firestoreService = container.read(firestoreServiceProvider);
+      final firestoreService = container.read(firestoreServiceProvider.notifier);
 
       final testPlant = Plant(
         id: 'test-plant-1',
@@ -63,7 +63,7 @@ void main() {
     });
 
     test('Can read cached plants when offline', () async {
-      final firestoreService = container.read(firestoreServiceProvider);
+      final firestoreService = container.read(firestoreServiceProvider.notifier);
 
       // Pre-populate cache with plants
       final plants = [
@@ -149,7 +149,7 @@ void main() {
     });
 
     test('Pending changes sync when connectivity restored', () async {
-      final firestoreService = container.read(firestoreServiceProvider);
+      final firestoreService = container.read(firestoreServiceProvider.notifier);
 
       // Simulate plants saved while offline
       final offlinePlants = [
