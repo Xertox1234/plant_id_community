@@ -2,7 +2,7 @@
   "compilerOptions": {
     /* Language and Environment */
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": ["ES2022", "DOM"],
     "jsx": "react-jsx",
 
     /* Modules */
@@ -18,7 +18,6 @@
     "strictBindCallApply": false,
     "strictPropertyInitialization": false,
     "noImplicitThis": false,
-    "alwaysStrict": false,
 
     /* JavaScript files no longer needed - migration complete */
     "allowJs": false,
@@ -42,7 +41,6 @@
     "sourceMap": true,
 
     /* Path Mapping */
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }
