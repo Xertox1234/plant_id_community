@@ -1,5 +1,5 @@
 ---
-status: blocked
+status: completed
 priority: p1
 issue_id: "050"
 tags: [mobile, flutter, firebase, build, onboarding, production-blocker]
