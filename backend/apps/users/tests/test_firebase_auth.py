@@ -108,7 +108,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         """Test error when Firebase token is invalid."""
         # Mock Firebase token verification failure
         from firebase_admin.auth import InvalidIdTokenError
-        mock_verify.side_effect = InvalidIdTokenError('Invalid token')
+        mock_verify.side_effect = InvalidIdTokenError('Invalid token', cause=None)
 
         response = self.client.post(self.url, {
             'firebase_token': 'invalid-token',
@@ -124,7 +124,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         """Test error when Firebase token is expired."""
         # Mock Firebase token expiration
         from firebase_admin.auth import ExpiredIdTokenError
-        mock_verify.side_effect = ExpiredIdTokenError('Token expired')
+        mock_verify.side_effect = ExpiredIdTokenError('Token expired', cause=None)
 
         response = self.client.post(self.url, {
             'firebase_token': self.firebase_token,

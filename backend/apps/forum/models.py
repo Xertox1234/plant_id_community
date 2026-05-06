@@ -916,7 +916,7 @@ class FlaggedContent(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                check=(
+                condition=(
                     (models.Q(content_type='post') & models.Q(post__isnull=False) & models.Q(thread__isnull=True)) |
                     (models.Q(content_type='thread') & models.Q(thread__isnull=False) & models.Q(post__isnull=True))
                 ),

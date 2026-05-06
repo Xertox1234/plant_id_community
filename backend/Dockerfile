@@ -5,7 +5,7 @@
 # ===================================
 
 # Base Python image with security updates
-FROM python:3.12-slim as base
+FROM python:3.13-slim as base
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
