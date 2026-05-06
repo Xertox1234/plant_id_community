@@ -1,6 +1,6 @@
 # Flutter Dependency Update Progress
 
-**Date**: November 16, 2025 (updated May 5, 2026)
+**Date**: November 16, 2025 (updated May 5, 2026 — Phase 7)
 **Branch**: `flutter-dependency-updates`
 **Issue**: #206
 
@@ -23,11 +23,26 @@
 ### 8. CLAUDE.md: firebase-admin pin note updated ✅
 - Changed `>=6.6.0,<7.0.0` → `>=7.4.0`
 
-### 9. Flutter upgrades (flutter_riverpod, drift, riverpod_generator): ⏸️ DEFERRED
-- **Dart SDK**: 3.10.0 (Flutter 3.38.1)
-- **Requirement**: Dart >= 3.11 needed for meta 1.18.x (required by target package versions)
-- **Decision**: Defer until Flutter SDK updates to Dart 3.11+
-- **Target packages when unblocked**: flutter_riverpod 3.3.1, drift 2.33.0, riverpod_generator 4.0.3
+### 9. Flutter SDK upgrade: 3.38.1 → 3.41.9 / Dart 3.10.0 → 3.11.5 ✅
+- **Status**: COMPLETE (May 5, 2026)
+- **Command**: `flutter upgrade`
+- **Tests**: 59 passing, 3 skipped — zero regressions
+
+### 10. flutter_riverpod 3.3.1 ✅ (already resolved)
+- **Status**: CONFIRMED IN LOCKFILE — lockfile already had 3.3.1 (satisfies `^3.1.0`)
+- **No pubspec.yaml change needed**
+
+### 11. riverpod_generator 4.0.3 ✅ (already resolved)
+- **Status**: CONFIRMED IN LOCKFILE — lockfile already had 4.0.3 (satisfies `^4.0.0+1`)
+- **No pubspec.yaml change needed**
+
+### 12. drift / drift_dev: 2.31.0 → 2.33.0 ⏸️ STILL DEFERRED
+- **Blocker (updated)**: Flutter SDK 3.41.9 pins `meta: 1.17.0` exactly in its own pubspec
+  - `drift 2.33.0` requires `sqlite3: ^3.1.5`
+  - `sqlite3 3.x` + `drift_dev >= 2.32.1` (needs `analyzer >= 10.0.x`) + Flutter meta pin = unsolvable
+  - `analyzer >= 10.0.2` requires `meta ^1.18.0`, which conflicts with Flutter SDK's `meta 1.17.0` pin
+- **Resolution**: Blocked until Flutter SDK updates its bundled `meta` to `>= 1.18.0`
+- **Previous blocker**: Dart SDK < 3.11 — now resolved (Dart 3.11.5)
 
 ---
 
