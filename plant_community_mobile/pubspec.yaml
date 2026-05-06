@@ -68,9 +68,6 @@ dependencies:
   # Notifications
   flutter_local_notifications: ^21.0.0  # Local notification scheduling
 
-  # Offline-first persistence
-  drift: ^2.31.0  # SQLite-based database for offline storage; 2.33.0 requires meta 1.18 (blocked by Flutter SDK)
-  sqlite3_flutter_libs: ^0.6.0+eol  # SQLite native libraries
   path_provider: ^2.1.5  # For database file paths
   path: ^1.9.1  # Path manipulation
 
@@ -95,7 +92,6 @@ dev_dependencies:
   # Code generation
   build_runner: ^2.7.1
   riverpod_generator: ^4.0.0+1
-  drift_dev: ^2.31.0  # Drift code generation; 2.33.0 requires meta 1.18 (blocked by Flutter SDK)
   flutter_dotenv: ^6.0.0  # Legacy tests/docs only; runtime config uses --dart-define
 
 # For information on the generic Dart part of this file, see the
