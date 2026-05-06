@@ -1,8 +1,33 @@
 # Flutter Dependency Update Progress
 
-**Date**: November 16, 2025
+**Date**: November 16, 2025 (updated May 5, 2026)
 **Branch**: `flutter-dependency-updates`
 **Issue**: #206
+
+---
+
+## ✅ Completed Updates (Phase 6 - Backend Wagtail/Treebeard, May 2026)
+
+### 6. wagtail: 7.3.1 → 7.4 (LTS) ✅
+- **Status**: COMPLETE
+- **Migrations applied**: `wagtailadmin.0006_formstate`, `wagtailcore.0097_baselogentry_uuid_action_timestamp_indexes`, `wagtailsearch.0010_add_text_fields`
+- **Breaking Changes**: Removed Django 4.2 support (we use Django 5.2 — no impact). New StreamField `w-` CSS class prefix added alongside legacy classes (backwards compatible).
+- **Security**: Fixes 5 CVEs (CVE-2026-44197–44201) for improper permission handling
+- **Tests**: 548 passed, 45 failed (pre-existing), 2 skipped — zero regressions
+- **Also upgraded**: `django-treebeard` 4.7.1 → 5.0.5 (auto-pulled as Wagtail 7.4 dependency), `modelsearch` 1.2.2 → 1.3.1
+
+### 7. django-treebeard: 4.7.1 → 5.0.5 ✅
+- **Status**: COMPLETE (installed as part of wagtail 7.4 resolution above)
+- **Breaking Changes**: None for this project
+
+### 8. CLAUDE.md: firebase-admin pin note updated ✅
+- Changed `>=6.6.0,<7.0.0` → `>=7.4.0`
+
+### 9. Flutter upgrades (flutter_riverpod, drift, riverpod_generator): ⏸️ DEFERRED
+- **Dart SDK**: 3.10.0 (Flutter 3.38.1)
+- **Requirement**: Dart >= 3.11 needed for meta 1.18.x (required by target package versions)
+- **Decision**: Defer until Flutter SDK updates to Dart 3.11+
+- **Target packages when unblocked**: flutter_riverpod 3.3.1, drift 2.33.0, riverpod_generator 4.0.3
 
 ---
 
