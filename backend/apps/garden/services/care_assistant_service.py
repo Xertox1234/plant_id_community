@@ -38,12 +38,11 @@ class CareAssistantService:
     def get_openai_client(cls):
         """Get OpenAI client if available."""
         try:
-            import openai
+            from openai import OpenAI
             api_key = getattr(settings, 'OPENAI_API_KEY', None)
             if not api_key:
                 return None
-            openai.api_key = api_key
-            return openai
+            return OpenAI(api_key=api_key)
         except ImportError:
             logger.warning("[AI] OpenAI library not installed")
             return None
@@ -189,8 +188,7 @@ Format your response as a structured JSON with the following keys:
 
 Keep recommendations practical and specific to this plant and climate."""
 
-            import openai
-            response = openai.chat.completions.create(
+            response = client.chat.completions.create(
                 model="gpt-4o-mini",  # Cost-effective model
                 messages=[
                     {"role": "system", "content": "You are an expert gardening advisor."},
@@ -297,8 +295,10 @@ Please provide:
 
 Format as JSON with keys: diagnosis, severity, treatment, prevention"""
 
-            import openai
-            response = openai.chat.completions.create(
+            client = cls.get_openai_client()
+            if not client:
+                return None
+            response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "You are an expert plant pathologist."},
@@ -374,8 +374,10 @@ Format as JSON array with objects containing:
 - priority: 'low', 'medium', or 'high'
 - category: 'planting', 'maintenance', 'harvesting', or 'preparation'"""
 
-            import openai
-            response = openai.chat.completions.create(
+            client = cls.get_openai_client()
+            if not client:
+                return cls._get_default_seasonal_tasks(season)
+            response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "You are an expert gardening advisor."},
