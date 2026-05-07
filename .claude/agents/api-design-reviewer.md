@@ -1,6 +1,6 @@
 ---
 name: api-design-reviewer
-description: Reviews changed serializer, API view, and URL config files for REST design consistency, OpenAPI schema correctness, versioning, and error response shapes. Invoked when serializers.py or api/ directory files change.
+description: Reviews changed serializer, API view, and URL config files for REST design consistency, OpenAPI schema correctness, versioning, and error response shapes. Invoked when serializers.py, urls.py, or api/ directory files change.
 
 <example>
 Context: A new endpoint was added to the diagnosis API

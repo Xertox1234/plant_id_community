@@ -48,7 +48,7 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
 
 **AI Integration (Wagtail AI 3.0)**
 - [ ] AI generation endpoint rate limits: 10/50/100 calls per hour by user tier
-- [ ] `_ensure_firebase_initialized()` pattern or equivalent lazy init for any external service
+- [ ] Lazy-init pattern required for any external service (e.g. `_ensure_openai_initialized()`) — allows tests to run without credentials
 - [ ] AI prompts must be in `ai_integration.py`, not scattered through views
 
 **Queries**

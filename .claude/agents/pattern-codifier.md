@@ -60,7 +60,7 @@ You receive a list of code review findings in this format:
 | `security-reviewer` | `backend/docs/patterns/security/` (most relevant file) |
 | `performance-reviewer` | `backend/docs/patterns/performance/query-optimization.md` |
 | `api-design-reviewer` | `backend/docs/patterns/architecture/` (most relevant file) |
-| `test-quality-reviewer` | platform-specific `testing.md` |
+| `test-quality-reviewer` | `backend/docs/patterns/performance/query-optimization.md` (assertion patterns), `web/docs/patterns/testing.md` (frontend), or `plant_community_mobile/docs/patterns/testing.md` (mobile) — use the platform relevant to the finding |
 
 ## Your Output
 

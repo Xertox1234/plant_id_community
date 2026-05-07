@@ -46,14 +46,6 @@ Review only the files passed to you. Do not read the full repo.
 - [ ] Cache hit rate targets: Plant ID 40%, AI generation 80-95%
 - [ ] Cache warming must be triggered on deployment for cold-start prevention
 
-**Firestore Read Costs**
-- [ ] Firestore listeners must use `.where()` filters to minimise documents read — no full collection snapshots
-- [ ] Pagination required for collections that may exceed 100 documents
-- [ ] Avoid `getDoc()` inside loops — use `getDocs()` with `in` queries (max 30 items per `in` query)
-
-**Cloud Function Cold Starts**
-- [ ] Heavy initialisation (DB connections, SDK init) must be at module scope, not inside handler function
-- [ ] Keep function memory/timeout settings appropriate — oversized settings waste cost on cold paths
 
 ## Pattern References
 

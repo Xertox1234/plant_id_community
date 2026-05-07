@@ -24,7 +24,7 @@ Review only the files passed to you. Do not read the full repo.
 
 ## Stack Context
 
-Backend: Django TestCase with PostgreSQL (NOT SQLite), pytest via `python manage.py test`, 427+ tests
+Backend: Django TestCase with PostgreSQL (NOT SQLite), `pytest` with `pytest-django` (configured in `backend/pytest.ini`), 427+ tests
 Frontend: Vitest, 492 tests
 E2E: Playwright, 107 tests
 
