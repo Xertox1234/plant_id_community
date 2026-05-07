@@ -475,3 +475,29 @@ Run another repair pass? (filter / done)
 
 If user responds with another filter, return to Step 4b. If `done`, proceed to Phase 5 prompt.
 
+## Phase 5 — Codifier (optional, opt-in)
+
+Triggered when Main Claude re-invokes you after Phase 4 completion (or after Phase 3 if user skipped repair).
+
+Print:
+```
+Run pattern-codifier on all findings? (y/n)
+  Note: this can be expensive on a large review (<total_findings> findings).
+        Recommended only when the review surfaces a recurring pattern not yet captured.
+```
+
+Stop. Wait for response.
+
+If user responds `y`:
+
+1. Read the JSON report `docs/reviews/<review_id>-full-review.json`.
+2. Format findings into the codifier's expected input format. For each finding, emit one row per agent in its `agents` array (the codifier's input schema is singular `agent:`, so multi-agent findings produce multiple rows):
+```
+[<severity>] <file>:<line> — <description> — agent: <primary_agent>
+```
+3. Return to Main Claude an instruction to dispatch `pattern-codifier` with the formatted findings list.
+
+Main Claude dispatches `pattern-codifier`, receives the codifier's JSON output (`agent_updates`, `pattern_doc_updates`, `learnings`), and applies the updates per the existing codifier flow.
+
+If user responds `n`, print "Skipping codifier. Review complete." and stop.
+
