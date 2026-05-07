@@ -103,6 +103,18 @@ Repair CRITICAL + HIGH + MEDIUM findings? (yes / no / select numbers)
 
 If user confirms repair:
 - Group findings to repair by file. For each file, pick the repair owner: re-evaluate the routing table from Phase 1 against that file path; the first matching agent that's also present in any of the file's findings' `agents` arrays is the owner. Tell main Claude to dispatch the owner in repair mode with the file path and the list of findings (line + description) for that file.
+- The dispatch prompt for repair mode:
+
+```
+Repair the following findings in this file:
+
+File: <relative path>
+Findings:
+  - line <N>: <description>
+  - line <M>: <description>
+```
+
+Substitute the placeholders before dispatch.
 - The reviewer returns `{file, edits: [{old_string, new_string}, ...], unrepaired?: [{line, reason}]}`. Main Claude applies each edit via the Edit tool. For each entry in `unrepaired`, print to the user: `⚠️ Unrepaired (manual): <file>:<line> — <reason>` and append the entry to `todos/YYYY-MM-DD-review.md` under a `## Unrepaired Findings` heading so it isn't lost.
 - Confirm each repair to the user.
 
