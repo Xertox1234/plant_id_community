@@ -349,3 +349,129 @@ Run Phase 4 (repair)? (yes / no)
 
 Then stop. Main Claude waits for user input and re-invokes you for Phase 4 if requested.
 
+## Phase 4 — Repair (optional, filter-driven)
+
+Triggered when Main Claude re-invokes you with the user's "yes" response to the Phase 3 repair prompt, plus the `review_id`.
+
+### Step 4a: Prompt for filter
+
+Print:
+```
+Repair selection (filter expression):
+  examples: "all critical+high", "agent:security-reviewer",
+            "file:apps/forum/**", "ids:1,4,7-12", "all", "none"
+>
+```
+
+Stop. Main Claude collects the user's filter string and re-invokes you with it.
+
+### Step 4b: Parse and match
+
+Filter language:
+```
+filter      = clause ("," clause)*           # comma = OR
+clause      = predicate ("+" predicate)*     # plus = AND
+predicate   = severity | agent | file | ids | "all" | "none"
+severity    = "critical" | "high" | "medium" | "low" | "info"
+agent       = "agent:" agent-id
+file        = "file:" glob                   # fnmatch semantics
+ids         = "ids:" id-list                 # 1,4,7-12,18
+```
+
+Parser rules:
+- Whitespace ignored *around* operators and predicates (`critical , high` ≡ `critical,high`), but never inside a predicate (`critical high` is an error, not `criticalhigh`).
+- `none` → return immediately with "No repairs requested."
+- `all` → match every finding where `repaired == false`.
+- Unknown predicate → return error message and re-prompt: `"Unknown predicate: <token>. Examples: ..."`.
+- Glob in `file:` uses Python `fnmatch` semantics; `**` is supported.
+- `ids:` ranges are inclusive (`1-3` → 1,2,3).
+- Already-repaired findings (`repaired == true`) are filtered out automatically; do not require user to add `+not-repaired`.
+
+Load the JSON report from `docs/reviews/<review_id>-full-review.json`. Apply the filter to the `findings` array.
+
+### Step 4c: Confirm matches
+
+Print:
+```
+Filter: <user filter>
+Matched: <N> findings across <M> files
+  - <file 1> (<count>)
+  - <file 2> (<count>)
+  ...
+
+Dispatch repairs? (yes / no / refilter)
+```
+
+Stop. Wait for response.
+
+### Step 4d: Group + dispatch
+
+If user responds `yes`:
+
+1. Group matched findings by `file`. For each file:
+   - The owning agent for the repair invocation is `findings[0].primary_agent` (consistent across the file — primary is per-file).
+   - Build a single repair invocation:
+
+```
+Repair the following findings in this file:
+
+File: <relative path>
+Findings:
+  - line <N>: <description>
+  - line <M>: <description>
+```
+
+2. Group repair invocations into waves of `wave_size` (same default 8 as Phase 1).
+
+3. Return JSON to Main Claude:
+
+```json
+{
+  "phase": "4d",
+  "review_id": "<id>",
+  "repair_waves": [
+    {
+      "wave": 1,
+      "invocations": [
+        {
+          "agent": "django-drf-reviewer",
+          "file": "backend/apps/forum/upload_views.py",
+          "finding_ids": [3, 7, 12],
+          "prompt": "Repair the following findings in this file:\n\nFile: ...\nFindings:\n  - line 3: ...\n  - line 7: ...\n  - line 12: ..."
+        }
+      ]
+    }
+  ]
+}
+```
+
+Then stop. Main Claude dispatches each wave in parallel, collects each invocation's `{"file": "...", "edits": [...], "unrepaired": [...]}` response, and applies edits via the Edit tool.
+
+### Step 4e: Apply edits + update JSON (Main Claude responsibility)
+
+For each invocation result:
+- For each `edit` in `edits`, call the Edit tool with `file_path = <invocation.file>`, `old_string = edit.old_string`, `new_string = edit.new_string`. If Edit fails (no exact match), capture the error.
+- Build a per-finding outcome map: each `finding_id` is repaired if all its edits applied (best-effort: if the agent returned multiple edits without binding them to specific findings, mark all listed `finding_ids` as repaired iff every edit succeeded). Findings listed in `unrepaired` are marked `repaired: false, repair_error: <reason>`.
+
+Re-invoke `full-review-orchestrator` for Phase 4f with the outcome map.
+
+### Step 4f: Persist repair outcomes
+
+Triggered when Main Claude re-invokes you with the outcome map after applying edits.
+
+1. Read `docs/reviews/<review_id>-full-review.json`.
+2. For each affected finding by ID, set `repaired: true` and `repaired_at: <ISO now>` if the outcome is success; set `repaired: false, repair_error: <reason>` otherwise.
+3. Write the updated JSON back.
+4. Print:
+```
+Repaired <X>/<Y> findings.
+  Successes: <X>
+  Edit conflicts (file drift): <Z>
+  Other failures: <W>
+JSON updated: docs/reviews/<review_id>-full-review.json
+
+Run another repair pass? (filter / done)
+```
+
+If user responds with another filter, return to Step 4b. If `done`, proceed to Phase 5 prompt.
+
