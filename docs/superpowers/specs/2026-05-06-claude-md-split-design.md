@@ -71,6 +71,10 @@ Sections:
 
 ---
 
+## Migration
+
+The existing root `/CLAUDE.md` is replaced entirely — not updated in place. The four new files are written fresh. The old file is deleted after the new files are committed and verified.
+
 ## What Gets Deleted
 
 Everything that was in the old CLAUDE.md but does not belong in any of the new files:
@@ -88,6 +92,6 @@ Everything that was in the old CLAUDE.md but does not belong in any of the new f
 
 - Root CLAUDE.md ≤ 150 lines
 - Each platform sub-file ≤ 55 lines
-- Zero stale content (no version numbers, PR references, or status claims)
+- Zero stale content (no PR references, completion claims, or status tables — framework version references in conventions are fine)
 - Pattern Library section links to all pattern docs with one-line descriptions
 - Agents section accurately reflects `.claude/agents/` directory contents
