@@ -11,6 +11,7 @@ This file is append-only. New entries are added by main Claude after each code r
 - [Performance](#performance)
 - [Testing](#testing)
 - [Celery](#celery)
+- [Tooling / Agents](#tooling--agents)
 
 ---
 
@@ -143,3 +144,13 @@ This file is append-only. New entries are added by main Claude after each code r
 **Fix**: Patched `apps.blog.middleware.transaction.on_commit` with `side_effect=lambda fn: fn()` to execute the callback immediately.
 **Rule**: When testing code that wraps a call in `transaction.on_commit`, you must either (a) patch `transaction.on_commit` at the call site to execute immediately, or (b) use `self.captureOnCommitCallbacks(execute=True)`. The patch path must match the import in the module under test, not the canonical Django path.
 **Agent**: pattern-codifier
+
+---
+
+## Tooling / Agents
+
+### [2026-05-07] Bash `**` glob silently collapses to `*` without `shopt -s globstar`
+**Mistake**: The `full-review-orchestrator` `file:` filter spec relied on `**` for recursive path matching (`file:backend/apps/**`). Default Bash treats `**` as `*` — a single-component wildcard — so `backend/apps/**` matched only direct children of `apps/`, not nested files. The bug would have manifested as the repair phase silently skipping findings under nested paths (e.g., `backend/apps/forum/viewsets/foo.py`).
+**Fix**: Pinned the implementation recipe in `.claude/agents/full-review-orchestrator.md` to `shopt -s globstar nullglob` before glob expansion, with `find <root> -path '<pattern>'` as the alternative. Called out the default-bash trap explicitly.
+**Rule**: Any agent prompt or shell helper that uses `**` for recursive matching MUST set `shopt -s globstar` first, OR use `find -path` instead. Never assume `**` works in bash by default — globstar is an opt-in Bash 4+ feature, off by default. Same applies in zsh's emulated bash mode.
+**Agent**: full-review-orchestrator
