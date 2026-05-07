@@ -229,3 +229,123 @@ If the user re-invokes the orchestrator and a `.<review_id>-partial.json` file a
 - On `y`, skip waves already in `completed_waves`, dispatch only the remaining waves.
 - On `restart`, delete the partial and re-plan from Phase 0.
 
+## Phase 3 — Aggregate and Write Artifacts
+
+Triggered when Main Claude re-invokes you with the path to `docs/reviews/.<review_id>-partial.json` from Phase 2.
+
+Read the partial checkpoint with the Read tool. It contains: `review_id`, `started_at`, `scope`, `primary_map`, `findings`, `failed_invocations`. All the state Phase 3 needs is in this file.
+
+1. **Deduplicate findings** by `(file, line, normalized_description)` where `normalized_description` is the description lowercased with whitespace collapsed. When two findings collapse, merge their `agent` fields into an `agents` array (preserving both).
+
+2. **Assign IDs**: after dedupe + sort, assign each finding a 1-indexed integer `id`. IDs are stable for this review and are what the repair filter language (`ids:1,4,7-12`) selects against.
+
+3. **Compute primary_agent per finding** using the `primary_map` from the checkpoint. If a file is missing from `primary_map` (shouldn't happen, but defensive), re-derive by re-running the routing table for that file.
+
+4. **Sort** by severity (critical → high → medium → low → info), then by file (lexicographic), then by line (ascending).
+
+5. **Apply severity coercion**:
+   - `blocker` → `critical`
+   - any other non-canonical value → `info`, and log a warning entry in the report's footer.
+
+6. **Compute stats**:
+   - `files_reviewed`: count of distinct files appearing across all invocations (the union of `invocation.files`)
+   - `reviewers_invoked`: count of distinct `agent` IDs across all invocations (failed or successful)
+   - `total_findings`: length of deduped findings list
+   - `by_severity`: counts per canonical severity
+
+7. **Write `docs/reviews/<review_id>-full-review.json`** using Write:
+
+```json
+{
+  "review_id": "<id>",
+  "started_at": "<ISO from Phase 1>",
+  "completed_at": "<ISO now>",
+  "scope": { "roots": [...], "excluded": [...] },
+  "stats": { "files_reviewed": N, "reviewers_invoked": M, "total_findings": K, "by_severity": {...} },
+  "findings": [
+    {
+      "id": 1,
+      "severity": "critical",
+      "file": "<path>",
+      "line": 42,
+      "description": "...",
+      "rule": "<optional>",
+      "suggested_fix": "<optional>",
+      "agents": ["django-drf-reviewer", "security-reviewer"],
+      "primary_agent": "django-drf-reviewer",
+      "repaired": false,
+      "repaired_at": null,
+      "repair_error": null
+    }
+  ],
+  "failed_invocations": [...]
+}
+```
+
+8. **Write `docs/reviews/<review_id>-full-review.md`** using Write. Format:
+
+```markdown
+# Full Code Review — <human-readable date>
+
+**Scope:** <comma-separated roots>
+**Files reviewed:** <stats.files_reviewed>
+**Reviewers invoked:** <stats.reviewers_invoked>
+**Total findings:** <stats.total_findings> (<by_severity rendered as comma list>)
+
+---
+
+## 🔴 Critical (<count>)
+
+<for each critical finding, grouped by file>
+### <file>:<line>
+**Finding:** <description>
+**Reviewer:** <agents joined with ' · '>
+**Rule:** <rule or "—">
+**Suggested fix:** <suggested_fix or "—">
+
+---
+
+## 🟠 High (<count>)
+<same shape as critical>
+
+## 🟡 Medium (<count>)
+<same shape>
+
+## 🟢 Low / Info (<count>)
+<abbreviated: file:line — description>
+
+## ⚠️ Failed Invocations (<count>)
+<only if non-zero. Format: agent · batch_label — error>
+```
+
+9. **Prepend a row to `docs/reviews/INDEX.md`**: read the existing file with Read, insert the new row directly after the table header line (the `|---|...` separator), and write back with Write.
+
+   New row format:
+```
+| <YYYY-MM-DD HH:MM> | <review_id> | <files_reviewed> | <critical> | <high> | <medium> | <low> | [md](<review_id>-full-review.md) · [json](<review_id>-full-review.json) |
+```
+
+10. **Delete the partial checkpoint** file `docs/reviews/.<review_id>-partial.json`:
+```bash
+rm -f docs/reviews/.<review_id>-partial.json
+```
+
+11. **Return a summary block** to Main Claude:
+
+```
+Review <review_id> complete.
+  Files reviewed: <N>
+  Total findings: <K> (<by_severity>)
+  Failed invocations: <count>
+  Report: docs/reviews/<review_id>-full-review.md
+  JSON: docs/reviews/<review_id>-full-review.json
+
+Top 10 critical findings:
+1. [file:line] description (agents)
+2. ...
+
+Run Phase 4 (repair)? (yes / no)
+```
+
+Then stop. Main Claude waits for user input and re-invokes you for Phase 4 if requested.
+

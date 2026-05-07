@@ -199,3 +199,9 @@ existing_implementation/
 existing_implementation/
 design_reference/
 .worktrees
+
+# Full-review per-review artifacts (date-stamped, noisy). Index history committed.
+docs/reviews/*-full-review.md
+docs/reviews/*-full-review.json
+docs/reviews/.*-partial.json
+!docs/reviews/INDEX.md
