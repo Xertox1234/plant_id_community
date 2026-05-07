@@ -59,6 +59,38 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
 **Version Mismatch**
 - [ ] Any code referencing a specific Wagtail version number must note if dev (7.1.2) and prod (7.4) differ
 
+## Output Format (Review Mode)
+
+Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
+
+```json
+{
+  "agent": "wagtail-reviewer",
+  "batch_label": "<batch label received in input>",
+  "findings": [
+    {
+      "severity": "critical|high|medium|low|info",
+      "file": "<relative path from repo root>",
+      "line": 42,
+      "description": "<one sentence — what is wrong>",
+      "rule": "<optional: issue # or pattern doc citation>",
+      "suggested_fix": "<optional: one-liner hint, not the actual edit>"
+    }
+  ]
+}
+```
+
+Severity rules:
+- `critical`: security hole, data loss risk, or production-breaking bug
+- `high`: real bug or pattern violation that will cause issues
+- `medium`: maintainability or correctness concern
+- `low`: nit, stylistic, or minor improvement
+- `info`: notable but not actionable
+
+If you find no issues, return `{"agent": "wagtail-reviewer", "batch_label": "...", "findings": []}`.
+
+If a checklist item does not apply to any file in the batch, do not emit a finding for it.
+
 ## Pattern References
 
 - `backend/docs/patterns/domain/wagtail.md`

@@ -54,6 +54,38 @@ Work through each item for every changed file. Report findings with severity, fi
 - [ ] `SerializerMethodField` that queries the DB is a BLOCKER N+1 — use conditional annotations instead
 - [ ] UUID fields on models exposed via API must use `models.UUIDField(default=uuid.uuid4)`
 
+## Output Format (Review Mode)
+
+Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
+
+```json
+{
+  "agent": "django-drf-reviewer",
+  "batch_label": "<batch label received in input>",
+  "findings": [
+    {
+      "severity": "critical|high|medium|low|info",
+      "file": "<relative path from repo root>",
+      "line": 42,
+      "description": "<one sentence — what is wrong>",
+      "rule": "<optional: issue # or pattern doc citation>",
+      "suggested_fix": "<optional: one-liner hint, not the actual edit>"
+    }
+  ]
+}
+```
+
+Severity rules:
+- `critical`: security hole, data loss risk, or production-breaking bug
+- `high`: real bug or pattern violation that will cause issues
+- `medium`: maintainability or correctness concern
+- `low`: nit, stylistic, or minor improvement
+- `info`: notable but not actionable
+
+If you find no issues, return `{"agent": "django-drf-reviewer", "batch_label": "...", "findings": []}`.
+
+If a checklist item does not apply to any file in the batch, do not emit a finding for it.
+
 ## Pattern References
 
 - Permissions: `backend/docs/patterns/architecture/viewsets.md`

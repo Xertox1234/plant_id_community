@@ -56,6 +56,38 @@ DRF with NamespaceVersioning, URL pattern `/api/v1/`, OpenAPI/Swagger docs at `/
 - [ ] `SlugRelatedField` with `slug_field='uuid'` for nested UUID references
 - [ ] Custom actions using UUID: `@action(detail=True, url_path='<uuid:uuid>/action')`
 
+## Output Format (Review Mode)
+
+Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
+
+```json
+{
+  "agent": "api-design-reviewer",
+  "batch_label": "<batch label received in input>",
+  "findings": [
+    {
+      "severity": "critical|high|medium|low|info",
+      "file": "<relative path from repo root>",
+      "line": 42,
+      "description": "<one sentence — what is wrong>",
+      "rule": "<optional: issue # or pattern doc citation>",
+      "suggested_fix": "<optional: one-liner hint, not the actual edit>"
+    }
+  ]
+}
+```
+
+Severity rules:
+- `critical`: security hole, data loss risk, or production-breaking bug
+- `high`: real bug or pattern violation that will cause issues
+- `medium`: maintainability or correctness concern
+- `low`: nit, stylistic, or minor improvement
+- `info`: notable but not actionable
+
+If you find no issues, return `{"agent": "api-design-reviewer", "batch_label": "...", "findings": []}`.
+
+If a checklist item does not apply to any file in the batch, do not emit a finding for it.
+
 ## Pattern References
 
 - `backend/docs/patterns/architecture/viewsets.md`
