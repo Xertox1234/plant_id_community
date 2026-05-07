@@ -1,7 +1,7 @@
 # Backend Pattern Library
 
-**Last Updated**: November 13, 2025
-**Total Patterns**: 16 consolidated pattern files
+**Last Updated**: 2026-05-06
+**Total Patterns**: 18 consolidated pattern files (+ 9 cross-platform patterns in web/mobile/firebase)
 **Lines Consolidated**: ~16,000+ lines from 27+ source files
 **Status**: ✅ Production-Ready
 
@@ -73,7 +73,7 @@ Use this pattern library when working on specific features or debugging issues. 
 
 ### 🌱 Domain-Specific Patterns (`domain/`)
 
-**When to use**: Plant identification, diagnosis API, forum features, blog/CMS.
+**When to use**: Plant identification, diagnosis API, forum features, blog/CMS, Wagtail, Celery.
 
 | File | Patterns | Use Case |
 |------|----------|----------|
@@ -81,12 +81,16 @@ Use this pattern library when working on specific features or debugging issues. 
 | [`diagnosis.md`](domain/diagnosis.md) | UUID lookups, DRF serializers, SlugRelatedField | UUID-based ViewSets |
 | [`forum.md`](domain/forum.md) | Trust levels, spam detection, moderation | Forum permissions, anti-spam |
 | [`blog.md`](domain/blog.md) | Wagtail AI 3.0, caching, prompts | AI-powered content generation |
+| [`wagtail.md`](domain/wagtail.md) | instanceof checks, cache invalidation, StreamField, version split | Wagtail CMS (dev 7.1.2 / prod 7.4) |
+| [`celery.md`](domain/celery.md) | Idempotency, retry config, beat schedules, error handling | Celery async tasks |
 
 **Highlights**:
 - **Plant ID**: Dual API integration, diagnostic scripts, rate limiting
 - **Diagnosis**: UUID `lookup_field`, `SlugRelatedField` for UUIDs, `@action(uuid=None)`
 - **Forum**: 5-tier trust system, multi-heuristic spam detection, cache warming
 - **Blog**: Native Wagtail AI panels, 80-95% cost reduction, <100ms cached responses
+- **Wagtail**: `isinstance()` for page type checks, dual-strategy cache invalidation, dev/prod version awareness
+- **Celery**: Idempotency guards, `max_retries` required, error handling with `[CELERY]` log prefix
 
 ---
 
@@ -156,8 +160,11 @@ Agent: "Here's the correct implementation with uuid=None parameter and super().g
 | Security | 5 | JWT, CSRF, file validation, secret management |
 | Performance | 1 | N+1, aggregation, indexing, test assertions |
 | Architecture | 4 | Caching, rate limiting, ViewSets, services |
-| Domain-Specific | 4 | Plant ID, diagnosis, forum, blog |
-| **Total** | **16** | **50+ production-tested patterns** |
+| Domain-Specific (backend) | 6 | Plant ID, diagnosis, forum, blog, Wagtail, Celery |
+| Web (web/docs/patterns/) | 3 | React/TypeScript, Tailwind, testing |
+| Mobile (plant_community_mobile/docs/patterns/) | 3 | Flutter, Firebase Auth, Riverpod |
+| Firebase (firebase/docs/patterns/) | 3 | Cloud Functions, Firestore rules, IAM |
+| **Total** | **25** | **70+ production-tested patterns** |
 
 ---
 
@@ -222,7 +229,7 @@ When creating new patterns:
 
 ---
 
-**Last Reviewed**: November 13, 2025
-**Pattern Count**: 16 consolidated files
+**Last Reviewed**: 2026-05-06
+**Pattern Count**: 25 files (18 backend + 3 web + 3 mobile + 3 firebase — all seeded; pattern-codifier appends after each review session)
 **Status**: ✅ Production-validated
 **Consolidation**: Complete
