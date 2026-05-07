@@ -173,6 +173,8 @@ pids/
 # ===================================
 # Claude Code configuration and tools
 .claude/
+# Track custom agents so the review team survives a fresh clone
+!.claude/agents/
 
 # CLAUDE.md contains project-specific context and may include sensitive info
 # Use CLAUDE.md.example as template
