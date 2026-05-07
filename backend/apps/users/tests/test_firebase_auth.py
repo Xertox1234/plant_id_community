@@ -20,7 +20,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.client = APIClient()
-        self.url = reverse('users:firebase_token_exchange')
+        self.url = reverse('v1:users:firebase_token_exchange')
 
         # Sample Firebase token (fake, for testing only)
         self.firebase_token = 'eyJhbGciOiJSUzI1NiIsImtpZCI6InRlc3QifQ.eyJ1aWQiOiJ0ZXN0dWlkMTIzIiwiZW1haWwiOiJ0ZXN0QGV4YW1wbGUuY29tIn0.test'
@@ -224,7 +224,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_token}')
 
         # Get current user endpoint (should be accessible with JWT)
-        current_user_url = reverse('users:current_user')
+        current_user_url = reverse('v1:users:current_user')
         user_response = self.client.get(current_user_url)
 
         # Verify we can access protected endpoint
@@ -256,8 +256,8 @@ class FirebaseTokenExchangeTestCase(TestCase):
         # Mock Firebase token verification
         mock_verify.return_value = self.decoded_token
 
-        # Mock User.objects.get_or_create to raise an exception
-        with patch('apps.users.firebase_auth_views.User.objects.get_or_create') as mock_get_create:
+        # Mock get_or_create_user_from_firebase to raise an exception
+        with patch('apps.users.firebase_auth_views.get_or_create_user_from_firebase') as mock_get_create:
             mock_get_create.side_effect = Exception('Database error')
 
             response = self.client.post(self.url, {

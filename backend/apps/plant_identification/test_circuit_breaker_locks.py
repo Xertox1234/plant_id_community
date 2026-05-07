@@ -27,8 +27,8 @@ def reset_circuit_breaker():
     # Reset counters
     _plant_id_circuit._state_storage.reset_counter()
     _plant_id_circuit._state_storage.reset_success_counter()
-    # Force state to closed
-    _plant_id_circuit._state_storage._state = STATE_CLOSED
+    # Force state to closed using the proper pybreaker API
+    _plant_id_circuit.close()
 
 
 class CircuitBreakerTests(TestCase):
@@ -163,21 +163,24 @@ class DistributedLockTests(TestCase):
     def test_distributed_lock_prevents_cache_stampede(self, mock_session):
         """Test that distributed lock prevents duplicate API calls."""
 
-        # Mock successful API response
+        # Mock successful API response (Plant.id v3 format)
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
         mock_response.json.return_value = {
-            'suggestions': [{
-                'plant_name': 'Test Plant',
-                'plant_details': {
-                    'scientific_name': 'Testus plantus',
-                    'common_names': ['Test'],
-                    'description': {'value': 'A test plant'},
-                    'taxonomy': {},
+            'result': {
+                'classification': {
+                    'suggestions': [{
+                        'name': 'Test Plant',
+                        'probability': 0.95,
+                        'details': {
+                            'common_names': ['Test'],
+                            'description': {'value': 'A test plant'},
+                            'taxonomy': {},
+                        },
+                    }],
                 },
-                'probability': 0.95,
-            }],
-            'health_assessment': {},
+                'is_plant': {'binary': True},
+            },
         }
         mock_session.return_value.post.return_value = mock_response
 
@@ -192,27 +195,31 @@ class DistributedLockTests(TestCase):
         result2 = service.identify_plant(test_image)
         self.assertEqual(result1, result2)
 
-        # API should only be called once (second call hit cache)
-        self.assertEqual(mock_session.return_value.post.call_count, 1)
+        # API should only be called for the first identification (identification + health_assessment = 2 POST calls)
+        # Second call hit cache so no additional API calls were made
+        self.assertEqual(mock_session.return_value.post.call_count, 2)
 
     @patch('apps.plant_identification.services.plant_id_service.requests.Session')
     def test_lock_fallback_when_redis_unavailable(self, mock_session):
         """Test that service works without Redis (graceful degradation)."""
-        # Mock successful API response
+        # Mock successful API response (Plant.id v3 format)
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
         mock_response.json.return_value = {
-            'suggestions': [{
-                'plant_name': 'Test Plant',
-                'plant_details': {
-                    'scientific_name': 'Testus plantus',
-                    'common_names': ['Test'],
-                    'description': {'value': 'A test plant'},
-                    'taxonomy': {},
+            'result': {
+                'classification': {
+                    'suggestions': [{
+                        'name': 'Test Plant',
+                        'probability': 0.95,
+                        'details': {
+                            'common_names': ['Test'],
+                            'description': {'value': 'A test plant'},
+                            'taxonomy': {},
+                        },
+                    }],
                 },
-                'probability': 0.95,
-            }],
-            'health_assessment': {},
+                'is_plant': {'binary': True},
+            },
         }
         mock_session.return_value.post.return_value = mock_response
 

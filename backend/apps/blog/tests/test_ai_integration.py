@@ -9,6 +9,7 @@ from django.test import TestCase, RequestFactory, Client
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.urls import reverse
+import unittest
 from unittest.mock import patch, MagicMock
 import json
 
@@ -217,6 +218,7 @@ class BlogAIIntegrationTestCase(TestCase):
         self.assertIn('Unsupported field', result['error'])
 
 
+@unittest.skip("Endpoint removed in security audit - replaced by Wagtail AI native panel system")
 class GenerateBlogFieldContentAPITestCase(TestCase):
     """Test suite for generate_blog_field_content API endpoint."""
 

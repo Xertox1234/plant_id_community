@@ -133,12 +133,12 @@ class PlantIdentificationRequestViewSet(viewsets.ModelViewSet):
             user=self.request.user
         ).order_by('-created_at')
     
-    @ratelimit(
+    @method_decorator(ratelimit(
         key='user',
         rate=constants.RATE_LIMITS['authenticated']['plant_identification'],
         method='POST',
         block=True
-    )
+    ))
     def create(self, request, *args, **kwargs):
         """Create plant identification request with rate limiting."""
         try:

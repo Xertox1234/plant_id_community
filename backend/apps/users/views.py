@@ -127,7 +127,8 @@ def register(request: Request) -> Response:
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
-@ensure_csrf_cookie
+@csrf_protect
+@ensure_csrf_cookie  # Ensure CSRF cookie is set in response so clients can use it for subsequent requests
 @ratelimit(
     key='ip',
     rate=RATE_LIMITS['auth_endpoints']['login'],
@@ -200,6 +201,10 @@ def login(request: Request) -> Response:
             # Track successful login
             ip_address = SecurityMonitor._get_client_ip(request)
             SecurityMonitor.track_successful_login(user, ip_address)
+
+            # Update last_login (Django's login() does this automatically but we use JWT)
+            from django.contrib.auth.models import update_last_login
+            update_last_login(None, user)
 
             # Create response with user data
             response = Response({

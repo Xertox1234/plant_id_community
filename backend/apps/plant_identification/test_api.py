@@ -64,7 +64,7 @@ class TestPlantIdentificationAPI(APITestCase):
         self.client.force_authenticate(user=self.user)
         
         # DRF router basename is 'requests' (see apps/plant_identification/urls.py)
-        url = reverse('plant_identification:requests-list')
+        url = reverse('v1:plant_identification:requests-list')
         data = {
             'image_1': self.test_image,
             'location': 'Test Garden',
@@ -87,7 +87,7 @@ class TestPlantIdentificationAPI(APITestCase):
     @pytest.mark.api 
     def test_create_identification_request_unauthenticated(self):
         """Test that unauthenticated users cannot create identification requests."""
-        url = reverse('plant_identification:requests-list')
+        url = reverse('v1:plant_identification:requests-list')
         data = {
             'image_1': self.test_image,
             'location': 'Test Garden'
@@ -111,7 +111,7 @@ class TestPlantIdentificationAPI(APITestCase):
         )
         
         # Detail uses request_id UUID as pk
-        url = reverse('plant_identification:requests-detail', args=[identification_request.request_id])
+        url = reverse('v1:plant_identification:requests-detail', args=[identification_request.request_id])
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -137,7 +137,7 @@ class TestPlantIdentificationAPI(APITestCase):
         
         # Try to access other user's request
         self.client.force_authenticate(user=self.user)
-        url = reverse('plant_identification:requests-detail', args=[other_request.request_id])
+        url = reverse('v1:plant_identification:requests-detail', args=[other_request.request_id])
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -162,7 +162,7 @@ class TestPlantIdentificationAPI(APITestCase):
         self.client.force_authenticate(user=self.user)
         
         # Create identification request
-        url = reverse('plant_identification:requests-list')
+        url = reverse('v1:plant_identification:requests-list')
         data = {
             'image_1': self.test_image,
             'location': 'Test Garden'
@@ -174,7 +174,7 @@ class TestPlantIdentificationAPI(APITestCase):
         request_id = response.data['request_id']
         
         # Optionally trigger manual processing endpoint (for completeness)
-        process_url = reverse('plant_identification:requests-process-now', args=[request_id])
+        process_url = reverse('v1:plant_identification:requests-process-now', args=[request_id])
         process_resp = self.client.post(process_url)
         self.assertIn(process_resp.status_code, [status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST])
         
@@ -220,7 +220,7 @@ class TestDiseasesDiagnosisAPI(APITestCase):
         mock_diagnose.return_value = []
         self.client.force_authenticate(user=self.user)
         
-        url = reverse('plant_identification:disease-requests-list')
+        url = reverse('v1:plant_identification:disease-requests-list')
         data = {
             'symptoms_description': 'Yellow leaves with black spots',
             'image_1': self.diseased_image,
@@ -264,7 +264,7 @@ class TestDiseasesDiagnosisAPI(APITestCase):
         )
         
         # Trigger diagnosis (manual processing action)
-        url = reverse('plant_identification:disease-requests-process-now', args=[disease_request.request_id])
+        url = reverse('v1:plant_identification:disease-requests-process-now', args=[disease_request.request_id])
         response = self.client.post(url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -305,7 +305,7 @@ class TestCareInstructionsAPI(APITestCase):
         self.client.force_authenticate(user=self.user)
         
         # Function view named 'care_instructions' expects int species_id
-        url = reverse('plant_identification:care_instructions', args=[self.plant_species.id])
+        url = reverse('v1:plant_identification:care_instructions', args=[self.plant_species.id])
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -317,7 +317,7 @@ class TestCareInstructionsAPI(APITestCase):
         """Test saving care instructions to user profile."""
         self.client.force_authenticate(user=self.user)
         
-        url = reverse('plant_identification:saved-care-instructions-list')
+        url = reverse('v1:plant_identification:saved-care-instructions-list')
         data = {
             'plant_scientific_name': 'Rosa damascena',
             'care_instructions_data': {
@@ -361,7 +361,7 @@ class TestCareInstructionsAPI(APITestCase):
         
         self.client.force_authenticate(user=self.user)
         
-        url = reverse('plant_identification:saved-care-instructions-list')
+        url = reverse('v1:plant_identification:saved-care-instructions-list')
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -401,7 +401,7 @@ class TestAPIAuthentication(APITestCase):
         self.assertIsNotNone(access_token)
         
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_token}')
-        protected_url = reverse('users:current_user')
+        protected_url = reverse('v1:users:current_user')
         response = self.client.get(protected_url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -420,7 +420,7 @@ class TestAPIAuthentication(APITestCase):
         refresh_token = response.data.get('refresh')
         self.assertIsNotNone(refresh_token)
         
-        refresh_url = reverse('users:token_refresh')
+        refresh_url = reverse('v1:users:token_refresh')
         # View expects 'refresh' in request.data (or cookie)
         refresh_response = self.client.post(refresh_url, {
             'refresh': refresh_token
@@ -432,10 +432,10 @@ class TestAPIAuthentication(APITestCase):
     def test_unauthorized_access_protection(self):
         """Test that protected endpoints require authentication."""
         protected_endpoints = [
-            reverse('plant_identification:requests-list'),
-            reverse('plant_identification:disease-requests-list'),
-            reverse('plant_identification:saved-care-instructions-list'),
-            reverse('users:current_user'),
+            reverse('v1:plant_identification:requests-list'),
+            reverse('v1:plant_identification:disease-requests-list'),
+            reverse('v1:plant_identification:saved-care-instructions-list'),
+            reverse('v1:users:current_user'),
         ]
         
         for endpoint in protected_endpoints:
@@ -488,7 +488,7 @@ class TestAPIPerformance(APITestCase):
         self.client.force_authenticate(user=self.user)
         
         # Test plant species list
-        url = reverse('plant_identification:species-list')
+        url = reverse('v1:plant_identification:species-list')
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -504,7 +504,7 @@ class TestAPIPerformance(APITestCase):
         self.client.force_authenticate(user=self.user)
         
         # Test plant species search
-        url = reverse('plant_identification:species-list')
+        url = reverse('v1:plant_identification:species-list')
         response = self.client.get(url, {'search': 'Test plant'})
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -538,7 +538,7 @@ class TestAPIErrorHandling(APITestCase):
             content_type='text/plain'
         )
         
-        url = reverse('plant_identification:requests-list')
+        url = reverse('v1:plant_identification:requests-list')
         data = {
             'image_1': invalid_file,
             'location': 'Test Location'
@@ -554,7 +554,7 @@ class TestAPIErrorHandling(APITestCase):
         self.client.force_authenticate(user=self.user)
         
         # Try to create identification request without required image
-        url = reverse('plant_identification:requests-list')
+        url = reverse('v1:plant_identification:requests-list')
         data = {
             'location': 'Test Location'
             # Missing required 'image' field
@@ -570,7 +570,7 @@ class TestAPIErrorHandling(APITestCase):
         self.client.force_authenticate(user=self.user)
         
         # Try to access non-existent identification request
-        url = reverse('plant_identification:requests-detail', args=['00000000-0000-0000-0000-000000000000'])
+        url = reverse('v1:plant_identification:requests-detail', args=['00000000-0000-0000-0000-000000000000'])
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

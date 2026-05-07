@@ -48,19 +48,23 @@ class CircuitMonitor(CircuitBreakerListener):
 
         Args:
             cb: CircuitBreaker instance
-            old_state: Previous state string ('closed', 'open', 'half_open')
-            new_state: New state string ('closed', 'open', 'half_open')
+            old_state: Previous state (CircuitBreakerState object or string)
+            new_state: New state (CircuitBreakerState object or string)
         """
         self.last_state_change = datetime.now()
 
+        # pybreaker passes state objects; extract name string for logging
+        old_name = old_state.name if hasattr(old_state, 'name') else str(old_state)
+        new_name = new_state.name if hasattr(new_state, 'name') else str(new_state)
+
         logger.warning(
             f"[CIRCUIT] {self.service_name} state transition: "
-            f"{old_state.upper()} → {new_state.upper()} "
+            f"{old_name.upper()} → {new_name.upper()} "
             f"(fail_count={cb.fail_counter})"
         )
 
         # Track when circuit opens for duration monitoring
-        if new_state == 'open':
+        if new_name == 'open':
             self.circuit_open_time = datetime.now()
             logger.error(
                 f"[CIRCUIT] {self.service_name} circuit OPENED - "
@@ -69,7 +73,7 @@ class CircuitMonitor(CircuitBreakerListener):
             )
 
         # Log successful recovery
-        elif old_state == 'half_open' and new_state == 'closed':
+        elif old_name == 'half_open' and new_name == 'closed':
             if self.circuit_open_time:
                 duration = (datetime.now() - self.circuit_open_time).total_seconds()
                 logger.info(
@@ -79,7 +83,7 @@ class CircuitMonitor(CircuitBreakerListener):
                 self.circuit_open_time = None
 
         # Log half-open testing
-        elif new_state == 'half_open':
+        elif new_name == 'half_open':
             logger.info(
                 f"[CIRCUIT] {self.service_name} entering HALF-OPEN state - "
                 f"Testing service recovery"

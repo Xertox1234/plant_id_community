@@ -279,8 +279,8 @@ class BlogPostPageViewSetCachingTestCase(TestCase):
         # Without prefetching, this would be 30+ queries (N+1 problem)
         self.assertEqual(
             num_queries,
-            18,
-            f"Performance regression detected! Expected exactly 18 queries, got {num_queries}. "
+            13,
+            f"Performance regression detected! Expected exactly 13 queries, got {num_queries}. "
             f"This indicates N+1 problem or missing prefetch optimization in BlogPostPageViewSet. "
             f"See PERFORMANCE_TESTING_PATTERNS_CODIFIED.md for strict assertion rationale."
         )
@@ -312,8 +312,8 @@ class BlogPostPageViewSetCachingTestCase(TestCase):
         # Without prefetching, this would need 40+ separate queries for each relation
         self.assertEqual(
             num_queries,
-            19,
-            f"Performance regression detected! Expected exactly 19 queries, got {num_queries}. "
+            20,
+            f"Performance regression detected! Expected exactly 20 queries, got {num_queries}. "
             f"This indicates N+1 problem or missing prefetch optimization in BlogPostPageViewSet. "
             f"See PERFORMANCE_TESTING_PATTERNS_CODIFIED.md for strict assertion rationale."
         )

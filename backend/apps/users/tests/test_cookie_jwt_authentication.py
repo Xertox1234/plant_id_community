@@ -142,7 +142,7 @@ class CookieJWTAuthenticationTestCase(TestCase):
         refresh_token_str = str(refresh)
 
         # Create request with refresh token cookie
-        request = self.factory.post('/api/auth/token/refresh/')
+        request = self.factory.post('/api/v1/auth/token/refresh/')
         request.COOKIES = {'refresh_token': refresh_token_str}
 
         # Extract refresh token
@@ -158,7 +158,7 @@ class CookieJWTAuthenticationTestCase(TestCase):
 
         # Create request with refresh token in POST data
         request = self.factory.post(
-            '/api/auth/token/refresh/',
+            '/api/v1/auth/token/refresh/',
             data={'refresh': refresh_token_str}
         )
 
@@ -201,12 +201,12 @@ class LoginLogoutCookieFlowTestCase(TestCase):
     def test_login_sets_cookies(self):
         """Test that login endpoint sets JWT cookies."""
         # Get CSRF token first
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         # Login
         response = self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -221,11 +221,11 @@ class LoginLogoutCookieFlowTestCase(TestCase):
     def test_logout_clears_cookies(self):
         """Test that logout endpoint clears JWT cookies."""
         # Login first
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         login_response = self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -238,7 +238,7 @@ class LoginLogoutCookieFlowTestCase(TestCase):
 
         # Logout
         logout_response = self.client.post(
-            '/api/auth/logout/',
+            '/api/v1/auth/logout/',
             HTTP_X_CSRFTOKEN=csrf_token
         )
 
@@ -252,11 +252,11 @@ class LoginLogoutCookieFlowTestCase(TestCase):
     def test_authenticated_request_with_cookie(self):
         """Test making authenticated request with JWT cookie."""
         # Login to get cookies
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -265,7 +265,7 @@ class LoginLogoutCookieFlowTestCase(TestCase):
         )
 
         # Make authenticated request
-        response = self.client.get('/api/auth/me/')
+        response = self.client.get('/api/v1/auth/user/')
 
         # Should succeed with cookie authentication
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -277,7 +277,7 @@ class CSRFProtectionTestCase(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.client = APIClient()
+        self.client = APIClient(enforce_csrf_checks=True)
         self.user = User.objects.create_user(
             username='testuser',
             email='test@example.com',
@@ -288,7 +288,7 @@ class CSRFProtectionTestCase(TestCase):
         """Test that login endpoint requires CSRF token."""
         # Attempt login without CSRF token
         response = self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -301,12 +301,12 @@ class CSRFProtectionTestCase(TestCase):
     def test_login_succeeds_with_csrf_token(self):
         """Test that login succeeds with valid CSRF token."""
         # Get CSRF token
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         # Login with CSRF token
         response = self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -319,11 +319,11 @@ class CSRFProtectionTestCase(TestCase):
     def test_token_refresh_requires_csrf(self):
         """Test that token refresh endpoint requires CSRF token."""
         # Login first to get refresh token
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -332,7 +332,7 @@ class CSRFProtectionTestCase(TestCase):
         )
 
         # Attempt token refresh without CSRF token (should fail)
-        response = self.client.post('/api/auth/token/refresh/')
+        response = self.client.post('/api/v1/auth/token/refresh/')
 
         # Should fail due to CSRF protection
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

@@ -188,16 +188,16 @@ class TestPlantIdentificationResult(TestCase):
     
     @pytest.mark.unit
     def test_confidence_score_validation(self):
-        """Model currently does not enforce 0..1 range on confidence_score via validators."""
-        # Ensure full_clean does not raise for values > 1.0 (no validator present)
+        """Model enforces 0..1 range on confidence_score via MaxValueValidator."""
         result = PlantIdentificationResult(
             request=self.identification_request,
             identified_species=self.plant_species,
-            confidence_score=1.5,  # Out of nominal range, but allowed by model
+            confidence_score=1.5,  # Out of valid range [0.0, 1.0]
             identification_source='ai_plantnet'
         )
-        # Should not raise ValidationError
-        result.full_clean()
+        # MaxValueValidator(1.0) should raise ValidationError
+        with self.assertRaises(ValidationError):
+            result.full_clean()
 
 
 @pytest.mark.django_db 

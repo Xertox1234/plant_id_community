@@ -11,6 +11,7 @@ Tests token refresh, blacklisting, rotation, and CSRF protection including:
 
 from django.test import TestCase
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from rest_framework.test import APIClient
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
@@ -29,7 +30,8 @@ class TokenRefreshTestCase(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.client = APIClient()
+        cache.clear()  # Prevent rate limiter state leaking from other test classes
+        self.client = APIClient(enforce_csrf_checks=True)
         self.user = User.objects.create_user(
             username='testuser',
             email='test@example.com',
@@ -39,11 +41,11 @@ class TokenRefreshTestCase(TestCase):
     def test_token_refresh_with_valid_token(self):
         """Test token refresh with valid refresh token in cookie."""
         # Login to get refresh token
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         login_response = self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -58,7 +60,7 @@ class TokenRefreshTestCase(TestCase):
 
         # Refresh token
         refresh_response = self.client.post(
-            '/api/auth/token/refresh/',
+            '/api/v1/auth/token/refresh/',
             HTTP_X_CSRFTOKEN=csrf_token
         )
 
@@ -69,11 +71,11 @@ class TokenRefreshTestCase(TestCase):
     def test_token_refresh_without_csrf(self):
         """Test that token refresh requires CSRF token."""
         # Login first
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -82,7 +84,7 @@ class TokenRefreshTestCase(TestCase):
         )
 
         # Attempt refresh without CSRF token
-        refresh_response = self.client.post('/api/auth/token/refresh/')
+        refresh_response = self.client.post('/api/v1/auth/token/refresh/')
 
         # Should fail due to CSRF protection
         self.assertEqual(refresh_response.status_code, status.HTTP_403_FORBIDDEN)
@@ -90,12 +92,12 @@ class TokenRefreshTestCase(TestCase):
     def test_token_refresh_without_refresh_token(self):
         """Test token refresh fails without refresh token."""
         # Get CSRF token
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         # Attempt refresh without being logged in (no refresh token)
         response = self.client.post(
-            '/api/auth/token/refresh/',
+            '/api/v1/auth/token/refresh/',
             HTTP_X_CSRFTOKEN=csrf_token
         )
 
@@ -105,7 +107,7 @@ class TokenRefreshTestCase(TestCase):
     def test_token_refresh_with_invalid_token(self):
         """Test token refresh fails with invalid refresh token."""
         # Get CSRF token
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         # Set invalid refresh token in cookie
@@ -113,7 +115,7 @@ class TokenRefreshTestCase(TestCase):
 
         # Attempt refresh
         response = self.client.post(
-            '/api/auth/token/refresh/',
+            '/api/v1/auth/token/refresh/',
             HTTP_X_CSRFTOKEN=csrf_token
         )
 
@@ -123,11 +125,11 @@ class TokenRefreshTestCase(TestCase):
     def test_token_rotation_on_refresh(self):
         """Test that refresh tokens are rotated on refresh."""
         # Login to get initial refresh token
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         login_response = self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -140,7 +142,7 @@ class TokenRefreshTestCase(TestCase):
         # Refresh token
         csrf_token = login_response.cookies.get('csrftoken').value
         refresh_response = self.client.post(
-            '/api/auth/token/refresh/',
+            '/api/v1/auth/token/refresh/',
             HTTP_X_CSRFTOKEN=csrf_token
         )
 
@@ -152,11 +154,11 @@ class TokenRefreshTestCase(TestCase):
     def test_old_refresh_token_blacklisted(self):
         """Test that old refresh token is blacklisted after rotation."""
         # Login to get initial refresh token
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         login_response = self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -167,7 +169,7 @@ class TokenRefreshTestCase(TestCase):
         # Refresh token
         csrf_token = login_response.cookies.get('csrftoken').value
         self.client.post(
-            '/api/auth/token/refresh/',
+            '/api/v1/auth/token/refresh/',
             HTTP_X_CSRFTOKEN=csrf_token
         )
 
@@ -177,11 +179,11 @@ class TokenRefreshTestCase(TestCase):
         self.client.cookies['refresh_token'] = old_refresh_token
 
         # Get new CSRF token
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         second_refresh_response = self.client.post(
-            '/api/auth/token/refresh/',
+            '/api/v1/auth/token/refresh/',
             HTTP_X_CSRFTOKEN=csrf_token
         )
 
@@ -191,11 +193,11 @@ class TokenRefreshTestCase(TestCase):
     def test_token_refresh_rate_limiting(self):
         """Test that token refresh endpoint is rate limited."""
         # Login first
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -205,11 +207,11 @@ class TokenRefreshTestCase(TestCase):
 
         # Make many refresh requests to trigger rate limit (10/h limit)
         for i in range(11):
-            csrf_response = self.client.get('/api/auth/csrf/')
+            csrf_response = self.client.get('/api/v1/auth/csrf/')
             csrf_token = csrf_response.cookies.get('csrftoken').value
 
             response = self.client.post(
-                '/api/auth/token/refresh/',
+                '/api/v1/auth/token/refresh/',
                 HTTP_X_CSRFTOKEN=csrf_token
             )
 
@@ -223,11 +225,11 @@ class TokenRefreshTestCase(TestCase):
     def test_blacklist_on_logout(self):
         """Test that refresh token is blacklisted on logout."""
         # Login
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         login_response = self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -240,17 +242,17 @@ class TokenRefreshTestCase(TestCase):
         # Logout
         csrf_token = login_response.cookies.get('csrftoken').value
         self.client.post(
-            '/api/auth/logout/',
+            '/api/v1/auth/logout/',
             HTTP_X_CSRFTOKEN=csrf_token
         )
 
         # Try to use the refresh token after logout
         self.client.cookies['refresh_token'] = refresh_token
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         response = self.client.post(
-            '/api/auth/token/refresh/',
+            '/api/v1/auth/token/refresh/',
             HTTP_X_CSRFTOKEN=csrf_token
         )
 
@@ -260,11 +262,11 @@ class TokenRefreshTestCase(TestCase):
     def test_token_refresh_updates_last_login(self):
         """Test that token refresh updates user's last_login."""
         # Login
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -280,11 +282,11 @@ class TokenRefreshTestCase(TestCase):
         time.sleep(0.1)
 
         # Refresh token
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         self.client.post(
-            '/api/auth/token/refresh/',
+            '/api/v1/auth/token/refresh/',
             HTTP_X_CSRFTOKEN=csrf_token
         )
 
@@ -303,6 +305,7 @@ class TokenRefreshErrorHandlingTestCase(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
+        cache.clear()  # Prevent rate limiter state leaking from other test classes
         self.client = APIClient()
         self.user = User.objects.create_user(
             username='testuser',
@@ -313,11 +316,11 @@ class TokenRefreshErrorHandlingTestCase(TestCase):
     def test_refresh_with_blacklist_failure(self):
         """Test token refresh handles blacklist failures gracefully."""
         # Login
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -329,11 +332,11 @@ class TokenRefreshErrorHandlingTestCase(TestCase):
         with patch('rest_framework_simplejwt.tokens.RefreshToken.blacklist') as mock_blacklist:
             mock_blacklist.side_effect = Exception('Blacklist service unavailable')
 
-            csrf_response = self.client.get('/api/auth/csrf/')
+            csrf_response = self.client.get('/api/v1/auth/csrf/')
             csrf_token = csrf_response.cookies.get('csrftoken').value
 
             response = self.client.post(
-                '/api/auth/token/refresh/',
+                '/api/v1/auth/token/refresh/',
                 HTTP_X_CSRFTOKEN=csrf_token
             )
 
@@ -354,12 +357,12 @@ class TokenRefreshErrorHandlingTestCase(TestCase):
         self.client.cookies['refresh_token'] = refresh_token_str
 
         # Get CSRF token
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         # Attempt refresh
         response = self.client.post(
-            '/api/auth/token/refresh/',
+            '/api/v1/auth/token/refresh/',
             HTTP_X_CSRFTOKEN=csrf_token
         )
 
@@ -475,11 +478,11 @@ class TokenLifetimeTestCase(TestCase):
     def test_expired_access_token_rejected(self):
         """Test that expired access tokens are rejected by the API."""
         # Login to get tokens
-        csrf_response = self.client.get('/api/auth/csrf/')
+        csrf_response = self.client.get('/api/v1/auth/csrf/')
         csrf_token = csrf_response.cookies.get('csrftoken').value
 
         login_response = self.client.post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             data={
                 'username': 'testuser',
                 'password': 'TestPassword123!'
@@ -538,26 +541,22 @@ class TokenLifetimeTestCase(TestCase):
 
     def test_production_vs_debug_token_lifetimes(self):
         """Test that debug mode has extended tokens for easier development."""
-        # This test verifies the configuration only if DEBUG mode is being used
-        if settings.DEBUG:
-            debug_lifetime = settings.SIMPLE_JWT.get('ACCESS_TOKEN_LIFETIME_DEBUG')
-            if debug_lifetime:
-                # Debug tokens should be longer than production tokens for convenience
-                production_lifetime = settings.SIMPLE_JWT['ACCESS_TOKEN_LIFETIME']
+        # ACCESS_TOKEN_LIFETIME_DEBUG is set at settings load time based on DEBUG env var.
+        # pytest-django overrides settings.DEBUG to False during test execution,
+        # so we check the invariant directly: if it's set, it must exceed production lifetime.
+        debug_lifetime = settings.SIMPLE_JWT.get('ACCESS_TOKEN_LIFETIME_DEBUG')
 
-                self.assertGreater(
-                    debug_lifetime,
-                    production_lifetime,
-                    "Debug mode tokens should be longer than production tokens"
-                )
+        if debug_lifetime is not None:
+            # When debug lifetime is configured, it must be longer than production for dev convenience
+            production_lifetime = settings.SIMPLE_JWT['ACCESS_TOKEN_LIFETIME']
 
-                print(f"\nDebug mode token configuration:")
-                print(f"  Production lifetime: {production_lifetime}")
-                print(f"  Debug lifetime: {debug_lifetime}")
-        else:
-            # In production, ACCESS_TOKEN_LIFETIME_DEBUG should be None
-            debug_lifetime = settings.SIMPLE_JWT.get('ACCESS_TOKEN_LIFETIME_DEBUG')
-            self.assertIsNone(
+            self.assertGreater(
                 debug_lifetime,
-                "Debug token lifetime should be None in production"
+                production_lifetime,
+                "Debug mode tokens should be longer than production tokens"
             )
+
+            print(f"\nDebug mode token configuration:")
+            print(f"  Production lifetime: {production_lifetime}")
+            print(f"  Debug lifetime: {debug_lifetime}")
+        # If None, no debug configuration is present - valid for production deployments

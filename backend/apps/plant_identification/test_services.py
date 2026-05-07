@@ -15,6 +15,8 @@ from apps.plant_identification.services.trefle_service import TrefleAPIService
 from apps.plant_identification.services.plant_health_service import PlantHealthAPIService
 from apps.plant_identification.services.identification_service import PlantIdentificationService
 from apps.plant_identification.models import PlantSpecies, PlantIdentificationRequest
+from apps.core.exceptions import ExternalAPIError
+from django.core.cache import cache
 from PIL import Image
 import io
 import requests
@@ -28,6 +30,7 @@ class TestPlantNetAPIService(TestCase):
     
     def setUp(self):
         """Set up test data."""
+        cache.clear()
         self.service = PlantNetAPIService()
         self.test_image = self.create_test_image()
     
@@ -114,10 +117,8 @@ class TestPlantNetAPIService(TestCase):
         mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("Bad Request - Invalid image format")
         mock_post.return_value = mock_response
         
-        result = self.service.identify_plant([self.test_image], organs=['flower'])
-        
-        # Current implementation returns None on failure
-        self.assertIsNone(result)
+        with self.assertRaises(ExternalAPIError):
+            self.service.identify_plant([self.test_image], organs=['flower'])
     
     @pytest.mark.external_api
     @patch('requests.Session.post')
@@ -126,10 +127,8 @@ class TestPlantNetAPIService(TestCase):
         # Mock network timeout
         mock_post.side_effect = requests.exceptions.Timeout()
         
-        result = self.service.identify_plant([self.test_image], organs=['flower'])
-        
-        # Current implementation returns None on request exceptions
-        self.assertIsNone(result)
+        with self.assertRaises(ExternalAPIError):
+            self.service.identify_plant([self.test_image], organs=['flower'])
     
     @pytest.mark.services
     def test_get_top_suggestions_formatting(self):

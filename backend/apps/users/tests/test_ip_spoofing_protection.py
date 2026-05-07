@@ -149,7 +149,8 @@ class IPSpoofingProtectionTestCase(TestCase):
     def test_get_client_ip_missing_remote_addr(self):
         """Test handling when REMOTE_ADDR is missing."""
         request = self.factory.get('/api/test/')
-        # Don't set REMOTE_ADDR
+        # RequestFactory sets REMOTE_ADDR='127.0.0.1' by default; explicitly remove it
+        del request.META['REMOTE_ADDR']
 
         ip = SecurityMonitor._get_client_ip(request)
 

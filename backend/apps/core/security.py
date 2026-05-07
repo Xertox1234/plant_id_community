@@ -625,7 +625,7 @@ This is an automated security message from Plant Community.
                         # Validate IP format to prevent injection attacks
                         ip_address(ip_str)
                         return ip_str
-                    except AddressValueError:
+                    except (ValueError, AddressValueError):
                         # Skip invalid IPs (possible spoofing attempt)
                         logger.warning(f"{LOG_PREFIX_SECURITY} Invalid IP in X-Forwarded-For: {ip_str}")
                         continue
@@ -638,7 +638,7 @@ This is an automated security message from Plant Community.
             try:
                 ip_address(remote_addr)
                 return remote_addr
-            except AddressValueError:
+            except (ValueError, AddressValueError):
                 logger.error(f"{LOG_PREFIX_SECURITY} REMOTE_ADDR has invalid format: {log_safe_ip(remote_addr)}")
 
         return UNKNOWN_IP_ADDRESS
