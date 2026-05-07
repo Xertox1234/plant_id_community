@@ -168,3 +168,64 @@ grep -l "import wagtail\|from wagtail\|class.*Page" <candidate-py-files>
 `primary_map` is included so Phase 4 (repair) can compute the primary agent per file without re-running routing.
 
 Then stop. Main Claude dispatches each wave's invocations in parallel via the Task tool, collects JSON results, checkpoints to `docs/reviews/.<review_id>-partial.json` after each wave, and re-invokes you for Phase 3 once all waves complete.
+
+## Phase 2 — Dispatch Waves (Main Claude responsibility)
+
+This phase does not invoke this agent. Main Claude executes it directly using the wave plan from Phase 1.
+
+For each wave in `waves`, in order:
+
+1. Dispatch every invocation in that wave **in parallel** via the Task tool. The dispatch prompt for each invocation:
+
+```
+Review these files. Report findings only for the files listed.
+
+Batch label: <invocation.batch_label> (<invocation.agent>)
+Files:
+  - <invocation.files[0]>
+  - <invocation.files[1]>
+  ...
+```
+
+2. Collect each reviewer's JSON response. Validate that each response is valid JSON matching `{"agent": "...", "batch_label": "...", "findings": [...]}`. If a response is invalid:
+   - Record `{"agent": "<id>", "batch_label": "<label>", "status": "failed", "error": "<reason>"}` in a `failed_invocations` list.
+   - Continue with the rest of the wave; do not block.
+
+3. After all invocations in the wave finish, append the collected findings + failed_invocations to a checkpoint file:
+```
+docs/reviews/.<review_id>-partial.json
+```
+
+   The checkpoint file shape (carries forward Phase 1 state so Phase 3 has everything it needs):
+```json
+{
+  "review_id": "<id>",
+  "started_at": "<ISO from Phase 1>",
+  "scope": { "roots": ["..."], "excluded": ["..."] },
+  "primary_map": { "<file>": "<agent>" },
+  "wave_size": 8,
+  "total_invocations": 34,
+  "completed_waves": [1, 2, 3],
+  "findings": [/* flat list of all findings collected so far */],
+  "failed_invocations": [/* list of failed invocation records */]
+}
+```
+
+   Use the Write tool to overwrite the checkpoint after each wave (last writer wins; the checkpoint always contains the cumulative state). The first wave's checkpoint copies `review_id`, `started_at`, `scope`, `primary_map`, `wave_size`, `total_invocations` from the Phase 1 plan output and initializes `findings` and `failed_invocations` as accumulating arrays.
+
+4. Print a one-line progress update to the user:
+```
+Wave 3/5 complete — 47 new findings (12 critical, 18 high, 14 medium, 3 low)
+```
+
+5. Continue to the next wave.
+
+After the final wave, re-invoke `full-review-orchestrator` for Phase 3 with the path to the checkpoint file (`docs/reviews/.<review_id>-partial.json`) — Phase 3 reads it directly and has all the carried-forward state.
+
+### Resume after interruption
+
+If the user re-invokes the orchestrator and a `.<review_id>-partial.json` file already exists:
+- The orchestrator (during a re-run of Phase 0) detects the partial and prompts: `Found partial review from <review_id> (waves <X> of <Y> complete). Resume? (y/n/restart)`.
+- On `y`, skip waves already in `completed_waves`, dispatch only the remaining waves.
+- On `restart`, delete the partial and re-plan from Phase 0.
+
