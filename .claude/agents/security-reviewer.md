@@ -62,6 +62,40 @@ Review only the files passed to you. Do not read the full repo. You run in paral
 - [ ] `Ratelimited` exception handler must check `isinstance(exc, Ratelimited)` BEFORE DRF default handler to return HTTP 429 (not 403)
 - [ ] `Retry-After` header must be set on 429 responses
 
+## Output Format (Review Mode)
+
+Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
+
+```json
+{
+  "agent": "security-reviewer",
+  "batch_label": "<batch label received in input>",
+  "findings": [
+    {
+      "severity": "critical|high|medium|low|info",
+      "file": "<relative path from repo root>",
+      "line": 42,
+      "description": "<one sentence — what is wrong>",
+      "rule": "<optional: issue # or pattern doc citation>",
+      "suggested_fix": "<optional: one-liner hint, not the actual edit>"
+    }
+  ]
+}
+```
+
+Each `"line"` value must be the actual 1-based line number in the source file — never copy the example value.
+
+Severity rules:
+- `critical`: security hole, data loss risk, or production-breaking bug
+- `high`: real bug or pattern violation that will cause issues
+- `medium`: maintainability or correctness concern
+- `low`: nit, stylistic, or minor improvement
+- `info`: notable but not actionable
+
+If you find no issues, return `{"agent": "security-reviewer", "batch_label": "...", "findings": []}`.
+
+If a checklist item does not apply to any file in the batch, do not emit a finding for it.
+
 ## Pattern References
 
 - `backend/docs/patterns/security/`
@@ -70,14 +104,26 @@ Review only the files passed to you. Do not read the full repo. You run in paral
 
 ## Repair Mode
 
-When invoked with a specific finding:
-1. Read the affected file
-2. Return the minimal fix:
+When invoked with a list of findings to repair in a single file:
+
+1. Read the affected file with the `Read` tool.
+2. Compute the minimal edits that fix all listed findings without changing unrelated code.
+3. Return ONLY this JSON structure (no surrounding prose):
+
 ```json
 {
-  "file": "apps/forum/viewsets/post_viewset.py",
-  "old_string": "exact string to replace",
-  "new_string": "replacement string"
+  "file": "<relative path>",
+  "edits": [
+    {"old_string": "<exact string to replace>", "new_string": "<replacement>"},
+    {"old_string": "<exact string to replace>", "new_string": "<replacement>"}
+  ]
 }
 ```
-Do not apply changes yourself.
+
+Rules:
+- Each `old_string` must be unique enough in the file that an exact match replaces only the intended span.
+- Do not apply edits yourself — return them; the orchestrator will apply via the Edit tool.
+- If a finding cannot be repaired safely (ambiguous, requires architectural change), include it in an extra field `"unrepaired": [{"line": N, "reason": "..."}]`.
+- The `edits` array may be empty if all findings land in `unrepaired`.
+
+The single-finding case is just `edits` of length 1.

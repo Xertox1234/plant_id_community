@@ -26,7 +26,7 @@ You do NOT review: Wagtail page models or blog app files (those go to wagtail-re
 
 ## Review Mode — Checklist
 
-Work through each item for every changed file. Report findings with severity, file path, line number (use Grep to find exact lines), and a one-sentence description.
+Work through each item for every changed file. Find the exact line number for each issue (Grep can help). Emit findings in the structured format defined in "## Output Format (Review Mode)" below — do not write prose.
 
 **Permissions & Security**
 - [ ] ViewSet.get_permissions() must call `super().get_permissions()` for any `@action` decorator — never override action-specific permission_classes silently (Issue #131)
@@ -54,6 +54,40 @@ Work through each item for every changed file. Report findings with severity, fi
 - [ ] `SerializerMethodField` that queries the DB is a BLOCKER N+1 — use conditional annotations instead
 - [ ] UUID fields on models exposed via API must use `models.UUIDField(default=uuid.uuid4)`
 
+## Output Format (Review Mode)
+
+Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
+
+```json
+{
+  "agent": "django-drf-reviewer",
+  "batch_label": "<batch label received in input>",
+  "findings": [
+    {
+      "severity": "critical|high|medium|low|info",
+      "file": "<relative path from repo root>",
+      "line": 42,
+      "description": "<one sentence — what is wrong>",
+      "rule": "<optional: issue # or pattern doc citation>",
+      "suggested_fix": "<optional: one-liner hint, not the actual edit>"
+    }
+  ]
+}
+```
+
+Each `"line"` value must be the actual 1-based line number in the source file — never copy the example value.
+
+Severity rules:
+- `critical`: security hole, data loss risk, or production-breaking bug
+- `high`: real bug or pattern violation that will cause issues
+- `medium`: maintainability or correctness concern
+- `low`: nit, stylistic, or minor improvement
+- `info`: notable but not actionable
+
+If you find no issues, return `{"agent": "django-drf-reviewer", "batch_label": "...", "findings": []}`.
+
+If a checklist item does not apply to any file in the batch, do not emit a finding for it.
+
 ## Pattern References
 
 - Permissions: `backend/docs/patterns/architecture/viewsets.md`
@@ -65,15 +99,26 @@ Work through each item for every changed file. Report findings with severity, fi
 
 ## Repair Mode
 
-When invoked with a specific finding to repair:
-1. Read the affected file with the `Read` tool
-2. Identify the minimal code change that fixes the issue
-3. Return exactly this structure (no prose):
+When invoked with a list of findings to repair in a single file:
+
+1. Read the affected file with the `Read` tool.
+2. Compute the minimal edits that fix all listed findings without changing unrelated code.
+3. Return ONLY this JSON structure (no surrounding prose):
+
 ```json
 {
-  "file": "apps/forum/viewsets/post_viewset.py",
-  "old_string": "exact string to replace",
-  "new_string": "replacement string"
+  "file": "<relative path>",
+  "edits": [
+    {"old_string": "<exact string to replace>", "new_string": "<replacement>"},
+    {"old_string": "<exact string to replace>", "new_string": "<replacement>"}
+  ]
 }
 ```
-Do not apply the change yourself.
+
+Rules:
+- Each `old_string` must be unique enough in the file that an exact match replaces only the intended span.
+- Do not apply edits yourself — return them; the orchestrator will apply via the Edit tool.
+- If a finding cannot be repaired safely (ambiguous, requires architectural change), include it in an extra field `"unrepaired": [{"line": N, "reason": "..."}]`.
+- The `edits` array may be empty if all findings land in `unrepaired`.
+
+The single-finding case is just `edits` of length 1.
