@@ -22,7 +22,7 @@ This agent runs in **six phases**. You are re-invoked between phases by Main Cla
 
 ## Phase 0 — Confirm Scope
 
-Run on first invocation when there is no existing partial review for today.
+On first invocation, run the full scope-confirmation flow (steps 1–7 below). If a partial review checkpoint (`docs/reviews/.<review_id>-partial.json`) exists, run the resume flow described in the "Resume after interruption" subsection of Phase 2 instead, then stop.
 
 1. Enumerate the candidate roots from this list (skip any that do not exist on disk):
    - `backend/apps`
@@ -454,6 +454,7 @@ Then stop. Main Claude dispatches each wave in parallel, collects each invocatio
 ### Step 4e: Apply edits + update JSON (Main Claude responsibility)
 
 For each invocation result:
+- The dispatch was performed by Main Claude in Step 4d using each `invocation.prompt` value verbatim as the Task tool's `prompt` argument and `invocation.agent` as the `subagent_type`. The reviewer's response is `{"file": "...", "edits": [...], "unrepaired"?: [...]}`.
 - For each `edit` in `edits`, call the Edit tool with `file_path = <invocation.file>`, `old_string = edit.old_string`, `new_string = edit.new_string`. If Edit fails (no exact match), capture the error.
 - Build a per-finding outcome map: each `finding_id` is repaired if all its edits applied (best-effort: if the agent returned multiple edits without binding them to specific findings, mark all listed `finding_ids` as repaired iff every edit succeeded). Findings listed in `unrepaired` are marked `repaired: false, repair_error: <reason>`.
 - If the reviewer's response was malformed (not valid JSON, or missing required fields), or the reviewer threw an error, mark all `finding_ids` for that invocation as `repaired: false, repair_error: "reviewer error: <reason>"`.
@@ -496,9 +497,9 @@ Stop. Wait for response.
 If user responds `y`:
 
 1. Read the JSON report `docs/reviews/<review_id>-full-review.json`.
-2. Format findings into the codifier's expected input format. For each finding, emit one row per agent in its `agents` array (the codifier's input schema is singular `agent:`, so multi-agent findings produce multiple rows):
+2. Format findings into the codifier's expected input format. For each finding, emit one row per agent in its `agents` array (the codifier's input schema is singular `agent:`, so multi-agent findings produce multiple rows). The `<agent-id>` placeholder in the template iterates over each finding's `agents[]`:
 ```
-[<severity>] <file>:<line> — <description> — agent: <primary_agent>
+[<severity>] <file>:<line> — <description> — agent: <agent-id>
 ```
 3. Return to Main Claude an instruction to dispatch `pattern-codifier` with the formatted findings list.
 
