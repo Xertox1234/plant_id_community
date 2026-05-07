@@ -171,9 +171,8 @@ pids/
 # ===================================
 # Development / Reference Materials
 # ===================================
-# Claude Code configuration and tools
-.claude/
-# Track custom agents so the review team survives a fresh clone
+# Claude Code configuration and tools (ignore contents, not dir itself, so agents/ exception works)
+.claude/*
 !.claude/agents/
 
 # CLAUDE.md contains project-specific context and may include sensitive info

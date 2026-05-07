@@ -35,7 +35,7 @@ Map each changed file to domain agents using this routing table:
 | Path pattern | Agents to invoke |
 |---|---|
 | `apps/**/*.py` (excluding blog/wagtail) | `django-drf-reviewer` |
-| `apps/blog/**` OR any `.py` file importing `wagtail` or `Page` | `wagtail-reviewer` |
+| `apps/blog/**` OR any `.py` file matching `grep -l "import wagtail\|from wagtail\|from .models import.*Page"` | `wagtail-reviewer` |
 | `web/src/**/*.tsx` or `web/src/**/*.ts` | `react-typescript-reviewer` |
 | `plant_community_mobile/**/*.dart` | `flutter-dart-reviewer` |
 | `plant_community_mobile/**/firebase*` or `plant_community_mobile/**/auth*` | `flutter-firebase-reviewer` |
@@ -44,7 +44,7 @@ Map each changed file to domain agents using this routing table:
 | `**/tasks.py` or `**/celery*.py` or `**/beat*.py` | `celery-async-reviewer` |
 | `**/serializers.py` or `**/api/**` | `api-design-reviewer` |
 | `**/tests/**` or `**/test_*.py` or `**/*.test.ts` | `test-quality-reviewer` |
-| Any file touching auth, upload, secrets, permissions | always add `security-reviewer` |
+| `**/permissions.py`, `**/auth*.py`, `**/upload*.py`, `**/*token*.py`, `**/*secret*.py` OR `grep -l "SECRET\|API_KEY\|upload\|permission" <changed_py_files>` | always add `security-reviewer` |
 | Any `.py` file | always add `performance-reviewer` |
 
 Deduplicate: each agent ID appears only once in the final list.
@@ -107,4 +107,4 @@ Format:
 
 ## Phase 5 — Compound
 
-Tell main Claude to invoke `pattern-codifier` with all findings from Phase 1, then apply the returned update instructions.
+Tell main Claude to invoke `pattern-codifier` with all findings from Phase 2 (the full severity-grouped findings list), then apply the returned update instructions.
