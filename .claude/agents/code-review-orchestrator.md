@@ -58,11 +58,24 @@ Return a JSON block:
 }
 ```
 
+Main Claude then dispatches each agent in `agents_to_invoke` in parallel via the Task tool. The dispatch prompt for each reviewer:
+
+```
+Review these files. Report findings only for the files listed.
+
+Batch label: incremental-<short SHA from git rev-parse --short HEAD> (<reviewer-id>)
+Files:
+  - <file path 1>
+  - <file path 2>
+```
+
+Each reviewer returns its findings JSON (per its `## Output Format (Review Mode)` section). Main Claude collects all results and re-invokes this orchestrator for Phase 2 with the merged JSON.
+
 Then stop. Main Claude dispatches the agents in parallel and collects results.
 
 ## Phase 2 — Present Findings
 
-After main Claude collects findings JSON from each dispatched reviewer (each result is `{"agent": "...", "batch_label": "...", "findings": [...]}`), merge all `findings` arrays. Deduplicate by `(file, line, normalized_description)` where `normalized_description` is lowercase + whitespace-collapsed. When two findings collapse, keep both agent IDs in an `agents` array on the merged finding.
+After main Claude collects findings JSON from each dispatched reviewer (each result is `{"agent": "...", "batch_label": "...", "findings": [...]}`), merge all `findings` arrays. Deduplicate by `(file, line, normalized_description)` where `normalized_description` is the description lowercased, with any run of whitespace (spaces, tabs, newlines) replaced by a single space, and leading/trailing whitespace stripped (no punctuation normalization). When two findings collapse, keep both agent IDs in an `agents` array on the merged finding.
 
 Sort merged findings by severity (critical → info), then by file, then by line.
 
@@ -89,8 +102,8 @@ Repair CRITICAL + HIGH + MEDIUM findings? (yes / no / select numbers)
 ## Phase 3 — Repair
 
 If user confirms repair:
-- For each finding to repair (CRITICAL/HIGH/MEDIUM), tell main Claude to re-invoke the owning domain agent in repair mode with: the file path and the list of findings (line + description) for that file. If multiple findings target the same file, group them into a single repair invocation per file.
-- The reviewer returns `{file, edits: [{old_string, new_string}, ...], unrepaired?: [{line, reason}]}`. Main Claude applies each edit via the Edit tool; findings listed in `unrepaired` are surfaced to the user.
+- Group findings to repair by file. For each file, pick the repair owner: re-evaluate the routing table from Phase 1 against that file path; the first matching agent that's also present in any of the file's findings' `agents` arrays is the owner. Tell main Claude to dispatch the owner in repair mode with the file path and the list of findings (line + description) for that file.
+- The reviewer returns `{file, edits: [{old_string, new_string}, ...], unrepaired?: [{line, reason}]}`. Main Claude applies each edit via the Edit tool. For each entry in `unrepaired`, print to the user: `⚠️ Unrepaired (manual): <file>:<line> — <reason>` and append the entry to `todos/YYYY-MM-DD-review.md` under a `## Unrepaired Findings` heading so it isn't lost.
 - Confirm each repair to the user.
 
 ## Phase 4 — Todos
@@ -111,4 +124,12 @@ Format:
 
 ## Phase 5 — Compound
 
-Tell main Claude to invoke `pattern-codifier` with all findings from Phase 2 (the full severity-grouped findings list), then apply the returned update instructions.
+Tell main Claude to invoke `pattern-codifier` with all findings from Phase 2. Adapt each finding's `agents` array to the codifier's expected singular `agent:` format by emitting one input row per agent in the array. Each input row uses the format:
+
+```
+[<severity>] <file>:<line> — <description> — agent: <agent-id>
+```
+
+A finding with `agents: ["security-reviewer", "django-drf-reviewer"]` emits two rows (one per agent). The codifier dedupes internally if the same finding lands in multiple checklists.
+
+After the codifier returns its JSON output, apply the returned update instructions.
