@@ -171,9 +171,10 @@ pids/
 # ===================================
 # Development / Reference Materials
 # ===================================
-# Claude Code configuration and tools (ignore contents, not dir itself, so agents/ exception works)
+# Claude Code configuration and tools (ignore contents, not dir itself, so agents/ and skills/ exceptions work)
 .claude/*
 !.claude/agents/
+!.claude/skills/
 
 # CLAUDE.md contains project-specific context and may include sensitive info
 # Use CLAUDE.md.example as template
@@ -205,3 +206,6 @@ docs/reviews/*-full-review.md
 docs/reviews/*-full-review.json
 docs/reviews/.*-partial.json
 !docs/reviews/INDEX.md
+
+# Completing-todos run checkpoints (per-run, transient)
+todos/.completing-todos-run-*.json
