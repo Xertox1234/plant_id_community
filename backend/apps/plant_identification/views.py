@@ -27,6 +27,7 @@ except ImportError:
         return decorator
 import logging
 
+from apps.core.utils.query_sanitization import escape_search_query
 from . import constants
 from .models import (
     PlantSpecies, 
@@ -79,16 +80,17 @@ class PlantSpeciesViewSet(viewsets.ReadOnlyModelViewSet):
         # Filter by search query
         search = self.request.query_params.get('search')
         if search:
+            search = escape_search_query(search)
             queryset = queryset.filter(
                 models.Q(scientific_name__icontains=search) |
                 models.Q(common_names__icontains=search) |
                 models.Q(family__icontains=search)
             )
-        
+
         # Filter by family
         family = self.request.query_params.get('family')
         if family:
-            queryset = queryset.filter(family__icontains=family)
+            queryset = queryset.filter(family__icontains=escape_search_query(family))
         
         return queryset.order_by('scientific_name')
     
@@ -739,7 +741,7 @@ class PlantDiseaseRequestViewSet(viewsets.ModelViewSet):
             return PlantDiseaseRequestWithResultsSerializer
         return PlantDiseaseRequestSerializer
     
-    @method_decorator(ratelimit(key='user', rate='5/m', method='POST', block=True))  # 5 disease diagnosis requests per minute per user
+    @method_decorator(ratelimit(key='user', rate=constants.RATE_LIMITS['authenticated']['regenerate'], method='POST', block=True))
     def create(self, request, *args, **kwargs):
         """Create disease diagnosis request with rate limiting."""
         return super().create(request, *args, **kwargs)
@@ -868,7 +870,7 @@ class PlantDiseaseResultViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         return PlantDiseaseResult.objects.filter(
             request__user=self.request.user
-        ).order_by('-confidence_score', '-created_at')
+        ).select_related('request', 'request__user').order_by('-confidence_score', '-created_at')
     
     @action(detail=True, methods=['post'])
     def vote(self, request, pk=None):
@@ -968,7 +970,7 @@ class PlantDiseaseResultViewSet(viewsets.ReadOnlyModelViewSet):
         attempts = TreatmentAttempt.objects.filter(
             diagnosis_result=result_obj,
             user=request.user
-        ).order_by('-created_at')
+        ).select_related('diagnosis_result', 'user').order_by('-created_at')
         
         serializer = TreatmentAttemptSerializer(attempts, many=True)
         return Response(serializer.data)
@@ -1026,7 +1028,7 @@ class PlantDiseaseDatabaseViewSet(viewsets.ReadOnlyModelViewSet):
         # Search by disease name
         search = self.request.query_params.get('search')
         if search:
-            queryset = queryset.filter(disease_name__icontains=search)
+            queryset = queryset.filter(disease_name__icontains=escape_search_query(search))
         
         return queryset
     
@@ -1179,14 +1181,16 @@ def search_local_plants(request):
     query = request.query_params.get('q', '').strip()
     if not query:
         return Response({'error': 'Search query (q) is required'}, status=400)
-    
+
+    query = escape_search_query(query)
+
     try:
         # Search auto-stored plants first (highest priority)
         auto_stored = PlantSpecies.objects.filter(
             auto_stored=True,
             scientific_name__icontains=query
         ).order_by('-identification_count', '-confidence_score')[:10]
-        
+
         # Search all plants if we need more results
         all_plants = PlantSpecies.objects.filter(
             models.Q(scientific_name__icontains=query) |
@@ -1228,10 +1232,12 @@ def search_local_diseases(request):
     """
     query = request.query_params.get('q', '').strip()
     disease_type = request.query_params.get('type', '').strip()
-    
+
     if not query:
         return Response({'error': 'Search query (q) is required'}, status=400)
-    
+
+    query = escape_search_query(query)
+
     try:
         # Build query
         queryset = PlantDiseaseDatabase.objects.filter(

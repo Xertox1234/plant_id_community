@@ -312,9 +312,9 @@ class BlogViewTrackingMiddlewareTests(TransactionTestCase):
 
         response = MagicMock(status_code=200)
 
-        # Mock BlogPostView.objects.create to raise exception
-        with patch('apps.blog.models.BlogPostView.objects.create') as mock_create:
-            mock_create.side_effect = Exception('Database error')
+        # Mock transaction.on_commit to raise exception (simulates DB transaction failure)
+        with patch('apps.blog.middleware.transaction.on_commit') as mock_on_commit:
+            mock_on_commit.side_effect = Exception('Transaction error')
 
             # Should not raise - error is caught
             try:
@@ -517,10 +517,11 @@ class PopularPostsAPITests(TestCase):
 
         query_count = len(context.captured_queries)
 
-        # Track query count - N+1 optimization pending
-        self.assertLess(
+        # TODO(#117): Tighten to assertEqual(N) once N+1 on popular endpoint is resolved
+        # Current: ~26 queries (N+1 pattern: 4 queries × 5 posts + 6 overhead)
+        self.assertLessEqual(
             query_count,
-            50,
+            30,
             f"Query count too high: {query_count} queries. "
             f"Queries: {[q['sql'][:100] for q in context.captured_queries]}"
         )
@@ -539,10 +540,11 @@ class PopularPostsAPITests(TestCase):
 
         query_count = len(context.captured_queries)
 
-        # All-time should be reasonably efficient
-        self.assertLess(
+        # TODO(#117): Tighten to assertEqual(N) once N+1 on all-time popular endpoint is resolved
+        # Current: ~25 queries (N+1 pattern: 4 queries × 5 posts + 5 overhead)
+        self.assertLessEqual(
             query_count,
-            50,
+            30,
             f"All-time query count too high: {query_count} queries"
         )
 

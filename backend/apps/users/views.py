@@ -23,6 +23,7 @@ from .models import User, UserPlantCollection
 from .serializers import UserRegistrationSerializer, UserSerializer, UserProfileSerializer
 from .authentication import set_jwt_cookies, clear_jwt_cookies, RefreshTokenFromCookie
 from apps.plant_identification.constants import RATE_LIMITS
+from .constants import RATE_LIMIT_DEMO_DATA_CREATE, RATE_LIMIT_ONBOARDING_EVENT
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +282,7 @@ def update_profile(request: Request) -> Response:
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
+@csrf_protect
 def logout(request: Request) -> Response:
     """
     Logout user by clearing httpOnly cookies and blacklisting refresh token.
@@ -1095,6 +1097,12 @@ def care_reminder_action(request: Request, reminder_uuid: str) -> Response:
     
     elif action == 'snooze':
         snooze_hours = request.data.get('snooze_hours', 24)
+        try:
+            snooze_hours = int(snooze_hours)
+        except (ValueError, TypeError):
+            return Response({'error': 'snooze_hours must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+        if not (1 <= snooze_hours <= 8760):
+            return Response({'error': 'snooze_hours must be between 1 and 8760 (1 hour to 1 year)'}, status=status.HTTP_400_BAD_REQUEST)
         reminder.mark_snoozed(snooze_hours=snooze_hours)
         CareReminderLog.objects.create(
             reminder=reminder,
@@ -1165,7 +1173,7 @@ def care_reminder_stats(request: Request) -> Response:
         user=request.user,
         is_active=True,
         next_reminder_date__gte=timezone.now()
-    ).order_by('next_reminder_date')[:5]
+    ).select_related('saved_care_instructions').order_by('next_reminder_date')[:5]
     
     upcoming_data = []
     for reminder in upcoming:
@@ -1257,7 +1265,7 @@ def onboarding_progress(request: Request) -> Response:
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
-@ratelimit(key='user', rate='10/h', method='POST', block=True)
+@ratelimit(key='user', rate=RATE_LIMIT_DEMO_DATA_CREATE, method='POST', block=True)
 def create_demo_data(request: Request) -> Response:
     """
     Create demo data for new users to explore the platform.
@@ -1299,7 +1307,7 @@ def create_demo_data(request: Request) -> Response:
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
-@ratelimit(key='user', rate='50/h', method='POST', block=True)
+@ratelimit(key='user', rate=RATE_LIMIT_ONBOARDING_EVENT, method='POST', block=True)
 def track_onboarding_event(request: Request) -> Response:
     """
     Track onboarding events for analytics and optimization.
@@ -1400,22 +1408,26 @@ def export_care_reminders_calendar(request: Request) -> HttpResponse:
         'X-WR-TIMEZONE:UTC'
     ]
     
+    # Prevent CRLF injection: strip \r and \n from any user-supplied ICS field values
+    _ics_safe = lambda s: str(s).replace('\r', '').replace('\n', ' ')
+
     for reminder in reminders:
         # Generate recurring events for the next 6 months
         current_date = reminder.next_reminder_date
         end_date = timezone.now() + timedelta(days=180)  # 6 months ahead
-        
+
         while current_date <= end_date:
             event_id = str(uuid.uuid4())
-            
+
             # Format datetime for ICS (UTC)
             start_dt = current_date.strftime('%Y%m%dT%H%M%SZ')
             end_dt = (current_date + timedelta(hours=1)).strftime('%Y%m%dT%H%M%SZ')
             created_dt = reminder.created_at.strftime('%Y%m%dT%H%M%SZ')
-            
-            plant_name = reminder.saved_care_instructions.display_name
-            reminder_type = reminder.get_reminder_type_display()
-            
+
+            plant_name = _ics_safe(reminder.saved_care_instructions.display_name)
+            reminder_type = _ics_safe(reminder.get_reminder_type_display())
+            description = _ics_safe(reminder.description or f"Time to {reminder_type.lower()} your {plant_name}")
+
             ics_lines.extend([
                 'BEGIN:VEVENT',
                 f'UID:{event_id}@plantcommunity.com',
@@ -1425,7 +1437,7 @@ def export_care_reminders_calendar(request: Request) -> HttpResponse:
                 f'CREATED:{created_dt}',
                 f'LAST-MODIFIED:{reminder.updated_at.strftime("%Y%m%dT%H%M%SZ")}',
                 f'SUMMARY:{reminder_type} - {plant_name}',
-                f'DESCRIPTION:{reminder.description or f"Time to {reminder_type.lower()} your {plant_name}"}',
+                f'DESCRIPTION:{description}',
                 'CATEGORIES:Plant Care,Reminders',
                 'STATUS:CONFIRMED',
                 'TRANSP:TRANSPARENT',

@@ -83,17 +83,20 @@ class CircuitBreakerTests(TestCase):
         mock_response_success = Mock()
         mock_response_success.raise_for_status.return_value = None
         mock_response_success.json.return_value = {
-            'suggestions': [{
-                'plant_name': 'Test Plant',
-                'plant_details': {
-                    'scientific_name': 'Testus plantus',
-                    'common_names': ['Test'],
-                    'description': {'value': 'A test plant'},
-                    'taxonomy': {},
+            'result': {
+                'classification': {
+                    'suggestions': [{
+                        'name': 'Test Plant',
+                        'probability': 0.95,
+                        'details': {
+                            'common_names': ['Test'],
+                            'description': {'value': 'A test plant'},
+                            'taxonomy': {},
+                        },
+                    }],
                 },
-                'probability': 0.95,
-            }],
-            'health_assessment': {},
+                'is_plant': {'binary': True},
+            },
         }
 
         # First 3 calls fail
@@ -251,17 +254,20 @@ class DistributedLockTests(TestCase):
             mock_response = Mock()
             mock_response.raise_for_status.return_value = None
             mock_response.json.return_value = {
-                'suggestions': [{
-                    'plant_name': 'Test Plant',
-                    'plant_details': {
-                        'scientific_name': 'Testus plantus',
-                        'common_names': ['Test'],
-                        'description': {'value': 'A test plant'},
-                        'taxonomy': {},
+                'result': {
+                    'classification': {
+                        'suggestions': [{
+                            'name': 'Test Plant',
+                            'probability': 0.95,
+                            'details': {
+                                'common_names': ['Test'],
+                                'description': {'value': 'A test plant'},
+                                'taxonomy': {},
+                            },
+                        }],
                     },
-                    'probability': 0.95,
-                }],
-                'health_assessment': {},
+                    'is_plant': {'binary': True},
+                },
             }
             return mock_response
 
@@ -324,17 +330,20 @@ class IntegrationTests(TestCase):
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
         mock_response.json.return_value = {
-            'suggestions': [{
-                'plant_name': 'Test Plant',
-                'plant_details': {
-                    'scientific_name': 'Testus plantus',
-                    'common_names': ['Test'],
-                    'description': {'value': 'A test plant'},
-                    'taxonomy': {},
+            'result': {
+                'classification': {
+                    'suggestions': [{
+                        'name': 'Test Plant',
+                        'probability': 0.95,
+                        'details': {
+                            'common_names': ['Test'],
+                            'description': {'value': 'A test plant'},
+                            'taxonomy': {},
+                        },
+                    }],
                 },
-                'probability': 0.95,
-            }],
-            'health_assessment': {},
+                'is_plant': {'binary': True},
+            },
         }
         mock_session.return_value.post.return_value = mock_response
 

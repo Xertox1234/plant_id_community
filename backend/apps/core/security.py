@@ -123,7 +123,7 @@ class SecurityMonitor:
         if is_locked:
             logger.warning(
                 f"{LOG_PREFIX_LOCKOUT} Login attempt on locked account: "
-                f"username={username}, ip={ip_address}, "
+                f"username={log_safe_username(username)}, ip={log_safe_ip(ip_address)}, "
                 f"time_remaining={time_remaining}s"
             )
             return True, 0
@@ -169,7 +169,7 @@ class SecurityMonitor:
 
                 logger.warning(
                     f"{LOG_PREFIX_AUTH} Failed login attempt: "
-                    f"username={username}, ip={ip_address}, "
+                    f"username={log_safe_username(username)}, ip={log_safe_ip(ip_address)}, "
                     f"attempts={attempts_count}/{ACCOUNT_LOCKOUT_THRESHOLD}"
                 )
 
@@ -214,10 +214,10 @@ class SecurityMonitor:
 
         logger.error(
             f"{LOG_PREFIX_LOCKOUT} Account locked: "
-            f"username={username}, "
+            f"username={log_safe_username(username)}, "
             f"attempts={len(attempts)}, "
             f"duration={ACCOUNT_LOCKOUT_DURATION}s, "
-            f"ip_addresses={lockout_data['ip_addresses']}"
+            f"ip_count={len(lockout_data['ip_addresses'])}"
         )
 
         # Send email notification
@@ -280,7 +280,8 @@ This is an automated security message from Plant Community.
 
             logger.info(
                 f"{LOG_PREFIX_LOCKOUT} Lockout notification sent: "
-                f"username={username}, email={user.email}"
+                f"username={log_safe_username(username)}, "
+                f"email={user.email[:2]}***@{user.email.split('@')[1] if '@' in user.email else '?'}"
             )
 
         except User.DoesNotExist:

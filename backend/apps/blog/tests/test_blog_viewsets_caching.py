@@ -271,11 +271,11 @@ class BlogPostPageViewSetCachingTestCase(TestCase):
         # Verify response succeeded
         self.assertEqual(response.status_code, 200)
 
-        # STRICT: Expect exactly 18 queries (regression protection - Issue #117 pattern)
+        # STRICT: Expect exactly 13 queries (regression protection - Issue #117 pattern)
         # Query breakdown for 5 blog posts:
         # - 1 count query (pagination)
         # - 1 main query (blog posts)
-        # - ~16 prefetch queries (Wagtail relations: author, categories, tags, images, etc.)
+        # - ~11 prefetch queries (Wagtail relations: author, categories, tags, images, etc.)
         # Without prefetching, this would be 30+ queries (N+1 problem)
         self.assertEqual(
             num_queries,
@@ -305,10 +305,10 @@ class BlogPostPageViewSetCachingTestCase(TestCase):
         # Verify response succeeded
         self.assertEqual(response.status_code, 200)
 
-        # STRICT: Expect exactly 19 queries (regression protection - Issue #117 pattern)
+        # STRICT: Expect exactly 20 queries (regression protection - Issue #117 pattern)
         # Query breakdown for single blog post retrieve:
         # - 1 main query (blog post)
-        # - ~18 prefetch queries (Wagtail full prefetch chain: author, categories, tags, images, content blocks, etc.)
+        # - ~19 prefetch queries (Wagtail full prefetch chain: author, categories, tags, images, content blocks, etc.)
         # Without prefetching, this would need 40+ separate queries for each relation
         self.assertEqual(
             num_queries,
