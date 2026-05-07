@@ -22,7 +22,13 @@ This agent runs in **six phases**. You are re-invoked between phases by Main Cla
 
 ## Phase 0 — Confirm Scope
 
-On first invocation, run the full scope-confirmation flow (steps 1–7 below). If a partial review checkpoint (`docs/reviews/.<review_id>-partial.json`) exists, run the resume flow described in the "Resume after interruption" subsection of Phase 2 instead, then stop.
+**First, check for an interrupted review.** Glob for any partial checkpoint:
+```bash
+ls -1 docs/reviews/.*-partial.json 2>/dev/null
+```
+If one or more matches exist, do NOT run the steps below. Instead, follow the resume flow in the "Resume after interruption" subsection of Phase 2 (prompt the user to resume / restart, using the most recent `review_id` if multiple partials are found), then stop.
+
+If no partial exists, run the full scope-confirmation flow (steps 1–7 below).
 
 1. Enumerate the candidate roots from this list (skip any that do not exist on disk):
    - `backend/apps`
@@ -125,6 +131,16 @@ The wagtail predicate runs as:
 ```bash
 grep -l "import wagtail\|from wagtail\|class.*Page" <candidate-py-files>
 ```
+
+### Primary-agent precedence
+
+Multiple rules can match the same file (e.g., `backend/apps/forum/tests/test_views.py` matches both django-drf and test-quality). Resolve primary in this order — first match wins:
+
+1. **Wagtail override**: backend `.py` matching the wagtail predicate → `wagtail-reviewer` is primary.
+2. **Test files**: paths matching `**/tests/**` or `**/test_*.py` (backend) → `test-quality-reviewer` is primary; never django-drf or wagtail. Web `*.test.{ts,tsx}` is the exception — `react-typescript-reviewer` stays primary, `test-quality-reviewer` is secondary (type-check concerns dominate for `.tsx`).
+3. **Domain default**: backend `.py` (non-test, non-wagtail) → `django-drf-reviewer`; web `.{ts,tsx}` → `react-typescript-reviewer`; mobile `.dart` → `flutter-dart-reviewer`; `firebase/**` → `flutter-firebase-reviewer`; `functions/**` → `firebase-cloudfunction-reviewer`.
+
+Cross-cutting reviewers (`celery-async-reviewer`, `api-design-reviewer`, `security-reviewer`, `performance-reviewer`) are always secondary — they never become primary regardless of pattern matches.
 
 5. Group files into batches:
    - Backend: one batch per Django app (subdirs of `backend/apps/`)
@@ -264,6 +280,7 @@ Read the partial checkpoint with the Read tool. It contains: `review_id`, `start
   "started_at": "<ISO from Phase 1>",
   "completed_at": "<ISO now>",
   "scope": { "roots": [...], "excluded": [...] },
+  "wave_size": 8,
   "stats": { "files_reviewed": N, "reviewers_invoked": M, "total_findings": K, "by_severity": {...} },
   "findings": [
     {
@@ -387,7 +404,7 @@ Parser rules:
 - `none` → return immediately with "No repairs requested."
 - `all` → match every finding where `repaired == false`.
 - Unknown predicate → return error message and re-prompt: `"Unknown predicate: <token>. Examples: ..."`.
-- Glob in `file:` uses glob semantics: `*` matches any single path component, `**` matches any number of path components (recursive). Examples: `file:backend/apps/*` matches one level; `file:backend/apps/**` matches all descendants.
+- Glob in `file:` uses gitignore-style semantics: `*` matches any single path component (no `/`), `**` matches any number of path components (recursive). Examples: `file:backend/apps/*` matches one level; `file:backend/apps/**` matches all descendants. Implement matching via Bash with globstar enabled — set `shopt -s globstar nullglob` then expand the pattern, or use `find <root> -path '<pattern>'` with the pattern's `**` rewritten as `*` and a `-type f` filter. Do NOT rely on default Bash glob behavior (globstar is off by default and `**` collapses to `*`).
 - `ids:` ranges are inclusive (`1-3` → 1,2,3).
 - Already-repaired findings (`repaired == true`) are filtered out automatically; do not require user to add `+not-repaired`.
 
@@ -425,7 +442,7 @@ Findings:
   - line <M>: <description>
 ```
 
-2. Group repair invocations into waves of `wave_size` (same default 8 as Phase 1).
+2. Group repair invocations into waves of `wave_size`. Read `wave_size` from the Phase 3 JSON (`docs/reviews/<review_id>-full-review.json`); if absent (older reports), default to 8.
 
 3. Return JSON to Main Claude:
 
