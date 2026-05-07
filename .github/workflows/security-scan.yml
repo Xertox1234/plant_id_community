@@ -1,13 +1,12 @@
 name: Security Dependency Scan
 
 on:
-  push:
-    branches: [main, develop]
   pull_request:
     branches: [main, develop]
   schedule:
     # Run weekly on Mondays at 9am UTC
     - cron: '0 9 * * 1'
+  workflow_dispatch:
 
 jobs:
   backend-security:
@@ -30,16 +29,16 @@ jobs:
           pip install --upgrade pip
           pip install safety
 
-      - name: Run Safety check (JSON report)
+      - name: Run Safety scan (JSON report)
         run: |
           cd backend
-          safety check -r requirements.txt --json > safety-report.json || true
+          safety scan --file requirements.txt --output json > safety-report.json || true
         continue-on-error: true
 
-      - name: Run Safety check (fail on vulnerabilities)
+      - name: Run Safety scan (fail on vulnerabilities)
         run: |
           cd backend
-          safety check -r requirements.txt --bare
+          safety scan --file requirements.txt
         continue-on-error: false
 
       - name: Upload Safety report
