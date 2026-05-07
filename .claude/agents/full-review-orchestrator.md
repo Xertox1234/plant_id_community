@@ -44,25 +44,27 @@ ls -1d backend/apps/*/ web/src/*/ plant_community_mobile/lib/*/ 2>/dev/null | wc
 ```
 Multiply by ~2.5 (the average number of reviewers per batch given cross-cutting agents).
 
-4. Compute reviewers that will be skipped because their gating root is missing:
+4. Determine `wave_size`: if the user's invocation message includes `--wave-size N` (any positive integer), use that value. Otherwise default to `8`. Echo the value in the Phase 0 summary.
+
+5. Compute reviewers that will be skipped because their gating root is missing:
    - `firebase/` missing → skip the `flutter-firebase-reviewer` rule for `firebase/**`
    - `functions/` missing → skip `firebase-cloudfunction-reviewer`
    - `plant_community_mobile/lib/` missing → skip `flutter-dart-reviewer`, `flutter-firebase-reviewer`
    - `web/src/` missing → skip `react-typescript-reviewer`
    - `backend/apps/` missing → skip `django-drf-reviewer`, `wagtail-reviewer`, `celery-async-reviewer`, `api-design-reviewer`, `performance-reviewer`, `security-reviewer` (when only firing for backend)
 
-5. Print this prompt to Main Claude:
+6. Print this prompt to Main Claude:
 
 ```
 Full review starting:
   Roots: <comma-separated list of present roots>
   Excluded: existing_implementation/, docs/archive/, **/migrations/, vendor (node_modules, .venv, dist, build, __pycache__), generated (*.g.dart, *.freezed.dart, *_pb2.py, .next/, coverage/, .dart_tool/)
   Skipped reviewers (no matching root): <comma-separated list, or "none">
-  Estimated batches: <N> across <K> reviewers (≈ <waves> waves of 8)
+  Estimated batches: <N> across <K> reviewers (≈ <waves> waves of <wave_size>)
 Proceed? (yes / no / edit-roots)
 ```
 
-6. If estimated batch count exceeds 100, append a second prompt:
+7. If estimated batch count exceeds 100, append a second prompt:
 ```
 This is a large review (<N> invocations across <waves> waves). Proceed? (yes / scope-down / cancel)
 ```
@@ -244,8 +246,9 @@ Read the partial checkpoint with the Read tool. It contains: `review_id`, `start
 4. **Sort** by severity (critical → high → medium → low → info), then by file (lexicographic), then by line (ascending).
 
 5. **Apply severity coercion**:
-   - `blocker` → `critical`
-   - any other non-canonical value → `info`, and log a warning entry in the report's footer.
+   - First lowercase the severity value (`Critical`, `CRITICAL`, etc. all normalize to `critical`).
+   - `blocker` → `critical`.
+   - Any other non-canonical value (after lowercasing) → `info`, and log a warning entry in the report's footer.
 
 6. **Compute stats**:
    - `files_reviewed`: count of distinct files appearing across all invocations (the union of `invocation.files`)
@@ -374,16 +377,17 @@ clause      = predicate ("+" predicate)*     # plus = AND
 predicate   = severity | agent | file | ids | "all" | "none"
 severity    = "critical" | "high" | "medium" | "low" | "info"
 agent       = "agent:" agent-id
-file        = "file:" glob                   # fnmatch semantics
+file        = "file:" glob                   # glob semantics with ** recursive matching
 ids         = "ids:" id-list                 # 1,4,7-12,18
 ```
 
 Parser rules:
+- Empty filter (whitespace only) → re-prompt with `Empty filter. Type 'all' to repair everything, 'none' to exit, or a filter expression.`
 - Whitespace ignored *around* operators and predicates (`critical , high` ≡ `critical,high`), but never inside a predicate (`critical high` is an error, not `criticalhigh`).
 - `none` → return immediately with "No repairs requested."
 - `all` → match every finding where `repaired == false`.
 - Unknown predicate → return error message and re-prompt: `"Unknown predicate: <token>. Examples: ..."`.
-- Glob in `file:` uses Python `fnmatch` semantics; `**` is supported.
+- Glob in `file:` uses glob semantics: `*` matches any single path component, `**` matches any number of path components (recursive). Examples: `file:backend/apps/*` matches one level; `file:backend/apps/**` matches all descendants.
 - `ids:` ranges are inclusive (`1-3` → 1,2,3).
 - Already-repaired findings (`repaired == true`) are filtered out automatically; do not require user to add `+not-repaired`.
 
@@ -452,6 +456,7 @@ Then stop. Main Claude dispatches each wave in parallel, collects each invocatio
 For each invocation result:
 - For each `edit` in `edits`, call the Edit tool with `file_path = <invocation.file>`, `old_string = edit.old_string`, `new_string = edit.new_string`. If Edit fails (no exact match), capture the error.
 - Build a per-finding outcome map: each `finding_id` is repaired if all its edits applied (best-effort: if the agent returned multiple edits without binding them to specific findings, mark all listed `finding_ids` as repaired iff every edit succeeded). Findings listed in `unrepaired` are marked `repaired: false, repair_error: <reason>`.
+- If the reviewer's response was malformed (not valid JSON, or missing required fields), or the reviewer threw an error, mark all `finding_ids` for that invocation as `repaired: false, repair_error: "reviewer error: <reason>"`.
 
 Re-invoke `full-review-orchestrator` for Phase 4f with the outcome map.
 
