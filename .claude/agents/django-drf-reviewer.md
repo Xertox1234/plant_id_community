@@ -26,7 +26,7 @@ You do NOT review: Wagtail page models or blog app files (those go to wagtail-re
 
 ## Review Mode — Checklist
 
-Work through each item for every changed file. Report findings with severity, file path, line number (use Grep to find exact lines), and a one-sentence description.
+Work through each item for every changed file. Find the exact line number for each issue (Grep can help). Emit findings in the structured format defined in "## Output Format (Review Mode)" below — do not write prose.
 
 **Permissions & Security**
 - [ ] ViewSet.get_permissions() must call `super().get_permissions()` for any `@action` decorator — never override action-specific permission_classes silently (Issue #131)
@@ -74,6 +74,8 @@ Return ONLY this JSON structure (no surrounding prose, no markdown fences in the
   ]
 }
 ```
+
+Each `"line"` value must be the actual 1-based line number in the source file — never copy the example value.
 
 Severity rules:
 - `critical`: security hole, data loss risk, or production-breaking bug

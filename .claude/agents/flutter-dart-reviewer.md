@@ -79,6 +79,8 @@ Return ONLY this JSON structure (no surrounding prose, no markdown fences in the
 }
 ```
 
+Each `"line"` value must be the actual 1-based line number in the source file — never copy the example value.
+
 Severity rules:
 - `critical`: security hole, data loss risk, or production-breaking bug
 - `high`: real bug or pattern violation that will cause issues
