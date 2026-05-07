@@ -699,7 +699,40 @@ These plant identification patterns ensure:
 
 ---
 
-**Last Reviewed**: November 13, 2025
-**Pattern Count**: 6 plant identification patterns
+**Last Reviewed**: 2026-05-06
+**Pattern Count**: 7 plant identification patterns
 **Status**: ✅ Production-validated
 **Official Docs**: Plant.id (https://documenter.getpostman.com/view/24599534/2s93z5A4v2), PlantNet (https://my.plantnet.org/usage)
+
+---
+
+## Test Mock Responses — Plant.id API v3 Format
+
+### Pattern: Use v3 Response Structure in All Plant.id Test Mocks
+
+**Problem**: Plant.id v2 mocks use `suggestions[].plant_name`; v3 uses `result.classification.suggestions[].name`. v2 mocks pass locally against the mock but would fail if the test ever hits the real API.
+
+**Stale v2 Mock** ❌:
+```python
+mock_response.json.return_value = {
+    'suggestions': [{'plant_name': 'Rosa canina', 'probability': 0.95}]
+}
+```
+
+**Correct v3 Mock** ✅:
+```python
+mock_response.json.return_value = {
+    'result': {
+        'classification': {
+            'suggestions': [{'name': 'Rosa canina', 'probability': 0.95, 'details': {}}]
+        },
+        'is_plant': {'binary': True},
+    }
+}
+```
+
+**Rules**:
+1. All Plant.id test mocks MUST use the v3 structure (`result.classification.suggestions[].name`).
+2. Tests for the full identification flow expect **two** API calls: `/identify` + `/health_assessment`.
+3. Search for `"plant_name"` as the v2 canary — any mock dict with it is stale.
+4. See `apps/plant_identification/services/plant_id_service.py` for the canonical v3 parser.

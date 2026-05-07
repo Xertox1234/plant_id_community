@@ -111,3 +111,35 @@ This file is append-only. New entries are added by main Claude after each code r
 ## Celery
 
 *(No entries yet — will be populated by pattern-codifier after first review involving Celery files.)*
+
+---
+
+## Security (2026-05-06 additions)
+
+### [2026-05-06] ICS calendar export vulnerable to CRLF injection from user-supplied strings
+**Mistake**: `plant_name`, `reminder_type`, and `description` were embedded in ICS f-strings without stripping `\r` or `\n`. An attacker could inject arbitrary ICS fields by including CRLF sequences in a plant name.
+**Fix**: Added `_ics_safe = lambda s: str(s).replace('\r', '').replace('\n', ' ')` and applied it to every user-supplied field before embedding in the ICS template.
+**Rule**: Every user-supplied string embedded in an ICS (iCalendar) template MUST pass through a CRLF-stripping sanitizer. Strip both `\r` and `\n` — stripping only `\n` is insufficient.
+**Agent**: pattern-codifier
+
+### [2026-05-06] Numeric API parameters accepted without `int()` conversion or range check
+**Mistake**: `snooze_hours` from `request.data` was passed directly to `mark_snoozed()`. Passing `"abc"` or `"-1"` caused a downstream `TypeError` or silently allowed unreasonable values (e.g., 100,000 hours).
+**Fix**: Added `int()` conversion inside `try/except` followed by `1 <= snooze_hours <= 8760` guard, returning HTTP 400 on failure.
+**Rule**: All numeric parameters from `request.data` or `query_params` MUST be explicitly converted with `int()` inside a `try/except`, then validated against named min/max constants before passing to service methods.
+**Agent**: pattern-codifier
+
+---
+
+## Testing (2026-05-06 additions)
+
+### [2026-05-06] Plant.id v2 mock responses silently pass tests while production uses v3 API
+**Mistake**: 3 test files still used v2 mock dicts (`suggestions[].plant_name`). Tests passed because the mock matched the test, but production already parsed v3 (`result.classification.suggestions[].name`).
+**Fix**: Updated all 3 mocks to v3 structure. Tests expecting a single API call now expect two (identify + health_assessment).
+**Rule**: Search for `"plant_name"` as the v2 canary in Plant.id test mocks. Any mock with a top-level `"suggestions"` key is v2 and must be migrated. See `backend/docs/patterns/domain/plant-identification.md` for the canonical v3 mock structure.
+**Agent**: pattern-codifier
+
+### [2026-05-06] `on_commit` lambdas make target-function patches ineffective in tests
+**Mistake**: A test patched `BlogPostView.objects.create` to raise an exception, but the call was inside a `transaction.on_commit` lambda. Django tests wrap each test in a transaction that never commits, so the lambda was queued but never executed. The error-handling path was never tested.
+**Fix**: Patched `apps.blog.middleware.transaction.on_commit` with `side_effect=lambda fn: fn()` to execute the callback immediately.
+**Rule**: When testing code that wraps a call in `transaction.on_commit`, you must either (a) patch `transaction.on_commit` at the call site to execute immediately, or (b) use `self.captureOnCommitCallbacks(execute=True)`. The patch path must match the import in the module under test, not the canonical Django path.
+**Agent**: pattern-codifier

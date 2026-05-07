@@ -1197,8 +1197,86 @@ results = Model.objects.filter(field__icontains=safe_query)
 
 ---
 
-**Last Reviewed**: November 13, 2025
-**Pattern Count**: 15 input validation patterns
+**Last Reviewed**: 2026-05-06
+**Pattern Count**: 17 input validation patterns
 **Status**: ✅ Production-validated
 **OWASP**: A03:2021 – Injection
+
+---
+
+## ICS Calendar Export — CRLF Injection Prevention
+
+### Pattern: Sanitize User Strings Before Embedding in ICS f-strings
+
+**Problem**: ICS (iCalendar) files use CRLF (`\r\n`) as a record separator. Embedding user-supplied strings (plant names, reminder types, descriptions) directly into an ICS f-string allows an attacker to inject arbitrary ICS fields or terminate the current field early, leading to calendar spoofing or data exfiltration via crafted calendar events.
+
+**Vulnerable Code** ❌:
+```python
+def build_ics_event(plant_name, reminder_type, description):
+    return (
+        f"BEGIN:VEVENT\r\n"
+        f"SUMMARY:{plant_name} — {reminder_type}\r\n"
+        f"DESCRIPTION:{description}\r\n"
+        f"END:VEVENT\r\n"
+    )
+```
+An attacker can set `plant_name = "Cactus\r\nBEGIN:VEVENT\r\nSUMMARY:Injected event"` to insert a second synthetic calendar event.
+
+**Correct Pattern** ✅:
+```python
+_ics_safe = lambda s: str(s).replace('\r', '').replace('\n', ' ')
+
+def build_ics_event(plant_name, reminder_type, description):
+    return (
+        f"BEGIN:VEVENT\r\n"
+        f"SUMMARY:{_ics_safe(plant_name)} — {_ics_safe(reminder_type)}\r\n"
+        f"DESCRIPTION:{_ics_safe(description)}\r\n"
+        f"END:VEVENT\r\n"
+    )
+```
+
+**Rules**:
+1. EVERY user-supplied value embedded in an ICS f-string MUST pass through `_ics_safe()`.
+2. Strip both `\r` and `\n` — a lone `\r` is enough to break field boundaries on some parsers.
+3. Apply to: SUMMARY, DESCRIPTION, LOCATION, COMMENT, and any custom properties.
+
+---
+
+## Integer Input Bounds Validation
+
+### Pattern: Validate Integer Range for User-Supplied Numeric Parameters
+
+**Problem**: User-supplied integers passed directly to service methods without type conversion and range checking can cause logic errors, excessive resource consumption, or DoS (e.g., snoozing a reminder for 100,000 hours).
+
+**Vulnerable Code** ❌:
+```python
+snooze_hours = request.data.get('snooze_hours')  # Could be a string, float, negative, or huge
+reminder.mark_snoozed(snooze_hours)  # ❌ No conversion or range check
+```
+
+**Correct Pattern** ✅:
+```python
+# constants.py
+SNOOZE_HOURS_MIN = 1
+SNOOZE_HOURS_MAX = 8760  # 365 days
+
+# view
+raw = request.data.get('snooze_hours')
+try:
+    snooze_hours = int(raw)
+except (TypeError, ValueError):
+    return Response({"error": "snooze_hours must be an integer"}, status=400)
+if not (SNOOZE_HOURS_MIN <= snooze_hours <= SNOOZE_HOURS_MAX):
+    return Response(
+        {"error": f"snooze_hours must be between {SNOOZE_HOURS_MIN} and {SNOOZE_HOURS_MAX}"},
+        status=400
+    )
+reminder.mark_snoozed(snooze_hours)
+```
+
+**Rules**:
+1. Always call `int()` inside a `try/except` before using a user-supplied numeric value.
+2. Define min/max bounds as named constants in `constants.py`.
+3. Return HTTP 400 with a message naming both the field and the allowed range.
+4. Apply to ALL numeric parameters: hours, counts, page sizes, limits, offsets.
 

@@ -538,7 +538,48 @@ def get_permissions(self):
 
 ---
 
-**Last Reviewed**: November 13, 2025
-**Pattern Count**: 1 critical ViewSet pattern
+**Last Reviewed**: 2026-05-06
+**Pattern Count**: 2 ViewSet patterns
 **Status**: ✅ Production-validated
 **Issue Reference**: #131 (November 6, 2025)
+
+---
+
+## Rate Limit Constants — No Inline Magic Strings
+
+### Pattern: Named Constants for `@ratelimit` Decorator Arguments
+
+**Problem**: Rate limit strings hardcoded inline (e.g., `'5/m'`, `'10/h'`) are invisible to static analysis, easy to duplicate inconsistently, and impossible to audit without grepping every file.
+
+**Vulnerable Code** ❌:
+```python
+@ratelimit(key='user', rate='5/m', method='POST')  # ❌ Magic string
+@action(detail=False, methods=['POST'])
+def regenerate(self, request):
+    pass
+```
+
+**Correct Pattern** ✅:
+```python
+# apps/myapp/constants.py
+RATE_LIMITS = {
+    'authenticated': {
+        'regenerate': '5/m',
+    },
+}
+RATE_LIMIT_DEMO_DATA_CREATE = '10/h'
+
+# apps/myapp/viewsets.py
+from .constants import RATE_LIMITS, RATE_LIMIT_DEMO_DATA_CREATE
+
+@ratelimit(key='user', rate=RATE_LIMITS['authenticated']['regenerate'], method='POST')  # ✅
+@action(detail=False, methods=['POST'])
+def regenerate(self, request):
+    pass
+```
+
+**Rules**:
+1. All `@ratelimit` `rate=` values MUST reference a named constant from `constants.py`.
+2. Group related limits under a `RATE_LIMITS` dict keyed by user tier and action.
+3. Use flat `RATE_LIMIT_<ACTION>` constants for one-off endpoint rate limits.
+4. The constant name must describe the context (who, what), not the value.

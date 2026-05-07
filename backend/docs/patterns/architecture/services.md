@@ -678,7 +678,48 @@ These service architecture patterns ensure:
 
 ---
 
-**Last Reviewed**: November 13, 2025
-**Pattern Count**: 6 service architecture patterns
+**Last Reviewed**: 2026-05-06
+**Pattern Count**: 7 service architecture patterns
 **Status**: ✅ Production-validated
 **Performance**: 60% faster parallel processing, 90% reduction in duplicate calls
+
+---
+
+## Django `on_commit` Callbacks — Correct Patch Path in Tests
+
+### Pattern: Patch `transaction.on_commit` at the Call Site, Not the Target Function
+
+**Problem**: When a function is wrapped in `transaction.on_commit(lambda: ...)`, patching the *target* function has no effect in Django tests — the callback is queued but the transaction never commits, so the lambda never runs.
+
+**Incorrect Patch** ❌:
+```python
+# Middleware wraps create in on_commit
+transaction.on_commit(lambda: BlogPostView.objects.create(...))
+
+# Test — patches target, but lambda never fires:
+@patch('apps.blog.models.BlogPostView.objects.create', side_effect=Exception("DB error"))
+def test_error_is_swallowed(self, mock_create):
+    response = self.client.get('/blog/my-post/')
+    mock_create.assert_called_once()  # ❌ Never called — on_commit never fires
+```
+
+**Correct Pattern** ✅:
+```python
+# Option A: Patch on_commit to call callback immediately
+@patch('apps.blog.middleware.transaction.on_commit', side_effect=lambda fn: fn())
+@patch('apps.blog.models.BlogPostView.objects.create', side_effect=Exception("DB error"))
+def test_error_is_swallowed(self, mock_create, mock_on_commit):
+    response = self.client.get('/blog/my-post/')
+    mock_create.assert_called_once()  # ✅ Fires immediately
+
+# Option B: Django 4.1+ native (preferred for new tests)
+def test_error_is_swallowed(self):
+    with self.captureOnCommitCallbacks(execute=True):
+        response = self.client.get('/blog/my-post/')
+```
+
+**Rules**:
+1. Never patch the *target* of an `on_commit` lambda without ensuring `on_commit` itself executes.
+2. The patch path must match how the module imports `transaction` (e.g., `apps.blog.middleware.transaction.on_commit`), NOT `django.db.transaction.on_commit`.
+3. Prefer `captureOnCommitCallbacks(execute=True)` for new tests — it's Django-native and doesn't require patching import paths.
+4. If a test passes but the error path is inside an `on_commit` lambda, it's probably not being tested — add an assertion on a side-effect.
