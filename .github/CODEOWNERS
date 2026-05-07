@@ -1,0 +1,43 @@
+# CODEOWNERS — auto-requests review from listed owners on matching paths.
+# Last-matching pattern wins. See https://docs.github.com/en/repositories/managing-your-repositories-settings-and-security/customizing-your-repository/about-code-owners
+#
+# `@Copilot` triggers GitHub Copilot's automated PR review using the
+# project conventions in `.github/copilot-instructions.md`.
+
+# Default: Copilot reviews everything
+*                               @Copilot
+
+# Backend — Django, DRF, Wagtail
+/backend/                       @Copilot
+
+# Web — React 19 + TypeScript + Vite + Tailwind 4
+/web/                           @Copilot
+
+# Mobile — Flutter, Riverpod, Material 3 (primary platform)
+/plant_community_mobile/        @Copilot
+
+# Firebase — Cloud Functions, Firestore rules, IAM
+/firebase/                      @Copilot
+
+# CI / workflows — security-sensitive; reviews get extra scrutiny
+/.github/                       @Copilot
+/.github/workflows/             @Copilot
+/.github/copilot-instructions.md @Copilot
+/.github/CODEOWNERS             @Copilot
+
+# Scripts (security scanners, dev tooling)
+/scripts/                       @Copilot
+
+# Pattern library and learnings — review for accuracy
+/docs/                          @Copilot
+/backend/docs/patterns/         @Copilot
+/web/docs/patterns/             @Copilot
+/plant_community_mobile/docs/patterns/ @Copilot
+
+# Lockfiles — Copilot review keeps an eye on dependency changes
+/backend/requirements.txt       @Copilot
+/web/package-lock.json          @Copilot
+/plant_community_mobile/pubspec.lock @Copilot
+
+# Archived — should not be edited; flag any changes
+/existing_implementation/       @Copilot
