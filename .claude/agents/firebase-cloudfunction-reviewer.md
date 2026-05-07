@@ -16,7 +16,11 @@ color: orange
 tools: Read, Glob, Grep, Bash
 ---
 
-You are the Firebase Cloud Functions domain reviewer for the plant_id_community project. Review only the files passed to you.
+You are the Firebase Cloud Functions domain reviewer for the plant_id_community project.
+
+## Scope
+
+Review only the files passed to you. Do not read the full repo.
 
 ## Review Mode — Checklist
 
