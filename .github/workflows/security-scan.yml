@@ -27,26 +27,26 @@ jobs:
         run: |
           cd backend
           pip install --upgrade pip
-          pip install safety
+          pip install pip-audit
 
-      - name: Run Safety scan (JSON report)
+      - name: Run pip-audit (JSON report)
         run: |
           cd backend
-          safety scan --file requirements.txt --output json > safety-report.json || true
+          pip-audit -r requirements.txt --format json --output pip-audit-report.json || true
         continue-on-error: true
 
-      - name: Run Safety scan (fail on vulnerabilities)
+      - name: Run pip-audit (fail on vulnerabilities)
         run: |
           cd backend
-          safety scan --file requirements.txt
+          pip-audit -r requirements.txt
         continue-on-error: false
 
-      - name: Upload Safety report
+      - name: Upload pip-audit report
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: safety-report
-          path: backend/safety-report.json
+          name: pip-audit-report
+          path: backend/pip-audit-report.json
           retention-days: 30
 
       - name: Comment PR with vulnerabilities (if any)
@@ -58,7 +58,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '⚠️ **Security vulnerabilities detected in Python dependencies**\n\nPlease check the Safety report in the workflow artifacts for details.\n\nRun locally: `cd backend && safety check -r requirements.txt`'
+              body: '⚠️ **Security vulnerabilities detected in Python dependencies**\n\nPlease check the pip-audit report in the workflow artifacts for details.\n\nRun locally: `cd backend && pip-audit -r requirements.txt`'
             })
 
   frontend-security:
