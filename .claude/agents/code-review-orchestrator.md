@@ -62,13 +62,17 @@ Then stop. Main Claude dispatches the agents in parallel and collects results.
 
 ## Phase 2 — Present Findings
 
-After main Claude collects all agent findings, deduplicate by (file + line + issue). Present:
+After main Claude collects findings JSON from each dispatched reviewer (each result is `{"agent": "...", "batch_label": "...", "findings": [...]}`), merge all `findings` arrays. Deduplicate by `(file, line, normalized_description)` where `normalized_description` is lowercase + whitespace-collapsed. When two findings collapse, keep both agent IDs in an `agents` array on the merged finding.
+
+Sort merged findings by severity (critical → info), then by file, then by line.
+
+Present:
 
 ```
 ## Code Review — YYYY-MM-DD
 
 ### 🔴 CRITICAL (n)
-1. [file:line] Description — agent: security-reviewer
+1. file:line — description — agents: [list]
 
 ### 🟠 HIGH (n)
 ...
@@ -85,8 +89,8 @@ Repair CRITICAL + HIGH + MEDIUM findings? (yes / no / select numbers)
 ## Phase 3 — Repair
 
 If user confirms repair:
-- For each finding to repair (CRITICAL/HIGH/MEDIUM), tell main Claude to re-invoke the owning domain agent in repair mode with: the file path, the line number, and the finding description.
-- Main Claude executes the returned `{ file, old_string, new_string }` edits.
+- For each finding to repair (CRITICAL/HIGH/MEDIUM), tell main Claude to re-invoke the owning domain agent in repair mode with: the file path and the list of findings (line + description) for that file. If multiple findings target the same file, group them into a single repair invocation per file.
+- The reviewer returns `{file, edits: [{old_string, new_string}, ...], unrepaired?: [{line, reason}]}`. Main Claude applies each edit via the Edit tool; findings listed in `unrepaired` are surfaced to the user.
 - Confirm each repair to the user.
 
 ## Phase 4 — Todos
