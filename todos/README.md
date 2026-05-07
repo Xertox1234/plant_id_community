@@ -6,6 +6,15 @@
 
 ---
 
+## Creating a New Todo
+
+1. Copy `TEMPLATE.md` to `NNN-pending-pX-slug.md` (next zero-padded id, lowercase kebab slug, ≤ 6 words).
+2. Fill every required section. Optional sections (Proposed Solutions, Notes) may be deleted, never left blank.
+3. Frontmatter `status:` must match the filename's status segment at all times.
+4. Commit the new file before referencing its `issue_id` from another todo's `dependencies`.
+
+To work through pending todos, invoke the `completing-todos` skill (`/completing-todos` or "complete the pending todos").
+
 ## Quick Reference
 
 ### Current Stabilization Sweep (May 1, 2026)
