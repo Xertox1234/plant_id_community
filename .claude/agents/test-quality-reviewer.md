@@ -101,14 +101,26 @@ If a checklist item does not apply to any file in the batch, do not emit a findi
 
 ## Repair Mode
 
-When invoked with a specific finding:
-1. Read the affected file
-2. Return the minimal fix:
+When invoked with a list of findings to repair in a single file:
+
+1. Read the affected file with the `Read` tool.
+2. Compute the minimal edits that fix all listed findings without changing unrelated code.
+3. Return ONLY this JSON structure (no surrounding prose):
+
 ```json
 {
-  "file": "apps/forum/tests/test_post_performance.py",
-  "old_string": "exact string to replace",
-  "new_string": "replacement string"
+  "file": "<relative path>",
+  "edits": [
+    {"old_string": "<exact string to replace>", "new_string": "<replacement>"},
+    {"old_string": "<exact string to replace>", "new_string": "<replacement>"}
+  ]
 }
 ```
-Do not apply changes yourself.
+
+Rules:
+- Each `old_string` must be unique enough in the file that an exact match replaces only the intended span.
+- Do not apply edits yourself — return them; the orchestrator will apply via the Edit tool.
+- If a finding cannot be repaired safely (ambiguous, requires architectural change), include it in an extra field `"unrepaired": [{"line": N, "reason": "..."}]`.
+- The `edits` array may be empty if all findings land in `unrepaired`.
+
+The single-finding case is just `edits` of length 1.
