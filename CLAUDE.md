@@ -101,6 +101,38 @@ The pattern library is the primary reference for implementation decisions. Read 
 
 Append-only log of bugs, incidents, and hard-won patterns. Read before starting a new feature area.
 
+## Review Doc Tracking
+
+When a finding from a review doc is converted to an individual todo file, link them so completion is visible.
+
+### Convention
+
+**1. Add `source_review` fields to the todo frontmatter:**
+
+```yaml
+source_review: "docs/reviews/2026-05-07-1641-full-review.md"
+source_finding: "42"
+```
+
+**2. Add/update a `## Finding Status` section in the review doc** (create if absent, append if present):
+
+```markdown
+## Finding Status
+- [ ] #42 short-description → todo 064
+- [ ] #43 another-description → todo 065
+```
+
+One line per converted finding, in finding-number order.
+
+**3. The `completing-todos` skill handles the rest automatically** on archive:
+
+- Checks off `- [ ] #42` → `- [x] #42 (completed YYYY-MM-DD)`
+- When **all** `## Finding Status` lines are `- [x]`, renames the review doc to `…-COMPLETED.md` via `git mv`
+
+### Why
+
+Previously, findings were converted to todos and completed without any trace in the source review doc, making it impossible to tell at a glance which findings were still open. This broke down in the May 6 review — 7 items looked open but were already done as todos 057–063.
+
 ## Code Review Agents
 
 Trigger a review: ask Claude to invoke `.claude/agents/code-review-orchestrator.md`. It reads `git diff`, dispatches only the agents relevant to changed files in parallel, deduplicates findings, and returns results by severity.
