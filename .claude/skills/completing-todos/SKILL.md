@@ -127,7 +127,85 @@ This step is atomic from the user's perspective: any failure leaves the file in 
    The skill itself owns orchestration; subagents do the actual implementation. Always read the relevant pattern docs under `backend/docs/patterns/`, `web/docs/patterns/`, or `plant_community_mobile/docs/patterns/` before writing new code in those areas.
 4. If `--dry-run`: do not invoke any subagent or write any file; print the planned subagent dispatches and pattern docs that would be consulted, then continue to Step 3.
 
-(Steps 3–5 below — populated in Task 7.)
+#### Step 3 — Verification gate
+
+Per [verification-before-completion](https://github.com/anthropic-experimental/claude-superpowers): every `- [ ]` in Acceptance Criteria must flip to `- [x]` only when backed by quoted command output captured in the Work Log.
+
+1. For each unchecked item in Acceptance Criteria:
+   - Run the exact command implied by the criterion (test command, build command, type-check, etc.).
+   - Capture the output.
+   - If the output proves the criterion holds, flip `- [ ]` to `- [x]` and quote the relevant lines in the Work Log.
+   - If the output does NOT prove the criterion: do not flip the box. Continue to the failure handling below.
+2. **Failure handling:** if any criterion cannot be flipped, pause and ask:
+   ```
+   Acceptance criterion failed for todo NNN:
+     <criterion text>
+   Last command: <command>
+   Output:
+     <relevant lines>
+   Choose: (retry / skip-todo / abort-run)
+   ```
+   - `retry` — re-run after the user fixes the underlying issue.
+   - `skip-todo` — do NOT mark complete. Add this id to `skipped` in the checkpoint, append a Work Log entry explaining why, leave the file in `in_progress` state with its filename also `in_progress`. Continue to the next todo.
+   - `abort-run` — stop the loop, jump to Phase 2.
+3. If `--dry-run`: print the commands that would run, do not execute them, do not flip any boxes.
+
+#### Step 4 — Code review
+
+1. Compute the changed file list:
+   ```bash
+   git diff --name-only HEAD
+   ```
+2. Dispatch the `code-review-orchestrator` agent via the Task tool with this prompt:
+   ```
+   Review the following changes for todo NNN: <todo title>.
+   Changed files:
+     - <path 1>
+     - <path 2>
+   Return findings in your standard JSON shape.
+   ```
+3. **Severity policy:**
+   - `critical` or `high` — block. Print the findings and ask:
+     ```
+     Code review surfaced N blocking findings for todo NNN:
+       [critical] <file>:<line> — <description>
+       [high]     <file>:<line> — <description>
+     Choose: (repair / accept-and-continue / abort-run)
+     ```
+   - `medium` or below — list in the Work Log under a `Known issues` subsection; do not block.
+4. **On `repair`:** re-dispatch the *same domain reviewer that surfaced each blocking finding* via the Task tool, one invocation per file, with this prompt:
+   ```
+   Repair the following findings in this file:
+   File: <path>
+   Findings:
+     - line <N>: <description>  (suggested_fix: <text or "—">)
+     - line <M>: <description>
+   Return JSON: {"file": "...", "edits": [{"old_string": "...", "new_string": "..."}], "unrepaired": [...]}
+   ```
+   Apply each returned `edit` via the Edit tool. Re-run Step 3 (verification gate) on the repaired files. After repair completes, **exit the loop** so the user can review the diff before further todos run. Append a Work Log entry naming each finding repaired and any left in `unrepaired`.
+5. **On `accept-and-continue`:** record each unaddressed blocking finding in the Work Log under `Known issues — accepted at completion`. Do not silently drop them.
+6. **On `abort-run`:** stop the loop, jump to Phase 2.
+7. If `--dry-run`: print the orchestrator dispatch prompt and stop; do not actually invoke the orchestrator.
+
+#### Step 5 — Archive
+
+1. Edit the file's frontmatter: `status: in_progress` → `status: completed`.
+2. Append a Work Log entry:
+   ```markdown
+   ### YYYY-MM-DD - Completed by completing-todos skill (run <run_id>)
+
+   - Verification: <one-line summary, e.g., "all 5 acceptance criteria passed">.
+   - Review: <N findings total, M blocking — addressed via repair / accepted / none>.
+   ```
+3. Rename and move with `git mv`:
+   ```bash
+   git mv todos/050-in_progress-p1-flutter-fresh-checkout-build.md \
+          todos/archive/050-completed-p1-flutter-fresh-checkout-build.md
+   ```
+4. Update the checkpoint: append the issue_id to `completed[]`, write the file back.
+5. If `--dry-run`: print the planned frontmatter edit, Work Log entry, and `git mv` command; do not execute any of them.
+
+Proceed to the next todo in the plan, or to Phase 2 if this was the last.
 
 ### Phase 2 — Wrap-Up
 
