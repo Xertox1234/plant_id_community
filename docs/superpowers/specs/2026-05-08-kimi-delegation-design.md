@@ -1,11 +1,11 @@
-# Kimi K2.5 Bulk I/O Delegation — Design
+# Kimi K2.6 Bulk I/O Delegation — Design
 
 **Date:** 2026-05-08
 **Status:** Approved, pending implementation
 
 ## Goal
 
-Reduce Claude Code token consumption by delegating bulk file reading and boilerplate generation to a cheap worker model (Kimi K2.5 via Moonshot AI). Claude handles architecture and reasoning; the worker handles token-heavy I/O.
+Reduce Claude Code token consumption by delegating bulk file reading and boilerplate generation to a cheap worker model (Kimi K2.6 via OpenRouter). Claude handles architecture and reasoning; the worker handles token-heavy I/O.
 
 ## Source Repo
 
@@ -34,9 +34,9 @@ Set in two places:
 **`~/.claude/settings.json` `env` block** — injected into every Claude Code session automatically:
 
 ```json
-"WORKER_API_KEY": "<moonshot key>",
-"WORKER_BASE_URL": "https://api.moonshot.ai/v1",
-"WORKER_MODEL": "kimi-k2.5"
+"WORKER_API_KEY": "<openrouter key>",
+"WORKER_BASE_URL": "https://openrouter.ai/api/v1",
+"WORKER_MODEL": "moonshotai/kimi-k2.6"
 ```
 
 **`~/.zshrc`** — same three exports for manual terminal use.
@@ -53,7 +53,7 @@ Bash(extract-chat:*)
 
 ## Delegation Rules (CLAUDE.md)
 
-A new section `## Cheap-Worker Delegation (Kimi K2.5)` is appended to the project `CLAUDE.md`. Nothing existing is removed.
+A new section `## Cheap-Worker Delegation (Kimi K2.6)` is appended to the project `CLAUDE.md`. Nothing existing is removed.
 
 ### AUTO-delegate (no prompt)
 
@@ -81,7 +81,7 @@ A new section `## Cheap-Worker Delegation (Kimi K2.5)` is appended to the projec
 Claude encounters bulk work
   → checks CLAUDE.md rules
   → Bash: ask-kimi --paths <files> --question "<specific question>"
-  → worker calls Moonshot API, returns structured bullets
+  → worker calls OpenRouter API, returns structured bullets
   → Claude reads ~200-token summary instead of ~4000+ token raw files
   → Claude reasons/edits using the summary
 

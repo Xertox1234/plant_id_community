@@ -1,12 +1,12 @@
-# Kimi K2.5 Bulk I/O Delegation Implementation Plan
+# Kimi K2.6 Bulk I/O Delegation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Install and configure three CLI tools that delegate bulk file reading and boilerplate generation to Kimi K2.5, reducing Claude token consumption by 60-70% on I/O-heavy tasks.
+**Goal:** Install and configure three CLI tools that delegate bulk file reading and boilerplate generation to Kimi K2.6, reducing Claude token consumption by 60-70% on I/O-heavy tasks.
 
 **Architecture:** Clone `claude-coworker-model` to `~/.local/share/claude-coworker/`, run its `setup.sh` to install tools to `~/.local/bin/`, then wire env vars into `~/.claude/settings.json` (for Claude sessions) and `~/.zshrc` (for direct terminal use). Add delegation rules to the project `CLAUDE.md` so Claude auto-delegates without being prompted.
 
-**Tech Stack:** Python 3, `openai>=1.0` (OpenAI-compatible client), Moonshot AI API (`https://api.moonshot.ai/v1`), zsh, Claude Code settings.json
+**Tech Stack:** Python 3, `openai>=1.0` (OpenAI-compatible client), OpenRouter API (`https://openrouter.ai/api/v1`), zsh, Claude Code settings.json
 
 ---
 
@@ -86,7 +86,7 @@
 
 - Modify: `~/.claude/settings.json`
 
-> **Before running Step 1:** You need your Moonshot API key. If you don't have it set as `$MOONSHOT_API_KEY` in your current shell, ask the user: "What is your Moonshot API key?" and substitute it for `<YOUR_MOONSHOT_API_KEY>` in the script below.
+> **Before running Step 1:** You need your OpenRouter API key. If you don't have it set as `$WORKER_API_KEY` in your current shell, ask the user: "What is your OpenRouter API key?" and substitute it for `<YOUR_OPENROUTER_API_KEY>` in the script below.
 
 - [ ] **Step 1: Confirm env vars are not yet set in Claude sessions**
 
@@ -103,7 +103,7 @@
 
 - [ ] **Step 2: Add env vars and permissions to `~/.claude/settings.json`**
 
-  Replace `<YOUR_MOONSHOT_API_KEY>` with the actual key before running:
+  Replace `<YOUR_OPENROUTER_API_KEY>` with the actual key before running:
 
   ```bash
   python3 - <<'PYEOF'
@@ -115,9 +115,9 @@
 
   # Add worker env vars
   s.setdefault('env', {})
-  s['env']['WORKER_API_KEY'] = '<YOUR_MOONSHOT_API_KEY>'
-  s['env']['WORKER_BASE_URL'] = 'https://api.moonshot.ai/v1'
-  s['env']['WORKER_MODEL'] = 'kimi-k2.5'
+  s['env']['WORKER_API_KEY'] = '<YOUR_OPENROUTER_API_KEY>'
+  s['env']['WORKER_BASE_URL'] = 'https://openrouter.ai/api/v1'
+  s['env']['WORKER_MODEL'] = 'moonshotai/kimi-k2.6'
 
   # Add bash permissions
   new_perms = ['Bash(ask-kimi:*)', 'Bash(kimi-write:*)', 'Bash(extract-chat:*)']
@@ -156,8 +156,8 @@
 
   ```text
   WORKER_API_KEY present: True
-  WORKER_BASE_URL: https://api.moonshot.ai/v1
-  WORKER_MODEL: kimi-k2.5
+  WORKER_BASE_URL: https://openrouter.ai/api/v1
+  WORKER_MODEL: moonshotai/kimi-k2.6
   ask-kimi permitted: True
   kimi-write permitted: True
   extract-chat permitted: True
@@ -181,15 +181,15 @@
 
 - [ ] **Step 2: Append exports to `~/.zshrc`**
 
-  Replace `<YOUR_MOONSHOT_API_KEY>` with the actual key (same value used in Task 2):
+  Replace `<YOUR_OPENROUTER_API_KEY>` with the actual key (same value used in Task 2):
 
   ```bash
   cat >> ~/.zshrc << 'EOF'
 
-  # Kimi K2.5 worker delegation (claude-coworker-model)
-  export WORKER_API_KEY="<YOUR_MOONSHOT_API_KEY>"
-  export WORKER_BASE_URL="https://api.moonshot.ai/v1"
-  export WORKER_MODEL="kimi-k2.5"
+  # Kimi K2.6 worker delegation (claude-coworker-model)
+  export WORKER_API_KEY="<YOUR_OPENROUTER_API_KEY>"
+  export WORKER_BASE_URL="https://openrouter.ai/api/v1"
+  export WORKER_MODEL="moonshotai/kimi-k2.6"
   EOF
   ```
 
@@ -199,7 +199,7 @@
   zsh -c 'source ~/.zshrc && echo "KEY=${WORKER_API_KEY:0:8}... URL=$WORKER_BASE_URL MODEL=$WORKER_MODEL"'
   ```
 
-  Expected: prints the first 8 chars of the key (confirming it loaded), the URL, and `kimi-k2.5`. If `KEY=...` shows blank, the export line was not appended correctly — re-check Step 2.
+  Expected: prints the first 8 chars of the key (confirming it loaded), the URL, and `moonshotai/kimi-k2.6`. If `KEY=...` shows blank, the export line was not appended correctly — re-check Step 2.
 
 ---
 
@@ -225,9 +225,9 @@
   ````bash
   python3 - << 'PYEOF'
   section = """
-  ## Cheap-Worker Delegation (Kimi K2.5)
+  ## Cheap-Worker Delegation (Kimi K2.6)
 
-  Three CLI tools delegate bulk I/O to a cheap worker model (Kimi K2.5 via Moonshot AI).
+  Three CLI tools delegate bulk I/O to a cheap worker model (Kimi K2.6 via OpenRouter).
   Claude handles reasoning and architecture; the worker handles token-heavy reading/writing.
 
   ### ask-kimi — bulk file reading
@@ -299,7 +299,7 @@
   grep -n 'Cheap-Worker Delegation' CLAUDE.md
   ```
 
-  Expected: prints a line number followed by `## Cheap-Worker Delegation (Kimi K2.5)`.
+  Expected: prints a line number followed by `## Cheap-Worker Delegation (Kimi K2.6)`.
 
 - [ ] **Step 4: Lint the markdown**
 
@@ -313,7 +313,7 @@
 
   ```bash
   git add CLAUDE.md
-  git commit -m "feat(claude): add Kimi K2.5 bulk I/O delegation rules"
+  git commit -m "feat(claude): add Kimi K2.6 bulk I/O delegation rules"
   ```
 
   Expected: commit succeeds (pre-commit hooks pass).
@@ -330,7 +330,7 @@ All tests run from the project root. Tasks 1–4 must be complete and a **new Cl
   echo "KEY=${WORKER_API_KEY:0:8}... MODEL=$WORKER_MODEL"
   ```
 
-  Expected: prints the first 8 chars of your key and `kimi-k2.5`. If blank, the session was not restarted after Task 2 — restart and retry.
+  Expected: prints the first 8 chars of your key and `moonshotai/kimi-k2.6`. If blank, the session was not restarted after Task 2 — restart and retry.
 
 - [ ] **Step 2: ask-kimi smoke test**
 
