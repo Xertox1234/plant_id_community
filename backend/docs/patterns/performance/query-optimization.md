@@ -2,6 +2,7 @@
 
 **Last Updated**: November 13, 2025
 **Consolidated From**:
+
 - `docs/development/PERFORMANCE_PATTERNS_CODIFIED.md` (6 patterns)
 - `docs/performance/n-plus-one-elimination.md` (4 implementations)
 - Week 4 Performance Optimization (2025-10-23)
@@ -28,6 +29,7 @@
 **Problem**: Accessing foreign key relationships in loops triggers one query per iteration (N+1 pattern). For 10 items, this creates 11 queries (1 main + 10 for each foreign key).
 
 **Performance Impact**:
+
 - **Before**: 10-12 queries, 200ms
 - **After**: 1 query with JOIN, 30ms (85% faster)
 - **Reduction**: 91% fewer queries
@@ -37,6 +39,7 @@
 ### Pattern: Single-Level Foreign Key
 
 **Anti-Pattern** ❌:
+
 ```python
 # BAD - Triggers N+1 queries
 recent_topics = Topic.objects.filter(
@@ -52,6 +55,7 @@ for topic in recent_topics:
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # GOOD - Single query with JOIN
 recent_topics = Topic.objects.filter(
@@ -67,6 +71,7 @@ for topic in recent_topics:
 ```
 
 **SQL Generated**:
+
 ```sql
 -- With select_related()
 SELECT
@@ -88,6 +93,7 @@ LIMIT 10;
 **Problem**: Nested foreign keys (e.g., `post.topic.forum.name`) require multiple select_related() calls.
 
 **Anti-Pattern** ❌:
+
 ```python
 # BAD - Queries for each level
 recent_posts = Post.objects.filter(
@@ -105,6 +111,7 @@ for post in recent_posts:
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # GOOD - Chain select_related for nested relationships
 recent_posts = Post.objects.filter(
@@ -130,6 +137,7 @@ for post in recent_posts:
 **Problem**: ManyToMany relationships cannot use select_related() (which only works for ForeignKey and OneToOne). Must use prefetch_related() instead.
 
 **Anti-Pattern** ❌:
+
 ```python
 # BAD - N+1 queries for tags
 blog_posts = BlogPostPage.objects.filter(
@@ -144,6 +152,7 @@ for post in blog_posts:
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # GOOD - Prefetch ManyToMany relationships
 blog_posts = BlogPostPage.objects.filter(
@@ -158,6 +167,7 @@ for post in blog_posts:
 ```
 
 **SQL Generated**:
+
 ```sql
 -- Query 1: Get blog posts
 SELECT * FROM blog_blogpostpage WHERE live = TRUE LIMIT 10;
@@ -175,6 +185,7 @@ WHERE blog_post_tags.post_id IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
 **Use Case**: When you have both ForeignKey and ManyToMany relationships.
 
 **Implementation**:
+
 ```python
 # Combine both for optimal performance
 blog_posts = BlogPostPage.objects.filter(
@@ -206,6 +217,7 @@ for post in blog_posts:
 **Use Case**: When you only need a subset of related objects (e.g., only published comments, only active users).
 
 **Implementation**:
+
 ```python
 from django.db.models import Prefetch
 
@@ -232,6 +244,7 @@ for post in blog_posts:
 **Problem**: Multiple separate `.count()` queries on the same model waste database round-trips. Each `.count()` is a separate query.
 
 **Performance Impact**:
+
 - **Before**: 15-20 queries, 500-800ms
 - **After**: 3-4 queries, 10-20ms (97% faster)
 - **Reduction**: 75-80% fewer queries
@@ -241,6 +254,7 @@ for post in blog_posts:
 ### Pattern: Dashboard Stats Aggregation
 
 **Anti-Pattern** ❌:
+
 ```python
 # BAD - 4 separate COUNT queries
 plant_stats = {
@@ -267,6 +281,7 @@ plant_stats = {
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 from django.db.models import Count, Q
 
@@ -291,6 +306,7 @@ plant_stats = {
 ```
 
 **SQL Generated**:
+
 ```sql
 -- Single query with conditional counting
 SELECT
@@ -306,6 +322,7 @@ WHERE user_id = 123;
 ### Pattern: Forum Stats Aggregation
 
 **Implementation** (from dashboard_stats endpoint):
+
 ```python
 from django.db.models import Count, Q
 
@@ -343,11 +360,13 @@ forum_stats = {
 ### Pattern: Conditional Aggregation with Q Objects
 
 **Use Cases**:
+
 - Date-based filtering (this week, this month, this year)
 - Status-based filtering (published, draft, archived)
 - User-based filtering (own posts, favorited posts)
 
 **Implementation**:
+
 ```python
 from django.db.models import Count, Q, Sum, Avg
 from datetime import timedelta
@@ -385,11 +404,13 @@ stats = Model.objects.filter(user=user).aggregate(
 **Problem**: Fetching the same object multiple times in a single request. Common in token refresh, user profile updates, and object detail views.
 
 **Performance Impact**:
+
 - **Before**: 3-4 queries, 150ms
 - **After**: 1 query, 10ms (93% faster)
 - **Reduction**: 75% fewer queries
 
 **Anti-Pattern** ❌:
+
 ```python
 # BAD - Multiple user queries in token refresh
 used_refresh = RefreshToken(refresh_token)  # Query 1: Validates token
@@ -407,6 +428,7 @@ new_refresh = RefreshToken.for_user(user)  # Query 4: Might query user again
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # GOOD - Fetch user once with only() for selective loading
 used_refresh = RefreshToken(refresh_token)
@@ -438,16 +460,19 @@ response = set_jwt_cookies(response, user)  # Uses cached user object
 ### Pattern: Selective Field Loading with only()
 
 **Use Cases**:
+
 - Token refresh (only need id, username, email)
 - List views (only need id, title, created_at)
 - Count operations (only need id)
 
 **Benefits**:
+
 - Reduces memory usage (fewer fields loaded)
 - Faster query execution (less data transferred)
 - Clearer intent (shows which fields are actually used)
 
 **Implementation**:
+
 ```python
 # Only load fields you actually use
 users = User.objects.only('id', 'username', 'email').filter(is_active=True)
@@ -474,6 +499,7 @@ description = topic.description  # This triggers a query! (not in only())
 **Problem**: Without indexes, database performs sequential scans (O(n) complexity). With 10,000+ users, lookups become 300-800ms.
 
 **Performance Impact**:
+
 - **Before**: Sequential scan, 300-800ms
 - **After**: B-tree index scan, 3-8ms (100x faster)
 - **Improvement**: O(n) → O(log n) complexity
@@ -483,12 +509,14 @@ description = topic.description  # This triggers a query! (not in only())
 ### Pattern: Email Field Indexing
 
 **Why Index Email?**
+
 - Used in login authentication
 - Used in password reset lookups
 - Used in notification delivery
 - High cardinality (unique values)
 
 **Anti-Pattern** ❌:
+
 ```python
 # BAD - No index on email
 class User(AbstractUser):
@@ -504,6 +532,7 @@ class User(AbstractUser):
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # GOOD - B-tree index on email
 class User(AbstractUser):
@@ -520,6 +549,7 @@ class User(AbstractUser):
 ```
 
 **Migration**:
+
 ```python
 # migrations/0007_add_performance_indexes.py
 from django.db import migrations, models
@@ -548,12 +578,14 @@ class Migration(migrations.Migration):
 ### Pattern: Status/State Field Indexing
 
 **When to Index**:
+
 - Frequently used in WHERE clauses
 - Used in permission checks
 - Moderate cardinality (4-20 distinct values)
 - Examples: `status`, `trust_level`, `approval_state`
 
 **Implementation**:
+
 ```python
 # GOOD - Index on trust_level for permission checks
 class User(AbstractUser):
@@ -580,6 +612,7 @@ class User(AbstractUser):
 ### Pattern: When NOT to Add Indexes
 
 **Low Cardinality Fields**:
+
 ```python
 # BAD - Don't index boolean fields (only 2 values)
 is_active = models.BooleanField(default=True, db_index=True)  # ❌ Wasteful
@@ -589,12 +622,14 @@ is_active = models.BooleanField(default=True, db_index=True)  # ❌ Wasteful
 ```
 
 **Rarely Queried Fields**:
+
 ```python
 # BAD - Don't index if never used in WHERE/ORDER BY
 notes = models.TextField(db_index=True)  # ❌ Never filtered on
 ```
 
 **Write-Heavy Tables**:
+
 ```python
 # CAUTION - Indexes slow down INSERT/UPDATE
 # Each index adds ~5-10% overhead on writes
@@ -608,6 +643,7 @@ notes = models.TextField(db_index=True)  # ❌ Never filtered on
 **Use Case**: Queries that filter on multiple columns together.
 
 **Implementation**:
+
 ```python
 class BlogPost(models.Model):
     author = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -635,6 +671,7 @@ class BlogPost(models.Model):
 ### Pattern: Index on Foreign Keys
 
 **Automatic Indexing**:
+
 ```python
 # Foreign keys are automatically indexed by Django
 author = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -652,6 +689,7 @@ author = models.ForeignKey(User, on_delete=models.CASCADE)
 **Problem**: Read-modify-write operations on shared cache keys create race conditions. Multiple threads can read, modify, and write simultaneously, causing lost updates.
 
 **Performance Impact**:
+
 - **Atomicity**: Ensured through Redis operations
 - **Retry Success**: 99.9% on first attempt
 - **Overhead**: <5ms for retry logic
@@ -662,6 +700,7 @@ author = models.ForeignKey(User, on_delete=models.CASCADE)
 ### Pattern: SecurityMonitor Account Lockout (Thread-Safe)
 
 **Anti-Pattern** ❌:
+
 ```python
 # BAD - Race condition in account lockout tracking
 key = f"lockout_attempts:{username}"
@@ -689,6 +728,7 @@ cache.set(key, attempts, timeout)  # Thread B also writes - LAST WRITE WINS!
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # GOOD - Optimistic locking with retry
 max_retries = 3
@@ -754,6 +794,7 @@ return False, 0
 ### Pattern: Redis Atomic Operations
 
 **cache.add() vs cache.set()**:
+
 ```python
 # cache.add(key, value, timeout)
 # - Returns True if key was created
@@ -768,6 +809,7 @@ return False, 0
 ```
 
 **Implementation Example**:
+
 ```python
 # First writer wins with cache.add()
 success = cache.add('lockout:user123', initial_data, timeout=300)
@@ -784,6 +826,7 @@ if not success:
 ### Pattern: Retry Logic for Conflicts
 
 **Implementation**:
+
 ```python
 def update_cached_counter(key, increment=1, max_retries=3):
     """Thread-safe counter update with retry logic."""
@@ -825,6 +868,7 @@ def update_cached_counter(key, increment=1, max_retries=3):
 **Problem**: Lenient assertions (assertLess) allow query count to increase without detection. Performance regressions slip through tests.
 
 **Performance Impact**:
+
 - **Before**: Regressions go undetected (5→19 queries would pass with assertLess(queries, 20))
 - **After**: ANY query increase triggers failure (5→6 would fail)
 - **Confidence**: 100% regression detection
@@ -836,6 +880,7 @@ def update_cached_counter(key, increment=1, max_retries=3):
 ### Pattern: Use assertEqual for Query Counts
 
 **Anti-Pattern** ❌:
+
 ```python
 # BAD - Lenient assertion allows regressions
 from django.test import TestCase
@@ -858,6 +903,7 @@ class PerformanceTestCase(TestCase):
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # GOOD - Strict assertion prevents ALL regressions
 class PerformanceTestCase(TestCase):
@@ -889,12 +935,14 @@ class PerformanceTestCase(TestCase):
 ### Pattern: Document Query Breakdown in Comments
 
 **Requirements**:
+
 1. **Comment the expected query breakdown** - Document WHY that count is expected
 2. **Reference pattern docs** - Include link in assertion message
 3. **Explain without optimization** - Show what query count would be without optimization
 4. **Issue reference** - Link to performance work or issue number
 
 **Example Documentation**:
+
 ```python
 def test_blog_list_query_count(self):
     """
@@ -930,11 +978,13 @@ def test_blog_list_query_count(self):
 ### Pattern: When to Use Lenient Assertions (Rare)
 
 **Only use assertLess when**:
+
 1. **Dynamic query counts** - Number of queries genuinely varies (e.g., depends on user permissions)
 2. **External dependencies** - Third-party libraries with unpredictable query patterns
 3. **Smoke tests** - Initial rough checks before strict optimization
 
 **Even then**, prefer strict assertions with conditional logic:
+
 ```python
 # Better: Strict assertions for known cases
 if user.is_staff:
@@ -954,6 +1004,7 @@ self.assertEqual(
 ### Pattern: Migration from Lenient to Strict
 
 **Step 1**: Run test to capture current query count
+
 ```bash
 python manage.py test apps.blog.tests.test_performance --noinput -v 2
 
@@ -964,6 +1015,7 @@ print(f"[DEBUG] Query count: {num_queries}")
 ```
 
 **Step 2**: Replace lenient assertion with strict
+
 ```python
 # Before
 self.assertLess(num_queries, 20, f"Expected <20 queries, got {num_queries}")
@@ -978,6 +1030,7 @@ self.assertEqual(
 ```
 
 **Step 3**: Document query breakdown in comment
+
 ```python
 # STRICT: Expect exactly 18 queries (regression protection - Issue #117)
 # Query breakdown:
@@ -988,6 +1041,7 @@ self.assertEqual(
 ```
 
 **Step 4**: Run test to verify
+
 ```bash
 python manage.py test apps.blog.tests.test_performance --noinput
 # Should pass with exact count
@@ -998,6 +1052,7 @@ python manage.py test apps.blog.tests.test_performance --noinput
 ### Pattern: CaptureQueriesContext Usage
 
 **Implementation**:
+
 ```python
 from django.test import TestCase
 from django.db import connection
@@ -1033,6 +1088,7 @@ class PerformanceTestCase(TestCase):
 ### Pitfall 1: Forgetting select_related() in Loops
 
 **Problem**:
+
 ```python
 # ❌ N+1 queries - forgot select_related()
 topics = Topic.objects.filter(approved=True)
@@ -1042,6 +1098,7 @@ for topic in topics:
 ```
 
 **Solution**:
+
 ```python
 # ✅ Single query with JOIN
 topics = Topic.objects.filter(approved=True).select_related('forum')
@@ -1055,12 +1112,14 @@ for topic in topics:
 ### Pitfall 2: Using select_related() on ManyToMany
 
 **Problem**:
+
 ```python
 # ❌ ERROR - select_related doesn't work on ManyToMany
 posts = BlogPost.objects.select_related('tags')  # Will raise error!
 ```
 
 **Solution**:
+
 ```python
 # ✅ Use prefetch_related for ManyToMany
 posts = BlogPost.objects.prefetch_related('tags')
@@ -1071,6 +1130,7 @@ posts = BlogPost.objects.prefetch_related('tags')
 ### Pitfall 3: Multiple COUNT Queries
 
 **Problem**:
+
 ```python
 # ❌ 4 separate queries
 total = Model.objects.filter(user=user).count()
@@ -1080,6 +1140,7 @@ this_week = Model.objects.filter(user=user, created_at__gte=week_ago).count()
 ```
 
 **Solution**:
+
 ```python
 # ✅ Single aggregate query
 from django.db.models import Count, Q
@@ -1097,6 +1158,7 @@ stats = Model.objects.filter(user=user).aggregate(
 ### Pitfall 4: Accessing Fields Not in only()
 
 **Problem**:
+
 ```python
 # ❌ Triggers additional query
 user = User.objects.only('id', 'username').get(id=123)
@@ -1104,6 +1166,7 @@ email = user.email  # This triggers a query! (email not in only())
 ```
 
 **Solution**:
+
 ```python
 # ✅ Include all fields you'll access
 user = User.objects.only('id', 'username', 'email').get(id=123)
@@ -1115,6 +1178,7 @@ email = user.email  # No extra query
 ### Pitfall 5: Lenient Performance Test Assertions
 
 **Problem**:
+
 ```python
 # ❌ Allows performance regressions
 self.assertLess(query_count, 20)
@@ -1122,6 +1186,7 @@ self.assertLess(query_count, 20)
 ```
 
 **Solution**:
+
 ```python
 # ✅ Strict assertion catches ALL regressions
 self.assertEqual(query_count, 5)
@@ -1159,11 +1224,13 @@ self.assertEqual(query_count, 5)
 ### Scalability Projections
 
 **Current (1,000 users)**:
+
 - Dashboard: 10-20ms
 - Token refresh: 10ms
 - DB CPU: <10%
 
 **Projected (100,000 users)**:
+
 - Dashboard: 10-20ms (aggregation scales linearly)
 - Token refresh: 10ms (indexed lookups scale logarithmically)
 - DB CPU: <30% (with read replicas)
@@ -1178,8 +1245,111 @@ self.assertEqual(query_count, 5)
 
 ---
 
-**Last Reviewed**: November 13, 2025
-**Pattern Count**: 25 query optimization patterns
+**Last Reviewed**: 2026-05-08
+**Pattern Count**: 28 query optimization patterns
 **Status**: ✅ Production-validated
 **Performance Improvement**: 75-98% query reduction, 10-100x faster execution
 
+---
+
+## Pattern 26: Reverse OneToOne — Multiple Accesses in Separate SerializerMethodFields
+
+**Problem**: A reverse OneToOne accessor (e.g. `obj.rich_content` where `RichPost` has `OneToOneField(Post, related_name='rich_content')`) accessed in separate `SerializerMethodField` methods via independent `try/except` blocks fires one DB query per access when `select_related` is absent. Three such methods = 3× queries per serialized row.
+
+**Anti-pattern** ❌:
+
+```python
+class PostSerializer(serializers.ModelSerializer):
+    def get_content_format(self, obj):
+        try:
+            return obj.rich_content.content_format  # Query 1
+        except RichPost.DoesNotExist:
+            return 'plain'
+
+    def get_ai_assisted(self, obj):
+        try:
+            return obj.rich_content.ai_assisted  # Query 2
+        except RichPost.DoesNotExist:
+            return False
+```
+
+**Correct pattern** ✅ — consolidate into `to_representation()`:
+
+```python
+class PostViewSet(viewsets.ModelViewSet):
+    def get_queryset(self):
+        return Post.objects.select_related('rich_content')
+
+class PostSerializer(serializers.ModelSerializer):
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        try:
+            rc = instance.rich_content  # 0 extra queries (prefetched)
+            rep['content_format'] = rc.content_format
+            rep['ai_assisted'] = rc.ai_assisted
+        except RichPost.DoesNotExist:
+            rep['content_format'] = 'plain'
+            rep['ai_assisted'] = False
+        return rep
+```
+
+**Rule**: Any reverse OneToOne relation accessed in more than one `SerializerMethodField` must be moved to `select_related()` + a single access point. Never access the same reverse OneToOne more than once across separate methods.
+
+---
+
+## Pattern 27: Instance-Level Cache in Serializer Methods — Stale Data Risk
+
+**Problem**: Caching a related object directly on a model instance (`obj._cache = ...`) inside a serializer method avoids repeated DB hits but risks returning stale data when the same instance is mutated (e.g. `RichPost.objects.create()`) and re-serialized in the same request cycle.
+
+**Anti-pattern** ❌:
+
+```python
+def _get_rich_post(self, obj):
+    if not hasattr(obj, '_rich_post_cache'):
+        try:
+            obj._rich_post_cache = obj.rich_content
+        except RichPost.DoesNotExist:
+            obj._rich_post_cache = None
+    return obj._rich_post_cache  # Stale after create() in same request
+```
+
+**Correct pattern** ✅ — cache on the serializer, keyed by pk:
+
+```python
+def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self._rc_cache: dict = {}
+
+def _get_rich_post(self, obj):
+    if obj.pk not in self._rc_cache:
+        try:
+            self._rc_cache[obj.pk] = obj.rich_content
+        except RichPost.DoesNotExist:
+            self._rc_cache[obj.pk] = None
+    return self._rc_cache[obj.pk]
+```
+
+**Rule**: Never attach cache attributes to a model instance inside a serializer. Cache on the serializer instance (keyed by pk) or remove the need entirely with `select_related()`.
+
+---
+
+## Pattern 28: Shared Serializer Logic — Extract to Mixin
+
+**Problem**: Helper methods duplicated verbatim across serializer classes (e.g. `_normalize_rich_content` in both `CreateTopicSerializer` and `CreatePostSerializer`) diverge silently when one copy is updated.
+
+**Correct pattern** ✅:
+
+```python
+class RichContentMixin:
+    def _normalize_rich_content(self, rich_content):
+        # single authoritative implementation
+        ...
+
+class CreateTopicSerializer(RichContentMixin, serializers.ModelSerializer):
+    ...
+
+class CreatePostSerializer(RichContentMixin, serializers.ModelSerializer):
+    ...
+```
+
+**Rule**: Any serializer helper appearing identically in two or more classes must be extracted to a mixin or module-level function before merging.

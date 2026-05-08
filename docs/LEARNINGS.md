@@ -205,4 +205,44 @@ This file is append-only. New entries are added by main Claude after each code r
 **Mistake**: A `block-claude-md` hook used `grep -E "CLAUDE\.md"` against staged filenames to prevent `CLAUDE.md` from ever being committed. The intent was to stop developers accidentally committing local personalisation notes. Instead it blocked the *team-shared* `CLAUDE.md` (project conventions, delegation rules, critical gotchas) which is intentionally tracked. The hook had no way to distinguish the two forms.
 **Fix**: Removed `block-claude-md`. The two concerns are already handled separately: `.gitignore` with a `CLAUDE.md` entry prevents accidental commits of a purely-local file; `scan-api-keys` catches real credentials regardless of filename. The team-shared `CLAUDE.md` is committed normally.
 **Rule**: Name-gating ("block this filename") is only appropriate for files that must *never* appear in git history (e.g. `.env`, `*.pem`). For files that have a legitimate tracked form alongside a private local form, use `.gitignore` to guard the private form and rely on content-scanning hooks (detect-secrets, scan-api-keys) to catch actual secrets. Combining both in one hook conflates two distinct problems and will eventually block a legitimate commit.
+
+---
+
+## Performance (2026-05-08 additions)
+
+### [2026-05-08] Reverse OneToOne accessed in three separate SerializerMethodFields — 3× N+1 per row
+
+**Mistake**: `PostSerializer` in `forum_integration/serializers.py` accessed `obj.rich_content` (a reverse OneToOne to `RichPost`) independently in `get_rich_content`, `get_content_format`, and `get_ai_assisted`. Each try/except is a separate DB query when `select_related` is absent — tripling the query cost per serialized Post.
+**Fix**: Add `select_related('rich_content')` to the ViewSet queryset and consolidate all three field reads into a shared `_get_rich_post()` helper that caches on the instance, reducing per-post DB hits from 3 to 1.
+**Rule**: Any reverse OneToOne relation accessed in more than one `SerializerMethodField` must be in `select_related()` and read from a single consolidated access point. See `backend/docs/patterns/performance/query-optimization.md` Pattern 26.
+**Agent**: performance-reviewer
+
+### [2026-05-08] Instance-level cache on model instance inside serializer risks stale data after create()
+
+**Mistake**: Caching a reverse relation as `obj._rich_post_cache` directly on the Post instance inside a serializer method. If the same instance is mutated (e.g. `RichPost.objects.create()`) then re-serialized in the same request, the cached `None` is returned instead of the freshly-created object.
+**Fix**: Cache on the serializer instance (dict keyed by pk) or eliminate caching entirely via `select_related()`.
+**Rule**: Never attach cache attributes to a model instance inside a serializer. See `backend/docs/patterns/performance/query-optimization.md` Pattern 27.
+**Agent**: performance-reviewer
+
+---
+
+## Django/DRF (2026-05-08 additions)
+
+### [2026-05-08] Identical helper method duplicated across two serializer classes
+
+**Mistake**: `_normalize_rich_content` was defined verbatim in both `CreateTopicSerializer` and `CreatePostSerializer`. A future change to one copy will not propagate to the other, causing silent divergence in plant_mention normalisation logic.
+**Fix**: Extract into a `RichContentMixin` and have both serializers inherit from it (todo 066).
+**Rule**: Any serializer helper method appearing identically in two or more classes must be extracted to a mixin before merging. See `backend/docs/patterns/performance/query-optimization.md` Pattern 28.
+**Agent**: django-drf-reviewer
+
+---
+
+## Testing (2026-05-08 additions)
+
+### [2026-05-08] Machina dynamic class loader raises AppNotFoundError at import time — all forum_integration tests unreachable
+
+**Mistake**: `apps.forum_integration` tests all failed at import with `machina.core.loading.AppNotFoundError: No app found matching 'forum_conversation.managers'` because Machina's dynamic loader requires its full `machina.apps.*` subtree in `INSTALLED_APPS`. The error fires before any test's `setUp`, making the entire suite unreachable and masking regressions (todo 065).
+**Fix**: Ensure all required `machina.apps.*` entries are present in `INSTALLED_APPS` in the test settings.
+**Rule**: Any test module importing from django-machina must verify the full app subtree is in `INSTALLED_APPS` — a missing entry causes an import-time failure, not a test-time assertion failure, so the problem is invisible until the suite is run.
+**Agent**: test-quality-reviewer
 **Agent**: security-reviewer
