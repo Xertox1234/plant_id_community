@@ -261,4 +261,16 @@ Update the checkpoint after every per-todo terminal state (completed or skipped)
 
 ## Safety Rails
 
-(populated in Task 8)
+These are non-negotiable. They override any in-the-moment judgment to "just push through".
+
+1. **Never auto-commit.** The skill never runs `git commit`. Phase 2 explicitly tells the user to commit.
+2. **Sequential by default.** A `--parallel N` flag is reserved for future work; do NOT implement it in v1. Todos can collide on shared files; serialization is the safe default.
+3. **One-time confirmation before the first file move.** After Phase 0 confirmation, before the first `git mv` of the run, prompt once:
+   ```
+   About to rename + move N files via git mv across this run. Working directory: <pwd>. Continue? (yes / cancel)
+   ```
+   Skip this prompt if `--dry-run`.
+4. **Acceptance criteria are gospel.** A todo cannot be marked `completed` unless every `- [ ]` is flipped to `- [x]` with verification evidence quoted in the Work Log. There is no `--force-complete`.
+5. **No destructive recovery.** If `git mv` or any other step fails mid-todo, stop the loop and leave state as-is for the user to inspect. Do not roll back, do not delete, do not retry silently.
+6. **Stop on review block.** If `code-review-orchestrator` returns `critical`/`high` and the user chooses `repair`, exit the loop after that todo so the user can inspect the diff before the next todo starts.
+7. **Checkpoint integrity.** Update the checkpoint after every per-todo terminal state (completed or skipped), not at the end of the run. A killed process must be resumable from the last completed todo.
