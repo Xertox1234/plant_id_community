@@ -649,43 +649,34 @@ class DemoDataService:
         Returns:
             DemoData instance with created content summary
         """
-        from .models import DemoData
         from django.db import transaction
-        
+        from types import SimpleNamespace
+
         with transaction.atomic():
-            # Create demo data record
-            demo_data = DemoData.objects.create(
-                user=self.user,
-                demo_type='comprehensive',
-                created_data={}
-            )
-            
             created_items = {
                 'identifications_count': 0,
                 'forum_posts_count': 0,
                 'care_reminders_count': 0,
             }
-            
+
             # Create demo plant identifications
             identifications = self._create_demo_identifications()
             created_items['identifications_count'] = len(identifications)
-            
+
             # Create demo forum posts (if forum is enabled)
             if self._is_forum_enabled():
                 forum_posts = self._create_demo_forum_posts()
                 created_items['forum_posts_count'] = len(forum_posts)
-            
+
             # Create demo care reminders (if requested)
             if include_care_reminders and identifications:
                 care_reminders = self._create_demo_care_reminders(identifications[:3])
                 created_items['care_reminders_count'] = len(care_reminders)
-            
-            # Store summary in demo data
-            demo_data.created_data = created_items
-            demo_data.save(update_fields=['created_data'])
-            
+
             logger.info(f"Created demo data for user {self.user.id}: {created_items}")
-            return demo_data
+            # DemoData model is for global demo templates, not per-user records;
+            # return a lightweight wrapper so callers can access .id (None) and .created_data.
+            return SimpleNamespace(id=None, created_data=created_items)
     
     def _create_demo_identifications(self):
         """Create sample plant identification requests with results."""

@@ -139,6 +139,24 @@ def firebase_token_exchange(request: Request) -> Response:
             decoded_token = firebase_auth.verify_id_token(firebase_token)
             firebase_uid = decoded_token['uid']
             firebase_email = decoded_token.get('email')
+            email_verified = bool(decoded_token.get('email_verified'))
+            sign_in_provider = (
+                decoded_token.get('firebase', {}).get('sign_in_provider', '')
+            )
+
+            # Reject unverified-email tokens to prevent account takeover via Firebase
+            # email/password sign-up to a never-verified address that collides with an
+            # existing Django user. Federated providers (Google, Apple) self-verify.
+            TRUSTED_PROVIDERS = {'google.com', 'apple.com'}
+            if firebase_email and not email_verified and sign_in_provider not in TRUSTED_PROVIDERS:
+                logger.warning(
+                    f"[FIREBASE AUTH] Rejected unverified email login "
+                    f"(provider={sign_in_provider}, email={redact_email(firebase_email)})"
+                )
+                return Response(
+                    {"error": "Email address must be verified before logging in."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
             logger.info(f"[FIREBASE AUTH] Token validated for uid={firebase_uid}, email={redact_email(firebase_email)}")
 

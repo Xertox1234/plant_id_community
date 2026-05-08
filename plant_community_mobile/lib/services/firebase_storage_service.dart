@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:firebase_storage/firebase_storage.dart';
@@ -65,6 +66,7 @@ class FirebaseStorageService extends Notifier<void> {
     final imageId = _uuid.v4();
     final storageRef = _storage.ref('plant_images/$imageId$extension');
 
+    StreamSubscription<TaskSnapshot>? progressSub;
     try {
       final uploadTask = storageRef.putFile(
         file,
@@ -72,7 +74,7 @@ class FirebaseStorageService extends Notifier<void> {
       );
 
       if (onProgress != null) {
-        uploadTask.snapshotEvents.listen((snapshot) {
+        progressSub = uploadTask.snapshotEvents.listen((snapshot) {
           final totalBytes = snapshot.totalBytes;
           if (totalBytes > 0) {
             onProgress(snapshot.bytesTransferred / totalBytes);
@@ -94,6 +96,8 @@ class FirebaseStorageService extends Notifier<void> {
       );
     } catch (error) {
       throw FirebaseStorageServiceException('Failed to upload plant image: $error');
+    } finally {
+      await progressSub?.cancel();
     }
   }
 

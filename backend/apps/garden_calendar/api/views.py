@@ -1459,7 +1459,6 @@ class HarvestViewSet(viewsets.ModelViewSet):
         # Average ratings
         from django.db.models import Avg
         avg_quality = queryset.aggregate(avg=Avg('quality_rating'))['avg']
-        avg_taste = queryset.aggregate(avg=Avg('taste_rating'))['avg']
 
         # Harvests by plant
         from django.db.models import Count
@@ -1475,7 +1474,6 @@ class HarvestViewSet(viewsets.ModelViewSet):
             'total_harvests': total_harvests,
             'total_quantity_by_unit': quantities,
             'average_quality_rating': round(avg_quality, 1) if avg_quality else None,
-            'average_taste_rating': round(avg_taste, 1) if avg_taste else None,
             'top_producers': list(by_plant)
         })
 

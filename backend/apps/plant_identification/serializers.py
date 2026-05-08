@@ -221,11 +221,12 @@ class PlantIdentificationResultSerializer(serializers.ModelSerializer):
         return round(obj.confidence_score * 100, 1) if obj.confidence_score else 0
     
     def get_user_vote(self, obj):
-        """Get the current user's vote for this result."""
+        """Get the current user's vote; uses queryset annotation when available."""
+        if hasattr(obj, 'user_vote_annotation'):
+            return obj.user_vote_annotation
         request = self.context.get('request')
         if not request or not request.user.is_authenticated:
             return None
-        
         try:
             from .models import PlantIdentificationVote
             vote = PlantIdentificationVote.objects.get(user=request.user, result=obj)

@@ -35,22 +35,17 @@ class ForumCategorySerializer(serializers.ModelSerializer):
         ]
     
     def get_topics_count(self, obj):
-        """Get number of topics in this forum."""
-        return Topic.objects.filter(forum=obj, approved=True).count()
-    
+        """Return Machina's cached direct topics count."""
+        return obj.direct_topics_count
+
     def get_posts_count(self, obj):
-        """Get number of posts in this forum."""
-        return Post.objects.filter(topic__forum=obj, approved=True).count()
-    
+        """Return Machina's cached direct posts count."""
+        return obj.direct_posts_count
+
     def get_last_activity(self, obj):
-        """Get last activity timestamp."""
-        last_post = Post.objects.filter(
-            topic__forum=obj, 
-            approved=True
-        ).order_by('-created').first()
-        
-        if last_post:
-            return last_post.created.isoformat()
+        """Return Machina's cached last-post timestamp."""
+        if obj.last_post_on:
+            return obj.last_post_on.isoformat()
         return None
 
 

@@ -21,6 +21,7 @@ from django_ratelimit.decorators import ratelimit
 from apps.core.utils.pii_safe_logging import log_safe_username, log_safe_user_context, log_safe_email
 import logging
 import json
+import secrets
 
 from .authentication import set_jwt_cookies
 from .serializers import UserSerializer
@@ -45,6 +46,9 @@ def oauth_login(request, provider):
     Initiate OAuth login process for the specified provider.
     """
     try:
+        state = secrets.token_urlsafe(32)
+        request.session['oauth_state'] = state
+
         if provider == 'google':
             # Build Google OAuth URL
             client_id = settings.SOCIALACCOUNT_PROVIDERS['google']['APP']['client_id']
@@ -52,7 +56,7 @@ def oauth_login(request, provider):
                 return Response({
                     'error': 'Google OAuth not configured'
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            
+
             # Use backend URL (port 8000) for redirect URI to match OAuth app configuration
             # In development, requests come through proxy (port 3000) but OAuth needs backend URL
             if settings.DEBUG:
@@ -60,7 +64,7 @@ def oauth_login(request, provider):
             else:
                 redirect_uri = f"{request.build_absolute_uri('/').rstrip('/')}/api/auth/oauth/google/callback/"
             scope = '+'.join(settings.SOCIALACCOUNT_PROVIDERS['google']['SCOPE'])
-            
+
             oauth_url = (
                 f"https://accounts.google.com/o/oauth2/v2/auth?"
                 f"client_id={client_id}&"
@@ -68,9 +72,10 @@ def oauth_login(request, provider):
                 f"scope={scope}&"
                 f"response_type=code&"
                 f"access_type=online&"
-                f"prompt=select_account"
+                f"prompt=select_account&"
+                f"state={state}"
             )
-            
+
         elif provider == 'github':
             # Build GitHub OAuth URL
             client_id = settings.SOCIALACCOUNT_PROVIDERS['github']['APP']['client_id']
@@ -78,7 +83,7 @@ def oauth_login(request, provider):
                 return Response({
                     'error': 'GitHub OAuth not configured'
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            
+
             # Use backend URL (port 8000) for redirect URI to match OAuth app configuration
             # In development, requests come through proxy (port 3000) but OAuth needs backend URL
             if settings.DEBUG:
@@ -86,20 +91,21 @@ def oauth_login(request, provider):
             else:
                 redirect_uri = f"{request.build_absolute_uri('/').rstrip('/')}/api/auth/oauth/github/callback/"
             scope = '+'.join(settings.SOCIALACCOUNT_PROVIDERS['github']['SCOPE'])
-            
+
             oauth_url = (
                 f"https://github.com/login/oauth/authorize?"
                 f"client_id={client_id}&"
                 f"redirect_uri={redirect_uri}&"
                 f"scope={scope}&"
-                f"response_type=code"
+                f"response_type=code&"
+                f"state={state}"
             )
-            
+
         else:
             return Response({
                 'error': f'Provider {provider} not supported'
             }, status=status.HTTP_400_BAD_REQUEST)
-        
+
         return Response({
             'oauth_url': oauth_url,
             'provider': provider
@@ -123,13 +129,21 @@ def oauth_callback(request, provider):
         # Get authorization code from query params
         code = request.GET.get('code')
         error = request.GET.get('error')
-        
+
         if error:
             logger.warning(f"OAuth error for {provider}: {error}")
             # Redirect to frontend with error
             frontend_url = get_oauth_redirect_url(provider)
             return HttpResponseRedirect(f"{frontend_url}?error={error}")
-        
+
+        # Validate state to prevent CSRF attacks
+        received_state = request.GET.get('state', '')
+        expected_state = request.session.pop('oauth_state', None)
+        if not expected_state or not secrets.compare_digest(expected_state, received_state):
+            logger.warning(f"[SECURITY] OAuth state mismatch for {provider} — possible CSRF")
+            frontend_url = get_oauth_redirect_url(provider)
+            return HttpResponseRedirect(f"{frontend_url}?error=invalid_state")
+
         if not code:
             logger.warning(f"No authorization code received for {provider}")
             frontend_url = get_oauth_redirect_url(provider)
