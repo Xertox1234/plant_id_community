@@ -8,6 +8,7 @@
 When building responsive layouts, text can wrap awkwardly with one word per line on very narrow viewports (e.g., <300px width). This creates a poor user experience.
 
 ### Root Cause
+
 - Containers without minimum width constraints can collapse below readable dimensions
 - Fixed font sizes don't scale appropriately across viewport sizes
 - Max-width constraints without corresponding min-width can cause excessive text wrapping
@@ -33,6 +34,7 @@ When building responsive layouts, text can wrap awkwardly with one word per line
 ```
 
 **Key Points:**
+
 - `min-w-[280px]` is the minimum for readable forms on mobile
 - Use arbitrary values `[280px]` when standard Tailwind sizes don't fit
 - Always pair `max-w-*` with `min-w-[*px]` for form containers
@@ -52,6 +54,7 @@ When building responsive layouts, text can wrap awkwardly with one word per line
 ```
 
 **Breakpoint Strategy:**
+
 - **Mobile (default)**: Smaller text sizes (`text-sm`, `text-2xl`)
 - **Tablet+ (`sm:` 640px+)**: Larger text sizes (`text-base`, `text-3xl`)
 - Ensures readability at all viewport sizes
@@ -75,6 +78,7 @@ When building responsive layouts, text can wrap awkwardly with one word per line
 ```
 
 **Benefits:**
+
 - `space-y-*` applies consistent vertical spacing between children
 - Easier to maintain and adjust globally
 - Prevents spacing inconsistencies
@@ -100,6 +104,7 @@ When building responsive layouts, text can wrap awkwardly with one word per line
 ```
 
 **Guidelines:**
+
 - Only use `max-w-*` on text when you need multi-column layouts
 - For centered text, let parent container control width
 - Trust the parent's `max-w-md` to handle line length
@@ -112,15 +117,10 @@ export default function LoginPage() {
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-gray-50">
       {/* Form container with min-width to prevent collapse */}
       <div className="w-full max-w-md min-w-[280px]">
-
         {/* Header with responsive typography */}
         <div className="text-center mb-8 space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-            Welcome back
-          </h1>
-          <p className="text-sm sm:text-base text-gray-600">
-            Sign in to your PlantID account
-          </p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Welcome back</h1>
+          <p className="text-sm sm:text-base text-gray-600">Sign in to your PlantID account</p>
         </div>
 
         {/* Form card */}
@@ -129,19 +129,19 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }
 ```
 
 ## Responsive Breakpoints Reference (Tailwind 4)
 
-| Breakpoint | Min Width | Usage |
-|------------|-----------|-------|
+| Breakpoint | Min Width | Usage                    |
+| ---------- | --------- | ------------------------ |
 | (default)  | 0px       | Mobile-first base styles |
-| `sm:`      | 640px     | Tablets and larger |
-| `md:`      | 768px     | Desktop |
-| `lg:`      | 1024px    | Large desktop |
-| `xl:`      | 1280px    | Extra large screens |
+| `sm:`      | 640px     | Tablets and larger       |
+| `md:`      | 768px     | Desktop                  |
+| `lg:`      | 1024px    | Large desktop            |
+| `xl:`      | 1280px    | Extra large screens      |
 
 ## Testing Checklist
 

@@ -88,16 +88,15 @@ function PostCard({ post, onEdit, onDelete }: PostCardProps) {
             </div>
 
             <div className="text-sm text-gray-500">
-              <span title={new Date(post.created_at).toLocaleString()}>
-                {formattedDate}
-              </span>
+              <span title={new Date(post.created_at).toLocaleString()}>{formattedDate}</span>
 
               {post.edited_at && (
                 <>
                   <span className="mx-1">•</span>
                   <span className="italic">
                     Edited {formatDistanceToNow(new Date(post.edited_at), { addSuffix: true })}
-                    {post.edited_by && ` by ${post.edited_by.display_name || post.edited_by.username}`}
+                    {post.edited_by &&
+                      ` by ${post.edited_by.display_name || post.edited_by.username}`}
                   </span>
                 </>
               )}
@@ -135,18 +134,19 @@ function PostCard({ post, onEdit, onDelete }: PostCardProps) {
       {/* Reactions */}
       {post.reaction_counts && Object.keys(post.reaction_counts).length > 0 && (
         <div className="flex gap-3 pt-4 border-t border-gray-200">
-          {Object.entries(post.reaction_counts).map(([type, count]) => (
-            count > 0 && (
-              <button
-                key={type}
-                className="flex items-center gap-1 px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-sm transition-colors"
-                title={`${count} ${type} reactions`}
-              >
-                <span>{getReactionEmoji(type)}</span>
-                <span className="font-medium">{count}</span>
-              </button>
-            )
-          ))}
+          {Object.entries(post.reaction_counts).map(
+            ([type, count]) =>
+              count > 0 && (
+                <button
+                  key={type}
+                  className="flex items-center gap-1 px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-sm transition-colors"
+                  title={`${count} ${type} reactions`}
+                >
+                  <span>{getReactionEmoji(type)}</span>
+                  <span className="font-medium">{count}</span>
+                </button>
+              )
+          )}
         </div>
       )}
     </div>

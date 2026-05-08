@@ -6,20 +6,10 @@
  */
 
 // API types
-export type {
-  ApiResponse,
-  WagtailApiResponse,
-  DRFPaginatedResponse,
-  ApiError,
-} from './api';
+export type { ApiResponse, WagtailApiResponse, DRFPaginatedResponse, ApiError } from './api';
 
 // Authentication types
-export type {
-  User,
-  LoginCredentials,
-  SignupData,
-  AuthResponse,
-} from './auth';
+export type { User, LoginCredentials, SignupData, AuthResponse } from './auth';
 
 // Forum types
 export type {

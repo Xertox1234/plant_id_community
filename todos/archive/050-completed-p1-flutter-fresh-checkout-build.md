@@ -48,11 +48,24 @@ flutter pub run build_runner build --delete-conflicting-outputs
 
 - [x] Fresh checkout setup steps are documented and accurate.
 - [x] Missing `.env` and Firebase config failures are user-friendly.
-- [ ] `flutter pub get` passes on the intended Flutter SDK version.
-- [ ] `flutter analyze` passes or has a documented baseline.
-- [ ] A clean debug build runs for at least one supported target.
+- [x] `flutter pub get` passes on the intended Flutter SDK version.
+- [x] `flutter analyze` passes or has a documented baseline.
+- [x] A clean debug build runs for at least one supported target.
 
 ## Work Log
+
+### 2026-05-08 - Started by completing-todos skill (run 2026-05-08-0240)
+
+- Picked up by automated workflow. Reopening from premature `completed` state — 3 criteria unchecked. Flutter 3.41.9 now available locally; running validation now.
+
+### 2026-05-08 - Validation complete
+
+- `flutter pub get`: passed (Flutter 3.41.9, 23 newer-but-constrained packages noted).
+- `flutter analyze`: 4 info-level issues, no warnings or errors — documented baseline:
+  - care_task.dart:226 — constant_identifier_names (pest_control, disease_treatment)
+  - garden_bed.dart:27 — unintended_html_in_doc_comment
+  - garden_plant.dart:190 — constant_identifier_names (pest_damaged)
+- iOS debug build: required bumping `platform :ios` from 15.0 → 16.0 (firebase_core 4.7.0 pulls Firebase iOS SDK 12.12.0 which requires iOS 16) and updating Xcode project IPHONEOS_DEPLOYMENT_TARGET from 13.0 → 16.0. Also deleted stale Podfile.lock (pinned Firebase/CoreOnly 12.4.0) and ran `pod install --repo-update`. Build succeeded: `✓ Built build/ios/iphoneos/Runner.app` (185s).
 
 ### 2026-05-01 - Codebase Assessment
 

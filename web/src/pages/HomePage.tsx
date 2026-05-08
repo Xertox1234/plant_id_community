@@ -1,9 +1,9 @@
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router-dom';
 
 interface FeatureCardProps {
-  title: string
-  description: string
-  href: string
+  title: string;
+  description: string;
+  href: string;
 }
 
 /**
@@ -25,8 +25,8 @@ export default function HomePage() {
             </span>
           </h1>
           <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
-            Join our community of plant enthusiasts. Identify plants with AI,
-            share your garden, and learn from experts and fellow plant lovers.
+            Join our community of plant enthusiasts. Identify plants with AI, share your garden, and
+            learn from experts and fellow plant lovers.
           </p>
 
           <div className="flex gap-4 justify-center">
@@ -78,7 +78,7 @@ export default function HomePage() {
         </div>
       </section>
     </div>
-  )
+  );
 }
 
 function FeatureCard({ title, description, href }: FeatureCardProps) {
@@ -93,5 +93,5 @@ function FeatureCard({ title, description, href }: FeatureCardProps) {
         Learn more →
       </Link>
     </div>
-  )
+  );
 }

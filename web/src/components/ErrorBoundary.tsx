@@ -37,9 +37,7 @@ export function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
         </div>
 
         {/* Error Message */}
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">
-          Oops! Something went wrong
-        </h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Oops! Something went wrong</h1>
         <p className="text-gray-600 mb-6">
           We encountered an unexpected error. Don't worry, your data is safe.
         </p>
@@ -53,9 +51,7 @@ export function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
             <div className="bg-gray-100 rounded p-4 text-xs text-gray-800 font-mono overflow-auto max-h-40">
               <p className="font-bold mb-2">{(error as Error).message}</p>
               {(error as Error).stack && (
-                <pre className="whitespace-pre-wrap break-words">
-                  {(error as Error).stack}
-                </pre>
+                <pre className="whitespace-pre-wrap break-words">{(error as Error).stack}</pre>
               )}
             </div>
           </details>

@@ -102,9 +102,7 @@ describe('Header', () => {
 
       // Click a navigation link (find mobile version)
       const blogLinks = screen.getAllByText('Blog');
-      const mobileLink = blogLinks.find(link =>
-        link.closest('.md\\:hidden')
-      );
+      const mobileLink = blogLinks.find((link) => link.closest('.md\\:hidden'));
 
       if (mobileLink) {
         fireEvent.click(mobileLink);

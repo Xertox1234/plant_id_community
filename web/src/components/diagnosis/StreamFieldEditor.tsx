@@ -12,7 +12,7 @@ const BLOCK_TYPES = [
   { value: 'symptom_check', label: 'Symptom Check', icon: '⚠' },
   { value: 'prevention_tip', label: 'Prevention Tip', icon: 'ℹ' },
   { value: 'list_block', label: 'List', icon: '•' },
-]
+];
 
 /**
  * Individual block editor based on type
@@ -27,12 +27,20 @@ interface BlockEditorProps {
   isLast: boolean;
 }
 
-function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst, isLast }: BlockEditorProps) {
-  const { type, value } = block
+function BlockEditor({
+  block,
+  onChange,
+  onDelete,
+  onMoveUp,
+  onMoveDown,
+  isFirst,
+  isLast,
+}: BlockEditorProps) {
+  const { type, value } = block;
 
   const handleValueChange = (newValue) => {
-    onChange({ ...block, value: newValue })
-  }
+    onChange({ ...block, value: newValue });
+  };
 
   // Render editor based on block type
   switch (type) {
@@ -62,7 +70,7 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
           />
         </div>
-      )
+      );
 
     case 'paragraph':
       return (
@@ -90,10 +98,12 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
           />
         </div>
-      )
+      );
 
     case 'treatment_step': {
-      const stepValue = value as { title?: string; description?: string; frequency?: string } | undefined;
+      const stepValue = value as
+        | { title?: string; description?: string; frequency?: string }
+        | undefined;
       return (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
@@ -113,9 +123,7 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
           </div>
           <div className="space-y-3">
             <div>
-              <label className="block text-sm font-medium text-blue-900 mb-1">
-                Step Title
-              </label>
+              <label className="block text-sm font-medium text-blue-900 mb-1">Step Title</label>
               <input
                 type="text"
                 value={stepValue?.title || ''}
@@ -125,9 +133,7 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-blue-900 mb-1">
-                Description
-              </label>
+              <label className="block text-sm font-medium text-blue-900 mb-1">Description</label>
               <textarea
                 value={stepValue?.description || ''}
                 onChange={(e) => handleValueChange({ ...stepValue, description: e.target.value })}
@@ -150,7 +156,7 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
             </div>
           </div>
         </div>
-      )
+      );
     }
 
     case 'symptom_check': {
@@ -174,9 +180,7 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
           </div>
           <div className="space-y-3">
             <div>
-              <label className="block text-sm font-medium text-yellow-900 mb-1">
-                Symptom Name
-              </label>
+              <label className="block text-sm font-medium text-yellow-900 mb-1">Symptom Name</label>
               <input
                 type="text"
                 value={symptomValue?.symptom || ''}
@@ -191,7 +195,9 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
               </label>
               <textarea
                 value={symptomValue?.what_to_look_for || ''}
-                onChange={(e) => handleValueChange({ ...symptomValue, what_to_look_for: e.target.value })}
+                onChange={(e) =>
+                  handleValueChange({ ...symptomValue, what_to_look_for: e.target.value })
+                }
                 placeholder="Description of what to monitor..."
                 rows={3}
                 className="w-full px-3 py-2 border border-yellow-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500"
@@ -199,7 +205,7 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
             </div>
           </div>
         </div>
-      )
+      );
     }
 
     case 'prevention_tip':
@@ -228,7 +234,7 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
             className="w-full px-3 py-2 border border-green-300 rounded-md focus:ring-green-500 focus:border-green-500"
           />
         </div>
-      )
+      );
 
     case 'list_block': {
       const listValue = value as { items?: string[] } | undefined;
@@ -254,7 +260,7 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
             onChange={(newItems) => handleValueChange({ items: newItems })}
           />
         </div>
-      )
+      );
     }
 
     default:
@@ -262,7 +268,7 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <p className="text-red-700">Unknown block type: {type}</p>
         </div>
-      )
+      );
   }
 }
 
@@ -271,18 +277,18 @@ function BlockEditor({ block, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
  */
 function ListEditor({ items, onChange }) {
   const addItem = () => {
-    onChange([...items, ''])
-  }
+    onChange([...items, '']);
+  };
 
   const updateItem = (index, value) => {
-    const newItems = [...items]
-    newItems[index] = value
-    onChange(newItems)
-  }
+    const newItems = [...items];
+    newItems[index] = value;
+    onChange(newItems);
+  };
 
   const deleteItem = (index) => {
-    onChange(items.filter((_, i) => i !== index))
-  }
+    onChange(items.filter((_, i) => i !== index));
+  };
 
   return (
     <div className="space-y-2">
@@ -301,19 +307,21 @@ function ListEditor({ items, onChange }) {
             aria-label="Delete item"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
       ))}
-      <button
-        onClick={addItem}
-        className="text-sm text-green-600 hover:text-green-700 font-medium"
-      >
+      <button onClick={addItem} className="text-sm text-green-600 hover:text-green-700 font-medium">
         + Add Item
       </button>
     </div>
-  )
+  );
 }
 
 /**
@@ -348,91 +356,96 @@ function BlockControls({ onDelete, onMoveUp, onMoveDown, isFirst, isLast }) {
         aria-label="Delete block"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+          />
         </svg>
       </button>
     </div>
-  )
+  );
 }
 
 /**
  * Main StreamFieldEditor Component
  */
 export default function StreamFieldEditor({ value = [], onChange, readOnly = false }) {
-  const [showBlockMenu, setShowBlockMenu] = useState(false)
+  const [showBlockMenu, setShowBlockMenu] = useState(false);
 
   /**
    * Add new block
    */
   const addBlock = (blockType) => {
-    let newBlock = { type: blockType, value: null }
+    let newBlock = { type: blockType, value: null };
 
     // Initialize value based on block type
     switch (blockType) {
       case 'heading':
       case 'paragraph':
       case 'prevention_tip':
-        newBlock.value = ''
-        break
+        newBlock.value = '';
+        break;
       case 'treatment_step':
-        newBlock.value = { title: '', description: '', frequency: '' }
-        break
+        newBlock.value = { title: '', description: '', frequency: '' };
+        break;
       case 'symptom_check':
-        newBlock.value = { symptom: '', what_to_look_for: '' }
-        break
+        newBlock.value = { symptom: '', what_to_look_for: '' };
+        break;
       case 'list_block':
-        newBlock.value = { items: [''] }
-        break
+        newBlock.value = { items: [''] };
+        break;
       default:
-        newBlock.value = ''
+        newBlock.value = '';
     }
 
-    const newBlocks = [...value, newBlock]
-    onChange(newBlocks)
-    setShowBlockMenu(false)
+    const newBlocks = [...value, newBlock];
+    onChange(newBlocks);
+    setShowBlockMenu(false);
 
-    logger.info('[StreamFieldEditor] Added block', { type: blockType })
-  }
+    logger.info('[StreamFieldEditor] Added block', { type: blockType });
+  };
 
   /**
    * Update block at index
    */
   const updateBlock = (index, updatedBlock) => {
-    const newBlocks = [...value]
-    newBlocks[index] = updatedBlock
-    onChange(newBlocks)
-  }
+    const newBlocks = [...value];
+    newBlocks[index] = updatedBlock;
+    onChange(newBlocks);
+  };
 
   /**
    * Delete block at index
    */
   const deleteBlock = (index) => {
     if (confirm('Are you sure you want to delete this block?')) {
-      const newBlocks = value.filter((_, i) => i !== index)
-      onChange(newBlocks)
-      logger.info('[StreamFieldEditor] Deleted block', { index })
+      const newBlocks = value.filter((_, i) => i !== index);
+      onChange(newBlocks);
+      logger.info('[StreamFieldEditor] Deleted block', { index });
     }
-  }
+  };
 
   /**
    * Move block up
    */
   const moveBlockUp = (index) => {
-    if (index === 0) return
-    const newBlocks = [...value]
-    ;[newBlocks[index - 1], newBlocks[index]] = [newBlocks[index], newBlocks[index - 1]]
-    onChange(newBlocks)
-  }
+    if (index === 0) return;
+    const newBlocks = [...value];
+    [newBlocks[index - 1], newBlocks[index]] = [newBlocks[index], newBlocks[index - 1]];
+    onChange(newBlocks);
+  };
 
   /**
    * Move block down
    */
   const moveBlockDown = (index) => {
-    if (index === value.length - 1) return
-    const newBlocks = [...value]
-    ;[newBlocks[index], newBlocks[index + 1]] = [newBlocks[index + 1], newBlocks[index]]
-    onChange(newBlocks)
-  }
+    if (index === value.length - 1) return;
+    const newBlocks = [...value];
+    [newBlocks[index], newBlocks[index + 1]] = [newBlocks[index + 1], newBlocks[index]];
+    onChange(newBlocks);
+  };
 
   if (readOnly) {
     return (
@@ -454,7 +467,7 @@ export default function StreamFieldEditor({ value = [], onChange, readOnly = fal
           ))
         )}
       </div>
-    )
+    );
   }
 
   return (
@@ -493,12 +506,17 @@ export default function StreamFieldEditor({ value = [], onChange, readOnly = fal
               className="text-gray-600 hover:text-gray-900"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
               </svg>
             </button>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            {BLOCK_TYPES.map(blockType => (
+            {BLOCK_TYPES.map((blockType) => (
               <button
                 key={blockType.value}
                 onClick={() => addBlock(blockType.value)}
@@ -521,5 +539,5 @@ export default function StreamFieldEditor({ value = [], onChange, readOnly = fal
         </p>
       )}
     </div>
-  )
+  );
 }

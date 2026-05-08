@@ -23,9 +23,7 @@ Apply base styles for mobile, override for larger screens:
 Interactive elements must be at least 44×44px (Apple HIG / general web recommendation):
 
 ```tsx
-<button className="min-h-[44px] min-w-[44px] px-4 py-2">
-  Action
-</button>
+<button className="min-h-[44px] min-w-[44px] px-4 py-2">Action</button>
 ```
 
 ---

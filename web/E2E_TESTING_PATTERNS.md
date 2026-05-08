@@ -28,6 +28,7 @@ This document codifies the E2E testing patterns for the Plant ID Community proje
 **Purpose**: Create a dedicated test user for E2E testing with predictable credentials
 
 **Backend Setup** (`backend/apps/users/management/commands/create_test_user.py`):
+
 ```bash
 # Create test user (run once before tests)
 python manage.py create_test_user
@@ -39,11 +40,13 @@ python manage.py create_test_user
 ```
 
 **When to run**:
+
 - Before running authenticated E2E tests
 - After resetting the database
 - In CI/CD pipelines before test execution
 
 **Why this works**:
+
 - Predictable credentials across all test runs
 - Independent from production users
 - Can be deleted and recreated for clean state
@@ -58,12 +61,14 @@ python manage.py create_test_user
 **File**: `web/e2e/auth.setup.js`
 
 **How it works**:
+
 1. Runs BEFORE all other tests (see `playwright.config.js` setup project)
 2. Logs in as test user (`e2e@test.com`)
 3. Saves cookies and localStorage to `.auth/user.json`
 4. Other tests load this state instead of logging in repeatedly
 
 **Correct Pattern**:
+
 ```javascript
 // auth.setup.js
 import { test as setup, expect } from '@playwright/test';
@@ -90,6 +95,7 @@ setup('authenticate as test user', async ({ page }) => {
 ```
 
 **Playwright Config**:
+
 ```javascript
 // playwright.config.js
 projects: [
@@ -104,21 +110,23 @@ projects: [
     name: 'chromium-authenticated',
     use: {
       ...devices['Desktop Chrome'],
-      storageState: '.auth/user.json',  // Load auth state
+      storageState: '.auth/user.json', // Load auth state
     },
-    dependencies: ['setup'],  // Run after setup
+    dependencies: ['setup'], // Run after setup
     testMatch: /(forum-authenticated|auth\.spec)\.js/,
   },
-]
+];
 ```
 
 **Benefits**:
+
 - ✅ Login once, test many times (much faster)
 - ✅ No repeated login overhead
 - ✅ JWT cookies preserved across tests
 - ✅ Clean separation: authenticated vs. unauthenticated tests
 
 **Common Mistakes** ❌:
+
 ```javascript
 // ❌ WRONG: Logging in manually in every test
 test('can create post', async ({ page }) => {
@@ -142,6 +150,7 @@ test('can create post', async ({ page }) => {
 **Purpose**: Test both logged-in and logged-out behavior
 
 **Unauthenticated Tests** (default - no auth state):
+
 ```javascript
 // Test runs WITHOUT authentication
 test('protected routes redirect to login when not authenticated', async ({ page }) => {
@@ -155,6 +164,7 @@ test('protected routes redirect to login when not authenticated', async ({ page 
 ```
 
 **Authenticated Tests** (load auth state):
+
 ```javascript
 // Test runs WITH authentication (loads .auth/user.json)
 test('can access protected routes when authenticated', async ({ page }) => {
@@ -168,6 +178,7 @@ test('can access protected routes when authenticated', async ({ page }) => {
 ```
 
 **Override Auth State Per Test**:
+
 ```javascript
 test.describe('Protected Routes (Unauthenticated)', () => {
   // Temporarily disable auth state for this describe block
@@ -187,6 +198,7 @@ test.describe('Protected Routes (Unauthenticated)', () => {
 **Purpose**: Verify logout clears authentication and redirects properly
 
 **Correct Pattern**:
+
 ```javascript
 test('can logout successfully', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle', timeout: 30000 });
@@ -204,7 +216,8 @@ test('can logout successfully', async ({ page }) => {
   await page.waitForURL('/', { timeout: 10000 });
 
   // Verify user menu is gone
-  const userMenuVisible = await page.locator('[data-testid="user-menu"]')
+  const userMenuVisible = await page
+    .locator('[data-testid="user-menu"]')
     .isVisible({ timeout: 2000 })
     .catch(() => false);
 
@@ -213,6 +226,7 @@ test('can logout successfully', async ({ page }) => {
 ```
 
 **Why this works**:
+
 - Waits for dropdown animation (500ms)
 - Uses flexible selector (`text=/logout/i`)
 - Verifies state change (user menu disappears)
@@ -225,6 +239,7 @@ test('can logout successfully', async ({ page }) => {
 **Purpose**: Verify authenticated users can create forum posts with TipTap editor
 
 **Correct Pattern**:
+
 ```javascript
 test('can create a new post in a thread (TipTap editor)', async ({ page }) => {
   // Navigate to thread
@@ -233,7 +248,7 @@ test('can create a new post in a thread (TipTap editor)', async ({ page }) => {
 
   // Find a thread
   const threadLinks = await page.locator('a[href^="/forum/thread/"]');
-  if (await threadLinks.count() > 0) {
+  if ((await threadLinks.count()) > 0) {
     await threadLinks.first().click();
     await page.waitForURL(/.*\/forum\/thread\/.*/, { timeout: 10000 });
 
@@ -246,14 +261,16 @@ test('can create a new post in a thread (TipTap editor)', async ({ page }) => {
       await editor.fill(content);
 
       // Submit
-      const submitButton = page.locator('button[type="submit"]')
+      const submitButton = page
+        .locator('button[type="submit"]')
         .filter({ hasText: /post|submit|send/i })
         .first();
       await submitButton.click();
 
       // Verify post created
       await page.waitForTimeout(2000);
-      const postVisible = await page.locator(`text="${content}"`)
+      const postVisible = await page
+        .locator(`text="${content}"`)
         .isVisible({ timeout: 5000 })
         .catch(() => false);
       expect(postVisible).toBeTruthy();
@@ -263,6 +280,7 @@ test('can create a new post in a thread (TipTap editor)', async ({ page }) => {
 ```
 
 **Why this works**:
+
 - Checks if threads exist (graceful skip if none)
 - Waits for TipTap editor to be visible
 - Uses unique content per test run (`Date.now()`)
@@ -270,6 +288,7 @@ test('can create a new post in a thread (TipTap editor)', async ({ page }) => {
 - Verifies post appears after submission
 
 **Common Mistakes** ❌:
+
 ```javascript
 // ❌ WRONG: Hardcoded content (conflicts with other test runs)
 await editor.fill('Test post');
@@ -289,6 +308,7 @@ expect(page.locator('text="content"')).toBeVisible(); // Immediate check fails
 **Purpose**: Verify users can delete their own forum posts
 
 **Correct Pattern**:
+
 ```javascript
 test('can delete own post', async ({ page }) => {
   // Navigate to thread
@@ -304,13 +324,17 @@ test('can delete own post', async ({ page }) => {
 
   // Find delete button for our post
   const ourPost = page.locator(`text="${content}"`).locator('..').locator('..');
-  const deleteButton = ourPost.locator('button').filter({ hasText: /delete|remove/i }).first();
+  const deleteButton = ourPost
+    .locator('button')
+    .filter({ hasText: /delete|remove/i })
+    .first();
 
   if (await deleteButton.isVisible({ timeout: 3000 }).catch(() => false)) {
     await deleteButton.click();
 
     // Handle confirmation dialog if present
-    const confirmButton = page.locator('button')
+    const confirmButton = page
+      .locator('button')
       .filter({ hasText: /confirm|yes|delete/i })
       .first();
     if (await confirmButton.isVisible({ timeout: 2000 }).catch(() => false)) {
@@ -320,7 +344,8 @@ test('can delete own post', async ({ page }) => {
     await page.waitForTimeout(2000);
 
     // Verify post is gone
-    const postStillVisible = await page.locator(`text="${content}"`)
+    const postStillVisible = await page
+      .locator(`text="${content}"`)
       .isVisible({ timeout: 3000 })
       .catch(() => false);
     expect(postStillVisible).toBeFalsy();
@@ -329,6 +354,7 @@ test('can delete own post', async ({ page }) => {
 ```
 
 **Why this works**:
+
 - Creates a post first (ensures we have something to delete)
 - Uses unique content to target specific post
 - Handles optional confirmation dialogs
@@ -372,6 +398,7 @@ test('can delete own post', async ({ page }) => {
 **Django Endpoint**: `/api/v1/auth/csrf/`
 
 **Actual Response**:
+
 ```json
 {
   "detail": "CSRF cookie set"
@@ -379,6 +406,7 @@ test('can delete own post', async ({ page }) => {
 ```
 
 **Correct Test Pattern**:
+
 ```javascript
 test('can fetch CSRF token from backend', async ({ request }) => {
   const response = await request.get('http://localhost:8000/api/v1/auth/csrf/');
@@ -391,6 +419,7 @@ test('can fetch CSRF token from backend', async ({ request }) => {
 ```
 
 **Common Mistake** ❌:
+
 ```javascript
 // ❌ WRONG: Django doesn't return csrfToken in response body
 expect(data).toHaveProperty('csrfToken');
@@ -398,6 +427,7 @@ expect(typeof data.csrfToken).toBe('string');
 ```
 
 **Why This Matters**:
+
 - CSRF token is set as a **cookie**, not returned in response body
 - Django sends `{"detail": "CSRF cookie set"}` as confirmation
 - The actual token is in the `Set-Cookie` header
@@ -411,22 +441,22 @@ expect(typeof data.csrfToken).toBe('string');
 **File**: `web/src/components/BlogCard.jsx`
 
 **Component Structure**:
+
 ```jsx
-<Link
-  to={`/blog/${slug}`}
-  className="group block bg-white rounded-lg shadow-md hover:shadow-xl..."
->
+<Link to={`/blog/${slug}`} className="group block bg-white rounded-lg shadow-md hover:shadow-xl...">
   {/* Image, title, excerpt, metadata */}
 </Link>
 ```
 
 **Correct Selector**:
+
 ```javascript
 // ✅ CORRECT: Select by actual classes
 const blogCards = await page.locator('a.group.block.bg-white').count();
 ```
 
 **Alternative Selectors** (if needed):
+
 ```javascript
 // By link href pattern
 const blogLinks = await page.locator('a[href^="/blog/"]').count();
@@ -436,6 +466,7 @@ const blogTitles = await page.locator('a.group.block.bg-white h3').count();
 ```
 
 **Common Mistakes** ❌:
+
 ```javascript
 // ❌ WRONG: data-testid doesn't exist
 await page.waitForSelector('[data-testid="blog-card"]');
@@ -454,6 +485,7 @@ await page.locator('.blog-post').count();
 **File**: `web/src/components/forum/CategoryCard.jsx`
 
 **Component Structure**:
+
 ```jsx
 <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow p-6">
   {/* Category name, description, stats */}
@@ -461,18 +493,21 @@ await page.locator('.blog-post').count();
 ```
 
 **Correct Selector**:
+
 ```javascript
 // ✅ CORRECT: Select by actual classes
 const categories = await page.locator('div.bg-white.rounded-lg.shadow-md').count();
 ```
 
 **Context-Aware Selection**:
+
 ```javascript
 // If you need to distinguish from other cards, check content
 const forumCategories = await page.locator('div.bg-white.rounded-lg.shadow-md:has(h3)').count();
 ```
 
 **Common Mistakes** ❌:
+
 ```javascript
 // ❌ WRONG: data-testid doesn't exist
 await page.waitForSelector('[data-testid="category-card"]');
@@ -490,12 +525,14 @@ await page.locator('.category').count();
 **File**: `web/src/pages/auth/LoginPage.jsx`
 
 **How Validation Works**:
+
 1. User clicks submit without filling form
 2. `validateForm()` runs client-side validation
 3. Errors set in state: `setErrors({ email: 'Email is required', password: 'Password must be...' })`
 4. Input component displays error below field
 
 **Correct Test Pattern**:
+
 ```javascript
 test('shows validation errors for empty login', async ({ page }) => {
   await page.goto('/login');
@@ -515,12 +552,14 @@ test('shows validation errors for empty login', async ({ page }) => {
 ```
 
 **Why This Pattern Works**:
+
 - Flexible regex matches multiple error types
 - Uses `.catch(() => false)` to handle timeout gracefully
 - Checks `.first()` to avoid multiple matches failing
 - 5s timeout gives form validation time to update state
 
 **Common Mistakes** ❌:
+
 ```javascript
 // ❌ WRONG: Too specific - exact wording might change
 await expect(page.locator('text=/email.*required/i')).toBeVisible();
@@ -541,20 +580,20 @@ await expect(page.locator('text=/required/i')).toBeVisible();
 **File**: `web/src/components/layout/Header.jsx`
 
 **Structure**:
+
 - **Desktop** (md+ breakpoints): Links visible in header
 - **Mobile**: Links hidden in collapsed menu, accessible via hamburger button
 
 **Hamburger Button**:
+
 ```jsx
-<button
-  aria-label="Toggle menu"
-  className="md:hidden..."
->
+<button aria-label="Toggle menu" className="md:hidden...">
   {isMenuOpen ? <X /> : <Menu />}
 </button>
 ```
 
 **Correct Pattern (Desktop + Mobile)**:
+
 ```javascript
 test('can navigate to blog', async ({ page, isMobile }) => {
   // Skip mobile tests due to timing issues with menu animation
@@ -576,6 +615,7 @@ test('can navigate to blog', async ({ page, isMobile }) => {
 ```
 
 **Mobile Pattern** (if needed):
+
 ```javascript
 test('can open mobile menu and navigate', async ({ page, isMobile }) => {
   if (!isMobile) {
@@ -596,6 +636,7 @@ test('can open mobile menu and navigate', async ({ page, isMobile }) => {
 ```
 
 **Why Mobile Tests Are Skipped**:
+
 - Menu animation timing varies across browsers
 - Hamburger menu works perfectly in manual testing
 - E2E timing issues are not indicative of actual bugs
@@ -612,6 +653,7 @@ test('can open mobile menu and navigate', async ({ page, isMobile }) => {
 **Solution**: Wait for page structure, then check multiple conditions
 
 **Correct Pattern**:
+
 ```javascript
 test('blog list loads posts from API', async ({ page }) => {
   await page.goto('/blog', { waitUntil: 'networkidle', timeout: 30000 });
@@ -632,12 +674,14 @@ test('blog list loads posts from API', async ({ page }) => {
 ```
 
 **Why This Works**:
+
 - `waitUntil: 'networkidle'` waits for API calls to finish
 - `waitForSelector('h1')` ensures page structure is rendered
 - `waitForTimeout(2000)` gives React time to update state
 - Multiple conditions handle all possible states (data, loading, empty)
 
 **Common Mistakes** ❌:
+
 ```javascript
 // ❌ WRONG: Assumes content always loads immediately
 await page.waitForSelector('a.group.block.bg-white');
@@ -658,40 +702,44 @@ await page.waitForSelector('a.group, text=/loading/i');
 ```javascript
 // Page navigation
 await page.goto('/', {
-  waitUntil: 'networkidle',  // Wait for network to be idle
-  timeout: 30000              // 30s for initial page load
+  waitUntil: 'networkidle', // Wait for network to be idle
+  timeout: 30000, // 30s for initial page load
 });
 
 // Element visibility
-await page.waitForSelector('h1', { timeout: 10000 });  // 10s for elements
+await page.waitForSelector('h1', { timeout: 10000 }); // 10s for elements
 
 // URL navigation
-await page.waitForURL(/.*blog.*/, { timeout: 10000 });  // 10s for route change
+await page.waitForURL(/.*blog.*/, { timeout: 10000 }); // 10s for route change
 
 // Manual wait for animations
-await page.waitForTimeout(300);  // 300ms for menu animations
+await page.waitForTimeout(300); // 300ms for menu animations
 await page.waitForTimeout(2000); // 2s for API data loading
 ```
 
 ### When to Use Each
 
 **`waitUntil: 'networkidle'`**:
+
 - Use for initial page load
 - Use when page makes API calls on mount
 - Waits for network to be idle for 500ms
 - Example: Blog list fetching posts
 
 **`waitForSelector()`**:
+
 - Use when waiting for specific element to appear
 - Use when content loads dynamically
 - Example: Waiting for h1 heading to confirm page rendered
 
 **`waitForURL()`**:
+
 - Use after clicking navigation links
 - Use to confirm route change completed
 - Example: After clicking "Blog" link, wait for /blog URL
 
 **`waitForTimeout()`**:
+
 - Use for CSS animations/transitions
 - Use when other waits don't work (last resort)
 - Keep timeouts short (< 2s)
@@ -767,6 +815,7 @@ test('responsive test', async ({ page, isMobile }) => {
 **File**: `e2e/example.spec.js`, `e2e/quick-test.spec.js`
 
 **Passing Tests**:
+
 - ✅ Frontend server accessibility
 - ✅ Backend API accessibility
 - ✅ CSRF token endpoint
@@ -776,6 +825,7 @@ test('responsive test', async ({ page, isMobile }) => {
 - ✅ Forum integration (categories display)
 
 **Skipped Tests** (expected):
+
 - ⏭️ Mobile navigation to blog (hamburger menu timing)
 - ⏭️ Mobile navigation to forum (hamburger menu timing)
 
@@ -859,9 +909,9 @@ await page.waitForSelector('a.group, text=/loading/i');
 
 ```javascript
 // ✅ CORRECT
-await page.waitForSelector('h1');  // Wait for structure
-const hasCards = await page.locator('a.group').count() > 0;
-const hasLoading = await page.locator('text=/loading/i').count() > 0;
+await page.waitForSelector('h1'); // Wait for structure
+const hasCards = (await page.locator('a.group').count()) > 0;
+const hasLoading = (await page.locator('text=/loading/i').count()) > 0;
 expect(hasCards || hasLoading).toBeTruthy();
 ```
 
@@ -873,7 +923,7 @@ expect(hasCards || hasLoading).toBeTruthy();
 // ❌ WRONG
 await page.goto('/blog');
 const count = await page.locator('a.group').count();
-expect(count).toBeGreaterThan(0);  // Might fail - data not loaded yet
+expect(count).toBeGreaterThan(0); // Might fail - data not loaded yet
 ```
 
 **Solution**: Wait for network idle + manual timeout
@@ -881,7 +931,7 @@ expect(count).toBeGreaterThan(0);  // Might fail - data not loaded yet
 ```javascript
 // ✅ CORRECT
 await page.goto('/blog', { waitUntil: 'networkidle', timeout: 30000 });
-await page.waitForTimeout(2000);  // Give React time to update state
+await page.waitForTimeout(2000); // Give React time to update state
 const count = await page.locator('a.group').count();
 ```
 
@@ -891,7 +941,7 @@ const count = await page.locator('a.group').count();
 
 ```javascript
 // ❌ WRONG
-expect(blogCards).toBeGreaterThan(0);  // Fails if no posts in DB
+expect(blogCards).toBeGreaterThan(0); // Fails if no posts in DB
 ```
 
 **Solution**: Check for content OR empty message
@@ -967,6 +1017,7 @@ const errorVisible = await page.locator('text=/required/i').isVisible();
 This document captures the validated E2E testing patterns for the Plant ID Community project. All patterns have been tested against the actual Django backend and React frontend implementations.
 
 **Key Takeaways**:
+
 1. Django CSRF endpoints return `{"detail": "CSRF cookie set"}`, not a token in the body
 2. Component selectors must match actual class names (no data-testids)
 3. Content loading requires `networkidle` + manual timeouts for React state updates
@@ -974,6 +1025,7 @@ This document captures the validated E2E testing patterns for the Plant ID Commu
 5. Always handle empty states and loading states
 
 **Maintenance**:
+
 - Update this doc when component structures change
 - Add new patterns as features are implemented
 - Keep test suite at 100% pass rate (excluding intentional skips)

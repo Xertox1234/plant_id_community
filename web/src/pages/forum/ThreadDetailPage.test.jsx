@@ -60,17 +60,13 @@ describe('ThreadDetailPage', () => {
     // Mock useParams to return categorySlug and threadSlug
     vi.mocked(ReactRouter.useParams).mockReturnValue({
       categorySlug: 'plant-care',
-      threadSlug: 'watering-tips'
+      threadSlug: 'watering-tips',
     });
   });
 
   it('shows loading spinner while fetching data', () => {
-    vi.spyOn(forumService, 'fetchThread').mockImplementation(
-      () => new Promise(() => {})
-    );
-    vi.spyOn(forumService, 'fetchPosts').mockImplementation(
-      () => new Promise(() => {})
-    );
+    vi.spyOn(forumService, 'fetchThread').mockImplementation(() => new Promise(() => {}));
+    vi.spyOn(forumService, 'fetchPosts').mockImplementation(() => new Promise(() => {}));
 
     renderThreadDetailPage();
 
@@ -84,12 +80,8 @@ describe('ThreadDetailPage', () => {
       meta: { count: 1 },
     };
 
-    const fetchThreadSpy = vi
-      .spyOn(forumService, 'fetchThread')
-      .mockResolvedValue(mockThread);
-    const fetchPostsSpy = vi
-      .spyOn(forumService, 'fetchPosts')
-      .mockResolvedValue(mockPosts);
+    const fetchThreadSpy = vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
+    const fetchPostsSpy = vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(mockPosts);
 
     renderThreadDetailPage();
 
@@ -124,7 +116,9 @@ describe('ThreadDetailPage', () => {
     renderThreadDetailPage();
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1, name: 'How to water succulents?' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'How to water succulents?' })
+      ).toBeInTheDocument();
     });
 
     expect(screen.getByText(/Master Gardener/i)).toBeInTheDocument();
@@ -224,12 +218,8 @@ describe('ThreadDetailPage', () => {
   it('displays error message when thread fetch fails', async () => {
     const errorMessage = 'Thread not found';
 
-    vi.spyOn(forumService, 'fetchThread').mockRejectedValue(
-      new Error(errorMessage)
-    );
-    vi.spyOn(forumService, 'fetchPosts').mockRejectedValue(
-      new Error(errorMessage)
-    );
+    vi.spyOn(forumService, 'fetchThread').mockRejectedValue(new Error(errorMessage));
+    vi.spyOn(forumService, 'fetchPosts').mockRejectedValue(new Error(errorMessage));
 
     renderThreadDetailPage();
 
@@ -255,9 +245,7 @@ describe('ThreadDetailPage', () => {
     });
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/You must be logged in to reply/i)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/You must be logged in to reply/i)).toBeInTheDocument();
     });
 
     const loginButton = screen.getByText('Log In');
@@ -300,9 +288,7 @@ describe('ThreadDetailPage', () => {
     });
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/This thread is locked/i)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/This thread is locked/i)).toBeInTheDocument();
     });
 
     expect(screen.queryByText('Post Your Reply')).not.toBeInTheDocument();
@@ -315,9 +301,7 @@ describe('ThreadDetailPage', () => {
 
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
     vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(mockPosts);
-    const createPostSpy = vi
-      .spyOn(forumService, 'createPost')
-      .mockResolvedValue(newPost);
+    const createPostSpy = vi.spyOn(forumService, 'createPost').mockResolvedValue(newPost);
 
     const { container } = renderThreadDetailPage('plant-care', 'watering-tips', {
       user: { id: 1, username: 'testuser' },

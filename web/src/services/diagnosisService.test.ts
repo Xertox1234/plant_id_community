@@ -229,9 +229,7 @@ describe('diagnosisService', () => {
       });
 
       // Act & Assert
-      await expect(fetchDiagnosisCard('invalid-uuid')).rejects.toThrow(
-        'Diagnosis card not found'
-      );
+      await expect(fetchDiagnosisCard('invalid-uuid')).rejects.toThrow('Diagnosis card not found');
     });
   });
 
@@ -280,9 +278,7 @@ describe('diagnosisService', () => {
       });
 
       // Act & Assert
-      await expect(createDiagnosisCard(createInput)).rejects.toThrow(
-        'Invalid confidence score'
-      );
+      await expect(createDiagnosisCard(createInput)).rejects.toThrow('Invalid confidence score');
     });
   });
 
@@ -344,9 +340,7 @@ describe('diagnosisService', () => {
       });
 
       // Act & Assert
-      await expect(deleteDiagnosisCard('card-uuid-123')).rejects.toThrow(
-        'Permission denied'
-      );
+      await expect(deleteDiagnosisCard('card-uuid-123')).rejects.toThrow('Permission denied');
     });
   });
 
@@ -644,9 +638,7 @@ describe('diagnosisService', () => {
       });
 
       // Act & Assert
-      await expect(deleteReminder('invalid-uuid')).rejects.toThrow(
-        'Reminder not found'
-      );
+      await expect(deleteReminder('invalid-uuid')).rejects.toThrow('Reminder not found');
     });
   });
 

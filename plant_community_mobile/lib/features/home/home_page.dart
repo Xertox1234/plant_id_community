@@ -73,10 +73,7 @@ class HomePage extends StatelessWidget {
                       AppColors.green900.withValues(alpha: 0.3),
                       AppColors.emerald900.withValues(alpha: 0.3),
                     ]
-                  : [
-                      AppColors.green100,
-                      AppColors.emerald100,
-                    ],
+                  : [AppColors.green100, AppColors.emerald100],
             ),
           ),
           child: Center(
@@ -88,10 +85,7 @@ class HomePage extends StatelessWidget {
                 gradient: const LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [
-                    AppColors.green500,
-                    AppColors.emerald600,
-                  ],
+                  colors: [AppColors.green500, AppColors.emerald600],
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -115,22 +109,16 @@ class HomePage extends StatelessWidget {
         ShaderMask(
           shaderCallback: (bounds) => LinearGradient(
             colors: isDark
-                ? [
-                    AppColors.green400,
-                    AppColors.emerald400,
-                  ]
-                : [
-                    AppColors.green700,
-                    AppColors.emerald700,
-                  ],
+                ? [AppColors.green400, AppColors.emerald400]
+                : [AppColors.green700, AppColors.emerald700],
           ).createShader(bounds),
           child: Text(
             'Welcome to PlantID',
             style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
+              fontSize: 32,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
             textAlign: TextAlign.center,
           ),
         ),
@@ -140,8 +128,8 @@ class HomePage extends StatelessWidget {
         Text(
           'Your pocket botanist for identifying plants, learning care tips, and connecting with fellow plant enthusiasts',
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Theme.of(context).textTheme.bodySmall?.color,
-              ),
+            color: Theme.of(context).textTheme.bodySmall?.color,
+          ),
           textAlign: TextAlign.center,
           maxLines: 3,
         ),
@@ -155,25 +143,29 @@ class HomePage extends StatelessWidget {
       _FeatureData(
         icon: Icons.camera_alt,
         title: 'Instant Identification',
-        description: 'Snap a photo and instantly identify any plant with AI-powered recognition',
+        description:
+            'Snap a photo and instantly identify any plant with AI-powered recognition',
         type: FeatureType.camera,
       ),
       _FeatureData(
         icon: Icons.book,
         title: 'Care Instructions',
-        description: 'Get personalized care tips for watering, sunlight, and maintenance',
+        description:
+            'Get personalized care tips for watering, sunlight, and maintenance',
         type: FeatureType.care,
       ),
       _FeatureData(
         icon: Icons.people,
         title: 'Community Forum',
-        description: 'Connect with plant lovers, share experiences, and get expert advice',
+        description:
+            'Connect with plant lovers, share experiences, and get expert advice',
         type: FeatureType.community,
       ),
       _FeatureData(
         icon: Icons.auto_awesome,
         title: 'Track Your Collection',
-        description: 'Build your personal plant library and track identification history',
+        description:
+            'Build your personal plant library and track identification history',
         type: FeatureType.collection,
       ),
     ];

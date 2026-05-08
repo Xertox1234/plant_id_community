@@ -1,17 +1,17 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Sparkles } from 'lucide-react'
-import FileUpload from '../components/PlantIdentification/FileUpload'
-import IdentificationResults from '../components/PlantIdentification/IdentificationResults'
-import { plantIdService } from '../services/plantIdService'
-import { useAuth } from '../contexts/AuthContext'
-import { getPlantKey } from '../utils/plantUtils'
-import type { PlantIdentificationResult } from '@/types'
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Sparkles } from 'lucide-react';
+import FileUpload from '../components/PlantIdentification/FileUpload';
+import IdentificationResults from '../components/PlantIdentification/IdentificationResults';
+import { plantIdService } from '../services/plantIdService';
+import { useAuth } from '../contexts/AuthContext';
+import { getPlantKey } from '../utils/plantUtils';
+import type { PlantIdentificationResult } from '@/types';
 
 interface InfoCardProps {
-  title: string
-  description: string
-  step: string
+  title: string;
+  description: string;
+  step: string;
 }
 
 /**
@@ -21,65 +21,65 @@ interface InfoCardProps {
  * Page header and navigation now handled by RootLayout.
  */
 export default function IdentifyPage() {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [results, setResults] = useState<PlantIdentificationResult | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [saveError, setSaveError] = useState<string | null>(null) // Separate error state for save operations
-  const [savedPlants, setSavedPlants] = useState(new Map<string, boolean>()) // Track which plants have been saved
-  const [savingPlant, setSavingPlant] = useState<string | null>(null) // Track which plant is currently being saved
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [results, setResults] = useState<PlantIdentificationResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null); // Separate error state for save operations
+  const [savedPlants, setSavedPlants] = useState(new Map<string, boolean>()); // Track which plants have been saved
+  const [savingPlant, setSavingPlant] = useState<string | null>(null); // Track which plant is currently being saved
 
-  const { isAuthenticated } = useAuth()
-  const navigate = useNavigate()
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
 
   const handleFileSelect = (file: File | null) => {
-    setSelectedFile(file)
-    setResults(null)
-    setError(null)
-    setSaveError(null)
-  }
+    setSelectedFile(file);
+    setResults(null);
+    setError(null);
+    setSaveError(null);
+  };
 
   const handleIdentify = async () => {
     if (!selectedFile) {
-      return
+      return;
     }
 
-    setLoading(true)
-    setError(null)
-    setSaveError(null)
+    setLoading(true);
+    setError(null);
+    setSaveError(null);
 
     try {
-      const data = await plantIdService.identifyPlant(selectedFile)
-      setResults(data)
+      const data = await plantIdService.identifyPlant(selectedFile);
+      setResults(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred')
+      setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleReset = () => {
-    setSelectedFile(null)
-    setResults(null)
-    setError(null)
-    setSaveError(null)
-  }
+    setSelectedFile(null);
+    setResults(null);
+    setError(null);
+    setSaveError(null);
+  };
 
   const handleSavePlant = async (suggestion: PlantIdentificationResult) => {
     // Check authentication first
     if (!isAuthenticated) {
-      navigate('/login', { state: { from: '/identify' } })
-      return
+      navigate('/login', { state: { from: '/identify' } });
+      return;
     }
 
     // Prevent duplicate saves
-    const plantKey = getPlantKey(suggestion)
+    const plantKey = getPlantKey(suggestion);
     if (savedPlants.has(plantKey)) {
-      return // Already saved
+      return; // Already saved
     }
 
-    setSavingPlant(plantKey)
-    setSaveError(null)
+    setSavingPlant(plantKey);
+    setSaveError(null);
 
     try {
       // Use the plantIdService to save to collection
@@ -92,16 +92,16 @@ export default function IdentifyPage() {
         propagation_methods: suggestion.propagation_methods,
         care_instructions: suggestion.care_instructions,
         source: suggestion.source,
-      })
+      });
 
       // Mark as saved (Map.set returns a new Map)
-      setSavedPlants(prev => new Map(prev).set(plantKey, true))
+      setSavedPlants((prev) => new Map(prev).set(plantKey, true));
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to save plant to collection')
+      setSaveError(err instanceof Error ? err.message : 'Failed to save plant to collection');
     } finally {
-      setSavingPlant(null)
+      setSavingPlant(null);
     }
-  }
+  };
 
   return (
     <div className="bg-gradient-to-br from-green-50 to-emerald-50">
@@ -113,12 +113,8 @@ export default function IdentifyPage() {
               <Sparkles className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                AI Plant Identification
-              </h1>
-              <p className="text-gray-600 mt-1">
-                Upload a photo to identify your plant instantly
-              </p>
+              <h1 className="text-3xl font-bold text-gray-900">AI Plant Identification</h1>
+              <p className="text-gray-600 mt-1">Upload a photo to identify your plant instantly</p>
             </div>
           </div>
         </div>
@@ -129,9 +125,7 @@ export default function IdentifyPage() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
           {/* Upload Section */}
           <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">
-              Upload Your Plant Photo
-            </h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Upload Your Plant Photo</h2>
             <FileUpload onFileSelect={handleFileSelect} />
           </div>
 
@@ -210,7 +204,7 @@ export default function IdentifyPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function InfoCard({ title, description, step }: InfoCardProps) {
@@ -222,5 +216,5 @@ function InfoCard({ title, description, step }: InfoCardProps) {
       <h3 className="font-semibold text-gray-900 mb-2">{title}</h3>
       <p className="text-sm text-gray-600">{description}</p>
     </div>
-  )
+  );
 }

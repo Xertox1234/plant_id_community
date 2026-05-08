@@ -8,14 +8,14 @@ The Plant ID Community web frontend is a React 19 single-page application (SPA) 
 
 ### Core Technologies
 
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| React | 19.1.1 | UI framework with concurrent rendering |
-| Vite | 7.1.7 | Build tool with fast HMR and optimized production builds |
-| Tailwind CSS | 4.1.15 | Utility-first CSS framework (v4 with Vite plugin) |
-| React Router | 7.9.4 | Client-side routing |
-| Axios | 1.12.2 | HTTP client for API communication |
-| Lucide React | 0.546.0 | Tree-shakeable icon library |
+| Technology   | Version | Purpose                                                  |
+| ------------ | ------- | -------------------------------------------------------- |
+| React        | 19.1.1  | UI framework with concurrent rendering                   |
+| Vite         | 7.1.7   | Build tool with fast HMR and optimized production builds |
+| Tailwind CSS | 4.1.15  | Utility-first CSS framework (v4 with Vite plugin)        |
+| React Router | 7.9.4   | Client-side routing                                      |
+| Axios        | 1.12.2  | HTTP client for API communication                        |
+| Lucide React | 0.546.0 | Tree-shakeable icon library                              |
 
 ### Development Tools
 
@@ -53,12 +53,14 @@ The Plant ID Community web frontend is a React 19 single-page application (SPA) 
 **Current Decision: Local State Only**
 
 Rationale:
+
 - Simple application with minimal shared state
 - No complex data flows requiring Redux/Zustand
 - Props drilling is minimal (max 1-2 levels)
 - Authentication not yet implemented
 
 **Future Consideration:**
+
 - May add Context API or Zustand when implementing:
   - User authentication
   - Plant collections
@@ -127,26 +129,23 @@ App (Router Root)
 
 ```javascript
 // IdentifyPage.jsx - All state localized to page component
-const [selectedFile, setSelectedFile] = useState(null)
-const [results, setResults] = useState(null)
-const [loading, setLoading] = useState(false)
-const [error, setError] = useState(null)
+const [selectedFile, setSelectedFile] = useState(null);
+const [results, setResults] = useState(null);
+const [loading, setLoading] = useState(false);
+const [error, setError] = useState(null);
 ```
 
 **Props Down, Events Up**
 
 ```javascript
 // Parent → Child: Props
-<FileUpload
-  onFileSelect={handleFileSelect}
-  selectedFile={selectedFile}
-/>
+<FileUpload onFileSelect={handleFileSelect} selectedFile={selectedFile} />;
 
 // Child → Parent: Callbacks
 const handleFileSelect = (file) => {
-  setSelectedFile(file)
-  setError(null)
-}
+  setSelectedFile(file);
+  setError(null);
+};
 ```
 
 ## Routing Architecture
@@ -164,12 +163,14 @@ const handleFileSelect = (file) => {
 ```
 
 **Current Routes:**
+
 - `/` - Landing page with hero and features
 - `/identify` - Plant identification workflow
 - `/blog` - Blog placeholder (future Wagtail integration)
 - `/forum` - Forum placeholder (future Django Machina integration)
 
 **Future Routes:**
+
 - `/login` - Authentication
 - `/profile` - User profile
 - `/collection` - User's plant collection
@@ -200,6 +201,7 @@ server: {
 ```
 
 **Benefits:**
+
 - No CORS issues in development
 - Frontend uses relative URLs (`/api/...`)
 - Backend runs on separate port
@@ -209,23 +211,24 @@ server: {
 
 ```javascript
 // services/plantIdService.js
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export const plantIdService = {
   identifyPlant: async (imageFile) => {
-    const formData = new FormData()
-    formData.append('image', imageFile)
+    const formData = new FormData();
+    formData.append('image', imageFile);
 
     const response = await axios.post(
       `${API_BASE_URL}/api/plant-identification/identify/`,
       formData
-    )
-    return response.data
-  }
-}
+    );
+    return response.data;
+  },
+};
 ```
 
 **Key Patterns:**
+
 - Centralized API client
 - Environment-based configuration
 - FormData for file uploads
@@ -237,13 +240,11 @@ export const plantIdService = {
 ```javascript
 // Centralized error extraction
 try {
-  const result = await plantIdService.identifyPlant(file)
-  setResults(result)
+  const result = await plantIdService.identifyPlant(file);
+  setResults(result);
 } catch (error) {
-  const errorMessage = error.response?.data?.error
-    || error.message
-    || 'Failed to identify plant'
-  setError(errorMessage)
+  const errorMessage = error.response?.data?.error || error.message || 'Failed to identify plant';
+  setError(errorMessage);
 }
 ```
 
@@ -276,6 +277,7 @@ Upload to Backend
 ```
 
 **Performance Metrics:**
+
 - **Size reduction**: 85% (10MB → 800KB)
 - **Upload time**: 85% faster (40-80s → 3-5s)
 - **Quality**: Maintained at 85% JPEG quality
@@ -296,6 +298,7 @@ dist/
 ```
 
 **Benefits:**
+
 - Only load code for current route
 - Shared dependencies in separate chunk
 - Cache-friendly (hash-based filenames)
@@ -310,6 +313,7 @@ npm run dev
 ```
 
 **Features:**
+
 - Vite dev server on port 5173
 - Fast HMR (<100ms reload)
 - API proxy to Django backend
@@ -323,6 +327,7 @@ npm run build
 ```
 
 **Optimizations:**
+
 - Minification (Terser)
 - Tree-shaking (removes unused exports)
 - Code splitting by route
@@ -331,6 +336,7 @@ npm run build
 - Gzip-ready output
 
 **Output:**
+
 ```
 dist/
 ├── index.html              # Entry point
@@ -349,13 +355,14 @@ dist/
 
 ```javascript
 // ✅ Safe: Only VITE_ prefix exposed to client
-const API_URL = import.meta.env.VITE_API_URL
+const API_URL = import.meta.env.VITE_API_URL;
 
 // ❌ Unsafe: Never store secrets in frontend
 // const SECRET_KEY = import.meta.env.SECRET_KEY
 ```
 
 **Best Practices:**
+
 - All client environment variables prefixed with `VITE_`
 - No API keys or secrets in frontend code
 - Backend handles authentication tokens
@@ -364,6 +371,7 @@ const API_URL = import.meta.env.VITE_API_URL
 ### Content Security Policy (Future)
 
 **Planned CSP Headers:**
+
 ```http
 Content-Security-Policy:
   default-src 'self';
@@ -376,11 +384,13 @@ Content-Security-Policy:
 ### Current Architecture Limits
 
 **Designed For:**
+
 - Small to medium traffic (< 10k DAU)
 - Simple CRUD operations
 - Static deployment (CDN)
 
 **Not Optimized For:**
+
 - Real-time features (no WebSockets)
 - Complex data synchronization
 - Offline-first (PWA features not implemented)
@@ -412,11 +422,13 @@ Content-Security-Policy:
 ### Unit Testing Strategy
 
 **Recommended Stack:**
+
 - **Vitest** - Fast, Vite-native test runner
 - **React Testing Library** - Component testing
 - **MSW** - API mocking
 
 **Target Coverage:**
+
 - Utilities: 100% (imageCompression.js)
 - Services: 100% (plantIdService.js)
 - Components: 80% (critical paths)
@@ -424,6 +436,7 @@ Content-Security-Policy:
 ### E2E Testing Strategy (Future)
 
 **Recommended:**
+
 - **Playwright** - Cross-browser E2E testing
 - **Critical flows** - Upload → Identify → Results
 
@@ -432,11 +445,13 @@ Content-Security-Policy:
 ### Static Hosting (Recommended)
 
 **Platforms:**
+
 - **Vercel** - Zero-config, edge network
 - **Netlify** - Continuous deployment, preview URLs
 - **Firebase Hosting** - Google CDN, custom domains
 
 **Deployment Process:**
+
 ```bash
 # 1. Build production bundle
 npm run build
@@ -465,6 +480,7 @@ CDN Edge Location (Cached Static Assets)
 ### Error Tracking
 
 **Planned Integration:**
+
 - Sentry for error tracking
 - Source maps for stack traces
 - User context in error reports
@@ -472,6 +488,7 @@ CDN Edge Location (Cached Static Assets)
 ### Analytics
 
 **Planned Integration:**
+
 - Google Analytics 4
 - Custom events (plant identification success/failure)
 - Performance metrics (Core Web Vitals)

@@ -39,7 +39,7 @@
  * // }
  */
 
-import * as Sentry from '@sentry/react'
+import * as Sentry from '@sentry/react';
 
 /**
  * Log Levels
@@ -49,44 +49,44 @@ export const LOG_LEVELS = {
   INFO: 'info',
   WARNING: 'warning',
   ERROR: 'error',
-} as const
+} as const;
 
-type LogLevel = typeof LOG_LEVELS[keyof typeof LOG_LEVELS]
+type LogLevel = (typeof LOG_LEVELS)[keyof typeof LOG_LEVELS];
 
 /**
  * Log context object
  */
 interface LogContext {
-  component?: string
-  error?: unknown
-  url?: string
-  [key: string]: unknown
+  component?: string;
+  error?: unknown;
+  url?: string;
+  [key: string]: unknown;
 }
 
 /**
  * Base context with automatic injected fields
  */
 interface BaseContext {
-  timestamp: string
-  environment: string
-  requestId?: string
-  userId?: string
+  timestamp: string;
+  environment: string;
+  requestId?: string;
+  userId?: string;
 }
 
 /**
  * Logger initialization options
  */
 interface InitLoggerOptions {
-  getRequestId?: (() => string | null) | null
-  getUserId?: (() => string | null) | null
+  getRequestId?: (() => string | null) | null;
+  getUserId?: (() => string | null) | null;
 }
 
 /**
  * Global context accessor functions
  * These are set up lazily to avoid circular dependencies with React contexts
  */
-let getRequestId: (() => string | null) | null = null
-let getUserId: (() => string | null) | null = null
+let getRequestId: (() => string | null) | null = null;
+let getUserId: (() => string | null) | null = null;
 
 /**
  * Initialize logger with context accessors
@@ -94,9 +94,12 @@ let getUserId: (() => string | null) | null = null
  *
  * @param options - Context accessor functions
  */
-export function initLogger({ getRequestId: reqIdFn, getUserId: userIdFn }: InitLoggerOptions): void {
-  getRequestId = reqIdFn || null
-  getUserId = userIdFn || null
+export function initLogger({
+  getRequestId: reqIdFn,
+  getUserId: userIdFn,
+}: InitLoggerOptions): void {
+  getRequestId = reqIdFn || null;
+  getUserId = userIdFn || null;
 }
 
 /**
@@ -109,14 +112,14 @@ function getBaseContext(): BaseContext {
   const context: BaseContext = {
     timestamp: new Date().toISOString(),
     environment: import.meta.env.MODE,
-  }
+  };
 
   // Add request ID if available
   try {
     if (getRequestId) {
-      const requestId = getRequestId()
+      const requestId = getRequestId();
       if (requestId) {
-        context.requestId = requestId
+        context.requestId = requestId;
       }
     }
   } catch {
@@ -126,16 +129,16 @@ function getBaseContext(): BaseContext {
   // Add user ID if available
   try {
     if (getUserId) {
-      const userId = getUserId()
+      const userId = getUserId();
       if (userId) {
-        context.userId = userId
+        context.userId = userId;
       }
     }
   } catch {
     // Silently fail if context not available
   }
 
-  return context
+  return context;
 }
 
 /**
@@ -150,21 +153,21 @@ function getBaseContext(): BaseContext {
  * // Returns: '/api/users'
  */
 function sanitizeUrl(url: unknown): unknown {
-  if (!url || typeof url !== 'string') return url
+  if (!url || typeof url !== 'string') return url;
 
   try {
     // Check if it's a full URL (starts with http:// or https://)
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      const urlObj = new URL(url)
-      return `${urlObj.origin}${urlObj.pathname}`
+      const urlObj = new URL(url);
+      return `${urlObj.origin}${urlObj.pathname}`;
     }
 
     // For relative URLs, use string manipulation
     // Remove query params (?...) and hash (#...)
-    return url.split('?')[0].split('#')[0]
+    return url.split('?')[0].split('#')[0];
   } catch {
     // If parsing fails, fallback to string manipulation
-    return url.split('?')[0].split('#')[0]
+    return url.split('?')[0].split('#')[0];
   }
 }
 
@@ -172,11 +175,11 @@ function sanitizeUrl(url: unknown): unknown {
  * Sanitized error object with only safe properties
  */
 interface SafeError {
-  message?: string
-  name?: string
-  stack?: string
-  status?: number
-  statusText?: string
+  message?: string;
+  name?: string;
+  stack?: string;
+  status?: number;
+  statusText?: string;
 }
 
 /**
@@ -192,24 +195,24 @@ interface SafeError {
  * // Returns: { message: 'Failed', name: undefined, stack: undefined, status: undefined }
  */
 function sanitizeError(error: unknown): unknown {
-  if (!error) return error
+  if (!error) return error;
 
   // If it's a primitive (string, number), return as-is
-  if (typeof error !== 'object') return error
+  if (typeof error !== 'object') return error;
 
   // Extract only safe properties
-  const errorObj = error as Record<string, unknown>
+  const errorObj = error as Record<string, unknown>;
   const safe: SafeError = {
     message: errorObj.message as string | undefined,
     name: errorObj.name as string | undefined,
     stack: import.meta.env.DEV ? (errorObj.stack as string | undefined) : undefined, // Stack traces in dev only
-  }
+  };
 
   // Add Axios-specific safe properties if present
   if (errorObj.response && typeof errorObj.response === 'object') {
-    const response = errorObj.response as Record<string, unknown>
-    safe.status = response.status as number | undefined
-    safe.statusText = response.statusText as string | undefined
+    const response = errorObj.response as Record<string, unknown>;
+    safe.status = response.status as number | undefined;
+    safe.statusText = response.statusText as string | undefined;
   }
 
   // Omit sensitive properties:
@@ -220,7 +223,7 @@ function sanitizeError(error: unknown): unknown {
   // - error.response.config (same as error.config)
   // - error.response.request (same as error.request)
 
-  return safe
+  return safe;
 }
 
 /**
@@ -231,18 +234,22 @@ function sanitizeError(error: unknown): unknown {
  * @param context - Additional context
  * @returns Formatted log entry
  */
-function formatLogEntry(level: LogLevel, message: string, context: LogContext = {}): BaseContext & LogContext {
+function formatLogEntry(
+  level: LogLevel,
+  message: string,
+  context: LogContext = {}
+): BaseContext & LogContext {
   // Only sanitize if context is an object
   if (context && typeof context === 'object') {
     // Sanitize URL if present in context
     if (context.url) {
-      context.url = sanitizeUrl(context.url) as string
+      context.url = sanitizeUrl(context.url) as string;
     }
 
     // Sanitize error if present in context. AxiosError extends Error and can
     // include sensitive config/headers, so sanitize all object-shaped errors.
     if (context.error && typeof context.error === 'object') {
-      context.error = sanitizeError(context.error)
+      context.error = sanitizeError(context.error);
     }
   }
 
@@ -251,7 +258,7 @@ function formatLogEntry(level: LogLevel, message: string, context: LogContext = 
     message,
     ...getBaseContext(),
     ...context,
-  }
+  };
 }
 
 /**
@@ -267,7 +274,7 @@ function sendToSentry(level: LogLevel, message: string, context: LogContext): vo
     level: level === LOG_LEVELS.WARNING ? 'warning' : level,
     message,
     data: context,
-  })
+  });
 
   // Send to Sentry based on level
   if (level === LOG_LEVELS.ERROR) {
@@ -280,7 +287,7 @@ function sendToSentry(level: LogLevel, message: string, context: LogContext): vo
           message,
           ...context,
         },
-      })
+      });
     } else {
       Sentry.captureMessage(message, {
         level: 'error',
@@ -288,7 +295,7 @@ function sendToSentry(level: LogLevel, message: string, context: LogContext): vo
           component: (context.component as string) || 'unknown',
         },
         extra: context,
-      })
+      });
     }
   } else if (level === LOG_LEVELS.WARNING) {
     Sentry.captureMessage(message, {
@@ -297,7 +304,7 @@ function sendToSentry(level: LogLevel, message: string, context: LogContext): vo
         component: (context.component as string) || 'unknown',
       },
       extra: context,
-    })
+    });
   }
   // INFO and DEBUG are breadcrumbs only
 }
@@ -310,7 +317,7 @@ function sendToSentry(level: LogLevel, message: string, context: LogContext): vo
  * @param context - Additional context
  */
 function log(level: LogLevel, message: string, context: LogContext = {}): void {
-  const entry = formatLogEntry(level, message, context)
+  const entry = formatLogEntry(level, message, context);
 
   if (import.meta.env.DEV) {
     // Development: Pretty-print to console
@@ -319,17 +326,17 @@ function log(level: LogLevel, message: string, context: LogContext = {}): void {
       info: 'color: blue',
       warning: 'color: orange',
       error: 'color: red',
-    }
+    };
 
-    const style = levelColors[level] || ''
+    const style = levelColors[level] || '';
     // EXCEPTION: console.log is acceptable here (logger bootstrap/infrastructure)
     // This is the logger's own output mechanism - using logger here would cause infinite recursion
     // Note: no-console rule is disabled for logger.js in eslint.config.js
-    console.log(`%c[${level.toUpperCase()}] ${message}`, style)
-    console.log(entry)
+    console.log(`%c[${level.toUpperCase()}] ${message}`, style);
+    console.log(entry);
   } else {
     // Production: Send structured data to Sentry
-    sendToSentry(level, message, entry)
+    sendToSentry(level, message, entry);
   }
 }
 
@@ -341,7 +348,7 @@ function log(level: LogLevel, message: string, context: LogContext = {}): void {
  */
 function debug(message: string, context: LogContext = {}): void {
   if (import.meta.env.DEV) {
-    log(LOG_LEVELS.DEBUG, message, context)
+    log(LOG_LEVELS.DEBUG, message, context);
   }
 }
 
@@ -352,7 +359,7 @@ function debug(message: string, context: LogContext = {}): void {
  * @param context - Additional context
  */
 function info(message: string, context: LogContext = {}): void {
-  log(LOG_LEVELS.INFO, message, context)
+  log(LOG_LEVELS.INFO, message, context);
 }
 
 /**
@@ -362,7 +369,7 @@ function info(message: string, context: LogContext = {}): void {
  * @param context - Additional context
  */
 function warn(message: string, context: LogContext = {}): void {
-  log(LOG_LEVELS.WARNING, message, context)
+  log(LOG_LEVELS.WARNING, message, context);
 }
 
 /**
@@ -372,7 +379,7 @@ function warn(message: string, context: LogContext = {}): void {
  * @param context - Additional context (should include error object)
  */
 function error(message: string, context: LogContext = {}): void {
-  log(LOG_LEVELS.ERROR, message, context)
+  log(LOG_LEVELS.ERROR, message, context);
 }
 
 /**
@@ -384,28 +391,28 @@ export const logger = {
   info,
   warn,
   error,
-}
+};
 
 /**
  * Legacy function names for backward compatibility
  * @deprecated Use logger.error() instead
  */
 export function logError(message: string, error: unknown): void {
-  logger.error(message, { error })
+  logger.error(message, { error });
 }
 
 /**
  * @deprecated Use logger.warn() instead
  */
 export function logWarning(message: string, data: unknown): void {
-  logger.warn(message, { data })
+  logger.warn(message, { data });
 }
 
 /**
  * @deprecated Use logger.info() instead
  */
 export function logInfo(message: string, data: unknown): void {
-  logger.info(message, { data })
+  logger.info(message, { data });
 }
 
-export default logger
+export default logger;

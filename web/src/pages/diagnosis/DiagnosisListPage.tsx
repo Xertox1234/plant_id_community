@@ -10,7 +10,12 @@ import { Link } from 'react-router-dom';
 import DiagnosisCard from '../../components/diagnosis/DiagnosisCard';
 import { fetchDiagnosisCards } from '../../services/diagnosisService';
 import { logger } from '../../utils/logger';
-import type { DiagnosisCard as DiagnosisCardType, PaginatedDiagnosisCardsResponse, TreatmentStatus, DiseaseType } from '@/types';
+import type {
+  DiagnosisCard as DiagnosisCardType,
+  PaginatedDiagnosisCardsResponse,
+  TreatmentStatus,
+  DiseaseType,
+} from '@/types';
 
 export default function DiagnosisListPage() {
   const [cards, setCards] = useState<DiagnosisCardType[]>([]);
@@ -48,7 +53,7 @@ export default function DiagnosisListPage() {
 
       logger.info('[DiagnosisListPage] Loading cards with filters', options);
 
-      const response = await fetchDiagnosisCards(options) as PaginatedDiagnosisCardsResponse;
+      const response = (await fetchDiagnosisCards(options)) as PaginatedDiagnosisCardsResponse;
 
       setCards(response.results || []);
       setTotalCount(response.count || 0);
@@ -71,23 +76,21 @@ export default function DiagnosisListPage() {
    */
   useEffect(() => {
     loadCards();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, treatmentFilter, diseaseTypeFilter, showFavoritesOnly, sortOrder, currentPage]);
 
   /**
    * Handle card update (favorite toggle)
    */
   const handleCardUpdate = (updatedCard: DiagnosisCardType) => {
-    setCards(cards.map(card =>
-      card.uuid === updatedCard.uuid ? updatedCard : card
-    ));
+    setCards(cards.map((card) => (card.uuid === updatedCard.uuid ? updatedCard : card)));
   };
 
   /**
    * Handle card deletion
    */
   const handleCardDelete = (uuid: string) => {
-    setCards(cards.filter(card => card.uuid !== uuid));
+    setCards(cards.filter((card) => card.uuid !== uuid));
     setTotalCount(totalCount - 1);
   };
 
@@ -106,7 +109,12 @@ export default function DiagnosisListPage() {
   /**
    * Check if any filters are active
    */
-  const hasActiveFilters = searchQuery || treatmentFilter || diseaseTypeFilter || showFavoritesOnly || sortOrder !== '-saved_at';
+  const hasActiveFilters =
+    searchQuery ||
+    treatmentFilter ||
+    diseaseTypeFilter ||
+    showFavoritesOnly ||
+    sortOrder !== '-saved_at';
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -139,13 +147,18 @@ export default function DiagnosisListPage() {
 
             {/* Treatment Status */}
             <div>
-              <label htmlFor="treatment-status" className="block text-sm font-medium text-gray-700 mb-1">
+              <label
+                htmlFor="treatment-status"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
                 Treatment Status
               </label>
               <select
                 id="treatment-status"
                 value={treatmentFilter}
-                onChange={(e: ChangeEvent<HTMLSelectElement>) => setTreatmentFilter(e.target.value as TreatmentStatus | '')}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                  setTreatmentFilter(e.target.value as TreatmentStatus | '')
+                }
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
               >
                 <option value="">All Statuses</option>
@@ -159,13 +172,18 @@ export default function DiagnosisListPage() {
 
             {/* Disease Type */}
             <div>
-              <label htmlFor="disease-type" className="block text-sm font-medium text-gray-700 mb-1">
+              <label
+                htmlFor="disease-type"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
                 Disease Type
               </label>
               <select
                 id="disease-type"
                 value={diseaseTypeFilter}
-                onChange={(e: ChangeEvent<HTMLSelectElement>) => setDiseaseTypeFilter(e.target.value as DiseaseType | '')}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                  setDiseaseTypeFilter(e.target.value as DiseaseType | '')
+                }
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
               >
                 <option value="">All Types</option>
@@ -206,7 +224,9 @@ export default function DiagnosisListPage() {
                 <input
                   type="checkbox"
                   checked={showFavoritesOnly}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setShowFavoritesOnly(e.target.checked)}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                    setShowFavoritesOnly(e.target.checked)
+                  }
                   className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
                 />
                 <span className="text-sm text-gray-700">Favorites Only</span>
@@ -243,10 +263,22 @@ export default function DiagnosisListPage() {
         {/* Error State */}
         {error && !loading && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-            <svg className="w-12 h-12 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg
+              className="w-12 h-12 text-red-500 mx-auto mb-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
-            <h3 className="text-lg font-semibold text-red-900 mb-2">Failed to Load Diagnosis Cards</h3>
+            <h3 className="text-lg font-semibold text-red-900 mb-2">
+              Failed to Load Diagnosis Cards
+            </h3>
             <p className="text-red-700 mb-4">{error}</p>
             <button
               onClick={loadCards}
@@ -260,8 +292,18 @@ export default function DiagnosisListPage() {
         {/* Empty State */}
         {!loading && !error && cards.length === 0 && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
-            <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            <svg
+              className="w-16 h-16 text-gray-400 mx-auto mb-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
             </svg>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
               {hasActiveFilters ? 'No Matching Diagnosis Cards' : 'No Diagnosis Cards Yet'}
@@ -269,8 +311,7 @@ export default function DiagnosisListPage() {
             <p className="text-gray-600 mb-6">
               {hasActiveFilters
                 ? 'Try adjusting your filters to see more results'
-                : 'Start diagnosing your plants to save care instructions and track treatment progress'
-              }
+                : 'Start diagnosing your plants to save care instructions and track treatment progress'}
             </p>
             {hasActiveFilters ? (
               <button
@@ -294,7 +335,7 @@ export default function DiagnosisListPage() {
         {!loading && !error && cards.length > 0 && (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-              {cards.map(card => (
+              {cards.map((card) => (
                 <DiagnosisCard
                   key={card.uuid}
                   card={card}

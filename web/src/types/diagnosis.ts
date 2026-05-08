@@ -6,7 +6,13 @@
  * Diagnosis StreamField block types
  */
 export interface DiagnosisBlock {
-  type: 'heading' | 'paragraph' | 'treatment_step' | 'symptom_check' | 'prevention_tip' | 'list_block';
+  type:
+    | 'heading'
+    | 'paragraph'
+    | 'treatment_step'
+    | 'symptom_check'
+    | 'prevention_tip'
+    | 'list_block';
   value: unknown;
   id?: string;
 }
@@ -66,7 +72,12 @@ export interface Disease {
 /**
  * Treatment status types
  */
-export type TreatmentStatus = 'not_started' | 'in_progress' | 'successful' | 'failed' | 'monitoring';
+export type TreatmentStatus =
+  | 'not_started'
+  | 'in_progress'
+  | 'successful'
+  | 'failed'
+  | 'monitoring';
 
 /**
  * Disease type categories

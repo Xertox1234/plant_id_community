@@ -40,7 +40,7 @@ async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Pr
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
+      Accept: 'application/json',
       ...(csrfToken && { 'X-CSRFToken': csrfToken }),
       ...options.headers,
     },
@@ -82,13 +82,15 @@ export async function fetchCategory(slug: string): Promise<Category> {
 /**
  * Fetch threads with filters and pagination
  */
-export async function fetchThreads(options: FetchThreadsOptions = {}): Promise<PaginatedResponse<Thread>> {
+export async function fetchThreads(
+  options: FetchThreadsOptions = {}
+): Promise<PaginatedResponse<Thread>> {
   const {
     page = 1,
     limit = 20,
     category = '',
     search = '',
-    ordering = '-last_activity_at'
+    ordering = '-last_activity_at',
   } = options;
 
   const params = new URLSearchParams({
@@ -128,13 +130,7 @@ export async function fetchThread(slug: string): Promise<Thread> {
  * Create new thread (requires authentication)
  */
 export async function createThread(data: CreateThreadInput): Promise<Thread> {
-  const {
-    title,
-    category,
-    excerpt,
-    first_post_content,
-    first_post_format = 'plain'
-  } = data;
+  const { title, category, excerpt, first_post_content, first_post_format = 'plain' } = data;
 
   return authenticatedFetch<Thread>(`${FORUM_BASE}/threads/`, {
     method: 'POST',
@@ -152,12 +148,7 @@ export async function createThread(data: CreateThreadInput): Promise<Thread> {
  * Fetch posts in a thread
  */
 export async function fetchPosts(options: FetchPostsOptions): Promise<PaginatedResponse<Post>> {
-  const {
-    thread,
-    page = 1,
-    limit = 20,
-    ordering = 'created_at'
-  } = options;
+  const { thread, page = 1, limit = 20, ordering = 'created_at' } = options;
 
   if (!thread) {
     throw new Error('Thread slug is required');
@@ -269,7 +260,7 @@ export async function searchForum(options: SearchForumOptions): Promise<SearchFo
     date_from = '',
     date_to = '',
     page = 1,
-    page_size = 20
+    page_size = 20,
   } = options;
 
   if (!q || q.trim() === '') {
@@ -303,7 +294,7 @@ export async function uploadPostImage(postId: string, imageFile: File): Promise<
     method: 'POST',
     credentials: 'include',
     headers: {
-      'Accept': 'application/json',
+      Accept: 'application/json',
       ...(csrfToken && { 'X-CSRFToken': csrfToken }),
     },
     body: formData,
@@ -329,7 +320,10 @@ export async function deletePostImage(postId: string, attachmentId: string): Pro
 /**
  * Reorder images on a post (requires authentication)
  */
-export async function reorderPostImages(postId: string, attachmentIds: string[]): Promise<Attachment[]> {
+export async function reorderPostImages(
+  postId: string,
+  attachmentIds: string[]
+): Promise<Attachment[]> {
   return authenticatedFetch<Attachment[]>(`${FORUM_BASE}/posts/${postId}/reorder_images/`, {
     method: 'POST',
     body: JSON.stringify({ attachment_ids: attachmentIds }),

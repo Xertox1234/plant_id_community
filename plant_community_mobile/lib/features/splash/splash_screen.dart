@@ -130,10 +130,7 @@ class _SplashScreenState extends State<SplashScreen>
                       gradient: const LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: [
-                          AppColors.green500,
-                          AppColors.emerald600,
-                        ],
+                        colors: [AppColors.green500, AppColors.emerald600],
                       ),
                       boxShadow: [
                         BoxShadow(
@@ -156,32 +153,27 @@ class _SplashScreenState extends State<SplashScreen>
                 FadeTransition(
                   opacity: _fadeController,
                   child: SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(0, 0.2),
-                      end: Offset.zero,
-                    ).animate(CurvedAnimation(
-                      parent: _fadeController,
-                      curve: Curves.easeOut,
-                    )),
+                    position:
+                        Tween<Offset>(
+                          begin: const Offset(0, 0.2),
+                          end: Offset.zero,
+                        ).animate(
+                          CurvedAnimation(
+                            parent: _fadeController,
+                            curve: Curves.easeOut,
+                          ),
+                        ),
                     child: Column(
                       children: [
                         ShaderMask(
                           shaderCallback: (bounds) => LinearGradient(
                             colors: isDark
-                                ? [
-                                    AppColors.green400,
-                                    AppColors.emerald400,
-                                  ]
-                                : [
-                                    AppColors.green700,
-                                    AppColors.emerald700,
-                                  ],
+                                ? [AppColors.green400, AppColors.emerald400]
+                                : [AppColors.green700, AppColors.emerald700],
                           ).createShader(bounds),
                           child: Text(
                             'PlantID',
-                            style: Theme.of(context)
-                                .textTheme
-                                .headlineLarge
+                            style: Theme.of(context).textTheme.headlineLarge
                                 ?.copyWith(
                                   fontSize: 48,
                                   fontWeight: FontWeight.bold,
@@ -211,7 +203,9 @@ class _SplashScreenState extends State<SplashScreen>
                   child: SizedBox(
                     width: 200,
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(AppSpacing.radiusFull),
+                      borderRadius: BorderRadius.circular(
+                        AppSpacing.radiusFull,
+                      ),
                       child: LinearProgressIndicator(
                         value: _progress / 100,
                         minHeight: 4,

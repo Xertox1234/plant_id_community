@@ -33,11 +33,7 @@ export default function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
-          <Link
-            to="/"
-            className="flex items-center gap-2"
-            aria-label="PlantID Home"
-          >
+          <Link to="/" className="flex items-center gap-2" aria-label="PlantID Home">
             <div
               className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-500 rounded-lg"
               role="img"
@@ -52,9 +48,7 @@ export default function Header() {
               to="/identify"
               className={({ isActive }) =>
                 `font-medium transition-colors ${
-                  isActive
-                    ? 'text-green-600'
-                    : 'text-gray-700 hover:text-green-600'
+                  isActive ? 'text-green-600' : 'text-gray-700 hover:text-green-600'
                 }`
               }
             >
@@ -64,9 +58,7 @@ export default function Header() {
               to="/blog"
               className={({ isActive }) =>
                 `font-medium transition-colors ${
-                  isActive
-                    ? 'text-green-600'
-                    : 'text-gray-700 hover:text-green-600'
+                  isActive ? 'text-green-600' : 'text-gray-700 hover:text-green-600'
                 }`
               }
             >
@@ -76,9 +68,7 @@ export default function Header() {
               to="/forum"
               className={({ isActive }) =>
                 `font-medium transition-colors ${
-                  isActive
-                    ? 'text-green-600'
-                    : 'text-gray-700 hover:text-green-600'
+                  isActive ? 'text-green-600' : 'text-gray-700 hover:text-green-600'
                 }`
               }
             >
@@ -129,9 +119,7 @@ export default function Header() {
               onClick={closeMenu}
               className={({ isActive }) =>
                 `block px-3 py-2 rounded-lg font-medium transition-colors ${
-                  isActive
-                    ? 'bg-green-50 text-green-600'
-                    : 'text-gray-700 hover:bg-gray-50'
+                  isActive ? 'bg-green-50 text-green-600' : 'text-gray-700 hover:bg-gray-50'
                 }`
               }
             >
@@ -142,9 +130,7 @@ export default function Header() {
               onClick={closeMenu}
               className={({ isActive }) =>
                 `block px-3 py-2 rounded-lg font-medium transition-colors ${
-                  isActive
-                    ? 'bg-green-50 text-green-600'
-                    : 'text-gray-700 hover:bg-gray-50'
+                  isActive ? 'bg-green-50 text-green-600' : 'text-gray-700 hover:bg-gray-50'
                 }`
               }
             >
@@ -155,9 +141,7 @@ export default function Header() {
               onClick={closeMenu}
               className={({ isActive }) =>
                 `block px-3 py-2 rounded-lg font-medium transition-colors ${
-                  isActive
-                    ? 'bg-green-50 text-green-600'
-                    : 'text-gray-700 hover:bg-gray-50'
+                  isActive ? 'bg-green-50 text-green-600' : 'text-gray-700 hover:bg-gray-50'
                 }`
               }
             >

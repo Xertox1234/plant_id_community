@@ -7,11 +7,13 @@ Complete setup guide for new developers joining the Plant ID Community web front
 ### Required Software
 
 - **Node.js** 18.0.0 or higher
+
   ```bash
   node --version  # Should be v18.x.x or higher
   ```
 
 - **npm** 9.0.0 or higher
+
   ```bash
   npm --version   # Should be 9.x.x or higher
   ```
@@ -58,6 +60,7 @@ npm list --depth=0
 ```
 
 **Expected output:**
+
 ```
 plant-id-web@0.0.0
 ├── @vitejs/plugin-react@latest
@@ -100,14 +103,15 @@ VITE_API_URL=http://localhost:8000
 
 **Environment Variables Explained:**
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `VITE_API_URL` | Yes | `http://localhost:8000` | Django backend URL |
-| `VITE_GA_MEASUREMENT_ID` | No | - | Google Analytics ID (future) |
-| `VITE_SENTRY_DSN` | No | - | Sentry error tracking URL (future) |
-| `VITE_DEBUG` | No | `false` | Enable debug logging |
+| Variable                 | Required | Default                 | Description                        |
+| ------------------------ | -------- | ----------------------- | ---------------------------------- |
+| `VITE_API_URL`           | Yes      | `http://localhost:8000` | Django backend URL                 |
+| `VITE_GA_MEASUREMENT_ID` | No       | -                       | Google Analytics ID (future)       |
+| `VITE_SENTRY_DSN`        | No       | -                       | Sentry error tracking URL (future) |
+| `VITE_DEBUG`             | No       | `false`                 | Enable debug logging               |
 
 **Important Notes:**
+
 - All environment variables MUST be prefixed with `VITE_`
 - Restart dev server after changing `.env`
 - Never commit `.env` to git (already in `.gitignore`)
@@ -132,6 +136,7 @@ curl http://localhost:8000/api/plant-identification/identify/health/
 ```
 
 **Expected Response:**
+
 ```json
 {
   "status": "healthy",
@@ -148,6 +153,7 @@ npm run dev
 ```
 
 **Expected Output:**
+
 ```
   VITE v7.1.7  ready in 423 ms
 
@@ -161,6 +167,7 @@ npm run dev
 Open browser to `http://localhost:5173`
 
 **Checklist:**
+
 - [ ] Landing page loads without errors
 - [ ] Navigation works (Home, Identify, Blog, Forum)
 - [ ] No console errors
@@ -192,6 +199,7 @@ npm run dev
 ### Making Changes
 
 1. **Create a feature branch**
+
    ```bash
    git checkout -b feature/your-feature-name
    ```
@@ -207,11 +215,13 @@ npm run dev
    - Test responsive design (mobile/tablet/desktop)
 
 4. **Lint your code**
+
    ```bash
    npm run lint
    ```
 
 5. **Commit changes**
+
    ```bash
    git add .
    git commit -m "feat: your feature description"
@@ -244,6 +254,7 @@ npm run build
 ```
 
 **Build Output:**
+
 ```
 dist/
 ├── index.html              # Entry HTML file
@@ -320,11 +331,13 @@ web/
 ### Adding a New Page
 
 1. **Create page component**
+
    ```bash
    touch src/pages/MyPage.jsx
    ```
 
 2. **Implement component**
+
    ```javascript
    // src/pages/MyPage.jsx
    export default function MyPage() {
@@ -332,60 +345,62 @@ web/
        <div className="container mx-auto px-4 py-8">
          <h1 className="text-3xl font-bold">My Page</h1>
        </div>
-     )
+     );
    }
    ```
 
 3. **Add route**
+
    ```javascript
    // src/App.jsx
-   import MyPage from './pages/MyPage'
+   import MyPage from './pages/MyPage';
 
    <Routes>
      {/* ... existing routes */}
      <Route path="/my-page" element={<MyPage />} />
-   </Routes>
+   </Routes>;
    ```
 
 4. **Add navigation link**
+
    ```javascript
    // src/components/Navigation.jsx (or HomePage.jsx)
-   import { Link } from 'react-router-dom'
+   import { Link } from 'react-router-dom';
 
-   <Link to="/my-page">My Page</Link>
+   <Link to="/my-page">My Page</Link>;
    ```
 
 ### Adding a New Component
 
 1. **Create component file**
+
    ```bash
    mkdir -p src/components/MyFeature
    touch src/components/MyFeature/MyComponent.jsx
    ```
 
 2. **Implement component**
+
    ```javascript
    // src/components/MyFeature/MyComponent.jsx
    export default function MyComponent({ prop1, prop2 }) {
-     return (
-       <div className="bg-white p-4 rounded-lg shadow">
-         {/* Component content */}
-       </div>
-     )
+     return <div className="bg-white p-4 rounded-lg shadow">{/* Component content */}</div>;
    }
    ```
 
 3. **Import and use**
+
    ```javascript
    // src/pages/SomePage.jsx
-   import MyComponent from '../components/MyFeature/MyComponent'
+   import MyComponent from '../components/MyFeature/MyComponent';
 
-   <MyComponent prop1="value" prop2={42} />
+   <MyComponent prop1="value" prop2={42} />;
    ```
 
 ### Adding a New API Endpoint
 
 1. **Add method to service**
+
    ```javascript
    // src/services/plantIdService.js
    export const plantIdService = {
@@ -393,45 +408,43 @@ web/
 
      myNewEndpoint: async (data) => {
        try {
-         const response = await axios.post(
-           `${API_BASE_URL}/api/my-endpoint/`,
-           data
-         )
-         return response.data
+         const response = await axios.post(`${API_BASE_URL}/api/my-endpoint/`, data);
+         return response.data;
        } catch (error) {
-         throw new Error(
-           error.response?.data?.error || 'Request failed'
-         )
+         throw new Error(error.response?.data?.error || 'Request failed');
        }
-     }
-   }
+     },
+   };
    ```
 
 2. **Use in component**
+
    ```javascript
-   import { plantIdService } from '../services/plantIdService'
+   import { plantIdService } from '../services/plantIdService';
 
    const handleSubmit = async () => {
      try {
-       setLoading(true)
-       const result = await plantIdService.myNewEndpoint(data)
+       setLoading(true);
+       const result = await plantIdService.myNewEndpoint(data);
        // Handle success
      } catch (error) {
-       setError(error.message)
+       setError(error.message);
      } finally {
-       setLoading(false)
+       setLoading(false);
      }
-   }
+   };
    ```
 
 ### Adding a Utility Function
 
 1. **Create utility file**
+
    ```bash
    touch src/utils/myUtility.js
    ```
 
 2. **Implement utility**
+
    ```javascript
    // src/utils/myUtility.js
 
@@ -442,15 +455,16 @@ web/
     */
    export function myUtility(input) {
      // Implementation
-     return output
+     return output;
    }
    ```
 
 3. **Use in components**
-   ```javascript
-   import { myUtility } from '../utils/myUtility'
 
-   const result = myUtility(input)
+   ```javascript
+   import { myUtility } from '../utils/myUtility';
+
+   const result = myUtility(input);
    ```
 
 ## Troubleshooting
@@ -470,10 +484,12 @@ npm run dev -- --port 3000
 #### 2. Backend connection refused
 
 **Symptoms:**
+
 - API calls fail with "Network Error"
 - Console shows CORS errors
 
 **Solutions:**
+
 ```bash
 # Verify backend is running
 curl http://localhost:8000/api/plant-identification/identify/health/
@@ -488,10 +504,12 @@ cat .env | grep VITE_API_URL
 #### 3. Styles not loading
 
 **Symptoms:**
+
 - Page has no styling
 - Tailwind classes not applied
 
 **Solutions:**
+
 ```bash
 # Rebuild Tailwind
 rm -rf node_modules/.vite
@@ -506,9 +524,11 @@ ls -la tailwind.config.js
 #### 4. Module not found errors
 
 **Symptoms:**
+
 - `Error: Cannot find module 'some-package'`
 
 **Solutions:**
+
 ```bash
 # Reinstall dependencies
 rm -rf node_modules package-lock.json
@@ -521,10 +541,12 @@ npm install some-package
 #### 5. ESLint errors
 
 **Symptoms:**
+
 - Red squiggly lines in VS Code
 - Lint command fails
 
 **Solutions:**
+
 ```bash
 # Auto-fix issues
 npm run lint -- --fix

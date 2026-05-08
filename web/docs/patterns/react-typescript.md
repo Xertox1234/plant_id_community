@@ -65,7 +65,7 @@ All mutating requests must include the CSRF token and credentials:
 ```typescript
 const csrfToken = document.cookie
   .split('; ')
-  .find(row => row.startsWith('csrftoken='))
+  .find((row) => row.startsWith('csrftoken='))
   ?.split('=')[1];
 
 await fetch(`${import.meta.env.VITE_API_URL}/api/v1/...`, {

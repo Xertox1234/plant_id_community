@@ -91,16 +91,10 @@ export default function UserMenu() {
         </div>
 
         {/* User Name (desktop only) */}
-        <span className="hidden md:inline font-medium">
-          {user?.username || user?.email}
-        </span>
+        <span className="hidden md:inline font-medium">{user?.username || user?.email}</span>
 
         {/* Chevron Icon */}
-        <ChevronDown
-          className={`w-4 h-4 transition-transform ${
-            isOpen ? 'rotate-180' : ''
-          }`}
-        />
+        <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {/* Dropdown Menu */}
@@ -112,9 +106,7 @@ export default function UserMenu() {
         >
           {/* User Info Header */}
           <div className="px-4 py-3 border-b border-gray-200">
-            <p className="text-sm font-medium text-gray-900">
-              {user?.username || 'User'}
-            </p>
+            <p className="text-sm font-medium text-gray-900">{user?.username || 'User'}</p>
             <p className="text-xs text-gray-500 truncate">{user?.email}</p>
           </div>
 

@@ -10,22 +10,22 @@
  */
 
 interface CompressionOptions {
-  maxWidth?: number
-  quality?: number
-  onProgress?: ((info: ProgressInfo) => void) | null
+  maxWidth?: number;
+  quality?: number;
+  onProgress?: ((info: ProgressInfo) => void) | null;
 }
 
 interface ProgressInfo {
-  stage: 'compressing' | 'complete' | 'error'
-  progress?: number
-  error?: string
+  stage: 'compressing' | 'complete' | 'error';
+  progress?: number;
+  error?: string;
 }
 
 interface CompressionResult {
-  file: File
-  originalSize: number
-  compressedSize: number
-  reduction: number
+  file: File;
+  originalSize: number;
+  compressedSize: number;
+  reduction: number;
 }
 
 /**
@@ -35,7 +35,11 @@ interface CompressionResult {
  * @param quality - JPEG quality 0-1 (default 0.85)
  * @returns Compressed image file
  */
-export async function compressImage(file: File, maxWidth: number = 1200, quality: number = 0.85): Promise<File> {
+export async function compressImage(
+  file: File,
+  maxWidth: number = 1200,
+  quality: number = 0.85
+): Promise<File> {
   return new Promise((resolve, reject) => {
     // Validate input
     if (!file || !(file instanceof File)) {
@@ -102,7 +106,8 @@ export async function compressImage(file: File, maxWidth: number = 1200, quality
 
               // Create new filename with .jpg extension to match JPEG format
               const originalName = file.name;
-              const nameWithoutExt = originalName.substring(0, originalName.lastIndexOf('.')) || originalName;
+              const nameWithoutExt =
+                originalName.substring(0, originalName.lastIndexOf('.')) || originalName;
               const newFileName = `${nameWithoutExt}.jpg`;
 
               // Create new File object with compressed data
@@ -117,7 +122,11 @@ export async function compressImage(file: File, maxWidth: number = 1200, quality
             quality
           );
         } catch (error) {
-          reject(new Error(`Compression failed: ${error instanceof Error ? error.message : 'Unknown error'}`));
+          reject(
+            new Error(
+              `Compression failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+            )
+          );
         }
       };
 
@@ -163,12 +172,11 @@ export function shouldCompressImage(file: File, threshold: number = 2 * 1024 * 1
  * @param options - Compression options
  * @returns Compression result with statistics
  */
-export async function compressImageWithStats(file: File, options: CompressionOptions = {}): Promise<CompressionResult> {
-  const {
-    maxWidth = 1200,
-    quality = 0.85,
-    onProgress = null,
-  } = options;
+export async function compressImageWithStats(
+  file: File,
+  options: CompressionOptions = {}
+): Promise<CompressionResult> {
+  const { maxWidth = 1200, quality = 0.85, onProgress = null } = options;
 
   const originalSize = file.size;
 

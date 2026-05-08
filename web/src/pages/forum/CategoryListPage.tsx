@@ -60,9 +60,7 @@ export default function CategoryListPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Page Header */}
       <div className="mb-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-2">
-          Community Forums
-        </h1>
+        <h1 className="text-4xl font-bold text-gray-900 mb-2">Community Forums</h1>
         <p className="text-lg text-gray-600">
           Connect with fellow plant enthusiasts, share knowledge, and get help with your plants.
         </p>
@@ -76,7 +74,7 @@ export default function CategoryListPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {categories.map(category => (
+          {categories.map((category) => (
             <CategoryCard key={category.id} category={category} />
           ))}
         </div>

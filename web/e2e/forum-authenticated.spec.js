@@ -125,14 +125,20 @@ test.describe('Authenticated Forum Functionality', () => {
         await editor.fill(createdPostContent);
 
         // Find and click submit button
-        const submitButton = page.locator('button[type="submit"]').filter({ hasText: /post|submit|send/i }).first();
+        const submitButton = page
+          .locator('button[type="submit"]')
+          .filter({ hasText: /post|submit|send/i })
+          .first();
         await submitButton.click();
 
         // Wait for post to appear
         await page.waitForTimeout(2000);
 
         // Verify post was created
-        const postContent = await page.locator(`text="${createdPostContent}"`).isVisible({ timeout: 5000 }).catch(() => false);
+        const postContent = await page
+          .locator(`text="${createdPostContent}"`)
+          .isVisible({ timeout: 5000 })
+          .catch(() => false);
         expect(postContent).toBeTruthy();
       } else {
         // Editor not found, skip this test
@@ -170,7 +176,10 @@ test.describe('Authenticated Forum Functionality', () => {
         await editor.click();
         await editor.fill(testContent);
 
-        const submitButton = page.locator('button[type="submit"]').filter({ hasText: /post|submit|send/i }).first();
+        const submitButton = page
+          .locator('button[type="submit"]')
+          .filter({ hasText: /post|submit|send/i })
+          .first();
         await submitButton.click();
 
         await page.waitForTimeout(3000); // Wait for post to be created
@@ -180,15 +189,25 @@ test.describe('Authenticated Forum Functionality', () => {
         const ourPost = page.locator(`text="${testContent}"`).locator('..').locator('..'); // Navigate up to post container
 
         // Find delete button within this post
-        const deleteButton = ourPost.locator('button').filter({ hasText: /delete|remove/i }).first();
-        const deleteButtonVisible = await deleteButton.isVisible({ timeout: 3000 }).catch(() => false);
+        const deleteButton = ourPost
+          .locator('button')
+          .filter({ hasText: /delete|remove/i })
+          .first();
+        const deleteButtonVisible = await deleteButton
+          .isVisible({ timeout: 3000 })
+          .catch(() => false);
 
         if (deleteButtonVisible) {
           await deleteButton.click();
 
           // Confirm deletion if there's a confirmation dialog
-          const confirmButton = page.locator('button').filter({ hasText: /confirm|yes|delete/i }).first();
-          const confirmVisible = await confirmButton.isVisible({ timeout: 2000 }).catch(() => false);
+          const confirmButton = page
+            .locator('button')
+            .filter({ hasText: /confirm|yes|delete/i })
+            .first();
+          const confirmVisible = await confirmButton
+            .isVisible({ timeout: 2000 })
+            .catch(() => false);
           if (confirmVisible) {
             await confirmButton.click();
           }
@@ -196,7 +215,10 @@ test.describe('Authenticated Forum Functionality', () => {
           await page.waitForTimeout(2000);
 
           // Verify post is no longer visible
-          const postStillVisible = await page.locator(`text="${testContent}"`).isVisible({ timeout: 3000 }).catch(() => false);
+          const postStillVisible = await page
+            .locator(`text="${testContent}"`)
+            .isVisible({ timeout: 3000 })
+            .catch(() => false);
           expect(postStillVisible).toBeFalsy();
         } else {
           console.log('Delete button not found, skipping deletion test');

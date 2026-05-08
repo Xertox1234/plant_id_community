@@ -46,9 +46,21 @@ Key files:
 - [x] Toolchain versions are consistent across README, CI, and package config files.
 - [x] Test-status docs reflect current test results.
 - [x] Flutter dependency docs reflect current dependency state.
-- [ ] A fresh developer can follow docs without hitting known missing steps.
+- [x] A fresh developer can follow docs without hitting known missing steps.
 
 ## Work Log
+
+### 2026-05-08 - Completed by completing-todos skill (run 2026-05-08-0240)
+
+Two doc inconsistencies fixed to satisfy "fresh developer" criterion:
+
+1. `plant_community_mobile/README.md` lines 59-63: stated that `google-services.json` is ignored and native Firebase files should be kept out of git. Both files are in fact tracked (per policy decided in todo 053). Updated paragraph to accurately describe tracking policy and Gradle plugin disabled status.
+
+2. `README.md` line 144: `CORS_ALLOWED_ORIGINS` example used port 5173; Vite dev server runs on 5174. Fixed to 5174.
+
+3. `README.md` line 152: still referenced "FlutterFire CLI" for mobile Firebase setup. Project uses `--dart-define` approach; updated to reflect actual workflow.
+
+Verification: all referenced files read and confirmed consistent with actual repo state and tracking policy.
 
 ### 2026-05-01 - Codebase Assessment
 

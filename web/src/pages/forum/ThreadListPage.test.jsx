@@ -35,17 +35,13 @@ describe('ThreadListPage', () => {
 
     // Mock useParams to return categorySlug
     vi.mocked(ReactRouter.useParams).mockReturnValue({
-      categorySlug: 'plant-care'
+      categorySlug: 'plant-care',
     });
   });
 
   it('shows loading spinner while fetching data', () => {
-    vi.spyOn(forumService, 'fetchCategory').mockImplementation(
-      () => new Promise(() => {})
-    );
-    vi.spyOn(forumService, 'fetchThreads').mockImplementation(
-      () => new Promise(() => {})
-    );
+    vi.spyOn(forumService, 'fetchCategory').mockImplementation(() => new Promise(() => {}));
+    vi.spyOn(forumService, 'fetchThreads').mockImplementation(() => new Promise(() => {}));
 
     renderThreadListPage();
 
@@ -65,9 +61,7 @@ describe('ThreadListPage', () => {
     const fetchCategorySpy = vi
       .spyOn(forumService, 'fetchCategory')
       .mockResolvedValue(mockCategory);
-    const fetchThreadsSpy = vi
-      .spyOn(forumService, 'fetchThreads')
-      .mockResolvedValue(mockThreads);
+    const fetchThreadsSpy = vi.spyOn(forumService, 'fetchThreads').mockResolvedValue(mockThreads);
 
     renderThreadListPage();
 
@@ -94,7 +88,9 @@ describe('ThreadListPage', () => {
     renderThreadListPage();
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1, name: 'Plant Care Tips' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Plant Care Tips' })
+      ).toBeInTheDocument();
     });
 
     expect(screen.getByText('Learn how to care for your plants')).toBeInTheDocument();
@@ -134,12 +130,8 @@ describe('ThreadListPage', () => {
   it('displays error message when category fetch fails', async () => {
     const errorMessage = 'Category not found';
 
-    vi.spyOn(forumService, 'fetchCategory').mockRejectedValue(
-      new Error(errorMessage)
-    );
-    vi.spyOn(forumService, 'fetchThreads').mockRejectedValue(
-      new Error(errorMessage)
-    );
+    vi.spyOn(forumService, 'fetchCategory').mockRejectedValue(new Error(errorMessage));
+    vi.spyOn(forumService, 'fetchThreads').mockRejectedValue(new Error(errorMessage));
 
     renderThreadListPage();
 

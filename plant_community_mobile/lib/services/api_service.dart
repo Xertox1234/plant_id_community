@@ -29,22 +29,20 @@ class ApiService {
   String? _authToken;
   Future<void> Function()? _onSessionExpired;
 
-  ApiService({
-    required this.baseUrl,
-    String? authToken,
-  })  : _authToken = authToken,
-        _dio = Dio(
-          BaseOptions(
-            baseUrl: baseUrl,
-            connectTimeout: const Duration(seconds: 10),
-            receiveTimeout: const Duration(seconds: 30),
-            sendTimeout: const Duration(seconds: 30),
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-          ),
-        ) {
+  ApiService({required this.baseUrl, String? authToken})
+    : _authToken = authToken,
+      _dio = Dio(
+        BaseOptions(
+          baseUrl: baseUrl,
+          connectTimeout: const Duration(seconds: 10),
+          receiveTimeout: const Duration(seconds: 30),
+          sendTimeout: const Duration(seconds: 30),
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        ),
+      ) {
     _setupInterceptors();
   }
 
@@ -83,7 +81,9 @@ class ApiService {
           final statusCode = error.response?.statusCode;
 
           if (kDebugMode) {
-            debugPrint('[API ERROR] Status: $statusCode, Path: ${error.requestOptions.path}');
+            debugPrint(
+              '[API ERROR] Status: $statusCode, Path: ${error.requestOptions.path}',
+            );
             debugPrint('[API ERROR] Message: ${error.message}');
           }
 
@@ -100,7 +100,9 @@ class ApiService {
               // Rate limited - extract retry-after header
               final retryAfter = error.response?.headers['retry-after']?.first;
               if (kDebugMode) {
-                debugPrint('[API ERROR] 429 Rate Limited - Retry after: $retryAfter seconds');
+                debugPrint(
+                  '[API ERROR] 429 Rate Limited - Retry after: $retryAfter seconds',
+                );
               }
               break;
 
@@ -110,7 +112,9 @@ class ApiService {
             case 504:
               // Server error - implement retry with backoff
               if (kDebugMode) {
-                debugPrint('[API ERROR] $statusCode Server Error - Consider retry');
+                debugPrint(
+                  '[API ERROR] $statusCode Server Error - Consider retry',
+                );
               }
               break;
           }
@@ -132,7 +136,8 @@ class ApiService {
 
   bool _shouldRetry(DioException error) {
     final statusCode = error.response?.statusCode;
-    final retryableStatus = statusCode == 429 ||
+    final retryableStatus =
+        statusCode == 429 ||
         statusCode == 500 ||
         statusCode == 502 ||
         statusCode == 503 ||
@@ -162,7 +167,8 @@ class ApiService {
 
   Future<Response<dynamic>> _retry(DioException error) async {
     final requestOptions = error.requestOptions;
-    final nextAttempt = (requestOptions.extra[_retryAttemptKey] as int? ?? 0) + 1;
+    final nextAttempt =
+        (requestOptions.extra[_retryAttemptKey] as int? ?? 0) + 1;
     requestOptions.extra[_retryAttemptKey] = nextAttempt;
 
     final delay = _retryDelay(error, nextAttempt);
@@ -179,7 +185,9 @@ class ApiService {
 
   Duration _retryDelay(DioException error, int attempt) {
     final retryAfter = error.response?.headers['retry-after']?.first;
-    final retryAfterSeconds = retryAfter == null ? null : int.tryParse(retryAfter);
+    final retryAfterSeconds = retryAfter == null
+        ? null
+        : int.tryParse(retryAfter);
     if (retryAfterSeconds != null && retryAfterSeconds > 0) {
       return Duration(seconds: retryAfterSeconds.clamp(1, 30));
     }
@@ -376,11 +384,7 @@ class ApiService {
         path,
         data: formData,
         onSendProgress: onSendProgress,
-        options: Options(
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        ),
+        options: Options(headers: {'Content-Type': 'multipart/form-data'}),
       );
     } on DioException catch (e) {
       throw _handleDioException(e);
@@ -426,14 +430,16 @@ class ApiService {
         // Try to extract error message from response data
         final responseData = e.response?.data;
         if (responseData is Map<String, dynamic>) {
-          message = responseData['detail']?.toString() ??
+          message =
+              responseData['detail']?.toString() ??
               responseData['error']?.toString() ??
               e.response?.statusMessage ??
               'Request failed with status $statusCode';
         } else if (responseData is String) {
           message = responseData;
         } else {
-          message = e.response?.statusMessage ??
+          message =
+              e.response?.statusMessage ??
               'Request failed with status $statusCode';
         }
 
@@ -455,10 +461,7 @@ class ApiService {
         );
 
       default:
-        return ApiException(
-          'An unexpected error occurred',
-          statusCode: null,
-        );
+        return ApiException('An unexpected error occurred', statusCode: null);
     }
   }
 }
@@ -495,15 +498,14 @@ final apiServiceProvider = Provider<ApiService>((ref) {
       'Missing API_BASE_URL. Pass --dart-define=API_BASE_URL=... for release builds.',
     );
   }
-  final baseUrl = dartDefinedBaseUrl.isNotEmpty ? dartDefinedBaseUrl : 'http://localhost:8000/api/v1';
+  final baseUrl = dartDefinedBaseUrl.isNotEmpty
+      ? dartDefinedBaseUrl
+      : 'http://localhost:8000/api/v1';
 
   if (kDebugMode) {
     debugPrint('[API] Initializing ApiService with baseUrl: $baseUrl');
   }
 
   // Auth token will be set by AuthService after login
-  return ApiService(
-    baseUrl: baseUrl,
-    authToken: null,
-  );
+  return ApiService(baseUrl: baseUrl, authToken: null);
 });

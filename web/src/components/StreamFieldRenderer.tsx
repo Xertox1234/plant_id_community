@@ -115,16 +115,14 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
     case 'quote': {
       // Backend: StructBlock with quote_text (RichTextBlock) and attribution (CharBlock)
       const { value } = block;
-      const quoteText = typeof value === 'string' ? value : value.quote_text ?? value.quote ?? '';
+      const quoteText = typeof value === 'string' ? value : (value.quote_text ?? value.quote ?? '');
       const attribution = typeof value === 'string' ? undefined : value.attribution;
 
       return (
         <blockquote className="border-l-4 border-green-600 pl-6 py-4 my-8 italic text-gray-700 bg-gray-50 rounded-r-lg">
           {quoteText && renderTextOrSafeHtml(quoteText, 'text-xl mb-2')}
           {attribution && (
-            <footer className="text-sm text-gray-600 not-italic">
-              — {attribution}
-            </footer>
+            <footer className="text-sm text-gray-600 not-italic">— {attribution}</footer>
           )}
         </blockquote>
       );
@@ -135,9 +133,7 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
       const { code, language } = block.value;
       return (
         <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto my-6 shadow-inner">
-          <code className={`language-${language || 'text'}`}>
-            {code}
-          </code>
+          <code className={`language-${language || 'text'}`}>{code}</code>
         </pre>
       );
     }
@@ -152,9 +148,7 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
 
       return (
         <div className="my-8 p-6 bg-green-50 border-2 border-green-200 rounded-lg shadow-sm">
-          <h3 className="text-2xl font-bold text-gray-900 mb-3">
-            🌿 {plantName}
-          </h3>
+          <h3 className="text-2xl font-bold text-gray-900 mb-3">🌿 {plantName}</h3>
           {value.scientific_name && (
             <p className="text-sm italic text-gray-600 mb-3">{value.scientific_name}</p>
           )}
@@ -193,21 +187,19 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
       const buttonStyle = value.button_style;
 
       // Map button style to Tailwind classes
-      const buttonClasses = buttonStyle === 'secondary'
-        ? 'inline-block px-8 py-3 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors shadow-md'
-        : buttonStyle === 'outline'
-        ? 'inline-block px-8 py-3 bg-transparent border-2 border-white text-white font-semibold rounded-lg hover:bg-white hover:text-green-600 transition-colors shadow-md'
-        : 'inline-block px-8 py-3 bg-white text-green-600 font-semibold rounded-lg hover:bg-gray-100 transition-colors shadow-md';
+      const buttonClasses =
+        buttonStyle === 'secondary'
+          ? 'inline-block px-8 py-3 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors shadow-md'
+          : buttonStyle === 'outline'
+            ? 'inline-block px-8 py-3 bg-transparent border-2 border-white text-white font-semibold rounded-lg hover:bg-white hover:text-green-600 transition-colors shadow-md'
+            : 'inline-block px-8 py-3 bg-white text-green-600 font-semibold rounded-lg hover:bg-gray-100 transition-colors shadow-md';
 
       return (
         <div className="my-8 p-8 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg text-center shadow-lg">
           <h3 className="text-2xl font-bold mb-2">{title}</h3>
           {description && renderTextOrSafeHtml(description, 'mb-6 text-green-50')}
           {buttonText && (
-            <a
-              href={buttonUrl}
-              className={buttonClasses}
-            >
+            <a href={buttonUrl} className={buttonClasses}>
               {buttonText}
             </a>
           )}
@@ -220,9 +212,7 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
     default:
       return (
         <div className="my-4 p-4 bg-yellow-50 border border-yellow-200 rounded text-sm text-gray-600">
-          <p className="font-semibold text-yellow-800 mb-1">
-            Unsupported block type
-          </p>
+          <p className="font-semibold text-yellow-800 mb-1">Unsupported block type</p>
           <code className="text-xs">{type}</code>
         </div>
       );

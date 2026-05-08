@@ -26,6 +26,7 @@
 **Context:** Django allows underscores in app names (`plant_identification.PlantSpecies`)
 
 **Problem:**
+
 ```typescript
 // ❌ BAD: Rejects valid Django app names with underscores
 const contentTypeRegex = /^[a-zA-Z0-9]+\.[a-zA-Z0-9]+$/;
@@ -33,6 +34,7 @@ validateContentType('plant_identification.PlantSpecies'); // Error!
 ```
 
 **Solution:**
+
 ```typescript
 // ✅ GOOD: Allow underscores in both app and model names
 const contentTypeRegex = /^[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+$/;
@@ -42,6 +44,7 @@ validateContentType('my-app.Model'); // Error (hyphen rejected)
 ```
 
 **Security Note:**
+
 - Path traversal protection is separate (checks for `..`, `/`, `\`)
 - XSS protection via format validation (rejects `<`, `>`, special chars)
 - Defense in depth: Multiple validation layers
@@ -55,6 +58,7 @@ validateContentType('my-app.Model'); // Error (hyphen rejected)
 **Context:** `parseInt('3.14')` returns `3` (silent truncation)
 
 **Problem:**
+
 ```typescript
 // ❌ BAD: Silent float truncation
 export function validateInteger(value: unknown): number {
@@ -64,6 +68,7 @@ export function validateInteger(value: unknown): number {
 ```
 
 **Solution:**
+
 ```typescript
 // ✅ GOOD: Explicit decimal point check before parsing
 export function validateInteger(value: unknown): number {
@@ -83,6 +88,7 @@ export function validateInteger(value: unknown): number {
 ```
 
 **Why This Matters:**
+
 ```typescript
 // User submits "3.14" as page number
 // Before fix: Silently becomes page 3 (confusing behavior)
@@ -98,6 +104,7 @@ export function validateInteger(value: unknown): number {
 **Context:** Path traversal check runs before format check
 
 **Validation Order:**
+
 ```typescript
 export function validateSlug(slug: unknown): string {
   // 1. Path traversal check (line 32)
@@ -115,23 +122,25 @@ export function validateSlug(slug: unknown): string {
 ```
 
 **Test Pattern:**
+
 ```typescript
 // ✅ CORRECT: Expect path traversal error for <script> tags
 it('should reject XSS attempts', () => {
   // '<script>alert(1)</script>' contains '/' in closing tag
   // Fails at path traversal check (step 1)
-  expect(() => validateSlug('<script>alert(1)</script>'))
-    .toThrow('Invalid slug: path traversal patterns are not allowed');
+  expect(() => validateSlug('<script>alert(1)</script>')).toThrow(
+    'Invalid slug: path traversal patterns are not allowed'
+  );
 });
 
 // ❌ WRONG: Expecting format error
 it('should reject XSS attempts', () => {
-  expect(() => validateSlug('<script>alert(1)</script>'))
-    .toThrow('Invalid slug format'); // Never reached!
+  expect(() => validateSlug('<script>alert(1)</script>')).toThrow('Invalid slug format'); // Never reached!
 });
 ```
 
 **Defense in Depth:**
+
 - XSS blocked by **two layers**: path traversal check + format check
 - Path traversal check catches most XSS (contains `/`, `<`, `>`)
 - Format check is backup (catches remaining special chars)
@@ -147,6 +156,7 @@ it('should reject XSS attempts', () => {
 **Context:** Production code uses structured logger, not `console.log`
 
 **Problem:**
+
 ```javascript
 // ❌ BAD: Test expects console.warn
 it('should log errors', () => {
@@ -157,6 +167,7 @@ it('should log errors', () => {
 ```
 
 **Solution:**
+
 ```javascript
 // ✅ GOOD: Mock logger module
 vi.mock('../../utils/logger', () => ({
@@ -185,19 +196,21 @@ it('should log errors with context', async () => {
     expect.objectContaining({
       component: 'CategoryListPage',
       error: expect.any(Error),
-      context: expect.any(Object)
+      context: expect.any(Object),
     })
   );
 });
 ```
 
 **Benefits:**
+
 - ✅ Tests verify structured logging format
 - ✅ No console pollution during test runs
 - ✅ Can inspect error context without catching exceptions
 - ✅ Matches production code exactly
 
 **Files:**
+
 - `web/src/utils/formatDate.test.js:13-23`
 - `web/src/pages/forum/CategoryListPage.test.jsx:11-19`
 
@@ -208,24 +221,26 @@ it('should log errors with context', async () => {
 **Rule:** Mocks must be declared BEFORE imports that use them
 
 **Problem:**
+
 ```javascript
 // ❌ BAD: Import before mock
 import { logger } from '../../utils/logger';
 
 vi.mock('../../utils/logger', () => ({
-  logger: { error: vi.fn() }
+  logger: { error: vi.fn() },
 }));
 
 // logger.error is NOT mocked! Uses real implementation
 ```
 
 **Solution:**
+
 ```javascript
 // ✅ GOOD: Mock before import
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('../../utils/logger', () => ({
-  logger: { error: vi.fn() }
+  logger: { error: vi.fn() },
 }));
 
 // NOW import modules that use logger
@@ -236,6 +251,7 @@ import ComponentThatUsesLogger from './Component';
 ```
 
 **File Structure:**
+
 ```javascript
 // 1. Vitest imports
 import { describe, it, expect, vi } from 'vitest';
@@ -266,22 +282,24 @@ describe('MyComponent', () => { ... });
 **Context:** JavaScript Date is lenient with day overflow
 
 **Behavior:**
+
 ```javascript
 // Day overflow (lenient)
-new Date('2025-02-30')  // Valid! → March 2, 2025
-new Date('2025-02-29')  // Valid! → March 1, 2025 (non-leap year)
-new Date('2024-02-29')  // Valid! → Feb 29, 2024 (leap year)
+new Date('2025-02-30'); // Valid! → March 2, 2025
+new Date('2025-02-29'); // Valid! → March 1, 2025 (non-leap year)
+new Date('2024-02-29'); // Valid! → Feb 29, 2024 (leap year)
 
 // Month overflow (rejected)
-new Date('2025-13-01')  // Invalid! → Invalid Date
-new Date('2025-00-15')  // Invalid! → Invalid Date
+new Date('2025-13-01'); // Invalid! → Invalid Date
+new Date('2025-00-15'); // Invalid! → Invalid Date
 
 // Invalid formats (rejected)
-new Date('not-a-date')  // Invalid! → Invalid Date
-new Date('2025/02/30')  // Valid! → March 2, 2025 (lenient)
+new Date('not-a-date'); // Invalid! → Invalid Date
+new Date('2025/02/30'); // Valid! → March 2, 2025 (lenient)
 ```
 
 **Test Pattern:**
+
 ```javascript
 // ✅ CORRECT: Document JavaScript's lenient behavior
 describe('isValidDate', () => {
@@ -302,6 +320,7 @@ describe('isValidDate', () => {
 ```
 
 **Why Comments Matter:**
+
 ```javascript
 // ❌ BAD: No explanation (confusing to future developers)
 expect(isValidDate('2025-02-30')).toBe(true);
@@ -320,6 +339,7 @@ expect(isValidDate('2025-02-30')).toBe(true);
 **Context:** Date-only strings are interpreted as UTC midnight
 
 **Problem:**
+
 ```javascript
 // ❌ BAD: Timezone-dependent (fails in different timezones)
 const date = '2025-01-15'; // Midnight UTC
@@ -329,6 +349,7 @@ formatPublishDate(date);
 ```
 
 **Solution:**
+
 ```javascript
 // ✅ GOOD: Use full timestamps to avoid midnight timezone shifts
 const date = '2025-01-15T12:00:00'; // Noon (consistent across timezones)
@@ -338,18 +359,20 @@ formatPublishDate(date);
 ```
 
 **Date String Formats:**
+
 ```javascript
 // Timezone-dependent (AVOID in tests):
-'2025-01-15'           // Midnight UTC → May shift to previous day
-'2025-01-15T00:00:00'  // Midnight local → Depends on test machine
+'2025-01-15'; // Midnight UTC → May shift to previous day
+'2025-01-15T00:00:00'; // Midnight local → Depends on test machine
 
 // Timezone-safe (USE in tests):
-'2025-01-15T12:00:00'  // Noon local → Consistent across timezones
-'2025-01-15T12:00:00Z' // Noon UTC → Explicit UTC timezone
-new Date(2025, 0, 15)  // January 15, 2025 local → Consistent
+'2025-01-15T12:00:00'; // Noon local → Consistent across timezones
+'2025-01-15T12:00:00Z'; // Noon UTC → Explicit UTC timezone
+new Date(2025, 0, 15); // January 15, 2025 local → Consistent
 ```
 
 **Test Pattern:**
+
 ```javascript
 describe('formatPublishDate', () => {
   it('should format date correctly', () => {
@@ -377,6 +400,7 @@ describe('formatPublishDate', () => {
 **Context:** Formatters log errors with structured context
 
 **Problem:**
+
 ```javascript
 // ❌ BAD: Wrong logger format
 expect(logger.warn).toHaveBeenCalledWith(
@@ -387,18 +411,20 @@ expect(logger.warn).toHaveBeenCalledWith(
 ```
 
 **Solution:**
+
 ```javascript
 // ✅ GOOD: Match actual logger format
 expect(logger.warn).toHaveBeenCalledWith(
   'Invalid date in formatPublishDate',
   expect.objectContaining({
     component: 'formatDate',
-    context: expect.objectContaining({ dateString: 'invalid-date' })
+    context: expect.objectContaining({ dateString: 'invalid-date' }),
   })
 );
 ```
 
 **Implementation Reference:**
+
 ```javascript
 // From formatDate.js
 logger.warn('Invalid date in formatPublishDate', {
@@ -424,6 +450,7 @@ logger.error('Error formatting date in formatDateTime', {
 **Context:** TipTap placeholders are rendered via CSS `::before`
 
 **Problem:**
+
 ```javascript
 // ❌ BAD: CSS pseudo-elements not in DOM text content
 it('renders with placeholder', async () => {
@@ -435,12 +462,11 @@ it('renders with placeholder', async () => {
 ```
 
 **Solution:**
+
 ```javascript
 // ✅ GOOD: Test editor initialization, not CSS styling
 it('renders with placeholder', async () => {
-  const { container } = render(
-    <TipTapEditor placeholder="Write your post..." />
-  );
+  const { container } = render(<TipTapEditor placeholder="Write your post..." />);
 
   // Wait for editor to initialize
   await waitFor(() => {
@@ -454,6 +480,7 @@ it('renders with placeholder', async () => {
 ```
 
 **When to Test CSS:**
+
 ```javascript
 // Only test CSS if it affects functionality
 it('shows placeholder when empty', () => {
@@ -467,6 +494,7 @@ it('shows placeholder when empty', () => {
 ```
 
 **Rule of Thumb:**
+
 - ✅ Test functionality (editor works, accepts input)
 - ⚠️ Skip styling (placeholder color, font size)
 - ✅ Test accessibility (ARIA labels, roles)
@@ -480,6 +508,7 @@ it('shows placeholder when empty', () => {
 **Context:** User names appear in both desktop and mobile menus
 
 **Problem:**
+
 ```javascript
 // ❌ BAD: findByText throws if multiple elements match
 it('shows user in mobile menu', async () => {
@@ -493,6 +522,7 @@ it('shows user in mobile menu', async () => {
 ```
 
 **Solution:**
+
 ```javascript
 // ✅ GOOD: Use findAllByText for elements in multiple locations
 it('shows user in mobile menu', async () => {
@@ -508,16 +538,17 @@ it('shows user in mobile menu', async () => {
 ```
 
 **Query Methods:**
+
 ```javascript
 // Single element (throws if 0 or 2+ matches):
-screen.getByText('Unique Text')
-screen.findByText('Unique Text')
-screen.queryByText('Unique Text')
+screen.getByText('Unique Text');
+screen.findByText('Unique Text');
+screen.queryByText('Unique Text');
 
 // Multiple elements (returns array):
-screen.getAllByText('Duplicate Text')  // Throws if 0 matches
-screen.findAllByText('Duplicate Text') // Async, throws if 0
-screen.queryAllByText('Duplicate Text') // Returns [] if 0 matches
+screen.getAllByText('Duplicate Text'); // Throws if 0 matches
+screen.findAllByText('Duplicate Text'); // Async, throws if 0
+screen.queryAllByText('Duplicate Text'); // Returns [] if 0 matches
 ```
 
 **When to Use Each:**
@@ -539,6 +570,7 @@ screen.queryAllByText('Duplicate Text') // Returns [] if 0 matches
 **Context:** Multiple `userEvent.setup()` calls cause clipboard conflicts
 
 **Problem:**
+
 ```javascript
 // ❌ BAD: Causes "Cannot redefine property: clipboard" error
 describe('ImageUploadWidget', () => {
@@ -556,6 +588,7 @@ describe('ImageUploadWidget', () => {
 ```
 
 **Solution:**
+
 ```javascript
 // ✅ GOOD: Use userEvent API directly without setup()
 describe('ImageUploadWidget', () => {
@@ -572,6 +605,7 @@ describe('ImageUploadWidget', () => {
 ```
 
 **When to Use setup():**
+
 ```javascript
 // Use setup() only if you need:
 // 1. Keyboard delays
@@ -588,6 +622,7 @@ await user.type(input, 'slow typing'); // 100ms between keys
 ```
 
 **API Comparison:**
+
 ```javascript
 // Direct API (recommended):
 await userEvent.click(button);
@@ -602,6 +637,7 @@ await user.type(input, 'text');
 ```
 
 **Files:**
+
 - `web/src/components/forum/ImageUploadWidget.test.jsx`
 - `web/src/pages/forum/SearchPage.test.jsx`
 - `web/src/pages/forum/ThreadDetailPage.test.jsx`
@@ -616,6 +652,7 @@ await user.type(input, 'text');
 **Context:** State updates from logout are async
 
 **Problem:**
+
 ```javascript
 // ❌ BAD: Asserts before state update completes
 it('closes menu when logout clicked', async () => {
@@ -633,6 +670,7 @@ it('closes menu when logout clicked', async () => {
 ```
 
 **Solution:**
+
 ```javascript
 // ✅ GOOD: Wait for async state update
 it('closes menu when logout clicked', async () => {
@@ -657,6 +695,7 @@ it('closes menu when logout clicked', async () => {
 ```
 
 **waitFor Best Practices:**
+
 ```javascript
 // ✅ GOOD: Wait for specific condition
 await waitFor(() => {
@@ -664,7 +703,7 @@ await waitFor(() => {
 });
 
 // ❌ BAD: Generic wait (flaky)
-await new Promise(resolve => setTimeout(resolve, 100));
+await new Promise((resolve) => setTimeout(resolve, 100));
 
 // ✅ GOOD: Wait for multiple conditions
 await waitFor(() => {
@@ -679,6 +718,7 @@ await waitFor(() => {
 ```
 
 **Common Async Patterns:**
+
 ```javascript
 // Pattern 1: Wait for API call
 await waitFor(() => {
@@ -708,6 +748,7 @@ await waitFor(() => {
 ### Pattern 6.2: Import waitFor
 
 **Problem:**
+
 ```javascript
 // ❌ BAD: Forgot to import waitFor
 import { screen, fireEvent } from '@testing-library/react';
@@ -719,6 +760,7 @@ it('test async behavior', async () => {
 ```
 
 **Solution:**
+
 ```javascript
 // ✅ GOOD: Import waitFor explicitly
 import { screen, fireEvent, waitFor } from '@testing-library/react';
@@ -729,6 +771,7 @@ it('test async behavior', async () => {
 ```
 
 **Common Testing Library Imports:**
+
 ```javascript
 // Rendering
 import { render, screen } from '@testing-library/react';
@@ -740,13 +783,7 @@ import { fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // Complete import
-import {
-  render,
-  screen,
-  fireEvent,
-  waitFor,
-  within
-} from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 ```
 
 **File:** `web/src/components/layout/Header.test.jsx:9`
@@ -758,13 +795,15 @@ import {
 ### Pitfall 7.1: Silent parseInt Truncation
 
 **Problem:**
+
 ```typescript
-parseInt('3.14')      // Returns 3 (no error!)
-parseInt('42.5')      // Returns 42 (no error!)
-parseInt('100.999')   // Returns 100 (no error!)
+parseInt('3.14'); // Returns 3 (no error!)
+parseInt('42.5'); // Returns 42 (no error!)
+parseInt('100.999'); // Returns 100 (no error!)
 ```
 
 **Solution:**
+
 ```typescript
 // Check for decimal point BEFORE parsing
 if (typeof value === 'string' && value.includes('.')) {
@@ -779,14 +818,16 @@ if (typeof value === 'string' && value.includes('.')) {
 ### Pitfall 7.2: Date-Only String Timezones
 
 **Problem:**
+
 ```javascript
-new Date('2025-01-15') // Midnight UTC (may shift to previous day)
+new Date('2025-01-15'); // Midnight UTC (may shift to previous day)
 ```
 
 **Solution:**
+
 ```javascript
 // Use noon to avoid midnight shifts
-new Date('2025-01-15T12:00:00')
+new Date('2025-01-15T12:00:00');
 ```
 
 **Related:** Pattern 3.2
@@ -796,12 +837,14 @@ new Date('2025-01-15T12:00:00')
 ### Pitfall 7.3: Multiple userEvent.setup()
 
 **Problem:**
+
 ```javascript
 const user = userEvent.setup(); // Mocks clipboard
 const user = userEvent.setup(); // Error! Clipboard already mocked
 ```
 
 **Solution:**
+
 ```javascript
 // Use direct API
 await userEvent.click(button);
@@ -814,12 +857,14 @@ await userEvent.click(button);
 ### Pitfall 7.4: Mock Before Import
 
 **Problem:**
+
 ```javascript
 import Component from './Component'; // Uses logger
 vi.mock('./logger'); // Too late! Component already imported
 ```
 
 **Solution:**
+
 ```javascript
 vi.mock('./logger'); // Mock first
 import Component from './Component'; // Import second
@@ -832,11 +877,13 @@ import Component from './Component'; // Import second
 ### Pitfall 7.5: findByText vs findAllByText
 
 **Problem:**
+
 ```javascript
 await screen.findByText('Test User'); // Throws if 2+ elements match
 ```
 
 **Solution:**
+
 ```javascript
 await screen.findAllByText('Test User'); // Returns array
 ```
@@ -848,12 +895,14 @@ await screen.findAllByText('Test User'); // Returns array
 ### Pitfall 7.6: Async Without waitFor
 
 **Problem:**
+
 ```javascript
 fireEvent.click(button);
 expect(state).toBe('updated'); // Fails! Update not complete
 ```
 
 **Solution:**
+
 ```javascript
 fireEvent.click(button);
 await waitFor(() => {
@@ -919,15 +968,17 @@ await waitFor(() => {
 ## Quick Reference
 
 ### Validation Patterns
+
 ```typescript
 // Django app names: Allow underscores
-/^[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+$/
+/^[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+$/;
 
 // Integer validation: Check decimal before parsing
 if (value.includes('.')) throw new Error('Must be integer');
 ```
 
 ### Test Patterns
+
 ```javascript
 // Logger mock
 vi.mock('./logger', () => ({ logger: { error: vi.fn() } }));

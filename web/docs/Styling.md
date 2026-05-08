@@ -15,10 +15,7 @@ The web frontend uses Tailwind CSS 4 for all styling. No custom CSS files, CSS m
 ```javascript
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,jsx}",
-  ],
+  content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
       colors: {
@@ -29,7 +26,7 @@ export default {
           300: '#86efac',
           400: '#4ade80',
           500: '#22c55e',
-          600: '#16a34a',  // Main brand color
+          600: '#16a34a', // Main brand color
           700: '#15803d',
           800: '#166534',
           900: '#14532d',
@@ -39,7 +36,7 @@ export default {
     },
   },
   plugins: [],
-}
+};
 ```
 
 ### Import
@@ -48,7 +45,7 @@ export default {
 
 ```css
 /* Tailwind CSS imports only */
-@import "tailwindcss";
+@import 'tailwindcss';
 ```
 
 **No custom CSS:** All styling is done via Tailwind utility classes.
@@ -61,68 +58,72 @@ export default {
 
 Used for branding, CTAs, and positive actions.
 
-| Name | Hex | Usage |
-|------|-----|-------|
-| `primary-50` | `#f0fdf4` | Light backgrounds, hovers |
-| `primary-100` | `#dcfce7` | Subtle backgrounds |
-| `primary-600` | `#16a34a` | **Primary brand color** |
-| `primary-700` | `#15803d` | Hover states |
-| `primary-900` | `#14532d` | Dark text |
+| Name          | Hex       | Usage                     |
+| ------------- | --------- | ------------------------- |
+| `primary-50`  | `#f0fdf4` | Light backgrounds, hovers |
+| `primary-100` | `#dcfce7` | Subtle backgrounds        |
+| `primary-600` | `#16a34a` | **Primary brand color**   |
+| `primary-700` | `#15803d` | Hover states              |
+| `primary-900` | `#14532d` | Dark text                 |
 
 **Usage:**
+
 ```javascript
-className="bg-primary-600 text-white"        // Button primary
-className="hover:bg-primary-700"             // Button hover
-className="bg-gradient-to-br from-primary-50 to-emerald-50"  // Hero background
+className = 'bg-primary-600 text-white'; // Button primary
+className = 'hover:bg-primary-700'; // Button hover
+className = 'bg-gradient-to-br from-primary-50 to-emerald-50'; // Hero background
 ```
 
 #### Semantic Colors
 
-| Purpose | Tailwind Class | Hex | Usage |
-|---------|---------------|-----|-------|
-| Success | `text-green-600` | `#16a34a` | Success messages |
-| Error | `text-red-600` | `#dc2626` | Error messages |
-| Warning | `text-yellow-600` | `#ca8a04` | Warnings |
-| Info | `text-blue-600` | `#2563eb` | Information |
+| Purpose | Tailwind Class    | Hex       | Usage            |
+| ------- | ----------------- | --------- | ---------------- |
+| Success | `text-green-600`  | `#16a34a` | Success messages |
+| Error   | `text-red-600`    | `#dc2626` | Error messages   |
+| Warning | `text-yellow-600` | `#ca8a04` | Warnings         |
+| Info    | `text-blue-600`   | `#2563eb` | Information      |
 
 #### Grayscale
 
-| Name | Usage |
-|------|-------|
-| `gray-50` | Light backgrounds |
+| Name       | Usage                    |
+| ---------- | ------------------------ |
+| `gray-50`  | Light backgrounds        |
 | `gray-100` | Borders, subtle dividers |
 | `gray-300` | Borders, disabled states |
-| `gray-600` | Secondary text |
-| `gray-900` | Primary text |
-| `white` | Cards, containers |
-| `black` | Overlays (with opacity) |
+| `gray-600` | Secondary text           |
+| `gray-900` | Primary text             |
+| `white`    | Cards, containers        |
+| `black`    | Overlays (with opacity)  |
 
 ### Typography
 
 #### Font Stack
 
 **Default (System Fonts):**
+
 ```css
-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif
+font-family:
+  -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 ```
 
 **No custom fonts** - Uses OS-native fonts for best performance.
 
 #### Text Sizes
 
-| Class | Size | Line Height | Usage |
-|-------|------|-------------|-------|
-| `text-xs` | 12px | 16px | Labels, captions |
-| `text-sm` | 14px | 20px | Secondary text |
-| `text-base` | 16px | 24px | Body text |
-| `text-lg` | 18px | 28px | Large body |
-| `text-xl` | 20px | 28px | Small headings |
-| `text-2xl` | 24px | 32px | Section headings |
-| `text-3xl` | 30px | 36px | Page headings |
-| `text-4xl` | 36px | 40px | Large headings |
-| `text-5xl` | 48px | 1 | Hero text |
+| Class       | Size | Line Height | Usage            |
+| ----------- | ---- | ----------- | ---------------- |
+| `text-xs`   | 12px | 16px        | Labels, captions |
+| `text-sm`   | 14px | 20px        | Secondary text   |
+| `text-base` | 16px | 24px        | Body text        |
+| `text-lg`   | 18px | 28px        | Large body       |
+| `text-xl`   | 20px | 28px        | Small headings   |
+| `text-2xl`  | 24px | 32px        | Section headings |
+| `text-3xl`  | 30px | 36px        | Page headings    |
+| `text-4xl`  | 36px | 40px        | Large headings   |
+| `text-5xl`  | 48px | 1           | Hero text        |
 
 **Usage:**
+
 ```javascript
 <h1 className="text-5xl font-bold">Hero Heading</h1>
 <h2 className="text-3xl font-semibold">Section Heading</h2>
@@ -132,43 +133,44 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica N
 
 #### Font Weights
 
-| Class | Weight | Usage |
-|-------|--------|-------|
-| `font-normal` | 400 | Body text |
-| `font-medium` | 500 | Emphasized text |
-| `font-semibold` | 600 | Subheadings |
-| `font-bold` | 700 | Headings |
+| Class           | Weight | Usage           |
+| --------------- | ------ | --------------- |
+| `font-normal`   | 400    | Body text       |
+| `font-medium`   | 500    | Emphasized text |
+| `font-semibold` | 600    | Subheadings     |
+| `font-bold`     | 700    | Headings        |
 
 ### Spacing
 
 Tailwind uses a consistent 4px-based scale.
 
-| Class | Size | Usage |
-|-------|------|-------|
-| `p-1` | 4px | Tight padding |
-| `p-2` | 8px | Small padding |
-| `p-4` | 16px | Standard padding |
-| `p-6` | 24px | Card padding |
-| `p-8` | 32px | Section padding |
+| Class  | Size | Usage                 |
+| ------ | ---- | --------------------- |
+| `p-1`  | 4px  | Tight padding         |
+| `p-2`  | 8px  | Small padding         |
+| `p-4`  | 16px | Standard padding      |
+| `p-6`  | 24px | Card padding          |
+| `p-8`  | 32px | Section padding       |
 | `p-12` | 48px | Large section padding |
-| `p-16` | 64px | Extra large padding |
+| `p-16` | 64px | Extra large padding   |
 
 **Margin** uses same scale with `m-*` prefix.
 **Gap** for flexbox/grid uses same scale with `gap-*`.
 
 **Common Spacing Patterns:**
+
 ```javascript
 // Card
-className="p-6"              // 24px padding
+className = 'p-6'; // 24px padding
 
 // Container
-className="px-4 py-8"        // 16px horizontal, 32px vertical
+className = 'px-4 py-8'; // 16px horizontal, 32px vertical
 
 // Section
-className="my-12"            // 48px vertical margin
+className = 'my-12'; // 48px vertical margin
 
 // Grid gap
-className="gap-6"            // 24px gap between items
+className = 'gap-6'; // 24px gap between items
 ```
 
 ### Borders & Radius
@@ -176,43 +178,45 @@ className="gap-6"            // 24px gap between items
 #### Border Width
 
 ```javascript
-className="border"           // 1px border
-className="border-2"         // 2px border
-className="border-4"         // 4px border
+className = 'border'; // 1px border
+className = 'border-2'; // 2px border
+className = 'border-4'; // 4px border
 ```
 
 #### Border Radius
 
-| Class | Radius | Usage |
-|-------|--------|-------|
-| `rounded` | 4px | Subtle rounding |
-| `rounded-md` | 6px | Medium rounding |
-| `rounded-lg` | 8px | Buttons, inputs |
-| `rounded-xl` | 12px | Cards, containers |
-| `rounded-2xl` | 16px | Large cards |
-| `rounded-full` | 9999px | Circles, pills |
+| Class          | Radius | Usage             |
+| -------------- | ------ | ----------------- |
+| `rounded`      | 4px    | Subtle rounding   |
+| `rounded-md`   | 6px    | Medium rounding   |
+| `rounded-lg`   | 8px    | Buttons, inputs   |
+| `rounded-xl`   | 12px   | Cards, containers |
+| `rounded-2xl`  | 16px   | Large cards       |
+| `rounded-full` | 9999px | Circles, pills    |
 
 **Common Patterns:**
+
 ```javascript
-className="rounded-xl"       // Cards
-className="rounded-lg"       // Buttons, inputs
-className="rounded-full"     // Avatar, badge
+className = 'rounded-xl'; // Cards
+className = 'rounded-lg'; // Buttons, inputs
+className = 'rounded-full'; // Avatar, badge
 ```
 
 ### Shadows
 
-| Class | Usage |
-|-------|-------|
-| `shadow-sm` | Subtle elevation |
-| `shadow` | Default shadow |
-| `shadow-md` | Medium elevation |
-| `shadow-lg` | Cards, modals |
-| `shadow-xl` | Large elevation |
+| Class        | Usage             |
+| ------------ | ----------------- |
+| `shadow-sm`  | Subtle elevation  |
+| `shadow`     | Default shadow    |
+| `shadow-md`  | Medium elevation  |
+| `shadow-lg`  | Cards, modals     |
+| `shadow-xl`  | Large elevation   |
 | `shadow-2xl` | Maximum elevation |
 
 **Drop Shadow:**
+
 ```javascript
-className="drop-shadow-md"   // For images, icons
+className = 'drop-shadow-md'; // For images, icons
 ```
 
 ## Component Patterns
@@ -222,7 +226,8 @@ className="drop-shadow-md"   // For images, icons
 #### Primary Button
 
 ```javascript
-<button className="
+<button
+  className="
   bg-primary-600 text-white
   px-6 py-3
   rounded-lg
@@ -232,7 +237,8 @@ className="drop-shadow-md"   // For images, icons
   disabled:bg-gray-400 disabled:cursor-not-allowed
   transition-colors duration-200
   flex items-center gap-2
-">
+"
+>
   <Upload className="w-5 h-5" />
   Upload Image
 </button>
@@ -241,7 +247,8 @@ className="drop-shadow-md"   // For images, icons
 #### Secondary Button
 
 ```javascript
-<button className="
+<button
+  className="
   border-2 border-primary-600 text-primary-600
   px-6 py-3
   rounded-lg
@@ -249,7 +256,8 @@ className="drop-shadow-md"   // For images, icons
   hover:bg-primary-50
   active:bg-primary-100
   transition-colors duration-200
-">
+"
+>
   Cancel
 </button>
 ```
@@ -257,13 +265,15 @@ className="drop-shadow-md"   // For images, icons
 #### Ghost Button
 
 ```javascript
-<button className="
+<button
+  className="
   text-primary-600
   px-4 py-2
   rounded-lg
   hover:bg-primary-50
   transition-colors duration-200
-">
+"
+>
   Learn More
 </button>
 ```
@@ -271,7 +281,8 @@ className="drop-shadow-md"   // For images, icons
 ### Cards
 
 ```javascript
-<div className="
+<div
+  className="
   bg-white
   rounded-xl
   shadow-lg
@@ -279,7 +290,8 @@ className="drop-shadow-md"   // For images, icons
   border border-gray-100
   hover:shadow-xl
   transition-shadow duration-200
-">
+"
+>
   <h3 className="text-xl font-semibold mb-2">Card Title</h3>
   <p className="text-gray-600">Card content</p>
 </div>
@@ -308,7 +320,8 @@ className="drop-shadow-md"   // For images, icons
 #### File Input (Custom)
 
 ```javascript
-<label className="
+<label
+  className="
   block w-full
   border-2 border-dashed border-gray-300
   rounded-xl
@@ -317,7 +330,8 @@ className="drop-shadow-md"   // For images, icons
   cursor-pointer
   hover:border-primary-600 hover:bg-primary-50
   transition-all duration-200
-">
+"
+>
   <input type="file" className="hidden" />
   <Upload className="w-12 h-12 mx-auto mb-2 text-gray-400" />
   <p className="text-gray-600">Click or drag file to upload</p>
@@ -329,13 +343,15 @@ className="drop-shadow-md"   // For images, icons
 #### Success
 
 ```javascript
-<div className="
+<div
+  className="
   bg-green-50
   border-l-4 border-green-500
   p-4
   rounded-lg
   flex items-start gap-3
-">
+"
+>
   <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
   <div>
     <h4 className="font-semibold text-green-900">Success!</h4>
@@ -347,13 +363,15 @@ className="drop-shadow-md"   // For images, icons
 #### Error
 
 ```javascript
-<div className="
+<div
+  className="
   bg-red-50
   border-l-4 border-red-500
   p-4
   rounded-lg
   flex items-start gap-3
-">
+"
+>
   <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
   <div>
     <h4 className="font-semibold text-red-900">Error</h4>
@@ -365,12 +383,14 @@ className="drop-shadow-md"   // For images, icons
 #### Warning
 
 ```javascript
-<div className="
+<div
+  className="
   bg-yellow-50
   border-l-4 border-yellow-400
   p-4
   rounded-lg
-">
+"
+>
   <p className="text-yellow-700">Health issue detected</p>
 </div>
 ```
@@ -381,13 +401,15 @@ className="drop-shadow-md"   // For images, icons
 
 ```javascript
 <div className="flex items-center justify-center p-8">
-  <div className="
+  <div
+    className="
     w-12 h-12
     border-4 border-primary-200
     border-t-primary-600
     rounded-full
     animate-spin
-  "></div>
+  "
+  ></div>
 </div>
 ```
 
@@ -403,30 +425,33 @@ className="drop-shadow-md"   // For images, icons
 ### Badges
 
 ```javascript
-<span className="
+<span
+  className="
   inline-flex items-center
   px-3 py-1
   rounded-full
   text-sm font-medium
   bg-green-100 text-green-800
-">
+"
+>
   High Confidence
 </span>
 ```
 
 **Color Variants:**
+
 ```javascript
 // Success
-className="bg-green-100 text-green-800"
+className = 'bg-green-100 text-green-800';
 
 // Warning
-className="bg-yellow-100 text-yellow-800"
+className = 'bg-yellow-100 text-yellow-800';
 
 // Error
-className="bg-red-100 text-red-800"
+className = 'bg-red-100 text-red-800';
 
 // Info
-className="bg-blue-100 text-blue-800"
+className = 'bg-blue-100 text-blue-800';
 ```
 
 ## Responsive Design
@@ -435,26 +460,28 @@ className="bg-blue-100 text-blue-800"
 
 Tailwind uses mobile-first breakpoints:
 
-| Prefix | Min Width | Device |
-|--------|-----------|--------|
-| (none) | 0px | Mobile |
-| `sm:` | 640px | Large mobile |
-| `md:` | 768px | Tablet |
-| `lg:` | 1024px | Desktop |
-| `xl:` | 1280px | Large desktop |
-| `2xl:` | 1536px | Extra large |
+| Prefix | Min Width | Device        |
+| ------ | --------- | ------------- |
+| (none) | 0px       | Mobile        |
+| `sm:`  | 640px     | Large mobile  |
+| `md:`  | 768px     | Tablet        |
+| `lg:`  | 1024px    | Desktop       |
+| `xl:`  | 1280px    | Large desktop |
+| `2xl:` | 1536px    | Extra large   |
 
 ### Usage Pattern
 
 ```javascript
-<div className="
+<div
+  className="
   grid
   grid-cols-1        // Mobile: 1 column
   md:grid-cols-2     // Tablet: 2 columns
   lg:grid-cols-3     // Desktop: 3 columns
   gap-4
   md:gap-6
-">
+"
+>
   {/* Grid items */}
 </div>
 ```
@@ -462,13 +489,15 @@ Tailwind uses mobile-first breakpoints:
 ### Container
 
 ```javascript
-<div className="
+<div
+  className="
   container mx-auto     // Center container
   px-4                  // Padding on mobile
   md:px-6              // More padding on tablet
   lg:px-8              // Even more on desktop
   max-w-7xl            // Max width
-">
+"
+>
   {/* Content */}
 </div>
 ```
@@ -549,29 +578,29 @@ className="
 
 ```javascript
 // Colors
-className="transition-colors duration-200"
+className = 'transition-colors duration-200';
 
 // All properties
-className="transition-all duration-300"
+className = 'transition-all duration-300';
 
 // Transform
-className="transition-transform duration-200 hover:scale-105"
+className = 'transition-transform duration-200 hover:scale-105';
 
 // Opacity
-className="transition-opacity duration-300 hover:opacity-80"
+className = 'transition-opacity duration-300 hover:opacity-80';
 ```
 
 ### Animations
 
 ```javascript
 // Spin (loading)
-className="animate-spin"
+className = 'animate-spin';
 
 // Pulse (loading)
-className="animate-pulse"
+className = 'animate-pulse';
 
 // Bounce
-className="animate-bounce"
+className = 'animate-bounce';
 ```
 
 ## Dark Mode (Future)
@@ -586,12 +615,13 @@ className="
 ```
 
 **Configuration:**
+
 ```javascript
 // tailwind.config.js
 export default {
-  darkMode: 'class',  // or 'media'
+  darkMode: 'class', // or 'media'
   // ...
-}
+};
 ```
 
 ## Utility Class Organization
@@ -680,14 +710,13 @@ className="
 ### Screen Reader Only
 
 ```javascript
-<span className="sr-only">
-  Upload plant image for identification
-</span>
+<span className="sr-only">Upload plant image for identification</span>
 ```
 
 ### Contrast
 
 Ensure sufficient color contrast:
+
 - Text: 4.5:1 minimum
 - Large text: 3:1 minimum
 - Interactive elements: 3:1 minimum
@@ -703,16 +732,18 @@ Tailwind automatically removes unused classes in production:
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
   // Only classes used in these files are included in build
-}
+};
 ```
 
 **Production Build:**
+
 - Development CSS: ~3.5MB
 - Production CSS: ~8-12KB (gzipped: ~2-3KB)
 
 ### JIT (Just-In-Time) Mode
 
 Tailwind 4 uses JIT by default:
+
 - Generate classes on-demand
 - Faster build times
 - Smaller development CSS
@@ -757,6 +788,7 @@ The styling approach prioritizes:
 6. **Responsive** - Mobile-first breakpoints
 
 For more information:
+
 - [Tailwind CSS Documentation](https://tailwindcss.com/)
 - [Components.md](./Components.md) - Component patterns
 - [Architecture.md](./Architecture.md) - System design

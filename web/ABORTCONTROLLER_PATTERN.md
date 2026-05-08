@@ -10,6 +10,7 @@
 ## Problem
 
 React components making fetch requests don't implement AbortController cleanup, causing:
+
 1. **Memory leaks** - Requests continue after component unmounts
 2. **State update warnings** - "Can't perform a React state update on an unmounted component"
 3. **Wasted bandwidth** - Unnecessary API calls for stale data
@@ -20,11 +21,13 @@ React components making fetch requests don't implement AbortController cleanup, 
 ## Affected Components
 
 ### Confirmed (from Issue #153)
+
 - `/web/src/pages/forum/SearchPage.tsx` ✅ **Found**
 - `/web/src/pages/blog/BlogListPage.tsx` ⚠️ **Not found** (may not exist or renamed)
 - `/web/src/components/forum/ThreadList.tsx` ⚠️ **Not found** (may not exist or renamed)
 
 ### Additional Components (Likely Affected)
+
 All components using `useEffect` with async data fetching should be audited.
 
 ---
@@ -38,9 +41,9 @@ useEffect(() => {
   const controller = new AbortController();
 
   fetch('/api/endpoint', { signal: controller.signal })
-    .then(res => res.json())
-    .then(data => setData(data))
-    .catch(err => {
+    .then((res) => res.json())
+    .then((data) => setData(data))
+    .catch((err) => {
       if (err.name === 'AbortError') {
         // Expected on cleanup - don't log as error
         return;
@@ -48,7 +51,7 @@ useEffect(() => {
       console.error('Fetch failed:', err);
     });
 
-  return () => controller.abort();  // ✅ Cancel on unmount
+  return () => controller.abort(); // ✅ Cancel on unmount
 }, [dependencies]);
 ```
 
@@ -62,11 +65,9 @@ When using service functions like `searchForum()` or `fetchCategories()`:
 
 ```typescript
 // ✅ AFTER: Accept optional AbortSignal
-export async function fetchCategories(
-  signal?: AbortSignal
-): Promise<Category[]> {
+export async function fetchCategories(signal?: AbortSignal): Promise<Category[]> {
   const response = await fetch('/api/v1/forum/categories/', {
-    signal,  // Pass to fetch
+    signal, // Pass to fetch
   });
 
   if (!response.ok) {
@@ -82,7 +83,7 @@ export async function searchForum(
 ): Promise<SearchResults> {
   const queryString = new URLSearchParams(params as Record<string, string>).toString();
   const response = await fetch(`/api/v1/forum/search/?${queryString}`, {
-    signal,  // Pass to fetch
+    signal, // Pass to fetch
   });
 
   if (!response.ok) {
@@ -98,6 +99,7 @@ export async function searchForum(
 **File**: `src/pages/forum/SearchPage.tsx`
 
 **BEFORE (Lines 67-81)** - ❌ Memory leak:
+
 ```typescript
 useEffect(() => {
   const loadCategories = async () => {
@@ -114,6 +116,7 @@ useEffect(() => {
 ```
 
 **AFTER** - ✅ With cleanup:
+
 ```typescript
 useEffect(() => {
   const controller = new AbortController();
@@ -134,12 +137,13 @@ useEffect(() => {
   loadCategories();
 
   return () => {
-    controller.abort();  // ✅ Cancel request on unmount
+    controller.abort(); // ✅ Cancel request on unmount
   };
 }, []);
 ```
 
 **BEFORE (Lines 84-125)** - ❌ Memory leak:
+
 ```typescript
 useEffect(() => {
   if (!query) {
@@ -176,6 +180,7 @@ useEffect(() => {
 ```
 
 **AFTER** - ✅ With cleanup:
+
 ```typescript
 useEffect(() => {
   if (!query) {
@@ -190,15 +195,18 @@ useEffect(() => {
       setLoading(true);
       setError(null);
 
-      const results = await searchForum({
-        q: query,
-        category,
-        author,
-        date_from: dateFrom,
-        date_to: dateTo,
-        page,
-        page_size: pageSize,
-      }, controller.signal);  // ✅ Pass signal
+      const results = await searchForum(
+        {
+          q: query,
+          category,
+          author,
+          date_from: dateFrom,
+          date_to: dateTo,
+          page,
+          page_size: pageSize,
+        },
+        controller.signal
+      ); // ✅ Pass signal
 
       setSearchResults(results);
     } catch (err) {
@@ -217,7 +225,7 @@ useEffect(() => {
   performSearch();
 
   return () => {
-    controller.abort();  // ✅ Cancel on unmount or dependency change
+    controller.abort(); // ✅ Cancel on unmount or dependency change
   };
 }, [query, category, author, dateFrom, dateTo, page, pageSize]);
 ```
@@ -227,24 +235,28 @@ useEffect(() => {
 ## Benefits
 
 ### 1. Prevents Memory Leaks
+
 - Ongoing requests are cancelled when component unmounts
 - No state updates on unmounted components
 
 ### 2. Improves Performance
+
 - Cancelled requests free up browser resources
 - Reduces unnecessary network traffic
 - Prevents race conditions from stale responses
 
 ### 3. Better UX
+
 - Fast navigation doesn't wait for old requests
 - No console warnings
 - Cleaner component lifecycle
 
 ### 4. TypeScript Type Safety
+
 ```typescript
 // AbortSignal is built into TypeScript
 interface FetchOptions {
-  signal?: AbortSignal;  // Optional cleanup signal
+  signal?: AbortSignal; // Optional cleanup signal
 }
 ```
 
@@ -253,23 +265,27 @@ interface FetchOptions {
 ## Implementation Checklist
 
 ### Phase 1: Service Layer (2 hours)
+
 - [ ] Update `forumService.ts` - Add `signal?` parameter to all fetch functions
 - [ ] Update `blogService.ts` - Add `signal?` parameter to all fetch functions
 - [ ] Update `plantIdService.ts` - Add `signal?` parameter to identification calls
 - [ ] Update `authService.ts` - Add `signal?` parameter (if applicable)
 
 ### Phase 2: Component Updates (3-4 hours)
+
 - [ ] `SearchPage.tsx` - Add AbortController to 2 useEffect hooks
 - [ ] Search for all `useEffect` + async patterns: `grep -r "useEffect.*async" src/`
 - [ ] Audit and fix each component systematically
 
 ### Phase 3: Testing (1 hour)
+
 - [ ] Test rapid navigation (mount/unmount cycles)
 - [ ] Verify no console warnings about unmounted components
 - [ ] Check Network tab - cancelled requests show proper status
 - [ ] Memory profiling - verify no leaks
 
 ### Phase 4: Documentation (30 minutes)
+
 - [ ] Add pattern to `TYPESCRIPT_MIGRATION_PATTERNS_CODIFIED.md`
 - [ ] Update component README with AbortController examples
 - [ ] Add to code review checklist
@@ -279,6 +295,7 @@ interface FetchOptions {
 ## Testing
 
 ### Manual Testing
+
 ```bash
 # 1. Open browser DevTools → Network tab
 # 2. Navigate to SearchPage
@@ -291,6 +308,7 @@ interface FetchOptions {
 ```
 
 ### Automated Testing (Vitest)
+
 ```typescript
 import { render, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
@@ -314,6 +332,7 @@ test('cancels fetch on unmount', async () => {
 ## Browser Compatibility
 
 AbortController is supported in all modern browsers:
+
 - ✅ Chrome 66+
 - ✅ Firefox 57+
 - ✅ Safari 12.1+
@@ -324,6 +343,7 @@ AbortController is supported in all modern browsers:
 ## Common Pitfalls
 
 ### ❌ Don't Create New Controller on Every Render
+
 ```typescript
 // ❌ Wrong - creates new controller on every render
 const controller = new AbortController();
@@ -334,6 +354,7 @@ useEffect(() => {
 ```
 
 ### ✅ Create Controller Inside useEffect
+
 ```typescript
 // ✅ Correct - controller scoped to effect
 useEffect(() => {
@@ -344,6 +365,7 @@ useEffect(() => {
 ```
 
 ### ❌ Don't Log Abort Errors as Failures
+
 ```typescript
 // ❌ Wrong - abort is expected, not an error
 .catch(err => {
@@ -352,6 +374,7 @@ useEffect(() => {
 ```
 
 ### ✅ Ignore AbortError Gracefully
+
 ```typescript
 // ✅ Correct - abort is cleanup, not failure
 .catch(err => {

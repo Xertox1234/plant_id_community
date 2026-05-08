@@ -23,7 +23,9 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 // HTTPS enforcement for production
 if (import.meta.env.PROD && API_URL.startsWith('http://')) {
   logger.error('[authService] SECURITY ERROR: API_URL must use HTTPS in production');
-  throw new Error('Cannot send credentials over HTTP in production. Set VITE_API_URL to https:// endpoint.');
+  throw new Error(
+    'Cannot send credentials over HTTP in production. Set VITE_API_URL to https:// endpoint.'
+  );
 }
 
 /**
@@ -102,13 +104,19 @@ export async function signup(userData: SignupData): Promise<User> {
       // Log detailed error for debugging
       logger.error('[authService] Signup failed:', {
         status: response.status,
-        error: errorData
+        error: errorData,
       });
 
       // Extract error message from backend
-      const errorMessage = ('error' in errorData && errorData.error && typeof errorData.error === 'object' && 'message' in errorData.error)
-        ? errorData.error.message
-        : ('message' in errorData ? errorData.message : JSON.stringify(errorData));
+      const errorMessage =
+        'error' in errorData &&
+        errorData.error &&
+        typeof errorData.error === 'object' &&
+        'message' in errorData.error
+          ? errorData.error.message
+          : 'message' in errorData
+            ? errorData.message
+            : JSON.stringify(errorData);
       throw new Error(errorMessage);
     }
 

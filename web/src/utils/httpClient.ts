@@ -28,22 +28,27 @@
  * const response = await apiClient.get('/api/v2/blog-posts')
  */
 
-import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
-import { logger } from './logger'
-import { getCsrfToken, clearCsrfToken } from './csrf'
-import { getOrCreateRequestId } from './requestId'
+import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
+import { logger } from './logger';
+import { getCsrfToken, clearCsrfToken } from './csrf';
+import { getOrCreateRequestId } from './requestId';
 
 type RetriableRequestConfig = InternalAxiosRequestConfig & {
   _csrfRetried?: boolean;
-}
+};
 
-function getSafeAxiosError(error: AxiosError): { message: string; name: string; code?: string; status?: number } {
+function getSafeAxiosError(error: AxiosError): {
+  message: string;
+  name: string;
+  code?: string;
+  status?: number;
+} {
   return {
     message: error.message,
     name: error.name,
     code: error.code,
     status: error.response?.status,
-  }
+  };
 }
 
 /**
@@ -56,7 +61,7 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-})
+});
 
 /**
  * Request interceptor
@@ -66,20 +71,20 @@ apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
     try {
       // Add X-Request-ID header from shared storage/in-memory request ID source
-      const requestId = getOrCreateRequestId()
+      const requestId = getOrCreateRequestId();
       if (requestId) {
-        config.headers['X-Request-ID'] = requestId
+        config.headers['X-Request-ID'] = requestId;
       }
 
       // Add CSRF token from API endpoint (Issue #144 fix)
       // Only fetch token for state-changing requests
       const needsCsrfToken = ['post', 'put', 'patch', 'delete'].includes(
         config.method?.toLowerCase() || ''
-      )
+      );
       if (needsCsrfToken) {
-        const csrfToken = await getCsrfToken()
+        const csrfToken = await getCsrfToken();
         if (csrfToken) {
-          config.headers['X-CSRFToken'] = csrfToken
+          config.headers['X-CSRFToken'] = csrfToken;
         }
       }
 
@@ -90,26 +95,26 @@ apiClient.interceptors.request.use(
           method: config.method?.toUpperCase(),
           url: config.url,
           requestId,
-        })
+        });
       }
     } catch (error) {
       // Silently fail - don't block request
       logger.warn('Request interceptor error', {
         component: 'httpClient',
         error,
-      })
+      });
     }
 
-    return config
+    return config;
   },
   (error: AxiosError) => {
     logger.error('Request interceptor error', {
       component: 'httpClient',
       error: getSafeAxiosError(error),
-    })
-    return Promise.reject(error)
+    });
+    return Promise.reject(error);
   }
-)
+);
 
 /**
  * Response interceptor
@@ -123,34 +128,39 @@ apiClient.interceptors.response.use(
         component: 'httpClient',
         status: response.status,
         url: response.config.url,
-      })
+      });
     }
-    return response
+    return response;
   },
   async (error: AxiosError) => {
-    const status = error.response?.status
-    const url = error.config?.url
-    const message = (error.response?.data as { message?: string })?.message || error.message
+    const status = error.response?.status;
+    const url = error.config?.url;
+    const message = (error.response?.data as { message?: string })?.message || error.message;
 
     // Handle CSRF token expiration (Issue #144 fix)
     // If we get a 403 CSRF error, refresh token and retry once
-    const requestConfig = error.config as RetriableRequestConfig | undefined
+    const requestConfig = error.config as RetriableRequestConfig | undefined;
 
-    if (status === 403 && message?.toLowerCase().includes('csrf') && requestConfig && !requestConfig._csrfRetried) {
+    if (
+      status === 403 &&
+      message?.toLowerCase().includes('csrf') &&
+      requestConfig &&
+      !requestConfig._csrfRetried
+    ) {
       logger.warn('CSRF token expired, refreshing and retrying', {
         component: 'httpClient',
         url,
-      })
+      });
 
       // Clear cached token and fetch new one
-      clearCsrfToken()
-      const newToken = await getCsrfToken()
+      clearCsrfToken();
+      const newToken = await getCsrfToken();
 
       if (newToken) {
         // Retry the original request with new token
-        requestConfig._csrfRetried = true
-        requestConfig.headers['X-CSRFToken'] = newToken
-        return apiClient.request(requestConfig)
+        requestConfig._csrfRetried = true;
+        requestConfig.headers['X-CSRFToken'] = newToken;
+        return apiClient.request(requestConfig);
       }
     }
 
@@ -161,10 +171,10 @@ apiClient.interceptors.response.use(
       status,
       url,
       message,
-    })
+    });
 
-    return Promise.reject(error)
+    return Promise.reject(error);
   }
-)
+);
 
-export default apiClient
+export default apiClient;

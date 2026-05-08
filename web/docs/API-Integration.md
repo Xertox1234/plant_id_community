@@ -33,9 +33,9 @@ src/services/
 
 ```javascript
 // src/services/plantIdService.js
-import axios from 'axios'
+import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Create axios instance with defaults
 const apiClient = axios.create({
@@ -43,11 +43,12 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000,  // 30 second timeout
-})
+  timeout: 30000, // 30 second timeout
+});
 ```
 
 **Environment Configuration:**
+
 ```bash
 # .env
 VITE_API_URL=http://localhost:8000
@@ -58,6 +59,7 @@ VITE_API_URL=http://localhost:8000
 ### Development (Vite Proxy)
 
 **Configuration** (`vite.config.js`):
+
 ```javascript
 export default defineConfig({
   server: {
@@ -65,19 +67,21 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-      }
-    }
-  }
-})
+      },
+    },
+  },
+});
 ```
 
 **Benefits:**
+
 - No CORS issues in development
 - Frontend can use relative URLs: `/api/...`
 - Backend runs on separate port (8000)
 - Automatic request forwarding
 
 **Request Flow:**
+
 ```
 Browser: http://localhost:5173/api/identify/
     ↓
@@ -89,12 +93,14 @@ Backend: http://localhost:8000/api/identify/
 ### Production
 
 **Configuration:**
+
 ```bash
 # Set in hosting platform (Vercel, Netlify, etc.)
 VITE_API_URL=https://api.plantcommunity.com
 ```
 
 **Request Flow:**
+
 ```
 Browser: https://plantcommunity.com
     ↓
@@ -104,6 +110,7 @@ Backend: https://api.plantcommunity.com/api/identify/
 ```
 
 **CORS Requirements:**
+
 ```python
 # backend/settings.py
 CORS_ALLOWED_ORIGINS = [
@@ -121,13 +128,13 @@ CORS_ALLOWED_ORIGINS = [
 **Purpose:** Verify backend is running and APIs are available
 
 **Request:**
+
 ```javascript
-const response = await axios.get(
-  `${API_BASE_URL}/api/plant-identification/identify/health/`
-)
+const response = await axios.get(`${API_BASE_URL}/api/plant-identification/identify/health/`);
 ```
 
 **Response:**
+
 ```json
 {
   "status": "healthy",
@@ -139,19 +146,20 @@ const response = await axios.get(
 ```
 
 **Usage in Frontend:**
+
 ```javascript
 // Check backend health on app load
 useEffect(() => {
   const checkHealth = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/plant-identification/identify/health/`)
-      console.log('Backend healthy:', response.data)
+      const response = await axios.get(`${API_BASE_URL}/api/plant-identification/identify/health/`);
+      console.log('Backend healthy:', response.data);
     } catch (error) {
-      console.error('Backend not available:', error)
+      console.error('Backend not available:', error);
     }
-  }
-  checkHealth()
-}, [])
+  };
+  checkHealth();
+}, []);
 ```
 
 ### Plant Identification
@@ -161,13 +169,15 @@ useEffect(() => {
 **Purpose:** Identify a plant from an uploaded image
 
 **Request:**
-```javascript
-import { plantIdService } from '../services/plantIdService'
 
-const result = await plantIdService.identifyPlant(imageFile)
+```javascript
+import { plantIdService } from '../services/plantIdService';
+
+const result = await plantIdService.identifyPlant(imageFile);
 ```
 
 **Implementation:**
+
 ```javascript
 // src/services/plantIdService.js
 export const plantIdService = {
@@ -178,8 +188,8 @@ export const plantIdService = {
    */
   identifyPlant: async (imageFile) => {
     try {
-      const formData = new FormData()
-      formData.append('image', imageFile)
+      const formData = new FormData();
+      formData.append('image', imageFile);
 
       const response = await axios.post(
         `${API_BASE_URL}/api/plant-identification/identify/`,
@@ -189,26 +199,25 @@ export const plantIdService = {
             'Content-Type': 'multipart/form-data',
           },
         }
-      )
+      );
 
-      return response.data
+      return response.data;
     } catch (error) {
-      throw new Error(
-        error.response?.data?.error ||
-        'Failed to identify plant. Please try again.'
-      )
+      throw new Error(error.response?.data?.error || 'Failed to identify plant. Please try again.');
     }
-  }
-}
+  },
+};
 ```
 
 **Request Details:**
+
 - Method: `POST`
 - Content-Type: `multipart/form-data`
 - Body: FormData with image file
 - Timeout: 30 seconds (API processing time)
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -225,10 +234,7 @@ export const plantIdService = {
       "watering": "moderate",
       "source": "plant_id",
       "rank": 1,
-      "similar_images": [
-        "https://plant.id/media/imgs/...",
-        "https://plant.id/media/imgs/..."
-      ]
+      "similar_images": ["https://plant.id/media/imgs/...", "https://plant.id/media/imgs/..."]
     },
     {
       "plant_name": "Pothos",
@@ -258,6 +264,7 @@ export const plantIdService = {
 ```
 
 **Error Response:**
+
 ```json
 {
   "success": false,
@@ -271,49 +278,42 @@ export const plantIdService = {
 ### Basic Usage in Component
 
 ```javascript
-import { useState } from 'react'
-import { plantIdService } from '../services/plantIdService'
+import { useState } from 'react';
+import { plantIdService } from '../services/plantIdService';
 
 function IdentifyPage() {
-  const [file, setFile] = useState(null)
-  const [results, setResults] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const [file, setFile] = useState(null);
+  const [results, setResults] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const handleIdentify = async () => {
-    if (!file) return
+    if (!file) return;
 
     try {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
 
-      const data = await plantIdService.identifyPlant(file)
-      setResults(data)
+      const data = await plantIdService.identifyPlant(file);
+      setResults(data);
     } catch (err) {
-      setError(err.message)
+      setError(err.message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <div>
-      <input
-        type="file"
-        accept="image/*"
-        onChange={(e) => setFile(e.target.files[0])}
-      />
-      <button
-        onClick={handleIdentify}
-        disabled={!file || loading}
-      >
+      <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files[0])} />
+      <button onClick={handleIdentify} disabled={!file || loading}>
         {loading ? 'Identifying...' : 'Identify Plant'}
       </button>
 
       {error && <div className="error">{error}</div>}
       {results && <ResultsDisplay results={results} />}
     </div>
-  )
+  );
 }
 ```
 
@@ -322,27 +322,27 @@ function IdentifyPage() {
 ```javascript
 const handleIdentify = async () => {
   try {
-    setLoading(true)
-    setError(null)
-    setResults(null)  // Clear previous results
+    setLoading(true);
+    setError(null);
+    setResults(null); // Clear previous results
 
-    const data = await plantIdService.identifyPlant(file)
+    const data = await plantIdService.identifyPlant(file);
 
     // Successful identification
-    setResults(data)
+    setResults(data);
   } catch (err) {
     // Handle different error types
     if (err.response?.status === 413) {
-      setError('Image file too large. Please compress the image.')
+      setError('Image file too large. Please compress the image.');
     } else if (err.response?.status === 429) {
-      setError('Rate limit exceeded. Please try again later.')
+      setError('Rate limit exceeded. Please try again later.');
     } else {
-      setError(err.message || 'An unexpected error occurred')
+      setError(err.message || 'An unexpected error occurred');
     }
   } finally {
-    setLoading(false)
+    setLoading(false);
   }
-}
+};
 ```
 
 ### With Progress Indication
@@ -350,23 +350,23 @@ const handleIdentify = async () => {
 ```javascript
 const handleIdentify = async () => {
   try {
-    setLoading(true)
-    setProgress('Uploading image...')
+    setLoading(true);
+    setProgress('Uploading image...');
 
-    const data = await plantIdService.identifyPlant(file)
+    const data = await plantIdService.identifyPlant(file);
 
-    setProgress('Processing results...')
+    setProgress('Processing results...');
     // Artificial delay to show progress
-    await new Promise(resolve => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
-    setResults(data)
+    setResults(data);
   } catch (err) {
-    setError(err.message)
+    setError(err.message);
   } finally {
-    setLoading(false)
-    setProgress(null)
+    setLoading(false);
+    setProgress(null);
   }
-}
+};
 ```
 
 ## Error Handling
@@ -374,6 +374,7 @@ const handleIdentify = async () => {
 ### Error Types
 
 1. **Network Errors**
+
    ```javascript
    // Network connection failed
    {
@@ -383,6 +384,7 @@ const handleIdentify = async () => {
    ```
 
 2. **Timeout Errors**
+
    ```javascript
    // Request took longer than 30s
    {
@@ -410,17 +412,17 @@ const handleIdentify = async () => {
 const getErrorMessage = (error) => {
   // Backend error message
   if (error.response?.data?.error) {
-    return error.response.data.error
+    return error.response.data.error;
   }
 
   // Network error
   if (error.code === 'ERR_NETWORK') {
-    return 'Unable to connect to server. Please check your internet connection.'
+    return 'Unable to connect to server. Please check your internet connection.';
   }
 
   // Timeout error
   if (error.code === 'ECONNABORTED') {
-    return 'Request timed out. Please try again with a smaller image.'
+    return 'Request timed out. Please try again with a smaller image.';
   }
 
   // HTTP status errors
@@ -430,21 +432,21 @@ const getErrorMessage = (error) => {
       413: 'Image file too large. Maximum size is 10MB.',
       429: 'Too many requests. Please wait a moment and try again.',
       500: 'Server error. Please try again later.',
-    }
-    return statusMessages[error.response.status] || 'An error occurred'
+    };
+    return statusMessages[error.response.status] || 'An error occurred';
   }
 
   // Fallback
-  return error.message || 'An unexpected error occurred'
-}
+  return error.message || 'An unexpected error occurred';
+};
 
 // Usage
 try {
-  const result = await plantIdService.identifyPlant(file)
-  setResults(result)
+  const result = await plantIdService.identifyPlant(file);
+  setResults(result);
 } catch (error) {
-  const message = getErrorMessage(error)
-  setError(message)
+  const message = getErrorMessage(error);
+  setError(message);
 }
 ```
 
@@ -453,30 +455,31 @@ try {
 ### Image Compression Before Upload
 
 ```javascript
-import { compressImage, shouldCompressImage } from '../utils/imageCompression'
+import { compressImage, shouldCompressImage } from '../utils/imageCompression';
 
 const handleIdentify = async () => {
-  let fileToUpload = selectedFile
+  let fileToUpload = selectedFile;
 
   // Compress large images
   if (shouldCompressImage(selectedFile)) {
     try {
-      setProgress('Compressing image...')
-      fileToUpload = await compressImage(selectedFile)
-      console.log(`Compressed: ${selectedFile.size} → ${fileToUpload.size} bytes`)
+      setProgress('Compressing image...');
+      fileToUpload = await compressImage(selectedFile);
+      console.log(`Compressed: ${selectedFile.size} → ${fileToUpload.size} bytes`);
     } catch (compressionError) {
-      console.error('Compression failed:', compressionError)
+      console.error('Compression failed:', compressionError);
       // Continue with original file
     }
   }
 
-  setProgress('Uploading...')
-  const result = await plantIdService.identifyPlant(fileToUpload)
-  setResults(result)
-}
+  setProgress('Uploading...');
+  const result = await plantIdService.identifyPlant(fileToUpload);
+  setResults(result);
+};
 ```
 
 **Benefits:**
+
 - 85% size reduction (10MB → 800KB)
 - 85% faster uploads
 - Reduced backend processing time
@@ -539,39 +542,37 @@ function IdentifyPage() {
 ### Planned Endpoints
 
 1. **Get Identification History**
+
    ```javascript
    // GET /api/plant-identification/history/
    getHistory: async (userId, limit = 10) => {
-     const response = await axios.get(
-       `${API_BASE_URL}/api/plant-identification/history/`,
-       { params: { user: userId, limit } }
-     )
-     return response.data
-   }
+     const response = await axios.get(`${API_BASE_URL}/api/plant-identification/history/`, {
+       params: { user: userId, limit },
+     });
+     return response.data;
+   };
    ```
 
 2. **Save to Collection**
+
    ```javascript
    // POST /api/plant-identification/collection/
    saveToCollection: async (identificationId, notes = '') => {
-     const response = await axios.post(
-       `${API_BASE_URL}/api/plant-identification/collection/`,
-       { identification_id: identificationId, notes }
-     )
-     return response.data
-   }
+     const response = await axios.post(`${API_BASE_URL}/api/plant-identification/collection/`, {
+       identification_id: identificationId,
+       notes,
+     });
+     return response.data;
+   };
    ```
 
 3. **User Authentication**
    ```javascript
    // POST /api/auth/login/
    login: async (email, password) => {
-     const response = await axios.post(
-       `${API_BASE_URL}/api/auth/login/`,
-       { email, password }
-     )
-     return response.data  // { token, user }
-   }
+     const response = await axios.post(`${API_BASE_URL}/api/auth/login/`, { email, password });
+     return response.data; // { token, user }
+   };
    ```
 
 ## Testing API Integration
@@ -641,6 +642,7 @@ The API integration follows these principles:
 - **Clean separation** between UI and API logic
 
 For implementation details, see:
+
 - [Architecture.md](./Architecture.md) - Overall system design
 - [Performance.md](./Performance.md) - Image compression details
 - [Components.md](./Components.md) - Component usage

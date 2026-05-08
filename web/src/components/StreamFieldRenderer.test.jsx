@@ -45,9 +45,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('renders paragraph block with sanitized HTML', async () => {
-      const blocks = [
-        { id: '1', type: 'paragraph', value: '<p>Safe paragraph text</p>' },
-      ];
+      const blocks = [{ id: '1', type: 'paragraph', value: '<p>Safe paragraph text</p>' }];
       render(<StreamFieldRenderer blocks={blocks} />);
 
       await waitFor(() => {
@@ -170,7 +168,10 @@ describe('StreamFieldRenderer', () => {
       expect(screen.getByText(/Pothos/)).toBeInTheDocument();
       expect(screen.getByText('Epipremnum aureum')).toBeInTheDocument();
       expect(screen.getByText('Care Difficulty: Moderate')).toBeInTheDocument();
-      expect(screen.getByAltText('Golden pothos')).toHaveAttribute('src', 'https://example.com/pothos.jpg');
+      expect(screen.getByAltText('Golden pothos')).toHaveAttribute(
+        'src',
+        'https://example.com/pothos.jpg'
+      );
 
       await waitFor(() => {
         expect(screen.getByText('Hardy trailing plant')).toBeInTheDocument();
@@ -304,8 +305,7 @@ describe('StreamFieldRenderer', () => {
         {
           id: '1',
           type: 'paragraph',
-          value:
-            '<p>Text</p><iframe src="javascript:alert(\'XSS\')"></iframe>',
+          value: '<p>Text</p><iframe src="javascript:alert(\'XSS\')"></iframe>',
         },
       ];
 
@@ -365,14 +365,18 @@ describe('StreamFieldRenderer', () => {
         {
           id: '1',
           type: 'paragraph',
-          value: '<p>Plant photo</p><img src="https://example.com/plant.jpg" alt="Healthy plant" title="Plant" />',
+          value:
+            '<p>Plant photo</p><img src="https://example.com/plant.jpg" alt="Healthy plant" title="Plant" />',
         },
       ];
 
       render(<StreamFieldRenderer blocks={blocks} />);
 
       await waitFor(() => {
-        expect(screen.getByAltText('Healthy plant')).toHaveAttribute('src', 'https://example.com/plant.jpg');
+        expect(screen.getByAltText('Healthy plant')).toHaveAttribute(
+          'src',
+          'https://example.com/plant.jpg'
+        );
       });
     });
 

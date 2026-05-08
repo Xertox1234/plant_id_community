@@ -141,7 +141,7 @@ VITE_API_URL=http://localhost:8000
 ```bash
 SECRET_KEY=your-secret-key
 DEBUG=True
-CORS_ALLOWED_ORIGINS=http://localhost:5173
+CORS_ALLOWED_ORIGINS=http://localhost:5174
 
 # Plant ID APIs
 PLANT_ID_API_KEY=your-plant-id-key
@@ -149,8 +149,8 @@ PLANTNET_API_KEY=your-plantnet-key
 ```
 
 ### Mobile
-- Firebase configuration via FlutterFire CLI
-- See `plant_community_mobile/README.md`
+- Firebase values are passed via `--dart-define` (no FlutterFire CLI needed).
+- See `plant_community_mobile/README.md` for the full list of required keys.
 
 ## 📖 Documentation
 

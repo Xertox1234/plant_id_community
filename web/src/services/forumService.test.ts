@@ -287,10 +287,7 @@ describe('forumService', () => {
       // Assert
       expect(result.items).toEqual([mockThread]);
       expect(result.meta.count).toBe(1);
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('page=1'),
-        expect.any(Object)
-      );
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('page=1'), expect.any(Object));
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('limit=20'),
         expect.any(Object)
@@ -342,10 +339,7 @@ describe('forumService', () => {
       await fetchThreads({ page: 2, limit: 10 });
 
       // Assert
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('page=2'),
-        expect.any(Object)
-      );
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('page=2'), expect.any(Object));
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('limit=10'),
         expect.any(Object)
@@ -487,9 +481,7 @@ describe('forumService', () => {
 
     it('should throw error if thread is missing', async () => {
       // Act & Assert
-      await expect(fetchPosts({ thread: '' })).rejects.toThrow(
-        'Thread slug is required'
-      );
+      await expect(fetchPosts({ thread: '' })).rejects.toThrow('Thread slug is required');
     });
 
     it('should paginate post results', async () => {
@@ -503,10 +495,7 @@ describe('forumService', () => {
       await fetchPosts({ thread: 'thread-123', page: 2, limit: 10 });
 
       // Assert
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('page=2'),
-        expect.any(Object)
-      );
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('page=2'), expect.any(Object));
     });
   });
 
@@ -726,12 +715,8 @@ describe('forumService', () => {
 
     it('should throw error for empty query', async () => {
       // Act & Assert
-      await expect(searchForum({ q: '' })).rejects.toThrow(
-        'Search query is required'
-      );
-      await expect(searchForum({ q: '   ' })).rejects.toThrow(
-        'Search query is required'
-      );
+      await expect(searchForum({ q: '' })).rejects.toThrow('Search query is required');
+      await expect(searchForum({ q: '   ' })).rejects.toThrow('Search query is required');
     });
 
     it('should filter search by category', async () => {
@@ -896,9 +881,7 @@ describe('forumService', () => {
       });
 
       // Act & Assert
-      await expect(uploadPostImage('post-123', file)).rejects.toThrow(
-        'Maximum 6 images per post'
-      );
+      await expect(uploadPostImage('post-123', file)).rejects.toThrow('Maximum 6 images per post');
     });
 
     it('should handle invalid file type errors', async () => {
@@ -911,9 +894,7 @@ describe('forumService', () => {
       });
 
       // Act & Assert
-      await expect(uploadPostImage('post-123', file)).rejects.toThrow(
-        'Invalid file type'
-      );
+      await expect(uploadPostImage('post-123', file)).rejects.toThrow('Invalid file type');
     });
 
     it('should handle upload failure without JSON response', async () => {

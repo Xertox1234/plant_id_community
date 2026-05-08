@@ -7,7 +7,7 @@
  * @module utils/formatDate
  */
 
-import { logger } from './logger'
+import { logger } from './logger';
 
 /**
  * Default locale for date formatting.
@@ -39,7 +39,10 @@ type DateInput = string | Date | null | undefined;
  * formatPublishDate('2025-01-15', 'fr-FR')
  * // Returns: '15 janvier 2025' (in French)
  */
-export function formatPublishDate(dateString: DateInput, locale: string = DEFAULT_LOCALE): string | null {
+export function formatPublishDate(
+  dateString: DateInput,
+  locale: string = DEFAULT_LOCALE
+): string | null {
   if (!dateString) {
     return null;
   }
@@ -84,7 +87,10 @@ export function formatPublishDate(dateString: DateInput, locale: string = DEFAUL
  * formatShortDate('2025-01-15')
  * // Returns: 'Jan 15, 2025'
  */
-export function formatShortDate(dateString: DateInput, locale: string = DEFAULT_LOCALE): string | null {
+export function formatShortDate(
+  dateString: DateInput,
+  locale: string = DEFAULT_LOCALE
+): string | null {
   if (!dateString) {
     return null;
   }
@@ -195,7 +201,10 @@ export function formatRelativeDate(dateString: DateInput): string | null {
  * formatDateTime('2025-01-15T15:30:00')
  * // Returns: 'January 15, 2025 at 3:30 PM'
  */
-export function formatDateTime(dateString: DateInput, locale: string = DEFAULT_LOCALE): string | null {
+export function formatDateTime(
+  dateString: DateInput,
+  locale: string = DEFAULT_LOCALE
+): string | null {
   if (!dateString) {
     return null;
   }

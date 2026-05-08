@@ -47,16 +47,16 @@ export default function ThreadListPage() {
         setError(null);
 
         // Load category info and threads in parallel
-        const [categoryData, threadsData] = await Promise.all([
+        const [categoryData, threadsData] = (await Promise.all([
           fetchCategory(categorySlug),
           fetchThreads({
             category: categorySlug,
             page,
             limit,
             search,
-            ordering
+            ordering,
           }),
-        ]) as [Category, ThreadsData];
+        ])) as [Category, ThreadsData];
 
         setCategory(categoryData);
         setThreads(threadsData.items);
@@ -77,43 +77,52 @@ export default function ThreadListPage() {
   }, [categorySlug, page, search, ordering]);
 
   // Handle search form submission
-  const handleSearch = useCallback((e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const searchQuery = formData.get('search') as string;
+  const handleSearch = useCallback(
+    (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      const formData = new FormData(e.currentTarget);
+      const searchQuery = formData.get('search') as string;
 
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev);
-      if (searchQuery) {
-        newParams.set('search', searchQuery);
-      } else {
-        newParams.delete('search');
-      }
-      newParams.set('page', '1'); // Reset to page 1
-      return newParams;
-    });
-  }, [setSearchParams]);
+      setSearchParams((prev) => {
+        const newParams = new URLSearchParams(prev);
+        if (searchQuery) {
+          newParams.set('search', searchQuery);
+        } else {
+          newParams.delete('search');
+        }
+        newParams.set('page', '1'); // Reset to page 1
+        return newParams;
+      });
+    },
+    [setSearchParams]
+  );
 
   // Handle ordering change
-  const handleOrderChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newOrder = e.target.value;
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev);
-      newParams.set('order', newOrder);
-      newParams.set('page', '1'); // Reset to page 1
-      return newParams;
-    });
-  }, [setSearchParams]);
+  const handleOrderChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const newOrder = e.target.value;
+      setSearchParams((prev) => {
+        const newParams = new URLSearchParams(prev);
+        newParams.set('order', newOrder);
+        newParams.set('page', '1'); // Reset to page 1
+        return newParams;
+      });
+    },
+    [setSearchParams]
+  );
 
   // Handle pagination
-  const handlePageChange = useCallback((newPage: number) => {
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev);
-      newParams.set('page', newPage.toString());
-      return newParams;
-    });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [setSearchParams]);
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      setSearchParams((prev) => {
+        const newParams = new URLSearchParams(prev);
+        newParams.set('page', newPage.toString());
+        return newParams;
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    [setSearchParams]
+  );
 
   // Calculate pagination
   const totalPages = useMemo(() => {
@@ -163,16 +172,10 @@ export default function ThreadListPage() {
               {category.icon}
             </span>
           )}
-          <h1 className="text-4xl font-bold text-gray-900">
-            {category?.name}
-          </h1>
+          <h1 className="text-4xl font-bold text-gray-900">{category?.name}</h1>
         </div>
 
-        {category?.description && (
-          <p className="text-lg text-gray-600">
-            {category.description}
-          </p>
-        )}
+        {category?.description && <p className="text-lg text-gray-600">{category.description}</p>}
       </div>
 
       {/* Toolbar */}
@@ -208,9 +211,7 @@ export default function ThreadListPage() {
           </select>
 
           <Link to={`/forum/new-thread?category=${categorySlug}`}>
-            <Button variant="primary">
-              + New Thread
-            </Button>
+            <Button variant="primary">+ New Thread</Button>
           </Link>
         </div>
       </div>
@@ -223,7 +224,7 @@ export default function ThreadListPage() {
           </span>
           <button
             onClick={() => {
-              setSearchParams(prev => {
+              setSearchParams((prev) => {
                 const newParams = new URLSearchParams(prev);
                 newParams.delete('search');
                 newParams.set('page', '1');
@@ -249,7 +250,7 @@ export default function ThreadListPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {threads.map(thread => (
+          {threads.map((thread) => (
             <ThreadCard key={thread.id} thread={thread} />
           ))}
         </div>
@@ -258,11 +259,7 @@ export default function ThreadListPage() {
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="mt-8 flex justify-center items-center gap-2">
-          <Button
-            onClick={() => handlePageChange(page - 1)}
-            disabled={page <= 1}
-            variant="outline"
-          >
+          <Button onClick={() => handlePageChange(page - 1)} disabled={page <= 1} variant="outline">
             Previous
           </Button>
 

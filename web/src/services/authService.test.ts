@@ -144,10 +144,7 @@ describe('authService', () => {
           body: JSON.stringify(mockLoginCredentials),
         })
       );
-      expect(sessionStorageMock.setItem).toHaveBeenCalledWith(
-        'user',
-        JSON.stringify(mockUser)
-      );
+      expect(sessionStorageMock.setItem).toHaveBeenCalledWith('user', JSON.stringify(mockUser));
     });
 
     it('should fetch CSRF token if not present in cookie', async () => {
@@ -192,9 +189,7 @@ describe('authService', () => {
       });
 
       // Act & Assert
-      await expect(login(mockLoginCredentials)).rejects.toThrow(
-        'Invalid email or password'
-      );
+      await expect(login(mockLoginCredentials)).rejects.toThrow('Invalid email or password');
       expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('user', expect.any(String));
     });
 
@@ -266,10 +261,7 @@ describe('authService', () => {
           body: JSON.stringify(mockSignupData),
         })
       );
-      expect(sessionStorageMock.setItem).toHaveBeenCalledWith(
-        'user',
-        JSON.stringify(mockUser)
-      );
+      expect(sessionStorageMock.setItem).toHaveBeenCalledWith('user', JSON.stringify(mockUser));
     });
 
     it('should validate CSRF token is present', async () => {
@@ -332,9 +324,7 @@ describe('authService', () => {
       });
 
       // Act & Assert
-      await expect(signup(mockSignupData)).rejects.toThrow(
-        'Signup failed with status 500'
-      );
+      await expect(signup(mockSignupData)).rejects.toThrow('Signup failed with status 500');
     });
 
     it('should fetch CSRF token if not present', async () => {
@@ -446,10 +436,7 @@ describe('authService', () => {
           credentials: 'include',
         })
       );
-      expect(sessionStorageMock.setItem).toHaveBeenCalledWith(
-        'user',
-        JSON.stringify(mockUser)
-      );
+      expect(sessionStorageMock.setItem).toHaveBeenCalledWith('user', JSON.stringify(mockUser));
     });
 
     it('should return null and clear sessionStorage if not authenticated (401)', async () => {
@@ -470,9 +457,9 @@ describe('authService', () => {
     it('should fallback to sessionStorage on network error', async () => {
       // Arrange
       fetchMock.mockRejectedValueOnce(new Error('Network error'));
-      sessionStorageMock.getItem.mockImplementation((key: string) => (
+      sessionStorageMock.getItem.mockImplementation((key: string) =>
         key === 'user' ? JSON.stringify(mockUser) : null
-      ));
+      );
 
       // Act
       const result = await getCurrentUser();

@@ -1,18 +1,18 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
-import { ErrorBoundary, FallbackProps } from 'react-error-boundary'
-import { AuthProvider } from './contexts/AuthContext'
-import { RequestProvider } from './contexts/RequestContext'
-import { ErrorFallback } from './components/ErrorBoundary'
-import { initSentry } from './config/sentry'
-import { logger, initLogger } from './utils/logger'
-import { getOrCreateRequestId } from './utils/requestId'
-import './index.css'
-import App from './App'
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import { ErrorBoundary, FallbackProps } from 'react-error-boundary';
+import { AuthProvider } from './contexts/AuthContext';
+import { RequestProvider } from './contexts/RequestContext';
+import { ErrorFallback } from './components/ErrorBoundary';
+import { initSentry } from './config/sentry';
+import { logger, initLogger } from './utils/logger';
+import { getOrCreateRequestId } from './utils/requestId';
+import './index.css';
+import App from './App';
 
 // Initialize Sentry error tracking (production only)
-initSentry()
+initSentry();
 
 // Initialize logger with context accessors
 // Note: We can't directly access React context here, so we'll use a workaround
@@ -22,16 +22,16 @@ initLogger({
   getUserId: () => {
     try {
       // Try to get from sessionStorage (set by AuthContext)
-      const userStr = sessionStorage.getItem('user')
+      const userStr = sessionStorage.getItem('user');
       if (userStr) {
-        const user = JSON.parse(userStr)
-        return user?.id || user?.username || null
+        const user = JSON.parse(userStr);
+        return user?.id || user?.username || null;
       }
     } catch {
-      return null
+      return null;
     }
   },
-})
+});
 
 /**
  * App Entry Point
@@ -59,7 +59,7 @@ createRoot(document.getElementById('root')!).render(
           component: 'ErrorBoundary',
           error,
           errorInfo,
-        })
+        });
         // Sentry automatically captures errors via its ErrorBoundary integration
       }}
       onReset={() => {
@@ -67,7 +67,7 @@ createRoot(document.getElementById('root')!).render(
         // Only add custom logic here if you need to clear specific app state
         logger.info('ErrorBoundary reset', {
           component: 'ErrorBoundary',
-        })
+        });
       }}
     >
       <BrowserRouter>
@@ -78,5 +78,5 @@ createRoot(document.getElementById('root')!).render(
         </RequestProvider>
       </BrowserRouter>
     </ErrorBoundary>
-  </StrictMode>,
-)
+  </StrictMode>
+);

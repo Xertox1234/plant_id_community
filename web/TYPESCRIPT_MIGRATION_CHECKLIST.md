@@ -9,11 +9,13 @@
 ## Pre-Migration Setup
 
 - [ ] **Install TypeScript dependencies**
+
   ```bash
   npm install --save-dev typescript @types/react @types/react-dom
   ```
 
 - [ ] **Create lenient tsconfig.json**
+
   ```json
   {
     "compilerOptions": {
@@ -23,8 +25,8 @@
       "module": "ESNext",
       "moduleResolution": "bundler",
 
-      "strict": false,        // ← Lenient during migration
-      "allowJs": true,        // ← CRITICAL: Allow JS files
+      "strict": false, // ← Lenient during migration
+      "allowJs": true, // ← CRITICAL: Allow JS files
       "checkJs": false,
 
       "isolatedModules": true,
@@ -36,6 +38,7 @@
   ```
 
 - [ ] **Convert build configs to TypeScript**
+
   ```bash
   mv vite.config.js vite.config.ts
   mv vitest.config.js vitest.config.ts
@@ -43,12 +46,14 @@
   ```
 
 - [ ] **Run baseline tests, document results**
+
   ```bash
   npm run test > baseline-tests.txt
   # Document: X passing, Y failing
   ```
 
 - [ ] **Verify build still works**
+
   ```bash
   npm run build
   npm run dev
@@ -79,6 +84,7 @@
 - [ ] `tests/forumUtils.ts`
 
 **After conversion**:
+
 - [ ] `npx tsc --noEmit` passes
 - [ ] `npm run test` - same pass rate as baseline
 - [ ] Commit: `git commit -m "feat: migrate utilities to TypeScript (Phase 2)"`
@@ -99,6 +105,7 @@
 - [ ] `types/index.ts` - Barrel export
 
 **Barrel export** (`types/index.ts`):
+
 ```typescript
 export type { User, LoginCredentials, AuthResponse } from './auth';
 export type { Thread, Post, Category } from './forum';
@@ -107,6 +114,7 @@ export type { BlogPost, StreamFieldBlock } from './blog';
 ```
 
 **Configure path alias** (tsconfig.json):
+
 ```json
 {
   "compilerOptions": {
@@ -119,6 +127,7 @@ export type { BlogPost, StreamFieldBlock } from './blog';
 ```
 
 **After creation**:
+
 - [ ] All domain entities have type definitions
 - [ ] Barrel export works: `import type { User } from '@/types'`
 - [ ] Commit: `git commit -m "feat: create TypeScript type definitions (Phase 3)"`
@@ -136,21 +145,18 @@ export type { BlogPost, StreamFieldBlock } from './blog';
 - [ ] `services/diagnosisService.ts`
 
 **Pattern**: Add type annotations to function signatures
+
 ```typescript
 import type { User, LoginCredentials, AuthResponse } from '@/types';
 
-export async function loginUser(
-  credentials: LoginCredentials
-): Promise<AuthResponse> {
-  const response = await httpClient.post<AuthResponse>(
-    '/api/v1/auth/login/',
-    credentials
-  );
+export async function loginUser(credentials: LoginCredentials): Promise<AuthResponse> {
+  const response = await httpClient.post<AuthResponse>('/api/v1/auth/login/', credentials);
   return response.data;
 }
 ```
 
 **After conversion**:
+
 - [ ] All service methods have type annotations
 - [ ] Return types specified for all functions
 - [ ] `npx tsc --noEmit` passes
@@ -168,6 +174,7 @@ export async function loginUser(
 - [ ] `hooks/useAuth.ts`
 
 **Pattern**: Define context value interface
+
 ```typescript
 import type { User } from '@/types';
 import { ReactNode } from 'react';
@@ -192,6 +199,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 ```
 
 **After conversion**:
+
 - [ ] Context values have type definitions
 - [ ] Custom hooks have return type annotations
 - [ ] `npx tsc --noEmit` passes
@@ -205,17 +213,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
 **Strategy**: Convert components bottom-up (simple → complex)
 
 **Simple UI** (3 files):
+
 - [ ] `components/ui/Button.tsx`
 - [ ] `components/ui/Input.tsx`
 - [ ] `components/ui/LoadingSpinner.tsx`
 
 **Card Components** (4 files):
+
 - [ ] `components/BlogCard.tsx`
 - [ ] `components/forum/CategoryCard.tsx`
 - [ ] `components/forum/PostCard.tsx`
 - [ ] `components/forum/ThreadCard.tsx`
 
 **Layout Components** (4 files):
+
 - [ ] `components/layout/Header.tsx`
 - [ ] `components/layout/Footer.tsx`
 - [ ] `components/layout/UserMenu.tsx`
@@ -223,22 +234,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
 - [ ] `layouts/ProtectedLayout.tsx`
 
 **Complex Components** (4 files):
+
 - [ ] `components/forum/TipTapEditor.tsx`
 - [ ] `components/forum/ImageUploadWidget.tsx`
 - [ ] `components/StreamFieldRenderer.tsx`
 - [ ] `components/ErrorBoundary.tsx`
 
 **Diagnosis Components** (4 files):
+
 - [ ] `components/diagnosis/DiagnosisCard.tsx`
 - [ ] `components/diagnosis/ReminderManager.tsx`
 - [ ] `components/diagnosis/SaveDiagnosisModal.tsx`
 - [ ] `components/diagnosis/StreamFieldEditor.tsx`
 
 **PlantIdentification Components** (2 files):
+
 - [ ] `components/PlantIdentification/FileUpload.tsx`
 - [ ] `components/PlantIdentification/IdentificationResults.tsx`
 
 **Pattern**: Define props interface, remove PropTypes
+
 ```typescript
 import type { BlogPost } from '@/types';
 
@@ -261,6 +276,7 @@ BlogCard.propTypes = { /* ... */ };
 ```
 
 **After conversion**:
+
 - [ ] All components have props interfaces
 - [ ] PropTypes still present (defense in depth)
 - [ ] `npx tsc --noEmit` passes
@@ -274,22 +290,26 @@ BlogCard.propTypes = { /* ... */ };
 **Strategy**: Convert route components last
 
 **Auth Pages** (2 files):
+
 - [ ] `pages/auth/LoginPage.tsx`
 - [ ] `pages/auth/SignupPage.tsx`
 
 **Simple Pages** (4 files):
+
 - [ ] `pages/HomePage.tsx`
 - [ ] `pages/IdentifyPage.tsx`
 - [ ] `pages/ProfilePage.tsx`
 - [ ] `pages/SettingsPage.tsx`
 
 **Blog Pages** (4 files):
+
 - [ ] `pages/BlogPage.tsx`
 - [ ] `pages/BlogListPage.tsx`
 - [ ] `pages/BlogDetailPage.tsx`
 - [ ] `pages/BlogPreview.tsx`
 
 **Forum Pages** (5 files):
+
 - [ ] `pages/ForumPage.tsx`
 - [ ] `pages/forum/CategoryListPage.tsx`
 - [ ] `pages/forum/ThreadListPage.tsx`
@@ -297,17 +317,21 @@ BlogCard.propTypes = { /* ... */ };
 - [ ] `pages/forum/SearchPage.tsx`
 
 **Diagnosis Pages** (2 files):
+
 - [ ] `pages/diagnosis/DiagnosisListPage.tsx`
 - [ ] `pages/diagnosis/DiagnosisDetailPage.tsx`
 
 **App Entry** (2 files):
+
 - [ ] `App.tsx`
 - [ ] `main.tsx`
 
 **Config** (1 file):
+
 - [ ] `config/sentry.ts`
 
 **Pattern**: Type route params
+
 ```typescript
 import type { Thread } from '@/types';
 
@@ -319,6 +343,7 @@ export default function ThreadDetailPage() {
 ```
 
 **After conversion**:
+
 - [ ] All pages have proper type annotations
 - [ ] Route params typed with useParams<T>
 - [ ] `npx tsc --noEmit` passes
@@ -332,6 +357,7 @@ export default function ThreadDetailPage() {
 **Critical Fixes**:
 
 - [ ] **React Router v7 Import Fix**
+
   ```bash
   # Global find-replace
   find src -type f \( -name "*.ts" -o -name "*.tsx" \) \
@@ -343,6 +369,7 @@ export default function ThreadDetailPage() {
   ```
 
 - [ ] **Memory Leak Prevention** (useRef for timers)
+
   ```typescript
   // Find all useState timers
   grep -r "useState.*Timeout" src/
@@ -359,6 +386,7 @@ export default function ThreadDetailPage() {
   ```
 
 - [ ] **Logger Type Safety**
+
   ```typescript
   // Find raw error logging
   grep -r "logger\.error.*error)" src/
@@ -376,6 +404,7 @@ export default function ThreadDetailPage() {
   ```
 
 **Verification**:
+
 - [ ] `npx tsc --noEmit` - ZERO errors
 - [ ] `npm run test` - same pass rate as baseline
 - [ ] `npm run build` - succeeds
@@ -387,39 +416,46 @@ export default function ThreadDetailPage() {
 ## Phase 9: Final Cleanup
 
 **Remove PropTypes**:
+
 - [ ] Verify 100% TypeScript conversion
+
   ```bash
   find src -name "*.js" -o -name "*.jsx"
   # Should return NOTHING
   ```
 
 - [ ] Verify zero TypeScript errors
+
   ```bash
   npx tsc --noEmit
   # Exit code 0 (success)
   ```
 
 - [ ] Run full test suite
+
   ```bash
   npm run test
   # Should match baseline pass rate
   ```
 
 - [ ] Set `allowJs: false` in tsconfig.json
+
   ```json
   {
     "compilerOptions": {
-      "allowJs": false  // ← Enforce TypeScript only
+      "allowJs": false // ← Enforce TypeScript only
     }
   }
   ```
 
 - [ ] Remove prop-types package
+
   ```bash
   npm uninstall prop-types
   ```
 
 - [ ] Remove PropTypes imports/definitions
+
   ```bash
   # Remove imports
   find src -type f \( -name "*.ts" -o -name "*.tsx" \) \
@@ -431,6 +467,7 @@ export default function ThreadDetailPage() {
   ```
 
 - [ ] Final verification
+
   ```bash
   npx tsc --noEmit   # Zero errors
   npm run test       # Tests pass
@@ -495,24 +532,31 @@ export default function ThreadDetailPage() {
 ## Common Issues & Solutions
 
 ### Issue: TypeScript errors in JS files during migration
+
 **Solution**: Ensure `allowJs: true` and `checkJs: false` in tsconfig.json
 
 ### Issue: Tests fail after converting files
+
 **Solution**: Run tests after every 5-10 file conversions to isolate failures
 
 ### Issue: Memory leaks from debounce timers
+
 **Solution**: Use `useRef` instead of `useState` for timers, add cleanup in useEffect
 
 ### Issue: React Router context errors
+
 **Solution**: Change imports from `'react-router'` to `'react-router-dom'`
 
 ### Issue: Logger type errors with Error objects
+
 **Solution**: Wrap errors in context objects: `logger.error('[PREFIX]', { error })`
 
 ### Issue: Readonly type incompatibility
+
 **Solution**: Accept both: `readonly T[] | T[]` in interfaces
 
 ### Issue: Runtime errors after removing PropTypes
+
 **Solution**: Only remove PropTypes after 100% TypeScript conversion and `allowJs: false`
 
 ---
@@ -520,6 +564,7 @@ export default function ThreadDetailPage() {
 ## Success Metrics
 
 **Migration Complete When**:
+
 - ✅ Zero `.js` or `.jsx` files in `src/`
 - ✅ `npx tsc --noEmit` exits with code 0
 - ✅ `allowJs: false` in tsconfig.json
@@ -529,6 +574,7 @@ export default function ThreadDetailPage() {
 - ✅ Production deployment successful
 
 **Example Success**:
+
 - Files Converted: 50+ files
 - Lines Migrated: ~10,000 lines
 - TypeScript Errors: 0

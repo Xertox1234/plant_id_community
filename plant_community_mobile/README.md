@@ -57,10 +57,12 @@ missing at runtime, the app shows an actionable configuration screen instead of
 crashing during startup.
 
 Android builds intentionally do not apply the Gradle Google Services plugin in
-this repository because `android/app/google-services.json` is ignored and not
-required when Firebase is initialized with explicit `FirebaseOptions`. Keep local
-native Firebase files out of git; use `--dart-define` values for CI and release
-builds.
+this repository. `android/app/google-services.json` is tracked as a canonical
+record of the Firebase project identifiers, but it is not read by the Gradle
+build — Firebase is initialized via explicit `FirebaseOptions` from `--dart-define`
+values. `ios/Runner/GoogleService-Info.plist` is tracked and bundled into the iOS
+app via Xcode Resources, which is required for the iOS build. Neither file
+contains backend secrets; use `--dart-define` values for CI and release builds.
 
 ### Validation Checklist
 

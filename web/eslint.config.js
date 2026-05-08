@@ -1,13 +1,13 @@
-import js from '@eslint/js'
-import globals from 'globals'
-import reactHooks from 'eslint-plugin-react-hooks'
-import reactRefresh from 'eslint-plugin-react-refresh'
-import { defineConfig, globalIgnores } from 'eslint/config'
-import tseslint from '@typescript-eslint/eslint-plugin'
-import tsparser from '@typescript-eslint/parser'
-import { fileURLToPath } from 'node:url'
+import js from '@eslint/js';
+import globals from 'globals';
+import reactHooks from 'eslint-plugin-react-hooks';
+import reactRefresh from 'eslint-plugin-react-refresh';
+import { defineConfig, globalIgnores } from 'eslint/config';
+import tseslint from '@typescript-eslint/eslint-plugin';
+import tsparser from '@typescript-eslint/parser';
+import { fileURLToPath } from 'node:url';
 
-const tsconfigRootDir = fileURLToPath(new URL('.', import.meta.url))
+const tsconfigRootDir = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig([
   globalIgnores(['dist']),
@@ -64,7 +64,10 @@ export default defineConfig([
       // Disable no-unused-vars in favor of TypeScript's noUnusedLocals
       'no-unused-vars': 'off',
       'no-undef': 'off',
-      '@typescript-eslint/no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^_' },
+      ],
       // Intentional pattern: data-fetching functions called inside useEffect is valid
       'react-hooks/set-state-in-effect': 'off',
       // Enforce structured logger usage (no console.log/error/warn in production code)
@@ -74,7 +77,12 @@ export default defineConfig([
     },
   },
   {
-    files: ['**/*.test.{js,jsx,ts,tsx}', '**/*.spec.{js,jsx,ts,tsx}', '**/tests/**/*.{js,jsx,ts,tsx}', '**/test/**/*.{js,jsx,ts,tsx}'],
+    files: [
+      '**/*.test.{js,jsx,ts,tsx}',
+      '**/*.spec.{js,jsx,ts,tsx}',
+      '**/tests/**/*.{js,jsx,ts,tsx}',
+      '**/test/**/*.{js,jsx,ts,tsx}',
+    ],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -84,7 +92,13 @@ export default defineConfig([
   },
   // E2E and test files may use console output for diagnostics.
   {
-    files: ['e2e/**/*.{js,jsx,ts,tsx}', '**/*.test.{js,jsx,ts,tsx}', '**/*.spec.{js,jsx,ts,tsx}', '**/tests/**/*.{js,jsx,ts,tsx}', '**/test/**/*.{js,jsx,ts,tsx}'],
+    files: [
+      'e2e/**/*.{js,jsx,ts,tsx}',
+      '**/*.test.{js,jsx,ts,tsx}',
+      '**/*.spec.{js,jsx,ts,tsx}',
+      '**/tests/**/*.{js,jsx,ts,tsx}',
+      '**/test/**/*.{js,jsx,ts,tsx}',
+    ],
     rules: {
       'no-console': 'off',
     },
@@ -97,4 +111,4 @@ export default defineConfig([
       'no-console': 'off',
     },
   },
-])
+]);

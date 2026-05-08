@@ -20,9 +20,7 @@ import { AuthProvider } from '../contexts/AuthContext';
 export function renderWithRouter(ui, options = {}) {
   return render(
     <BrowserRouter>
-      <AuthProvider>
-        {ui}
-      </AuthProvider>
+      <AuthProvider>{ui}</AuthProvider>
     </BrowserRouter>,
     options
   );
@@ -37,12 +35,7 @@ export function renderWithRouter(ui, options = {}) {
  * @returns {Object} Testing Library render result
  */
 export function renderWithRouterOnly(ui, options = {}) {
-  return render(
-    <BrowserRouter>
-      {ui}
-    </BrowserRouter>,
-    options
-  );
+  return render(<BrowserRouter>{ui}</BrowserRouter>, options);
 }
 
 /**
@@ -61,9 +54,7 @@ export function createMockBlogPost(overrides = {}) {
       first_name: 'John',
       last_name: 'Doe',
     },
-    categories: [
-      { name: 'Gardening' },
-    ],
+    categories: [{ name: 'Gardening' }],
     tags: ['plants', 'care'],
     view_count: 100,
     featured_image: {

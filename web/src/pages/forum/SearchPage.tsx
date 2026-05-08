@@ -11,28 +11,40 @@ import type { Category, SearchForumResponse } from '@/types';
 function highlightText(text: string | undefined, query: string) {
   if (!text || !query.trim()) return text || '';
 
-  const terms = query.trim().split(/\s+/).filter(Boolean).map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const terms = query
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   if (terms.length === 0) return text;
 
   const regex = new RegExp(`(${terms.join('|')})`, 'gi');
-  return text.split(regex).map((part, index) => (
+  return text.split(regex).map((part, index) =>
     new RegExp(`^(${terms.join('|')})$`, 'i').test(part) ? (
-      <mark key={`${part}-${index}`} className="bg-yellow-200 rounded px-0.5">{part}</mark>
-    ) : part
-  ));
+      <mark key={`${part}-${index}`} className="bg-yellow-200 rounded px-0.5">
+        {part}
+      </mark>
+    ) : (
+      part
+    )
+  );
 }
 
 function hasSearchMatch(text: string | undefined, query: string): boolean {
   if (!text || !query.trim()) return false;
 
-  return query.trim().split(/\s+/).filter(Boolean).some((term) => (
-    text.toLowerCase().includes(term.toLowerCase())
-  ));
+  return query
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .some((term) => text.toLowerCase().includes(term.toLowerCase()));
 }
 
-type CategoriesResponse = Category[] | {
-  results: Category[];
-};
+type CategoriesResponse =
+  | Category[]
+  | {
+      results: Category[];
+    };
 
 /**
  * SearchPage Component
@@ -73,7 +85,7 @@ export default function SearchPage() {
     if (query) {
       setSearchInput(query);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load categories for filter dropdown
@@ -82,7 +94,9 @@ export default function SearchPage() {
       try {
         const data = await fetchCategories();
         const categoriesResponse = data as unknown as CategoriesResponse;
-        setCategories(Array.isArray(categoriesResponse) ? categoriesResponse : categoriesResponse.results || []);
+        setCategories(
+          Array.isArray(categoriesResponse) ? categoriesResponse : categoriesResponse.results || []
+        );
       } catch (err) {
         logger.error('Error loading categories', {
           component: 'SearchPage',
@@ -147,85 +161,100 @@ export default function SearchPage() {
   }, []);
 
   // Handle search input with debouncing
-  const handleSearchInput = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setSearchInput(value);
+  const handleSearchInput = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const value = e.target.value;
+      setSearchInput(value);
 
-    // Clear existing timer
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-
-    // Set new timer
-    debounceTimerRef.current = setTimeout(() => {
-      if (value.trim()) {
-        setSearchParams(prev => {
-          const newParams = new URLSearchParams(prev);
-          newParams.set('q', value.trim());
-          newParams.set('page', '1'); // Reset to page 1
-          return newParams;
-        });
-      } else {
-        setSearchParams(prev => {
-          const newParams = new URLSearchParams(prev);
-          newParams.delete('q');
-          return newParams;
-        });
+      // Clear existing timer
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
       }
-    }, 300); // 300ms debounce
-  }, [setSearchParams]);
+
+      // Set new timer
+      debounceTimerRef.current = setTimeout(() => {
+        if (value.trim()) {
+          setSearchParams((prev) => {
+            const newParams = new URLSearchParams(prev);
+            newParams.set('q', value.trim());
+            newParams.set('page', '1'); // Reset to page 1
+            return newParams;
+          });
+        } else {
+          setSearchParams((prev) => {
+            const newParams = new URLSearchParams(prev);
+            newParams.delete('q');
+            return newParams;
+          });
+        }
+      }, 300); // 300ms debounce
+    },
+    [setSearchParams]
+  );
 
   // Handle filter changes
-  const handleCategoryFilter = useCallback((e: ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value;
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev);
-      if (value) {
-        newParams.set('category', value);
-      } else {
-        newParams.delete('category');
-      }
-      newParams.set('page', '1');
-      return newParams;
-    });
-  }, [setSearchParams]);
+  const handleCategoryFilter = useCallback(
+    (e: ChangeEvent<HTMLSelectElement>) => {
+      const value = e.target.value;
+      setSearchParams((prev) => {
+        const newParams = new URLSearchParams(prev);
+        if (value) {
+          newParams.set('category', value);
+        } else {
+          newParams.delete('category');
+        }
+        newParams.set('page', '1');
+        return newParams;
+      });
+    },
+    [setSearchParams]
+  );
 
-  const handleAuthorFilter = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev);
-      if (value) {
-        newParams.set('author', value);
-      } else {
-        newParams.delete('author');
-      }
-      newParams.set('page', '1');
-      return newParams;
-    });
-  }, [setSearchParams]);
+  const handleAuthorFilter = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const value = e.target.value;
+      setSearchParams((prev) => {
+        const newParams = new URLSearchParams(prev);
+        if (value) {
+          newParams.set('author', value);
+        } else {
+          newParams.delete('author');
+        }
+        newParams.set('page', '1');
+        return newParams;
+      });
+    },
+    [setSearchParams]
+  );
 
-  const handleDateFilter = useCallback((key: 'date_from' | 'date_to', value: string) => {
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev);
-      if (value) {
-        newParams.set(key, value);
-      } else {
-        newParams.delete(key);
-      }
-      newParams.set('page', '1');
-      return newParams;
-    });
-  }, [setSearchParams]);
+  const handleDateFilter = useCallback(
+    (key: 'date_from' | 'date_to', value: string) => {
+      setSearchParams((prev) => {
+        const newParams = new URLSearchParams(prev);
+        if (value) {
+          newParams.set(key, value);
+        } else {
+          newParams.delete(key);
+        }
+        newParams.set('page', '1');
+        return newParams;
+      });
+    },
+    [setSearchParams]
+  );
 
   // Handle pagination
-  const handlePageChange = useCallback((newPage: number) => {
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev);
-      newParams.set('page', newPage.toString());
-      return newParams;
-    });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [setSearchParams]);
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      setSearchParams((prev) => {
+        const newParams = new URLSearchParams(prev);
+        newParams.set('page', newPage.toString());
+        return newParams;
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    [setSearchParams]
+  );
 
   // Clear all filters
   const handleClearFilters = useCallback(() => {
@@ -241,12 +270,8 @@ export default function SearchPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Forum Search
-        </h1>
-        <p className="text-gray-600">
-          Search across threads and posts
-        </p>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Forum Search</h1>
+        <p className="text-gray-600">Search across threads and posts</p>
       </div>
 
       {/* Search Bar */}
@@ -295,7 +320,10 @@ export default function SearchPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Category Filter */}
           <div>
-            <label htmlFor="category-filter" className="block text-sm font-medium text-gray-700 mb-2">
+            <label
+              htmlFor="category-filter"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
               Category
             </label>
             <select
@@ -305,7 +333,7 @@ export default function SearchPage() {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
             >
               <option value="">All Categories</option>
-              {categories.map(cat => (
+              {categories.map((cat) => (
                 <option key={cat.id} value={cat.slug}>
                   {cat.name}
                 </option>
@@ -330,7 +358,10 @@ export default function SearchPage() {
 
           {/* Date From Filter */}
           <div>
-            <label htmlFor="date-from-filter" className="block text-sm font-medium text-gray-700 mb-2">
+            <label
+              htmlFor="date-from-filter"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
               From
             </label>
             <input
@@ -344,7 +375,10 @@ export default function SearchPage() {
 
           {/* Date To Filter */}
           <div>
-            <label htmlFor="date-to-filter" className="block text-sm font-medium text-gray-700 mb-2">
+            <label
+              htmlFor="date-to-filter"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
               To
             </label>
             <input
@@ -396,11 +430,8 @@ export default function SearchPage() {
           {/* Results Summary */}
           <div className="mb-6">
             <p className="text-gray-700">
-              Found{' '}
-              <span className="font-semibold">{searchResults.total_threads}</span>{' '}
-              thread(s) and{' '}
-              <span className="font-semibold">{searchResults.total_posts}</span>{' '}
-              post(s) for{' '}
+              Found <span className="font-semibold">{searchResults.total_threads}</span> thread(s)
+              and <span className="font-semibold">{searchResults.total_posts}</span> post(s) for{' '}
               <span className="font-semibold">"{query}"</span>
             </p>
           </div>
@@ -412,11 +443,15 @@ export default function SearchPage() {
                 Threads ({searchResults.total_threads})
               </h2>
               <div className="space-y-4">
-                {searchResults.threads.map(thread => (
+                {searchResults.threads.map((thread) => (
                   <div key={thread.id}>
                     <ThreadCard thread={thread} />
-                    {(hasSearchMatch(thread.title, query) || hasSearchMatch(thread.excerpt, query)) && (
-                      <p className="mt-2 text-sm text-gray-700 bg-yellow-50 border border-yellow-100 rounded-lg p-3" aria-label="Highlighted thread match">
+                    {(hasSearchMatch(thread.title, query) ||
+                      hasSearchMatch(thread.excerpt, query)) && (
+                      <p
+                        className="mt-2 text-sm text-gray-700 bg-yellow-50 border border-yellow-100 rounded-lg p-3"
+                        aria-label="Highlighted thread match"
+                      >
                         {highlightText(thread.title, query)}
                         {thread.excerpt && <span> — {highlightText(thread.excerpt, query)}</span>}
                       </p>
@@ -434,11 +469,14 @@ export default function SearchPage() {
                 Posts ({searchResults.total_posts})
               </h2>
               <div className="space-y-4">
-                {searchResults.posts.map(post => (
+                {searchResults.posts.map((post) => (
                   <div key={post.id}>
                     <PostCard post={post} />
                     {hasSearchMatch(post.content_raw, query) && (
-                      <p className="mt-2 text-sm text-gray-700 bg-yellow-50 border border-yellow-100 rounded-lg p-3" aria-label="Highlighted post match">
+                      <p
+                        className="mt-2 text-sm text-gray-700 bg-yellow-50 border border-yellow-100 rounded-lg p-3"
+                        aria-label="Highlighted post match"
+                      >
                         {highlightText(post.content_raw, query)}
                       </p>
                     )}
@@ -480,9 +518,7 @@ export default function SearchPage() {
               >
                 Previous
               </Button>
-              <span className="px-4 py-2 text-gray-700">
-                Page {page}
-              </span>
+              <span className="px-4 py-2 text-gray-700">Page {page}</span>
               <Button
                 onClick={() => handlePageChange(page + 1)}
                 disabled={!searchResults.has_next_threads && !searchResults.has_next_posts}

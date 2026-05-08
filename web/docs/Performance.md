@@ -11,12 +11,14 @@ The web frontend implements client-side image compression as part of Week 2 Perf
 ### Problem Statement
 
 **Before Optimization:**
+
 - Users uploaded raw photos (5-15MB)
 - Upload times: 40-80 seconds on slow connections
 - Backend processing overhead
 - High bandwidth costs
 
 **After Optimization:**
+
 - Client-side compression reduces files to <1MB
 - Upload times: 3-5 seconds
 - 85% bandwidth savings
@@ -38,160 +40,162 @@ The web frontend implements client-side image compression as part of Week 2 Perf
  */
 export async function compressImage(file, maxWidth = 1200, quality = 0.85) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader()
+    const reader = new FileReader();
 
     reader.onload = (e) => {
-      const img = new Image()
+      const img = new Image();
 
       img.onload = () => {
         // Calculate new dimensions (maintain aspect ratio)
-        let width = img.width
-        let height = img.height
+        let width = img.width;
+        let height = img.height;
 
         if (width > maxWidth) {
-          height = (height * maxWidth) / width
-          width = maxWidth
+          height = (height * maxWidth) / width;
+          width = maxWidth;
         }
 
         // Create canvas and draw resized image
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
 
-        const ctx = canvas.getContext('2d')
-        ctx.drawImage(img, 0, 0, width, height)
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
 
         // Convert to blob
         canvas.toBlob(
           (blob) => {
             if (!blob) {
-              reject(new Error('Canvas toBlob failed'))
-              return
+              reject(new Error('Canvas toBlob failed'));
+              return;
             }
 
             // Create new File from blob
             const compressedFile = new File([blob], file.name.replace(/\.\w+$/, '.jpg'), {
               type: 'image/jpeg',
               lastModified: Date.now(),
-            })
+            });
 
-            resolve(compressedFile)
+            resolve(compressedFile);
           },
           'image/jpeg',
           quality
-        )
-      }
+        );
+      };
 
-      img.onerror = () => reject(new Error('Failed to load image'))
-      img.src = e.target.result
-    }
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = e.target.result;
+    };
 
-    reader.onerror = () => reject(new Error('Failed to read file'))
-    reader.readAsDataURL(file)
-  })
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
 }
 ```
 
 ### Compression Parameters
 
-| Parameter | Value | Rationale |
-|-----------|-------|-----------|
-| Max Width | 1200px | Sufficient for AI identification |
-| Quality | 0.85 | Balanced quality/size trade-off |
-| Threshold | 2MB | Only compress files > 2MB |
-| Format | JPEG | Universal support, good compression |
+| Parameter | Value  | Rationale                           |
+| --------- | ------ | ----------------------------------- |
+| Max Width | 1200px | Sufficient for AI identification    |
+| Quality   | 0.85   | Balanced quality/size trade-off     |
+| Threshold | 2MB    | Only compress files > 2MB           |
+| Format    | JPEG   | Universal support, good compression |
 
 ### Performance Metrics
 
 **Real-World Results:**
 
-| Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| File Size (10MB image) | 10.5 MB | 850 KB | 92% smaller |
-| Upload Time (3G) | 65s | 4s | 93% faster |
-| Upload Time (4G) | 42s | 2.5s | 94% faster |
-| Upload Time (WiFi) | 8s | 1s | 87% faster |
-| Processing Time | +2s overhead | Negligible | Better |
+| Metric                 | Before       | After      | Improvement |
+| ---------------------- | ------------ | ---------- | ----------- |
+| File Size (10MB image) | 10.5 MB      | 850 KB     | 92% smaller |
+| Upload Time (3G)       | 65s          | 4s         | 93% faster  |
+| Upload Time (4G)       | 42s          | 2.5s       | 94% faster  |
+| Upload Time (WiFi)     | 8s           | 1s         | 87% faster  |
+| Processing Time        | +2s overhead | Negligible | Better      |
 
 **Compression Ratios by File Size:**
 
-| Original Size | Compressed Size | Reduction |
-|---------------|-----------------|-----------|
-| 2 MB | 2 MB | 0% (skipped) |
-| 5 MB | 680 KB | 86% |
-| 10 MB | 850 KB | 92% |
-| 15 MB | 950 KB | 94% |
+| Original Size | Compressed Size | Reduction    |
+| ------------- | --------------- | ------------ |
+| 2 MB          | 2 MB            | 0% (skipped) |
+| 5 MB          | 680 KB          | 86%          |
+| 10 MB         | 850 KB          | 92%          |
+| 15 MB         | 950 KB          | 94%          |
 
 ### Usage in Components
 
 #### FileUpload Component
 
 ```javascript
-import { compressImage, shouldCompressImage } from '../utils/imageCompression'
+import { compressImage, shouldCompressImage } from '../utils/imageCompression';
 
 const handleFileChange = async (file) => {
-  if (!file) return
+  if (!file) return;
 
-  let fileToUse = file
+  let fileToUse = file;
 
   // Auto-compress if over threshold
   if (shouldCompressImage(file)) {
     try {
-      const compressed = await compressImage(file)
+      const compressed = await compressImage(file);
 
       // Show compression stats to user
       setCompressionStats({
         original: {
           size: file.size,
-          formatted: formatFileSize(file.size)
+          formatted: formatFileSize(file.size),
         },
         compressed: {
           size: compressed.size,
-          formatted: formatFileSize(compressed.size)
+          formatted: formatFileSize(compressed.size),
         },
-        reduction: ((1 - compressed.size / file.size) * 100).toFixed(1)
-      })
+        reduction: ((1 - compressed.size / file.size) * 100).toFixed(1),
+      });
 
-      fileToUse = compressed
+      fileToUse = compressed;
     } catch (error) {
-      console.error('Compression failed:', error)
+      console.error('Compression failed:', error);
       // Fallback to original file
     }
   }
 
-  onFileSelect(fileToUse)
-}
+  onFileSelect(fileToUse);
+};
 ```
 
 #### UI Feedback
 
 ```javascript
-{compressionStats && (
-  <div className="mt-2 text-sm text-gray-600">
-    <p className="font-semibold text-green-600">Image compressed!</p>
-    <p>Original: {compressionStats.original.formatted}</p>
-    <p>Compressed: {compressionStats.compressed.formatted}</p>
-    <p>Saved: {compressionStats.reduction}%</p>
-  </div>
-)}
+{
+  compressionStats && (
+    <div className="mt-2 text-sm text-gray-600">
+      <p className="font-semibold text-green-600">Image compressed!</p>
+      <p>Original: {compressionStats.original.formatted}</p>
+      <p>Compressed: {compressionStats.compressed.formatted}</p>
+      <p>Saved: {compressionStats.reduction}%</p>
+    </div>
+  );
+}
 ```
 
 ### Error Handling
 
 ```javascript
 try {
-  const compressed = await compressImage(file)
-  return compressed
+  const compressed = await compressImage(file);
+  return compressed;
 } catch (error) {
   // Log error but don't fail the upload
-  console.error('Compression failed:', error)
+  console.error('Compression failed:', error);
 
   // Fallback strategies:
   // 1. Use original file
   // 2. Show warning to user
   // 3. Suggest manual compression
 
-  return file  // Graceful degradation
+  return file; // Graceful degradation
 }
 ```
 
@@ -236,6 +240,7 @@ const compressImage = async (file) => {
 ### Browser Compatibility
 
 **Supported Browsers:**
+
 - ✅ Chrome 60+
 - ✅ Firefox 55+
 - ✅ Safari 11+
@@ -243,25 +248,27 @@ const compressImage = async (file) => {
 - ✅ Mobile browsers (iOS Safari, Chrome Mobile)
 
 **Required APIs:**
+
 - FileReader API
 - Canvas API
 - Blob API
 - File API
 
 **Fallback for Unsupported Browsers:**
+
 ```javascript
 const supportsCompression = () => {
   try {
-    const canvas = document.createElement('canvas')
-    return !!(canvas.getContext && canvas.getContext('2d'))
+    const canvas = document.createElement('canvas');
+    return !!(canvas.getContext && canvas.getContext('2d'));
   } catch {
-    return false
+    return false;
   }
-}
+};
 
 if (!supportsCompression()) {
-  console.warn('Compression not supported, using original file')
-  return file
+  console.warn('Compression not supported, using original file');
+  return file;
 }
 ```
 
@@ -270,16 +277,19 @@ if (!supportsCompression()) {
 ### Vite Optimization
 
 **Fast Development:**
+
 - Cold start: <500ms
 - HMR updates: <100ms
 - No bundling in dev mode (ES modules)
 
 **Production Build:**
+
 ```bash
 npm run build
 ```
 
 **Output Analysis:**
+
 ```
 vite v7.1.7 building for production...
 ✓ 127 modules transformed.
@@ -293,6 +303,7 @@ dist/assets/vendor-i9j0k1l2.js  148.63 kB │ gzip: 47.25 kB
 ### Code Splitting
 
 **Automatic Route-Based Splitting:**
+
 ```javascript
 // Vite automatically splits by route
 const HomePage = React.lazy(() => import('./pages/HomePage'))
@@ -308,6 +319,7 @@ const IdentifyPage = React.lazy(() => import('./pages/IdentifyPage'))
 ```
 
 **Bundle Size by Route:**
+
 - Home: ~15 KB (shared vendor chunks not included)
 - Identify: ~22 KB (includes image compression utils)
 - Blog: ~8 KB (placeholder)
@@ -317,21 +329,23 @@ const IdentifyPage = React.lazy(() => import('./pages/IdentifyPage'))
 ### Tree Shaking
 
 **Lucide Icons (Tree-Shakeable):**
+
 ```javascript
 // ✅ Good: Only imports specific icons
-import { Upload, CheckCircle, AlertCircle } from 'lucide-react'
+import { Upload, CheckCircle, AlertCircle } from 'lucide-react';
 
 // ❌ Bad: Imports entire library
-import * as Icons from 'lucide-react'
+import * as Icons from 'lucide-react';
 ```
 
 **Tailwind CSS Purging:**
+
 ```javascript
 // tailwind.config.js
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
   // Automatically removes unused classes
-}
+};
 ```
 
 ## Runtime Performance
@@ -339,53 +353,57 @@ export default {
 ### React 19 Optimizations
 
 **Automatic Batching:**
+
 ```javascript
 // Both state updates batched automatically
 const handleClick = () => {
-  setLoading(true)
-  setError(null)
+  setLoading(true);
+  setError(null);
   // React batches these updates → single render
-}
+};
 ```
 
 **Transitions for Smooth UI:**
-```javascript
-import { useTransition } from 'react'
 
-const [isPending, startTransition] = useTransition()
+```javascript
+import { useTransition } from 'react';
+
+const [isPending, startTransition] = useTransition();
 
 const handleIdentify = () => {
   startTransition(() => {
     // Non-urgent updates don't block UI
-    setResults(heavyComputation())
-  })
-}
+    setResults(heavyComputation());
+  });
+};
 ```
 
 ### Image Loading Optimization
 
 **ObjectURL Instead of Base64:**
+
 ```javascript
 // ✅ Good: Memory-efficient ObjectURL
-const previewUrl = URL.createObjectURL(file)
-setPreviewUrl(previewUrl)
+const previewUrl = URL.createObjectURL(file);
+setPreviewUrl(previewUrl);
 
 // Cleanup
 useEffect(() => {
   return () => {
     if (previewUrl) {
-      URL.revokeObjectURL(previewUrl)
+      URL.revokeObjectURL(previewUrl);
     }
-  }
-}, [previewUrl])
+  };
+}, [previewUrl]);
 
 // ❌ Bad: Base64 (slower, memory-intensive)
-const reader = new FileReader()
-reader.onload = () => setPreviewUrl(reader.result)
-reader.readAsDataURL(file)
+const reader = new FileReader();
+reader.onload = () => setPreviewUrl(reader.result);
+reader.readAsDataURL(file);
 ```
 
 **Benefits:**
+
 - 3-5x faster image preview
 - Lower memory usage
 - No encoding overhead
@@ -393,6 +411,7 @@ reader.readAsDataURL(file)
 ### Network Optimization
 
 **Request Compression (Automatic):**
+
 ```javascript
 // Vite/Browser handles compression
 // - Gzip for text files
@@ -400,12 +419,13 @@ reader.readAsDataURL(file)
 ```
 
 **Image Lazy Loading:**
+
 ```javascript
 // Lazy load similar images
 <img
   src={image.url}
   alt={image.alt}
-  loading="lazy"  // Native lazy loading
+  loading="lazy" // Native lazy loading
   className="w-full h-auto"
 />
 ```
@@ -416,15 +436,16 @@ reader.readAsDataURL(file)
 
 **Target Metrics:**
 
-| Metric | Target | Current | Status |
-|--------|--------|---------|--------|
-| LCP (Largest Contentful Paint) | < 2.5s | ~1.8s | ✅ Good |
-| FID (First Input Delay) | < 100ms | ~50ms | ✅ Good |
-| CLS (Cumulative Layout Shift) | < 0.1 | ~0.05 | ✅ Good |
+| Metric                         | Target  | Current | Status  |
+| ------------------------------ | ------- | ------- | ------- |
+| LCP (Largest Contentful Paint) | < 2.5s  | ~1.8s   | ✅ Good |
+| FID (First Input Delay)        | < 100ms | ~50ms   | ✅ Good |
+| CLS (Cumulative Layout Shift)  | < 0.1   | ~0.05   | ✅ Good |
 
 ### Performance Testing
 
 **Lighthouse Scores:**
+
 ```bash
 # Run Lighthouse in Chrome DevTools
 # Or use CLI:
@@ -433,6 +454,7 @@ lighthouse http://localhost:5173 --view
 ```
 
 **Expected Scores:**
+
 - Performance: 95+
 - Accessibility: 90+
 - Best Practices: 95+
@@ -441,21 +463,23 @@ lighthouse http://localhost:5173 --view
 ### Monitoring in Production (Planned)
 
 **Google Analytics 4:**
+
 ```javascript
 // Track Core Web Vitals
-import { getCLS, getFID, getLCP } from 'web-vitals'
+import { getCLS, getFID, getLCP } from 'web-vitals';
 
-getCLS(console.log)
-getFID(console.log)
-getLCP(console.log)
+getCLS(console.log);
+getFID(console.log);
+getLCP(console.log);
 ```
 
 **Sentry Performance:**
+
 ```javascript
 // Track slow transactions
 Sentry.init({
-  tracesSampleRate: 0.1,  // 10% of transactions
-})
+  tracesSampleRate: 0.1, // 10% of transactions
+});
 ```
 
 ## Performance Best Practices
@@ -482,20 +506,17 @@ const compressed = await compressImage(file)
 // ✅ Use React.memo for expensive components
 const ExpensiveComponent = React.memo(({ data }) => {
   // Expensive rendering logic
-})
+});
 
 // ✅ Debounce search inputs
-const debouncedSearch = useMemo(
-  () => debounce(search, 300),
-  []
-)
+const debouncedSearch = useMemo(() => debounce(search, 300), []);
 
 // ✅ Cancel requests on unmount
 useEffect(() => {
-  const controller = new AbortController()
-  fetch(url, { signal: controller.signal })
-  return () => controller.abort()
-}, [])
+  const controller = new AbortController();
+  fetch(url, { signal: controller.signal });
+  return () => controller.abort();
+}, []);
 ```
 
 ### 3. Build Optimization
@@ -550,12 +571,14 @@ The web frontend achieves excellent performance through:
 5. **Memory management** - ObjectURL cleanup, canvas cleanup
 
 **Current Performance:**
+
 - ✅ Fast development (HMR < 100ms)
 - ✅ Optimized builds (gzipped < 70KB total)
 - ✅ Excellent Core Web Vitals
 - ✅ 85% upload time reduction
 
 For implementation details, see:
+
 - [Architecture.md](./Architecture.md) - System design
 - [API-Integration.md](./API-Integration.md) - Backend communication
 - Source: `src/utils/imageCompression.js`

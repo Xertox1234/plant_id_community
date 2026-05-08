@@ -24,7 +24,7 @@ test.describe('System Health Checks', () => {
 
     // 2. Blog API endpoint
     const blogResponse = await request.get('http://localhost:8000/api/v2/blog-posts/');
-    expect(blogResponse.status()).toBeLessThan(500);  // Should not have server errors
+    expect(blogResponse.status()).toBeLessThan(500); // Should not have server errors
 
     // 3. Forum API endpoint
     const forumResponse = await request.get('http://localhost:8000/api/v1/forum/categories/');
@@ -47,7 +47,7 @@ test.describe('System Health Checks', () => {
     const response = await page.evaluate(async () => {
       try {
         const res = await fetch('http://localhost:8000/api/v1/auth/csrf/', {
-          credentials: 'include'
+          credentials: 'include',
         });
         return { ok: res.ok, status: res.status };
       } catch (error) {
@@ -67,8 +67,8 @@ test.describe('System Health Checks', () => {
         const res = await fetch('http://localhost:8000/api/v1/auth/csrf/', {
           credentials: 'include',
           headers: {
-            'Accept': 'application/json',
-          }
+            Accept: 'application/json',
+          },
         });
 
         if (!res.ok) {
@@ -80,8 +80,8 @@ test.describe('System Health Checks', () => {
         // Just verify we got the expected response message
         return {
           success: true,
-          hasExpectedMessage: data.detail === "CSRF cookie set",
-          data: data
+          hasExpectedMessage: data.detail === 'CSRF cookie set',
+          data: data,
         };
       } catch (error) {
         return { success: false, error: error.message };

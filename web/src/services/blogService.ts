@@ -22,7 +22,9 @@ import type {
 /**
  * Fetch blog posts with optional filters and pagination.
  */
-export async function fetchBlogPosts(options: FetchBlogPostsOptions = {}): Promise<BlogPostListResponse> {
+export async function fetchBlogPosts(
+  options: FetchBlogPostsOptions = {}
+): Promise<BlogPostListResponse> {
   const {
     page = 1,
     limit = 10,
@@ -113,7 +115,9 @@ export async function fetchBlogPost(slug: string): Promise<BlogPost> {
 /**
  * Fetch popular blog posts.
  */
-export async function fetchPopularPosts(options: FetchPopularPostsOptions = {}): Promise<BlogPost[]> {
+export async function fetchPopularPosts(
+  options: FetchPopularPostsOptions = {}
+): Promise<BlogPost[]> {
   const { limit = 5, days = 30 } = options;
 
   try {

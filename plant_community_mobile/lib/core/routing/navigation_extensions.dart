@@ -178,10 +178,11 @@ abstract class DeepLinks {
   /// Build URI for plant results
   ///
   /// Note: Deep links can't pass complex objects, so we use plant ID
-  static Uri results(String plantId) =>
-      Uri(scheme: scheme, path: AppRoutes.results, queryParameters: {
-        'id': plantId,
-      });
+  static Uri results(String plantId) => Uri(
+    scheme: scheme,
+    path: AppRoutes.results,
+    queryParameters: {'id': plantId},
+  );
 
   /// Build URI for profile screen
   static Uri profile() => Uri(scheme: scheme, path: AppRoutes.profile);
@@ -190,8 +191,9 @@ abstract class DeepLinks {
   static Uri garden() => Uri(scheme: scheme, path: AppRoutes.garden);
 
   /// Build URI for specific garden bed
-  static Uri gardenBed(String bedId) =>
-      Uri(scheme: scheme, path: AppRoutes.garden, queryParameters: {
-        'bed_id': bedId,
-      });
+  static Uri gardenBed(String bedId) => Uri(
+    scheme: scheme,
+    path: AppRoutes.garden,
+    queryParameters: {'bed_id': bedId},
+  );
 }

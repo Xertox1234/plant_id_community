@@ -30,6 +30,7 @@ test('sets hasError state to true for invalid email', () => {
 ## No Unresolved act() Warnings
 
 `act()` warnings indicate async state updates not wrapped in `act()`. They are not cosmetic:
+
 - They can hide timing-dependent bugs
 - They indicate the component has unfinished work at assertion time
 
@@ -61,6 +62,7 @@ New user-facing flows require a test case entry in `web/E2E_TESTING_GUIDE.md`. F
 
 ```markdown
 ### TC-XX: [Feature Name]
+
 **Setup**: [prerequisites]
 **Steps**: 1. ... 2. ... 3. ...
 **Expected**: [visible outcome]

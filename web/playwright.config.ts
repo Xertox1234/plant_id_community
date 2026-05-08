@@ -21,7 +21,7 @@ export default defineConfig({
 
   // Expect timeout for assertions
   expect: {
-    timeout: 5000
+    timeout: 5000,
   },
 
   // Run tests in files in parallel
@@ -38,9 +38,9 @@ export default defineConfig({
 
   // Reporter configuration - CRITICAL to prevent terminal crashes
   reporter: [
-    ['html', { open: 'never' }],  // Never auto-open browser (prevents hangs)
-    ['list'],                      // Console output
-    process.env.CI ? ['github'] : ['list']  // GitHub Actions integration
+    ['html', { open: 'never' }], // Never auto-open browser (prevents hangs)
+    ['list'], // Console output
+    process.env.CI ? ['github'] : ['list'], // GitHub Actions integration
   ],
 
   // Shared settings for all projects
@@ -68,17 +68,17 @@ export default defineConfig({
       command: 'npm run dev',
       url: 'http://localhost:5174',
       reuseExistingServer: !process.env.CI,
-      timeout: 120 * 1000,  // 2 minutes
-      stdout: 'pipe',       // Show server logs
+      timeout: 120 * 1000, // 2 minutes
+      stdout: 'pipe', // Show server logs
       stderr: 'pipe',
     },
 
     // Backend - Django server
     {
       command: 'cd ../backend && source venv/bin/activate && python manage.py runserver 8000',
-      url: 'http://localhost:8000/api/v1/auth/csrf/',  // Health check endpoint
+      url: 'http://localhost:8000/api/v1/auth/csrf/', // Health check endpoint
       reuseExistingServer: !process.env.CI,
-      timeout: 120 * 1000,  // 2 minutes
+      timeout: 120 * 1000, // 2 minutes
       stdout: 'pipe',
       stderr: 'pipe',
     },

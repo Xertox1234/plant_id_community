@@ -1,25 +1,25 @@
-import { lazy, Suspense } from 'react'
-import { Routes, Route } from 'react-router-dom'
-import RootLayout from './layouts/RootLayout'
-import ProtectedLayout from './layouts/ProtectedLayout'
-import LoadingSpinner from './components/ui/LoadingSpinner'
+import { lazy, Suspense } from 'react';
+import { Routes, Route } from 'react-router-dom';
+import RootLayout from './layouts/RootLayout';
+import ProtectedLayout from './layouts/ProtectedLayout';
+import LoadingSpinner from './components/ui/LoadingSpinner';
 
 // Eagerly load critical routes (HomePage, LoginPage, SignupPage)
-import HomePage from './pages/HomePage'
-import LoginPage from './pages/auth/LoginPage'
-import SignupPage from './pages/auth/SignupPage'
+import HomePage from './pages/HomePage';
+import LoginPage from './pages/auth/LoginPage';
+import SignupPage from './pages/auth/SignupPage';
 
 // Lazy load non-critical routes for better initial load performance
-const IdentifyPage = lazy(() => import('./pages/IdentifyPage'))
-const BlogListPage = lazy(() => import('./pages/BlogListPage'))
-const BlogDetailPage = lazy(() => import('./pages/BlogDetailPage'))
-const BlogPreview = lazy(() => import('./pages/BlogPreview'))
-const CategoryListPage = lazy(() => import('./pages/forum/CategoryListPage'))
-const ThreadListPage = lazy(() => import('./pages/forum/ThreadListPage'))
-const ThreadDetailPage = lazy(() => import('./pages/forum/ThreadDetailPage'))
-const SearchPage = lazy(() => import('./pages/forum/SearchPage'))
-const ProfilePage = lazy(() => import('./pages/ProfilePage'))
-const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const IdentifyPage = lazy(() => import('./pages/IdentifyPage'));
+const BlogListPage = lazy(() => import('./pages/BlogListPage'));
+const BlogDetailPage = lazy(() => import('./pages/BlogDetailPage'));
+const BlogPreview = lazy(() => import('./pages/BlogPreview'));
+const CategoryListPage = lazy(() => import('./pages/forum/CategoryListPage'));
+const ThreadListPage = lazy(() => import('./pages/forum/ThreadListPage'));
+const ThreadDetailPage = lazy(() => import('./pages/forum/ThreadDetailPage'));
+const SearchPage = lazy(() => import('./pages/forum/SearchPage'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 
 /**
  * App Component
@@ -61,7 +61,7 @@ function App() {
         </Route>
       </Routes>
     </Suspense>
-  )
+  );
 }
 
-export default App
+export default App;
