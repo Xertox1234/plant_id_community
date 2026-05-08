@@ -12,7 +12,8 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework.permissions import IsAuthenticatedOrReadOnly, BasePermission
 from rest_framework.serializers import Serializer
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Count, Q, Sum
+from django.db.models.functions import Coalesce
 
 from ..models import Category
 from ..serializers import CategorySerializer, CategoryTreeSerializer
@@ -76,6 +77,16 @@ class CategoryViewSet(viewsets.ModelViewSet):
         ):
             # Prefetch children to avoid N+1
             qs = qs.prefetch_related('children')
+
+        # Annotate thread/post counts to eliminate N+1 from SerializerMethodFields
+        qs = qs.annotate(
+            annotated_thread_count=Count(
+                'threads', filter=Q(threads__is_active=True), distinct=True
+            ),
+            annotated_post_count=Coalesce(
+                Sum('threads__post_count', filter=Q(threads__is_active=True)), 0
+            ),
+        )
 
         # Order by display_order then name
         qs = qs.order_by('display_order', 'name')

@@ -12,7 +12,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.request import Request
 from django.db import transaction
-from django.db.models import QuerySet, Count, Q
+from django.db.models import QuerySet, Count, Q, OuterRef, Subquery, IntegerField
 from django.utils import timezone
 
 from ..models import FlaggedContent, ModerationAction, Post, Thread, UserProfile
@@ -106,6 +106,22 @@ class ModerationQueueViewSet(viewsets.ReadOnlyModelViewSet):
         # Ordering (default: newest first)
         ordering = self.request.query_params.get('ordering', '-created_at')
         queryset = queryset.order_by(ordering)
+
+        # Annotate flag counts per content item to eliminate N+1 in get_flag_count()
+        post_flags_sq = FlaggedContent.objects.filter(
+            post_id=OuterRef('post_id'),
+            post_id__isnull=False,
+            status='pending',
+        ).values('post_id').annotate(c=Count('id')).values('c')[:1]
+        thread_flags_sq = FlaggedContent.objects.filter(
+            thread_id=OuterRef('thread_id'),
+            thread_id__isnull=False,
+            status='pending',
+        ).values('thread_id').annotate(c=Count('id')).values('c')[:1]
+        queryset = queryset.annotate(
+            post_flag_count=Subquery(post_flags_sq, output_field=IntegerField()),
+            thread_flag_count=Subquery(thread_flags_sq, output_field=IntegerField()),
+        )
 
         return queryset
 

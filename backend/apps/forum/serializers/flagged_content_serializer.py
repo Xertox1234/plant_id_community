@@ -117,17 +117,10 @@ class FlaggedContentSerializer(serializers.ModelSerializer):
             }
 
     def get_flag_count(self, obj: FlaggedContent) -> int:
-        """Get total number of flags for this content."""
+        """Get total pending flags for this content item; uses queryset annotation when available."""
         if obj.content_type == 'post':
-            return FlaggedContent.objects.filter(
-                post=obj.post,
-                status='pending'
-            ).count()
-        else:
-            return FlaggedContent.objects.filter(
-                thread=obj.thread,
-                status='pending'
-            ).count()
+            return getattr(obj, 'post_flag_count', None) or 0
+        return getattr(obj, 'thread_flag_count', None) or 0
 
 
 class FlagSubmissionSerializer(serializers.Serializer):

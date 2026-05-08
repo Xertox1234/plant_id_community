@@ -126,7 +126,7 @@ class TopicDetailView(generics.RetrieveAPIView):
         posts = Post.objects.filter(
             topic=topic,
             approved=True
-        ).select_related('poster').order_by('created')
+        ).select_related('poster', 'rich_content').order_by('created')
         
         # Pagination
         page_number = request.GET.get('page', 1)
@@ -234,7 +234,7 @@ def forum_search(request):
     posts = Post.objects.filter(
         content__icontains=query,
         approved=True
-    ).select_related('topic', 'topic__forum', 'poster')[:10]
+    ).select_related('topic', 'topic__forum', 'poster', 'rich_content')[:10]
     
     return Response({
         'query': query,
@@ -327,7 +327,7 @@ class PostListView(generics.ListAPIView):
             return Post.objects.filter(
                 topic_id=topic_id,
                 approved=True
-            ).select_related('poster').order_by('created')
+            ).select_related('poster', 'rich_content').order_by('created')
         return Post.objects.none()
 
 
@@ -968,15 +968,16 @@ class TopicsFeedView(generics.ListAPIView):
         queryset = Topic.objects.filter(
             approved=True
         ).select_related(
-            'poster',           # Topic author
-            'forum',            # Forum category
-            'first_post',       # First post content
-            'first_post__poster',  # First post author
-            'last_post',        # Last post for metadata
-            'last_post__poster' # Last poster for metadata
+            'poster',
+            'forum',
+            'first_post',
+            'first_post__poster',
+            'first_post__rich_content',
+            'last_post',
+            'last_post__poster',
         ).prefetch_related(
-            'first_post__images'  # Post images
-        ).order_by('-last_post_on')  # Most recent activity first
+            'first_post__images'
+        ).order_by('-last_post_on')
         
         # Optional filtering by forum category
         forum_id = self.request.query_params.get('forum')

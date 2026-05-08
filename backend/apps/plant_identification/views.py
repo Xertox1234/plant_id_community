@@ -284,8 +284,16 @@ class PlantIdentificationResultViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
+        from django.db.models import OuterRef, Subquery, CharField
+        from .models import PlantIdentificationVote
+        user_vote_sq = PlantIdentificationVote.objects.filter(
+            user=self.request.user,
+            result=OuterRef('pk'),
+        ).values('vote_type')[:1]
         return PlantIdentificationResult.objects.filter(
             request__user=self.request.user
+        ).annotate(
+            user_vote_annotation=Subquery(user_vote_sq, output_field=CharField()),
         ).order_by('-confidence_score', '-created_at')
     
     @action(detail=True, methods=['post'])

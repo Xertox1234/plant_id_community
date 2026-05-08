@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db import transaction
+from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie, csrf_protect
 # Rate limiting - now required for security
 from django_ratelimit.decorators import ratelimit
@@ -450,14 +451,27 @@ def previous_searches(request: Request) -> Response:
     """
     Get user's previous plant identification searches.
     """
-    from apps.plant_identification.models import PlantIdentificationRequest
+    from apps.plant_identification.models import PlantIdentificationRequest, PlantIdentificationVote
     from apps.plant_identification.serializers import PlantIdentificationRequestWithResultsSerializer
-    
+    from apps.plant_identification.models import PlantIdentificationResult
+    from django.db.models import OuterRef, Subquery, CharField, Prefetch
+
+    # Annotate results with the current user's vote to avoid N+1 in get_user_vote()
+    annotated_results = PlantIdentificationResult.objects.annotate(
+        user_vote_annotation=Subquery(
+            PlantIdentificationVote.objects.filter(
+                user=request.user,
+                result=OuterRef('pk'),
+            ).values('vote_type')[:1],
+            output_field=CharField(),
+        )
+    ).select_related('identified_species')
+
     # Get user's identification requests ordered by date
     searches = PlantIdentificationRequest.objects.filter(
         user=request.user
     ).select_related('assigned_to_collection').prefetch_related(
-        'identification_results__identified_species'
+        Prefetch('identification_results', queryset=annotated_results),
     ).order_by('-created_at')
     
     # Pagination
@@ -1196,7 +1210,7 @@ def care_reminder_stats(request: Request) -> Response:
                 (completion_stats['total_completed'] or 0) / max(completion_stats['total_sent'] or 1, 1) * 100
             ),
             'average_streak': completion_stats['avg_streak'] or 0,
-            'best_streak': completion_stats['max_streak'].longest_streak if completion_stats['max_streak'] else 0
+            'best_streak': completion_stats['max_streak'] or 0
         },
         'recent_activity': recent_activity,
         'upcoming_reminders': upcoming_data
@@ -1270,7 +1284,7 @@ def create_demo_data(request: Request) -> Response:
     """
     Create demo data for new users to explore the platform.
     """
-    from .models import OnboardingProgress, DemoData
+    from .models import OnboardingProgress
     from .services import DemoDataService
     
     include_care_reminders = request.data.get('include_care_reminders', True)
@@ -1289,7 +1303,6 @@ def create_demo_data(request: Request) -> Response:
             
             return Response({
                 'message': 'Demo data created successfully',
-                'demo_data_id': demo_data.id,
                 'created_items': {
                     'identifications': demo_data.created_data.get('identifications_count', 0),
                     'forum_posts': demo_data.created_data.get('forum_posts_count', 0),
@@ -1325,13 +1338,13 @@ def track_onboarding_event(request: Request) -> Response:
         )
     
     try:
-        OnboardingAnalytics.objects.create(
+        OnboardingAnalytics.log_event(
             user=request.user,
-            event_type=event_type,
+            action_type=event_type,
             event_data=event_data,
-            page_url=page_url
+            page_url=page_url,
         )
-        
+
         return Response({'message': 'Event tracked successfully'})
     
     except Exception as e:

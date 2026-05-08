@@ -59,19 +59,15 @@ class CategorySerializer(serializers.ModelSerializer):
         ]
 
     def get_thread_count(self, obj: Category) -> int:
-        """
-        Get number of active threads in this category.
-
-        Uses model method to leverage database caching/indexes.
-        """
+        """Get number of active threads; uses queryset annotation when available."""
+        if hasattr(obj, 'annotated_thread_count'):
+            return obj.annotated_thread_count
         return obj.get_thread_count()
 
     def get_post_count(self, obj: Category) -> int:
-        """
-        Get total number of posts in all threads in this category.
-
-        Uses model method which uses aggregate query (not N+1).
-        """
+        """Get total posts across active threads; uses queryset annotation when available."""
+        if hasattr(obj, 'annotated_post_count'):
+            return obj.annotated_post_count
         return obj.get_post_count()
 
     def get_children(self, obj: Category) -> Optional[Dict[str, Any]]:

@@ -247,8 +247,9 @@ class DiagnosisCardCreateSerializer(serializers.ModelSerializer):
         if not request:
             raise serializers.ValidationError("Request context required")
 
-        # Check if diagnosis result belongs to user or is public
-        if value.request.user != request.user and not getattr(value.request, 'is_public', False):
+        # PlantDiseaseRequest does not expose a public-visibility flag, so access
+        # is gated solely on ownership.
+        if value.request.user != request.user:
             raise serializers.ValidationError(
                 "You don't have permission to access this diagnosis result"
             )

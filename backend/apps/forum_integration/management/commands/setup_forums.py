@@ -364,15 +364,11 @@ class Command(BaseCommand):
         try:
             admin_user = User.objects.get(username=admin_username)
         except User.DoesNotExist:
-            # Create admin user if doesn't exist
-            admin_user = User.objects.create_user(
-                username=admin_username,
-                email='admin@plantcommunity.com',
-                password='admin123',
-                is_staff=True,
-                is_superuser=True
+            raise CommandError(
+                f"Admin user '{admin_username}' does not exist. "
+                "Create one first via `python manage.py createsuperuser` "
+                "and re-run this command with `--admin-username=<name>`."
             )
-            self.stdout.write(f'Created admin user: {admin_username}')
 
         # Sample topics data
         sample_topics = [
