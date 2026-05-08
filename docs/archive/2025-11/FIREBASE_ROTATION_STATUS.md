@@ -8,30 +8,36 @@
 ## ✅ COMPLETED TASKS
 
 ### 1. Firebase App Registration Rotation ✅
+
 - **New Android App ID**: `1:190351417275:android:53aa5e82b6e221ad69ae9e`
 - **New iOS App ID**: `1:190351417275:ios:41590963ad4f6bd969ae9e`
 - **Old compromised apps**: DELETED from Firebase Console
 
 ### 2. Configuration Files Updated ✅
+
 - `.env` file updated with new Firebase app IDs
 - `google-services.json` copied to `android/app/`
 - `GoogleService-Info.plist` copied to `ios/Runner/`
 - `.env` properly gitignored
 
 ### 3. Firebase Security Rules Deployed ✅
+
 ```
 ✔  firestore: released rules firebase/firestore.rules to cloud.firestore
 ✔  storage: released rules firebase/storage.rules to firebase.storage
 ```
 
 ### 4. Firebase Configuration Verification ✅
+
 **Build Log Analysis**:
+
 - ✅ Firebase plugins loaded successfully (cloud_firestore, firebase_auth, firebase_storage)
 - ✅ `.env` file read correctly (no missing Firebase key errors)
 - ✅ All Firebase SDK dependencies resolved (Firebase SDK 12.4.0)
 - ✅ No Firebase authentication or connection errors
 
 **iOS Platform Update**:
+
 - Updated `ios/Podfile` deployment target to iOS 15.0 (required for Firebase)
 - Installed CocoaPods successfully with all Firebase dependencies
 
@@ -44,25 +50,31 @@
 **Check these areas for unauthorized access (past 30 days)**:
 
 #### Firestore Activity
-URL: https://console.firebase.google.com/project/plant-community-prod/firestore/usage
+
+URL: <https://console.firebase.google.com/project/plant-community-prod/firestore/usage>
 
 **Look for**:
+
 - ❌ Unusual spikes in document reads/writes
 - ❌ Activity during off-hours
 - ❌ Operations from unexpected locations
 
 #### Storage Activity
-URL: https://console.firebase.google.com/project/plant-community-prod/storage/usage
+
+URL: <https://console.firebase.google.com/project/plant-community-prod/storage/usage>
 
 **Look for**:
+
 - ❌ Large unexpected file uploads
 - ❌ Bandwidth spikes
 - ❌ Unknown file paths
 
 #### Authentication
-URL: https://console.firebase.google.com/project/plant-community-prod/authentication/users
+
+URL: <https://console.firebase.google.com/project/plant-community-prod/authentication/users>
 
 **Look for**:
+
 - ❌ Mass account creation
 - ❌ Suspicious email patterns
 - ❌ Accounts created during odd hours
@@ -120,12 +132,15 @@ gh issue close 142
 ## 🔐 Important Security Notes
 
 ### Why API Keys Are the Same
+
 Firebase API keys are PROJECT-level identifiers (not app-level secrets):
+
 - Same keys are used across all apps in a Firebase project
 - They're public identifiers meant to be embedded in apps
 - **Security comes from Firebase Security Rules** (now deployed ✅)
 
 ### What Actually Changed
+
 - **App IDs changed**: Old apps can no longer connect
 - **Security rules deployed**: Authentication + authorization now enforced
 - **Old app registrations deleted**: Revoked access even with same API keys
@@ -150,5 +165,5 @@ Firebase API keys are PROJECT-level identifiers (not app-level secrets):
 ---
 
 **Generated**: November 14, 2025
-**Firebase Console**: https://console.firebase.google.com/project/plant-community-prod
-**GitHub Issue**: https://github.com/Xertox1234/plant_id_community/issues/142
+**Firebase Console**: <https://console.firebase.google.com/project/plant-community-prod>
+**GitHub Issue**: <https://github.com/Xertox1234/plant_id_community/issues/142>

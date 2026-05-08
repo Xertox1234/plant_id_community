@@ -7,18 +7,21 @@
 ## Files You Should NEVER Commit
 
 ### 1. CLAUDE.md (BLOCKER)
+
 ❌ **Never commit** - This is a local development file only
 ✅ **Instead:** Use CLAUDE.md.example as template
 **Why:** Contains real API keys and sensitive context
 **Check:** `git ls-files | grep CLAUDE.md` (should be empty)
 
 ### 2. .env Files (BLOCKER)
+
 ❌ **Never commit** - .env, .env.local, .env.production
 ✅ **Instead:** Use .env.example with placeholders
 **Why:** Contains production secrets and credentials
 **Check:** `grep "^.env$" .gitignore` (should exist)
 
 ### 3. config.local.* (WARNING)
+
 ❌ **Avoid committing** - Local configuration files
 ✅ **Instead:** Use config.example.* templates
 **Why:** May contain developer-specific credentials
@@ -26,13 +29,15 @@
 ## Placeholders vs Real Values
 
 ### ❌ WRONG - Real Values
+
 ```bash
 # DON'T DO THIS
-PLANT_ID_API_KEY=W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4
+PLANT_ID_API_KEY=your-plant-id-api-key-here
 SECRET_KEY=django-insecure-dev-key-change-in-production-2024
 ```
 
 ### ✅ CORRECT - Placeholders
+
 ```bash
 # DO THIS
 # Plant.id API Key - Get from: https://web.plant.id/
@@ -69,9 +74,11 @@ git commit -m "message"
 ## Common Mistakes and Fixes
 
 ### Mistake 1: "It's just documentation"
+
 **Problem:** Real API keys in README.md, SETUP.md
 **Fix:** Use placeholders with generation instructions
 **Example:**
+
 ```markdown
 ❌ export PLANT_ID_API_KEY=W3YvEk2rx...
 ✅ export PLANT_ID_API_KEY=your-api-key-here
@@ -79,27 +86,33 @@ git commit -m "message"
 ```
 
 ### Mistake 2: "It's just a dev key"
+
 **Problem:** Development keys committed because "not production"
 **Fix:** Use environment variables for ALL keys, even dev
 **Example:**
+
 ```python
-❌ SECRET_KEY = 'dev-key-123'
+❌ SECRET_KEY = 'dev-key-123'  # pragma: allowlist secret
 ✅ SECRET_KEY = os.environ.get('SECRET_KEY')
 ```
 
 ### Mistake 3: "Template with real value"
+
 **Problem:** .env.example has real key "as example"
 **Fix:** Always use obvious placeholders
 **Example:**
+
 ```bash
 ❌ PLANT_ID_API_KEY=test_W3YvEk2rx...
 ✅ PLANT_ID_API_KEY=your-plant-id-api-key-here
 ```
 
 ### Mistake 4: "Local file accidentally added"
+
 **Problem:** CLAUDE.md added with `git add .`
 **Fix:** Add to .gitignore immediately
 **Example:**
+
 ```bash
 # Check if CLAUDE.md in .gitignore
 grep "^CLAUDE.md$" .gitignore
@@ -111,7 +124,9 @@ echo "CLAUDE.md" >> .gitignore
 ## Emergency: I Committed a Secret
 
 ### Step 1: Don't Panic
+
 **If not pushed yet:**
+
 ```bash
 # Undo last commit, keep changes
 git reset --soft HEAD~1
@@ -127,12 +142,14 @@ git commit -m "fix: update configuration"
 ```
 
 **If already pushed:**
+
 1. **Immediately rotate the secret** (most important!)
 2. Report to security team
 3. Follow KEY_ROTATION_INSTRUCTIONS.md
 4. Consider git history rewrite (coordinate with team)
 
 ### Step 2: Rotate the Secret
+
 ```bash
 # For API keys: Visit provider website, revoke old key, generate new
 # For Django SECRET_KEY:
@@ -143,6 +160,7 @@ python -c 'import secrets; print(secrets.token_urlsafe(64))'
 ```
 
 ### Step 3: Update .env File
+
 ```bash
 # Update local .env file (NOT committed)
 vim backend/.env
@@ -171,6 +189,7 @@ pre-commit run --all-files
 ```
 
 **What gets blocked:**
+
 - ✅ CLAUDE.md commits
 - ✅ .env file commits
 - ✅ API key patterns
@@ -201,6 +220,7 @@ settings.local.py
 ```
 
 **Verify:**
+
 ```bash
 # Check critical patterns present
 grep -E "^(CLAUDE.md|\.env|\.env\.local)$" .gitignore
@@ -209,12 +229,14 @@ grep -E "^(CLAUDE.md|\.env|\.env\.local)$" .gitignore
 ## What to Do in Code Review
 
 **As Author:**
+
 - [ ] Verify no secrets in diff: `git diff main...HEAD | grep -i "api_key\|secret"`
 - [ ] Check .gitignore updated if new secret types added
 - [ ] Verify .env.example uses placeholders
 - [ ] Run pre-commit hooks: `pre-commit run --all-files`
 
 **As Reviewer:**
+
 - [ ] Scan for API_KEY, SECRET, PASSWORD in changes
 - [ ] Verify documentation uses placeholders
 - [ ] Check no CLAUDE.md or .env files in PR
@@ -223,17 +245,21 @@ grep -E "^(CLAUDE.md|\.env|\.env\.local)$" .gitignore
 ## Resources
 
 **Quick Setup:**
+
 - PRE_COMMIT_SETUP.md - Install hooks (5 minutes)
 
 **Comprehensive:**
+
 - SECURITY_PATTERNS_CODIFIED.md - Complete analysis
 - ISSUE_1_LESSONS_LEARNED_SUMMARY.md - Full summary
 
 **Incident Details:**
+
 - SECURITY_INCIDENT_2025_10_23_API_KEYS.md
 - KEY_ROTATION_INSTRUCTIONS.md
 
 **Code Review Agent:**
+
 - /.claude/agents/code-review-specialist.md - Now includes secret detection
 
 ## Quick Decision Tree
@@ -264,11 +290,13 @@ Are you about to commit a file?
 ## Remember
 
 **3 Simple Rules:**
+
 1. **NEVER commit CLAUDE.md** (local file only)
 2. **NEVER commit .env files** (use .env.example)
 3. **ALWAYS use placeholders** in documentation and examples
 
 **Before Every Commit:**
+
 - Check `git status` for CLAUDE.md, .env
 - Verify placeholders in changes
 - Let pre-commit hooks run (if installed)

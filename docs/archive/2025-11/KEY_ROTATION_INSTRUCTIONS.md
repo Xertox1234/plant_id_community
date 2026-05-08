@@ -11,7 +11,7 @@ This PR removes exposed API keys from the repository, but you **MUST** rotate th
 
 ### 1. Rotate Plant.id API Key (5 minutes)
 
-1. Visit https://web.plant.id/account (or https://my.kindwise.com/)
+1. Visit <https://web.plant.id/account> (or <https://my.kindwise.com/>)
 2. Log in to your account
 3. Navigate to: **API Keys** or **Developer Settings**
 4. **Revoke the old key:** `W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4`
@@ -20,7 +20,7 @@ This PR removes exposed API keys from the repository, but you **MUST** rotate th
 
 ### 2. Rotate PlantNet API Key (5 minutes)
 
-1. Visit https://my.plantnet.org/
+1. Visit <https://my.plantnet.org/>
 2. Log in to your account
 3. Navigate to: **API Keys** or **Account Settings**
 4. **Revoke the old key:** `2b10XCJNMzrPYiojVsddjK0n`
@@ -71,10 +71,10 @@ cp .env.example .env
 
 ```bash
 # Update production environment variables
-heroku config:set PLANT_ID_API_KEY="new_plant_id_key_here"
-heroku config:set PLANTNET_API_KEY="new_plantnet_key_here"
-heroku config:set SECRET_KEY="new_django_secret_key_here"
-heroku config:set JWT_SECRET_KEY="new_jwt_secret_key_here"
+heroku config:set PLANT_ID_API_KEY="new_plant_id_key_here"  # pragma: allowlist secret
+heroku config:set PLANTNET_API_KEY="new_plantnet_key_here"  # pragma: allowlist secret
+heroku config:set SECRET_KEY="new_django_secret_key_here"  # pragma: allowlist secret
+heroku config:set JWT_SECRET_KEY="new_jwt_secret_key_here"  # pragma: allowlist secret
 
 # Verify
 heroku config:get PLANT_ID_API_KEY
@@ -130,12 +130,14 @@ curl -X POST http://localhost:8000/api/plant-identification/identify/ \
 ## Why This Matters
 
 ### Current Risk
+
 - **Plant.id key:** 100 IDs/month limit - can be exhausted quickly
 - **PlantNet key:** 500 IDs/day limit - can be exhausted rapidly
 - **Django SECRET_KEY:** Session hijacking, CSRF bypass
 - **JWT_SECRET_KEY:** Complete authentication bypass
 
 ### Impact if Not Rotated
+
 - Legitimate users unable to identify plants (quota exhausted)
 - Service disruption for development and production
 - Potential unauthorized access to user sessions
@@ -144,6 +146,7 @@ curl -X POST http://localhost:8000/api/plant-identification/identify/ \
 ## Timeline
 
 **Immediate (Today):**
+
 - [ ] Rotate Plant.id API key
 - [ ] Rotate PlantNet API key
 - [ ] Generate new Django SECRET_KEY
@@ -153,11 +156,13 @@ curl -X POST http://localhost:8000/api/plant-identification/identify/ \
 - [ ] Verify health endpoint works
 
 **Within 24 Hours:**
+
 - [ ] Test plant identification with new keys
 - [ ] Monitor API usage for next 7 days
 - [ ] Report completion on GitHub Issue #1
 
 **Within 7 Days:**
+
 - [ ] Decide on git history cleanup with team
 - [ ] Implement GitHub secret scanning
 - [ ] Add pre-commit hooks for secret detection
@@ -169,11 +174,13 @@ curl -X POST http://localhost:8000/api/plant-identification/identify/ \
 The exposed keys exist in git history (5 commits). Options:
 
 ### Option 1: Do Nothing (Recommended if low risk)
+
 - Keys are rotated, so old keys are useless
 - No disruption to team workflow
 - Simpler approach
 
 ### Option 2: Rewrite Git History (High coordination required)
+
 - Removes keys from all commits
 - **Requires all team members to delete and re-clone repo**
 - See `SECURITY_INCIDENT_2025_10_23_API_KEYS.md` for detailed instructions
@@ -185,9 +192,10 @@ The exposed keys exist in git history (5 commits). Options:
 **Questions?** Comment on GitHub Issue #1
 
 **Need Help?**
-- Plant.id support: https://web.plant.id/
-- PlantNet support: https://my.plantnet.org/contact
-- Django SECRET_KEY docs: https://docs.djangoproject.com/en/5.2/ref/settings/#secret-key
+
+- Plant.id support: <https://web.plant.id/>
+- PlantNet support: <https://my.plantnet.org/contact>
+- Django SECRET_KEY docs: <https://docs.djangoproject.com/en/5.2/ref/settings/#secret-key>
 
 ## Completion Checklist
 

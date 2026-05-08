@@ -98,6 +98,7 @@ The pattern library is the primary reference for implementation decisions. Read 
 | `iam.md` | IAM configuration |
 
 ### Incidents (`docs/LEARNINGS.md`)
+
 Append-only log of bugs, incidents, and hard-won patterns. Read before starting a new feature area.
 
 ## Code Review Agents
@@ -120,6 +121,7 @@ Trigger a review: ask Claude to invoke `.claude/agents/code-review-orchestrator.
 | `pattern-codifier.md` | Extracts new patterns after each review |
 
 Non-review agents (invoke directly for implementation tasks):
+
 - `wagtail-cms-orchestrator.md` — CMS content, API integration, data flow tracing
 - `frontend-developer.md` — React UI/UX implementation
 
@@ -136,3 +138,63 @@ Non-review agents (invoke directly for implementation tasks):
 | `CORS_ALLOWED_ORIGINS` | `backend/.env` | Set to `http://localhost:5174` in dev |
 | `GOOGLE_APPLICATION_CREDENTIALS` | `backend/.env` | Path to Firebase service account JSON |
 | `VITE_API_URL` | `web/.env` | Backend URL for React app |
+
+## Cheap-Worker Delegation (Kimi K2.6)
+
+Three CLI tools delegate bulk I/O to a cheap worker model (Kimi K2.6 via OpenRouter).
+Claude handles reasoning and architecture; the worker handles token-heavy reading/writing.
+
+### ask-kimi — bulk file reading
+
+Use when reading 3+ files for context, or any single file >400 lines when the goal is
+understanding (not editing):
+
+```bash
+ask-kimi --paths <file1> <file2>... --question "<specific question>"
+```
+
+Returns structured bullets. Read the summary instead of the raw files.
+Only use Read directly when you need exact line numbers for editing.
+
+### kimi-write — boilerplate generation
+
+Use for pytest tests, DRF viewsets/serializers, Flutter widgets, Riverpod providers —
+anything that follows an existing pattern:
+
+```bash
+kimi-write --spec "<what to write>" --context <existing-similar-file> --target <output-path>
+```
+
+Then review the output and edit only what needs fixing.
+
+### extract-chat — session transcript extraction
+
+Converts Claude Code JSONL session logs to readable text (no API call, stdlib only):
+
+```bash
+extract-chat <session.jsonl> -o /tmp/chat.txt
+```
+
+Use before post-session doc updates: extract → ask-kimi to suggest changes → apply with Edit.
+
+### Delegation rules
+
+**AUTO-delegate (no prompt needed):**
+
+- Reading 3+ files for exploration or context
+- Single file >400 lines when goal is understanding (not editing)
+- Boilerplate: pytest tests, DRF viewsets/serializers, Flutter widgets, Riverpod providers
+- Post-session documentation updates
+
+**NEVER delegate:**
+
+- Architecture decisions, refactoring plans, feature design
+- Debugging (requires reasoning about error state)
+- Security-sensitive code: auth, permissions, input validation, migrations
+- Tasks requiring exact line numbers for editing — use Read directly
+- Tasks under ~2000 tokens (overhead not worth it)
+
+**Ask first (ambiguous):**
+
+- "Summarize what changed in this PR"
+- Anything touching auth or permissions even if it seems mechanical

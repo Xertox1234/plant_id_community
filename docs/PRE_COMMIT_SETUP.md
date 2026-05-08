@@ -7,6 +7,7 @@
 ## What are Pre-commit Hooks?
 
 Pre-commit hooks are automated checks that run **before** you commit code to git. They catch issues like:
+
 - Exposed API keys and secrets (Issue #1 prevention)
 - CLAUDE.md being committed (local file only)
 - .env files being committed
@@ -106,20 +107,20 @@ pre-commit run --all-files
 
 ### Code Quality Checks
 
-7. **black** - Python code formatter
-8. **flake8** - Python linter
-9. **isort** - Python import sorter
-10. **eslint** - JavaScript/React linter
-11. **markdownlint** - Markdown formatter
+1. **black** - Python code formatter
+2. **flake8** - Python linter
+3. **isort** - Python import sorter
+4. **eslint** - JavaScript/React linter
+5. **markdownlint** - Markdown formatter
 
 ### Git Hygiene Checks
 
-12. **check-added-large-files** - Prevents files > 10MB
-13. **check-merge-conflict** - Detects merge conflict markers
-14. **no-commit-to-branch** - Prevents direct commits to main/master
-15. **trailing-whitespace** - Removes trailing whitespace
-16. **end-of-file-fixer** - Ensures files end with newline
-17. **detect-private-key** - Detects private key files
+1. **check-added-large-files** - Prevents files > 10MB
+2. **check-merge-conflict** - Detects merge conflict markers
+3. **no-commit-to-branch** - Prevents direct commits to main/master
+4. **trailing-whitespace** - Removes trailing whitespace
+5. **end-of-file-fixer** - Ensures files end with newline
+6. **detect-private-key** - Detects private key files
 
 ## How to Use
 
@@ -307,7 +308,7 @@ $ git commit -m "docs: add setup instructions"
 
 Running scan-api-keys hook...
 WARNING: Potential API key detected in README.md:45
-Pattern: PLANT_ID_API_KEY=W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4
+Pattern: PLANT_ID_API_KEY=your-plant-id-api-key-here
 ⚠️  Hook passed with warnings
 ```
 
@@ -324,7 +325,7 @@ Running detect-secrets hook...
   File: backend/settings.py
   Line: 67
   Type: Secret Keyword
-  Secret: GOOGLE_OAUTH2_CLIENT_SECRET = "abc123xyz..."
+  Secret: GOOGLE_OAUTH2_CLIENT_SECRET = "abc123xyz..."  # pragma: allowlist secret
 
 ❌ Hook failed
 ```
@@ -356,13 +357,15 @@ jobs:
 ```
 
 This ensures:
+
 - Hooks can't be bypassed with `--no-verify`
 - All commits are validated before merge
 - Team-wide enforcement of security standards
 
 ## Best Practices
 
-### DO:
+### DO
+
 ✅ Run `pre-commit run --all-files` before creating PR
 ✅ Update hooks monthly: `pre-commit autoupdate`
 ✅ Mark false positives in `.secrets.baseline`
@@ -370,7 +373,8 @@ This ensures:
 ✅ Keep .env.example updated with placeholders
 ✅ Fix hook failures immediately, don't skip
 
-### DON'T:
+### DON'T
+
 ❌ Use `--no-verify` except for emergencies
 ❌ Commit CLAUDE.md or .env files
 ❌ Ignore secret detection warnings
@@ -380,7 +384,7 @@ This ensures:
 
 ## Performance Optimization
 
-### Speed up hook execution:
+### Speed up hook execution
 
 ```bash
 # Only run hooks on changed files (default)
@@ -393,7 +397,7 @@ git commit -m "message"
 # Speeds up subsequent runs significantly
 ```
 
-### Typical execution times:
+### Typical execution times
 
 - **First run:** 30-60 seconds (installs hook environments)
 - **Subsequent runs:** 5-15 seconds (cached environments)
@@ -431,8 +435,8 @@ git commit -m "message"
 
 ### Resources
 
-- **Pre-commit docs:** https://pre-commit.com/
-- **detect-secrets:** https://github.com/Yelp/detect-secrets
+- **Pre-commit docs:** <https://pre-commit.com/>
+- **detect-secrets:** <https://github.com/Yelp/detect-secrets>
 - **Issue #1 analysis:** `backend/docs/development/SECURITY_PATTERNS_CODIFIED.md`
 - **Security incident:** `backend/docs/development/SECURITY_INCIDENT_2025_10_23_API_KEYS.md`
 

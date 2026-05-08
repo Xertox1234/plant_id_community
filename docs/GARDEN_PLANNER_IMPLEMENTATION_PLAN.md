@@ -1,9 +1,10 @@
 # Garden Planner Feature - Implementation Plan (4-6 weeks)
 
 ## Overview
+
 Replicate all Gardening-Planner features as `/garden-planner` section in React web app with hybrid Django + Firebase backend, fully integrated with existing plant ID, forum, and blog features.
 
-**Source Repository**: https://github.com/Ashutosh049-lab/Gardening-Planner
+**Source Repository**: <https://github.com/Ashutosh049-lab/Gardening-Planner>
 **Integration Approach**: Replicate features (not iframe embed)
 **Backend Strategy**: Hybrid Django + Firebase
 **Platform Priority**: React Web First
@@ -14,9 +15,11 @@ Replicate all Gardening-Planner features as `/garden-planner` section in React w
 ## Phase 1: Backend Foundation (Week 1-2)
 
 ### Django Backend (`backend/apps/garden/`)
+
 **New Django app with PostgreSQL models:**
 
 #### Models
+
 ```python
 # apps/garden/models.py
 
@@ -287,6 +290,7 @@ class PlantCareLibrary(models.Model):
 ```
 
 #### REST API Endpoints
+
 ```
 # URLs: backend/apps/garden/urls.py
 
@@ -399,6 +403,7 @@ class PlantCareLibrary(models.Model):
 ```
 
 #### Services Layer
+
 ```python
 # apps/garden/services/
 
@@ -482,6 +487,7 @@ class CareAssistantService:
 ```
 
 #### Constants
+
 ```python
 # apps/garden/constants.py
 
@@ -529,6 +535,7 @@ RATE_LIMIT_WEATHER_API = "100/hour"
 ### Firebase Setup
 
 #### Firestore Structure
+
 ```
 collections/
 ├── users/
@@ -572,6 +579,7 @@ collections/
 ```
 
 #### Firestore Security Rules
+
 ```javascript
 // firestore.rules
 
@@ -620,6 +628,7 @@ service cloud.firestore {
 ```
 
 #### Firebase Cloud Functions
+
 ```javascript
 // functions/index.js
 
@@ -760,6 +769,7 @@ exports.updatePublicGardens = functions.https.onCall(async (data, context) => {
 ```
 
 #### Django + Firebase Auth Integration
+
 ```python
 # apps/users/services/firebase_service.py
 
@@ -826,6 +836,7 @@ class FirebaseTokenView(APIView):
 ## Phase 2: React Web UI (Week 2-4)
 
 ### Directory Structure
+
 ```
 web/src/
 ├── pages/garden/
@@ -877,6 +888,7 @@ web/src/
 ```
 
 ### TypeScript Interfaces
+
 ```typescript
 // web/src/types/garden.ts
 
@@ -1058,6 +1070,7 @@ export interface WeatherForecast {
 ### Key Components
 
 #### 1. Garden Layout Designer
+
 ```typescript
 // web/src/components/garden/GardenCanvas.tsx
 
@@ -1224,6 +1237,7 @@ export const GardenCanvas: React.FC<GardenCanvasProps> = ({
 ```
 
 #### 2. Reminder Calendar
+
 ```typescript
 // web/src/components/garden/ReminderCalendar.tsx
 
@@ -1286,6 +1300,7 @@ export const ReminderCalendar: React.FC<ReminderCalendarProps> = ({
 ```
 
 #### 3. Weather Widget
+
 ```typescript
 // web/src/components/garden/WeatherWidget.tsx
 
@@ -1387,6 +1402,7 @@ export const WeatherWidget: React.FC<WeatherWidgetProps> = ({
 ```
 
 ### API Services
+
 ```typescript
 // web/src/services/gardenApi.ts
 
@@ -1643,6 +1659,7 @@ export const weatherService = {
 ## Phase 3: Integration Points (Week 4-5)
 
 ### Plant ID → Garden Integration
+
 ```typescript
 // web/src/pages/plant-identification/ResultsPage.tsx (extend existing)
 
@@ -1677,6 +1694,7 @@ const saveToGarden = async (gardenId: number) => {
 ```
 
 ### AI Care Plan Generation
+
 ```python
 # backend/apps/garden/services/care_assistant.py
 
@@ -1768,6 +1786,7 @@ class CareAssistantService:
 ```
 
 ### Forum Garden Showcase
+
 ```python
 # backend/apps/forum/models.py (extend existing)
 
@@ -1804,6 +1823,7 @@ class GardenShowcaseSerializer(serializers.ModelSerializer):
 ## Phase 4: Firebase + Django Sync (Week 5)
 
 ### Real-Time Reminder Workflow
+
 ```typescript
 // web/src/hooks/useFirebaseSync.ts
 
@@ -1849,6 +1869,7 @@ export const useFirebaseSync = (userId: string) => {
 ## Phase 5: Testing & Security (Week 6)
 
 ### Django Tests
+
 ```python
 # backend/apps/garden/tests/test_garden_api.py
 
@@ -1862,7 +1883,7 @@ class GardenAPITestCase(TestCase):
         self.client = APIClient()
         self.user = User.objects.create_user(
             username='testuser',
-            password='testpass123'
+            password='testpass123'  # pragma: allowlist secret
         )
         self.client.force_authenticate(user=self.user)
 
@@ -1925,6 +1946,7 @@ class GardenAPITestCase(TestCase):
 ```
 
 ### React Component Tests
+
 ```typescript
 // web/src/components/garden/__tests__/GardenCanvas.test.tsx
 
@@ -1999,6 +2021,7 @@ describe('GardenCanvas', () => {
 ## Phase 6: Future Flutter Mobile (Post-6 weeks)
 
 ### Flutter Garden Feature Structure
+
 ```dart
 // plant_community_mobile/lib/features/garden/
 
@@ -2035,6 +2058,7 @@ services/
 ### Environment Variables
 
 **Django (.env)**:
+
 ```bash
 # Existing
 SECRET_KEY=...
@@ -2048,6 +2072,7 @@ FIREBASE_SERVICE_ACCOUNT_PATH=/path/to/serviceAccountKey.json
 ```
 
 **React (.env)**:
+
 ```bash
 # Existing
 VITE_API_URL=https://your-api.com
@@ -2065,6 +2090,7 @@ VITE_OPENWEATHER_API_KEY=...
 ```
 
 ### Database Migrations
+
 ```bash
 cd backend
 python manage.py makemigrations garden
@@ -2072,6 +2098,7 @@ python manage.py migrate garden
 ```
 
 ### Firebase Deployment
+
 ```bash
 cd backend/firebase_functions
 npm install
@@ -2080,6 +2107,7 @@ firebase deploy --only firestore:rules
 ```
 
 ### Static Files
+
 ```bash
 # Django
 python manage.py collectstatic
@@ -2094,18 +2122,21 @@ npm run build
 ## Success Metrics
 
 ### Technical Performance
+
 - ✅ Garden designer drag latency <100ms
 - ✅ Weather API response <2s (fresh), <50ms (cached)
 - ✅ Reminder calendar render time <200ms
 - ✅ Firebase sync success rate >99%
 
 ### User Engagement
+
 - ✅ 80%+ plant ID users save to garden
 - ✅ 50%+ daily reminder completion rate
 - ✅ 30%+ gardens shared publicly
 - ✅ 5+ journal entries per active user/month
 
 ### Code Quality
+
 - ✅ 100+ comprehensive tests (Django + React)
 - ✅ Zero TypeScript compilation errors
 - ✅ All security patterns implemented (CSRF, file upload, rate limiting)

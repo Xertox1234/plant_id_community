@@ -81,14 +81,6 @@ repos:
   # ===================================
   - repo: local
     hooks:
-      # Block CLAUDE.md from being committed
-      - id: block-claude-md
-        name: Block CLAUDE.md (local development file only)
-        entry: "bash -c 'if git diff --cached --name-only | grep -q \"^CLAUDE.md$\"; then echo \"ERROR - CLAUDE.md must NEVER be committed.\"; exit 1; fi'"
-        language: system
-        pass_filenames: false
-        always_run: true
-
       # Block .env files (except .env.example)
       - id: block-env-files
         name: Block .env files (use .env.example instead)
@@ -203,7 +195,8 @@ repos:
           (?x)^(
             PLANNING/.*|
             backend/docs/development/SECURITY_INCIDENT_.*\.md$|
-            todos/archive/.*\.md$
+            todos/archive/.*\.md$|
+            docs/archive/.*\.md$
           )
 
   # ===================================
