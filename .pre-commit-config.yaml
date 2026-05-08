@@ -172,6 +172,25 @@ repos:
         pass_filenames: false
 
   # ===================================
+  # Flutter/Dart Code Quality
+  # ===================================
+  - repo: local
+    hooks:
+      - id: flutter-analyze
+        name: Analyze Flutter with flutter analyze
+        entry: bash -c 'flutter analyze plant_community_mobile/'
+        language: system
+        files: ^plant_community_mobile/.*\.dart$
+        pass_filenames: false
+
+      - id: dart-format
+        name: Check Dart formatting with dart format
+        entry: bash -c 'dart format --output=none --set-exit-if-changed plant_community_mobile/lib/'
+        language: system
+        files: ^plant_community_mobile/.*\.dart$
+        pass_filenames: false
+
+  # ===================================
   # Markdown Linting
   # ===================================
   - repo: https://github.com/igorshubovych/markdownlint-cli
