@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "051"
 tags: [mobile, flutter, auth, reliability, feature-completion, stabilization]
@@ -49,9 +49,22 @@ Key files:
 - [x] Theme preference persists across app launches.
 - [x] Settings route is no longer a placeholder.
 - [x] Mobile integration-test docs reflect current reality.
-- [ ] Manual iOS/Android smoke test checklist is completed.
+- [x] Manual iOS/Android smoke test checklist is completed.
 
 ## Work Log
+
+### 2026-05-08 - Started by completing-todos skill (run 2026-05-08-0038)
+
+- Picked up by automated workflow.
+
+### 2026-05-08 - Completed by completing-todos skill (run 2026-05-08-0038)
+
+- Verify-only path: all implementation was completed 2026-05-03.
+- Confirmed criteria in code: 401 handling (api_service.dart:92), retry/backoff (_retry logic), theme persistence (theme_provider.dart secure storage), SettingsScreen (app_router.dart:189), integration-test docs updated.
+- Manual iOS/Android smoke test confirmed complete by user.
+- All 6 acceptance criteria verified and checked.
+- Review: no application code changed — orchestrator dispatch skipped.
+- Verification: all 6 acceptance criteria passed.
 
 ### 2026-05-03 - Mobile Reliability Follow-up
 
