@@ -1,13 +1,14 @@
 import logging
 from typing import Dict
+
+from asgiref.sync import async_to_sync
 from celery import shared_task
 from celery.exceptions import Retry
-from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
+from .exceptions import RateLimitExceeded
 from .models import PlantIdentificationRequest
 from .services.identification_service import PlantIdentificationService
-from .exceptions import RateLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
     retry_backoff=True,
     retry_kwargs={"max_retries": 5},
     retry_jitter=True,
-    rate_limit='100/h'  # Limit task execution rate
+    rate_limit="100/h",  # Limit task execution rate
 )
 def run_identification(self, request_uuid: str) -> Dict:
     """
@@ -36,6 +37,14 @@ def run_identification(self, request_uuid: str) -> Dict:
         logger.error("Identification request not found: %s", request_uuid)
         return {"status": "not_found", "results_count": 0}
 
+    if req.status != "pending":
+        logger.info(
+            "[CELERY] Skipping duplicate task for %s (status=%s)",
+            request_uuid,
+            req.status,
+        )
+        return {"status": req.status, "results_count": 0}
+
     channel_layer = get_channel_layer()
 
     def emit(event_type: str, payload: Dict):
@@ -52,7 +61,14 @@ def run_identification(self, request_uuid: str) -> Dict:
 
     try:
         service = PlantIdentificationService()
-        emit("progress", {"stage": "processing_start", "status": "processing", "data": {"request_id": request_uuid}})
+        emit(
+            "progress",
+            {
+                "stage": "processing_start",
+                "status": "processing",
+                "data": {"request_id": request_uuid},
+            },
+        )
 
         # Define granular progress callback to forward service events to websocket
         def progress_cb(stage: str, status: str, data: Dict):
@@ -64,11 +80,14 @@ def run_identification(self, request_uuid: str) -> Dict:
     except RateLimitExceeded as e:
         # Handle rate limiting with exponential backoff
         logger.warning(f"Rate limit hit for request {request_uuid}: {e}")
-        emit("progress", {
-            "stage": "rate_limited",
-            "status": "queued",
-            "data": {"retry_after": e.retry_after, "message": str(e)}
-        })
+        emit(
+            "progress",
+            {
+                "stage": "rate_limited",
+                "status": "queued",
+                "data": {"retry_after": e.retry_after, "message": str(e)},
+            },
+        )
         # Retry with exponential backoff based on retry_after hint
         retry_in = min(e.retry_after if e.retry_after else 60, 300)  # Max 5 minutes
         raise self.retry(exc=e, countdown=retry_in)
@@ -76,7 +95,7 @@ def run_identification(self, request_uuid: str) -> Dict:
         logger.exception("Async identification failed for %s: %s", request_uuid, e)
         # Let autoretry handle transient failures; if exhausted, mark failed
         try:
-            req.status = 'failed'
+            req.status = "failed"
             req.save(update_fields=["status"])  # keep minimal write
         except Exception:
             pass
