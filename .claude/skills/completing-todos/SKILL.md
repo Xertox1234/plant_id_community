@@ -32,8 +32,6 @@ Natural-language id references ("finish todo 050", "do 052 and 056") normalize t
 
 The skill runs in three phases. Phase 0 confirms scope. Phase 1 loops per todo. Phase 2 wraps up.
 
-(Phase sections appear below — populated in subsequent commits.)
-
 ## Phases
 
 ### Phase 0 — Scope Confirmation
