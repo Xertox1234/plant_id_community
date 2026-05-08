@@ -25,8 +25,13 @@ flutter-outdated.json
 # The tracked lib/firebase_options.dart reads local env/dart-define values and
 # intentionally does not contain committed Firebase project keys.
 lib/firebase_options_*.dart
-android/app/google-services.json
-ios/Runner/GoogleService-Info.plist
+
+# Firebase native config files (google-services.json, GoogleService-Info.plist)
+# are intentionally tracked. Firebase client config is not secret — these files
+# contain public project identifiers, not API keys. The iOS plist is bundled into
+# the app via Xcode Resources; removing it would break the iOS build. The Android
+# json is kept for consistency (the Gradle plugin is disabled, so it is not used
+# at build time, but it is the canonical record of the Firebase project IDs).
 
 # IntelliJ related
 *.iml
