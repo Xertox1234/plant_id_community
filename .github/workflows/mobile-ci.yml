@@ -1,6 +1,16 @@
 name: Mobile Fresh Checkout CI
 
 'on':
+  push:
+    branches: [main, develop]
+    paths:
+      - 'plant_community_mobile/**'
+      - '.github/workflows/mobile-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'plant_community_mobile/**'
+      - '.github/workflows/mobile-ci.yml'
   workflow_dispatch: {}
 
 jobs:
