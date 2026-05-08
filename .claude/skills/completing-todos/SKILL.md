@@ -94,7 +94,40 @@ Proceed to Phase 1.
 
 ### Phase 1 — Per-Todo Loop
 
-(populated in Tasks 6–7)
+For each todo in the planned order:
+
+#### Step 1 — Mark in-progress
+
+This step is atomic from the user's perspective: any failure leaves the file in `pending` state.
+
+1. Edit the file's frontmatter: `status: pending` → `status: in_progress`.
+2. Rename the file with `git mv`:
+   ```bash
+   git mv todos/050-pending-p1-flutter-fresh-checkout-build.md \
+          todos/050-in_progress-p1-flutter-fresh-checkout-build.md
+   ```
+3. Append a Work Log entry to the renamed file:
+   ```markdown
+   ### YYYY-MM-DD - Started by completing-todos skill (run <run_id>)
+
+   - Picked up by automated workflow.
+   ```
+4. If `--dry-run`: print what each of the above would do; do not execute.
+
+#### Step 2 — Implement or verify
+
+1. Read the **Recommended Action** and **Technical Details** sections.
+2. **Verify-only path:** if every `- [ ]` in Acceptance Criteria is already `- [x]` AND `git diff --quiet HEAD -- <paths-from-Technical-Details>` returns 0 (no diff), skip implementation and proceed to Step 3 to re-confirm. State this explicitly in the Work Log: `Detected verify-only state — no implementation work needed.`
+3. **Implementation path:** otherwise, perform the work described. Use TodoWrite to track sub-steps. Delegate substantial or specialized work to subagents:
+   - `Explore` for searching the codebase
+   - `frontend-developer` for React UI work
+   - `wagtail-cms-orchestrator` for CMS data flow / Wagtail page work
+   - `general-purpose` as a fallback for cross-cutting research or multi-step work
+
+   The skill itself owns orchestration; subagents do the actual implementation. Always read the relevant pattern docs under `backend/docs/patterns/`, `web/docs/patterns/`, or `plant_community_mobile/docs/patterns/` before writing new code in those areas.
+4. If `--dry-run`: do not invoke any subagent or write any file; print the planned subagent dispatches and pattern docs that would be consulted, then continue to Step 3.
+
+(Steps 3–5 below — populated in Task 7.)
 
 ### Phase 2 — Wrap-Up
 
