@@ -14,7 +14,8 @@ This checklist consolidates all critical security findings from the codebase aud
 
 **Important Context:** Firebase client API keys are NOT secret - they're designed for client apps. Security is enforced by **Firebase Security Rules**, not key secrecy. The real vulnerability was missing Security Rules.
 
-#### Completed Actions:
+#### Completed Actions
+
 - [✅] **Firebase Security Rules deployed** (deny by default, authenticated access only)
 - [✅] **flutter_dotenv implemented** for environment-based configuration
 - [✅] **Keys moved to .env** (gitignored)
@@ -24,6 +25,7 @@ This checklist consolidates all critical security findings from the codebase aud
 #### Firebase Security Rules (Reference)
 
 **Firestore Rules** - Deny by default, authenticated access only:
+
 ```javascript
 // Firebase Console → Firestore Database → Rules
 rules_version = '2';
@@ -57,6 +59,7 @@ service cloud.firestore {
 ```
 
 **Storage Rules** - Authenticated only with 10MB file size limit:
+
 ```javascript
 // Firebase Console → Storage → Rules
 rules_version = '2';
@@ -84,7 +87,8 @@ service firebase.storage {
 }
 ```
 
-#### Maintenance Checklist (Periodic Review):
+#### Maintenance Checklist (Periodic Review)
+
 - [ ] **Audit Firebase activity** monthly (Firebase Console → Analytics → Usage)
 - [ ] **Review Security Rules** after schema changes
 - [ ] **Monitor quota usage** (check for unusual spikes)
@@ -92,6 +96,7 @@ service firebase.storage {
 - [ ] **Run security scan** before deployments
 
 **Risk Assessment:**
+
 - **Before fix:** CVSS 7.5 (HIGH) - Complete database/storage access by anyone
 - **After fix:** CVSS 2.0 (LOW) - Normal Firebase security posture
 
@@ -105,6 +110,7 @@ service firebase.storage {
 
 - [ ] **Fix SQL injection** in `backend/apps/search/migrations/0003_simple_search_vectors.py:31-34`
   - [ ] Replace f-string concatenation with `psycopg2.sql.SQL()` and `sql.Identifier()`
+
   ```python
   # ❌ Current (vulnerable)
   cursor.execute(f"ALTER TABLE {table} ADD COLUMN ...")
@@ -117,6 +123,7 @@ service firebase.storage {
       )
   )
   ```
+
 - [ ] **Review all migrations** for similar patterns
 - [ ] **Test migration** on staging database
 - [ ] **Add pre-commit hook** to detect SQL injection patterns
@@ -132,20 +139,26 @@ service firebase.storage {
 **Status:** [ ] Not Started | [ ] In Progress | [ ] Complete
 
 - [ ] **Change CSRF cookie to HttpOnly** in `backend/plant_community_backend/settings.py:222`
+
   ```python
   CSRF_COOKIE_HTTPONLY = True  # Prevent JavaScript access
   ```
+
 - [ ] **Implement meta tag pattern** for CSRF token
+
   ```html
   <!-- In base template -->
   <meta name="csrf-token" content="{{ csrf_token }}">
   ```
+
 - [ ] **Update frontend** to read from meta tag instead of cookie
+
   ```typescript
   function getCsrfToken(): string | null {
     return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content || null;
   }
   ```
+
 - [ ] **Test all forms** still submit correctly
 - [ ] **Verify registration/login** work with HttpOnly cookie
 
@@ -162,6 +175,7 @@ service firebase.storage {
 **Status:** [ ] Not Started | [ ] In Progress | [ ] Complete
 
 - [ ] **Configure Content-Security-Policy** in `backend/plant_community_backend/settings.py`
+
   ```python
   SECURE_CONTENT_TYPE_NOSNIFF = True
   X_FRAME_OPTIONS = 'DENY'
@@ -172,18 +186,24 @@ service firebase.storage {
   CSP_FONT_SRC = ("'self'", "https://fonts.gstatic.com")
   CSP_STYLE_SRC = ("'self'", "'unsafe-inline'", "https://fonts.googleapis.com")
   ```
+
 - [ ] **Add django-csp** to requirements.txt
+
   ```bash
   pip install django-csp
   ```
+
 - [ ] **Configure middleware** in settings.py
+
   ```python
   MIDDLEWARE = [
       'csp.middleware.CSPMiddleware',  # Add this
       # ... existing middleware
   ]
   ```
+
 - [ ] **Set Permissions-Policy** header
+
   ```python
   SECURE_PERMISSIONS_POLICY = {
       'geolocation': [],
@@ -191,6 +211,7 @@ service firebase.storage {
       'microphone': [],
   }
   ```
+
 - [ ] **Test CSP** doesn't break functionality
   - [ ] Check browser console for CSP violations
   - [ ] Verify all resources load correctly
@@ -207,6 +228,7 @@ service firebase.storage {
 **Status:** [ ] Not Started | [ ] In Progress | [ ] Complete
 
 - [ ] **Add cleanup** to `web/src/components/forum/TipTapEditor.tsx:28-55`
+
   ```tsx
   useEffect(() => {
     if (!editor) return;
@@ -216,6 +238,7 @@ service firebase.storage {
     };
   }, [editor]);
   ```
+
 - [ ] **Test editor** in forum post creation
 - [ ] **Monitor memory** in Chrome DevTools
   - [ ] Create 10 posts, navigate away
@@ -233,6 +256,7 @@ service firebase.storage {
 **Status:** [ ] Not Started | [ ] In Progress | [ ] Complete
 
 - [ ] **Replace 10 COUNT queries** with single aggregation in `backend/apps/forum/viewsets/moderation_queue_viewset.py`
+
   ```python
   stats = FlaggedContent.objects.aggregate(
       total_flags=Count('id'),
@@ -240,10 +264,13 @@ service firebase.storage {
       # ... other conditional counts
   )
   ```
+
 - [ ] **Verify cache warming** still works
+
   ```bash
   python manage.py warm_moderation_cache
   ```
+
 - [ ] **Add performance test** with `assertNumQueries(2)`
 - [ ] **Measure improvement** (should be 500ms → 50ms)
 
@@ -274,11 +301,13 @@ service firebase.storage {
 **Status:** [ ] Not Started | [ ] In Progress | [ ] Complete
 
 - [ ] **Reduce token lifetime** to 15 minutes (OWASP compliant)
+
   ```python
   SIMPLE_JWT = {
       'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),  # Was 60
   }
   ```
+
 - [ ] **Implement auto-refresh** in frontend (10-minute interval)
 - [ ] **Monitor API load** for refresh endpoint
 - [ ] **Test token expiration** behavior
@@ -370,23 +399,29 @@ service firebase.storage {
 ### Django Settings (Production)
 
 - [ ] **DEBUG = False**
+
   ```python
   DEBUG = config('DEBUG', default=False, cast=bool)
   ```
+
 - [ ] **SECRET_KEY is production-grade**
   - [ ] Minimum 50 characters
   - [ ] Generated with: `python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'`
   - [ ] NOT containing: `django-insecure`, `change-me`, `test`, `dev`, `local`
 - [ ] **ALLOWED_HOSTS configured**
+
   ```python
   ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='', cast=Csv())
   # Example: yourdomain.com,www.yourdomain.com
   ```
+
 - [ ] **CORS_ALLOWED_ORIGINS configured**
+
   ```python
   CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
   # Example: https://yourdomain.com,https://www.yourdomain.com
   ```
+
 - [ ] **SECURE_SSL_REDIRECT = True** (forces HTTPS)
 - [ ] **SESSION_COOKIE_SECURE = True**
 - [ ] **CSRF_COOKIE_SECURE = True**
@@ -397,12 +432,15 @@ service firebase.storage {
 ### Database
 
 - [ ] **PostgreSQL with SSL** connection
+
   ```python
-  DATABASE_URL = "postgres://user:pass@host:5432/db?sslmode=require"
+  DATABASE_URL = "postgres://user:pass@host:5432/db?sslmode=require"  # pragma: allowlist secret
   ```
+
 - [ ] **Database user** has minimum privileges (not superuser)
 - [ ] **Backups configured** (daily minimum)
 - [ ] **GIN indexes created** for full-text search
+
   ```bash
   python manage.py migrate
   ```
@@ -410,15 +448,20 @@ service firebase.storage {
 ### Redis Cache
 
 - [ ] **Redis is running**
+
   ```bash
   redis-cli ping  # Should return "PONG"
   ```
+
 - [ ] **Redis URL configured**
+
   ```python
   REDIS_URL = config('REDIS_URL', default='redis://localhost:6379/1')
   ```
+
 - [ ] **Redis password** set (if production)
 - [ ] **Cache warming** runs on deployment
+
   ```bash
   python manage.py warm_moderation_cache
   ```
@@ -427,7 +470,7 @@ service firebase.storage {
 
 - [ ] **Plant.id API key** is valid (50 characters)
   - [ ] Free tier: 3 identifications/day
-  - [ ] Upgrade for production: https://admin.kindwise.com/
+  - [ ] Upgrade for production: <https://admin.kindwise.com/>
 - [ ] **PlantNet API key** is valid (optional fallback)
 - [ ] **Firebase API keys** rotated (see Issue #142)
 - [ ] **All keys** in environment variables (NOT in code)
@@ -439,24 +482,29 @@ service firebase.storage {
 - [ ] **HTTPS redirect** enabled (SECURE_SSL_REDIRECT)
 - [ ] **HSTS header** configured (SECURE_HSTS_SECONDS)
 - [ ] **Mixed content** warnings resolved
-- [ ] **Test SSL:** https://www.ssllabs.com/ssltest/
+- [ ] **Test SSL:** <https://www.ssllabs.com/ssltest/>
 
 ### Authentication
 
 - [ ] **JWT secret key** is production-grade
+
   ```python
   JWT_SECRET_KEY = config('JWT_SECRET_KEY')  # Different from SECRET_KEY
   ```
+
 - [ ] **Token lifetime** configured (15 minutes recommended)
 - [ ] **Refresh token rotation** enabled
+
   ```python
   SIMPLE_JWT = {
       'ROTATE_REFRESH_TOKENS': True,
       'BLACKLIST_AFTER_ROTATION': True,
   }
   ```
+
 - [ ] **Account lockout** enabled (5 failed attempts)
 - [ ] **Rate limiting** configured
+
   ```python
   RATE_LIMITS = {
       'auth_endpoints': {
@@ -469,17 +517,23 @@ service firebase.storage {
 ### File Uploads
 
 - [ ] **File size limits** enforced (5MB default)
+
   ```python
   MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024  # 5MB
   ```
+
 - [ ] **File extension validation** (whitelist only)
+
   ```python
   ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp']
   ```
+
 - [ ] **MIME type validation** (defense in depth)
+
   ```python
   ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
   ```
+
 - [ ] **Upload directory** outside web root
 - [ ] **Virus scanning** configured (if handling user uploads)
 
@@ -501,26 +555,35 @@ service firebase.storage {
 ### Deployment
 
 - [ ] **Static files** collected
+
   ```bash
   python manage.py collectstatic --noinput
   ```
+
 - [ ] **Database migrations** applied
+
   ```bash
   python manage.py migrate --noinput
   ```
+
 - [ ] **Cache warmed**
+
   ```bash
   python manage.py warm_moderation_cache
   ```
+
 - [ ] **Gunicorn/Daphne** configured with workers
+
   ```bash
   gunicorn plant_community_backend.wsgi:application \
     --bind 0.0.0.0:8000 \
     --workers 4 \
     --timeout 60
   ```
+
 - [ ] **Process manager** configured (systemd, supervisor)
 - [ ] **Health check** endpoint responding
+
   ```bash
   curl https://yourdomain.com/api/health/
   ```
@@ -528,17 +591,23 @@ service firebase.storage {
 ### Web Frontend
 
 - [ ] **Production build** created
+
   ```bash
   cd web && npm run build
   ```
+
 - [ ] **TypeScript compilation** passes
+
   ```bash
   npx tsc --noEmit  # Should show 0 errors
   ```
+
 - [ ] **Environment variables** set
+
   ```bash
   VITE_API_URL=https://api.yourdomain.com
   ```
+
 - [ ] **CDN configured** for static assets (optional)
 - [ ] **Compression enabled** (gzip, brotli)
 
@@ -546,19 +615,26 @@ service firebase.storage {
 
 - [ ] **Firebase production project** configured
 - [ ] **Firebase Security Rules** deployed
+
   ```bash
   firebase deploy --only firestore:rules
   ```
+
 - [ ] **API keys** loaded from environment
+
   ```dart
   await dotenv.load(fileName: ".env");
   ```
+
 - [ ] **Production build** tested
+
   ```bash
   flutter build apk --release
   flutter build ios --release
   ```
+
 - [ ] **Security scan** passes
+
   ```bash
   python scripts/check_flutter_security.py --fail-on-warning
   ```
@@ -587,14 +663,14 @@ curl -I https://yourdomain.com
 # 3. Test CSRF protection
 curl -X POST https://yourdomain.com/api/v1/users/register/ \
   -H "Content-Type: application/json" \
-  -d '{"username":"test","email":"test@example.com","password":"pass123"}'
+  -d '{"username":"test","email":"test@example.com","password":"pass123"}'  # pragma: allowlist secret
 # Should return: 403 Forbidden (CSRF token missing)
 
 # 4. Test rate limiting
 for i in {1..6}; do
   curl -X POST https://yourdomain.com/api/v1/users/login/ \
     -H "Content-Type: application/json" \
-    -d '{"email":"test@example.com","password":"wrong"}'
+    -d '{"email":"test@example.com","password":"wrong"}'  # pragma: allowlist secret
 done
 # 6th request should return: 429 Too Many Requests
 
@@ -681,9 +757,9 @@ Before going live, verify:
 - **Security Audit Report**: Comprehensive code review (November 9, 2025)
 - **Todo Files**: `/todos/011-020-pending-*.md` (10 detailed issues)
 - **GitHub Issues**: #142-#156 (15 tracking issues)
-- **OWASP Top 10**: https://owasp.org/www-project-top-ten/
-- **Django Security**: https://docs.djangoproject.com/en/5.2/topics/security/
-- **CSP Guide**: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
+- **OWASP Top 10**: <https://owasp.org/www-project-top-ten/>
+- **Django Security**: <https://docs.djangoproject.com/en/5.2/topics/security/>
+- **CSP Guide**: <https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP>
 
 ---
 
@@ -692,21 +768,24 @@ Before going live, verify:
 If critical issues are discovered post-deployment:
 
 1. **Revert deployment** immediately
+
    ```bash
    git revert HEAD
    git push origin main
    ```
 
 2. **Rotate compromised secrets**
+
    ```bash
    # Generate new SECRET_KEY
    python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 
    # Update in production environment
-   heroku config:set SECRET_KEY="new-key-here"
+   heroku config:set SECRET_KEY="new-key-here"  # pragma: allowlist secret
    ```
 
 3. **Check for data breach**
+
    ```bash
    # Review logs for suspicious activity
    tail -f /var/log/django/security.log | grep "WARN\|ERROR"
@@ -719,4 +798,3 @@ If critical issues are discovered post-deployment:
 **Last Review:** November 9, 2025
 **Next Review:** Before every production deployment
 **Contact:** Development team security lead
-

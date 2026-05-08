@@ -9,6 +9,7 @@
 ## ✅ COMPLETED TASKS
 
 ### 1. New Firebase App Registrations ✅
+
 - **Android App ID**: `1:190351417275:android:53aa5e82b6e221ad69ae9e` (NEW)
 - **iOS App ID**: `1:190351417275:ios:41590963ad4f6bd969ae9e` (NEW)
 - **Old compromised apps**: DELETED from Firebase Console
@@ -16,22 +17,28 @@
   - iOS old: `cde2ebc37ca035de69ae9e` ❌ REVOKED
 
 ### 2. Configuration Files Updated ✅
+
 - ✅ `.env` file updated with new Firebase app IDs
 - ✅ `google-services.json` copied to `android/app/`
 - ✅ `GoogleService-Info.plist` copied to `ios/Runner/`
 - ✅ `.env` file properly gitignored (verified not tracked)
 
 ### 3. Firebase Security Rules Deployed ✅
+
 - ✅ **Firestore rules**: Deployed successfully
+
   ```
   ✔  firestore: released rules firebase/firestore.rules to cloud.firestore
   ```
+
 - ✅ **Storage rules**: Deployed successfully
+
   ```
   ✔  storage: released rules firebase/storage.rules to firebase.storage
   ```
 
 **Security Features Active:**
+
 - 🔐 Authentication required for all operations
 - 🔐 Ownership checks enforce user can only access their own data
 - 🔐 Deny-all default for unmatched paths
@@ -40,6 +47,7 @@
 ### 4. Important Security Note 📋
 
 **Why API keys are the same:**
+
 - Firebase API keys are **PROJECT-level**, not app-level
 - They're public identifiers (meant to be embedded in apps)
 - **Real security comes from Firebase Security Rules** (now deployed ✅)
@@ -52,6 +60,7 @@
 ### Task 1: Test Flutter App on iOS & Android
 
 **iOS Simulator Test:**
+
 ```bash
 cd /Users/williamtower/projects/plant_id_community/plant_community_mobile
 flutter emulators --launch apple_ios_simulator
@@ -59,12 +68,14 @@ flutter run -d ios
 ```
 
 **Android Emulator Test:**
+
 ```bash
 flutter emulators --launch Medium_Phone_API_36.1
 flutter run -d android
 ```
 
 **What to Verify:**
+
 - ✅ App launches without Firebase errors
 - ✅ No exceptions about missing Firebase configuration
 - ✅ Firebase services connect properly (if you have any Firebase features implemented)
@@ -76,7 +87,8 @@ flutter run -d android
 **🔍 Check for Unauthorized Access:**
 
 #### Firestore Activity
-1. Visit: https://console.firebase.google.com/project/plant-community-prod/firestore/usage
+
+1. Visit: <https://console.firebase.google.com/project/plant-community-prod/firestore/usage>
 2. Review graph for past 30 days
 3. **Look for red flags:**
    - ❌ Unusual spikes in document reads/writes
@@ -84,7 +96,8 @@ flutter run -d android
    - ❌ Operations from unexpected geographic locations
 
 #### Storage Activity
-1. Visit: https://console.firebase.google.com/project/plant-community-prod/storage/usage
+
+1. Visit: <https://console.firebase.google.com/project/plant-community-prod/storage/usage>
 2. Review bandwidth and storage usage
 3. **Look for red flags:**
    - ❌ Large unexpected file uploads
@@ -92,7 +105,8 @@ flutter run -d android
    - ❌ Unknown file names or paths
 
 #### Authentication Logs
-1. Visit: https://console.firebase.google.com/project/plant-community-prod/authentication/users
+
+1. Visit: <https://console.firebase.google.com/project/plant-community-prod/authentication/users>
 2. Review user creation dates
 3. **Look for red flags:**
    - ❌ Multiple accounts created in short time
@@ -157,12 +171,14 @@ gh issue close 142
 
 ## 🔐 What Changed vs. What Stayed the Same
 
-### ✅ Changed (Security Improved):
+### ✅ Changed (Security Improved)
+
 1. **App IDs rotated**: Old apps can no longer connect to Firebase
 2. **Security rules deployed**: Authentication and authorization now enforced
 3. **Configuration updated**: New app IDs in `.env` and config files
 
-### ℹ️ Stayed the Same (Expected):
+### ℹ️ Stayed the Same (Expected)
+
 1. **API keys**: PROJECT-level identifiers (same across all apps in project)
 2. **Project ID**: `plant-community-prod` (unchanged)
 3. **Storage bucket**: `plant-community-prod.firebasestorage.app` (unchanged)
@@ -203,11 +219,11 @@ gh issue close 142
 
 ## 🔗 Quick Links
 
-- **Firebase Console**: https://console.firebase.google.com/project/plant-community-prod
-- **GitHub Issue #142**: https://github.com/Xertox1234/plant_id_community/issues/142
-- **Firestore Usage**: https://console.firebase.google.com/project/plant-community-prod/firestore/usage
-- **Storage Usage**: https://console.firebase.google.com/project/plant-community-prod/storage/usage
-- **Authentication Users**: https://console.firebase.google.com/project/plant-community-prod/authentication/users
+- **Firebase Console**: <https://console.firebase.google.com/project/plant-community-prod>
+- **GitHub Issue #142**: <https://github.com/Xertox1234/plant_id_community/issues/142>
+- **Firestore Usage**: <https://console.firebase.google.com/project/plant-community-prod/firestore/usage>
+- **Storage Usage**: <https://console.firebase.google.com/project/plant-community-prod/storage/usage>
+- **Authentication Users**: <https://console.firebase.google.com/project/plant-community-prod/authentication/users>
 
 ---
 

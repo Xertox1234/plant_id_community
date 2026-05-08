@@ -41,6 +41,7 @@ Firebase API keys were exposed in git commit history (commit `e43a7e1`). While t
 **Location**: Commit `e43a7e1` - Initial commit
 
 **Exposed Credentials**:
+
 ```
 Android API Key: AIzaSyDpRChSGfwYei1xfyjxcCNWjjnVJN2mBEA
 iOS API Key: AIzaSyBKJCbHFQ4fQihCWXbAV1aX50mkSxo4oQM
@@ -69,6 +70,7 @@ iOS Bundle ID: com.plantcommunity.plantCommunityMobile
 5. Click **"Regenerate Web API Key"** (or create new Android app)
 6. Copy the new `apiKey` value
 7. Update your local `.env` file:
+
    ```env
    FIREBASE_ANDROID_API_KEY=<new_key_here>
    ```
@@ -79,6 +81,7 @@ iOS Bundle ID: com.plantcommunity.plantCommunityMobile
 2. Click **"Regenerate Web API Key"** (or create new iOS app)
 3. Copy the new `apiKey` value
 4. Update your local `.env` file:
+
    ```env
    FIREBASE_IOS_API_KEY=<new_key_here>
    ```
@@ -86,6 +89,7 @@ iOS Bundle ID: com.plantcommunity.plantCommunityMobile
 #### Step 1.3: Delete Old Apps (Recommended)
 
 **Option A - Safer**: Create entirely new Android/iOS apps in Firebase:
+
 1. Click **"Add app"** button
 2. Register new Android app with same package name
 3. Register new iOS app with same bundle ID
@@ -140,6 +144,7 @@ firebase deploy --only storage
    - Document deletes
 
 **Red Flags**:
+
 - Unusual spikes in read/write activity
 - Activity during hours you weren't using the app
 - Reads from unexpected geographic locations
@@ -151,6 +156,7 @@ firebase deploy --only storage
 3. Look for unusual file uploads or downloads
 
 **Red Flags**:
+
 - Large unexpected file uploads
 - Bandwidth spikes
 - Unusual file access patterns
@@ -162,6 +168,7 @@ firebase deploy --only storage
 3. Check for suspicious accounts
 
 **Red Flags**:
+
 - Multiple accounts created in short time
 - Accounts with suspicious email patterns
 - Accounts created during odd hours
@@ -232,11 +239,13 @@ Firebase client API keys are **meant to be embedded in apps**. Security comes fr
 ### If You Want to Clean Git History
 
 **Step 1**: Backup repository:
+
 ```bash
 git clone https://github.com/Xertox1234/plant_id_community.git plant_id_backup
 ```
 
 **Step 2**: Use BFG Repo-Cleaner:
+
 ```bash
 # Install BFG
 brew install bfg
@@ -256,12 +265,14 @@ git push --force --all
 **Step 3**: Notify all contributors to re-clone repository
 
 **Risks**:
+
 - Breaks all forks
 - Requires all developers to re-clone
 - May not remove data from GitHub's cache immediately
 - Previous commits may still be accessible via direct links
 
 **Recommendation**: Given that:
+
 1. Security rules are properly configured
 2. Keys are rotated
 3. Firebase client keys are meant to be public anyway
@@ -273,16 +284,19 @@ git push --force --all
 ## 📊 Post-Remediation Monitoring
 
 ### Week 1: Daily Monitoring
+
 - Check Firebase usage dashboard daily
 - Review authentication logs
 - Monitor for unusual activity
 
 ### Week 2-4: Weekly Monitoring
+
 - Weekly Firebase usage review
 - Check for quota approaching limits
 - Review any new security alerts
 
 ### Ongoing: Monthly Audits
+
 - Monthly Firebase security audit
 - Review and update security rules as needed
 - Monitor Firebase SDK updates
@@ -306,9 +320,10 @@ git push --force --all
 From Firebase documentation:
 > "Unlike how API keys are typically used, API keys for Firebase services are not used to control access to backend resources; that can only be done with Firebase Security Rules. Usually, you need to fastidiously guard API keys (for example, by using a vault service or setting the keys as environment variables); however, API keys for Firebase services are ok to include in code or checked-in config files."
 
-**Source**: https://firebase.google.com/docs/projects/api-keys
+**Source**: <https://firebase.google.com/docs/projects/api-keys>
 
 The **real security** comes from:
+
 1. ✅ **Security Rules** (properly configured)
 2. ✅ **Authentication** (Firebase Auth)
 3. ✅ **Authorization** (ownership checks in rules)
