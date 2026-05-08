@@ -8,10 +8,16 @@ on:
     - cron: '0 9 * * 1'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   backend-security:
     name: Backend Python Security Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v5
@@ -38,7 +44,9 @@ jobs:
       - name: Run pip-audit (fail on vulnerabilities)
         run: |
           cd backend
-          pip-audit -r requirements.txt
+          # CVE-2026-42304 (Twisted 25.5.0): suppressed 2026-05-08 — no stable fix exists (fix is RC-only 26.4.0rc2).
+          # Remove this flag when Twisted >=26.4.0 stable is released on PyPI.
+          pip-audit -r requirements.txt --ignore-vuln CVE-2026-42304
         continue-on-error: false
 
       - name: Upload pip-audit report
@@ -64,6 +72,9 @@ jobs:
   frontend-security:
     name: Frontend npm Security Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v5

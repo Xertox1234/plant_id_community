@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "056"
 tags: [security, backend, python, dependencies, ci]
@@ -61,3 +61,23 @@ Reference run: https://github.com/Xertox1234/plant_id_community/actions/runs/255
 ## Out of Scope
 
 - Frontend (`Frontend npm Security Scan`) and Mobile (`Flutter Dependency Security Check`) jobs are passing (0 vulnerabilities). This todo covers only the backend Python pipeline.
+
+## Work Log
+
+### 2026-05-08 - Started by completing-todos skill (run 2026-05-08-0038)
+
+- Picked up by automated workflow.
+
+### 2026-05-08 - Completed by completing-todos skill (run 2026-05-08-0038)
+
+- Workflow was already migrated from `safety check` to `pip-audit` (PR #253). Focused on package bumps.
+- Ran `pip-audit -r requirements.txt`: 14 vulnerabilities in 8 packages.
+- Bumped 7 packages to their fix versions: Markdown 3.7→3.8.1, marshmallow 4.1.0→4.1.2, nltk 3.9.2→3.9.4, pyasn1 0.6.1→0.6.3, Pygments 2.19.2→2.20.0, pytest 8.4.2→9.0.3, python-dotenv 1.2.1→1.2.2.
+- Twisted CVE-2026-42304: no stable fix (fix is RC-only 26.4.0rc2). Suppressed with `--ignore-vuln CVE-2026-42304` on the enforcement step only; JSON report step left unfiltered to preserve audit trail.
+- Fixed permissions: moved `pull-requests: write` to per-job blocks on backend-security and frontend-security only (least-privilege).
+- Added date-stamped suppression comment with removal trigger condition.
+- Re-ran pip-audit: `No known vulnerabilities found, 1 ignored`.
+- Ran full test suite (919 passed, 9 skipped) against pytest 9.0.3 — no failures.
+- Verification: pip-audit clean (1 suppressed), test suite green.
+- Review: 1 high (pytest major bump — resolved by running tests), 2 mediums (repaired), 2 lows (CVE comment improved; pyasn1_modules — no action needed).
+- Note: mobile-ci.yml has a pre-existing working-tree modification (push/PR triggers removed). Not part of this todo; not committed here.
