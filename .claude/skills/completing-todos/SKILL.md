@@ -49,7 +49,7 @@ The skill runs in three phases. Phase 0 confirms scope. Phase 1 loops per todo. 
 
 3. **Discover candidates:**
    ```bash
-   grep -l "^status: pending" todos/*.md | sort
+   grep -l "^status: pending" todos/*.md | grep -v -E '/(TEMPLATE|README)\.md$' | sort
    ```
 
 4. **Parse each candidate's frontmatter** (`priority`, `issue_id`, `dependencies`) and title (the first `# ` line of the file).
