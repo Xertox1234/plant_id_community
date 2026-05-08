@@ -1,8 +1,8 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
-import { visualizer } from 'rollup-plugin-visualizer'
-import path from 'path'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import { visualizer } from 'rollup-plugin-visualizer';
+import path from 'path';
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -35,10 +35,12 @@ export default defineConfig({
       output: {
         // manualChunks is deprecated in Vite 8 (Rolldown); migrate to codeSplitting in a future PR
         manualChunks(id: string) {
-          if (id.includes('node_modules/react') ||
-              id.includes('node_modules/react-dom') ||
-              id.includes('node_modules/react-router-dom') ||
-              id.includes('node_modules/scheduler')) {
+          if (
+            id.includes('node_modules/react') ||
+            id.includes('node_modules/react-dom') ||
+            id.includes('node_modules/react-router-dom') ||
+            id.includes('node_modules/scheduler')
+          ) {
             return 'vendor';
           }
           if (id.includes('node_modules/dompurify')) {
@@ -54,4 +56,4 @@ export default defineConfig({
       },
     },
   },
-})
+});

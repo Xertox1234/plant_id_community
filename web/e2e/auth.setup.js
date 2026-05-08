@@ -20,7 +20,7 @@ setup('authenticate as test user', async ({ page }) => {
   // Navigate to login page
   await page.goto(`${E2E_URLS.FRONTEND}/login`, {
     waitUntil: 'networkidle',
-    timeout: E2E_TIMEOUTS.PAGE_LOAD
+    timeout: E2E_TIMEOUTS.PAGE_LOAD,
   });
 
   // Fill in login form
@@ -35,7 +35,8 @@ setup('authenticate as test user', async ({ page }) => {
 
   // Verify we're authenticated by checking for user menu
   // LoginPage redirects to '/' on success, and Header shows UserMenu when authenticated
-  const userMenuVisible = await page.locator('[data-testid="user-menu"]')
+  const userMenuVisible = await page
+    .locator('[data-testid="user-menu"]')
     .isVisible({ timeout: E2E_TIMEOUTS.ELEMENT_VISIBLE })
     .catch(() => false);
 

@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react'
-import { getOrCreateRequestId, subscribeRequestId } from '../utils/requestId'
+import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { getOrCreateRequestId, subscribeRequestId } from '../utils/requestId';
 
 /**
  * RequestContext value type
@@ -32,7 +32,7 @@ export interface RequestContextValue {
  * Note: eslint-disable for react-refresh is intentional - this file exports
  * both the context and provider, which is a common and acceptable pattern.
  */
-export const RequestContext = createContext<RequestContextValue | null>(null)
+export const RequestContext = createContext<RequestContextValue | null>(null);
 
 /**
  * useRequestId Hook
@@ -44,13 +44,13 @@ export const RequestContext = createContext<RequestContextValue | null>(null)
  * @throws Error if used outside of RequestProvider
  */
 export function useRequestId(): string {
-  const context = useContext(RequestContext)
+  const context = useContext(RequestContext);
 
   if (context === null) {
-    throw new Error('useRequestId must be used within a RequestProvider')
+    throw new Error('useRequestId must be used within a RequestProvider');
   }
 
-  return context.requestId
+  return context.requestId;
 }
 
 /**
@@ -73,9 +73,9 @@ export interface RequestProviderProps {
  * - Automatically included in structured log messages
  */
 export function RequestProvider({ children }: RequestProviderProps) {
-  const [requestId, setRequestId] = useState(() => getOrCreateRequestId())
+  const [requestId, setRequestId] = useState(() => getOrCreateRequestId());
 
-  useEffect(() => subscribeRequestId(setRequestId), [])
+  useEffect(() => subscribeRequestId(setRequestId), []);
 
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo<RequestContextValue>(
@@ -83,8 +83,8 @@ export function RequestProvider({ children }: RequestProviderProps) {
       requestId,
     }),
     [requestId]
-  )
+  );
 
   // React 19: Use RequestContext directly as provider
-  return <RequestContext value={value}>{children}</RequestContext>
+  return <RequestContext value={value}>{children}</RequestContext>;
 }

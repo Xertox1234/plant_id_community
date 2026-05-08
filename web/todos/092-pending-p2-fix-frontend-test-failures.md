@@ -1,10 +1,10 @@
 ---
 status: pending
 priority: p2
-issue_id: "092"
+issue_id: '092'
 tags: [testing, frontend, vitest, react, bug]
 dependencies: []
-estimated_effort: "8-12 hours"
+estimated_effort: '8-12 hours'
 ---
 
 # Fix Frontend Test Failures (135/479 tests failing)
@@ -20,6 +20,7 @@ estimated_effort: "8-12 hours"
 **Impact**: Cannot reliably verify frontend changes
 
 **Test Suite Stats**:
+
 - **Total Tests**: 479
 - **Passing**: 343 (72%)
 - **Failing**: 135 (28%)
@@ -28,6 +29,7 @@ estimated_effort: "8-12 hours"
 - **Duration**: 10.45s (fast suite, good performance)
 
 **Sample Failing Test** (from `CategoryListPage.test.jsx`):
+
 ```javascript
 // Test expects console.error to be called for API errors
 await waitFor(() => {
@@ -42,12 +44,15 @@ await waitFor(() => {
 Based on test failure patterns, issues likely fall into these categories:
 
 ### Category 1: API Mocking Issues
+
 **Symptoms**:
+
 - Tests expecting API calls but mocks not configured correctly
 - Network error handling not triggering as expected
 - Console error spies not capturing errors
 
 **Example**:
+
 ```javascript
 // Test expects error but mock doesn't fail properly
 api.get('/categories').mockRejectedValue(new Error('Network error'));
@@ -55,19 +60,25 @@ api.get('/categories').mockRejectedValue(new Error('Network error'));
 ```
 
 ### Category 2: Async State Management
+
 **Symptoms**:
+
 - `waitFor()` timeouts
 - State updates not reflected in time
 - Loading states not transitioning correctly
 
 ### Category 3: Component Prop Changes
+
 **Symptoms**:
+
 - Tests written for old component APIs
 - Props renamed but tests not updated
 - Default values changed
 
 ### Category 4: React 19 Breaking Changes
+
 **Symptoms**:
+
 - Tests written for React 18 patterns
 - Testing Library behavior changes
 - New concurrent features affecting test timing
@@ -77,12 +88,14 @@ api.get('/categories').mockRejectedValue(new Error('Network error'));
 ### Phase 1: Categorize Failures (2-3 hours)
 
 **Step 1**: Run tests with detailed output
+
 ```bash
 cd web
 npm run test:watch -- --run --reporter=verbose > test-failures.log 2>&1
 ```
 
 **Step 2**: Analyze failure patterns
+
 ```bash
 # Group failures by test file
 grep "FAIL" test-failures.log | sort
@@ -92,25 +105,30 @@ grep "AssertionError\|TypeError\|ReferenceError" test-failures.log | sort | uniq
 ```
 
 **Step 3**: Create failure categorization
+
 ```markdown
 ## Failure Breakdown
 
 ### API Mocking (estimated 60 failures)
+
 - CategoryListPage: API error handling
 - ThreadListPage: API response mocking
 - PostListPage: Network error simulation
 
 ### Async State (estimated 40 failures)
+
 - Loading states not updating
 - waitFor timeouts
 - State transitions
 
 ### Component Props (estimated 25 failures)
+
 - Renamed props
 - Changed default values
 - Removed props
 
 ### Other (estimated 10 failures)
+
 - Environment setup
 - Test utilities
 - Edge cases
@@ -119,6 +137,7 @@ grep "AssertionError\|TypeError\|ReferenceError" test-failures.log | sort | uniq
 ### Phase 2: Fix High-Impact Issues (4-6 hours)
 
 **Priority 1**: API Mocking Framework
+
 ```javascript
 // Create standardized API mock utility
 // File: web/src/test-utils/apiMocks.js
@@ -141,6 +160,7 @@ export const mockApiNetworkError = (endpoint) => {
 ```
 
 **Priority 2**: Console Error Spying
+
 ```javascript
 // Fix console.error spy pattern
 // Common pattern in failing tests:
@@ -155,20 +175,27 @@ const consoleErrorSpy = vi.spyOn(console, 'error');
 ```
 
 **Priority 3**: Async Test Utilities
+
 ```javascript
 // Create helper for common async patterns
 // File: web/src/test-utils/asyncHelpers.js
 
 export const waitForLoadingToFinish = async () => {
-  await waitFor(() => {
-    expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
-  }, { timeout: 3000 });
+  await waitFor(
+    () => {
+      expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+    },
+    { timeout: 3000 }
+  );
 };
 
 export const waitForError = async (errorText) => {
-  await waitFor(() => {
-    expect(screen.getByText(new RegExp(errorText, 'i'))).toBeInTheDocument();
-  }, { timeout: 2000 });
+  await waitFor(
+    () => {
+      expect(screen.getByText(new RegExp(errorText, 'i'))).toBeInTheDocument();
+    },
+    { timeout: 2000 }
+  );
 };
 ```
 
@@ -190,6 +217,7 @@ echo "Fixed: CategoryListPage.test.jsx" >> fix-progress.md
 **Common Fix Patterns**:
 
 1. **API Mock Pattern**:
+
 ```javascript
 // Before
 vi.mock('../../services/api');
@@ -201,6 +229,7 @@ mockApiNetworkError('/api/categories');
 ```
 
 2. **Console Error Pattern**:
+
 ```javascript
 // Before
 const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -214,6 +243,7 @@ expect(spy).toHaveBeenCalledWith(expect.stringContaining('Network error'));
 ```
 
 3. **Async Timing Pattern**:
+
 ```javascript
 // Before
 await waitFor(() => {
@@ -221,14 +251,18 @@ await waitFor(() => {
 }); // Times out
 
 // After
-await waitFor(() => {
-  expect(consoleErrorSpy).toHaveBeenCalled();
-}, { timeout: 3000, interval: 100 }); // More forgiving timing
+await waitFor(
+  () => {
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  },
+  { timeout: 3000, interval: 100 }
+); // More forgiving timing
 ```
 
 ### Phase 4: Prevent Regression (1 hour)
 
 **Add Pre-commit Hook**:
+
 ```yaml
 # .husky/pre-commit
 npm run test -- --run --bail
@@ -236,6 +270,7 @@ npm run test -- --run --bail
 ```
 
 **Update CI**:
+
 ```yaml
 # .github/workflows/frontend-tests.yml
 - name: Run frontend tests
@@ -257,15 +292,18 @@ npm run test -- --run --bail
 ## Proposed Solutions
 
 ### Option 1: Systematic File-by-File Fix (Recommended)
+
 Fix tests methodically, one file at a time, with proper investigation.
 
 **Pros**:
+
 - Thorough understanding of each issue
 - High-quality fixes
 - Prevents similar issues in future
 - Builds test utility library
 
 **Cons**:
+
 - Time-consuming (8-12 hours)
 - Requires focus and discipline
 
@@ -273,13 +311,16 @@ Fix tests methodically, one file at a time, with proper investigation.
 **Risk**: Low
 
 ### Option 2: Quick Pattern-Based Fix
+
 Apply common fixes across all files without deep investigation.
 
 **Pros**:
+
 - Faster (4-6 hours)
 - Gets tests passing quickly
 
 **Cons**:
+
 - May mask underlying issues
 - Could introduce technical debt
 - Doesn't improve test quality
@@ -288,14 +329,17 @@ Apply common fixes across all files without deep investigation.
 **Risk**: Medium
 
 ### Option 3: Rewrite Failing Tests
+
 Start fresh with current best practices.
 
 **Pros**:
+
 - Modern test patterns
 - Clean slate
 - Best practices from start
 
 **Cons**:
+
 - Very time-consuming (15-20 hours)
 - Lose existing test coverage temporarily
 - Risk of missing edge cases
@@ -308,12 +352,14 @@ Start fresh with current best practices.
 **Option 1** - Systematic file-by-file fix with test utilities.
 
 **Rationale**:
+
 1. 72% of tests already passing (good foundation)
 2. Failures concentrated in specific patterns (fixable)
 3. Builds reusable test utilities for future
 4. Improves overall test quality
 
 **Implementation Timeline**:
+
 - **Week 1**: Investigation + High-impact fixes (Phases 1-2: 6-9 hours)
 - **Week 2**: Systematic fixes + Regression prevention (Phases 3-4: 4-6 hours)
 - **Total**: 10-15 hours over 2 weeks
@@ -321,6 +367,7 @@ Start fresh with current best practices.
 ## Technical Details
 
 **Test Configuration**:
+
 - **Framework**: Vitest 4.0.6
 - **React Version**: React 19
 - **Testing Library**: @testing-library/react
@@ -328,6 +375,7 @@ Start fresh with current best practices.
 - **Test Runner**: Vitest with jsdom environment
 
 **Test File Structure**:
+
 ```
 web/src/
 ├── pages/
@@ -348,6 +396,7 @@ web/src/
 ```
 
 **Dependencies Recently Updated** (may affect tests):
+
 - `vitest`: 3.2.4 → 4.0.6 (major update)
 - `@vitest/ui`: 3.2.4 → 4.0.6
 - `@vitest/coverage-v8`: 3.2.4 → 4.0.6
@@ -374,8 +423,10 @@ web/src/
 ## Work Log
 
 ### 2025-11-02 - Test Failure Discovery
+
 **By:** Dependency Update Verification Process
 **Actions:**
+
 - Ran full frontend test suite after dependency updates
 - Identified 135/479 tests failing (28% failure rate)
 - Noted test suite runs fast (10.45s) - good performance
@@ -383,12 +434,14 @@ web/src/
 - Created TODO for systematic investigation and fix
 
 **Initial Analysis**:
+
 - Tests run successfully (no crashes)
 - Failures concentrated in specific areas (forum, API handling)
 - Recent Vitest 4.x and jsdom 27.x updates may contribute
 - But likely pre-existing issues exposed by better testing
 
 **Priority**: P2 (Medium-High)
+
 - 72% pass rate is acceptable for development
 - But blocks reliable CI/CD
 - Should fix before adding new features
@@ -404,24 +457,28 @@ web/src/
 ## Notes
 
 **Why This Matters**:
+
 - Test suite is critical for safe refactoring
 - 135 failing tests = large blind spots in test coverage
 - Can't confidently deploy without reliable tests
 - Future feature development needs working test foundation
 
 **Why P2 (Not P1)**:
+
 - Manual testing shows UI works correctly
 - Production monitoring shows no issues
 - 343 tests still passing provide some coverage
 - Not blocking immediate deployment
 
 **Investigation Priority**:
+
 1. Check Vitest 4.x breaking changes (may need config updates)
 2. Check jsdom 27.x changes (DOM API differences)
 3. Review API mocking patterns (most common failure)
 4. Fix one test file completely before moving to next
 
 **Future Prevention**:
+
 - Add pre-commit hook to run tests
 - Add CI step that fails on test failures
 - Set up test coverage requirements (>80%)

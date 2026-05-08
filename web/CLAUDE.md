@@ -32,10 +32,15 @@ const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 const handleInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
   if (timerRef.current) clearTimeout(timerRef.current);
-  timerRef.current = setTimeout(() => { /* search */ }, 500);
-}, []);  // stable — no dependencies
+  timerRef.current = setTimeout(() => {
+    /* search */
+  }, 500);
+}, []); // stable — no dependencies
 
-useEffect(() => () => {
-  if (timerRef.current) clearTimeout(timerRef.current);
-}, []);
+useEffect(
+  () => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  },
+  []
+);
 ```

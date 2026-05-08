@@ -85,45 +85,57 @@ export default function BlogListPage() {
   }, []);
 
   // Handlers (memoized to prevent recreation on every render)
-  const handleSearch = useCallback((e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const searchValue = formData.get('search') as string;
+  const handleSearch = useCallback(
+    (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      const formData = new FormData(e.currentTarget);
+      const searchValue = formData.get('search') as string;
 
-    const newParams = new URLSearchParams(searchParams);
-    if (searchValue) {
-      newParams.set('search', searchValue);
-    } else {
-      newParams.delete('search');
-    }
-    newParams.set('page', '1'); // Reset to page 1
-    setSearchParams(newParams);
-  }, [searchParams, setSearchParams]);
+      const newParams = new URLSearchParams(searchParams);
+      if (searchValue) {
+        newParams.set('search', searchValue);
+      } else {
+        newParams.delete('search');
+      }
+      newParams.set('page', '1'); // Reset to page 1
+      setSearchParams(newParams);
+    },
+    [searchParams, setSearchParams]
+  );
 
-  const handleCategoryFilter = useCallback((categorySlug: string) => {
-    const newParams = new URLSearchParams(searchParams);
-    if (categorySlug) {
-      newParams.set('category', categorySlug);
-    } else {
-      newParams.delete('category');
-    }
-    newParams.set('page', '1');
-    setSearchParams(newParams);
-  }, [searchParams, setSearchParams]);
+  const handleCategoryFilter = useCallback(
+    (categorySlug: string) => {
+      const newParams = new URLSearchParams(searchParams);
+      if (categorySlug) {
+        newParams.set('category', categorySlug);
+      } else {
+        newParams.delete('category');
+      }
+      newParams.set('page', '1');
+      setSearchParams(newParams);
+    },
+    [searchParams, setSearchParams]
+  );
 
-  const handleOrderChange = useCallback((newOrder: string) => {
-    const newParams = new URLSearchParams(searchParams);
-    newParams.set('order', newOrder);
-    newParams.set('page', '1');
-    setSearchParams(newParams);
-  }, [searchParams, setSearchParams]);
+  const handleOrderChange = useCallback(
+    (newOrder: string) => {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.set('order', newOrder);
+      newParams.set('page', '1');
+      setSearchParams(newParams);
+    },
+    [searchParams, setSearchParams]
+  );
 
-  const handlePageChange = useCallback((newPage: number) => {
-    const newParams = new URLSearchParams(searchParams);
-    newParams.set('page', newPage.toString());
-    setSearchParams(newParams);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [searchParams, setSearchParams]);
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.set('page', newPage.toString());
+      setSearchParams(newParams);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    [searchParams, setSearchParams]
+  );
 
   const clearFilters = useCallback(() => {
     setSearchParams({});
@@ -131,7 +143,10 @@ export default function BlogListPage() {
 
   // Calculate pagination (memoized to prevent recalculation on every render)
   const totalPages = useMemo(() => Math.ceil(totalCount / limit), [totalCount, limit]);
-  const hasFilters = useMemo(() => search || category || order !== 'latest', [search, category, order]);
+  const hasFilters = useMemo(
+    () => search || category || order !== 'latest',
+    [search, category, order]
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -213,11 +228,9 @@ export default function BlogListPage() {
             {/* Results Count */}
             <div className="mb-6">
               <p className="text-gray-600">
-                {loading ? (
-                  'Loading...'
-                ) : (
-                  `${totalCount} ${totalCount === 1 ? 'article' : 'articles'} found`
-                )}
+                {loading
+                  ? 'Loading...'
+                  : `${totalCount} ${totalCount === 1 ? 'article' : 'articles'} found`}
               </p>
             </div>
 
@@ -242,12 +255,8 @@ export default function BlogListPage() {
                 {posts.length === 0 ? (
                   <div className="bg-white rounded-lg shadow-md p-12 text-center">
                     <div className="text-6xl mb-4">🔍</div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">
-                      No articles found
-                    </h3>
-                    <p className="text-gray-600 mb-4">
-                      Try adjusting your search or filters
-                    </p>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">No articles found</h3>
+                    <p className="text-gray-600 mb-4">Try adjusting your search or filters</p>
                     {hasFilters && (
                       <button
                         onClick={clearFilters}
@@ -298,11 +307,12 @@ export default function BlogListPage() {
                                   {pageNum}
                                 </button>
                               );
-                            } else if (
-                              pageNum === 2 ||
-                              pageNum === totalPages - 1
-                            ) {
-                              return <span key={pageNum} className="px-2">...</span>;
+                            } else if (pageNum === 2 || pageNum === totalPages - 1) {
+                              return (
+                                <span key={pageNum} className="px-2">
+                                  ...
+                                </span>
+                              );
                             }
                             return null;
                           })}

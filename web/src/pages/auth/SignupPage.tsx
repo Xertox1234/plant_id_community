@@ -1,32 +1,28 @@
-import { useState, FormEvent, ChangeEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../../contexts/AuthContext'
-import Button from '../../components/ui/Button'
-import Input from '../../components/ui/Input'
-import {
-  getEmailError,
-  getPasswordError,
-  getPasswordConfirmError,
-} from '../../utils/validation'
-import { sanitizeInput, sanitizeError } from '../../utils/sanitize'
-import { logger } from '../../utils/logger'
+import { useState, FormEvent, ChangeEvent } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import Button from '../../components/ui/Button';
+import Input from '../../components/ui/Input';
+import { getEmailError, getPasswordError, getPasswordConfirmError } from '../../utils/validation';
+import { sanitizeInput, sanitizeError } from '../../utils/sanitize';
+import { logger } from '../../utils/logger';
 
 interface FormData {
-  username: string
-  firstName: string
-  lastName: string
-  email: string
-  password: string
-  confirmPassword: string
+  username: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
 }
 
 interface FormErrors {
-  username?: string
-  firstName?: string
-  lastName?: string
-  email?: string
-  password?: string
-  confirmPassword?: string
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  password?: string;
+  confirmPassword?: string;
 }
 
 /**
@@ -42,8 +38,8 @@ interface FormErrors {
  * - Link to login page for existing users
  */
 export default function SignupPage() {
-  const navigate = useNavigate()
-  const { signup } = useAuth()
+  const navigate = useNavigate();
+  const { signup } = useAuth();
 
   const [formData, setFormData] = useState<FormData>({
     username: '',
@@ -52,126 +48,124 @@ export default function SignupPage() {
     email: '',
     password: '',
     confirmPassword: '',
-  })
+  });
 
-  const [errors, setErrors] = useState<FormErrors>({})
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [serverError, setServerError] = useState<string | null>(null)
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
   /**
    * Handle input changes and clear field-specific errors
    */
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
+    const { name, value } = e.target;
 
     // Sanitize input to prevent XSS
-    const sanitizedValue = sanitizeInput(value)
+    const sanitizedValue = sanitizeInput(value);
 
     setFormData((prev) => ({
       ...prev,
       [name]: sanitizedValue,
-    }))
+    }));
 
     // Clear error for this field when user starts typing
     if (errors[name as keyof FormErrors]) {
       setErrors((prev) => ({
         ...prev,
         [name]: undefined,
-      }))
+      }));
     }
 
     // Clear server error when user modifies form
     if (serverError) {
-      setServerError(null)
+      setServerError(null);
     }
-  }
+  };
 
   /**
    * Validate form fields
    * @returns {boolean} True if form is valid
    */
   const validateForm = (): boolean => {
-    const newErrors: FormErrors = {}
+    const newErrors: FormErrors = {};
 
     // Username validation (required)
     if (!formData.username.trim()) {
-      newErrors.username = 'Username is required'
+      newErrors.username = 'Username is required';
     } else if (formData.username.length < 3) {
-      newErrors.username = 'Username must be at least 3 characters'
+      newErrors.username = 'Username must be at least 3 characters';
     } else if (!/^[a-zA-Z0-9_-]+$/.test(formData.username)) {
-      newErrors.username = 'Username can only contain letters, numbers, underscores, and hyphens'
+      newErrors.username = 'Username can only contain letters, numbers, underscores, and hyphens';
     }
 
-    const emailError = getEmailError(formData.email)
+    const emailError = getEmailError(formData.email);
     if (emailError) {
-      newErrors.email = emailError
+      newErrors.email = emailError;
     }
 
-    const passwordError = getPasswordError(formData.password)
+    const passwordError = getPasswordError(formData.password);
     if (passwordError) {
-      newErrors.password = passwordError
+      newErrors.password = passwordError;
     }
 
     const confirmPasswordError = getPasswordConfirmError(
       formData.password,
       formData.confirmPassword
-    )
+    );
     if (confirmPasswordError) {
-      newErrors.confirmPassword = confirmPasswordError
+      newErrors.confirmPassword = confirmPasswordError;
     }
 
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   /**
    * Handle form submission
    */
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setServerError(null)
+    e.preventDefault();
+    setServerError(null);
 
     // Validate form
     if (!validateForm()) {
-      return
+      return;
     }
 
-    setIsSubmitting(true)
+    setIsSubmitting(true);
 
     try {
       const result = await signup({
         username: formData.username,
-        first_name: formData.firstName,  // Backend expects snake_case
-        last_name: formData.lastName,    // Backend expects snake_case
+        first_name: formData.firstName, // Backend expects snake_case
+        last_name: formData.lastName, // Backend expects snake_case
         email: formData.email,
         password: formData.password,
         confirmPassword: formData.confirmPassword,
-      })
+      });
 
       if (result.success) {
         // Redirect to home page after successful signup
-        navigate('/', { replace: true })
+        navigate('/', { replace: true });
       } else {
         // Show error from backend (sanitized to prevent XSS)
-        const rawError = result.error || 'Signup failed. Please try again.'
-        setServerError(String(sanitizeError(rawError)))
+        const rawError = result.error || 'Signup failed. Please try again.';
+        setServerError(String(sanitizeError(rawError)));
       }
     } catch (error) {
-      logger.error('[SignupPage] Signup error:', error)
-      setServerError('An unexpected error occurred. Please try again.')
+      logger.error('[SignupPage] Signup error:', error);
+      setServerError('An unexpected error occurred. Please try again.');
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-gray-50">
       <div className="w-full max-w-md min-w-[280px]">
         {/* Header */}
         <div className="text-center mb-8 space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-            Create an account
-          </h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Create an account</h1>
           <p className="text-sm sm:text-base text-gray-600">
             Join PlantID to identify plants and track your garden
           </p>
@@ -305,5 +299,5 @@ export default function SignupPage() {
         </p>
       </div>
     </div>
-  )
+  );
 }

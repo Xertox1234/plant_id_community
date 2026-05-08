@@ -3,6 +3,7 @@
 ## Migration Status Summary
 
 ### ✅ Completed (Phases 1-6.3)
+
 - **Phase 1-5**: Foundation, Utilities, Types, Services, Contexts
 - **Phase 6.1**: Basic UI components (Button, Input, LoadingSpinner)
 - **Phase 6.2**: Card components (CategoryCard, PostCard, ThreadCard, BlogCard)
@@ -11,6 +12,7 @@
 ### 🔄 Remaining Work
 
 #### Phase 6.4-6.6: Complex Components (11 files)
+
 - `components/forum/TipTapEditor.jsx` → `.tsx`
 - `components/forum/ImageUploadWidget.jsx` → `.tsx`
 - `components/StreamFieldRenderer.jsx` → `.tsx`
@@ -24,23 +26,28 @@
 - `contexts/RequestContext.jsx` → `.tsx` (if not done)
 
 #### Phase 7: Pages (18 files)
+
 **Auth Pages (2):**
+
 - `pages/auth/LoginPage.jsx` → `.tsx`
 - `pages/auth/SignupPage.jsx` → `.tsx`
 
 **Simple Pages (4):**
+
 - `pages/HomePage.jsx` → `.tsx`
 - `pages/IdentifyPage.jsx` → `.tsx`
 - `pages/ProfilePage.jsx` → `.tsx`
 - `pages/SettingsPage.jsx` → `.tsx`
 
 **Blog Pages (4):**
+
 - `pages/BlogPage.jsx` → `.tsx`
 - `pages/BlogListPage.jsx` → `.tsx`
 - `pages/BlogDetailPage.jsx` → `.tsx`
 - `pages/BlogPreview.jsx` → `.tsx`
 
 **Forum Pages (5):**
+
 - `pages/ForumPage.jsx` → `.tsx`
 - `pages/forum/CategoryListPage.jsx` → `.tsx`
 - `pages/forum/ThreadListPage.jsx` → `.tsx`
@@ -48,10 +55,12 @@
 - `pages/forum/SearchPage.jsx` → `.tsx`
 
 **Diagnosis Pages (2):**
+
 - `pages/diagnosis/DiagnosisListPage.jsx` → `.tsx`
 - `pages/diagnosis/DiagnosisDetailPage.jsx` → `.tsx`
 
 **Miscellaneous Pages (1):**
+
 - `App.jsx` → `App.tsx`
 - `main.jsx` → `main.tsx`
 
@@ -60,18 +69,21 @@
 For each JSX file, follow this pattern:
 
 ### 1. Remove PropTypes Import
+
 ```typescript
 // REMOVE
 import PropTypes from 'prop-types';
 ```
 
 ### 2. Add Type Imports
+
 ```typescript
 // ADD (use existing types from src/types/)
 import type { Post, Thread, Category, User } from '@/types';
 ```
 
 ### 3. Convert Props to Interface
+
 ```typescript
 // BEFORE (JSX)
 function MyComponent({ title, count, onSave }) {
@@ -97,6 +109,7 @@ function MyComponent({ title, count, onSave }: MyComponentProps) {
 ```
 
 ### 4. Convert Event Handlers
+
 ```typescript
 // BEFORE
 const handleClick = (event) => {
@@ -116,6 +129,7 @@ const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
 ```
 
 ### 5. Convert State with Types
+
 ```typescript
 // BEFORE
 const [data, setData] = useState(null);
@@ -127,6 +141,7 @@ const [items, setItems] = useState<ItemType[]>([]);
 ```
 
 ### 6. Convert Refs
+
 ```typescript
 // BEFORE
 const inputRef = useRef(null);
@@ -136,6 +151,7 @@ const inputRef = useRef<HTMLInputElement>(null);
 ```
 
 ### 7. Update Router Imports
+
 ```typescript
 // BEFORE
 import { Link, useNavigate } from 'react-router-dom';
@@ -145,6 +161,7 @@ import { Link, useNavigate } from 'react-router';
 ```
 
 ### 8. Remove PropTypes Declaration
+
 ```typescript
 // REMOVE entire block
 MyComponent.propTypes = {
@@ -155,6 +172,7 @@ MyComponent.propTypes = {
 ## Example: Complete Conversion
 
 ### Before (JSX)
+
 ```jsx
 import { useState } from 'react';
 import PropTypes from 'prop-types';
@@ -169,12 +187,11 @@ function PostEditor({ post, onSave, onCancel }) {
 
   return (
     <form onSubmit={handleSubmit}>
-      <textarea
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-      />
+      <textarea value={content} onChange={(e) => setContent(e.target.value)} />
       <button type="submit">Save</button>
-      <button type="button" onClick={onCancel}>Cancel</button>
+      <button type="button" onClick={onCancel}>
+        Cancel
+      </button>
     </form>
   );
 }
@@ -192,6 +209,7 @@ export default PostEditor;
 ```
 
 ### After (TSX)
+
 ```typescript
 import { useState } from 'react';
 import type { Post } from '@/types';
@@ -307,6 +325,7 @@ echo "4. Run: npm run test"
 After all conversions, enable strict TypeScript checking:
 
 ### Update `tsconfig.json`:
+
 ```json
 {
   "compilerOptions": {
@@ -318,12 +337,13 @@ After all conversions, enable strict TypeScript checking:
     "strictPropertyInitialization": true,
     "noImplicitThis": true,
     "alwaysStrict": true,
-    "allowJs": false  // Disable JS files
+    "allowJs": false // Disable JS files
   }
 }
 ```
 
 ### Fix Type Errors:
+
 1. Run `npm run build` to see all errors
 2. Fix errors one by one:
    - Add missing type annotations
@@ -334,12 +354,14 @@ After all conversions, enable strict TypeScript checking:
 ## Phase 9: Final Cleanup
 
 1. **Remove all PropTypes**:
+
    ```bash
    # Search for remaining PropTypes usage
    grep -r "PropTypes" src --include="*.tsx"
    ```
 
 2. **Remove `any` types**:
+
    ```bash
    # Find any usage
    grep -r ": any" src --include="*.tsx"
@@ -347,12 +369,14 @@ After all conversions, enable strict TypeScript checking:
    ```
 
 3. **Fix import paths**:
+
    ```bash
    # Update react-router-dom to react-router
    find src -name "*.tsx" -exec sed -i '' 's/from '\''react-router-dom'\''/from '\''react-router'\''/g' {} +
    ```
 
 4. **Run full test suite**:
+
    ```bash
    npm run test
    npm run test:e2e
@@ -367,7 +391,9 @@ After all conversions, enable strict TypeScript checking:
 ## Common Issues and Solutions
 
 ### Issue: "Cannot find module '@/types'"
+
 **Solution**: Ensure `tsconfig.json` has path mapping:
+
 ```json
 {
   "compilerOptions": {
@@ -380,7 +406,9 @@ After all conversions, enable strict TypeScript checking:
 ```
 
 ### Issue: "Type 'null' is not assignable to type 'X'"
+
 **Solution**: Use optional chaining and null checks:
+
 ```typescript
 // BEFORE
 const name = user.name;
@@ -390,7 +418,9 @@ const name = user?.name ?? 'Unknown';
 ```
 
 ### Issue: "Property 'X' does not exist on type 'Y'"
+
 **Solution**: Extend the type or use optional properties:
+
 ```typescript
 interface ExtendedUser extends User {
   customField?: string;
@@ -398,7 +428,9 @@ interface ExtendedUser extends User {
 ```
 
 ### Issue: Test files fail with "react-router" import
+
 **Solution**: Update test utilities to import from 'react-router':
+
 ```typescript
 // In test files
 import { MemoryRouter } from 'react-router';

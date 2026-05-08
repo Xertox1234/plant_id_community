@@ -47,6 +47,7 @@ The Vite dev server is configured for port 5173, but the backend CORS configurat
 1. **Open `web/vite.config.js`**
 
 2. **Locate the server configuration (line 8-16)**:
+
    ```javascript
    server: {
      port: 5173,  // ❌ WRONG
@@ -60,6 +61,7 @@ The Vite dev server is configured for port 5173, but the backend CORS configurat
    ```
 
 3. **Change port 5173 to 5174**:
+
    ```javascript
    server: {
      port: 5174,  // ✅ CORRECT - Matches backend CORS
@@ -75,6 +77,7 @@ The Vite dev server is configured for port 5173, but the backend CORS configurat
 4. **Save the file**
 
 5. **Restart dev server** (if running):
+
    ```bash
    cd /Users/williamtower/projects/plant_id_community/web
    npm run dev
@@ -109,11 +112,13 @@ Tailwind's JIT (Just-In-Time) compiler cannot detect dynamically generated class
 1. **Open `web/src/components/BlogCard.jsx`**
 
 2. **Locate line 61** (in the render method):
+
    ```javascript
    <div className={`p-${compact ? '4' : '6'}`}>
    ```
 
 3. **Replace with explicit conditional**:
+
    ```javascript
    <div className={compact ? 'p-4' : 'p-6'}>
    ```
@@ -133,11 +138,13 @@ className={compact ? 'p-4' : 'p-6'}
 #### Verification
 
 1. **Build for production**:
+
    ```bash
    npm run build
    ```
 
 2. **Preview production build**:
+
    ```bash
    npm run preview
    ```
@@ -172,11 +179,13 @@ URL parameters (`slug`, `token`, `content_type`) are used directly without valid
 **File**: `web/src/pages/BlogDetailPage.jsx`
 
 1. **Add validation import** (after existing imports, around line 6):
+
    ```javascript
    import { validateSlug } from '../utils/validation';
    ```
 
 2. **Add validation in the component** (before the useEffect, around line 27):
+
    ```javascript
    export default function BlogDetailPage() {
      const params = useParams();
@@ -227,11 +236,13 @@ URL parameters (`slug`, `token`, `content_type`) are used directly without valid
 **File**: `web/src/pages/BlogPreview.jsx`
 
 1. **Add validation imports** (after existing imports):
+
    ```javascript
    import { validateToken, validateContentType } from '../utils/validation';
    ```
 
 2. **Add validation before API call** (in the useEffect, around line 34):
+
    ```javascript
    useEffect(() => {
      const loadPreview = async () => {
@@ -267,30 +278,35 @@ URL parameters (`slug`, `token`, `content_type`) are used directly without valid
 #### Verification
 
 **Test 1: Valid slug**
+
 ```bash
 # Should load normally
 http://localhost:5174/blog/my-blog-post
 ```
 
 **Test 2: Invalid slug (XSS attempt)**
+
 ```bash
 # Should show error page, not execute script
 http://localhost:5174/blog/<script>alert('xss')</script>
 ```
 
 **Test 3: Path traversal attempt**
+
 ```bash
 # Should show error page
 http://localhost:5174/blog/../../admin/secrets
 ```
 
 **Test 4: Valid preview token**
+
 ```bash
 # Should load preview (if backend allows)
 http://localhost:5174/blog/preview/blog.BlogPostPage/550e8400-e29b-41d4-a716-446655440000
 ```
 
 **Test 5: Invalid preview token**
+
 ```bash
 # Should show error page
 http://localhost:5174/blog/preview/blog.BlogPostPage/not-a-uuid
@@ -320,15 +336,15 @@ Missing Content Security Policy (CSP) and other security headers make the applic
 Replace the entire file with:
 
 ```javascript
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    port: 5174,  // ✅ Fixed port
+    port: 5174, // ✅ Fixed port
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
@@ -352,8 +368,8 @@ export default defineConfig({
       // Content Security Policy (development mode - allows unsafe-inline for HMR)
       'Content-Security-Policy': [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  // Vite HMR needs eval
-        "style-src 'self' 'unsafe-inline'",  // Tailwind needs inline styles
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Vite HMR needs eval
+        "style-src 'self' 'unsafe-inline'", // Tailwind needs inline styles
         "img-src 'self' data: http://localhost:8000 https:",
         "connect-src 'self' ws://localhost:5174 http://localhost:8000",
         "font-src 'self' data:",
@@ -371,14 +387,14 @@ export default defineConfig({
         // Manual chunk splitting for better caching
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'utils': ['axios', 'dompurify'],
+          utils: ['axios', 'dompurify'],
         },
       },
     },
     // Warn if chunk size exceeds 500 KB
     chunkSizeWarningLimit: 500,
   },
-})
+});
 ```
 
 #### Part 2: Update index.html (Optional but Recommended)
@@ -396,8 +412,8 @@ Add security meta tags in the `<head>` section:
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <!-- Security Headers (meta tag fallback) -->
-    <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
 
     <!-- Production CSP (stricter, no unsafe-inline) -->
     <!-- This is commented out for development. Uncomment for production builds -->
@@ -417,6 +433,7 @@ Add security meta tags in the `<head>` section:
 #### Verification
 
 1. **Start dev server**:
+
    ```bash
    npm run dev
    ```
@@ -448,6 +465,7 @@ Add security meta tags in the `<head>` section:
 For production (Vercel, Netlify, etc.), configure headers in platform-specific files:
 
 **Vercel** (`vercel.json`):
+
 ```json
 {
   "headers": [
@@ -457,7 +475,10 @@ For production (Vercel, Netlify, etc.), configure headers in platform-specific f
         { "key": "X-Frame-Options", "value": "DENY" },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.plantidcommunity.com; font-src 'self' data:; object-src 'none'; frame-ancestors 'none';" }
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.plantidcommunity.com; font-src 'self' data:; object-src 'none'; frame-ancestors 'none';"
+        }
       ]
     }
   ]
@@ -465,6 +486,7 @@ For production (Vercel, Netlify, etc.), configure headers in platform-specific f
 ```
 
 **Netlify** (`netlify.toml`):
+
 ```toml
 [[headers]]
   for = "/*"
@@ -501,6 +523,7 @@ Several functions are duplicated across files with inconsistent implementations,
 1. **Remove lines 12-19** (the local `createSafeMarkup` function)
 
 2. **Add import at top of file**:
+
    ```javascript
    import { createSafeMarkup } from '../utils/sanitize';
    ```
@@ -512,6 +535,7 @@ Several functions are duplicated across files with inconsistent implementations,
 1. **Remove lines 11-34** (the local `createSafeMarkup` function)
 
 2. **Add import at top of file**:
+
    ```javascript
    import { createSafeMarkup } from '../utils/sanitize';
    ```
@@ -523,6 +547,7 @@ Several functions are duplicated across files with inconsistent implementations,
 1. **Remove lines 12-19** (the local `createSafeMarkup` function)
 
 2. **Add import at top of file**:
+
    ```javascript
    import { createSafeMarkup } from '../utils/sanitize';
    ```
@@ -536,11 +561,13 @@ Several functions are duplicated across files with inconsistent implementations,
 1. **Remove lines 110-116** (the `formattedDate` calculation)
 
 2. **Add import at top**:
+
    ```javascript
    import { formatPublishDate } from '../utils/formatDate';
    ```
 
 3. **Replace the removed code** (around line 110):
+
    ```javascript
    // BEFORE
    const formattedDate = publish_date
@@ -560,11 +587,13 @@ Several functions are duplicated across files with inconsistent implementations,
 1. **Remove lines 23-29** (the `formattedDate` calculation)
 
 2. **Add import at top**:
+
    ```javascript
    import { formatPublishDate } from '../utils/formatDate';
    ```
 
 3. **Replace the removed code** (around line 23):
+
    ```javascript
    // BEFORE
    const formattedDate = publish_date
@@ -590,27 +619,33 @@ Follow the same pattern as above.
 1. **Remove lines 241-335** (the entire `StreamFieldBlock` function)
 
 2. **Add import at top**:
+
    ```javascript
    import StreamFieldRenderer from '../components/StreamFieldRenderer';
    ```
 
 3. **Replace the inline rendering** (around line 302):
+
    ```javascript
    // BEFORE (lines 299-308)
-   {previewData.content_blocks && previewData.content_blocks.length > 0 && (
-     <div className="mb-12">
-       {previewData.content_blocks.map((block, index) => (
-         <StreamFieldBlock key={block.id || index} block={block} />
-       ))}
-     </div>
-   )}
+   {
+     previewData.content_blocks && previewData.content_blocks.length > 0 && (
+       <div className="mb-12">
+         {previewData.content_blocks.map((block, index) => (
+           <StreamFieldBlock key={block.id || index} block={block} />
+         ))}
+       </div>
+     );
+   }
 
    // AFTER
-   {previewData.content_blocks && previewData.content_blocks.length > 0 && (
-     <div className="mb-12">
-       <StreamFieldRenderer blocks={previewData.content_blocks} />
-     </div>
-   )}
+   {
+     previewData.content_blocks && previewData.content_blocks.length > 0 && (
+       <div className="mb-12">
+         <StreamFieldRenderer blocks={previewData.content_blocks} />
+       </div>
+     );
+   }
    ```
 
 #### Part 4: Fix HTML Stripping in BlogCard (Security Fix)
@@ -618,11 +653,13 @@ Follow the same pattern as above.
 **File**: `web/src/components/BlogCard.jsx`
 
 1. **Add import**:
+
    ```javascript
    import { stripHtml } from '../utils/sanitize';
    ```
 
 2. **Replace line 36** (the `excerpt` calculation):
+
    ```javascript
    // BEFORE (UNSAFE)
    const excerpt = introduction
@@ -638,6 +675,7 @@ Follow the same pattern as above.
 #### Verification
 
 1. **Ensure no imports are missing**:
+
    ```bash
    npm run lint
    ```
@@ -681,17 +719,18 @@ All routes are bundled together in a single JavaScript file, forcing users to do
 1. **Open `web/src/App.jsx`**
 
 2. **Replace the entire file**:
+
    ```javascript
-   import { lazy, Suspense } from 'react'
-   import { Routes, Route } from 'react-router-dom'
+   import { lazy, Suspense } from 'react';
+   import { Routes, Route } from 'react-router-dom';
 
    // Lazy load all pages
-   const HomePage = lazy(() => import('./pages/HomePage'))
-   const IdentifyPage = lazy(() => import('./pages/IdentifyPage'))
-   const BlogListPage = lazy(() => import('./pages/BlogListPage'))
-   const BlogDetailPage = lazy(() => import('./pages/BlogDetailPage'))
-   const BlogPreview = lazy(() => import('./pages/BlogPreview'))
-   const ForumPage = lazy(() => import('./pages/ForumPage'))
+   const HomePage = lazy(() => import('./pages/HomePage'));
+   const IdentifyPage = lazy(() => import('./pages/IdentifyPage'));
+   const BlogListPage = lazy(() => import('./pages/BlogListPage'));
+   const BlogDetailPage = lazy(() => import('./pages/BlogDetailPage'));
+   const BlogPreview = lazy(() => import('./pages/BlogPreview'));
+   const ForumPage = lazy(() => import('./pages/ForumPage'));
 
    // Loading spinner component
    function LoadingSpinner() {
@@ -719,20 +758,22 @@ All routes are bundled together in a single JavaScript file, forcing users to do
            </Routes>
          </Suspense>
        </div>
-     )
+     );
    }
 
-   export default App
+   export default App;
    ```
 
 #### Verification
 
 1. **Build for production**:
+
    ```bash
    npm run build
    ```
 
 2. **Check bundle sizes** in output:
+
    ```
    dist/assets/index-[hash].js     ~100 KB (main chunk)
    dist/assets/HomePage-[hash].js  ~20 KB
@@ -773,11 +814,13 @@ Components re-render unnecessarily when parent components update, even if their 
 **File**: `web/src/components/BlogCard.jsx`
 
 1. **Add import** at the top:
+
    ```javascript
    import { memo, useMemo } from 'react';
    ```
 
 2. **Wrap component with memo** (change export statement at bottom):
+
    ```javascript
    // BEFORE
    export default function BlogCard({ post, showImage = true, compact = false }) {
@@ -803,29 +846,32 @@ Components re-render unnecessarily when parent components update, even if their 
    ```
 
 3. **Memoize expensive computations** inside the component:
+
    ```javascript
    function BlogCard({ post, showImage = true, compact = false }) {
-     const { slug, title, introduction, featured_image, author, publish_date, categories = [], view_count = 0 } = post;
+     const {
+       slug,
+       title,
+       introduction,
+       featured_image,
+       author,
+       publish_date,
+       categories = [],
+       view_count = 0,
+     } = post;
 
      // ✅ Memoize date formatting
-     const formattedDate = useMemo(
-       () => formatPublishDate(publish_date),
-       [publish_date]
-     );
+     const formattedDate = useMemo(() => formatPublishDate(publish_date), [publish_date]);
 
      // ✅ Memoize excerpt generation
      const excerpt = useMemo(
-       () => introduction
-         ? stripHtml(introduction).substring(0, compact ? 100 : 200) + '...'
-         : '',
+       () =>
+         introduction ? stripHtml(introduction).substring(0, compact ? 100 : 200) + '...' : '',
        [introduction, compact]
      );
 
      // ✅ Memoize primary category
-     const primaryCategory = useMemo(
-       () => categories[0],
-       [categories]
-     );
+     const primaryCategory = useMemo(() => categories[0], [categories]);
 
      // ... rest of component
    }
@@ -836,11 +882,13 @@ Components re-render unnecessarily when parent components update, even if their 
 **File**: `web/src/components/StreamFieldRenderer.jsx`
 
 1. **Add import**:
+
    ```javascript
    import { memo, useMemo } from 'react';
    ```
 
 2. **Wrap StreamFieldRenderer** (around line 42):
+
    ```javascript
    // BEFORE
    export default function StreamFieldRenderer({ blocks }) {
@@ -859,6 +907,7 @@ Components re-render unnecessarily when parent components update, even if their 
    ```
 
 3. **Wrap StreamFieldBlock** (around line 71):
+
    ```javascript
    // BEFORE
    function StreamFieldBlock({ block }) {
@@ -866,15 +915,18 @@ Components re-render unnecessarily when parent components update, even if their 
    }
 
    // AFTER
-   const StreamFieldBlock = memo(function StreamFieldBlock({ block }) {
-     // ... component code (unchanged)
-   }, (prevProps, nextProps) => {
-     return (
-       prevProps.block.type === nextProps.block.type &&
-       prevProps.block.value === nextProps.block.value &&
-       prevProps.block.id === nextProps.block.id
-     );
-   });
+   const StreamFieldBlock = memo(
+     function StreamFieldBlock({ block }) {
+       // ... component code (unchanged)
+     },
+     (prevProps, nextProps) => {
+       return (
+         prevProps.block.type === nextProps.block.type &&
+         prevProps.block.value === nextProps.block.value &&
+         prevProps.block.id === nextProps.block.id
+       );
+     }
+   );
    ```
 
 4. **Memoize createSafeMarkup calls** (where applicable):
@@ -935,6 +987,7 @@ Event handler functions are recreated on every render, causing child components 
 1. **Open `web/src/pages/BlogListPage.jsx`**
 
 2. **Add useCallback import**:
+
    ```javascript
    import { useEffect, useState, useCallback } from 'react';
    ```
@@ -943,48 +996,60 @@ Event handler functions are recreated on every render, causing child components 
 
    ```javascript
    // ✅ handleSearch with useCallback
-   const handleSearch = useCallback((e) => {
-     e.preventDefault();
-     const formData = new FormData(e.target);
-     const searchValue = formData.get('search');
+   const handleSearch = useCallback(
+     (e) => {
+       e.preventDefault();
+       const formData = new FormData(e.target);
+       const searchValue = formData.get('search');
 
-     const newParams = new URLSearchParams(searchParams);
-     if (searchValue) {
-       newParams.set('search', searchValue);
-     } else {
-       newParams.delete('search');
-     }
-     newParams.set('page', '1');
-     setSearchParams(newParams);
-   }, [searchParams, setSearchParams]);
+       const newParams = new URLSearchParams(searchParams);
+       if (searchValue) {
+         newParams.set('search', searchValue);
+       } else {
+         newParams.delete('search');
+       }
+       newParams.set('page', '1');
+       setSearchParams(newParams);
+     },
+     [searchParams, setSearchParams]
+   );
 
    // ✅ handleCategoryFilter with useCallback
-   const handleCategoryFilter = useCallback((categorySlug) => {
-     const newParams = new URLSearchParams(searchParams);
-     if (categorySlug) {
-       newParams.set('category', categorySlug);
-     } else {
-       newParams.delete('category');
-     }
-     newParams.set('page', '1');
-     setSearchParams(newParams);
-   }, [searchParams, setSearchParams]);
+   const handleCategoryFilter = useCallback(
+     (categorySlug) => {
+       const newParams = new URLSearchParams(searchParams);
+       if (categorySlug) {
+         newParams.set('category', categorySlug);
+       } else {
+         newParams.delete('category');
+       }
+       newParams.set('page', '1');
+       setSearchParams(newParams);
+     },
+     [searchParams, setSearchParams]
+   );
 
    // ✅ handleOrderChange with useCallback
-   const handleOrderChange = useCallback((newOrder) => {
-     const newParams = new URLSearchParams(searchParams);
-     newParams.set('order', newOrder);
-     newParams.set('page', '1');
-     setSearchParams(newParams);
-   }, [searchParams, setSearchParams]);
+   const handleOrderChange = useCallback(
+     (newOrder) => {
+       const newParams = new URLSearchParams(searchParams);
+       newParams.set('order', newOrder);
+       newParams.set('page', '1');
+       setSearchParams(newParams);
+     },
+     [searchParams, setSearchParams]
+   );
 
    // ✅ handlePageChange with useCallback
-   const handlePageChange = useCallback((newPage) => {
-     const newParams = new URLSearchParams(searchParams);
-     newParams.set('page', newPage.toString());
-     setSearchParams(newParams);
-     window.scrollTo({ top: 0, behavior: 'smooth' });
-   }, [searchParams, setSearchParams]);
+   const handlePageChange = useCallback(
+     (newPage) => {
+       const newParams = new URLSearchParams(searchParams);
+       newParams.set('page', newPage.toString());
+       setSearchParams(newParams);
+       window.scrollTo({ top: 0, behavior: 'smooth' });
+     },
+     [searchParams, setSearchParams]
+   );
 
    // ✅ clearFilters with useCallback
    const clearFilters = useCallback(() => {
@@ -993,6 +1058,7 @@ Event handler functions are recreated on every render, causing child components 
    ```
 
 4. **Memoize pagination array** (lines 271-299):
+
    ```javascript
    import { useEffect, useState, useCallback, useMemo } from 'react';
 
@@ -1003,11 +1069,7 @@ Event handler functions are recreated on every render, causing child components 
 
      for (let i = 1; i <= totalPages; i++) {
        // Show first, last, current, and adjacent pages
-       if (
-         i === 1 ||
-         i === totalPages ||
-         Math.abs(i - page) <= 1
-       ) {
+       if (i === 1 || i === totalPages || Math.abs(i - page) <= 1) {
          pages.push(i);
        } else if (i === 2 || i === totalPages - 1) {
          pages.push('...');
@@ -1021,7 +1083,11 @@ Event handler functions are recreated on every render, causing child components 
    <div className="flex gap-1">
      {pageNumbers.map((pageNum, index) => {
        if (pageNum === '...') {
-         return <span key={`ellipsis-${index}`} className="px-2">...</span>;
+         return (
+           <span key={`ellipsis-${index}`} className="px-2">
+             ...
+           </span>
+         );
        }
 
        return (
@@ -1038,7 +1104,7 @@ Event handler functions are recreated on every render, causing child components 
          </button>
        );
      })}
-   </div>
+   </div>;
    ```
 
 #### Verification
@@ -1077,6 +1143,7 @@ All images load immediately, even those below the fold that users may never see.
 Add `loading="lazy"` and `referrerPolicy="no-referrer"` to all `<img>` tags:
 
 **File 1**: `web/src/components/BlogCard.jsx` (line 47)
+
 ```javascript
 <img
   src={featured_image.thumbnail?.url || featured_image.url}
@@ -1088,6 +1155,7 @@ Add `loading="lazy"` and `referrerPolicy="no-referrer"` to all `<img>` tags:
 ```
 
 **File 2**: `web/src/pages/BlogDetailPage.jsx` (line 162)
+
 ```javascript
 <img
   src={post.featured_image.url}
@@ -1099,6 +1167,7 @@ Add `loading="lazy"` and `referrerPolicy="no-referrer"` to all `<img>` tags:
 ```
 
 **File 3**: `web/src/components/StreamFieldRenderer.jsx` (line 90)
+
 ```javascript
 <img
   src={value.image.renditions?.[0]?.url || value.image.url}
@@ -1157,6 +1226,7 @@ npm run preview
 ### Performance Testing
 
 1. **Lighthouse Audit**:
+
    ```bash
    # Install Lighthouse CLI
    npm install -g lighthouse
@@ -1210,22 +1280,26 @@ npm run preview
 ## Summary
 
 **Completed**:
+
 - ✅ 3 utility files created (sanitize.js, formatDate.js, validation.js)
 - ✅ Comprehensive implementation guide with step-by-step instructions
 
 **Time Estimate**:
+
 - Critical fixes: 4.5 hours
 - Performance optimizations: 6 hours
 - Testing & validation: 2 hours
 - **Total: ~12.5 hours**
 
 **Expected Impact**:
+
 - 🔒 Security: 95/100 → 100/100
 - ⚡ Performance: 75/100 → 95/100
 - 📦 Bundle size: 339 KB → ~100 KB (70% reduction)
 - 🚀 Load time: 1.5s → 600ms (60% faster)
 
 **Next Steps**:
+
 1. Implement critical fixes (Priority 1)
 2. Test thoroughly
 3. Deploy to staging

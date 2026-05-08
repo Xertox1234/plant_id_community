@@ -27,10 +27,7 @@ describe('TipTapEditor', () => {
 
   it('renders with custom placeholder', async () => {
     const { container } = render(
-      <TipTapEditor
-        onChange={vi.fn()}
-        placeholder="Enter your comment..."
-      />
+      <TipTapEditor onChange={vi.fn()} placeholder="Enter your comment..." />
     );
 
     // Wait for editor to initialize
@@ -70,9 +67,7 @@ describe('TipTapEditor', () => {
   it('provides onChange callback prop', async () => {
     const onChangeMock = vi.fn();
 
-    const { container } = render(
-      <TipTapEditor onChange={onChangeMock} />
-    );
+    const { container } = render(<TipTapEditor onChange={onChangeMock} />);
 
     // Wait for editor to initialize
     await waitFor(() => {
@@ -144,16 +139,13 @@ describe('TipTapEditor', () => {
 
     // Check if either loading message or editor is present
     const loadingOrEditor =
-      screen.queryByText('Loading editor...') ||
-      container.querySelector('.ProseMirror');
+      screen.queryByText('Loading editor...') || container.querySelector('.ProseMirror');
 
     expect(loadingOrEditor).toBeTruthy();
   });
 
   it('applies custom className to editor container', async () => {
-    const { container } = render(
-      <TipTapEditor onChange={vi.fn()} className="custom-class" />
-    );
+    const { container } = render(<TipTapEditor onChange={vi.fn()} className="custom-class" />);
 
     await waitFor(() => {
       const editorContainer = container.querySelector('.custom-class');

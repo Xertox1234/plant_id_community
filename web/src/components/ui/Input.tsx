@@ -15,11 +15,11 @@
  * />
  */
 
-import { InputHTMLAttributes } from 'react'
+import { InputHTMLAttributes } from 'react';
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
-  label?: string
-  error?: string
+  label?: string;
+  error?: string;
 }
 
 export default function Input({
@@ -35,22 +35,23 @@ export default function Input({
   className = '',
   ...props
 }: InputProps) {
-  const inputId = name || label?.toLowerCase().replace(/\s+/g, '-')
+  const inputId = name || label?.toLowerCase().replace(/\s+/g, '-');
 
   // Input styles - red border on error
   const inputStyles = error
     ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-    : 'border-gray-300 focus:border-green-500 focus:ring-green-500'
+    : 'border-gray-300 focus:border-green-500 focus:ring-green-500';
 
   return (
     <div className={`w-full ${className}`}>
       {label && (
-        <label
-          htmlFor={inputId}
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
+        <label htmlFor={inputId} className="block text-sm font-medium text-gray-700 mb-1">
           {label}
-          {required && <span className="text-red-500 ml-1" aria-label="required">*</span>}
+          {required && (
+            <span className="text-red-500 ml-1" aria-label="required">
+              *
+            </span>
+          )}
         </label>
       )}
 
@@ -78,14 +79,10 @@ export default function Input({
       />
 
       {error && (
-        <p
-          id={`${inputId}-error`}
-          className="mt-1 text-sm text-red-600"
-          role="alert"
-        >
+        <p id={`${inputId}-error`} className="mt-1 text-sm text-red-600" role="alert">
           {error}
         </p>
       )}
     </div>
-  )
+  );
 }

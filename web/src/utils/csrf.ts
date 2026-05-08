@@ -27,10 +27,10 @@
  * ```
  */
 
-import { logger } from './logger'
+import { logger } from './logger';
 
 // In-memory cache for CSRF token (single source of truth)
-let csrfToken: string | null = null
+let csrfToken: string | null = null;
 
 /**
  * Get CSRF token using Django standard meta tag pattern
@@ -55,41 +55,41 @@ let csrfToken: string | null = null
 export async function getCsrfToken(): Promise<string | null> {
   // Return cached token if available
   if (csrfToken) {
-    return csrfToken
+    return csrfToken;
   }
 
   // Strategy 1: Try meta tag first (Django standard pattern)
-  const meta = document.querySelector('meta[name="csrf-token"]')
+  const meta = document.querySelector('meta[name="csrf-token"]');
   if (meta) {
-    csrfToken = meta.getAttribute('content')
+    csrfToken = meta.getAttribute('content');
     if (csrfToken) {
-      logger.debug('[CSRF] Token loaded from meta tag')
-      return csrfToken
+      logger.debug('[CSRF] Token loaded from meta tag');
+      return csrfToken;
     }
   }
 
   // Strategy 2: Fallback to API endpoint (backward compatibility)
-  logger.warn('[CSRF] Meta tag not found, falling back to API endpoint')
+  logger.warn('[CSRF] Meta tag not found, falling back to API endpoint');
   try {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
     const response = await fetch(`${API_URL}/api/csrf/`, {
       method: 'GET',
       credentials: 'include', // Required to receive CSRF cookie
-    })
+    });
 
     if (!response.ok) {
-      logger.error('[CSRF] Failed to fetch token from API', { status: response.status })
-      return null
+      logger.error('[CSRF] Failed to fetch token from API', { status: response.status });
+      return null;
     }
 
-    const data = await response.json()
-    csrfToken = data.csrfToken
+    const data = await response.json();
+    csrfToken = data.csrfToken;
 
-    logger.debug('[CSRF] Token loaded from API endpoint fallback')
-    return csrfToken
+    logger.debug('[CSRF] Token loaded from API endpoint fallback');
+    return csrfToken;
   } catch (error) {
-    logger.error('[CSRF] Error fetching token', { error })
-    return null
+    logger.error('[CSRF] Error fetching token', { error });
+    return null;
   }
 }
 
@@ -112,10 +112,10 @@ export async function getCsrfToken(): Promise<string | null> {
  * }
  */
 export function clearCsrfToken(): void {
-  csrfToken = null
+  csrfToken = null;
 }
 
 export default {
   getCsrfToken,
   clearCsrfToken,
-}
+};

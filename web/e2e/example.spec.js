@@ -95,7 +95,11 @@ test.describe('Authentication Flow', () => {
     // Should show validation errors - Input component shows errors below the field
     // LoginPage validation requires email and password (14+ chars)
     // Look for any validation error text
-    const errorVisible = await page.locator('text=/required|invalid|must be/i').first().isVisible({ timeout: 5000 }).catch(() => false);
+    const errorVisible = await page
+      .locator('text=/required|invalid|must be/i')
+      .first()
+      .isVisible({ timeout: 5000 })
+      .catch(() => false);
     expect(errorVisible).toBeTruthy();
   });
 });
@@ -124,7 +128,7 @@ test.describe('Blog Integration', () => {
     // Find search input
     const searchInput = page.locator('input[type="search"], input[placeholder*="search" i]');
 
-    if (await searchInput.count() > 0) {
+    if ((await searchInput.count()) > 0) {
       await searchInput.fill('plant');
       await searchInput.press('Enter');
 

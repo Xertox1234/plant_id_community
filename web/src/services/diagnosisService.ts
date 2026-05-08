@@ -27,12 +27,12 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 function getAuthHeaders(): Record<string, string> {
   const token = document.cookie
     .split('; ')
-    .find(row => row.startsWith('access_token='))
+    .find((row) => row.startsWith('access_token='))
     ?.split('=')[1];
 
   return {
     'Content-Type': 'application/json',
-    ...(token && { 'Authorization': `Bearer ${token}` })
+    ...(token && { Authorization: `Bearer ${token}` }),
   };
 }
 
@@ -42,12 +42,12 @@ function getAuthHeaders(): Record<string, string> {
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const error: ApiError = await response.json().catch(() => ({
-      error: `Request failed with status ${response.status}`
+      error: `Request failed with status ${response.status}`,
     }));
 
     logger.error('[diagnosisService] API error:', {
       status: response.status,
-      error
+      error,
     });
 
     throw new Error(error.error || error.detail || `Request failed with status ${response.status}`);
@@ -63,7 +63,9 @@ async function handleResponse<T>(response: Response): Promise<T> {
 /**
  * Fetch user's diagnosis cards with optional filtering
  */
-export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = {}): Promise<PaginatedDiagnosisCardsResponse> {
+export async function fetchDiagnosisCards(
+  options: FetchDiagnosisCardsOptions = {}
+): Promise<PaginatedDiagnosisCardsResponse> {
   const params = new URLSearchParams();
 
   // String parameters: use falsy check (empty string is falsy, which we want to skip)
@@ -73,8 +75,10 @@ export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = 
   if (options.ordering) params.append('ordering', options.ordering);
 
   // Boolean parameters: MUST use !== undefined (false is a valid value)
-  if (options.is_favorite !== undefined) params.append('is_favorite', options.is_favorite.toString());
-  if (options.plant_recovered !== undefined) params.append('plant_recovered', options.plant_recovered.toString());
+  if (options.is_favorite !== undefined)
+    params.append('is_favorite', options.is_favorite.toString());
+  if (options.plant_recovered !== undefined)
+    params.append('plant_recovered', options.plant_recovered.toString());
 
   // Number parameters: use falsy check when 0 is not a valid value (pagination starts at 1)
   if (options.page) params.append('page', options.page.toString());
@@ -87,7 +91,7 @@ export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = 
   const response = await fetch(url, {
     method: 'GET',
     headers: getAuthHeaders(),
-    credentials: 'include'
+    credentials: 'include',
   });
 
   return handleResponse<PaginatedDiagnosisCardsResponse>(response);
@@ -99,14 +103,11 @@ export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = 
 export async function fetchDiagnosisCard(uuid: string): Promise<DiagnosisCard> {
   logger.info('[diagnosisService] Fetching diagnosis card', { uuid });
 
-  const response = await fetch(
-    `${API_URL}/api/plant-identification/diagnosis-cards/${uuid}/`,
-    {
-      method: 'GET',
-      headers: getAuthHeaders(),
-      credentials: 'include'
-    }
-  );
+  const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-cards/${uuid}/`, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+    credentials: 'include',
+  });
 
   return handleResponse<DiagnosisCard>(response);
 }
@@ -117,15 +118,12 @@ export async function fetchDiagnosisCard(uuid: string): Promise<DiagnosisCard> {
 export async function createDiagnosisCard(data: CreateDiagnosisCardInput): Promise<DiagnosisCard> {
   logger.info('[diagnosisService] Creating diagnosis card', { data });
 
-  const response = await fetch(
-    `${API_URL}/api/plant-identification/diagnosis-cards/`,
-    {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      credentials: 'include',
-      body: JSON.stringify(data)
-    }
-  );
+  const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-cards/`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(data),
+  });
 
   return handleResponse<DiagnosisCard>(response);
 }
@@ -133,18 +131,18 @@ export async function createDiagnosisCard(data: CreateDiagnosisCardInput): Promi
 /**
  * Update a diagnosis card
  */
-export async function updateDiagnosisCard(uuid: string, data: UpdateDiagnosisCardInput): Promise<DiagnosisCard> {
+export async function updateDiagnosisCard(
+  uuid: string,
+  data: UpdateDiagnosisCardInput
+): Promise<DiagnosisCard> {
   logger.info('[diagnosisService] Updating diagnosis card', { uuid, data });
 
-  const response = await fetch(
-    `${API_URL}/api/plant-identification/diagnosis-cards/${uuid}/`,
-    {
-      method: 'PATCH',
-      headers: getAuthHeaders(),
-      credentials: 'include',
-      body: JSON.stringify(data)
-    }
-  );
+  const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-cards/${uuid}/`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(data),
+  });
 
   return handleResponse<DiagnosisCard>(response);
 }
@@ -155,18 +153,15 @@ export async function updateDiagnosisCard(uuid: string, data: UpdateDiagnosisCar
 export async function deleteDiagnosisCard(uuid: string): Promise<void> {
   logger.info('[diagnosisService] Deleting diagnosis card', { uuid });
 
-  const response = await fetch(
-    `${API_URL}/api/plant-identification/diagnosis-cards/${uuid}/`,
-    {
-      method: 'DELETE',
-      headers: getAuthHeaders(),
-      credentials: 'include'
-    }
-  );
+  const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-cards/${uuid}/`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+    credentials: 'include',
+  });
 
   if (!response.ok) {
     const error: ApiError = await response.json().catch(() => ({
-      error: `Delete failed with status ${response.status}`
+      error: `Delete failed with status ${response.status}`,
     }));
     throw new Error(error.error || error.detail || 'Delete failed');
   }
@@ -178,14 +173,11 @@ export async function deleteDiagnosisCard(uuid: string): Promise<void> {
 export async function fetchFavoriteDiagnosisCards(): Promise<PaginatedDiagnosisCardsResponse> {
   logger.info('[diagnosisService] Fetching favorite diagnosis cards');
 
-  const response = await fetch(
-    `${API_URL}/api/plant-identification/diagnosis-cards/favorites/`,
-    {
-      method: 'GET',
-      headers: getAuthHeaders(),
-      credentials: 'include'
-    }
-  );
+  const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-cards/favorites/`, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+    credentials: 'include',
+  });
 
   return handleResponse<PaginatedDiagnosisCardsResponse>(response);
 }
@@ -201,7 +193,7 @@ export async function fetchActiveTreatments(): Promise<DiagnosisCard[]> {
     {
       method: 'GET',
       headers: getAuthHeaders(),
-      credentials: 'include'
+      credentials: 'include',
     }
   );
 
@@ -219,7 +211,7 @@ export async function fetchSuccessfulTreatments(): Promise<DiagnosisCard[]> {
     {
       method: 'GET',
       headers: getAuthHeaders(),
-      credentials: 'include'
+      credentials: 'include',
     }
   );
 
@@ -237,7 +229,7 @@ export async function toggleFavorite(uuid: string): Promise<DiagnosisCard> {
     {
       method: 'POST',
       headers: getAuthHeaders(),
-      credentials: 'include'
+      credentials: 'include',
     }
   );
 
@@ -251,7 +243,9 @@ export async function toggleFavorite(uuid: string): Promise<DiagnosisCard> {
 /**
  * Fetch reminders with optional filtering
  */
-export async function fetchReminders(options: FetchRemindersOptions = {}): Promise<PaginatedRemindersResponse> {
+export async function fetchReminders(
+  options: FetchRemindersOptions = {}
+): Promise<PaginatedRemindersResponse> {
   const params = new URLSearchParams();
 
   // String parameters: use falsy check (empty string is falsy, which we want to skip)
@@ -270,7 +264,7 @@ export async function fetchReminders(options: FetchRemindersOptions = {}): Promi
   const response = await fetch(url, {
     method: 'GET',
     headers: getAuthHeaders(),
-    credentials: 'include'
+    credentials: 'include',
   });
 
   return handleResponse<PaginatedRemindersResponse>(response);
@@ -282,15 +276,12 @@ export async function fetchReminders(options: FetchRemindersOptions = {}): Promi
 export async function createReminder(data: CreateReminderInput): Promise<DiagnosisReminder> {
   logger.info('[diagnosisService] Creating reminder', { data });
 
-  const response = await fetch(
-    `${API_URL}/api/plant-identification/diagnosis-reminders/`,
-    {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      credentials: 'include',
-      body: JSON.stringify(data)
-    }
-  );
+  const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-reminders/`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(data),
+  });
 
   return handleResponse<DiagnosisReminder>(response);
 }
@@ -306,7 +297,7 @@ export async function fetchUpcomingReminders(): Promise<DiagnosisReminder[]> {
     {
       method: 'GET',
       headers: getAuthHeaders(),
-      credentials: 'include'
+      credentials: 'include',
     }
   );
 
@@ -325,7 +316,7 @@ export async function snoozeReminder(uuid: string, hours: number = 24): Promise<
       method: 'POST',
       headers: getAuthHeaders(),
       credentials: 'include',
-      body: JSON.stringify({ hours })
+      body: JSON.stringify({ hours }),
     }
   );
 
@@ -343,7 +334,7 @@ export async function cancelReminder(uuid: string): Promise<DiagnosisReminder> {
     {
       method: 'POST',
       headers: getAuthHeaders(),
-      credentials: 'include'
+      credentials: 'include',
     }
   );
 
@@ -361,7 +352,7 @@ export async function acknowledgeReminder(uuid: string): Promise<DiagnosisRemind
     {
       method: 'POST',
       headers: getAuthHeaders(),
-      credentials: 'include'
+      credentials: 'include',
     }
   );
 
@@ -374,18 +365,15 @@ export async function acknowledgeReminder(uuid: string): Promise<DiagnosisRemind
 export async function deleteReminder(uuid: string): Promise<void> {
   logger.info('[diagnosisService] Deleting reminder', { uuid });
 
-  const response = await fetch(
-    `${API_URL}/api/plant-identification/diagnosis-reminders/${uuid}/`,
-    {
-      method: 'DELETE',
-      headers: getAuthHeaders(),
-      credentials: 'include'
-    }
-  );
+  const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-reminders/${uuid}/`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+    credentials: 'include',
+  });
 
   if (!response.ok) {
     const error: ApiError = await response.json().catch(() => ({
-      error: `Delete failed with status ${response.status}`
+      error: `Delete failed with status ${response.status}`,
     }));
     throw new Error(error.error || error.detail || 'Delete failed');
   }

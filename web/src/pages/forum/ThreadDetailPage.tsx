@@ -52,10 +52,10 @@ export default function ThreadDetailPage() {
         setLoading(true);
         setError(null);
 
-        const [threadData, postsData] = await Promise.all([
+        const [threadData, postsData] = (await Promise.all([
           fetchThread(threadSlug),
           fetchPosts({ thread: threadSlug, page: 1, limit: postsPerPage }),
-        ]) as [Thread, PostsData];
+        ])) as [Thread, PostsData];
 
         setThread(threadData);
         setPosts(postsData.items);
@@ -77,54 +77,57 @@ export default function ThreadDetailPage() {
   }, [threadSlug, categorySlug]);
 
   // Handle reply submission
-  const handleReplySubmit = useCallback(async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const handleReplySubmit = useCallback(
+    async (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
 
-    if (!isAuthenticated) {
-      navigate('/login', { state: { from: window.location.pathname } });
-      return;
-    }
+      if (!isAuthenticated) {
+        navigate('/login', { state: { from: window.location.pathname } });
+        return;
+      }
 
-    if (!replyContent.trim()) {
-      setReplyError('Reply content is required');
-      return;
-    }
+      if (!replyContent.trim()) {
+        setReplyError('Reply content is required');
+        return;
+      }
 
-    if (!thread) {
-      setReplyError('Thread not found');
-      return;
-    }
+      if (!thread) {
+        setReplyError('Thread not found');
+        return;
+      }
 
-    try {
-      setIsSubmitting(true);
-      setReplyError(null);
+      try {
+        setIsSubmitting(true);
+        setReplyError(null);
 
-      const newPost = await createPost({
-        thread: thread.id,
-        content_raw: replyContent,
-        content_format: 'rich', // TipTap outputs HTML
-      }) as Post;
+        const newPost = (await createPost({
+          thread: thread.id,
+          content_raw: replyContent,
+          content_format: 'rich', // TipTap outputs HTML
+        })) as Post;
 
-      setPosts(prev => [...prev, newPost]);
-      setTotalPosts(prev => prev + 1);
-      setReplyContent(''); // Clear editor
+        setPosts((prev) => [...prev, newPost]);
+        setTotalPosts((prev) => prev + 1);
+        setReplyContent(''); // Clear editor
 
-      // Scroll to new post
-      setTimeout(() => {
-        const element = document.getElementById(`post-${newPost.id}`);
-        element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 100);
-    } catch (err) {
-      logger.error('Error creating post', {
-        component: 'ThreadDetailPage',
-        error: err,
-        context: { threadId: thread?.id, contentLength: replyContent?.length },
-      });
-      setReplyError(err instanceof Error ? err.message : 'Failed to create post');
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [isAuthenticated, navigate, replyContent, thread]);
+        // Scroll to new post
+        setTimeout(() => {
+          const element = document.getElementById(`post-${newPost.id}`);
+          element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 100);
+      } catch (err) {
+        logger.error('Error creating post', {
+          component: 'ThreadDetailPage',
+          error: err,
+          context: { threadId: thread?.id, contentLength: replyContent?.length },
+        });
+        setReplyError(err instanceof Error ? err.message : 'Failed to create post');
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [isAuthenticated, navigate, replyContent, thread]
+  );
 
   // Handle post deletion
   const handleDeletePost = useCallback(async (post: Post) => {
@@ -134,8 +137,8 @@ export default function ThreadDetailPage() {
 
     try {
       await deletePost(post.id);
-      setPosts(prev => prev.filter(p => p.id !== post.id));
-      setTotalPosts(prev => prev - 1);
+      setPosts((prev) => prev.filter((p) => p.id !== post.id));
+      setTotalPosts((prev) => prev - 1);
     } catch (err) {
       logger.error('Error deleting post', {
         component: 'ThreadDetailPage',
@@ -154,13 +157,13 @@ export default function ThreadDetailPage() {
       setLoadingMore(true);
       const nextPage = currentPage + 1;
 
-      const postsData = await fetchPosts({
+      const postsData = (await fetchPosts({
         thread: threadSlug,
         page: nextPage,
         limit: postsPerPage,
-      }) as PostsData;
+      })) as PostsData;
 
-      setPosts(prev => [...prev, ...postsData.items]);
+      setPosts((prev) => [...prev, ...postsData.items]);
       setCurrentPage(nextPage);
     } catch (err) {
       logger.error('Error loading more posts', {
@@ -204,10 +207,7 @@ export default function ThreadDetailPage() {
           </li>
           <li aria-hidden="true">›</li>
           <li>
-            <Link
-              to={`/forum/${categorySlug}`}
-              className="hover:text-green-600"
-            >
+            <Link to={`/forum/${categorySlug}`} className="hover:text-green-600">
               {thread.category.name}
             </Link>
           </li>
@@ -228,13 +228,12 @@ export default function ThreadDetailPage() {
           )}
 
           <div className="flex-1">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              {thread.title}
-            </h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">{thread.title}</h1>
 
             <div className="flex items-center gap-4 text-sm text-gray-500">
               <span>
-                by <strong className="text-gray-700">
+                by{' '}
+                <strong className="text-gray-700">
                   {thread.author.display_name || thread.author.username}
                 </strong>
               </span>
@@ -265,10 +264,7 @@ export default function ThreadDetailPage() {
       <div className="space-y-4 mb-8">
         {posts.map((post) => (
           <div key={post.id} id={`post-${post.id}`}>
-            <PostCard
-              post={post}
-              onDelete={handleDeletePost}
-            />
+            <PostCard post={post} onDelete={handleDeletePost} />
           </div>
         ))}
       </div>
@@ -282,7 +278,9 @@ export default function ThreadDetailPage() {
             loading={loadingMore}
             disabled={loadingMore}
           >
-            {loadingMore ? 'Loading...' : `Load More Posts (${totalPosts - posts.length} remaining)`}
+            {loadingMore
+              ? 'Loading...'
+              : `Load More Posts (${totalPosts - posts.length} remaining)`}
           </Button>
         </div>
       )}
@@ -294,9 +292,7 @@ export default function ThreadDetailPage() {
 
           {!isAuthenticated ? (
             <div className="text-center py-8">
-              <p className="text-gray-600 mb-4">
-                You must be logged in to reply to this thread.
-              </p>
+              <p className="text-gray-600 mb-4">You must be logged in to reply to this thread.</p>
               <Link to="/login" state={{ from: window.location.pathname }}>
                 <Button variant="primary">Log In</Button>
               </Link>
@@ -311,9 +307,7 @@ export default function ThreadDetailPage() {
               />
 
               {replyError && (
-                <div className="mb-4 p-3 bg-red-50 text-red-800 rounded">
-                  {replyError}
-                </div>
+                <div className="mb-4 p-3 bg-red-50 text-red-800 rounded">{replyError}</div>
               )}
 
               <div className="flex gap-2">

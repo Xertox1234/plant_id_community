@@ -14,6 +14,7 @@ src/components/
 ```
 
 **Future Structure** (as app grows):
+
 ```
 src/components/
 ├── PlantIdentification/    # Plant ID feature
@@ -24,21 +25,21 @@ src/components/
 
 ## Component Index
 
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| [FileUpload](#fileupload) | `PlantIdentification/FileUpload.jsx` | Image upload with drag-drop and compression |
-| [IdentificationResults](#identificationresults) | `PlantIdentification/IdentificationResults.jsx` | Display AI identification results |
+| Component                                       | Location                                        | Purpose                                     |
+| ----------------------------------------------- | ----------------------------------------------- | ------------------------------------------- |
+| [FileUpload](#fileupload)                       | `PlantIdentification/FileUpload.jsx`            | Image upload with drag-drop and compression |
+| [IdentificationResults](#identificationresults) | `PlantIdentification/IdentificationResults.jsx` | Display AI identification results           |
 
 ## Pages
 
 Pages are route-level components in `src/pages/`:
 
-| Page | Path | Purpose |
-|------|------|---------|
-| [HomePage](#homepage) | `/` | Landing page with hero and features |
-| [IdentifyPage](#identifypage) | `/identify` | Plant identification workflow |
-| [BlogPage](#blogpage) | `/blog` | Blog posts (placeholder) |
-| [ForumPage](#forumpage) | `/forum` | Community forum (placeholder) |
+| Page                          | Path        | Purpose                             |
+| ----------------------------- | ----------- | ----------------------------------- |
+| [HomePage](#homepage)         | `/`         | Landing page with hero and features |
+| [IdentifyPage](#identifypage) | `/identify` | Plant identification workflow       |
+| [BlogPage](#blogpage)         | `/blog`     | Blog posts (placeholder)            |
+| [ForumPage](#forumpage)       | `/forum`    | Community forum (placeholder)       |
 
 ---
 
@@ -54,25 +55,20 @@ Image upload component with drag-and-drop, preview, and automatic compression.
 
 ```typescript
 interface FileUploadProps {
-  onFileSelect: (file: File | null) => void  // Callback when file selected
-  selectedFile: File | null                   // Currently selected file
+  onFileSelect: (file: File | null) => void; // Callback when file selected
+  selectedFile: File | null; // Currently selected file
 }
 ```
 
 #### Usage
 
 ```javascript
-import FileUpload from '../components/PlantIdentification/FileUpload'
+import FileUpload from '../components/PlantIdentification/FileUpload';
 
 function MyComponent() {
-  const [file, setFile] = useState(null)
+  const [file, setFile] = useState(null);
 
-  return (
-    <FileUpload
-      onFileSelect={setFile}
-      selectedFile={file}
-    />
-  )
+  return <FileUpload onFileSelect={setFile} selectedFile={file} />;
 }
 ```
 
@@ -90,14 +86,16 @@ function MyComponent() {
 #### State Management
 
 **Internal State:**
+
 ```javascript
-const [isDragOver, setIsDragOver] = useState(false)
-const [previewUrl, setPreviewUrl] = useState(null)
-const [compressionStats, setCompressionStats] = useState(null)
-const [error, setError] = useState(null)
+const [isDragOver, setIsDragOver] = useState(false);
+const [previewUrl, setPreviewUrl] = useState(null);
+const [compressionStats, setCompressionStats] = useState(null);
+const [error, setError] = useState(null);
 ```
 
 **Compression Flow:**
+
 ```
 File Selected (10MB)
       │
@@ -128,6 +126,7 @@ Call onFileSelect(compressedFile)
 #### Styling
 
 **Classes Used:**
+
 - `border-dashed border-2` - Drag-drop border
 - `bg-green-50` - Light green background on drag-over
 - `rounded-xl` - Rounded corners (12px)
@@ -136,20 +135,22 @@ Call onFileSelect(compressedFile)
 #### Cleanup
 
 **Memory Management:**
+
 ```javascript
 useEffect(() => {
   return () => {
     // Revoke ObjectURL on unmount
     if (previewUrl) {
-      URL.revokeObjectURL(previewUrl)
+      URL.revokeObjectURL(previewUrl);
     }
-  }
-}, [previewUrl])
+  };
+}, [previewUrl]);
 ```
 
 #### Error Handling
 
 **Validation Errors:**
+
 - Invalid file type → "Please select an image file"
 - File too large → "File size should be less than 10MB"
 - Compression failed → Falls back to original file
@@ -167,45 +168,39 @@ Displays plant identification results from the AI API.
 ```typescript
 interface IdentificationResultsProps {
   results: {
-    plant_name: string
-    scientific_name: string
-    confidence: number
+    plant_name: string;
+    scientific_name: string;
+    confidence: number;
     suggestions: Array<{
-      plant_name: string
-      scientific_name: string
-      probability: number
-      common_names: string[]
-      description?: string
-      similar_images?: string[]
-    }>
+      plant_name: string;
+      scientific_name: string;
+      probability: number;
+      common_names: string[];
+      description?: string;
+      similar_images?: string[];
+    }>;
     disease_detection?: {
-      is_healthy: boolean
-      disease_name?: string
-      description?: string
-    }
-  } | null
-  loading: boolean
-  error: string | null
+      is_healthy: boolean;
+      disease_name?: string;
+      description?: string;
+    };
+  } | null;
+  loading: boolean;
+  error: string | null;
 }
 ```
 
 #### Usage
 
 ```javascript
-import IdentificationResults from '../components/PlantIdentification/IdentificationResults'
+import IdentificationResults from '../components/PlantIdentification/IdentificationResults';
 
 function MyComponent() {
-  const [results, setResults] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const [results, setResults] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  return (
-    <IdentificationResults
-      results={results}
-      loading={loading}
-      error={error}
-    />
-  )
+  return <IdentificationResults results={results} loading={loading} error={error} />;
 }
 ```
 
@@ -223,16 +218,19 @@ function MyComponent() {
 #### Display States
 
 1. **Loading**
+
    ```
    [Spinner] Identifying plant...
    ```
 
 2. **Error**
+
    ```
    ⚠️ Error message here
    ```
 
 3. **Results**
+
    ```
    ┌─────────────────────────┐
    │ Monstera Deliciosa      │
@@ -254,31 +252,34 @@ function MyComponent() {
 
 ```javascript
 const getConfidenceColor = (confidence) => {
-  if (confidence >= 0.8) return 'bg-green-500'    // High confidence
-  if (confidence >= 0.6) return 'bg-yellow-500'   // Medium confidence
-  return 'bg-red-500'                             // Low confidence
-}
+  if (confidence >= 0.8) return 'bg-green-500'; // High confidence
+  if (confidence >= 0.6) return 'bg-yellow-500'; // Medium confidence
+  return 'bg-red-500'; // Low confidence
+};
 ```
 
 #### Disease Detection Display
 
 ```javascript
-{results.disease_detection && !results.disease_detection.is_healthy && (
-  <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
-    <div className="flex items-center">
-      <AlertCircle className="text-yellow-600 mr-2" />
-      <div>
-        <h4 className="font-semibold">Health Issue Detected</h4>
-        <p>{results.disease_detection.disease_name}</p>
+{
+  results.disease_detection && !results.disease_detection.is_healthy && (
+    <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
+      <div className="flex items-center">
+        <AlertCircle className="text-yellow-600 mr-2" />
+        <div>
+          <h4 className="font-semibold">Health Issue Detected</h4>
+          <p>{results.disease_detection.disease_name}</p>
+        </div>
       </div>
     </div>
-  </div>
-)}
+  );
+}
 ```
 
 #### Styling
 
 **Classes Used:**
+
 - `bg-white rounded-xl shadow-lg` - Card container
 - `grid md:grid-cols-2 gap-4` - Responsive similar images grid
 - `border-l-4 border-yellow-400` - Disease warning accent
@@ -341,10 +342,10 @@ Main plant identification workflow page.
 #### State
 
 ```javascript
-const [selectedFile, setSelectedFile] = useState(null)
-const [results, setResults] = useState(null)
-const [loading, setLoading] = useState(false)
-const [error, setError] = useState(null)
+const [selectedFile, setSelectedFile] = useState(null);
+const [results, setResults] = useState(null);
+const [loading, setLoading] = useState(false);
+const [error, setError] = useState(null);
 ```
 
 #### Workflow
@@ -368,20 +369,20 @@ const [error, setError] = useState(null)
 
 ```javascript
 const handleIdentify = async () => {
-  if (!selectedFile) return
+  if (!selectedFile) return;
 
   try {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
 
-    const result = await plantIdService.identifyPlant(selectedFile)
-    setResults(result)
+    const result = await plantIdService.identifyPlant(selectedFile);
+    setResults(result);
   } catch (err) {
-    setError(err.message || 'Failed to identify plant')
+    setError(err.message || 'Failed to identify plant');
   } finally {
-    setLoading(false)
+    setLoading(false);
   }
-}
+};
 ```
 
 ---
@@ -421,8 +422,8 @@ Placeholder for future forum integration.
 ### 1. Component Structure
 
 ```javascript
-import { useState, useEffect } from 'react'
-import { Icon } from 'lucide-react'
+import { useState, useEffect } from 'react';
+import { Icon } from 'lucide-react';
 
 /**
  * Component description
@@ -431,27 +432,23 @@ import { Icon } from 'lucide-react'
  */
 export default function MyComponent({ prop1, prop2 }) {
   // State
-  const [state, setState] = useState(null)
+  const [state, setState] = useState(null);
 
   // Effects
   useEffect(() => {
     // Effect logic
     return () => {
       // Cleanup
-    }
-  }, [dependencies])
+    };
+  }, [dependencies]);
 
   // Handlers
   const handleClick = () => {
     // Handler logic
-  }
+  };
 
   // Render
-  return (
-    <div className="...">
-      {/* Component content */}
-    </div>
-  )
+  return <div className="...">{/* Component content */}</div>;
 }
 ```
 
@@ -460,12 +457,12 @@ export default function MyComponent({ prop1, prop2 }) {
 ```javascript
 // ✅ Good: Destructure props in function signature
 function MyComponent({ name, age, onClick }) {
-  return <div onClick={onClick}>{name}</div>
+  return <div onClick={onClick}>{name}</div>;
 }
 
 // ❌ Avoid: Using props object
 function MyComponent(props) {
-  return <div onClick={props.onClick}>{props.name}</div>
+  return <div onClick={props.onClick}>{props.name}</div>;
 }
 ```
 
@@ -473,28 +470,34 @@ function MyComponent(props) {
 
 ```javascript
 // ✅ Good: Use && for simple conditions
-{loading && <Spinner />}
+{
+  loading && <Spinner />;
+}
 
 // ✅ Good: Use ternary for if/else
-{error ? <ErrorMessage /> : <SuccessMessage />}
+{
+  error ? <ErrorMessage /> : <SuccessMessage />;
+}
 
 // ✅ Good: Extract complex conditions
-const showResults = results && !loading && !error
-{showResults && <Results data={results} />}
+const showResults = results && !loading && !error;
+{
+  showResults && <Results data={results} />;
+}
 ```
 
 ### 4. State Updates
 
 ```javascript
 // ✅ Good: Functional updates for dependent state
-setCount(prevCount => prevCount + 1)
+setCount((prevCount) => prevCount + 1);
 
 // ✅ Good: Separate setState calls
-setLoading(true)
-setError(null)
+setLoading(true);
+setError(null);
 
 // ❌ Avoid: Batching unrelated state
-setState({ loading: true, error: null, data: null })
+setState({ loading: true, error: null, data: null });
 ```
 
 ### 5. Event Handlers
@@ -522,13 +525,13 @@ const handleDelete = (id) => () => {
 ```javascript
 // ✅ Good: Always cleanup side effects
 useEffect(() => {
-  const url = URL.createObjectURL(file)
-  setPreviewUrl(url)
+  const url = URL.createObjectURL(file);
+  setPreviewUrl(url);
 
   return () => {
-    URL.revokeObjectURL(url)  // Cleanup
-  }
-}, [file])
+    URL.revokeObjectURL(url); // Cleanup
+  };
+}, [file]);
 ```
 
 ## Styling Guidelines
@@ -564,19 +567,21 @@ className="
 
 ```javascript
 // Card
-className="bg-white rounded-xl shadow-lg p-6"
+className = 'bg-white rounded-xl shadow-lg p-6';
 
 // Button Primary
-className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors"
+className = 'bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors';
 
 // Button Secondary
-className="border-2 border-green-600 text-green-600 px-6 py-3 rounded-lg hover:bg-green-50 transition-colors"
+className =
+  'border-2 border-green-600 text-green-600 px-6 py-3 rounded-lg hover:bg-green-50 transition-colors';
 
 // Input
-className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-green-600 focus:outline-none"
+className =
+  'w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-green-600 focus:outline-none';
 
 // Error Message
-className="bg-red-50 border-l-4 border-red-400 p-4 text-red-700"
+className = 'bg-red-50 border-l-4 border-red-400 p-4 text-red-700';
 ```
 
 ## Future Components

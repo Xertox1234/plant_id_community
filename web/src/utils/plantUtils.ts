@@ -1,4 +1,4 @@
-import type { PlantIdentificationResult } from '@/types'
+import type { PlantIdentificationResult } from '@/types';
 
 /**
  * Generate a unique key for a plant suggestion to track save status.
@@ -8,6 +8,6 @@ import type { PlantIdentificationResult } from '@/types'
  * @returns Unique plant key for tracking
  */
 export function getPlantKey(suggestion: PlantIdentificationResult): string {
-  const confidence = suggestion.confidence.toFixed(4) // 4 decimal places for precision
-  return `${suggestion.plant_name}-${confidence}`
+  const confidence = suggestion.confidence.toFixed(4); // 4 decimal places for precision
+  return `${suggestion.plant_name}-${confidence}`;
 }

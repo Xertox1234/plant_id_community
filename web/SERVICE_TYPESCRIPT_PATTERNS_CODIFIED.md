@@ -9,6 +9,7 @@
 This document codifies the patterns, best practices, and lessons learned from converting all 5 service files from JavaScript to TypeScript in Phase 4 of the frontend TypeScript migration.
 
 **Services Converted:**
+
 - authService.js → authService.ts (5 functions, 238 lines)
 - blogService.js → blogService.ts (5 functions, 165 lines)
 - forumService.js → forumService.ts (16 functions, 337 lines)
@@ -100,12 +101,12 @@ Multiple services need pagination (forum, blog, diagnosis). Without generics, yo
 // ❌ BAD - Duplicated pagination types
 interface ThreadListResponse {
   items: Thread[];
-  meta: { count: number; next?: string; previous?: string; };
+  meta: { count: number; next?: string; previous?: string };
 }
 
 interface PostListResponse {
   items: Post[];
-  meta: { count: number; next?: string; previous?: string; };
+  meta: { count: number; next?: string; previous?: string };
 }
 
 // ... repeated for every paginated entity
@@ -125,7 +126,9 @@ export interface PaginatedResponse<T> {
 }
 
 // Usage across different entity types
-export async function fetchThreads(options: FetchThreadsOptions): Promise<PaginatedResponse<Thread>> {
+export async function fetchThreads(
+  options: FetchThreadsOptions
+): Promise<PaginatedResponse<Thread>> {
   // ...
 }
 
@@ -146,7 +149,7 @@ async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Pr
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
+      Accept: 'application/json',
       ...(csrfToken && { 'X-CSRFToken': csrfToken }),
       ...options.headers,
     },
@@ -166,6 +169,7 @@ const thread = await authenticatedFetch<Thread>(`${FORUM_BASE}/threads/${slug}/`
 ```
 
 **Benefits:**
+
 - Single source of truth for pagination structure
 - Type inference for response data
 - Reduced code duplication (DRY)
@@ -194,7 +198,12 @@ enum TreatmentStatus {
 }
 
 // ✅ GOOD - Compile-time union type
-export type TreatmentStatus = 'not_started' | 'in_progress' | 'successful' | 'failed' | 'monitoring';
+export type TreatmentStatus =
+  | 'not_started'
+  | 'in_progress'
+  | 'successful'
+  | 'failed'
+  | 'monitoring';
 ```
 
 ### Real-World Example from diagnosis.ts
@@ -203,7 +212,12 @@ export type TreatmentStatus = 'not_started' | 'in_progress' | 'successful' | 'fa
 /**
  * Treatment status types
  */
-export type TreatmentStatus = 'not_started' | 'in_progress' | 'successful' | 'failed' | 'monitoring';
+export type TreatmentStatus =
+  | 'not_started'
+  | 'in_progress'
+  | 'successful'
+  | 'failed'
+  | 'monitoring';
 
 /**
  * Disease type categories
@@ -223,8 +237,8 @@ export type ReminderType = 'check_progress' | 'treatment_step' | 'follow_up' | '
 // Usage in interfaces
 export interface DiagnosisCard {
   uuid: string;
-  treatment_status: TreatmentStatus;    // Autocomplete + type safety
-  disease_type: DiseaseType;            // Only valid values allowed
+  treatment_status: TreatmentStatus; // Autocomplete + type safety
+  disease_type: DiseaseType; // Only valid values allowed
   severity_assessment: SeverityAssessment;
   // ...
 }
@@ -273,14 +287,14 @@ function getCsrfToken(): string | null {
 function getCsrfToken(): string | undefined {
   return document.cookie
     .split('; ')
-    .find(row => row.startsWith('csrftoken='))
-    ?.split('=')[1];  // Returns undefined if not found
+    .find((row) => row.startsWith('csrftoken='))
+    ?.split('=')[1]; // Returns undefined if not found
 }
 
 // Usage with conditional header
 const headers: Record<string, string> = {
   'Content-Type': 'application/json',
-  ...(csrfToken && { 'X-CSRFToken': csrfToken }),  // Only add if exists
+  ...(csrfToken && { 'X-CSRFToken': csrfToken }), // Only add if exists
 };
 ```
 
@@ -355,12 +369,12 @@ async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     // Try to parse error, fallback to status message
     const error: ApiError = await response.json().catch(() => ({
-      error: `Request failed with status ${response.status}`
+      error: `Request failed with status ${response.status}`,
     }));
 
     logger.error('[diagnosisService] API error:', {
       status: response.status,
-      error
+      error,
     });
 
     // Normalize error message (check multiple fields)
@@ -375,7 +389,7 @@ export async function createDiagnosisCard(data: CreateDiagnosisCardInput): Promi
   const response = await fetch(`${API_URL}/api/diagnosis-cards/`, {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify(data)
+    body: JSON.stringify(data),
   });
 
   return handleResponse<DiagnosisCard>(response);
@@ -419,7 +433,7 @@ export async function deleteDiagnosisCard(uuid: string): Promise<void> {
 
   if (!response.ok) {
     const error: ApiError = await response.json().catch(() => ({
-      error: `Delete failed with status ${response.status}`
+      error: `Delete failed with status ${response.status}`,
     }));
     throw new Error(error.error || error.detail || 'Delete failed');
   }
@@ -468,13 +482,15 @@ export interface FetchThreadsOptions {
 }
 
 // Function with destructured defaults
-export async function fetchThreads(options: FetchThreadsOptions = {}): Promise<PaginatedResponse<Thread>> {
+export async function fetchThreads(
+  options: FetchThreadsOptions = {}
+): Promise<PaginatedResponse<Thread>> {
   const {
     page = 1,
     limit = 20,
     category = '',
     search = '',
-    ordering = '-last_activity_at'
+    ordering = '-last_activity_at',
   } = options;
 
   // Build query params
@@ -507,7 +523,7 @@ const threads = await fetchThreads({
   limit: 10,
   category: 'help',
   search: 'watering',
-  ordering: '-created_at'
+  ordering: '-created_at',
 });
 ```
 
@@ -515,7 +531,9 @@ const threads = await fetchThreads({
 
 ```typescript
 // ✅ GOOD - Convert boolean to string for URLSearchParams
-export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = {}): Promise<PaginatedDiagnosisCardsResponse> {
+export async function fetchDiagnosisCards(
+  options: FetchDiagnosisCardsOptions = {}
+): Promise<PaginatedDiagnosisCardsResponse> {
   const params = new URLSearchParams();
 
   // Booleans must be converted to string
@@ -535,6 +553,7 @@ export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = 
 ```
 
 **Benefits:**
+
 - Named parameters (self-documenting)
 - Type-safe with autocomplete
 - Flexible - any combination of options
@@ -564,8 +583,8 @@ async function uploadPostImage(postId: string, imageFile: File): Promise<Attachm
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Content-Type': 'multipart/form-data',  // ❌ Wrong! Missing boundary
-      'Accept': 'application/json',
+      'Content-Type': 'multipart/form-data', // ❌ Wrong! Missing boundary
+      Accept: 'application/json',
     },
     body: formData,
   });
@@ -585,11 +604,11 @@ export async function uploadPostImage(postId: string, imageFile: File): Promise<
     method: 'POST',
     credentials: 'include',
     headers: {
-      'Accept': 'application/json',
+      Accept: 'application/json',
       // NO Content-Type header!
       ...(csrfToken && { 'X-CSRFToken': csrfToken }),
     },
-    body: formData,  // Browser sets: multipart/form-data; boundary=----WebKitFormBoundary...
+    body: formData, // Browser sets: multipart/form-data; boundary=----WebKitFormBoundary...
   });
 
   if (!response.ok) {
@@ -675,19 +694,21 @@ export async function login(credentials: LoginCredentials): Promise<User> {
 
 ```typescript
 // ✅ GOOD - Separate imports for runtime and types
-import { logger } from '../utils/logger';  // Runtime import
-import type { PlantIdentificationResult } from '../types/plantId';  // Type import
+import { logger } from '../utils/logger'; // Runtime import
+import type { PlantIdentificationResult } from '../types/plantId'; // Type import
 ```
 
 ### Pattern Used Across All Services
 
 **authService.ts:**
+
 ```typescript
 import { logger } from '../utils/logger';
 import type { User, LoginCredentials, SignupData, AuthResponse } from '../types/auth';
 ```
 
 **blogService.ts:**
+
 ```typescript
 import apiClient from '../utils/httpClient';
 import { logger } from '../utils/logger';
@@ -700,6 +721,7 @@ import type {
 ```
 
 **forumService.ts:**
+
 ```typescript
 import type {
   Category,
@@ -714,6 +736,7 @@ import type {
 ```
 
 **Benefits:**
+
 - Smaller bundle size (types never included)
 - Clear intent (this import is for types only)
 - Compile-time optimization
@@ -737,7 +760,7 @@ Headers may include optional fields (CSRF token, Authorization). Need flexible t
 // ❌ BAD - Interface too rigid for optional headers
 interface Headers {
   'Content-Type': string;
-  'X-CSRFToken': string;  // What if we don't have CSRF token?
+  'X-CSRFToken': string; // What if we don't have CSRF token?
 }
 
 const headers: Headers = {
@@ -753,18 +776,18 @@ const headers: Headers = {
 function getAuthHeaders(): Record<string, string> {
   const token = document.cookie
     .split('; ')
-    .find(row => row.startsWith('access_token='))
+    .find((row) => row.startsWith('access_token='))
     ?.split('=')[1];
 
   return {
     'Content-Type': 'application/json',
-    ...(token && { 'Authorization': `Bearer ${token}` })  // Conditional spread
+    ...(token && { Authorization: `Bearer ${token}` }), // Conditional spread
   };
 }
 
 // Usage
 const response = await fetch(url, {
-  headers: getAuthHeaders(),  // Type-safe, flexible
+  headers: getAuthHeaders(), // Type-safe, flexible
 });
 ```
 
@@ -841,7 +864,7 @@ const config: ApiConfig = {
  */
 
 import { logger } from '../utils/logger';
-import type { /* ... */ } from '../types/[name]';
+import type {} from /* ... */ '../types/[name]';
 
 // Constants
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -892,33 +915,64 @@ export async function otherMethod(): Promise<OtherType> {
  */
 
 import { logger } from '../utils/logger';
-import type { DiagnosisCard, DiagnosisReminder, /* ... */ } from '../types/diagnosis';
+import type { DiagnosisCard, DiagnosisReminder /* ... */ } from '../types/diagnosis';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Private helpers
-function getAuthHeaders(): Record<string, string> { /* ... */ }
-async function handleResponse<T>(response: Response): Promise<T> { /* ... */ }
+function getAuthHeaders(): Record<string, string> {
+  /* ... */
+}
+async function handleResponse<T>(response: Response): Promise<T> {
+  /* ... */
+}
 
 // =============================================================================
 // Diagnosis Card API Methods
 // =============================================================================
 
-export async function fetchDiagnosisCards(options?: FetchDiagnosisCardsOptions): Promise<PaginatedDiagnosisCardsResponse> { /* ... */ }
-export async function fetchDiagnosisCard(uuid: string): Promise<DiagnosisCard> { /* ... */ }
-export async function createDiagnosisCard(data: CreateDiagnosisCardInput): Promise<DiagnosisCard> { /* ... */ }
-export async function updateDiagnosisCard(uuid: string, data: UpdateDiagnosisCardInput): Promise<DiagnosisCard> { /* ... */ }
-export async function deleteDiagnosisCard(uuid: string): Promise<void> { /* ... */ }
-export async function toggleFavorite(uuid: string): Promise<DiagnosisCard> { /* ... */ }
+export async function fetchDiagnosisCards(
+  options?: FetchDiagnosisCardsOptions
+): Promise<PaginatedDiagnosisCardsResponse> {
+  /* ... */
+}
+export async function fetchDiagnosisCard(uuid: string): Promise<DiagnosisCard> {
+  /* ... */
+}
+export async function createDiagnosisCard(data: CreateDiagnosisCardInput): Promise<DiagnosisCard> {
+  /* ... */
+}
+export async function updateDiagnosisCard(
+  uuid: string,
+  data: UpdateDiagnosisCardInput
+): Promise<DiagnosisCard> {
+  /* ... */
+}
+export async function deleteDiagnosisCard(uuid: string): Promise<void> {
+  /* ... */
+}
+export async function toggleFavorite(uuid: string): Promise<DiagnosisCard> {
+  /* ... */
+}
 
 // =============================================================================
 // Diagnosis Reminder API Methods
 // =============================================================================
 
-export async function fetchReminders(options?: FetchRemindersOptions): Promise<PaginatedRemindersResponse> { /* ... */ }
-export async function createReminder(data: CreateReminderInput): Promise<DiagnosisReminder> { /* ... */ }
-export async function snoozeReminder(uuid: string, hours?: number): Promise<DiagnosisReminder> { /* ... */ }
-export async function deleteReminder(uuid: string): Promise<void> { /* ... */ }
+export async function fetchReminders(
+  options?: FetchRemindersOptions
+): Promise<PaginatedRemindersResponse> {
+  /* ... */
+}
+export async function createReminder(data: CreateReminderInput): Promise<DiagnosisReminder> {
+  /* ... */
+}
+export async function snoozeReminder(uuid: string, hours?: number): Promise<DiagnosisReminder> {
+  /* ... */
+}
+export async function deleteReminder(uuid: string): Promise<void> {
+  /* ... */
+}
 ```
 
 ### Benefits of This Structure
@@ -933,9 +987,15 @@ export async function deleteReminder(uuid: string): Promise<void> { /* ... */ }
 
 ```typescript
 // OPTION 1: Named exports (preferred)
-export async function login(credentials: LoginCredentials): Promise<User> { /* ... */ }
-export async function logout(): Promise<void> { /* ... */ }
-export async function getCurrentUser(): Promise<User | null> { /* ... */ }
+export async function login(credentials: LoginCredentials): Promise<User> {
+  /* ... */
+}
+export async function logout(): Promise<void> {
+  /* ... */
+}
+export async function getCurrentUser(): Promise<User | null> {
+  /* ... */
+}
 
 // OPTION 2: Default object export (legacy, used in plantIdService)
 export const plantIdService = {
@@ -971,32 +1031,32 @@ web/src/types/
 
 ```typescript
 // Entities (nouns, PascalCase)
-interface User { }
-interface Thread { }
-interface DiagnosisCard { }
+interface User {}
+interface Thread {}
+interface DiagnosisCard {}
 
 // Input data (Action + Entity + "Input", PascalCase)
-interface CreateThreadInput { }
-interface UpdatePostInput { }
-interface SavePlantInput { }
+interface CreateThreadInput {}
+interface UpdatePostInput {}
+interface SavePlantInput {}
 
 // Options (Entity/Action + "Options", PascalCase)
-interface FetchThreadsOptions { }
-interface FetchPostsOptions { }
-interface SearchForumOptions { }
+interface FetchThreadsOptions {}
+interface FetchPostsOptions {}
+interface SearchForumOptions {}
 
 // Responses (Entity + "Response", PascalCase)
-interface AuthResponse { }
-interface BlogPostListResponse { }
-interface PaginatedDiagnosisCardsResponse { }
+interface AuthResponse {}
+interface BlogPostListResponse {}
+interface PaginatedDiagnosisCardsResponse {}
 
 // Enums (Type description, PascalCase)
 type TreatmentStatus = 'not_started' | 'in_progress' | 'successful' | 'failed' | 'monitoring';
 type DiseaseType = 'fungal' | 'bacterial' | 'viral' | 'pest' | 'nutrient' | 'environmental';
 
 // Generic types (PascalCase with <T>)
-interface PaginatedResponse<T> { }
-interface ApiResponse<T> { }
+interface PaginatedResponse<T> {}
+interface ApiResponse<T> {}
 ```
 
 ### Central Export Pattern (index.ts)
@@ -1029,6 +1089,7 @@ export type {
 ```
 
 **Benefits:**
+
 - Single import path for all types
 - Consistent imports across components
 - Easy to see what types are available
@@ -1115,6 +1176,7 @@ git commit -m "feat: convert [service] to TypeScript"
 #### Phase 2: Type Definitions
 
 3. **Create/update type files:**
+
    ```bash
    # Create new type file if needed
    touch src/types/plantId.ts
@@ -1138,6 +1200,7 @@ git commit -m "feat: convert [service] to TypeScript"
 #### Phase 3: Service Conversion
 
 6. **Create TypeScript service file:**
+
    ```bash
    touch src/services/plantIdService.ts
    ```
@@ -1159,6 +1222,7 @@ git commit -m "feat: convert [service] to TypeScript"
 #### Phase 4: Verification
 
 9. **Run tests and checks:**
+
    ```bash
    npm run test
    npm run type-check
@@ -1166,6 +1230,7 @@ git commit -m "feat: convert [service] to TypeScript"
    ```
 
 10. **Delete old JS file:**
+
     ```bash
     rm src/services/plantIdService.js
     ```
@@ -1214,7 +1279,7 @@ async function fetchData(): Promise<any> {
 // ✅ GOOD
 interface DataResponse {
   items: Item[];
-  meta: { count: number; };
+  meta: { count: number };
 }
 
 async function fetchData(): Promise<DataResponse> {
@@ -1261,7 +1326,7 @@ async function fetchUser(): Promise<User> {
 ```typescript
 // ❌ BAD - Boolean converted to "[object Object]"
 const params = new URLSearchParams();
-params.append('is_favorite', options.is_favorite);  // Wrong!
+params.append('is_favorite', options.is_favorite); // Wrong!
 ```
 
 **Solution:** Convert to string
@@ -1287,7 +1352,7 @@ formData.append('image', file);
 
 fetch(url, {
   headers: {
-    'Content-Type': 'multipart/form-data',  // Missing boundary!
+    'Content-Type': 'multipart/form-data', // Missing boundary!
   },
   body: formData,
 });
@@ -1299,10 +1364,10 @@ fetch(url, {
 // ✅ GOOD
 fetch(url, {
   headers: {
-    'Accept': 'application/json',
+    Accept: 'application/json',
     // NO Content-Type header
   },
-  body: formData,  // Browser adds: multipart/form-data; boundary=...
+  body: formData, // Browser adds: multipart/form-data; boundary=...
 });
 ```
 
@@ -1313,7 +1378,7 @@ fetch(url, {
 ```typescript
 // ❌ BAD
 function getCsrfToken(): string {
-  return document.cookie.match(/csrftoken=([^;]+)/)[1];  // Crashes if no match
+  return document.cookie.match(/csrftoken=([^;]+)/)[1]; // Crashes if no match
 }
 ```
 
@@ -1333,14 +1398,14 @@ function getCsrfToken(): string | null {
 
 ```typescript
 // ❌ AVOID
-import { User } from '../types/auth';  // Might include runtime code
+import { User } from '../types/auth'; // Might include runtime code
 ```
 
 **Solution:** Use `import type` for type-only imports
 
 ```typescript
 // ✅ GOOD
-import type { User } from '../types/auth';  // Erased at compile time
+import type { User } from '../types/auth'; // Erased at compile time
 ```
 
 ### Pitfall 7: Not Verifying After Deletion
@@ -1368,24 +1433,28 @@ git commit
 ### Phase 4 Results
 
 **Type Coverage:**
+
 - ✅ **100% of service functions typed** (47/47 functions)
 - ✅ **Zero `any` types** used across all services
 - ✅ **35+ new type definitions** created
 - ✅ **5 new type files** or extensions
 
 **Code Quality:**
+
 - ✅ **525/526 tests passing** (100% pass rate maintained)
 - ✅ **TypeScript compilation successful** (0 errors)
 - ✅ **Production build successful** (bundle size optimized)
 - ✅ **No breaking changes** to existing functionality
 
 **Development Experience:**
+
 - ✅ **IDE autocomplete** works for all service methods
 - ✅ **Compile-time error detection** for API calls
 - ✅ **Type inference** propagates through component calls
 - ✅ **Self-documenting code** with type signatures
 
 **Bundle Size Impact:**
+
 - ✅ **No runtime type code** (types erased at compile time)
 - ✅ **Better tree-shaking** with named exports
 - ✅ **Smaller bundle** from unused code elimination
@@ -1393,6 +1462,7 @@ git commit
 ### Before/After Comparison
 
 **Before (JavaScript):**
+
 ```javascript
 // No type safety
 export async function fetchThreads(options = {}) {
@@ -1402,22 +1472,25 @@ export async function fetchThreads(options = {}) {
 }
 
 // Usage
-const threads = await fetchThreads({ pag: 1 });  // Typo not caught!
-console.log(threads.itmes);  // Typo not caught!
+const threads = await fetchThreads({ pag: 1 }); // Typo not caught!
+console.log(threads.itmes); // Typo not caught!
 ```
 
 **After (TypeScript):**
+
 ```typescript
 // Full type safety
-export async function fetchThreads(options: FetchThreadsOptions = {}): Promise<PaginatedResponse<Thread>> {
+export async function fetchThreads(
+  options: FetchThreadsOptions = {}
+): Promise<PaginatedResponse<Thread>> {
   const { page = 1, limit = 20, category = '', search = '' } = options;
   // IDE shows: FetchThreadsOptions { page?, limit?, category?, search?, ordering? }
   // Returns: PaginatedResponse<Thread> with items and meta
 }
 
 // Usage
-const threads = await fetchThreads({ pag: 1 });  // Error: Property 'pag' does not exist
-console.log(threads.itmes);  // Error: Property 'itmes' does not exist
+const threads = await fetchThreads({ pag: 1 }); // Error: Property 'pag' does not exist
+console.log(threads.itmes); // Error: Property 'itmes' does not exist
 ```
 
 ---
@@ -1437,14 +1510,14 @@ function ThreadCard({ thread }) {
 }
 
 ThreadCard.propTypes = {
-  thread: PropTypes.object.isRequired,  // Not type-safe
+  thread: PropTypes.object.isRequired, // Not type-safe
 };
 
 // After
 import type { Thread } from '@/types';
 
 interface ThreadCardProps {
-  thread: Thread;  // Fully typed from service layer
+  thread: Thread; // Fully typed from service layer
 }
 
 function ThreadCard({ thread }: ThreadCardProps) {
@@ -1544,6 +1617,7 @@ function Component({ user, onSave }: ComponentProps) {
 ## Conclusion
 
 Phase 4 successfully converted all 5 service files to TypeScript with:
+
 - **100% type coverage** (zero `any` types)
 - **Zero breaking changes** (all tests passing)
 - **Improved developer experience** (autocomplete, error detection)
@@ -1581,7 +1655,7 @@ type Status = 'active' | 'inactive' | 'pending';
 // Generic type
 interface Response<T> {
   data: T;
-  meta: { count: number; };
+  meta: { count: number };
 }
 
 // Options object
@@ -1653,6 +1727,7 @@ src/
 #### Initial Findings
 
 **Strengths Identified (10/10 categories):**
+
 1. ⭐⭐⭐⭐⭐ Type Safety Excellence - 99.93% coverage (1 of 1,500+ variables)
 2. ⭐⭐⭐⭐⭐ Security Patterns - A+ (HTTPS, CSRF, XSS protection)
 3. ⭐⭐⭐⭐⭐ Error Handling - Structured handlers with fallbacks
@@ -1672,9 +1747,10 @@ src/
 **Severity:** MINOR (style preference)
 
 **Before:**
+
 ```typescript
 if (!response.ok) {
-  let errorData: any;  // Could be typed
+  let errorData: any; // Could be typed
   try {
     errorData = await response.json();
   } catch (e) {
@@ -1687,6 +1763,7 @@ if (!response.ok) {
 ```
 
 **After:**
+
 ```typescript
 if (!response.ok) {
   let errorData: ApiError | { error?: { message?: string }; message?: string };
@@ -1697,14 +1774,21 @@ if (!response.ok) {
   }
 
   // Type-safe error message extraction
-  const errorMessage = ('error' in errorData && errorData.error && typeof errorData.error === 'object' && 'message' in errorData.error)
-    ? errorData.error.message
-    : ('message' in errorData ? errorData.message : JSON.stringify(errorData));
+  const errorMessage =
+    'error' in errorData &&
+    errorData.error &&
+    typeof errorData.error === 'object' &&
+    'message' in errorData.error
+      ? errorData.error.message
+      : 'message' in errorData
+        ? errorData.message
+        : JSON.stringify(errorData);
   throw new Error(errorMessage);
 }
 ```
 
 **Impact:**
+
 - Type coverage: 99.93% → **100%** ✅
 - Zero `any` types across all services
 
@@ -1716,6 +1800,7 @@ if (!response.ok) {
 **Severity:** MINOR (consistency improvement)
 
 **Before:**
+
 ```typescript
 async function fetchCsrfToken(): Promise<void> {
   try {
@@ -1723,12 +1808,13 @@ async function fetchCsrfToken(): Promise<void> {
       credentials: 'include',
     });
   } catch (error) {
-    console.error('Failed to fetch CSRF token:', error);  // Direct console usage
+    console.error('Failed to fetch CSRF token:', error); // Direct console usage
   }
 }
 ```
 
 **After:**
+
 ```typescript
 import { logger } from '../utils/logger';
 
@@ -1744,6 +1830,7 @@ async function fetchCsrfToken(): Promise<void> {
 ```
 
 **Impact:**
+
 - Environment-aware logging (dev vs prod)
 - Sentry integration ready
 - Consistent with authService, diagnosisService
@@ -1756,13 +1843,18 @@ async function fetchCsrfToken(): Promise<void> {
 **Severity:** MINOR (consistency improvement)
 
 **Before:**
+
 ```typescript
-export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = {}): Promise<PaginatedDiagnosisCardsResponse> {
+export async function fetchDiagnosisCards(
+  options: FetchDiagnosisCardsOptions = {}
+): Promise<PaginatedDiagnosisCardsResponse> {
   const params = new URLSearchParams();
 
   if (options.treatment_status) params.append('treatment_status', options.treatment_status);
-  if (options.is_favorite !== undefined) params.append('is_favorite', options.is_favorite.toString());
-  if (options.plant_recovered !== undefined) params.append('plant_recovered', options.plant_recovered.toString());
+  if (options.is_favorite !== undefined)
+    params.append('is_favorite', options.is_favorite.toString());
+  if (options.plant_recovered !== undefined)
+    params.append('plant_recovered', options.plant_recovered.toString());
   if (options.disease_type) params.append('disease_type', options.disease_type);
   if (options.search) params.append('search', options.search);
   if (options.ordering) params.append('ordering', options.ordering);
@@ -1771,8 +1863,11 @@ export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = 
 ```
 
 **After (with explanatory comments):**
+
 ```typescript
-export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = {}): Promise<PaginatedDiagnosisCardsResponse> {
+export async function fetchDiagnosisCards(
+  options: FetchDiagnosisCardsOptions = {}
+): Promise<PaginatedDiagnosisCardsResponse> {
   const params = new URLSearchParams();
 
   // String parameters: use falsy check (empty string is falsy, which we want to skip)
@@ -1782,8 +1877,10 @@ export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = 
   if (options.ordering) params.append('ordering', options.ordering);
 
   // Boolean parameters: MUST use !== undefined (false is a valid value)
-  if (options.is_favorite !== undefined) params.append('is_favorite', options.is_favorite.toString());
-  if (options.plant_recovered !== undefined) params.append('plant_recovered', options.plant_recovered.toString());
+  if (options.is_favorite !== undefined)
+    params.append('is_favorite', options.is_favorite.toString());
+  if (options.plant_recovered !== undefined)
+    params.append('plant_recovered', options.plant_recovered.toString());
 
   // Number parameters: use falsy check when 0 is not a valid value (pagination starts at 1)
   if (options.page) params.append('page', options.page.toString());
@@ -1791,6 +1888,7 @@ export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = 
 ```
 
 **Impact:**
+
 - Self-documenting code
 - Clear pattern for future development
 - Grouped parameters by type for better organization
@@ -1799,16 +1897,16 @@ export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = 
 
 #### Final Scores
 
-| Category | Initial | Final | Comments |
-|----------|---------|-------|----------|
-| **Type Safety** | 99/100 | **100/100** ✅ | Eliminated last `any` type |
-| **Security** | 100/100 | **100/100** ✅ | Perfect - no changes needed |
-| **Error Handling** | 100/100 | **100/100** ✅ | Perfect - no changes needed |
-| **Code Quality** | 95/100 | **100/100** ✅ | Fixed console.error, added comments |
-| **Pattern Compliance** | 100/100 | **100/100** ✅ | Perfect - all 10 patterns applied |
-| **Documentation** | 100/100 | **100/100** ✅ | Perfect - comprehensive guide |
-| **Testing** | 99/100 | **100/100** ✅ | 525/526 passing (1 unrelated skip) |
-| **Maintainability** | 95/100 | **100/100** ✅ | Improved with comments |
+| Category               | Initial | Final          | Comments                            |
+| ---------------------- | ------- | -------------- | ----------------------------------- |
+| **Type Safety**        | 99/100  | **100/100** ✅ | Eliminated last `any` type          |
+| **Security**           | 100/100 | **100/100** ✅ | Perfect - no changes needed         |
+| **Error Handling**     | 100/100 | **100/100** ✅ | Perfect - no changes needed         |
+| **Code Quality**       | 95/100  | **100/100** ✅ | Fixed console.error, added comments |
+| **Pattern Compliance** | 100/100 | **100/100** ✅ | Perfect - all 10 patterns applied   |
+| **Documentation**      | 100/100 | **100/100** ✅ | Perfect - comprehensive guide       |
+| **Testing**            | 99/100  | **100/100** ✅ | 525/526 passing (1 unrelated skip)  |
+| **Maintainability**    | 95/100  | **100/100** ✅ | Improved with comments              |
 
 **Overall Grade:** A- (95/100) → **A (100/100)** ✅
 
@@ -1822,7 +1920,7 @@ export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = 
    - Pattern: Use union types for complex error responses
 
 2. **Consistent logging patterns**
-   - Pattern: Use logger utility, not console.*
+   - Pattern: Use logger utility, not console.\*
    - Format: `logger.warn('[serviceName] Message', context)`
    - Benefits: Environment-aware, Sentry integration
 
@@ -1846,17 +1944,20 @@ export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = 
 #### Lessons from Code Review
 
 **What Worked Well:**
+
 1. Type-first approach prevented `any` types from the start
 2. Comprehensive pattern documentation caught inconsistencies
 3. Multiple review passes (self → specialist → fixes)
 4. Incremental commits allowed easy rollback if needed
 
 **What We Improved:**
+
 1. Zero-tolerance for `any` types (100% coverage achieved)
 2. Logging consistency across all services
 3. Self-documenting code with pattern explanations
 
 **Recommendations for Future Reviews:**
+
 1. Run code review specialist BEFORE final commit
 2. Check for `console.*` usage (grep pattern)
 3. Verify 100% type coverage with `tsc --noEmit`
@@ -1867,6 +1968,7 @@ export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = 
 #### Code Review Checklist (For Future Phases)
 
 **Type Safety:**
+
 - [ ] Zero `any` types (use `unknown` if truly dynamic)
 - [ ] All functions have explicit return types
 - [ ] All parameters typed
@@ -1874,12 +1976,14 @@ export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = 
 - [ ] Union types instead of enums
 
 **Code Quality:**
+
 - [ ] No `console.*` calls (use logger utility)
 - [ ] Self-documenting code (comments for complex patterns)
 - [ ] Consistent naming conventions
 - [ ] No code duplication (DRY principle)
 
 **Security:**
+
 - [ ] HTTPS enforcement in production
 - [ ] CSRF tokens on authenticated requests
 - [ ] Null-safe token extraction
@@ -1887,12 +1991,14 @@ export async function fetchDiagnosisCards(options: FetchDiagnosisCardsOptions = 
 - [ ] File upload security (FormData patterns)
 
 **Testing:**
+
 - [ ] All tests passing
 - [ ] TypeScript compilation successful
 - [ ] Production build successful
 - [ ] No breaking changes
 
 **Documentation:**
+
 - [ ] Pattern guide updated if new patterns introduced
 - [ ] README updated if API changes
 - [ ] Code review findings documented

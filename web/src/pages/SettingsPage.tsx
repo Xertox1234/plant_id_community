@@ -26,15 +26,11 @@ export default function SettingsPage() {
       <div className="space-y-6">
         {/* Notifications Section */}
         <div className="bg-white shadow-sm border border-gray-200 rounded-lg p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Notifications
-          </h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Notifications</h2>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium text-gray-900">
-                  Email Notifications
-                </p>
+                <p className="font-medium text-gray-900">Email Notifications</p>
                 <p className="text-sm text-gray-600">
                   Receive updates about your plants and community activity
                 </p>
@@ -72,16 +68,12 @@ export default function SettingsPage() {
 
         {/* Appearance Section */}
         <div className="bg-white shadow-sm border border-gray-200 rounded-lg p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Appearance
-          </h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Appearance</h2>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium text-gray-900">Theme</p>
-                <p className="text-sm text-gray-600">
-                  Choose between light and dark mode
-                </p>
+                <p className="text-sm text-gray-600">Choose between light and dark mode</p>
               </div>
               <button
                 disabled
@@ -95,9 +87,7 @@ export default function SettingsPage() {
 
         {/* Danger Zone */}
         <div className="bg-white shadow-sm border border-red-200 rounded-lg p-6">
-          <h2 className="text-xl font-semibold text-red-900 mb-4">
-            Danger Zone
-          </h2>
+          <h2 className="text-xl font-semibold text-red-900 mb-4">Danger Zone</h2>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -119,12 +109,11 @@ export default function SettingsPage() {
         {/* Placeholder Notice */}
         <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <p className="text-sm text-blue-800">
-            <strong>Coming Soon:</strong> Settings management features will be
-            available in a future update. You can currently manage your profile
-            information from the Profile page.
+            <strong>Coming Soon:</strong> Settings management features will be available in a future
+            update. You can currently manage your profile information from the Profile page.
           </p>
         </div>
       </div>
     </div>
-  )
+  );
 }

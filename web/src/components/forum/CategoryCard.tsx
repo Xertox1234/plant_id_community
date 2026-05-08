@@ -18,10 +18,7 @@ function CategoryCard({ category }: CategoryCardProps) {
   return (
     <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow p-6">
       {/* Category Header - Clickable Link */}
-      <Link
-        to={`/forum/${category.slug}`}
-        className="block"
-      >
+      <Link to={`/forum/${category.slug}`} className="block">
         <div className="flex items-start gap-4">
           {/* Icon */}
           {category.icon && (
@@ -36,11 +33,7 @@ function CategoryCard({ category }: CategoryCardProps) {
               {category.name}
             </h3>
 
-            {category.description && (
-              <p className="text-gray-600 mt-1">
-                {category.description}
-              </p>
-            )}
+            {category.description && <p className="text-gray-600 mt-1">{category.description}</p>}
 
             {/* Stats */}
             <div className="flex gap-4 mt-3 text-sm text-gray-500">
@@ -61,7 +54,7 @@ function CategoryCard({ category }: CategoryCardProps) {
         <div className="mt-4 pt-4 border-t border-gray-200">
           <div className="flex flex-wrap gap-2">
             <span className="text-sm text-gray-500">Subcategories:</span>
-            {category.children.map(child => (
+            {category.children.map((child) => (
               <Link
                 key={child.id}
                 to={`/forum/${child.slug}`}

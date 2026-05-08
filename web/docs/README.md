@@ -30,6 +30,7 @@ npm run preview
 ```
 
 **Prerequisites:**
+
 - Node.js 18+
 - Backend running at `http://localhost:8000`
 - Environment variables configured (see Getting-Started.md)
@@ -37,6 +38,7 @@ npm run preview
 ## 🏗️ Project Overview
 
 **Technology Stack:**
+
 - **React 19.1.1** - Latest React with concurrent rendering
 - **Vite 7.1.7** - Next-generation build tool
 - **Tailwind CSS 4.1.15** - Utility-first CSS framework
@@ -44,6 +46,7 @@ npm run preview
 - **Axios 1.12.2** - HTTP client for API calls
 
 **Key Features:**
+
 - 🌿 AI-powered plant identification
 - 📷 Client-side image compression (85% size reduction)
 - 🎨 Responsive design with Tailwind CSS
@@ -80,6 +83,7 @@ web/
 ## 🎯 Current Development Status
 
 ### ✅ Implemented
+
 - Plant identification workflow (upload → identify → results)
 - Client-side image compression (Week 2 optimization)
 - Responsive landing page
@@ -87,11 +91,13 @@ web/
 - Error handling and loading states
 
 ### 🚧 In Progress
+
 - User authentication
 - Plant collection management
 - Identification history
 
 ### 📋 Planned
+
 - Blog integration (Wagtail CMS)
 - Forum integration (Django Machina)
 - User profiles

@@ -14,17 +14,17 @@
  * - StreamField blocks: Use SANITIZE_PRESETS.STREAMFIELD
  */
 
-import DOMPurify from 'dompurify'
-import { logger } from './logger'
+import DOMPurify from 'dompurify';
+import { logger } from './logger';
 
 /**
  * DOMPurify configuration options
  */
 interface SanitizeConfig {
-  ALLOWED_TAGS: readonly string[] | string[]
-  ALLOWED_ATTR: readonly string[] | string[]
-  ALLOWED_CLASSES?: Record<string, readonly string[] | string[]>
-  ALLOW_DATA_ATTR?: boolean
+  ALLOWED_TAGS: readonly string[] | string[];
+  ALLOWED_ATTR: readonly string[] | string[];
+  ALLOWED_CLASSES?: Record<string, readonly string[] | string[]>;
+  ALLOW_DATA_ATTR?: boolean;
 }
 
 /**
@@ -185,7 +185,7 @@ export const SANITIZE_PRESETS = {
     },
     ALLOW_DATA_ATTR: false,
   } as const,
-}
+};
 
 /**
  * Sanitize HTML content with preset or custom configuration
@@ -204,22 +204,28 @@ export const SANITIZE_PRESETS = {
  * // Default (STANDARD preset)
  * const safe = sanitizeHtml(html)
  */
-export function sanitizeHtml(html: unknown, options: Partial<SanitizeConfig> | null = null): string {
+export function sanitizeHtml(
+  html: unknown,
+  options: Partial<SanitizeConfig> | null = null
+): string {
   if (!html || typeof html !== 'string') {
-    return ''
+    return '';
   }
 
   try {
     // Use STANDARD preset by default
-    const config = options || SANITIZE_PRESETS.STANDARD
-    return DOMPurify.sanitize(html, config as Parameters<typeof DOMPurify.sanitize>[1]) as unknown as string
+    const config = options || SANITIZE_PRESETS.STANDARD;
+    return DOMPurify.sanitize(
+      html,
+      config as Parameters<typeof DOMPurify.sanitize>[1]
+    ) as unknown as string;
   } catch (error) {
     logger.error('DOMPurify sanitization failed', {
       component: 'sanitize',
       error,
       context: { htmlLength: (html as string)?.length },
-    })
-    return ''
+    });
+    return '';
   }
 }
 
@@ -233,10 +239,13 @@ export function sanitizeHtml(html: unknown, options: Partial<SanitizeConfig> | n
  * @example
  * <div dangerouslySetInnerHTML={createSafeMarkup(content, SANITIZE_PRESETS.FULL)} />
  */
-export function createSafeMarkup(html: unknown, options: Partial<SanitizeConfig> | null = null): { __html: string } {
+export function createSafeMarkup(
+  html: unknown,
+  options: Partial<SanitizeConfig> | null = null
+): { __html: string } {
   return {
     __html: sanitizeHtml(html, options),
-  }
+  };
 }
 
 /**
@@ -252,14 +261,14 @@ export function createSafeMarkup(html: unknown, options: Partial<SanitizeConfig>
  */
 export function stripHtml(html: unknown): string {
   if (!html || typeof html !== 'string') {
-    return ''
+    return '';
   }
 
   // DOMPurify with ALLOWED_TAGS: [] strips all HTML
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [],
     ALLOWED_ATTR: [],
-  }).trim()
+  }).trim();
 }
 
 /**
@@ -276,7 +285,7 @@ export function stripHtml(html: unknown): string {
  */
 export function isSafeHtml(html: unknown): boolean {
   if (!html || typeof html !== 'string') {
-    return true
+    return true;
   }
 
   // Patterns that indicate XSS attempts
@@ -288,9 +297,9 @@ export function isSafeHtml(html: unknown): boolean {
     /on\w+\s*=/i, // onclick, onerror, etc.
     /<iframe/i,
     /eval\(/i,
-  ]
+  ];
 
-  return !dangerousPatterns.some((pattern) => pattern.test(html))
+  return !dangerousPatterns.some((pattern) => pattern.test(html));
 }
 
 /**
@@ -306,11 +315,11 @@ export function isSafeHtml(html: unknown): boolean {
  */
 export function sanitizeInput(input: unknown): unknown {
   if (!input || typeof input !== 'string') {
-    return input
+    return input;
   }
 
   // Strip ALL HTML tags from form inputs
-  return stripHtml(input)
+  return stripHtml(input);
 }
 
 /**
@@ -327,7 +336,7 @@ export function sanitizeInput(input: unknown): unknown {
  * // Blocked: <script>alert('xss')</script>
  */
 export function sanitizeHTML(html: unknown): string {
-  return sanitizeHtml(html, SANITIZE_PRESETS.STANDARD)
+  return sanitizeHtml(html, SANITIZE_PRESETS.STANDARD);
 }
 
 /**
@@ -344,11 +353,11 @@ export function sanitizeHTML(html: unknown): string {
  */
 export function sanitizeError(error: unknown): unknown {
   if (!error || typeof error !== 'string') {
-    return error
+    return error;
   }
 
   // Strip all HTML from error messages
-  return stripHtml(error)
+  return stripHtml(error);
 }
 
 export default {
@@ -360,4 +369,4 @@ export default {
   stripHtml,
   isSafeHtml,
   SANITIZE_PRESETS,
-}
+};

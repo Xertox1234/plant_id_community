@@ -10,6 +10,7 @@
 ## Executive Summary
 
 ### Current Issues Identified
+
 1. ❌ **No consistent header/navigation** - Each page is standalone
 2. ❌ **No authentication UI** - No login/logout interface
 3. ❌ **Inconsistent page layouts** - Some pages have headers, some don't
@@ -17,7 +18,9 @@
 5. ❌ **No user account functionality** - Cannot see logged-in state
 
 ### Proposed Solution
+
 Implement a modern, responsive UI with:
+
 - Shared layout component with persistent header/footer
 - Responsive navigation with mobile menu
 - Authentication UI (login/signup/logout)
@@ -26,6 +29,7 @@ Implement a modern, responsive UI with:
 - WCAG 2.2 accessibility compliance
 
 ### Tech Stack
+
 - **React 19** - Latest React features
 - **React Router DOM v7.9.4** - Layout routes with `<Outlet />`
 - **Tailwind CSS 4** - Modern design system with `@theme` directive
@@ -37,18 +41,21 @@ Implement a modern, responsive UI with:
 ## Implementation Phases
 
 ### 📋 Phase 1: Layout Infrastructure (Foundation)
+
 **Estimated Time**: 2-3 hours
 **Priority**: HIGH - Blocks all other UI work
 
 #### Tasks
 
 **1.1 Create RootLayout Component** ✅
+
 - [ ] Create `/web/src/layouts/RootLayout.jsx`
 - [ ] Add `<Outlet />` for child routes
 - [ ] Include Header and Footer placeholders
 - [ ] Use flexbox for sticky footer pattern
 
 **Files to Create:**
+
 ```
 /web/src/layouts/
 ├── RootLayout.jsx       # Main layout with header/footer
@@ -56,11 +63,12 @@ Implement a modern, responsive UI with:
 ```
 
 **Code Template:**
+
 ```jsx
 // layouts/RootLayout.jsx
-import { Outlet } from 'react-router-dom'
-import Header from '../components/layout/Header'
-import Footer from '../components/layout/Footer'
+import { Outlet } from 'react-router-dom';
+import Header from '../components/layout/Header';
+import Footer from '../components/layout/Footer';
 
 export default function RootLayout() {
   return (
@@ -71,16 +79,18 @@ export default function RootLayout() {
       </main>
       <Footer />
     </div>
-  )
+  );
 }
 ```
 
 **1.2 Update App.jsx Routing** ✅
+
 - [ ] Import `RootLayout`
 - [ ] Wrap existing routes with layout route
 - [ ] Test that header/footer persist across navigation
 
 **Updated Structure:**
+
 ```jsx
 // App.jsx
 <Routes>
@@ -95,12 +105,14 @@ export default function RootLayout() {
 ```
 
 **1.3 Clean Up Existing Pages** ✅
+
 - [ ] Remove individual back links from pages
 - [ ] Remove page-specific headers (IdentifyPage has one)
 - [ ] Remove gradient backgrounds from pages (move to layout if needed)
 - [ ] Ensure pages focus on content only
 
 **Success Criteria:**
+
 - ✅ Header and footer visible on all pages
 - ✅ Navigation between pages preserves header/footer (no re-mount)
 - ✅ All pages render correctly inside layout
@@ -108,12 +120,14 @@ export default function RootLayout() {
 ---
 
 ### 📋 Phase 2: Responsive Header & Navigation
+
 **Estimated Time**: 3-4 hours
 **Priority**: HIGH - Core UX improvement
 
 #### Tasks
 
 **2.1 Create Header Component** ✅
+
 - [ ] Create `/web/src/components/layout/Header.jsx`
 - [ ] Add logo and app name
 - [ ] Add desktop navigation (Identify, Blog, Community)
@@ -122,6 +136,7 @@ export default function RootLayout() {
 - [ ] Add login/signup buttons (non-functional initially)
 
 **Files to Create:**
+
 ```
 /web/src/components/layout/
 ├── Header.jsx          # Main navigation header
@@ -130,12 +145,14 @@ export default function RootLayout() {
 ```
 
 **2.2 Desktop Navigation** ✅
+
 - [ ] Use Tailwind `md:flex hidden` pattern for desktop-only nav
 - [ ] Use `NavLink` from React Router for active states
 - [ ] Style active links with green accent
 - [ ] Add hover effects with smooth transitions
 
 **2.3 Mobile Navigation** ✅
+
 - [ ] Hamburger icon from Lucide React (`Menu`, `X` icons)
 - [ ] Mobile menu with `useState` toggle
 - [ ] Slide animation for menu open/close
@@ -143,17 +160,20 @@ export default function RootLayout() {
 - [ ] Click outside to close (useRef + useEffect)
 
 **2.4 Sticky Header** ✅
+
 - [ ] Add `sticky top-0 z-50` classes
 - [ ] White background with subtle border
 - [ ] Shadow on scroll (optional enhancement)
 
 **2.5 Accessibility** ✅
+
 - [ ] Add `aria-label` to menu button
 - [ ] Add `aria-expanded` state
 - [ ] Ensure keyboard navigation works
 - [ ] Test with screen reader
 
 **Code Reference:**
+
 ```jsx
 // Key Tailwind classes for sticky header
 className="bg-white border-b border-gray-200 sticky top-0 z-50"
@@ -168,6 +188,7 @@ className="bg-white border-b border-gray-200 sticky top-0 z-50"
 ```
 
 **Success Criteria:**
+
 - ✅ Header visible on all pages
 - ✅ Desktop navigation shows 3+ links
 - ✅ Mobile menu toggles correctly
@@ -177,12 +198,14 @@ className="bg-white border-b border-gray-200 sticky top-0 z-50"
 ---
 
 ### 📋 Phase 3: Authentication System
+
 **Estimated Time**: 4-5 hours
 **Priority**: HIGH - Required for user features
 
 #### Tasks
 
 **3.1 Create Authentication Context** ✅
+
 - [ ] Create `/web/src/contexts/AuthContext.jsx`
 - [ ] Implement login, logout, signup functions
 - [ ] Store user state in context
@@ -190,6 +213,7 @@ className="bg-white border-b border-gray-200 sticky top-0 z-50"
 - [ ] Persist auth with localStorage (or cookies)
 
 **Files to Create:**
+
 ```
 /web/src/
 ├── contexts/
@@ -201,6 +225,7 @@ className="bg-white border-b border-gray-200 sticky top-0 z-50"
 ```
 
 **3.2 Create Auth Service** ✅
+
 - [ ] Create `/web/src/services/authService.js`
 - [ ] Implement `login(credentials)` API call
 - [ ] Implement `signup(userData)` API call
@@ -209,6 +234,7 @@ className="bg-white border-b border-gray-200 sticky top-0 z-50"
 - [ ] Handle JWT token storage (HttpOnly cookies preferred)
 
 **Backend Integration:**
+
 ```javascript
 // authService.js - API endpoints
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -220,20 +246,23 @@ GET  ${API_URL}/api/v1/users/me/
 ```
 
 **3.3 Create useAuth Hook** ✅
+
 - [ ] Create `/web/src/hooks/useAuth.js`
 - [ ] Export hook that consumes AuthContext
 - [ ] Throw error if used outside provider
 - [ ] Type-safe return value
 
 **3.4 Wrap App with AuthProvider** ✅
+
 - [ ] Update `/web/src/main.jsx`
 - [ ] Wrap `<App />` with `<AuthProvider>`
 - [ ] Test auth state persistence
 
 **Code Template:**
+
 ```jsx
 // main.jsx
-import { AuthProvider } from './contexts/AuthContext'
+import { AuthProvider } from './contexts/AuthContext';
 
 root.render(
   <StrictMode>
@@ -243,10 +272,11 @@ root.render(
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>
-)
+);
 ```
 
 **Success Criteria:**
+
 - ✅ Auth context accessible in all components
 - ✅ User state persists across page refreshes
 - ✅ Login/logout state updates immediately
@@ -255,12 +285,14 @@ root.render(
 ---
 
 ### 📋 Phase 4: Login & Signup Pages
+
 **Estimated Time**: 3-4 hours
 **Priority**: HIGH - User-facing auth
 
 #### Tasks
 
 **4.1 Create LoginPage** ✅
+
 - [ ] Create `/web/src/pages/auth/LoginPage.jsx`
 - [ ] Email/password form with validation
 - [ ] Error message display
@@ -269,6 +301,7 @@ root.render(
 - [ ] "Sign up" link for new users
 
 **Files to Create:**
+
 ```
 /web/src/pages/auth/
 ├── LoginPage.jsx
@@ -276,6 +309,7 @@ root.render(
 ```
 
 **4.2 Create SignupPage** ✅
+
 - [ ] Create `/web/src/pages/auth/SignupPage.jsx`
 - [ ] Name, email, password form
 - [ ] Password confirmation field
@@ -285,30 +319,34 @@ root.render(
 - [ ] "Log in" link for existing users
 
 **4.3 Form Components** ✅
+
 - [ ] Create reusable `Input` component
 - [ ] Create reusable `Button` component
 - [ ] Add form validation utilities
 - [ ] Add error message component
 
 **4.4 Update Header** ✅
+
 - [ ] Show login/signup buttons when logged out
 - [ ] Show user menu when logged in
 - [ ] Test state transitions
 
 **Form Validation Example:**
+
 ```javascript
 // utils/validation.js
 export function validateEmail(email) {
-  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  return re.test(email)
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return re.test(email);
 }
 
 export function validatePassword(password) {
-  return password.length >= 8
+  return password.length >= 8;
 }
 ```
 
 **Success Criteria:**
+
 - ✅ Login form works end-to-end
 - ✅ Signup form works end-to-end
 - ✅ Validation errors display correctly
@@ -318,12 +356,14 @@ export function validatePassword(password) {
 ---
 
 ### 📋 Phase 5: Protected Routes & User Menu
+
 **Estimated Time**: 2-3 hours
 **Priority**: MEDIUM - Enhanced UX
 
 #### Tasks
 
 **5.1 Create ProtectedLayout** ✅
+
 - [ ] Create `/web/src/layouts/ProtectedLayout.jsx`
 - [ ] Check authentication state
 - [ ] Redirect to `/login` if not authenticated
@@ -331,6 +371,7 @@ export function validatePassword(password) {
 - [ ] Render `<Outlet />` for protected content
 
 **5.2 Create UserMenu Component** ✅
+
 - [ ] Create `/web/src/components/layout/UserMenu.jsx`
 - [ ] User avatar or initials
 - [ ] Dropdown menu with Profile, Settings, Logout
@@ -338,11 +379,13 @@ export function validatePassword(password) {
 - [ ] Smooth transitions
 
 **5.3 Add Protected Routes** ✅
+
 - [ ] Wrap private routes with `<ProtectedLayout>`
 - [ ] Create placeholder pages for My Garden, Profile
 - [ ] Test authentication redirects
 
 **Protected Routes Example:**
+
 ```jsx
 // App.jsx
 <Route element={<ProtectedLayout />}>
@@ -354,11 +397,13 @@ export function validatePassword(password) {
 ```
 
 **5.4 Update Header** ✅
+
 - [ ] Replace login/signup buttons with `<UserMenu />` when authenticated
 - [ ] Show user name or avatar
 - [ ] Test logout flow
 
 **Success Criteria:**
+
 - ✅ Unauthenticated users redirected to login
 - ✅ User menu displays for logged-in users
 - ✅ Logout works correctly
@@ -367,12 +412,14 @@ export function validatePassword(password) {
 ---
 
 ### 📋 Phase 6: UI Component Library
+
 **Estimated Time**: 2-3 hours
 **Priority**: MEDIUM - Code reusability
 
 #### Tasks
 
 **6.1 Create Button Component** ✅
+
 - [ ] Create `/web/src/components/ui/Button.jsx`
 - [ ] Variants: primary, secondary, outline, ghost
 - [ ] Sizes: sm, md, lg
@@ -381,6 +428,7 @@ export function validatePassword(password) {
 - [ ] PropTypes documentation
 
 **Files to Create:**
+
 ```
 /web/src/components/ui/
 ├── Button.jsx
@@ -390,6 +438,7 @@ export function validatePassword(password) {
 ```
 
 **6.2 Create Input Component** ✅
+
 - [ ] Text, email, password types
 - [ ] Label and error message support
 - [ ] Focus states
@@ -397,18 +446,21 @@ export function validatePassword(password) {
 - [ ] PropTypes
 
 **6.3 Create Card Component** ✅
+
 - [ ] Reusable card wrapper
 - [ ] Variants: default, bordered, elevated
 - [ ] Padding options
 - [ ] Use in blog and feature cards
 
 **6.4 Replace Hardcoded Components** ✅
+
 - [ ] Update pages to use new UI components
 - [ ] Update forms to use `<Input />`
 - [ ] Update CTAs to use `<Button />`
 - [ ] Test all pages still work
 
 **Component API Example:**
+
 ```jsx
 <Button variant="primary" size="md" loading={isSubmitting}>
   Submit
@@ -423,6 +475,7 @@ export function validatePassword(password) {
 ```
 
 **Success Criteria:**
+
 - ✅ All UI components reusable
 - ✅ Consistent styling across app
 - ✅ PropTypes documented
@@ -431,12 +484,14 @@ export function validatePassword(password) {
 ---
 
 ### 📋 Phase 7: Design System & Polish
+
 **Estimated Time**: 2-3 hours
 **Priority**: LOW - Visual consistency
 
 #### Tasks
 
 **7.1 Tailwind Design Tokens** ✅
+
 - [ ] Create `/web/src/styles/app.css` with `@theme` directive
 - [ ] Define color palette (primary, secondary, gray scale)
 - [ ] Define spacing scale
@@ -444,6 +499,7 @@ export function validatePassword(password) {
 - [ ] Define typography scale
 
 **Tailwind 4 Config Example:**
+
 ```css
 /* app.css */
 @theme {
@@ -466,6 +522,7 @@ export function validatePassword(password) {
 ```
 
 **7.2 Footer Component** ✅
+
 - [ ] Create `/web/src/components/layout/Footer.jsx`
 - [ ] Add site links (About, Privacy, Terms)
 - [ ] Add social media icons (optional)
@@ -473,24 +530,28 @@ export function validatePassword(password) {
 - [ ] Responsive layout
 
 **7.3 Consistent Page Spacing** ✅
+
 - [ ] Add standard container classes
 - [ ] Add consistent padding/margins
 - [ ] Ensure all pages use same max-width
 - [ ] Test responsive behavior
 
 **7.4 Loading States** ✅
+
 - [ ] Create loading spinner component
 - [ ] Add to authentication flows
 - [ ] Add to page transitions
 - [ ] Consistent styling
 
 **7.5 Error States** ✅
+
 - [ ] Create error message component
 - [ ] Style form validation errors
 - [ ] Style API error messages
 - [ ] 404 page (optional)
 
 **Success Criteria:**
+
 - ✅ Consistent colors across all pages
 - ✅ Consistent spacing and typography
 - ✅ Footer on all pages
@@ -499,12 +560,14 @@ export function validatePassword(password) {
 ---
 
 ### 📋 Phase 8: Testing & Accessibility
+
 **Estimated Time**: 2-3 hours
 **Priority**: HIGH - Production readiness
 
 #### Tasks
 
 **8.1 Manual Testing** ✅
+
 - [ ] Test all navigation links work
 - [ ] Test login/logout flow end-to-end
 - [ ] Test signup flow end-to-end
@@ -513,30 +576,35 @@ export function validatePassword(password) {
 - [ ] Test responsive breakpoints (mobile, tablet, desktop)
 
 **8.2 Keyboard Navigation** ✅
+
 - [ ] Tab through all navigation links
 - [ ] Enter/Space keys work on buttons
 - [ ] Escape closes mobile menu
 - [ ] Focus visible on all interactive elements
 
 **8.3 Screen Reader Testing** ✅
+
 - [ ] Test with VoiceOver (macOS) or NVDA (Windows)
 - [ ] Verify ARIA labels announced correctly
 - [ ] Verify link purposes clear
 - [ ] Verify form labels associated
 
 **8.4 Browser Testing** ✅
+
 - [ ] Chrome (latest)
 - [ ] Firefox (latest)
 - [ ] Safari (latest)
 - [ ] Edge (latest)
 
 **8.5 Performance** ✅
+
 - [ ] Check Lighthouse scores
 - [ ] Optimize image loading
 - [ ] Check bundle size
 - [ ] Test on slow 3G network
 
 **Testing Checklist:**
+
 ```
 Desktop:
 - [ ] Homepage loads correctly
@@ -562,6 +630,7 @@ Accessibility:
 ```
 
 **Success Criteria:**
+
 - ✅ All features work on desktop and mobile
 - ✅ Keyboard navigation fully functional
 - ✅ Screen reader compatible
@@ -629,18 +698,22 @@ Accessibility:
 ## Priority Order (Suggested Implementation)
 
 ### Week 1: Foundation
+
 1. **Phase 1** - Layout Infrastructure (RootLayout, update App.jsx)
 2. **Phase 2** - Header & Navigation (responsive nav, mobile menu)
 
 ### Week 2: Authentication
+
 3. **Phase 3** - Authentication System (context, service, hooks)
 4. **Phase 4** - Login & Signup Pages (forms, validation)
 
 ### Week 3: Enhancements
+
 5. **Phase 5** - Protected Routes & User Menu (ProtectedLayout, UserMenu)
 6. **Phase 6** - UI Component Library (Button, Input, Card)
 
 ### Week 4: Polish
+
 7. **Phase 7** - Design System & Polish (tokens, footer, consistency)
 8. **Phase 8** - Testing & Accessibility (manual, keyboard, screen reader)
 
@@ -675,6 +748,7 @@ GET /api/v1/users/me/
 ### CORS Configuration
 
 Already configured in `backend/plant_community_backend/settings.py`:
+
 ```python
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5174',  # React dev server
@@ -686,6 +760,7 @@ CORS_ALLOW_CREDENTIALS = True  # Required for cookies
 ### Session Management
 
 Backend uses **Cookie-based JWT authentication** (Week 4 implementation):
+
 - JWT tokens stored in HttpOnly cookies (XSS protection)
 - Session timeout: 24 hours
 - Token refresh on activity
@@ -696,6 +771,7 @@ Backend uses **Cookie-based JWT authentication** (Week 4 implementation):
 ## Testing Strategy
 
 ### Unit Tests (Vitest)
+
 ```bash
 # Test individual components
 npm run test
@@ -708,6 +784,7 @@ npm run test:coverage
 ```
 
 **Test Files to Create:**
+
 ```
 /web/src/components/layout/__tests__/
 ├── Header.test.jsx
@@ -723,12 +800,14 @@ npm run test:coverage
 ```
 
 ### Integration Tests
+
 - [ ] Test complete auth flow (signup → login → logout)
 - [ ] Test protected route redirects
 - [ ] Test navigation between pages
 - [ ] Test mobile menu interactions
 
 ### E2E Tests (Optional - Playwright)
+
 ```bash
 # Install Playwright
 npm install -D @playwright/test
@@ -742,12 +821,14 @@ npx playwright test
 ## Accessibility Checklist (WCAG 2.2 Level AA)
 
 ### Perceivable
+
 - [ ] Color contrast ratio ≥ 4.5:1 for text
 - [ ] Color is not the only visual means of conveying information
 - [ ] Text can be resized up to 200% without loss of content
 - [ ] Images have alt text (if applicable)
 
 ### Operable
+
 - [ ] All functionality available via keyboard
 - [ ] No keyboard trap (can navigate away from all elements)
 - [ ] Skip navigation link (optional enhancement)
@@ -756,6 +837,7 @@ npx playwright test
 - [ ] Headings and labels describe topic or purpose
 
 ### Understandable
+
 - [ ] Page language identified (`<html lang="en">`)
 - [ ] Navigation consistent across pages
 - [ ] Form inputs have associated labels
@@ -763,12 +845,14 @@ npx playwright test
 - [ ] Instructions provided where needed
 
 ### Robust
+
 - [ ] Valid HTML (semantic elements)
 - [ ] ARIA attributes used correctly
 - [ ] Compatible with assistive technologies
 - [ ] Name, role, value available for all UI components
 
 **Testing Tools:**
+
 - WAVE browser extension
 - axe DevTools
 - Lighthouse accessibility audit
@@ -779,16 +863,19 @@ npx playwright test
 ## Performance Targets
 
 ### Lighthouse Scores (Target)
+
 - Performance: ≥ 90
 - Accessibility: ≥ 95
 - Best Practices: ≥ 95
 - SEO: ≥ 90
 
 ### Bundle Size
+
 - Main bundle: < 200KB (gzipped)
 - Use code splitting for large pages
 
 ### Load Times
+
 - First Contentful Paint (FCP): < 1.5s
 - Largest Contentful Paint (LCP): < 2.5s
 - Time to Interactive (TTI): < 3.5s
@@ -798,6 +885,7 @@ npx playwright test
 ## Success Metrics
 
 ### User Experience
+
 - [ ] Users can navigate between all pages
 - [ ] Users can log in and see their account
 - [ ] Users can access protected features
@@ -805,6 +893,7 @@ npx playwright test
 - [ ] Design feels modern and professional
 
 ### Technical
+
 - [ ] No console errors or warnings
 - [ ] All routes work correctly
 - [ ] Authentication persists across refreshes
@@ -812,6 +901,7 @@ npx playwright test
 - [ ] Lighthouse scores meet targets
 
 ### Code Quality
+
 - [ ] No duplicate navigation code
 - [ ] Reusable UI components used throughout
 - [ ] TypeScript types (if using TS)
@@ -825,22 +915,27 @@ npx playwright test
 ### Potential Issues
 
 **1. Backend API not ready**
+
 - **Mitigation**: Use mock API service with localStorage
 - **Timeline**: 1 hour to create mock service
 
 **2. CORS issues with cookies**
+
 - **Mitigation**: Backend already configured, verify `CORS_ALLOW_CREDENTIALS = True`
 - **Timeline**: 30 minutes to troubleshoot
 
 **3. Mobile menu not working on real devices**
+
 - **Mitigation**: Test early, use standard React patterns
 - **Timeline**: 1 hour debugging
 
 **4. Authentication state lost on refresh**
+
 - **Mitigation**: Check cookie expiry, implement refresh token
 - **Timeline**: 2 hours to debug and fix
 
 **5. Accessibility issues**
+
 - **Mitigation**: Use semantic HTML from start, test incrementally
 - **Timeline**: Built into each phase
 
@@ -849,12 +944,14 @@ npx playwright test
 ## Next Steps
 
 ### Immediate Actions (This Week)
+
 1. **Review this plan** with team/stakeholders
 2. **Set up development branch**: `git checkout -b feature/ui-modernization`
 3. **Start Phase 1**: Create RootLayout and update App.jsx
 4. **Test layout** works on all existing pages
 
 ### Questions to Answer
+
 - [ ] Are backend auth endpoints ready?
 - [ ] Do we need password reset functionality?
 - [ ] Do we need email verification?
@@ -862,6 +959,7 @@ npx playwright test
 - [ ] Do we need social login (Google, GitHub)?
 
 ### Optional Enhancements (Future)
+
 - Dark mode toggle
 - User avatar upload
 - Email notifications
@@ -875,17 +973,20 @@ npx playwright test
 ## Resources
 
 ### Documentation
+
 - React Router v7: https://reactrouter.com/en/main
 - Tailwind CSS 4: https://tailwindcss.com/docs
 - React 19: https://react.dev/
 - Lucide Icons: https://lucide.dev/
 
 ### Design Inspiration
+
 - https://flowbite.com/docs/components/navbar/
 - https://headlessui.com/
 - https://www.radix-ui.com/
 
 ### Accessibility
+
 - WCAG 2.2: https://www.w3.org/WAI/WCAG22/quickref/
 - MDN Accessibility: https://developer.mozilla.org/en-US/docs/Web/Accessibility
 
@@ -898,6 +999,7 @@ This plan provides a comprehensive, phased approach to modernizing the Plant ID 
 **Estimated Total Time**: 20-25 hours of development work across 8 phases
 
 **Key Benefits:**
+
 - ✅ Consistent navigation across all pages
 - ✅ Modern, professional UI
 - ✅ Full authentication flow

@@ -37,9 +37,7 @@ describe('CategoryListPage', () => {
 
   it('shows loading spinner while fetching categories', () => {
     // Mock API to never resolve (stays in loading state)
-    vi.spyOn(forumService, 'fetchCategoryTree').mockImplementation(
-      () => new Promise(() => {})
-    );
+    vi.spyOn(forumService, 'fetchCategoryTree').mockImplementation(() => new Promise(() => {}));
 
     renderCategoryListPage();
 
@@ -87,17 +85,13 @@ describe('CategoryListPage', () => {
       expect(screen.getByText('Community Forums')).toBeInTheDocument();
     });
 
-    expect(
-      screen.getByText(/Connect with fellow plant enthusiasts/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Connect with fellow plant enthusiasts/i)).toBeInTheDocument();
   });
 
   it('displays error message when API call fails', async () => {
     const errorMessage = 'Failed to load categories';
 
-    vi.spyOn(forumService, 'fetchCategoryTree').mockRejectedValue(
-      new Error(errorMessage)
-    );
+    vi.spyOn(forumService, 'fetchCategoryTree').mockRejectedValue(new Error(errorMessage));
 
     renderCategoryListPage();
 
@@ -168,9 +162,7 @@ describe('CategoryListPage', () => {
   it('logs errors to console when API fails', async () => {
     const errorMessage = 'Network error';
 
-    vi.spyOn(forumService, 'fetchCategoryTree').mockRejectedValue(
-      new Error(errorMessage)
-    );
+    vi.spyOn(forumService, 'fetchCategoryTree').mockRejectedValue(new Error(errorMessage));
 
     renderCategoryListPage();
 
@@ -183,7 +175,7 @@ describe('CategoryListPage', () => {
       'Error loading forum categories',
       expect.objectContaining({
         component: 'CategoryListPage',
-        error: expect.any(Error)
+        error: expect.any(Error),
       })
     );
   });

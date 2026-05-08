@@ -119,9 +119,9 @@ web/
 
 ```javascript
 reporter: [
-  ['html', { open: 'never' }],  // ✅ Never auto-open
-  ['list'],                      // Console output
-]
+  ['html', { open: 'never' }], // ✅ Never auto-open
+  ['list'], // Console output
+];
 ```
 
 ### 2. Server Reuse (Development)
@@ -157,20 +157,26 @@ webServer: {
 
 ```javascript
 webServer: [
-  { /* Frontend config */ },
-  { /* Backend config */ }
-]
+  {
+    /* Frontend config */
+  },
+  {
+    /* Backend config */
+  },
+];
 ```
 
 ## Health Checks
 
 ### Frontend Health Check
+
 - **URL**: `http://localhost:5174`
 - **Method**: HEAD/GET request
 - **Success**: Any 2xx/3xx status code
 - **What it verifies**: Vite dev server is running and serving content
 
 ### Backend Health Check
+
 - **URL**: `http://localhost:8000/api/v1/auth/csrf/`
 - **Method**: GET request
 - **Success**: 200 status with JSON response
@@ -281,6 +287,7 @@ jobs:
 **Symptom**: Terminal freezes or crashes when running Playwright tests
 
 **Solutions**:
+
 1. Ensure `reporter: [['html', { open: 'never' }]]` is set
 2. Run in headless mode (default)
 3. Limit workers in CI: `workers: process.env.CI ? 1 : undefined`
@@ -290,6 +297,7 @@ jobs:
 **Symptom**: "Timed out waiting for webServer"
 
 **Solutions**:
+
 1. Check server health check URL is correct
 2. Increase timeout: `timeout: 180 * 1000`
 3. Manually start servers first: `reuseExistingServer: true`
@@ -300,6 +308,7 @@ jobs:
 **Symptom**: Frontend works but backend health check times out
 
 **Solutions**:
+
 1. Verify Django migrations are applied: `python manage.py migrate`
 2. Check virtual environment is activated
 3. Ensure Redis is running (if required): `redis-cli ping`
@@ -310,6 +319,7 @@ jobs:
 **Symptom**: "EADDRINUSE: address already in use"
 
 **Solutions**:
+
 1. Kill existing processes:
    ```bash
    pkill -f "vite"
@@ -323,6 +333,7 @@ jobs:
 **Symptom**: Tests work on your machine but fail in GitHub Actions/CI
 
 **Solutions**:
+
 1. Set `CI=true` environment variable
 2. Install system dependencies: `npx playwright install --with-deps`
 3. Check timezone/locale differences
@@ -333,11 +344,13 @@ jobs:
 ### 1. Always Use Server Auto-Start
 
 ✅ **Good** - Let Playwright manage servers:
+
 ```bash
 npm run test:e2e
 ```
 
 ❌ **Bad** - Manually starting servers in separate terminals:
+
 ```bash
 # Terminal 1
 npm run dev
@@ -352,6 +365,7 @@ npm run test:e2e
 ### 2. Use Health Checks, Not Delays
 
 ✅ **Good** - Wait for server health check:
+
 ```javascript
 webServer: {
   url: 'http://localhost:8000/api/v1/auth/csrf/',
@@ -359,6 +373,7 @@ webServer: {
 ```
 
 ❌ **Bad** - Arbitrary delays:
+
 ```javascript
 webServer: {
   command: 'python manage.py runserver && sleep 10',  // Don't do this!
@@ -368,11 +383,13 @@ webServer: {
 ### 3. Reuse Servers in Development
 
 ✅ **Good** - Fast feedback loop:
+
 ```javascript
 reuseExistingServer: !process.env.CI,
 ```
 
 ❌ **Bad** - Always restart:
+
 ```javascript
 reuseExistingServer: false,  // Slow in development!
 ```
@@ -380,6 +397,7 @@ reuseExistingServer: false,  // Slow in development!
 ### 4. Test Real Integration, Not Mocks
 
 ✅ **Good** - Test actual API calls:
+
 ```javascript
 test('blog posts load', async ({ page }) => {
   await page.goto('/blog');
@@ -388,6 +406,7 @@ test('blog posts load', async ({ page }) => {
 ```
 
 ❌ **Bad** - Mock everything (use Vitest for unit tests):
+
 ```javascript
 // This belongs in Vitest, not Playwright
 vi.mock('../services/blogService');

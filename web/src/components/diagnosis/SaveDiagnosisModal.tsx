@@ -1,8 +1,8 @@
-import { useState, FormEvent, ChangeEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { createDiagnosisCard } from '../../services/diagnosisService'
-import type { CreateDiagnosisCardInput } from '../../types/diagnosis'
-import { logger } from '../../utils/logger'
+import { useState, FormEvent, ChangeEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { createDiagnosisCard } from '../../services/diagnosisService';
+import type { CreateDiagnosisCardInput } from '../../types/diagnosis';
+import { logger } from '../../utils/logger';
 
 interface DiseaseInfo {
   diagnosis_result_id?: string;
@@ -26,35 +26,43 @@ interface SaveDiagnosisModalProps {
   identificationData?: IdentificationData;
 }
 
-export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, identificationData }: SaveDiagnosisModalProps) {
-  const navigate = useNavigate()
+export default function SaveDiagnosisModal({
+  isOpen,
+  onClose,
+  diseaseInfo,
+  identificationData,
+}: SaveDiagnosisModalProps) {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     custom_nickname: '',
     personal_notes: '',
-  })
-  const [isSaving, setIsSaving] = useState<boolean>(false)
-  const [error, setError] = useState<string | null>(null)
+  });
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
   /**
    * Handle form submission
    */
   const handleSave = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
-    e.preventDefault()
+    e.preventDefault();
 
     if (!diseaseInfo) {
-      setError('No disease information available')
-      return
+      setError('No disease information available');
+      return;
     }
 
     try {
-      setIsSaving(true)
-      setError(null)
+      setIsSaving(true);
+      setError(null);
 
       // Prepare diagnosis card data
       const cardData: Record<string, unknown> = {
         // diagnosis_result is optional - only include if we have an ID from backend
-        ...(diseaseInfo.diagnosis_result_id && { diagnosis_result: diseaseInfo.diagnosis_result_id }),
-        plant_scientific_name: identificationData?.scientific_name || diseaseInfo.plant_name || 'Unknown',
+        ...(diseaseInfo.diagnosis_result_id && {
+          diagnosis_result: diseaseInfo.diagnosis_result_id,
+        }),
+        plant_scientific_name:
+          identificationData?.scientific_name || diseaseInfo.plant_name || 'Unknown',
         plant_common_name: identificationData?.plant_name || '',
         custom_nickname: formData.custom_nickname || '',
         disease_name: diseaseInfo.disease_name,
@@ -67,49 +75,51 @@ export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, ident
         plant_recovered: null,
         share_with_community: false,
         is_favorite: false,
-      }
+      };
 
-      logger.info('[SaveDiagnosisModal] Creating diagnosis card', { cardData })
+      logger.info('[SaveDiagnosisModal] Creating diagnosis card', { cardData });
 
-      const createdCard = await createDiagnosisCard(cardData as unknown as CreateDiagnosisCardInput)
+      const createdCard = await createDiagnosisCard(
+        cardData as unknown as CreateDiagnosisCardInput
+      );
 
-      logger.info('[SaveDiagnosisModal] Card created successfully', { uuid: createdCard.uuid })
+      logger.info('[SaveDiagnosisModal] Card created successfully', { uuid: createdCard.uuid });
 
       // Navigate to the new diagnosis card
-      navigate(`/diagnosis/${createdCard.uuid}`)
+      navigate(`/diagnosis/${createdCard.uuid}`);
     } catch (err) {
       const error = err as Error;
-      logger.error('[SaveDiagnosisModal] Failed to save diagnosis', { error })
-      setError(error.message || 'Failed to save diagnosis card')
-      setIsSaving(false)
+      logger.error('[SaveDiagnosisModal] Failed to save diagnosis', { error });
+      setError(error.message || 'Failed to save diagnosis card');
+      setIsSaving(false);
     }
-  }
+  };
 
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
-        onClick={onClose}
-      />
+      <div className="fixed inset-0 bg-black bg-opacity-50 transition-opacity" onClick={onClose} />
 
       {/* Modal */}
       <div className="flex min-h-full items-center justify-center p-4">
         <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-semibold text-gray-900">
-              Save as Diagnosis Card
-            </h3>
+            <h3 className="text-xl font-semibold text-gray-900">Save as Diagnosis Card</h3>
             <button
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600 transition-colors"
               aria-label="Close modal"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
               </svg>
             </button>
           </div>
@@ -121,8 +131,7 @@ export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, ident
             </h4>
             <div className="text-sm text-amber-800 space-y-1">
               <p>
-                <span className="font-medium">Severity:</span>{' '}
-                {diseaseInfo?.severity || 'Unknown'}
+                <span className="font-medium">Severity:</span> {diseaseInfo?.severity || 'Unknown'}
               </p>
               <p>
                 <span className="font-medium">Confidence:</span>{' '}
@@ -142,13 +151,13 @@ export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, ident
                 type="text"
                 id="nickname"
                 value={formData.custom_nickname}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, custom_nickname: e.target.value })}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setFormData({ ...formData, custom_nickname: e.target.value })
+                }
                 placeholder="e.g., Kitchen Aloe, Balcony Tomato"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Give this plant a memorable name
-              </p>
+              <p className="text-xs text-gray-500 mt-1">Give this plant a memorable name</p>
             </div>
 
             {/* Personal Notes */}
@@ -159,7 +168,9 @@ export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, ident
               <textarea
                 id="notes"
                 value={formData.personal_notes}
-                onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setFormData({ ...formData, personal_notes: e.target.value })}
+                onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
+                  setFormData({ ...formData, personal_notes: e.target.value })
+                }
                 placeholder="Add any observations or notes about the plant's condition..."
                 rows={4}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
@@ -200,5 +211,5 @@ export default function SaveDiagnosisModal({ isOpen, onClose, diseaseInfo, ident
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -118,9 +118,7 @@ describe('blogService', () => {
 
       // Assert
       expect(result).toEqual(mockBlogPostListResponse);
-      expect(apiClient.get).toHaveBeenCalledWith(
-        expect.stringContaining('/api/v2/blog-posts/')
-      );
+      expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('/api/v2/blog-posts/'));
       const callUrl = vi.mocked(apiClient.get).mock.calls[0][0];
       expect(callUrl).toContain('limit=10');
       expect(callUrl).toContain('offset=0');
@@ -265,9 +263,7 @@ describe('blogService', () => {
       });
 
       // Act & Assert
-      await expect(fetchBlogPost('non-existent')).rejects.toThrow(
-        'Blog post not found'
-      );
+      await expect(fetchBlogPost('non-existent')).rejects.toThrow('Blog post not found');
     });
 
     it('should handle API errors', async () => {

@@ -296,7 +296,13 @@ describe('AuthContext', () => {
     });
 
     it('sets loading state during signup', async () => {
-      const userData: SignupData = { username: 'test', first_name: 'Test', last_name: 'User', email: 'test@example.com', password: 'pass' };
+      const userData: SignupData = {
+        username: 'test',
+        first_name: 'Test',
+        last_name: 'User',
+        email: 'test@example.com',
+        password: 'pass',
+      };
       const mockUser: User = { id: 1, email: 'test@example.com' };
 
       vi.mocked(authService.getStoredUser).mockReturnValue(null);
@@ -614,7 +620,13 @@ describe('AuthContext', () => {
       });
 
       await act(async () => {
-        await result.current.signup({ username: 'test', first_name: 'Test', last_name: 'User', email: 'test@example.com', password: 'password' });
+        await result.current.signup({
+          username: 'test',
+          first_name: 'Test',
+          last_name: 'User',
+          email: 'test@example.com',
+          password: 'password',
+        });
       });
 
       // Should have removed request ID to force regeneration

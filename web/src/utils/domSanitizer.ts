@@ -14,7 +14,7 @@ import {
   sanitizeHtml as syncSanitizeHtml,
   createSafeMarkup as syncCreateSafeMarkup,
   SANITIZE_PRESETS,
-} from './sanitize'
+} from './sanitize';
 
 /**
  * Sanitizes HTML content to prevent XSS attacks.
@@ -24,9 +24,12 @@ import {
  * @param options - DOMPurify configuration options
  * @returns Sanitized HTML string
  */
-export async function sanitizeHTML(html: string, options: Record<string, unknown> = {}): Promise<string> {
+export async function sanitizeHTML(
+  html: string,
+  options: Record<string, unknown> = {}
+): Promise<string> {
   // Convert to synchronous call wrapped in Promise for API compatibility
-  return Promise.resolve(syncSanitizeHtml(html, options))
+  return Promise.resolve(syncSanitizeHtml(html, options));
 }
 
 /**
@@ -37,10 +40,13 @@ export async function sanitizeHTML(html: string, options: Record<string, unknown
  * @param options - DOMPurify configuration options
  * @returns Object with __html property containing sanitized HTML
  */
-export async function createSafeMarkup(html: string, options: Record<string, unknown> = {}): Promise<{ __html: string }> {
+export async function createSafeMarkup(
+  html: string,
+  options: Record<string, unknown> = {}
+): Promise<{ __html: string }> {
   // Convert to synchronous call wrapped in Promise for API compatibility
-  return Promise.resolve(syncCreateSafeMarkup(html, options))
+  return Promise.resolve(syncCreateSafeMarkup(html, options));
 }
 
 // Re-export presets for convenience
-export { SANITIZE_PRESETS }
+export { SANITIZE_PRESETS };

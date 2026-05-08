@@ -72,7 +72,7 @@ describe('formatDate utilities', () => {
         'Invalid date in formatPublishDate',
         expect.objectContaining({
           component: 'formatDate',
-          context: expect.objectContaining({ dateString: 'invalid-date' })
+          context: expect.objectContaining({ dateString: 'invalid-date' }),
         })
       );
     });
@@ -141,7 +141,7 @@ describe('formatDate utilities', () => {
         'Invalid date in formatShortDate',
         expect.objectContaining({
           component: 'formatDate',
-          context: expect.objectContaining({ dateString: 'not-a-date' })
+          context: expect.objectContaining({ dateString: 'not-a-date' }),
         })
       );
     });
@@ -299,7 +299,7 @@ describe('formatDate utilities', () => {
         'Invalid date in formatRelativeDate',
         expect.objectContaining({
           component: 'formatDate',
-          context: expect.objectContaining({ dateString: 'bad-date' })
+          context: expect.objectContaining({ dateString: 'bad-date' }),
         })
       );
     });
@@ -349,7 +349,7 @@ describe('formatDate utilities', () => {
         'Invalid date in formatDateTime',
         expect.objectContaining({
           component: 'formatDate',
-          context: expect.objectContaining({ dateString: 'invalid' })
+          context: expect.objectContaining({ dateString: 'invalid' }),
         })
       );
     });
@@ -417,7 +417,7 @@ describe('formatDate utilities', () => {
         'Invalid date in formatISODate',
         expect.objectContaining({
           component: 'formatDate',
-          context: expect.objectContaining({ dateString: 'not-a-date' })
+          context: expect.objectContaining({ dateString: 'not-a-date' }),
         })
       );
     });

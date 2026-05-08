@@ -20,7 +20,7 @@ function ThreadCard({ thread, compact = false }: ThreadCardProps) {
   const formattedDate = useMemo(() => {
     try {
       return formatDistanceToNow(new Date(thread.last_activity_at), {
-        addSuffix: true
+        addSuffix: true,
       });
     } catch (error) {
       logger.error('Error formatting date in ThreadCard', {
@@ -35,12 +35,14 @@ function ThreadCard({ thread, compact = false }: ThreadCardProps) {
   const threadUrl = `/forum/${thread.category.slug}/${thread.slug}`;
 
   return (
-    <div className={`
+    <div
+      className={`
       bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow
       ${thread.is_pinned ? 'border-l-4 border-yellow-500 bg-yellow-50' : ''}
       ${thread.is_locked ? 'opacity-75' : ''}
       ${compact ? 'p-3' : 'p-6'}
-    `}>
+    `}
+    >
       <Link to={threadUrl} className="block">
         {/* Badges */}
         <div className="flex gap-2 mb-2">
@@ -57,18 +59,18 @@ function ThreadCard({ thread, compact = false }: ThreadCardProps) {
         </div>
 
         {/* Thread Title */}
-        <h3 className={`
+        <h3
+          className={`
           font-bold text-gray-900 hover:text-green-600 transition-colors
           ${compact ? 'text-lg mb-1' : 'text-xl mb-2'}
-        `}>
+        `}
+        >
           {thread.title}
         </h3>
 
         {/* Excerpt (not in compact mode) */}
         {!compact && thread.excerpt && (
-          <p className="text-gray-600 mb-4 line-clamp-2">
-            {thread.excerpt}
-          </p>
+          <p className="text-gray-600 mb-4 line-clamp-2">{thread.excerpt}</p>
         )}
 
         {/* Metadata */}
@@ -92,22 +94,16 @@ function ThreadCard({ thread, compact = false }: ThreadCardProps) {
           )}
 
           {/* Stats */}
-          <span title={`${thread.post_count} replies`}>
-            💬 {thread.post_count || 0}
-          </span>
+          <span title={`${thread.post_count} replies`}>💬 {thread.post_count || 0}</span>
 
           <span aria-hidden="true">•</span>
 
-          <span title={`${thread.view_count} views`}>
-            👁️ {thread.view_count || 0}
-          </span>
+          <span title={`${thread.view_count} views`}>👁️ {thread.view_count || 0}</span>
 
           <span aria-hidden="true">•</span>
 
           {/* Last Activity */}
-          <span title={new Date(thread.last_activity_at).toLocaleString()}>
-            {formattedDate}
-          </span>
+          <span title={new Date(thread.last_activity_at).toLocaleString()}>{formattedDate}</span>
         </div>
       </Link>
     </div>

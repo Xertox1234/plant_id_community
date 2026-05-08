@@ -9,7 +9,7 @@ import {
   MAX_IMAGES_ERROR,
   FILE_SIZE_ERROR,
   INVALID_TYPE_ERROR,
-  MAX_FILE_SIZE_MB
+  MAX_FILE_SIZE_MB,
 } from '../../utils/constants';
 import type { Attachment } from '@/types';
 
@@ -22,7 +22,14 @@ interface ImageUploadWidgetProps {
 }
 
 function getAttachmentImageUrl(attachment: Attachment): string {
-  return attachment.thumbnail_url || attachment.image_thumbnail || attachment.thumbnail || attachment.image_url || attachment.image || '';
+  return (
+    attachment.thumbnail_url ||
+    attachment.image_thumbnail ||
+    attachment.thumbnail ||
+    attachment.image_url ||
+    attachment.image ||
+    ''
+  );
 }
 
 /**
@@ -63,7 +70,7 @@ export default function ImageUploadWidget({
    * Validate image file
    */
   const validateFile = (file: File, selectedCount: number): void => {
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type as typeof ALLOWED_IMAGE_TYPES[number])) {
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type as (typeof ALLOWED_IMAGE_TYPES)[number])) {
       throw new Error(INVALID_TYPE_ERROR);
     }
 
@@ -183,9 +190,10 @@ export default function ImageUploadWidget({
    * Handle delete image
    */
   const handleDelete = async (attachmentId: string): Promise<void> => {
-    const shouldDelete = typeof window.confirm === 'function'
-      ? window.confirm('Delete this image? This action cannot be undone.')
-      : true;
+    const shouldDelete =
+      typeof window.confirm === 'function'
+        ? window.confirm('Delete this image? This action cannot be undone.')
+        : true;
 
     if (!shouldDelete) return;
 
@@ -283,7 +291,9 @@ export default function ImageUploadWidget({
       return;
     }
 
-    const fromIndex = orderedAttachments.findIndex((attachment) => attachment.id === draggedAttachmentId);
+    const fromIndex = orderedAttachments.findIndex(
+      (attachment) => attachment.id === draggedAttachmentId
+    );
     const toIndex = orderedAttachments.findIndex((attachment) => attachment.id === attachmentId);
     await reorderAttachments(fromIndex, toIndex);
   };
@@ -368,28 +378,41 @@ export default function ImageUploadWidget({
               <span className="font-semibold text-green-600">Click to upload</span> or drag and drop
             </p>
             <p className="text-xs text-gray-500 mt-1">
-              PNG, JPG, GIF, WEBP up to {MAX_FILE_SIZE_MB}MB ({attachments.length}/{MAX_IMAGES} images)
+              PNG, JPG, GIF, WEBP up to {MAX_FILE_SIZE_MB}MB ({attachments.length}/{MAX_IMAGES}{' '}
+              images)
             </p>
           </>
         )}
       </div>
 
       {attachments.length >= MAX_IMAGES && !error && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3" role="status" aria-live="polite">
+        <div
+          className="bg-amber-50 border border-amber-200 rounded-lg p-3"
+          role="status"
+          aria-live="polite"
+        >
           <p className="text-sm text-amber-800">{MAX_IMAGES_ERROR}</p>
         </div>
       )}
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3" role="alert" aria-live="assertive">
+        <div
+          className="bg-red-50 border border-red-200 rounded-lg p-3"
+          role="alert"
+          aria-live="assertive"
+        >
           <p className="text-sm text-red-800">{error}</p>
         </div>
       )}
 
       {/* Image Previews */}
       {orderedAttachments.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4" role="list" aria-label="Uploaded images">
+        <div
+          className="grid grid-cols-2 md:grid-cols-3 gap-4"
+          role="list"
+          aria-label="Uploaded images"
+        >
           {orderedAttachments.map((attachment, index) => (
             <div
               key={attachment.id}

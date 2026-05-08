@@ -209,9 +209,7 @@ describe('plantIdService', () => {
       });
 
       // Act & Assert
-      await expect(plantIdService.identifyPlant(imageFile)).rejects.toThrow(
-        'Invalid image format'
-      );
+      await expect(plantIdService.identifyPlant(imageFile)).rejects.toThrow('Invalid image format');
     });
 
     it('should handle API errors without error message', async () => {
@@ -235,9 +233,7 @@ describe('plantIdService', () => {
       fetchMock.mockRejectedValueOnce(new Error('Network error'));
 
       // Act & Assert
-      await expect(plantIdService.identifyPlant(imageFile)).rejects.toThrow(
-        'Network error'
-      );
+      await expect(plantIdService.identifyPlant(imageFile)).rejects.toThrow('Network error');
     });
 
     it('should handle file size validation (API quota exceeded)', async () => {
@@ -515,7 +511,9 @@ describe('plantIdService', () => {
       expect(requestBody.nickname).toBe(savePlantInput.plant_name);
       expect(requestBody.care_instructions_json.confidence).toBe(savePlantInput.confidence);
       expect(requestBody.care_instructions_json.watering).toBe(savePlantInput.watering);
-      expect(requestBody.care_instructions_json.propagation).toBe(savePlantInput.propagation_methods);
+      expect(requestBody.care_instructions_json.propagation).toBe(
+        savePlantInput.propagation_methods
+      );
       expect(requestBody.care_instructions_json.source).toBe(savePlantInput.source);
     });
   });

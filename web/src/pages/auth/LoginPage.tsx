@@ -1,26 +1,26 @@
-import { useState, FormEvent, ChangeEvent } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { useAuth } from '../../contexts/AuthContext'
-import Button from '../../components/ui/Button'
-import Input from '../../components/ui/Input'
-import { getEmailError, getPasswordError } from '../../utils/validation'
-import { sanitizeInput, sanitizeError } from '../../utils/sanitize'
-import { logger } from '../../utils/logger'
+import { useState, FormEvent, ChangeEvent } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import Button from '../../components/ui/Button';
+import Input from '../../components/ui/Input';
+import { getEmailError, getPasswordError } from '../../utils/validation';
+import { sanitizeInput, sanitizeError } from '../../utils/sanitize';
+import { logger } from '../../utils/logger';
 
 interface FormData {
-  email: string
-  password: string
+  email: string;
+  password: string;
 }
 
 interface FormErrors {
-  email?: string
-  password?: string
+  email?: string;
+  password?: string;
 }
 
 interface LocationState {
   from?: {
-    pathname: string
-  }
+    pathname: string;
+  };
 }
 
 /**
@@ -35,118 +35,114 @@ interface LocationState {
  * - Link to signup page for new users
  */
 export default function LoginPage() {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const { login } = useAuth()
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { login } = useAuth();
 
   // Get the page user was trying to access (for redirect after login)
-  const from = (location.state as LocationState)?.from?.pathname || '/'
+  const from = (location.state as LocationState)?.from?.pathname || '/';
 
   const [formData, setFormData] = useState<FormData>({
     email: '',
     password: '',
-  })
+  });
 
-  const [errors, setErrors] = useState<FormErrors>({})
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [serverError, setServerError] = useState<string | null>(null)
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
   /**
    * Handle input changes and clear field-specific errors
    */
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
+    const { name, value } = e.target;
 
     // Sanitize input to prevent XSS
-    const sanitizedValue = sanitizeInput(value)
+    const sanitizedValue = sanitizeInput(value);
 
     setFormData((prev) => ({
       ...prev,
       [name]: sanitizedValue,
-    }))
+    }));
 
     // Clear error for this field when user starts typing
     if (errors[name as keyof FormErrors]) {
       setErrors((prev) => ({
         ...prev,
         [name]: undefined,
-      }))
+      }));
     }
 
     // Clear server error when user modifies form
     if (serverError) {
-      setServerError(null)
+      setServerError(null);
     }
-  }
+  };
 
   /**
    * Validate form fields
    * @returns {boolean} True if form is valid
    */
   const validateForm = (): boolean => {
-    const newErrors: FormErrors = {}
+    const newErrors: FormErrors = {};
 
-    const emailError = getEmailError(formData.email)
+    const emailError = getEmailError(formData.email);
     if (emailError) {
-      newErrors.email = emailError
+      newErrors.email = emailError;
     }
 
-    const passwordError = getPasswordError(formData.password)
+    const passwordError = getPasswordError(formData.password);
     if (passwordError) {
-      newErrors.password = passwordError
+      newErrors.password = passwordError;
     }
 
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   /**
    * Handle form submission
    */
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setServerError(null)
+    e.preventDefault();
+    setServerError(null);
 
     // Validate form
     if (!validateForm()) {
-      return
+      return;
     }
 
-    setIsSubmitting(true)
+    setIsSubmitting(true);
 
     try {
       const result = await login({
         email: formData.email,
         password: formData.password,
-      })
+      });
 
       if (result.success) {
         // Redirect to the page user was trying to access, or home
-        navigate(from, { replace: true })
+        navigate(from, { replace: true });
       } else {
         // Show error from backend (sanitized to prevent XSS)
-        const rawError = result.error || 'Login failed. Please try again.'
-        setServerError(String(sanitizeError(rawError)))
+        const rawError = result.error || 'Login failed. Please try again.';
+        setServerError(String(sanitizeError(rawError)));
       }
     } catch (error) {
-      logger.error('[LoginPage] Login error:', error)
-      setServerError('An unexpected error occurred. Please try again.')
+      logger.error('[LoginPage] Login error:', error);
+      setServerError('An unexpected error occurred. Please try again.');
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-gray-50">
       <div className="w-full max-w-md min-w-[280px]">
         {/* Header */}
         <div className="text-center mb-8 space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-            Welcome back
-          </h1>
-          <p className="text-sm sm:text-base text-gray-600">
-            Sign in to your PlantID account
-          </p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Welcome back</h1>
+          <p className="text-sm sm:text-base text-gray-600">Sign in to your PlantID account</p>
         </div>
 
         {/* Login Form */}
@@ -228,5 +224,5 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

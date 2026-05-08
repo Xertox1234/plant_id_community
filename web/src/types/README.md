@@ -39,6 +39,7 @@ import type { Thread, Post } from '@/types/forum';
 ## Migration Notes
 
 During Phase 3 of the TypeScript migration, these type definitions will be created based on:
+
 - Existing PropTypes definitions (7 components have them)
 - Backend API contracts (Django REST Framework serializers)
 - Wagtail API v2 responses

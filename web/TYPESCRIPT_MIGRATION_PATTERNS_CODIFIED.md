@@ -68,6 +68,7 @@ Phase Order:
 ### Why Bottom-Up Works
 
 **Dependency Flow**:
+
 ```
 Pages
   ↓ depends on
@@ -81,6 +82,7 @@ Utils/Types
 ```
 
 **Migration Flow** (reverse order):
+
 ```
 Utils/Types (no dependencies)
   ↓ enables
@@ -96,6 +98,7 @@ Pages (depends on components)
 ### Implementation
 
 **Phase 1: Foundation Setup** (No code changes)
+
 ```bash
 # Install TypeScript dependencies
 npm install --save-dev typescript @types/react @types/react-dom
@@ -135,6 +138,7 @@ npm run test
 ```
 
 **Phase 2: Utilities & Constants** (11 files)
+
 ```bash
 # Pure functions with no React dependencies
 # Convert in any order (no interdependencies)
@@ -168,6 +172,7 @@ export function validateEmail(email: unknown): boolean {
 ```
 
 **Phase 3: Type Definitions** (Central type system)
+
 ```typescript
 // src/types/auth.ts
 export interface User {
@@ -212,6 +217,7 @@ export type { BlogPost, StreamFieldBlock } from './blog';
 ```
 
 **Phase 4: Services** (API layer)
+
 ```typescript
 // Before (JavaScript):
 export async function loginUser(credentials) {
@@ -223,10 +229,7 @@ export async function loginUser(credentials) {
 import type { LoginCredentials, AuthResponse } from '@/types';
 
 export async function loginUser(credentials: LoginCredentials): Promise<AuthResponse> {
-  const response = await httpClient.post<AuthResponse>(
-    '/api/v1/auth/login/',
-    credentials
-  );
+  const response = await httpClient.post<AuthResponse>('/api/v1/auth/login/', credentials);
   return response.data;
 }
 
@@ -239,6 +242,7 @@ export async function loginUser(credentials: LoginCredentials): Promise<AuthResp
 ```
 
 **Phase 5: Contexts & Hooks**
+
 ```typescript
 // Before (JavaScript with PropTypes):
 import PropTypes from 'prop-types';
@@ -278,6 +282,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 ```
 
 **Phase 6: UI Components** (29 files)
+
 ```typescript
 // Before (JavaScript):
 function BlogCard({ post, showImage = true }) {
@@ -316,6 +321,7 @@ function BlogCard({ post, showImage = true }: BlogCardProps) {
 ```
 
 **Phase 7: Pages** (18 files)
+
 ```typescript
 // Before (JavaScript):
 export default function ThreadDetailPage() {
@@ -340,6 +346,7 @@ Create a checklist to track progress:
 
 ```markdown
 ## Phase 2: Utilities (11 files)
+
 - [x] utils/validation.ts
 - [x] utils/sanitize.ts
 - [x] utils/logger.ts
@@ -353,6 +360,7 @@ Create a checklist to track progress:
 - [x] tests/forumUtils.ts
 
 ## Phase 3: Type Definitions (6 files)
+
 - [x] types/api.ts
 - [x] types/auth.ts
 - [x] types/forum.ts
@@ -361,6 +369,7 @@ Create a checklist to track progress:
 - [x] types/plantId.ts
 
 ## Phase 4: Services (5 files)
+
 - [x] services/authService.ts
 - [x] services/blogService.ts
 - [x] services/forumService.ts
@@ -379,6 +388,7 @@ Create a checklist to track progress:
 ### Anti-Patterns (What NOT to Do)
 
 ❌ **Top-Down Migration**:
+
 ```typescript
 // BAD: Convert pages first
 // Problem: Pages depend on untyped services/utils
@@ -391,6 +401,7 @@ const posts: any = await fetchBlogPosts(); // Forced to use 'any'!
 ```
 
 ❌ **Random Order Migration**:
+
 ```bash
 # BAD: Convert files randomly
 ✓ pages/HomePage.tsx
@@ -402,6 +413,7 @@ const posts: any = await fetchBlogPosts(); // Forced to use 'any'!
 ```
 
 ❌ **Big Bang Migration**:
+
 ```bash
 # BAD: Convert all files at once
 # Problem: Too many errors to debug
@@ -411,6 +423,7 @@ const posts: any = await fetchBlogPosts(); // Forced to use 'any'!
 ### Testing After Each Phase
 
 **Run After Every 5-10 File Conversions**:
+
 ```bash
 # 1. TypeScript compilation check
 npx tsc --noEmit
@@ -440,6 +453,7 @@ Start with **lenient TypeScript settings** to allow incremental migration, then 
 ### Implementation
 
 **Initial tsconfig.json** (During Migration):
+
 ```json
 {
   "compilerOptions": {
@@ -454,13 +468,13 @@ Start with **lenient TypeScript settings** to allow incremental migration, then 
     "resolveJsonModule": true,
 
     /* Type Checking - LENIENT (Migration in progress) */
-    "strict": false,              // ✅ Disable during migration
-    "noImplicitAny": false,       // ✅ Allow implicit any
-    "strictNullChecks": false,    // ✅ Allow null/undefined
+    "strict": false, // ✅ Disable during migration
+    "noImplicitAny": false, // ✅ Allow implicit any
+    "strictNullChecks": false, // ✅ Allow null/undefined
 
     /* JavaScript Support */
-    "allowJs": true,              // ✅ CRITICAL: Allow JS files
-    "checkJs": false,             // ✅ Don't type-check JS
+    "allowJs": true, // ✅ CRITICAL: Allow JS files
+    "checkJs": false, // ✅ Don't type-check JS
 
     /* Interop Constraints */
     "isolatedModules": true,
@@ -473,25 +487,21 @@ Start with **lenient TypeScript settings** to allow incremental migration, then 
     /* Emit */
     "noEmit": true
   },
-  "include": [
-    "src/**/*",
-    "e2e/**/*",
-    "vite.config.ts",
-    "vitest.config.ts"
-  ]
+  "include": ["src/**/*", "e2e/**/*", "vite.config.ts", "vitest.config.ts"]
 }
 ```
 
 **Post-Migration tsconfig.json** (100% TypeScript):
+
 ```json
 {
   "compilerOptions": {
     /* Same as above... */
 
     /* Type Checking - Still lenient but JS removed */
-    "strict": false,              // Keep false for now
-    "allowJs": false,             // ✅ CHANGED: No more JS files
-    "checkJs": false,             // No JS to check
+    "strict": false, // Keep false for now
+    "allowJs": false, // ✅ CHANGED: No more JS files
+    "checkJs": false // No JS to check
 
     /* Everything else unchanged */
   }
@@ -499,6 +509,7 @@ Start with **lenient TypeScript settings** to allow incremental migration, then 
 ```
 
 **Future: Incremental Strict Mode Enablement**:
+
 ```json
 // Step 1: Enable noImplicitAny (1-2 weeks)
 {
@@ -528,6 +539,7 @@ Start with **lenient TypeScript settings** to allow incremental migration, then 
 ### Why Lenient Settings Work
 
 **Without `allowJs: true`**:
+
 ```bash
 # Trying to migrate without allowJs
 npx tsc --noEmit
@@ -540,6 +552,7 @@ npx tsc --noEmit
 ```
 
 **With `allowJs: true`**:
+
 ```bash
 # Lenient settings allow mixed JS/TS
 npx tsc --noEmit
@@ -561,11 +574,12 @@ npx tsc --noEmit
 ### Anti-Patterns (What NOT to Do)
 
 ❌ **Enable Strict Mode During Migration**:
+
 ```json
 // BAD: Too many errors to manage
 {
   "compilerOptions": {
-    "strict": true,           // 500+ errors immediately
+    "strict": true, // 500+ errors immediately
     "allowJs": true
   }
 }
@@ -577,11 +591,12 @@ npx tsc --noEmit
 ```
 
 ❌ **Disable Safety Features**:
+
 ```json
 // BAD: Removes value of TypeScript
 {
   "compilerOptions": {
-    "noUnusedLocals": false,     // Allows dead code
+    "noUnusedLocals": false, // Allows dead code
     "noUnusedParameters": false, // Allows unused params
     "allowUnreachableCode": true // Allows dead code paths
   }
@@ -591,6 +606,7 @@ npx tsc --noEmit
 ### Verification
 
 After migration complete, set `allowJs: false`:
+
 ```bash
 # 1. Change tsconfig.json
 {
@@ -643,6 +659,7 @@ src/
 **1. Create Domain-Specific Type Files**
 
 **`types/auth.ts`** (Authentication domain):
+
 ```typescript
 /**
  * Authentication & User Types
@@ -672,12 +689,13 @@ export interface SignupData {
 
 export interface AuthResponse {
   user: User;
-  access: string;   // JWT access token
-  refresh: string;  // JWT refresh token
+  access: string; // JWT access token
+  refresh: string; // JWT refresh token
 }
 ```
 
 **`types/forum.ts`** (Forum domain):
+
 ```typescript
 /**
  * Forum Types (Community Discussion)
@@ -738,6 +756,7 @@ export interface CreatePostData {
 ```
 
 **`types/blog.ts`** (Wagtail CMS domain):
+
 ```typescript
 /**
  * Blog & Wagtail StreamField Types
@@ -827,6 +846,7 @@ export interface ListBlock {
 ```
 
 **`types/api.ts`** (HTTP response wrappers):
+
 ```typescript
 /**
  * Generic API Response Types
@@ -860,6 +880,7 @@ export interface ApiError {
 ```
 
 **2. Create Barrel Export** (`types/index.ts`):
+
 ```typescript
 /**
  * Central Type Definitions Export
@@ -869,30 +890,13 @@ export interface ApiError {
  */
 
 // API types
-export type {
-  ApiResponse,
-  WagtailApiResponse,
-  DRFPaginatedResponse,
-  ApiError,
-} from './api';
+export type { ApiResponse, WagtailApiResponse, DRFPaginatedResponse, ApiError } from './api';
 
 // Authentication types
-export type {
-  User,
-  LoginCredentials,
-  SignupData,
-  AuthResponse,
-} from './auth';
+export type { User, LoginCredentials, SignupData, AuthResponse } from './auth';
 
 // Forum types
-export type {
-  Category,
-  Thread,
-  Post,
-  Attachment,
-  CreateThreadData,
-  CreatePostData,
-} from './forum';
+export type { Category, Thread, Post, Attachment, CreateThreadData, CreatePostData } from './forum';
 
 // Blog types
 export type {
@@ -908,21 +912,14 @@ export type {
 } from './blog';
 
 // Plant Identification types
-export type {
-  PlantIdentificationResult,
-  Collection,
-  UserPlant,
-} from './plantId';
+export type { PlantIdentificationResult, Collection, UserPlant } from './plantId';
 
 // Diagnosis types
-export type {
-  DiagnosisCard,
-  DiagnosisReminder,
-  HealthAssessment,
-} from './diagnosis';
+export type { DiagnosisCard, DiagnosisReminder, HealthAssessment } from './diagnosis';
 ```
 
 **3. Configure Path Alias** (`tsconfig.json`):
+
 ```json
 {
   "compilerOptions": {
@@ -935,6 +932,7 @@ export type {
 ```
 
 **4. Configure Vite** (`vite.config.ts`):
+
 ```typescript
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -953,16 +951,12 @@ export default defineConfig({
 ### Usage in Code
 
 **Services** (Type function signatures):
+
 ```typescript
 import type { User, LoginCredentials, AuthResponse } from '@/types';
 
-export async function loginUser(
-  credentials: LoginCredentials
-): Promise<AuthResponse> {
-  const response = await httpClient.post<AuthResponse>(
-    '/api/v1/auth/login/',
-    credentials
-  );
+export async function loginUser(credentials: LoginCredentials): Promise<AuthResponse> {
+  const response = await httpClient.post<AuthResponse>('/api/v1/auth/login/', credentials);
   return response.data;
 }
 
@@ -973,6 +967,7 @@ export async function fetchCurrentUser(): Promise<User> {
 ```
 
 **Components** (Type props):
+
 ```typescript
 import type { BlogPost } from '@/types';
 
@@ -993,6 +988,7 @@ export default function BlogCard({ post, showImage = true }: BlogCardProps) {
 ```
 
 **Contexts** (Type context values):
+
 ```typescript
 import type { User } from '@/types';
 import { createContext, useState, ReactNode } from 'react';
@@ -1034,10 +1030,10 @@ export interface User {
   id: number;
   username: string;
   email: string;
-  first_name: string;      // ← New
-  last_name: string;       // ← New
-  is_staff: boolean;       // ← New
-  is_moderator: boolean;   // ← New
+  first_name: string; // ← New
+  last_name: string; // ← New
+  is_staff: boolean; // ← New
+  is_moderator: boolean; // ← New
 }
 
 // All components using User type get updated automatically!
@@ -1055,10 +1051,12 @@ export interface User {
 ### Anti-Patterns (What NOT to Do)
 
 ❌ **Inline Type Definitions**:
+
 ```typescript
 // BAD: Type defined inside component file
 // components/BlogCard.tsx
-interface BlogPost {  // ← Should be in types/blog.ts
+interface BlogPost {
+  // ← Should be in types/blog.ts
   id: number;
   title: string;
 }
@@ -1071,6 +1069,7 @@ interface BlogCardProps {
 ```
 
 ❌ **No Barrel Export**:
+
 ```typescript
 // BAD: Direct imports from type files
 import { User } from '../types/auth';
@@ -1081,16 +1080,23 @@ import { BlogPost } from '../types/blog';
 ```
 
 ❌ **Mixed Type Locations**:
+
 ```typescript
 // BAD: Types scattered across codebase
 // services/blogService.ts
-interface BlogPost { /* ... */ }
+interface BlogPost {
+  /* ... */
+}
 
 // components/BlogCard.tsx
-interface BlogPost { /* ... */ }  // Duplicate!
+interface BlogPost {
+  /* ... */
+} // Duplicate!
 
 // pages/BlogPage.tsx
-interface BlogPost { /* ... */ }  // Duplicate!
+interface BlogPost {
+  /* ... */
+} // Duplicate!
 
 // Problem: Duplicate definitions, inconsistencies, no single source of truth
 ```
@@ -1127,6 +1133,7 @@ npx tsc --noEmit
 React Router v7 removed the `'react-router'` package exports. All imports must use `'react-router-dom'` instead.
 
 **Error Message**:
+
 ```
 TypeError: Cannot destructure property 'basename' of 'useContext(...)' as it is null
   at useLocation (react-router.development.js:380:1)
@@ -1135,12 +1142,14 @@ TypeError: Cannot destructure property 'basename' of 'useContext(...)' as it is 
 ### The Pattern
 
 **Before** (React Router v6):
+
 ```typescript
 // ❌ BAD: Imports from 'react-router' (removed in v7)
 import { useParams, useNavigate } from 'react-router';
 ```
 
 **After** (React Router v7):
+
 ```typescript
 // ✅ GOOD: Import from 'react-router-dom' instead
 import { useParams, useNavigate } from 'react-router-dom';
@@ -1149,6 +1158,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 ### Migration Strategy
 
 **Global Search and Replace** using `sed`:
+
 ```bash
 # 1. Find all files importing from 'react-router'
 grep -r "from 'react-router'" src/
@@ -1173,34 +1183,37 @@ npm run dev
 ### Files Affected (Example)
 
 **Before Fix**:
+
 ```typescript
 // src/pages/forum/ThreadDetailPage.tsx
-import { useParams, useNavigate } from 'react-router';  // ❌
+import { useParams, useNavigate } from 'react-router'; // ❌
 
 // src/pages/BlogDetailPage.tsx
-import { useParams } from 'react-router';  // ❌
+import { useParams } from 'react-router'; // ❌
 
 // src/components/layout/Header.tsx
-import { Link, useLocation } from 'react-router';  // ❌
+import { Link, useLocation } from 'react-router'; // ❌
 
 // ... 15+ files total
 ```
 
 **After Fix**:
+
 ```typescript
 // src/pages/forum/ThreadDetailPage.tsx
-import { useParams, useNavigate } from 'react-router-dom';  // ✅
+import { useParams, useNavigate } from 'react-router-dom'; // ✅
 
 // src/pages/BlogDetailPage.tsx
-import { useParams } from 'react-router-dom';  // ✅
+import { useParams } from 'react-router-dom'; // ✅
 
 // src/components/layout/Header.tsx
-import { Link, useLocation } from 'react-router-dom';  // ✅
+import { Link, useLocation } from 'react-router-dom'; // ✅
 ```
 
 ### Prevention
 
 **1. ESLint Rule** (Prevent future regressions):
+
 ```javascript
 // .eslintrc.cjs
 module.exports = {
@@ -1221,6 +1234,7 @@ module.exports = {
 ```
 
 **2. Pre-commit Hook** (Block commits with wrong imports):
+
 ```bash
 #!/bin/bash
 # .git/hooks/pre-commit
@@ -1270,25 +1284,29 @@ npm run dev
 ### The Problem
 
 **❌ WRONG** - Using `useState` for debounce timer:
+
 ```typescript
 // SearchPage.tsx (BEFORE FIX)
 const [debounceTimer, setDebounceTimer] = useState<NodeJS.Timeout | null>(null);
 
-const handleInput = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-  const value = e.target.value;
+const handleInput = useCallback(
+  (e: ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
 
-  // Clear existing timer
-  if (debounceTimer) {
-    clearTimeout(debounceTimer);  // ← Reads state
-  }
+    // Clear existing timer
+    if (debounceTimer) {
+      clearTimeout(debounceTimer); // ← Reads state
+    }
 
-  // Set new timer
-  const newTimer = setTimeout(() => {
-    // Perform search
-  }, 500);
+    // Set new timer
+    const newTimer = setTimeout(() => {
+      // Perform search
+    }, 500);
 
-  setDebounceTimer(newTimer);  // ← Triggers re-render!
-}, [debounceTimer]);  // ← Dependency causes callback recreation
+    setDebounceTimer(newTimer); // ← Triggers re-render!
+  },
+  [debounceTimer]
+); // ← Dependency causes callback recreation
 
 // Problems:
 // 1. Setting timer state triggers re-render (unnecessary)
@@ -1298,6 +1316,7 @@ const handleInput = useCallback((e: ChangeEvent<HTMLInputElement>) => {
 ```
 
 **Why This Causes Memory Leaks**:
+
 1. `setDebounceTimer` triggers re-render
 2. Component re-renders → `handleInput` recreated
 3. Old `handleInput` references captured in setTimeout closures
@@ -1306,6 +1325,7 @@ const handleInput = useCallback((e: ChangeEvent<HTMLInputElement>) => {
 ### The Solution
 
 **✅ CORRECT** - Use `useRef` for timer:
+
 ```typescript
 // SearchPage.tsx (AFTER FIX)
 import { useRef, useCallback, useEffect, ChangeEvent } from 'react';
@@ -1313,24 +1333,27 @@ import { useRef, useCallback, useEffect, ChangeEvent } from 'react';
 // Use ref for timer (no re-renders)
 const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-const handleInput = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-  const value = e.target.value;
+const handleInput = useCallback(
+  (e: ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
 
-  // Clear existing timer
-  if (debounceTimerRef.current) {
-    clearTimeout(debounceTimerRef.current);
-  }
+    // Clear existing timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
 
-  // Set new timer
-  debounceTimerRef.current = setTimeout(() => {
-    // Perform search
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev);
-      newParams.set('q', value.trim());
-      return newParams;
-    });
-  }, 500);
-}, [setSearchParams]);  // ✅ Stable dependencies
+    // Set new timer
+    debounceTimerRef.current = setTimeout(() => {
+      // Perform search
+      setSearchParams((prev) => {
+        const newParams = new URLSearchParams(prev);
+        newParams.set('q', value.trim());
+        return newParams;
+      });
+    }, 500);
+  },
+  [setSearchParams]
+); // ✅ Stable dependencies
 
 // ✅ CRITICAL: Cleanup on unmount
 useEffect(() => {
@@ -1345,6 +1368,7 @@ useEffect(() => {
 ### Why useRef Works
 
 **useRef vs. useState for Timers**:
+
 ```typescript
 // useState:
 // - Triggers re-render on every update
@@ -1362,6 +1386,7 @@ useEffect(() => {
 ### Complete Pattern
 
 **Full implementation** (all required pieces):
+
 ```typescript
 import { useState, useRef, useCallback, useEffect, ChangeEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -1425,6 +1450,7 @@ export default function SearchPage() {
 ### Other Timer Use Cases
 
 **Intervals** (same pattern):
+
 ```typescript
 const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -1444,6 +1470,7 @@ useEffect(() => {
 ```
 
 **Animation Frames**:
+
 ```typescript
 const rafRef = useRef<number | null>(null);
 
@@ -1475,6 +1502,7 @@ useEffect(() => {
 ### Anti-Patterns (What NOT to Do)
 
 ❌ **useState for Timer**:
+
 ```typescript
 // BAD: Triggers re-renders
 const [timer, setTimer] = useState<NodeJS.Timeout | null>(null);
@@ -1486,6 +1514,7 @@ const debouncedFn = useCallback(() => {
 ```
 
 ❌ **No Cleanup**:
+
 ```typescript
 // BAD: Memory leak on unmount
 const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -1500,6 +1529,7 @@ const debouncedFn = useCallback(() => {
 ```
 
 ❌ **Let Variable Instead of Ref**:
+
 ```typescript
 // BAD: Lost on re-render
 let timer: NodeJS.Timeout | null = null;
@@ -1515,6 +1545,7 @@ const debouncedFn = useCallback(() => {
 ### Verification
 
 **Memory Leak Detection** (Chrome DevTools):
+
 ```javascript
 // 1. Open Chrome DevTools → Memory tab
 // 2. Take heap snapshot
@@ -1534,6 +1565,7 @@ const debouncedFn = useCallback(() => {
 ```
 
 **React DevTools Profiler**:
+
 ```javascript
 // 1. Open React DevTools → Profiler
 // 2. Start recording
@@ -1561,23 +1593,26 @@ const debouncedFn = useCallback(() => {
 ### The Problem
 
 **TypeScript Error**:
+
 ```
 TS7053: Element implicitly has an 'any' type because expression of type 'string'
 can't be used to index type 'Error'.
 ```
 
 **❌ WRONG** - Passing raw Error:
+
 ```typescript
 // ReminderManager.tsx (BEFORE)
 try {
   await createReminder(data);
 } catch (error) {
-  logger.error('[REMINDER]', error);  // ❌ Type error!
+  logger.error('[REMINDER]', error); // ❌ Type error!
   // Error: Can't index Error type with string keys
 }
 ```
 
 **Why This Fails**:
+
 ```typescript
 // logger.ts signature (simplified)
 function error(prefix: string, context?: Record<string, any>): void {
@@ -1591,6 +1626,7 @@ function error(prefix: string, context?: Record<string, any>): void {
 ### The Solution
 
 **✅ CORRECT** - Wrap error in context object:
+
 ```typescript
 // ReminderManager.tsx (AFTER)
 import { logger } from '../../utils/logger';
@@ -1608,6 +1644,7 @@ try {
 ### Pattern Application
 
 **All error logging** should use this pattern:
+
 ```typescript
 // ✅ CORRECT: Wrap in context object
 logger.error('[PREFIX] Error message', { error });
@@ -1615,26 +1652,24 @@ logger.error('[PREFIX] Error message', { error, context: { userId, action } });
 
 // ❌ WRONG: Raw error object
 logger.error('[PREFIX]', error);
-logger.error('[PREFIX]', { message: error.message });  // Loses stack trace
+logger.error('[PREFIX]', { message: error.message }); // Loses stack trace
 ```
 
 ### Complete Examples
 
 **Service Error Handling**:
+
 ```typescript
 // services/diagnosisService.ts
 export async function createReminder(data: CreateReminderInput): Promise<DiagnosisReminder> {
   try {
-    const response = await httpClient.post<DiagnosisReminder>(
-      '/api/v1/diagnosis/reminders/',
-      data
-    );
+    const response = await httpClient.post<DiagnosisReminder>('/api/v1/diagnosis/reminders/', data);
 
     logger.info('[REMINDER] Created reminder', {
       context: {
         diagnosisCardId: data.diagnosis_card,
-        reminderType: data.reminder_type
-      }
+        reminderType: data.reminder_type,
+      },
     });
 
     return response.data;
@@ -1642,8 +1677,8 @@ export async function createReminder(data: CreateReminderInput): Promise<Diagnos
     logger.error('[REMINDER] Create failed', {
       error,
       context: {
-        diagnosisCardId: data.diagnosis_card
-      }
+        diagnosisCardId: data.diagnosis_card,
+      },
     });
     throw error;
   }
@@ -1651,6 +1686,7 @@ export async function createReminder(data: CreateReminderInput): Promise<Diagnos
 ```
 
 **Component Error Handling**:
+
 ```typescript
 // components/diagnosis/SaveDiagnosisModal.tsx
 const handleSave = async () => {
@@ -1659,7 +1695,7 @@ const handleSave = async () => {
     const result = await createDiagnosisCard(formData);
 
     logger.info('[DIAGNOSIS] Saved diagnosis card', {
-      context: { cardId: result.id }
+      context: { cardId: result.id },
     });
 
     onSave(result);
@@ -1668,8 +1704,8 @@ const handleSave = async () => {
     logger.error('[DIAGNOSIS] Save failed', {
       error,
       context: {
-        plantName: formData.plant_name
-      }
+        plantName: formData.plant_name,
+      },
     });
 
     setError(error instanceof Error ? error.message : 'Failed to save diagnosis');
@@ -1680,6 +1716,7 @@ const handleSave = async () => {
 ```
 
 **API Call Error Handling**:
+
 ```typescript
 // utils/httpClient.ts
 export async function get<T>(url: string): Promise<AxiosResponse<T>> {
@@ -1689,7 +1726,7 @@ export async function get<T>(url: string): Promise<AxiosResponse<T>> {
   } catch (error) {
     logger.error('[HTTP] GET request failed', {
       error,
-      context: { url }
+      context: { url },
     });
     throw error;
   }
@@ -1699,6 +1736,7 @@ export async function get<T>(url: string): Promise<AxiosResponse<T>> {
 ### Logger Implementation Reference
 
 **Proper logger signature** (supports context object):
+
 ```typescript
 // utils/logger.ts
 interface LogContext {
@@ -1748,18 +1786,21 @@ export const logger = {
 ### Anti-Patterns (What NOT to Do)
 
 ❌ **Raw Error Object**:
+
 ```typescript
 // BAD: Type error
 logger.error('[PREFIX]', error);
 ```
 
 ❌ **String Interpolation**:
+
 ```typescript
 // BAD: Loses stack trace
 logger.error(`[PREFIX] Error: ${error.message}`);
 ```
 
 ❌ **Manual Stringification**:
+
 ```typescript
 // BAD: Hard to parse, loses type info
 logger.error('[PREFIX]', JSON.stringify(error));
@@ -1796,54 +1837,58 @@ npx tsc --noEmit
 ### The Problem
 
 **TypeScript Error**:
+
 ```
 TS2322: Type 'readonly string[]' is not assignable to type 'string[]'.
 The type 'readonly string[]' is 'readonly' and cannot be assigned to the mutable type 'string[]'.
 ```
 
 **Root Cause**:
+
 ```typescript
 // sanitize.ts
 
 // ❌ BEFORE: Interface expects mutable array
 interface SanitizeConfig {
-  ALLOWED_TAGS: string[];      // Mutable
-  ALLOWED_ATTR: string[];      // Mutable
+  ALLOWED_TAGS: string[]; // Mutable
+  ALLOWED_ATTR: string[]; // Mutable
 }
 
 // Const assertion creates readonly arrays
 export const SANITIZE_PRESETS = {
   MINIMAL: {
-    ALLOWED_TAGS: ['p', 'br', 'strong'],  // Type: readonly string[]
-    ALLOWED_ATTR: [],                      // Type: readonly string[]
-  } as const,  // ← 'as const' makes arrays readonly
+    ALLOWED_TAGS: ['p', 'br', 'strong'], // Type: readonly string[]
+    ALLOWED_ATTR: [], // Type: readonly string[]
+  } as const, // ← 'as const' makes arrays readonly
 };
 
 // ❌ Type error: readonly string[] not assignable to string[]
 ```
 
 **Why `as const` Creates Readonly Arrays**:
+
 ```typescript
 // Without 'as const'
 const arr1 = ['a', 'b', 'c'];
 // Type: string[] (mutable)
-arr1.push('d');  // ✅ Allowed
+arr1.push('d'); // ✅ Allowed
 
 // With 'as const'
 const arr2 = ['a', 'b', 'c'] as const;
 // Type: readonly ['a', 'b', 'c'] (immutable)
-arr2.push('d');  // ❌ Error: push does not exist on readonly array
+arr2.push('d'); // ❌ Error: push does not exist on readonly array
 ```
 
 ### The Solution
 
 **✅ CORRECT** - Accept both mutable and readonly arrays:
+
 ```typescript
 // sanitize.ts (AFTER)
 
 interface SanitizeConfig {
-  ALLOWED_TAGS: readonly string[] | string[];  // ✅ Accept both
-  ALLOWED_ATTR: readonly string[] | string[];  // ✅ Accept both
+  ALLOWED_TAGS: readonly string[] | string[]; // ✅ Accept both
+  ALLOWED_ATTR: readonly string[] | string[]; // ✅ Accept both
   ALLOWED_CLASSES?: Record<string, readonly string[] | string[]>;
   ALLOW_DATA_ATTR?: boolean;
 }
@@ -1853,67 +1898,90 @@ export const SANITIZE_PRESETS = {
   MINIMAL: {
     ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u'],
     ALLOWED_ATTR: [],
-  } as const,  // ✅ No type error
+  } as const, // ✅ No type error
 
   BASIC: {
     ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a'],
     ALLOWED_ATTR: ['href', 'target', 'rel'],
-  } as const,  // ✅ No type error
+  } as const, // ✅ No type error
 
   FORUM: {
     ALLOWED_TAGS: [
-      'p', 'br', 'strong', 'em', 'u', 'a',
-      'ul', 'ol', 'li', 'h1', 'h2', 'h3',
-      'blockquote', 'code', 'pre', 'img',
+      'p',
+      'br',
+      'strong',
+      'em',
+      'u',
+      'a',
+      'ul',
+      'ol',
+      'li',
+      'h1',
+      'h2',
+      'h3',
+      'blockquote',
+      'code',
+      'pre',
+      'img',
     ],
     ALLOWED_ATTR: [
-      'href', 'target', 'rel', 'class',
-      'src', 'alt', 'title',
-      'data-mention', 'data-mention-id',
+      'href',
+      'target',
+      'rel',
+      'class',
+      'src',
+      'alt',
+      'title',
+      'data-mention',
+      'data-mention-id',
     ],
     ALLOWED_CLASSES: {
       span: ['mention'],
       code: ['language-*'],
     },
     ALLOW_DATA_ATTR: false,
-  } as const,  // ✅ No type error
+  } as const, // ✅ No type error
 };
 ```
 
 ### When to Use This Pattern
 
 **Use `as const` when**:
+
 1. Config values should never change at runtime
 2. You want literal types (not widened types)
 3. You want TypeScript to infer exact values
 
 **Example - Without `as const`**:
+
 ```typescript
 const CONFIG = {
-  API_URL: 'https://api.example.com',  // Type: string (wide)
-  MAX_ITEMS: 10,                        // Type: number (wide)
-  ALLOWED_TAGS: ['p', 'br'],            // Type: string[] (mutable)
+  API_URL: 'https://api.example.com', // Type: string (wide)
+  MAX_ITEMS: 10, // Type: number (wide)
+  ALLOWED_TAGS: ['p', 'br'], // Type: string[] (mutable)
 };
 
-CONFIG.API_URL = 'https://hacker.com';  // ✅ Allowed (not const)
-CONFIG.ALLOWED_TAGS.push('script');     // ✅ Allowed (mutable)
+CONFIG.API_URL = 'https://hacker.com'; // ✅ Allowed (not const)
+CONFIG.ALLOWED_TAGS.push('script'); // ✅ Allowed (mutable)
 ```
 
 **Example - With `as const`**:
+
 ```typescript
 const CONFIG = {
-  API_URL: 'https://api.example.com',  // Type: 'https://api.example.com' (literal)
-  MAX_ITEMS: 10,                        // Type: 10 (literal)
-  ALLOWED_TAGS: ['p', 'br'],            // Type: readonly ['p', 'br'] (immutable)
+  API_URL: 'https://api.example.com', // Type: 'https://api.example.com' (literal)
+  MAX_ITEMS: 10, // Type: 10 (literal)
+  ALLOWED_TAGS: ['p', 'br'], // Type: readonly ['p', 'br'] (immutable)
 } as const;
 
-CONFIG.API_URL = 'https://hacker.com';  // ❌ Error: Cannot assign to readonly
-CONFIG.ALLOWED_TAGS.push('script');     // ❌ Error: push does not exist
+CONFIG.API_URL = 'https://hacker.com'; // ❌ Error: Cannot assign to readonly
+CONFIG.ALLOWED_TAGS.push('script'); // ❌ Error: push does not exist
 ```
 
 ### Complete Pattern
 
 **Full implementation** with proper types:
+
 ```typescript
 // utils/sanitize.ts
 
@@ -1963,13 +2031,35 @@ export const SANITIZE_PRESETS = {
    */
   FORUM: {
     ALLOWED_TAGS: [
-      'p', 'br', 'strong', 'em', 'u', 'a',
-      'ul', 'ol', 'li', 'h1', 'h2', 'h3',
-      'blockquote', 'code', 'pre', 'img', 'span', 'div',
+      'p',
+      'br',
+      'strong',
+      'em',
+      'u',
+      'a',
+      'ul',
+      'ol',
+      'li',
+      'h1',
+      'h2',
+      'h3',
+      'blockquote',
+      'code',
+      'pre',
+      'img',
+      'span',
+      'div',
     ],
     ALLOWED_ATTR: [
-      'href', 'target', 'rel', 'class', 'src', 'alt', 'title',
-      'data-mention', 'data-mention-id',
+      'href',
+      'target',
+      'rel',
+      'class',
+      'src',
+      'alt',
+      'title',
+      'data-mention',
+      'data-mention-id',
     ],
     ALLOWED_CLASSES: {
       span: ['mention'],
@@ -1978,7 +2068,7 @@ export const SANITIZE_PRESETS = {
     },
     ALLOW_DATA_ATTR: false,
   } as const,
-} as const;  // ← Const assertion on entire object
+} as const; // ← Const assertion on entire object
 
 /**
  * Sanitize HTML content with preset or custom configuration
@@ -2015,8 +2105,8 @@ const safeHTML = sanitizeHtml(userContent, SANITIZE_PRESETS.FORUM);
 
 // Use custom config (mutable arrays work too)
 const safeHTML = sanitizeHtml(userContent, {
-  ALLOWED_TAGS: ['p', 'br'],      // Mutable array
-  ALLOWED_ATTR: ['class'],        // Mutable array
+  ALLOWED_TAGS: ['p', 'br'], // Mutable array
+  ALLOWED_ATTR: ['class'], // Mutable array
 });
 
 // Default (BASIC preset)
@@ -2034,40 +2124,43 @@ const safeHTML = sanitizeHtml(userContent);
 ### Anti-Patterns (What NOT to Do)
 
 ❌ **Mutable-Only Interface**:
+
 ```typescript
 // BAD: Rejects const assertions
 interface SanitizeConfig {
-  ALLOWED_TAGS: string[];  // Only accepts mutable
+  ALLOWED_TAGS: string[]; // Only accepts mutable
 }
 
 const PRESET = {
   ALLOWED_TAGS: ['p', 'br'],
-} as const;  // ❌ Type error!
+} as const; // ❌ Type error!
 ```
 
 ❌ **No Const Assertion**:
+
 ```typescript
 // BAD: Values can be modified at runtime
 export const SANITIZE_PRESETS = {
   MINIMAL: {
-    ALLOWED_TAGS: ['p', 'br', 'strong'],  // Mutable!
+    ALLOWED_TAGS: ['p', 'br', 'strong'], // Mutable!
   },
 };
 
 // Allows runtime modification (security risk)
-SANITIZE_PRESETS.MINIMAL.ALLOWED_TAGS.push('script');  // ✅ Allowed (bad!)
+SANITIZE_PRESETS.MINIMAL.ALLOWED_TAGS.push('script'); // ✅ Allowed (bad!)
 ```
 
 ❌ **Type Casting Without Fix**:
+
 ```typescript
 // BAD: Hides the problem instead of fixing it
 interface SanitizeConfig {
-  ALLOWED_TAGS: string[];  // Mutable only
+  ALLOWED_TAGS: string[]; // Mutable only
 }
 
 const PRESET = {
   ALLOWED_TAGS: ['p', 'br'] as const,
-} as SanitizeConfig;  // ❌ Type assertion hides incompatibility
+} as SanitizeConfig; // ❌ Type assertion hides incompatibility
 ```
 
 ### Verification
@@ -2107,6 +2200,7 @@ try {
 ### Migration Phases
 
 **Phase 1-7: Keep PropTypes** (Incremental conversion)
+
 ```typescript
 // DURING MIGRATION: Keep both TypeScript types AND PropTypes
 
@@ -2114,7 +2208,7 @@ import PropTypes from 'prop-types';
 import type { BlogPost } from '@/types';
 
 interface BlogCardProps {
-  post: BlogPost;      // ← TypeScript type
+  post: BlogPost; // ← TypeScript type
   showImage?: boolean;
 }
 
@@ -2132,6 +2226,7 @@ export default BlogCard;
 ```
 
 **Phase 8: Remove PropTypes** (After 100% conversion)
+
 ```bash
 # 1. Verify ALL files converted to TypeScript
 find src -name "*.js" -o -name "*.jsx"
@@ -2169,6 +2264,7 @@ git commit -m "chore: remove PropTypes after TypeScript migration"
 ### Automated PropTypes Removal
 
 **Script to remove PropTypes** (run after verification):
+
 ```bash
 #!/bin/bash
 # remove-proptypes.sh
@@ -2191,6 +2287,7 @@ echo "PropTypes removed. Verify with: git diff"
 ### Why Wait Until 100% Conversion?
 
 **Scenario 1: Remove PropTypes Too Early**
+
 ```typescript
 // File 1: Converted to TypeScript (PropTypes removed)
 // components/BlogCard.tsx
@@ -2210,6 +2307,7 @@ function BlogPage() {
 ```
 
 **Scenario 2: Wait Until 100% (Correct)**
+
 ```typescript
 // All files converted to TypeScript
 // PropTypes can be safely removed
@@ -2238,6 +2336,7 @@ function BlogPage() {
 ### Anti-Patterns (What NOT to Do)
 
 ❌ **Remove PropTypes Before 100% Conversion**:
+
 ```bash
 # BAD: Still have JS files
 find src -name "*.js" -o -name "*.jsx"
@@ -2248,6 +2347,7 @@ npm uninstall prop-types  # ❌ Too early!
 ```
 
 ❌ **Remove PropTypes Without Verification**:
+
 ```bash
 # BAD: No testing before removal
 npm uninstall prop-types
@@ -2258,11 +2358,12 @@ npm run build  # ❌ Build fails!
 ```
 
 ❌ **Keep allowJs: true After PropTypes Removal**:
+
 ```json
 // BAD: Allows new JS files after migration
 {
   "compilerOptions": {
-    "allowJs": true  // ❌ Should be false
+    "allowJs": true // ❌ Should be false
   }
 }
 
@@ -2273,6 +2374,7 @@ npm run build  # ❌ Build fails!
 ### Verification Checklist
 
 **Before Removing PropTypes**:
+
 - [ ] All `.js` files converted to `.ts`
 - [ ] All `.jsx` files converted to `.tsx`
 - [ ] `npx tsc --noEmit` passes (zero errors)
@@ -2281,6 +2383,7 @@ npm run build  # ❌ Build fails!
 - [ ] `allowJs: false` set in tsconfig.json
 
 **After Removing PropTypes**:
+
 - [ ] `npm run test` passes (no runtime errors)
 - [ ] `npm run build` passes (no build errors)
 - [ ] Dev server starts (`npm run dev`)
@@ -2326,6 +2429,7 @@ grep "prop-types" package.json
 ### Test Strategy
 
 **Baseline Before Migration**:
+
 ```bash
 # 1. Run full test suite before starting
 npm run test
@@ -2342,6 +2446,7 @@ git commit -m "docs: document test baseline before TypeScript migration"
 ```
 
 **Test After Each Phase**:
+
 ```bash
 # After Phase 2 (Utilities)
 npm run test
@@ -2361,6 +2466,7 @@ npm run test
 ### Handling Pre-existing Failures
 
 **Track Pre-existing vs. New Failures**:
+
 ```bash
 # Before migration
 npm run test > baseline-results.txt
@@ -2377,6 +2483,7 @@ diff baseline-results.txt phase-N-results.txt
 ```
 
 **Document Known Failures**:
+
 ```markdown
 # KNOWN_TEST_FAILURES.md
 
@@ -2391,6 +2498,7 @@ These failures existed before TypeScript migration and are NOT caused by migrati
 **Workaround**: Manual E2E testing for navigation flows
 
 **Files Affected**:
+
 - `src/pages/forum/ThreadDetailPage.test.tsx` (15 tests)
 - `src/pages/BlogDetailPage.test.tsx` (10 tests)
 - `src/components/layout/Header.test.tsx` (8 tests)
@@ -2402,17 +2510,19 @@ These failures existed before TypeScript migration and are NOT caused by migrati
 ### Test Update Strategy
 
 **Update Import Paths** (TypeScript extensions):
+
 ```typescript
 // BEFORE (JavaScript):
 // BlogCard.test.jsx
-import BlogCard from '../BlogCard';  // .jsx extension
+import BlogCard from '../BlogCard'; // .jsx extension
 
 // AFTER (TypeScript):
 // BlogCard.test.tsx
-import BlogCard from '../BlogCard';  // .tsx extension (extension omitted)
+import BlogCard from '../BlogCard'; // .tsx extension (extension omitted)
 ```
 
 **Update Test Type Annotations**:
+
 ```typescript
 // BEFORE (JavaScript):
 // BlogCard.test.jsx
@@ -2451,12 +2561,14 @@ describe('BlogCard', () => {
 ### Zero New Failures Rule
 
 **BLOCK migration if**:
+
 - New test failures introduced
 - Build breaks
 - TypeScript compilation errors appear
 - Runtime errors in browser
 
 **Example - Phase 4 blocked**:
+
 ```bash
 # After converting services to TypeScript
 npm run test
@@ -2475,6 +2587,7 @@ npm run test
 ### Test Coverage Verification
 
 **Ensure coverage doesn't drop**:
+
 ```bash
 # Before migration
 npm run test:coverage
@@ -2506,6 +2619,7 @@ npm run test:coverage
 ### Anti-Patterns (What NOT to Do)
 
 ❌ **Skip Testing Between Phases**:
+
 ```bash
 # BAD: Convert multiple phases without testing
 # Phase 2: Utilities converted
@@ -2519,6 +2633,7 @@ npm run test  # ❌ First test in 3 phases!
 ```
 
 ❌ **Ignore Pre-existing Failures**:
+
 ```bash
 # BAD: Not tracking baseline
 # Before migration: 492 passing, 41 failing
@@ -2530,9 +2645,11 @@ npm run test  # (Didn't document baseline)
 ```
 
 ❌ **Disable Failing Tests**:
+
 ```typescript
 // BAD: Hide failures instead of fixing
-describe.skip('BlogCard', () => {  // ❌ Disabled test
+describe.skip('BlogCard', () => {
+  // ❌ Disabled test
   it('renders post title', () => {
     // Test broken by TypeScript migration
   });
@@ -2544,6 +2661,7 @@ describe.skip('BlogCard', () => {  // ❌ Disabled test
 ### Verification
 
 **After Each Phase**:
+
 ```bash
 # 1. Run full test suite
 npm run test
@@ -2580,6 +2698,7 @@ git commit -m "feat: migrate Phase N to TypeScript (492 tests passing)"
 Use this checklist to verify TypeScript migration success:
 
 ### Pre-Migration Setup
+
 - [ ] Install TypeScript dependencies (`typescript`, `@types/react`, `@types/react-dom`)
 - [ ] Create `tsconfig.json` with lenient settings (`strict: false`, `allowJs: true`)
 - [ ] Convert build configs to TypeScript (`vite.config.ts`, `vitest.config.ts`)
@@ -2587,6 +2706,7 @@ Use this checklist to verify TypeScript migration success:
 - [ ] Commit setup changes
 
 ### Phase-by-Phase Migration
+
 - [ ] Phase 1: Foundation setup complete (no code changes)
 - [ ] Phase 2: Utilities & constants converted (11 files)
 - [ ] Phase 3: Type definitions created (6 files)
@@ -2597,6 +2717,7 @@ Use this checklist to verify TypeScript migration success:
 - [ ] All tests passing after each phase (no regressions)
 
 ### Error Resolution
+
 - [ ] Fix React Router v7 imports (sed global replace)
 - [ ] Fix memory leaks (useRef for timers)
 - [ ] Fix logger type safety (wrap errors in context objects)
@@ -2604,6 +2725,7 @@ Use this checklist to verify TypeScript migration success:
 - [ ] All TypeScript compilation errors resolved (`npx tsc --noEmit` passes)
 
 ### Final Cleanup
+
 - [ ] Remove `prop-types` package (`npm uninstall prop-types`)
 - [ ] Set `allowJs: false` in tsconfig.json
 - [ ] Verify no `.js` or `.jsx` files remain in src/
@@ -2613,12 +2735,14 @@ Use this checklist to verify TypeScript migration success:
 - [ ] Manual smoke testing (all routes render)
 
 ### Documentation
+
 - [ ] Create `TYPESCRIPT_MIGRATION_COMPLETE.md`
 - [ ] Update `CLAUDE.md` with TypeScript patterns
 - [ ] Document any deviations from plan
 - [ ] Create migration lessons learned doc
 
 ### Deployment Readiness
+
 - [ ] TypeScript compilation check passes in CI/CD
 - [ ] Test suite passes in CI/CD
 - [ ] Build succeeds in CI/CD
@@ -2627,6 +2751,7 @@ Use this checklist to verify TypeScript migration success:
 - [ ] Merge to main approved
 
 ### Future: Strict Mode Enablement
+
 - [ ] Plan strict mode enablement (separate issue)
 - [ ] Incrementally enable: `noImplicitAny` → `strictNullChecks` → `strict: true`
 - [ ] Remove remaining `any` types (~10-15 occurrences)
@@ -2661,6 +2786,7 @@ These 9 TypeScript migration patterns form a comprehensive guide for migrating a
 ### Next Steps
 
 **After Migration Complete**:
+
 1. Merge TypeScript migration to main
 2. Enable `allowJs: false` to prevent new JS files
 3. Plan incremental strict mode enablement
@@ -2668,6 +2794,7 @@ These 9 TypeScript migration patterns form a comprehensive guide for migrating a
 5. Update team documentation
 
 **Future Enhancements**:
+
 1. Enable `noImplicitAny: true` (1-2 weeks)
 2. Enable `strictNullChecks: true` (2-3 weeks)
 3. Enable full `strict: true` (1-2 weeks)

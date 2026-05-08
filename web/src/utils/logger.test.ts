@@ -344,7 +344,9 @@ describe('Logger', () => {
     });
 
     it('handles full URLs with origin', () => {
-      logger.info('Test full URL', { url: 'http://localhost:8000/api/users?email=test@example.com' });
+      logger.info('Test full URL', {
+        url: 'http://localhost:8000/api/users?email=test@example.com',
+      });
 
       const logEntry = consoleSpy.log.mock.calls[1][0];
 
@@ -401,7 +403,7 @@ describe('Logger', () => {
         config: {
           headers: {
             'X-CSRFToken': 'csrf-token-12345',
-            'Authorization': 'Bearer jwt-token',
+            Authorization: 'Bearer jwt-token',
           },
         },
       };

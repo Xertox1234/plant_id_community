@@ -22,6 +22,7 @@ npm run build
 ```
 
 **Output:**
+
 ```
 dist/
 ├── index.html                   # Entry HTML
@@ -33,6 +34,7 @@ dist/
 ```
 
 **Build Stats:**
+
 - Total size: ~70KB gzipped
 - Build time: 2-3 seconds
 - ES modules, tree-shaken, minified
@@ -74,6 +76,7 @@ VITE_DEBUG=false
 ### Vercel (Recommended)
 
 **Why Vercel:**
+
 - Zero configuration
 - Automatic builds on git push
 - Global CDN
@@ -84,6 +87,7 @@ VITE_DEBUG=false
 #### Deployment Steps
 
 1. **Install Vercel CLI** (optional)
+
    ```bash
    npm install -g vercel
    ```
@@ -95,6 +99,7 @@ VITE_DEBUG=false
    - Select "web" as root directory
 
 3. **Configure Build Settings**
+
    ```
    Framework Preset: Vite
    Build Command: npm run build
@@ -108,6 +113,7 @@ VITE_DEBUG=false
    - Add optional variables (GA, Sentry)
 
 5. **Deploy**
+
    ```bash
    # Manual deploy via CLI
    cd web
@@ -118,6 +124,7 @@ VITE_DEBUG=false
    ```
 
 **Vercel Configuration File** (optional):
+
 ```json
 {
   "buildCommand": "npm run build",
@@ -128,6 +135,7 @@ VITE_DEBUG=false
 ```
 
 **Custom Domain:**
+
 ```bash
 # Add custom domain in Vercel dashboard
 # DNS Configuration:
@@ -138,6 +146,7 @@ VITE_DEBUG=false
 ### Netlify
 
 **Why Netlify:**
+
 - Simple deployment
 - Automatic HTTPS
 - Form handling
@@ -153,6 +162,7 @@ VITE_DEBUG=false
    - Select "web" as base directory
 
 2. **Configure Build**
+
    ```
    Base directory: web
    Build command: npm run build
@@ -168,6 +178,7 @@ VITE_DEBUG=false
    - Or push to main branch for auto-deploy
 
 **netlify.toml** (optional):
+
 ```toml
 [build]
   base = "web"
@@ -183,6 +194,7 @@ VITE_DEBUG=false
 ### Firebase Hosting
 
 **Why Firebase:**
+
 - Google infrastructure
 - Easy integration with Firebase backend
 - CDN distribution
@@ -191,11 +203,13 @@ VITE_DEBUG=false
 #### Deployment Steps
 
 1. **Install Firebase CLI**
+
    ```bash
    npm install -g firebase-tools
    ```
 
 2. **Login and Initialize**
+
    ```bash
    firebase login
    cd web
@@ -203,6 +217,7 @@ VITE_DEBUG=false
    ```
 
 3. **Configuration**
+
    ```
    Public directory: dist
    Single-page app: Yes
@@ -216,15 +231,12 @@ VITE_DEBUG=false
    ```
 
 **firebase.json**:
+
 ```json
 {
   "hosting": {
     "public": "dist",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [
       {
         "source": "**",
@@ -249,6 +261,7 @@ VITE_DEBUG=false
 ### Cloudflare Pages
 
 **Why Cloudflare:**
+
 - Fastest CDN
 - DDoS protection
 - Web Analytics included
@@ -262,6 +275,7 @@ VITE_DEBUG=false
    - Connect GitHub
 
 2. **Configure Build**
+
    ```
    Framework preset: Vite
    Build command: npm run build
@@ -313,6 +327,7 @@ curl https://api.plantcommunity.com/api/plant-identification/identify/health/
 ### CDN Configuration
 
 **Cache Headers:**
+
 ```
 # Static assets (CSS, JS, images)
 Cache-Control: public, max-age=31536000, immutable
@@ -324,10 +339,12 @@ Cache-Control: no-cache
 ### Compression
 
 Most platforms enable compression automatically:
+
 - **Gzip**: ~70% size reduction
 - **Brotli**: ~80% size reduction (preferred)
 
 Verify compression:
+
 ```bash
 curl -H "Accept-Encoding: br,gzip" -I https://plantcommunity.com
 # Look for: Content-Encoding: br
@@ -338,6 +355,7 @@ curl -H "Accept-Encoding: br,gzip" -I https://plantcommunity.com
 **Client-side compression** already implemented (see [Performance.md](./Performance.md)).
 
 For production, consider:
+
 1. Image CDN (Cloudinary, imgix)
 2. WebP/AVIF format support
 3. Responsive images with srcset
@@ -347,25 +365,24 @@ For production, consider:
 ### Error Tracking (Sentry)
 
 1. **Install Sentry**
+
    ```bash
    npm install @sentry/react
    ```
 
 2. **Initialize** (`src/main.jsx`):
+
    ```javascript
-   import * as Sentry from '@sentry/react'
+   import * as Sentry from '@sentry/react';
 
    if (import.meta.env.PROD) {
      Sentry.init({
        dsn: import.meta.env.VITE_SENTRY_DSN,
-       integrations: [
-         new Sentry.BrowserTracing(),
-         new Sentry.Replay(),
-       ],
+       integrations: [new Sentry.BrowserTracing(), new Sentry.Replay()],
        tracesSampleRate: 0.1,
        replaysSessionSampleRate: 0.1,
        replaysOnErrorSampleRate: 1.0,
-     })
+     });
    }
    ```
 
@@ -377,32 +394,37 @@ For production, consider:
 ### Analytics (Google Analytics 4)
 
 1. **Add GA4** (`index.html`):
+
    ```html
    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
    <script>
      window.dataLayer = window.dataLayer || [];
-     function gtag(){dataLayer.push(arguments);}
+     function gtag() {
+       dataLayer.push(arguments);
+     }
      gtag('js', new Date());
      gtag('config', 'G-XXXXXXXXXX');
    </script>
    ```
 
 2. **Or use react-ga4**:
+
    ```bash
    npm install react-ga4
    ```
 
    ```javascript
-   import ReactGA from 'react-ga4'
+   import ReactGA from 'react-ga4';
 
    if (import.meta.env.PROD) {
-     ReactGA.initialize(import.meta.env.VITE_GA_MEASUREMENT_ID)
+     ReactGA.initialize(import.meta.env.VITE_GA_MEASUREMENT_ID);
    }
    ```
 
 ### Performance Monitoring
 
 **Lighthouse CI:**
+
 ```bash
 npm install -g @lhci/cli
 
@@ -411,12 +433,13 @@ lhci autorun --upload.target=temporary-public-storage
 ```
 
 **Web Vitals:**
-```javascript
-import { getCLS, getFID, getLCP } from 'web-vitals'
 
-getCLS(console.log)
-getFID(console.log)
-getLCP(console.log)
+```javascript
+import { getCLS, getFID, getLCP } from 'web-vitals';
+
+getCLS(console.log);
+getFID(console.log);
+getLCP(console.log);
 ```
 
 ## Security
@@ -426,6 +449,7 @@ getLCP(console.log)
 Add CSP headers via hosting platform:
 
 **Vercel** (`vercel.json`):
+
 ```json
 {
   "headers": [
@@ -443,6 +467,7 @@ Add CSP headers via hosting platform:
 ```
 
 **Netlify** (`netlify.toml`):
+
 ```toml
 [[headers]]
   for = "/*"
@@ -453,16 +478,18 @@ Add CSP headers via hosting platform:
 ### HTTPS
 
 All platforms provide free SSL certificates:
+
 - Vercel: Automatic via Let's Encrypt
 - Netlify: Automatic via Let's Encrypt
 - Firebase: Automatic via Google
 - Cloudflare: Automatic
 
 **Force HTTPS:**
+
 ```javascript
 // Redirect HTTP to HTTPS in production
 if (import.meta.env.PROD && window.location.protocol !== 'https:') {
-  window.location.href = 'https:' + window.location.href.substring(window.location.protocol.length)
+  window.location.href = 'https:' + window.location.href.substring(window.location.protocol.length);
 }
 ```
 
@@ -471,6 +498,7 @@ if (import.meta.env.PROD && window.location.protocol !== 'https:') {
 ### GitHub Actions (Example)
 
 `.github/workflows/deploy.yml`:
+
 ```yaml
 name: Deploy to Production
 
@@ -595,6 +623,7 @@ npx lighthouse https://plantcommunity.com --view
 **Error:** `npm run build` fails
 
 **Solutions:**
+
 ```bash
 # Clear cache
 rm -rf node_modules dist
@@ -613,6 +642,7 @@ npm run build -- --mode production --debug
 **Error:** "No 'Access-Control-Allow-Origin' header"
 
 **Solutions:**
+
 1. Verify backend CORS configuration
 2. Check `VITE_API_URL` is correct
 3. Ensure backend is running
@@ -625,15 +655,15 @@ npm run build -- --mode production --debug
 **Solution:** Configure SPA fallback:
 
 **Vercel** (`vercel.json`):
+
 ```json
 {
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
 ```
 
 **Netlify** (`_redirects` in `public/`):
+
 ```
 /*    /index.html   200
 ```
@@ -641,6 +671,7 @@ npm run build -- --mode production --debug
 ### Slow Loading
 
 **Solutions:**
+
 1. Verify CDN is working
 2. Check network tab for large assets
 3. Enable compression (Gzip/Brotli)
@@ -651,22 +682,24 @@ npm run build -- --mode production --debug
 
 ### Free Tier Limits
 
-| Platform | Free Tier | Bandwidth | Builds |
-|----------|-----------|-----------|--------|
-| Vercel | 100 GB/month | Unlimited | Unlimited |
-| Netlify | 100 GB/month | Unlimited | 300 min/month |
-| Firebase | 10 GB/month | 360 MB/day | N/A |
-| Cloudflare | Unlimited | Unlimited | 500 builds/month |
+| Platform   | Free Tier    | Bandwidth  | Builds           |
+| ---------- | ------------ | ---------- | ---------------- |
+| Vercel     | 100 GB/month | Unlimited  | Unlimited        |
+| Netlify    | 100 GB/month | Unlimited  | 300 min/month    |
+| Firebase   | 10 GB/month  | 360 MB/day | N/A              |
+| Cloudflare | Unlimited    | Unlimited  | 500 builds/month |
 
 ### Production Costs (Estimated)
 
 **Assumptions:**
+
 - 10,000 monthly active users
 - 5 pages per session average
 - 70KB average page size
 - 50,000 page views/month
 
 **Bandwidth:**
+
 ```
 50,000 views × 70KB = 3.5GB/month
 ```
@@ -676,6 +709,7 @@ npm run build -- --mode production --debug
 ## Summary
 
 **Recommended Setup:**
+
 1. **Hosting**: Vercel (best DX, auto-deploy)
 2. **Monitoring**: Sentry (errors) + GA4 (analytics)
 3. **CDN**: Included with hosting platform
@@ -683,10 +717,12 @@ npm run build -- --mode production --debug
 5. **Deployment**: GitHub push → auto-deploy
 
 **Deployment Time:**
+
 - First deploy: ~15 minutes (including setup)
 - Subsequent deploys: ~2 minutes (auto-deploy)
 
 For more information:
+
 - [Architecture.md](./Architecture.md) - System design
 - [Performance.md](./Performance.md) - Optimization strategies
 - [API-Integration.md](./API-Integration.md) - Backend setup

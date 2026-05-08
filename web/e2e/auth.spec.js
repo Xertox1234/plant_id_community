@@ -18,12 +18,14 @@ test.describe('Authentication Flows', () => {
     await page.goto('/', { waitUntil: 'networkidle', timeout: 30000 });
 
     // Verify user menu is visible (indicates logged-in state)
-    const userMenuVisible = await page.locator('[data-testid="user-menu"]')
+    const userMenuVisible = await page
+      .locator('[data-testid="user-menu"]')
       .isVisible({ timeout: 5000 })
       .catch(() => false);
 
     // Alternative: Check for user name in header
-    const userName = await page.locator('text=/E2E Test User/i')
+    const userName = await page
+      .locator('text=/E2E Test User/i')
       .isVisible({ timeout: 5000 })
       .catch(() => false);
 
@@ -58,7 +60,8 @@ test.describe('Authentication Flows', () => {
       await page.waitForURL('/', { timeout: 10000 });
 
       // Verify user menu is no longer visible
-      const userMenuAfterLogout = await page.locator('[data-testid="user-menu"]')
+      const userMenuAfterLogout = await page
+        .locator('[data-testid="user-menu"]')
         .isVisible({ timeout: 2000 })
         .catch(() => false);
 
@@ -112,7 +115,8 @@ test.describe('Protected Routes (Unauthenticated)', () => {
     await page.click('button[type="submit"]');
 
     // Should show error message
-    const errorVisible = await page.locator('text=/invalid|incorrect|failed/i')
+    const errorVisible = await page
+      .locator('text=/invalid|incorrect|failed/i')
       .isVisible({ timeout: 5000 })
       .catch(() => false);
 

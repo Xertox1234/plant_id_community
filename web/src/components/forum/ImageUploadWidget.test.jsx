@@ -58,10 +58,7 @@ describe('ImageUploadWidget', () => {
     });
 
     it('shows current image count', () => {
-      const attachments = [
-        createMockAttachment({ id: '1' }),
-        createMockAttachment({ id: '2' }),
-      ];
+      const attachments = [createMockAttachment({ id: '1' }), createMockAttachment({ id: '2' })];
 
       render(
         <ImageUploadWidget
@@ -76,10 +73,7 @@ describe('ImageUploadWidget', () => {
     });
 
     it('renders uploaded images as thumbnails', () => {
-      const attachments = [
-        createMockAttachment({ id: '1' }),
-        createMockAttachment({ id: '2' }),
-      ];
+      const attachments = [createMockAttachment({ id: '1' }), createMockAttachment({ id: '2' })];
 
       render(
         <ImageUploadWidget
@@ -196,9 +190,7 @@ describe('ImageUploadWidget', () => {
     });
 
     it('displays error when upload fails', async () => {
-      vi.spyOn(forumService, 'uploadPostImage').mockRejectedValue(
-        new Error('Upload failed')
-      );
+      vi.spyOn(forumService, 'uploadPostImage').mockRejectedValue(new Error('Upload failed'));
 
       render(
         <ImageUploadWidget
@@ -273,9 +265,7 @@ describe('ImageUploadWidget', () => {
 
     it('rejects upload when max images reached', async () => {
       const uploadSpy = vi.spyOn(forumService, 'uploadPostImage');
-      const attachments = Array.from({ length: 6 }, (_, i) =>
-        createMockAttachment({ id: `${i}` })
-      );
+      const attachments = Array.from({ length: 6 }, (_, i) => createMockAttachment({ id: `${i}` }));
 
       render(
         <ImageUploadWidget
@@ -300,9 +290,7 @@ describe('ImageUploadWidget', () => {
     });
 
     it('disables file input when max images reached', () => {
-      const attachments = Array.from({ length: 6 }, (_, i) =>
-        createMockAttachment({ id: `${i}` })
-      );
+      const attachments = Array.from({ length: 6 }, (_, i) => createMockAttachment({ id: `${i}` }));
 
       render(
         <ImageUploadWidget
@@ -336,10 +324,7 @@ describe('ImageUploadWidget', () => {
       await userEvent.click(deleteButton);
 
       await waitFor(() => {
-        expect(forumService.deletePostImage).toHaveBeenCalledWith(
-          mockPostId,
-          attachment.id
-        );
+        expect(forumService.deletePostImage).toHaveBeenCalledWith(mockPostId, attachment.id);
       });
 
       await waitFor(() => {
@@ -349,9 +334,7 @@ describe('ImageUploadWidget', () => {
 
     it('displays error when delete fails', async () => {
       const attachment = createMockAttachment();
-      vi.spyOn(forumService, 'deletePostImage').mockRejectedValue(
-        new Error('Delete failed')
-      );
+      vi.spyOn(forumService, 'deletePostImage').mockRejectedValue(new Error('Delete failed'));
 
       render(
         <ImageUploadWidget
@@ -531,7 +514,6 @@ describe('ImageUploadWidget', () => {
     });
 
     it('supports keyboard navigation', async () => {
-
       render(
         <ImageUploadWidget
           postId={mockPostId}
@@ -552,10 +534,7 @@ describe('ImageUploadWidget', () => {
     });
 
     it('uses semantic HTML for image grid', () => {
-      const attachments = [
-        createMockAttachment({ id: '1' }),
-        createMockAttachment({ id: '2' }),
-      ];
+      const attachments = [createMockAttachment({ id: '1' }), createMockAttachment({ id: '2' })];
 
       const { container } = render(
         <ImageUploadWidget

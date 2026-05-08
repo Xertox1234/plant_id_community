@@ -139,7 +139,8 @@ async function saveToCollection(plantData: SavePlantInput): Promise<UserPlant> {
             confidence: plantData.confidence,
             common_names: plantData.common_names || [],
             watering: plantData.watering || plantData.care_instructions?.watering || null,
-            propagation: plantData.propagation_methods || plantData.care_instructions?.propagation || null,
+            propagation:
+              plantData.propagation_methods || plantData.care_instructions?.propagation || null,
             source: plantData.source,
           },
         }),

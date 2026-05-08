@@ -59,9 +59,7 @@ describe('SearchPage', () => {
     });
 
     // Mock searchForum to return empty results by default
-    vi.spyOn(forumService, 'searchForum').mockResolvedValue(
-      createMockSearchResults()
-    );
+    vi.spyOn(forumService, 'searchForum').mockResolvedValue(createMockSearchResults());
   });
 
   describe('Initial Render', () => {
@@ -138,9 +136,7 @@ describe('SearchPage', () => {
     });
 
     it('displays error message when search fails', async () => {
-      vi.spyOn(forumService, 'searchForum').mockRejectedValue(
-        new Error('Search failed')
-      );
+      vi.spyOn(forumService, 'searchForum').mockRejectedValue(new Error('Search failed'));
 
       renderSearchPage('/forum/search?q=watering');
 
@@ -221,7 +217,9 @@ describe('SearchPage', () => {
 
       await waitFor(() => {
         expect(screen.getByText('No results found for "xyz123"')).toBeInTheDocument();
-        expect(screen.getByText('Try different keywords or remove some filters')).toBeInTheDocument();
+        expect(
+          screen.getByText('Try different keywords or remove some filters')
+        ).toBeInTheDocument();
       });
     });
   });
@@ -291,7 +289,6 @@ describe('SearchPage', () => {
     });
 
     it('clears all filters when clear button clicked', async () => {
-
       renderSearchPage('/forum/search?q=watering&category=plant-care&author=john');
 
       await waitFor(() => {

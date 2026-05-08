@@ -33,9 +33,15 @@ describe('validation utilities', () => {
     });
 
     it('should reject non-string types', () => {
-      expect(() => validateSlug(123 as unknown as string)).toThrow('Slug is required and must be a string');
-      expect(() => validateSlug({} as unknown as string)).toThrow('Slug is required and must be a string');
-      expect(() => validateSlug([] as unknown as string)).toThrow('Slug is required and must be a string');
+      expect(() => validateSlug(123 as unknown as string)).toThrow(
+        'Slug is required and must be a string'
+      );
+      expect(() => validateSlug({} as unknown as string)).toThrow(
+        'Slug is required and must be a string'
+      );
+      expect(() => validateSlug([] as unknown as string)).toThrow(
+        'Slug is required and must be a string'
+      );
     });
 
     it('should reject slugs exceeding 200 characters', () => {
@@ -58,23 +64,39 @@ describe('validation utilities', () => {
     });
 
     it('should reject path traversal patterns', () => {
-      expect(() => validateSlug('../admin')).toThrow('Invalid slug: path traversal patterns are not allowed');
-      expect(() => validateSlug('..\\admin')).toThrow('Invalid slug: path traversal patterns are not allowed');
-      expect(() => validateSlug('post/../etc')).toThrow('Invalid slug: path traversal patterns are not allowed');
-      expect(() => validateSlug('/etc/passwd')).toThrow('Invalid slug: path traversal patterns are not allowed');
-      expect(() => validateSlug('C:\\Windows')).toThrow('Invalid slug: path traversal patterns are not allowed');
+      expect(() => validateSlug('../admin')).toThrow(
+        'Invalid slug: path traversal patterns are not allowed'
+      );
+      expect(() => validateSlug('..\\admin')).toThrow(
+        'Invalid slug: path traversal patterns are not allowed'
+      );
+      expect(() => validateSlug('post/../etc')).toThrow(
+        'Invalid slug: path traversal patterns are not allowed'
+      );
+      expect(() => validateSlug('/etc/passwd')).toThrow(
+        'Invalid slug: path traversal patterns are not allowed'
+      );
+      expect(() => validateSlug('C:\\Windows')).toThrow(
+        'Invalid slug: path traversal patterns are not allowed'
+      );
     });
 
     it('should reject suspicious patterns', () => {
       expect(() => validateSlug('---')).toThrow('Invalid slug: suspicious pattern detected');
       expect(() => validateSlug('___')).toThrow('Invalid slug: suspicious pattern detected');
-      expect(() => validateSlug('post---test')).toThrow('Invalid slug: suspicious pattern detected');
-      expect(() => validateSlug('post___test')).toThrow('Invalid slug: suspicious pattern detected');
+      expect(() => validateSlug('post---test')).toThrow(
+        'Invalid slug: suspicious pattern detected'
+      );
+      expect(() => validateSlug('post___test')).toThrow(
+        'Invalid slug: suspicious pattern detected'
+      );
     });
 
     it('should reject XSS attempts', () => {
       // <script> tags contain '/' which triggers path traversal check
-      expect(() => validateSlug('<script>alert(1)</script>')).toThrow('Invalid slug: path traversal patterns are not allowed');
+      expect(() => validateSlug('<script>alert(1)</script>')).toThrow(
+        'Invalid slug: path traversal patterns are not allowed'
+      );
       expect(() => validateSlug('javascript:alert(1)')).toThrow('Invalid slug format');
       expect(() => validateSlug('onload=alert(1)')).toThrow('Invalid slug format');
     });
@@ -109,7 +131,9 @@ describe('validation utilities', () => {
     });
 
     it('should reject non-UUID formats', () => {
-      expect(() => validateToken('not-a-uuid')).toThrow('Invalid token format: must be a valid UUID v4');
+      expect(() => validateToken('not-a-uuid')).toThrow(
+        'Invalid token format: must be a valid UUID v4'
+      );
       expect(() => validateToken('12345678-1234-1234-1234-123456789abc')).toThrow(
         'Invalid token format: must be a valid UUID v4'
       );
@@ -135,7 +159,9 @@ describe('validation utilities', () => {
     });
 
     it('should reject path traversal attempts', () => {
-      expect(() => validateToken('../admin')).toThrow('Invalid token format: must be a valid UUID v4');
+      expect(() => validateToken('../admin')).toThrow(
+        'Invalid token format: must be a valid UUID v4'
+      );
     });
 
     it('should reject XSS attempts', () => {
@@ -154,17 +180,25 @@ describe('validation utilities', () => {
     });
 
     it('should reject null or undefined', () => {
-      expect(() => validateContentType(null)).toThrow('Content type is required and must be a string');
-      expect(() => validateContentType(undefined)).toThrow('Content type is required and must be a string');
+      expect(() => validateContentType(null)).toThrow(
+        'Content type is required and must be a string'
+      );
+      expect(() => validateContentType(undefined)).toThrow(
+        'Content type is required and must be a string'
+      );
     });
 
     it('should reject empty string', () => {
-      expect(() => validateContentType('')).toThrow('Content type is required and must be a string');
+      expect(() => validateContentType('')).toThrow(
+        'Content type is required and must be a string'
+      );
     });
 
     it('should reject content types exceeding 100 characters', () => {
       const longType = 'a'.repeat(101);
-      expect(() => validateContentType(longType)).toThrow('Content type is too long (maximum 100 characters)');
+      expect(() => validateContentType(longType)).toThrow(
+        'Content type is too long (maximum 100 characters)'
+      );
     });
 
     it('should reject special characters', () => {
@@ -201,8 +235,12 @@ describe('validation utilities', () => {
 
     it('should reject XSS attempts', () => {
       // <script> tags contain '/' which triggers path traversal check
-      expect(() => validateContentType('<script>.alert</script>')).toThrow('Invalid content type: path traversal patterns are not allowed');
-      expect(() => validateContentType('javascript:alert(1)')).toThrow('Invalid content type format');
+      expect(() => validateContentType('<script>.alert</script>')).toThrow(
+        'Invalid content type: path traversal patterns are not allowed'
+      );
+      expect(() => validateContentType('javascript:alert(1)')).toThrow(
+        'Invalid content type format'
+      );
     });
   });
 
@@ -315,7 +353,9 @@ describe('validation utilities', () => {
 
     it('should accept valid HTTPS URLs', () => {
       expect(validateUrl('https://example.com')).toBe('https://example.com');
-      expect(validateUrl('https://example.com/path/to/page')).toBe('https://example.com/path/to/page');
+      expect(validateUrl('https://example.com/path/to/page')).toBe(
+        'https://example.com/path/to/page'
+      );
       expect(validateUrl('https://sub.example.com')).toBe('https://sub.example.com');
     });
 
@@ -436,20 +476,30 @@ describe('validation utilities', () => {
     });
 
     it('should enforce page minimum of 1', () => {
-      expect(() => validatePagination({ page: '0', limit: '10' })).toThrow('Value must be at least 1');
-      expect(() => validatePagination({ page: '-1', limit: '10' })).toThrow('Value must be at least 1');
+      expect(() => validatePagination({ page: '0', limit: '10' })).toThrow(
+        'Value must be at least 1'
+      );
+      expect(() => validatePagination({ page: '-1', limit: '10' })).toThrow(
+        'Value must be at least 1'
+      );
     });
 
     it('should enforce page maximum of 10000', () => {
-      expect(() => validatePagination({ page: '10001', limit: '10' })).toThrow('Value must be at most 10000');
+      expect(() => validatePagination({ page: '10001', limit: '10' })).toThrow(
+        'Value must be at most 10000'
+      );
     });
 
     it('should enforce limit minimum of 1', () => {
-      expect(() => validatePagination({ page: '1', limit: '0' })).toThrow('Value must be at least 1');
+      expect(() => validatePagination({ page: '1', limit: '0' })).toThrow(
+        'Value must be at least 1'
+      );
     });
 
     it('should enforce limit maximum of 100', () => {
-      expect(() => validatePagination({ page: '1', limit: '101' })).toThrow('Value must be at most 100');
+      expect(() => validatePagination({ page: '1', limit: '101' })).toThrow(
+        'Value must be at most 100'
+      );
     });
 
     it('should accept edge case values', () => {
@@ -461,11 +511,15 @@ describe('validation utilities', () => {
     });
 
     it('should reject invalid page values', () => {
-      expect(() => validatePagination({ page: 'abc', limit: '10' })).toThrow('Value must be a valid integer');
+      expect(() => validatePagination({ page: 'abc', limit: '10' })).toThrow(
+        'Value must be a valid integer'
+      );
     });
 
     it('should reject invalid limit values', () => {
-      expect(() => validatePagination({ page: '1', limit: 'xyz' })).toThrow('Value must be a valid integer');
+      expect(() => validatePagination({ page: '1', limit: 'xyz' })).toThrow(
+        'Value must be a valid integer'
+      );
     });
   });
 
@@ -481,13 +535,17 @@ describe('validation utilities', () => {
         'Invalid slug: path traversal patterns are not allowed'
       );
       // <script> tags contain '/' which triggers path traversal check
-      expect(() => validateCategorySlug('<script>alert(1)</script>')).toThrow('Invalid slug: path traversal patterns are not allowed');
+      expect(() => validateCategorySlug('<script>alert(1)</script>')).toThrow(
+        'Invalid slug: path traversal patterns are not allowed'
+      );
       expect(() => validateCategorySlug('invalid slug')).toThrow('Invalid slug format'); // Space
     });
 
     it('should reject null or undefined', () => {
       expect(() => validateCategorySlug(null)).toThrow('Slug is required and must be a string');
-      expect(() => validateCategorySlug(undefined)).toThrow('Slug is required and must be a string');
+      expect(() => validateCategorySlug(undefined)).toThrow(
+        'Slug is required and must be a string'
+      );
     });
   });
 
@@ -505,18 +563,30 @@ describe('validation utilities', () => {
     });
 
     it('should reject null or undefined filename', () => {
-      expect(() => validateFileType(null, ['jpg'])).toThrow('Filename is required and must be a string');
-      expect(() => validateFileType(undefined, ['jpg'])).toThrow('Filename is required and must be a string');
+      expect(() => validateFileType(null, ['jpg'])).toThrow(
+        'Filename is required and must be a string'
+      );
+      expect(() => validateFileType(undefined, ['jpg'])).toThrow(
+        'Filename is required and must be a string'
+      );
     });
 
     it('should reject empty filename', () => {
-      expect(() => validateFileType('', ['jpg'])).toThrow('Filename is required and must be a string');
+      expect(() => validateFileType('', ['jpg'])).toThrow(
+        'Filename is required and must be a string'
+      );
     });
 
     it('should reject invalid allowed extensions', () => {
-      expect(() => validateFileType('image.jpg', null)).toThrow('Allowed extensions must be a non-empty array');
-      expect(() => validateFileType('image.jpg', [])).toThrow('Allowed extensions must be a non-empty array');
-      expect(() => validateFileType('image.jpg', 'jpg' as unknown as string[])).toThrow('Allowed extensions must be a non-empty array');
+      expect(() => validateFileType('image.jpg', null)).toThrow(
+        'Allowed extensions must be a non-empty array'
+      );
+      expect(() => validateFileType('image.jpg', [])).toThrow(
+        'Allowed extensions must be a non-empty array'
+      );
+      expect(() => validateFileType('image.jpg', 'jpg' as unknown as string[])).toThrow(
+        'Allowed extensions must be a non-empty array'
+      );
     });
 
     it('should reject disallowed file types', () => {
@@ -596,7 +666,7 @@ describe('validation utilities', () => {
       const sqlInjections = [
         "'; DROP TABLE users--",
         "1' OR '1'='1",
-        'admin\' --',
+        "admin' --",
         '1 UNION SELECT * FROM users',
       ];
 

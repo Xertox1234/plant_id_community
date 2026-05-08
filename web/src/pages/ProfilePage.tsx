@@ -1,4 +1,4 @@
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth } from '../contexts/AuthContext';
 
 /**
  * ProfilePage Component
@@ -13,16 +13,14 @@ import { useAuth } from '../contexts/AuthContext'
  * - Manage account preferences
  */
 export default function ProfilePage() {
-  const { user } = useAuth()
+  const { user } = useAuth();
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
       {/* Page Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Profile</h1>
-        <p className="mt-2 text-gray-600">
-          Manage your account information and preferences
-        </p>
+        <p className="mt-2 text-gray-600">Manage your account information and preferences</p>
       </div>
 
       {/* Profile Card */}
@@ -43,14 +41,10 @@ export default function ProfilePage() {
         {/* Profile Information */}
         <div className="space-y-6">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Account Information
-            </h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Information</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Full Name
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
                 <p className="text-gray-900">{user?.name || 'Not set'}</p>
               </div>
               <div>
@@ -65,13 +59,12 @@ export default function ProfilePage() {
           {/* Placeholder Notice */}
           <div className="mt-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm text-blue-800">
-              <strong>Coming Soon:</strong> Profile editing, password change,
-              and profile picture upload features will be available in a future
-              update.
+              <strong>Coming Soon:</strong> Profile editing, password change, and profile picture
+              upload features will be available in a future update.
             </p>
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }

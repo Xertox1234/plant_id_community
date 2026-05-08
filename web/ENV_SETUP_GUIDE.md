@@ -3,6 +3,7 @@
 ## Required Environment Variables
 
 ### 1. Backend API URL
+
 **Variable**: `VITE_API_URL`  
 **Default**: `http://localhost:8000`  
 **Purpose**: Django backend API endpoint  
@@ -17,6 +18,7 @@
 The Django backend handles plant identification using these services. **You don't need to add these to the React frontend** - they should be configured in the Django backend `.env` file.
 
 #### Trefle API (Plant Database)
+
 - **Purpose**: Plant species database and taxonomy
 - **Get Key**: https://trefle.io/
 - **Backend Variable**: `TREFLE_API_KEY`
@@ -24,6 +26,7 @@ The Django backend handles plant identification using these services. **You don'
 - **Cost**: Free for development
 
 #### PlantNet API (AI Identification)
+
 - **Purpose**: AI-powered plant identification from photos
 - **Get Key**: https://my.plantnet.org/
 - **Backend Variable**: `PLANTNET_API_KEY`
@@ -31,6 +34,7 @@ The Django backend handles plant identification using these services. **You don'
 - **Cost**: Free for development
 
 #### Kindwise (Plant.id) API - PRIMARY
+
 - **Purpose**: AI plant identification with disease detection
 - **Get Key**: https://web.plant.id/
 - **Backend Variable**: `PLANT_ID_API_KEY`
@@ -38,9 +42,10 @@ The Django backend handles plant identification using these services. **You don'
 - **Usage**: Primary identification + health assessment
 
 #### PlantNet API - SUPPLEMENTAL
+
 - **Purpose**: Open source plant identification + care instructions
 - **Get Key**: https://my.plantnet.org/
-- **Backend Variable**: `PLANTNET_API_KEY`  
+- **Backend Variable**: `PLANTNET_API_KEY`
 - **Current Key**: ✅ Configured
 - **Usage**: Enrich results with detailed care instructions
 
@@ -51,11 +56,13 @@ The Django backend handles plant identification using these services. **You don'
 ### Development Setup (Minimal)
 
 1. **Copy the example file**:
+
    ```bash
    cp .env.example .env
    ```
 
 2. **Set backend URL** (default works for local development):
+
    ```bash
    VITE_API_URL=http://localhost:8000
    ```
@@ -72,16 +79,19 @@ That's it! The React frontend will work with mock data until you connect the Dja
 ### Production Setup
 
 1. **Copy the example file**:
+
    ```bash
    cp .env.example .env
    ```
 
 2. **Set your production backend URL**:
+
    ```bash
    VITE_API_URL=https://api.yourdomain.com
    ```
 
 3. **Optional: Add analytics**:
+
    ```bash
    VITE_GA4_MEASUREMENT_ID=G-XXXXXXXXXX
    VITE_SENTRY_DSN=https://your-sentry-dsn@sentry.io/project-id
@@ -100,14 +110,17 @@ That's it! The React frontend will work with mock data until you connect the Dja
 The Plant ID feature requires the **Django backend** to be running with proper API keys configured.
 
 ### Backend Environment File Location
+
 `/existing_implementation/backend/.env`
 
 ### Required Backend API Keys
 
 1. **Plant.id API** (Current implementation):
+
    ```bash
    PLANT_ID_API_KEY=your-plant-id-api-key
    ```
+
    - Get key: https://web.plant.id/
    - Free trial: 100 identifications
    - Production: $29/month
@@ -121,16 +134,19 @@ The Plant ID feature requires the **Django backend** to be running with proper A
 ### Backend Setup Steps
 
 1. Navigate to backend directory:
+
    ```bash
    cd existing_implementation/backend
    ```
 
 2. Copy environment template:
+
    ```bash
    cp .env.example .env
    ```
 
 3. Add your Plant.id API key:
+
    ```bash
    # In .env file
    PLANT_ID_API_KEY=your-actual-key-here
@@ -150,11 +166,13 @@ Now the React frontend can connect to Django at `http://localhost:8000` and use 
 ### For Plant Identification
 
 The backend tries APIs in this order:
+
 1. **Plant.id API** (primary) - Best accuracy, disease detection
 2. **PlantNet API** (fallback) - Free, good for common plants
 3. **Trefle API** (database) - Plant info after identification
 
 You only need **one** of these to work:
+
 - **Recommended**: Get Plant.id API key (100 free identifications to test)
 - **Free alternative**: Use PlantNet API (500/day free)
 
@@ -165,7 +183,7 @@ You only need **one** of these to work:
 ✅ **React Frontend**: Fully built and ready  
 ✅ **Django Backend**: Exists in `/existing_implementation/backend/`  
 ⚠️ **API Keys**: Need to be configured in Django backend `.env`  
-⚠️ **Backend Running**: Needs `python manage.py runserver` on port 8000  
+⚠️ **Backend Running**: Needs `python manage.py runserver` on port 8000
 
 ---
 
@@ -178,6 +196,7 @@ The React frontend works standalone! Just:
 3. You'll see a "Network Error" (expected without backend)
 
 To see it working:
+
 1. Configure backend API key (Plant.id or PlantNet)
 2. Start Django server: `python manage.py runserver`
 3. Upload photo again - now you'll get real AI results! 🌿
@@ -189,12 +208,14 @@ To see it working:
 ### Quick Start (Free Testing)
 
 **Option 1: Plant.id** (Best accuracy)
+
 1. Go to https://web.plant.id/
 2. Sign up for free account
 3. Get API key (100 free identifications)
 4. Add to backend `.env`: `PLANT_ID_API_KEY=your-key`
 
 **Option 2: PlantNet** (More free calls)
+
 1. Go to https://my.plantnet.org/
 2. Create account
 3. Generate API key (500/day free)
@@ -203,6 +224,7 @@ To see it working:
 ### For Production
 
 **Plant.id Pro**:
+
 - $29/month = 1,000 identifications
 - $49/month = 2,500 identifications
 - Best accuracy + disease detection
@@ -213,16 +235,19 @@ To see it working:
 ## Need Help?
 
 **Frontend not connecting to backend?**
+
 - Check backend is running: `curl http://localhost:8000/api/`
 - Check CORS settings in Django `settings.py`
 - Verify `VITE_API_URL` in `.env`
 
 **Plant ID not working?**
+
 - Check backend logs: `python manage.py runserver`
 - Verify API key in backend `.env`
 - Test API key directly: see backend docs
 
 **Still stuck?**
+
 - Check `/existing_implementation/docs/` for detailed guides
 - Review Django backend logs for errors
 - Ensure database is migrated: `python manage.py migrate`
