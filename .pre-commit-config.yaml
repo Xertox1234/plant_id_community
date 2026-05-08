@@ -84,7 +84,7 @@ repos:
       # Block CLAUDE.md from being committed
       - id: block-claude-md
         name: Block CLAUDE.md (local development file only)
-        entry: bash -c 'if git diff --cached --name-only | grep -q "^CLAUDE.md$"; then echo "ERROR: CLAUDE.md must NEVER be committed (local file only). See Issue #1."; exit 1; fi'
+        entry: bash -c 'if git diff --cached --name-only | grep -q "^CLAUDE.md$"; then echo "ERROR - CLAUDE.md must NEVER be committed (local file only). See Issue #1."; exit 1; fi'
         language: system
         pass_filenames: false
         always_run: true
@@ -92,7 +92,7 @@ repos:
       # Block .env files (except .env.example)
       - id: block-env-files
         name: Block .env files (use .env.example instead)
-        entry: bash -c 'if git diff --cached --name-only | grep -E "\.env$|\.env\.local$|\.env\.production$" | grep -v "\.env\.example"; then echo "ERROR: .env files must NOT be committed. Use .env.example for templates."; exit 1; fi'
+        entry: bash -c 'if git diff --cached --name-only | grep -E "\.env$|\.env\.local$|\.env\.production$" | grep -v "\.env\.example"; then echo "ERROR - .env files must NOT be committed. Use .env.example for templates."; exit 1; fi'
         language: system
         pass_filenames: false
         always_run: true
@@ -100,7 +100,7 @@ repos:
       # Scan for API key patterns in staged files
       - id: scan-api-keys
         name: Scan for exposed API keys in code
-        entry: bash -c 'for file in $(git diff --cached --name-only); do if [[ -f "$file" ]] && ! [[ "$file" =~ \.env\.example$ ]]; then if grep -HnE "[A-Z_]+_API_KEY\s*=\s*['\''\"'''][A-Za-z0-9_\-]{20,}['\''\"''']" "$file" 2>/dev/null; then echo "WARNING: Potential API key detected in $file. Verify this is a placeholder."; fi; fi; done'
+        entry: bash -c 'for file in $(git diff --cached --name-only); do if [[ -f "$file" ]] && ! [[ "$file" =~ \.env\.example$ ]]; then if grep -HnE "[A-Z_]+_API_KEY\s*=\s*['\''\"'''][A-Za-z0-9_\-]{20,}['\''\"''']" "$file" 2>/dev/null; then echo "WARNING - Potential API key detected in $file. Verify this is a placeholder."; fi; fi; done'
         language: system
         pass_filenames: false
         always_run: true
@@ -109,7 +109,7 @@ repos:
       # Scan for Django SECRET_KEY patterns
       - id: scan-django-secrets
         name: Scan for Django SECRET_KEY in code
-        entry: bash -c 'for file in $(git diff --cached --name-only); do if [[ -f "$file" ]] && ! [[ "$file" =~ \.env\.example$ ]]; then if grep -HnE "SECRET_KEY\s*=\s*['\''\"'''][A-Za-z0-9!@#\$%^&*()_+\-=\[\]{}|;:,.<>?]{40,}['\''\"''']" "$file" 2>/dev/null; then echo "WARNING: Potential Django SECRET_KEY detected in $file."; fi; fi; done'
+        entry: bash -c 'for file in $(git diff --cached --name-only); do if [[ -f "$file" ]] && ! [[ "$file" =~ \.env\.example$ ]]; then if grep -HnE "SECRET_KEY\s*=\s*['\''\"'''][A-Za-z0-9!@#\$%^&*()_+\-=\[\]{}|;:,.<>?]{40,}['\''\"''']" "$file" 2>/dev/null; then echo "WARNING - Potential Django SECRET_KEY detected in $file."; fi; fi; done'
         language: system
         pass_filenames: false
         always_run: true
@@ -118,7 +118,7 @@ repos:
       # Verify .gitignore contains critical patterns
       - id: verify-gitignore
         name: Verify .gitignore has security patterns
-        entry: bash -c 'if ! grep -q "^CLAUDE.md$" .gitignore; then echo "ERROR: Add CLAUDE.md to .gitignore"; exit 1; fi; if ! grep -q "^.env$" .gitignore; then echo "ERROR: Add .env to .gitignore"; exit 1; fi'
+        entry: bash -c 'if ! grep -q "^CLAUDE.md$" .gitignore; then echo "ERROR - Add CLAUDE.md to .gitignore"; exit 1; fi; if ! grep -q "^.env$" .gitignore; then echo "ERROR - Add .env to .gitignore"; exit 1; fi'
         language: system
         pass_filenames: false
         always_run: true
