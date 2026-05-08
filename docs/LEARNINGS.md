@@ -195,4 +195,14 @@ This file is append-only. New entries are added by main Claude after each code r
 **Mistake**: `apps/users/firebase_auth_views.py` accepted any successfully-verified Firebase ID token and looked up / created the matching Django user purely on `email`. An attacker could sign up with Firebase email/password using a victim's email address, never click the verify link, and still log in as that user once a Django account with the same email existed (account takeover).
 **Fix**: After `decoded_token = firebase_auth.verify_id_token(...)`, explicitly check `decoded_token.get('email_verified')` and `decoded_token.get('firebase', {}).get('sign_in_provider')`. Reject with HTTP 403 unless the email is verified OR the provider is in a TRUSTED_PROVIDERS allowlist (`google.com`, `apple.com` self-verify emails). Confirmed via Context7 docs (`/websites/firebase_google_auth_admin`) that the SDK does not implicitly enforce verification — it returns the claim and leaves the policy to the caller.
 **Rule**: Any backend that exchanges a Firebase ID token for a session/JWT and matches users by email MUST gate on `email_verified == True` (or a federated-provider allowlist). `verify_id_token` only validates signature/expiry/audience — verification status of the email is the integrator's responsibility. See `backend/docs/patterns/security/authentication.md` for the full pattern.
+
+---
+
+## Tooling / Agents (2026-05-08 additions)
+
+### [2026-05-08] Name-gated pre-commit hooks break files that have both a tracked and a local form
+
+**Mistake**: A `block-claude-md` hook used `grep -E "CLAUDE\.md"` against staged filenames to prevent `CLAUDE.md` from ever being committed. The intent was to stop developers accidentally committing local personalisation notes. Instead it blocked the *team-shared* `CLAUDE.md` (project conventions, delegation rules, critical gotchas) which is intentionally tracked. The hook had no way to distinguish the two forms.
+**Fix**: Removed `block-claude-md`. The two concerns are already handled separately: `.gitignore` with a `CLAUDE.md` entry prevents accidental commits of a purely-local file; `scan-api-keys` catches real credentials regardless of filename. The team-shared `CLAUDE.md` is committed normally.
+**Rule**: Name-gating ("block this filename") is only appropriate for files that must *never* appear in git history (e.g. `.env`, `*.pem`). For files that have a legitimate tracked form alongside a private local form, use `.gitignore` to guard the private form and rely on content-scanning hooks (detect-secrets, scan-api-keys) to catch actual secrets. Combining both in one hook conflates two distinct problems and will eventually block a legitimate commit.
 **Agent**: security-reviewer
