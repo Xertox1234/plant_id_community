@@ -1284,7 +1284,7 @@ def create_demo_data(request: Request) -> Response:
     """
     Create demo data for new users to explore the platform.
     """
-    from .models import OnboardingProgress, DemoData
+    from .models import OnboardingProgress
     from .services import DemoDataService
     
     include_care_reminders = request.data.get('include_care_reminders', True)
@@ -1303,7 +1303,6 @@ def create_demo_data(request: Request) -> Response:
             
             return Response({
                 'message': 'Demo data created successfully',
-                'demo_data_id': demo_data.id,
                 'created_items': {
                     'identifications': demo_data.created_data.get('identifications_count', 0),
                     'forum_posts': demo_data.created_data.get('forum_posts_count', 0),

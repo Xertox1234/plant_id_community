@@ -18,8 +18,12 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
+
 import firebase_admin
 from firebase_admin import auth as firebase_auth, credentials
+
+# Federated providers that self-verify email — no explicit email_verified check needed.
+_TRUSTED_FIREBASE_PROVIDERS = frozenset({'google.com', 'apple.com'})
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -147,8 +151,7 @@ def firebase_token_exchange(request: Request) -> Response:
             # Reject unverified-email tokens to prevent account takeover via Firebase
             # email/password sign-up to a never-verified address that collides with an
             # existing Django user. Federated providers (Google, Apple) self-verify.
-            TRUSTED_PROVIDERS = {'google.com', 'apple.com'}
-            if firebase_email and not email_verified and sign_in_provider not in TRUSTED_PROVIDERS:
+            if firebase_email and not email_verified and sign_in_provider not in _TRUSTED_FIREBASE_PROVIDERS:
                 logger.warning(
                     f"[FIREBASE AUTH] Rejected unverified email login "
                     f"(provider={sign_in_provider}, email={redact_email(firebase_email)})"
