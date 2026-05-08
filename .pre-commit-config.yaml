@@ -166,7 +166,7 @@ repos:
 
       - id: prettier-web
         name: Check JS/TS formatting with Prettier
-        entry: bash -c 'cd web && npx prettier --check .'
+        entry: bash -c 'cd web && npx prettier --check "**/*.{js,jsx,ts,tsx}"'
         language: system
         files: ^web/.*\.(js|jsx|ts|tsx)$
         pass_filenames: false
