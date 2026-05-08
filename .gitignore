@@ -209,3 +209,6 @@ docs/reviews/.*-partial.json
 
 # Completing-todos run checkpoints (per-run, transient)
 todos/.completing-todos-run-*.json
+
+# Local coworking notes (not tracked)
+docs/cowork/
