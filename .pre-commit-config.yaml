@@ -202,7 +202,8 @@ repos:
         exclude: |
           (?x)^(
             PLANNING/.*|
-            backend/docs/development/SECURITY_INCIDENT_.*\.md$
+            backend/docs/development/SECURITY_INCIDENT_.*\.md$|
+            todos/archive/.*\.md$
           )
 
   # ===================================

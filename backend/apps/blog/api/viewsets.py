@@ -12,17 +12,14 @@ Performance Optimizations (Phase 2):
 
 import logging
 import time
-from django.db.models import Q, Prefetch
+
+from django.db.models import Prefetch, Q
 from django.utils import timezone
 from rest_framework import filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from wagtail.api.v2.filters import FieldsFilter, OrderingFilter, SearchFilter
 from wagtail.api.v2.views import PagesAPIViewSet
-from wagtail.api.v2.filters import (
-    FieldsFilter,
-    OrderingFilter,
-    SearchFilter
-)
 from wagtail.images.models import Image
 
 try:
@@ -31,27 +28,27 @@ except ImportError:
     # For Wagtail versions where Query might be located elsewhere
     Query = None
 
-from ..models import (
-    BlogPostPage,
-    BlogIndexPage,
-    BlogCategoryPage,
-    BlogAuthorPage,
-    BlogCategory,
-    BlogSeries,
-    BlogPostView
-)
-from .serializers import (
-    BlogPostPageSerializer,
-    BlogPostPageListSerializer,
-    BlogIndexPageSerializer,
-    BlogCategoryPageSerializer,
-    BlogAuthorPageSerializer
-)
-from ..services.blog_cache_service import BlogCacheService
 from ..constants import (
+    POPULAR_POSTS_DEFAULT_DAYS,
     POPULAR_POSTS_DEFAULT_LIMIT,
     POPULAR_POSTS_MAX_LIMIT,
-    POPULAR_POSTS_DEFAULT_DAYS,
+)
+from ..models import (
+    BlogAuthorPage,
+    BlogCategory,
+    BlogCategoryPage,
+    BlogIndexPage,
+    BlogPostPage,
+    BlogPostView,
+    BlogSeries,
+)
+from ..services.blog_cache_service import BlogCacheService
+from .serializers import (
+    BlogAuthorPageSerializer,
+    BlogCategoryPageSerializer,
+    BlogIndexPageSerializer,
+    BlogPostPageListSerializer,
+    BlogPostPageSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,154 +65,171 @@ class BlogPostPageViewSet(PagesAPIViewSet):
     # Override serializer classes
     def get_serializer_class(self):
         """Use different serializers for list vs detail views."""
-        if getattr(self, 'action', None) == 'list':
+        if getattr(self, "action", None) == "list":
             return BlogPostPageListSerializer
         return BlogPostPageSerializer
-    
+
     # Custom filtering
     filter_backends = [
         FieldsFilter,
         OrderingFilter,
         SearchFilter,
     ]
-    
+
     # Allowed fields for filtering
-    known_query_parameters = PagesAPIViewSet.known_query_parameters.union([
-        'category',
-        'category_slug',
-        'author',
-        'author_username',
-        'series',
-        'series_slug',
-        'tag',
-        'difficulty',
-        'featured',
-        'date_from',
-        'date_to',
-        'plant_species',
-        'format'  # For RSS/Atom feeds
-    ])
-    
+    known_query_parameters = PagesAPIViewSet.known_query_parameters.union(
+        [
+            "category",
+            "category_slug",
+            "author",
+            "author_username",
+            "series",
+            "series_slug",
+            "tag",
+            "difficulty",
+            "featured",
+            "date_from",
+            "date_to",
+            "plant_species",
+            "format",  # For RSS/Atom feeds
+        ]
+    )
+
     def get_queryset(self):
         """Enhanced queryset with blog-specific filtering."""
         queryset = BlogPostPage.objects.live().public().specific()
-        
+
         # Category filtering
-        category_id = self.request.GET.get('category')
-        category_slug = self.request.GET.get('category_slug')
+        category_id = self.request.GET.get("category")
+        category_slug = self.request.GET.get("category_slug")
         if category_id:
             queryset = queryset.filter(categories__id=category_id)
         elif category_slug:
             queryset = queryset.filter(categories__slug=category_slug)
-        
+
         # Author filtering
-        author_id = self.request.GET.get('author')
-        author_username = self.request.GET.get('author_username')
+        author_id = self.request.GET.get("author")
+        author_username = self.request.GET.get("author_username")
         if author_id:
             queryset = queryset.filter(author__id=author_id)
         elif author_username:
             queryset = queryset.filter(author__username=author_username)
-        
+
         # Series filtering
-        series_id = self.request.GET.get('series')
-        series_slug = self.request.GET.get('series_slug')
+        series_id = self.request.GET.get("series")
+        series_slug = self.request.GET.get("series_slug")
         if series_id:
             queryset = queryset.filter(series__id=series_id)
         elif series_slug:
             queryset = queryset.filter(series__slug=series_slug)
-        
+
         # Tag filtering
-        tag = self.request.GET.get('tag')
+        tag = self.request.GET.get("tag")
         if tag:
             queryset = queryset.filter(tags__name__iexact=tag)
-        
+
         # Difficulty filtering
-        difficulty = self.request.GET.get('difficulty')
+        difficulty = self.request.GET.get("difficulty")
         if difficulty:
             queryset = queryset.filter(difficulty_level=difficulty)
-        
+
         # Featured posts
-        featured = self.request.GET.get('featured')
-        if featured and featured.lower() in ['true', '1']:
+        featured = self.request.GET.get("featured")
+        if featured and featured.lower() in ["true", "1"]:
             queryset = queryset.filter(is_featured=True)
-        
+
         # Date range filtering
-        date_from = self.request.GET.get('date_from')
-        date_to = self.request.GET.get('date_to')
+        date_from = self.request.GET.get("date_from")
+        date_to = self.request.GET.get("date_to")
         if date_from:
             queryset = queryset.filter(publish_date__gte=date_from)
         if date_to:
             queryset = queryset.filter(publish_date__lte=date_to)
-        
+
         # Plant species filtering
-        plant_species = self.request.GET.get('plant_species')
+        plant_species = self.request.GET.get("plant_species")
         if plant_species:
             queryset = queryset.filter(related_plant_species__id=plant_species)
-        
+
         # Conditional prefetching based on action type (list vs retrieve)
         # This prevents memory issues from aggressive prefetching
-        action = getattr(self, 'action', None)
+        action = getattr(self, "action", None)
 
-        if action == 'list':
+        if action in ("list", "popular"):
             # List view: Optimized for multiple posts with limited related data
             from django.db.models import Count
+
             from ..models import BlogComment
 
-            queryset = queryset.select_related(
-                'author',  # ForeignKey - reduces queries for author info
-                'series',  # ForeignKey - reduces queries for series info
-            ).prefetch_related(
-                'categories',  # ManyToMany - fetch all categories (usually <5 per post)
-                'tags',  # ManyToMany - tags prefetched but limited in serializer
-                'related_plant_species',  # Prefetch all, limit in serializer (MAX_RELATED_PLANT_SPECIES)
-            ).annotate(
-                # Issue #182: Prevent N+1 query in get_comment_count()
-                _comment_count=Count('comments', filter=Q(comments__is_approved=True))
+            queryset = (
+                queryset.select_related(
+                    "author",  # ForeignKey - reduces queries for author info
+                    "series",  # ForeignKey - reduces queries for series info
+                )
+                .prefetch_related(
+                    "categories",  # ManyToMany - fetch all categories (usually <5 per post)
+                    "tags",  # ManyToMany - tags prefetched but limited in serializer
+                    "related_plant_species",  # Prefetch all, limit in serializer (MAX_RELATED_PLANT_SPECIES)
+                )
+                .annotate(
+                    # Issue #182: Prevent N+1 query in get_comment_count()
+                    _comment_count=Count(
+                        "comments", filter=Q(comments__is_approved=True)
+                    )
+                )
             )
 
             # List view: Only prefetch thumbnail renditions
             try:
                 queryset = queryset.prefetch_related(
                     Prefetch(
-                        'featured_image',
+                        "featured_image",
                         queryset=Image.objects.prefetch_renditions(
-                            'fill-400x300',  # List page thumbnail only
-                        )
+                            "fill-400x300",  # List page thumbnail only
+                        ),
                     )
                 )
                 logger.debug("[PERF] Image rendition prefetching enabled (list view)")
             except (AttributeError, TypeError) as e:
                 logger.warning(f"[PERF] Image rendition prefetching not available: {e}")
 
-        elif action == 'retrieve':
+        elif action == "retrieve":
             # Detail view: Prefetch full data and larger renditions
             from django.db.models import Count
 
-            queryset = queryset.select_related(
-                'author',
-                'series',
-            ).prefetch_related(
-                'categories',
-                'tags',
-                'related_plant_species',  # All related species for detail view
-            ).annotate(
-                # Issue #182: Prevent N+1 query in get_comment_count()
-                _comment_count=Count('comments', filter=Q(comments__is_approved=True))
+            queryset = (
+                queryset.select_related(
+                    "author",
+                    "series",
+                )
+                .prefetch_related(
+                    "categories",
+                    "tags",
+                    "related_plant_species",  # All related species for detail view
+                )
+                .annotate(
+                    # Issue #182: Prevent N+1 query in get_comment_count()
+                    _comment_count=Count(
+                        "comments", filter=Q(comments__is_approved=True)
+                    )
+                )
             )
 
             # Issue #182: Prefetch related posts to prevent N+1 in get_related_posts()
             # Use Prefetch to limit to 3 related posts and optimize query
             try:
                 related_posts_prefetch = Prefetch(
-                    'categories',
+                    "categories",
                     queryset=BlogCategory.objects.prefetch_related(
                         Prefetch(
-                            'blogpostpage_set',
-                            queryset=BlogPostPage.objects.live().public().order_by('-first_published_at')[:3],
-                            to_attr='_prefetched_related_posts'
+                            "blogpostpage_set",
+                            queryset=BlogPostPage.objects.live()
+                            .public()
+                            .order_by("-first_published_at")[:3],
+                            to_attr="_prefetched_related_posts",
                         )
                     ),
-                    to_attr='_prefetched_categories_with_posts'
+                    to_attr="_prefetched_categories_with_posts",
                 )
                 queryset = queryset.prefetch_related(related_posts_prefetch)
             except Exception as e:
@@ -225,11 +239,11 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             try:
                 queryset = queryset.prefetch_related(
                     Prefetch(
-                        'featured_image',
+                        "featured_image",
                         queryset=Image.objects.prefetch_renditions(
-                            'fill-800x600',  # Detail page hero
-                            'width-1200',    # Full width images
-                        )
+                            "fill-800x600",  # Detail page hero
+                            "width-1200",  # Full width images
+                        ),
                     )
                 )
                 logger.debug("[PERF] Image rendition prefetching enabled (detail view)")
@@ -238,10 +252,10 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         else:
             # Other actions (featured, recent, etc.): Basic prefetching
-            queryset = queryset.select_related('author', 'series')
+            queryset = queryset.select_related("author", "series")
 
         return queryset.distinct()
-    
+
     def get_serializer_context(self):
         """
         Override to make wagtailapi_router optional for test compatibility.
@@ -250,53 +264,49 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         added by Wagtail's URL dispatcher. In test contexts using APIRequestFactory,
         this attribute doesn't exist, so we need to handle it gracefully.
         """
-        context = {
-            'request': self.request,
-            'format': self.format_kwarg,
-            'view': self
-        }
+        context = {"request": self.request, "format": self.format_kwarg, "view": self}
         # Add router if available (production), but don't fail if missing (tests)
-        if hasattr(self.request, 'wagtailapi_router'):
-            context['router'] = self.request.wagtailapi_router
+        if hasattr(self.request, "wagtailapi_router"):
+            context["router"] = self.request.wagtailapi_router
         return context
 
     def get_ordering(self):
         """Default ordering for blog posts."""
-        ordering = self.request.GET.get('order', '-first_published_at')
+        ordering = self.request.GET.get("order", "-first_published_at")
 
         # Map friendly ordering names (Phase 6.2: popular ordering added)
         ordering_map = {
-            'newest': '-first_published_at',
-            'oldest': 'first_published_at',
-            'title': 'title',
-            'title_desc': '-title',
-            'popular': '-view_count',  # Phase 6.2: View tracking enabled
+            "newest": "-first_published_at",
+            "oldest": "first_published_at",
+            "title": "title",
+            "title_desc": "-title",
+            "popular": "-view_count",  # Phase 6.2: View tracking enabled
         }
 
         return ordering_map.get(ordering, ordering)
-    
-    @action(detail=False, methods=['get'])
+
+    @action(detail=False, methods=["get"])
     def featured(self, request):
         """Get featured blog posts."""
         featured_posts = self.get_queryset().filter(is_featured=True)[:6]
-        
+
         serializer = BlogPostPageListSerializer(
-            featured_posts, many=True, context={'request': request}
+            featured_posts, many=True, context={"request": request}
         )
         return Response(serializer.data)
-    
-    @action(detail=False, methods=['get'])
+
+    @action(detail=False, methods=["get"])
     def recent(self, request):
         """Get recent blog posts."""
-        limit = int(request.GET.get('limit', 10))
+        limit = int(request.GET.get("limit", 10))
         recent_posts = self.get_queryset()[:limit]
 
         serializer = BlogPostPageListSerializer(
-            recent_posts, many=True, context={'request': request}
+            recent_posts, many=True, context={"request": request}
         )
         return Response(serializer.data)
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=["get"])
     def popular(self, request):
         """
         Get popular blog posts based on view count (Phase 6.2).
@@ -320,10 +330,10 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         start_time = time.time()
 
         limit = min(
-            int(request.GET.get('limit', POPULAR_POSTS_DEFAULT_LIMIT)),
-            POPULAR_POSTS_MAX_LIMIT
+            int(request.GET.get("limit", POPULAR_POSTS_DEFAULT_LIMIT)),
+            POPULAR_POSTS_MAX_LIMIT,
         )
-        days = int(request.GET.get('days', POPULAR_POSTS_DEFAULT_DAYS))
+        days = int(request.GET.get("days", POPULAR_POSTS_DEFAULT_DAYS))
 
         # Check cache first (TODO 040 fix)
         cached_response = BlogCacheService.get_popular_posts(limit, days)
@@ -348,29 +358,32 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             # Prefetch views efficiently with subquery filter to prevent N+1 queries
             # This reduces query count for view-based annotations
             views_prefetch = Prefetch(
-                'views',
+                "views",
                 queryset=BlogPostView.objects.filter(viewed_at__gte=cutoff_date),
-                to_attr='recent_views_list'
+                to_attr="recent_views_list",
             )
 
             # Get posts with views in the time period
             # Use Count annotation for accurate filtering
             from django.db.models import Count
 
-            queryset = queryset.prefetch_related(views_prefetch).annotate(
-                recent_views=Count(
-                    'views',
-                    filter=Q(views__viewed_at__gte=cutoff_date)
+            queryset = (
+                queryset.prefetch_related(views_prefetch)
+                .annotate(
+                    recent_views=Count(
+                        "views", filter=Q(views__viewed_at__gte=cutoff_date)
+                    )
                 )
-            ).order_by('-recent_views', '-view_count', '-first_published_at')
+                .order_by("-recent_views", "-view_count", "-first_published_at")
+            )
         else:
             # All-time popular (simple view_count ordering)
-            queryset = queryset.order_by('-view_count', '-first_published_at')
+            queryset = queryset.order_by("-view_count", "-first_published_at")
 
         popular_posts = queryset[:limit]
 
         serializer = BlogPostPageListSerializer(
-            popular_posts, many=True, context={'request': request}
+            popular_posts, many=True, context={"request": request}
         )
 
         # Cache the response for future requests (TODO 040 fix)
@@ -384,73 +397,89 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         return Response(serializer.data)
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=["get"])
     def by_category(self, request):
         """Get posts grouped by category."""
         categories = BlogCategory.objects.filter(is_featured=True)
-        
+
         result = []
         for category in categories:
             posts = self.get_queryset().filter(categories=category)[:5]
-            result.append({
-                'category': {
-                    'id': category.id,
-                    'name': category.name,
-                    'slug': category.slug,
-                    'color': category.color,
-                    'icon': category.icon,
-                },
-                'posts': BlogPostPageListSerializer(
-                    posts, many=True, context={'request': request}
-                ).data
-            })
-        
+            result.append(
+                {
+                    "category": {
+                        "id": category.id,
+                        "name": category.name,
+                        "slug": category.slug,
+                        "color": category.color,
+                        "icon": category.icon,
+                    },
+                    "posts": BlogPostPageListSerializer(
+                        posts, many=True, context={"request": request}
+                    ).data,
+                }
+            )
+
         return Response(result)
-    
-    @action(detail=False, methods=['get'])
+
+    @action(detail=False, methods=["get"])
     def search_suggestions(self, request):
         """Get search suggestions based on query."""
-        query = request.GET.get('q', '').strip()
+        query = request.GET.get("q", "").strip()
         if not query or len(query) < 2:
             return Response([])
-        
+
         # Search in titles and tags
         suggestions = []
-        
+
         # Title matches
-        title_matches = BlogPostPage.objects.live().public().filter(
-            title__icontains=query
-        ).values_list('title', flat=True)[:5]
-        suggestions.extend([{'type': 'title', 'text': title} for title in title_matches])
-        
+        title_matches = (
+            BlogPostPage.objects.live()
+            .public()
+            .filter(title__icontains=query)
+            .values_list("title", flat=True)[:5]
+        )
+        suggestions.extend(
+            [{"type": "title", "text": title} for title in title_matches]
+        )
+
         # Tag matches
         from taggit.models import Tag
-        tag_matches = Tag.objects.filter(
-            name__icontains=query,
-            taggit_taggeditem_items__content_type__model='blogpostpage'
-        ).distinct().values_list('name', flat=True)[:5]
-        suggestions.extend([{'type': 'tag', 'text': tag} for tag in tag_matches])
-        
+
+        tag_matches = (
+            Tag.objects.filter(
+                name__icontains=query,
+                taggit_taggeditem_items__content_type__model="blogpostpage",
+            )
+            .distinct()
+            .values_list("name", flat=True)[:5]
+        )
+        suggestions.extend([{"type": "tag", "text": tag} for tag in tag_matches])
+
         return Response(suggestions[:10])
-    
-    @action(detail=True, methods=['get'])
+
+    @action(detail=True, methods=["get"])
     def related(self, request, pk=None):
         """Get posts related to a specific post."""
         post = self.get_object()
-        
+
         # Find related posts based on categories and tags
-        related_posts = BlogPostPage.objects.live().public().exclude(
-            id=post.id
-        ).filter(
-            Q(categories__in=post.categories.all()) |
-            Q(tags__in=post.tags.all())
-        ).distinct().order_by('-first_published_at')[:6]
-        
+        related_posts = (
+            BlogPostPage.objects.live()
+            .public()
+            .exclude(id=post.id)
+            .filter(
+                Q(categories__in=post.categories.all()) | Q(tags__in=post.tags.all())
+            )
+            .distinct()
+            .order_by("-first_published_at")[:6]
+        )
+
         serializer = BlogPostPageListSerializer(
-            related_posts, many=True, context={'request': request}
+            related_posts, many=True, context={"request": request}
         )
         return Response(serializer.data)
-    
+
     def listing_view(self, request):
         """
         Enhanced listing view with caching and search tracking.
@@ -470,13 +499,16 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         # Extract pagination and filter parameters for cache key
         # Calculate page number consistently (page numbers start at 1)
-        offset = int(request.GET.get('offset', 0))
-        limit = int(request.GET.get('limit', 20))  # Wagtail default is 20
-        page = (offset // limit) + 1  # Page 1 = offset 0-19, Page 2 = offset 20-39, etc.
+        offset = int(request.GET.get("offset", 0))
+        limit = int(request.GET.get("limit", 20))  # Wagtail default is 20
+        page = (
+            offset // limit
+        ) + 1  # Page 1 = offset 0-19, Page 2 = offset 20-39, etc.
 
         # Extract filters (everything except pagination params)
-        filters = {k: v for k, v in request.GET.items()
-                   if k not in ['offset', 'limit', 'page']}
+        filters = {
+            k: v for k, v in request.GET.items() if k not in ["offset", "limit", "page"]
+        }
 
         # Check cache first (Phase 2.2)
         cached_response = BlogCacheService.get_blog_list(page, limit, filters)
@@ -486,7 +518,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             return Response(cached_response)
 
         # Track search queries for analytics
-        search_query = request.GET.get('search')
+        search_query = request.GET.get("search")
         if search_query and Query:
             try:
                 Query.get(search_query).add_hit()
@@ -534,7 +566,11 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         # Get the blog post to extract slug
         # Try Wagtail's find_object() first, fallback to direct queryset lookup for tests
         queryset = self.get_queryset()
-        instance = self.find_object(queryset, request) if hasattr(self, 'find_object') else None
+        instance = (
+            self.find_object(queryset, request)
+            if hasattr(self, "find_object")
+            else None
+        )
 
         if not instance:
             # Fallback for test context: get object directly by pk
@@ -572,7 +608,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         DRF test patterns while supporting Wagtail's API architecture.
         """
         # Extract pk from kwargs (DRF pattern)
-        pk = kwargs.get('pk')
+        pk = kwargs.get("pk")
         return self.detail_view(request, pk)
 
 
@@ -581,7 +617,7 @@ class BlogIndexPageViewSet(PagesAPIViewSet):
 
     versioning_class = None  # Disable DRF versioning for Wagtail API
     serializer_class = BlogIndexPageSerializer
-    
+
     def get_queryset(self):
         return BlogIndexPage.objects.live().public().specific()
 
@@ -591,7 +627,7 @@ class BlogCategoryPageViewSet(PagesAPIViewSet):
 
     versioning_class = None  # Disable DRF versioning for Wagtail API
     serializer_class = BlogCategoryPageSerializer
-    
+
     def get_queryset(self):
         return BlogCategoryPage.objects.live().public().specific()
 
@@ -601,29 +637,28 @@ class BlogAuthorPageViewSet(PagesAPIViewSet):
 
     versioning_class = None  # Disable DRF versioning for Wagtail API
     serializer_class = BlogAuthorPageSerializer
-    
+
     def get_queryset(self):
         return BlogAuthorPage.objects.live().public().specific()
-    
-    known_query_parameters = PagesAPIViewSet.known_query_parameters.union([
-        'username',
-        'expertise'
-    ])
-    
+
+    known_query_parameters = PagesAPIViewSet.known_query_parameters.union(
+        ["username", "expertise"]
+    )
+
     def get_queryset_filters(self):
         """Add custom filtering for authors."""
         filters = super().get_queryset_filters()
-        
+
         # Filter by username
-        username = self.request.GET.get('username')
+        username = self.request.GET.get("username")
         if username:
-            filters['author__username'] = username
-        
+            filters["author__username"] = username
+
         # Filter by expertise
-        expertise = self.request.GET.get('expertise')
+        expertise = self.request.GET.get("expertise")
         if expertise:
-            filters['expertise_areas__name__icontains'] = expertise
-        
+            filters["expertise_areas__name__icontains"] = expertise
+
         return filters
 
 
@@ -633,38 +668,42 @@ class BlogFeedViewSet(BlogPostPageViewSet):
     Special ViewSet for RSS/Atom feeds.
     Returns blog posts in feed-friendly format.
     """
-    
+
     def get_serializer_class(self):
         """Always use list serializer for feeds."""
         return BlogPostPageListSerializer
-    
-    @action(detail=False, methods=['get'])
+
+    @action(detail=False, methods=["get"])
     def rss(self, request):
         """RSS feed endpoint."""
         posts = self.get_queryset()[:20]
-        
+
         # You would implement RSS XML generation here
         # For now, return JSON that can be converted to RSS
         serializer = self.get_serializer(posts, many=True)
-        
-        return Response({
-            'format': 'rss',
-            'title': 'Plant Community Blog',
-            'description': 'Latest posts from the Plant Community',
-            'posts': serializer.data
-        })
-    
-    @action(detail=False, methods=['get'])
+
+        return Response(
+            {
+                "format": "rss",
+                "title": "Plant Community Blog",
+                "description": "Latest posts from the Plant Community",
+                "posts": serializer.data,
+            }
+        )
+
+    @action(detail=False, methods=["get"])
     def atom(self, request):
         """Atom feed endpoint."""
         posts = self.get_queryset()[:20]
-        
+
         serializer = self.get_serializer(posts, many=True)
-        
-        return Response({
-            'format': 'atom',
-            'title': 'Plant Community Blog',
-            'description': 'Latest posts from the Plant Community',
-            'updated': timezone.now().isoformat(),
-            'posts': serializer.data
-        })
+
+        return Response(
+            {
+                "format": "atom",
+                "title": "Plant Community Blog",
+                "description": "Latest posts from the Plant Community",
+                "updated": timezone.now().isoformat(),
+                "posts": serializer.data,
+            }
+        )
