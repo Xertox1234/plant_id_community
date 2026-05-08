@@ -32,12 +32,9 @@ class LoadingIndicator extends StatelessWidget {
   });
 
   /// Creates a linear progress indicator
-  const LoadingIndicator.linear({
-    super.key,
-    this.message,
-    this.color,
-  })  : type = LoadingIndicatorType.linear,
-        size = 4.0;
+  const LoadingIndicator.linear({super.key, this.message, this.color})
+    : type = LoadingIndicatorType.linear,
+      size = 4.0;
 
   /// Creates a loading indicator with a message
   const LoadingIndicator.withMessage({

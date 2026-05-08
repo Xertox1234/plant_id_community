@@ -26,8 +26,8 @@ class FirebaseStorageService extends Notifier<void> {
   final Uuid _uuid;
 
   FirebaseStorageService({FirebaseStorage? storage, Uuid? uuid})
-      : _providedStorage = storage,
-        _uuid = uuid ?? const Uuid();
+    : _providedStorage = storage,
+      _uuid = uuid ?? const Uuid();
 
   FirebaseStorage get _storage => _providedStorage ?? FirebaseStorage.instance;
 
@@ -44,7 +44,9 @@ class FirebaseStorageService extends Notifier<void> {
     final file = File(filePath);
 
     if (!file.existsSync()) {
-      throw FirebaseStorageServiceException('Image file does not exist: $filePath');
+      throw FirebaseStorageServiceException(
+        'Image file does not exist: $filePath',
+      );
     }
 
     final extension = path.extension(filePath).toLowerCase();
@@ -60,7 +62,9 @@ class FirebaseStorageService extends Notifier<void> {
       throw FirebaseStorageServiceException('Image must be 5 MB or smaller.');
     }
     if (!_hasValidImageSignature(file, extension)) {
-      throw FirebaseStorageServiceException('Image content does not match the file type.');
+      throw FirebaseStorageServiceException(
+        'Image content does not match the file type.',
+      );
     }
 
     final imageId = _uuid.v4();
@@ -95,7 +99,9 @@ class FirebaseStorageService extends Notifier<void> {
         'Failed to upload plant image: ${error.message ?? error.code}',
       );
     } catch (error) {
-      throw FirebaseStorageServiceException('Failed to upload plant image: $error');
+      throw FirebaseStorageServiceException(
+        'Failed to upload plant image: $error',
+      );
     } finally {
       await progressSub?.cancel();
     }
@@ -151,7 +157,9 @@ class FirebaseStorageService extends Notifier<void> {
         'Failed to delete plant image: ${error.message ?? error.code}',
       );
     } catch (error) {
-      throw FirebaseStorageServiceException('Failed to delete plant image: $error');
+      throw FirebaseStorageServiceException(
+        'Failed to delete plant image: $error',
+      );
     }
   }
 }

@@ -75,9 +75,7 @@ class FirestoreService extends _$FirestoreService {
     }
 
     if (userId == '.' || userId == '..') {
-      throw FirestoreException(
-        'Invalid userId: cannot be "." or ".."',
-      );
+      throw FirestoreException('Invalid userId: cannot be "." or ".."');
     }
 
     if (userId.length > 1500) {
@@ -97,9 +95,7 @@ class FirestoreService extends _$FirestoreService {
 
     try {
       if (kDebugMode) {
-        debugPrint(
-          '[FIRESTORE] Saving plant ${plant.name} for user $userId',
-        );
+        debugPrint('[FIRESTORE] Saving plant ${plant.name} for user $userId');
       }
 
       await _firestore
@@ -110,7 +106,9 @@ class FirestoreService extends _$FirestoreService {
           .set(plant.toJson());
 
       if (kDebugMode) {
-        debugPrint('[FIRESTORE] Plant saved successfully (will sync when online)');
+        debugPrint(
+          '[FIRESTORE] Plant saved successfully (will sync when online)',
+        );
       }
     } on FirebaseException catch (e) {
       if (kDebugMode) {
@@ -166,31 +164,35 @@ class FirestoreService extends _$FirestoreService {
         .orderBy('timestamp', descending: true)
         .snapshots()
         .map((snapshot) {
-      if (kDebugMode) {
-        debugPrint(
-          '[FIRESTORE] Received ${snapshot.docs.length} plants '
-          '(from ${snapshot.metadata.isFromCache ? "cache" : "server"})',
-        );
-      }
-
-      return snapshot.docs.map((doc) {
-        try {
-          return Plant.fromJson(doc.data());
-        } catch (e) {
           if (kDebugMode) {
-            debugPrint('[FIRESTORE ERROR] Failed to parse plant: $e');
+            debugPrint(
+              '[FIRESTORE] Received ${snapshot.docs.length} plants '
+              '(from ${snapshot.metadata.isFromCache ? "cache" : "server"})',
+            );
           }
-          // Skip malformed documents
-          return null;
-        }
-      }).whereType<Plant>().toList(); // Filter out nulls
-    }).handleError((error) {
-      if (kDebugMode) {
-        debugPrint('[FIRESTORE ERROR] Stream error: $error');
-      }
-      // Return empty list on error, don't crash the app
-      return <Plant>[];
-    });
+
+          return snapshot.docs
+              .map((doc) {
+                try {
+                  return Plant.fromJson(doc.data());
+                } catch (e) {
+                  if (kDebugMode) {
+                    debugPrint('[FIRESTORE ERROR] Failed to parse plant: $e');
+                  }
+                  // Skip malformed documents
+                  return null;
+                }
+              })
+              .whereType<Plant>()
+              .toList(); // Filter out nulls
+        })
+        .handleError((error) {
+          if (kDebugMode) {
+            debugPrint('[FIRESTORE ERROR] Stream error: $error');
+          }
+          // Return empty list on error, don't crash the app
+          return <Plant>[];
+        });
   }
 
   /// Delete plant from Firestore
@@ -220,7 +222,9 @@ class FirestoreService extends _$FirestoreService {
       if (kDebugMode) {
         debugPrint('[FIRESTORE ERROR] Failed to delete plant: ${e.message}');
       }
-      throw FirestoreException('Failed to delete plant: ${e.message ?? e.code}');
+      throw FirestoreException(
+        'Failed to delete plant: ${e.message ?? e.code}',
+      );
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[FIRESTORE ERROR] Unexpected error: $e');
@@ -313,7 +317,9 @@ class FirestoreService extends _$FirestoreService {
       if (kDebugMode) {
         debugPrint('[FIRESTORE ERROR] Failed to clear plants: ${e.message}');
       }
-      throw FirestoreException('Failed to clear plants: ${e.message ?? e.code}');
+      throw FirestoreException(
+        'Failed to clear plants: ${e.message ?? e.code}',
+      );
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[FIRESTORE ERROR] Unexpected error: $e');

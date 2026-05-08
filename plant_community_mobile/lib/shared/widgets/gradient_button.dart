@@ -45,13 +45,13 @@ class GradientButton extends StatelessWidget {
     final gradient = isDark
         ? const LinearGradient(
             colors: [
-              AppColors.green700,   // dark:from-green-700
+              AppColors.green700, // dark:from-green-700
               AppColors.emerald700, // dark:to-emerald-700
             ],
           )
         : const LinearGradient(
             colors: [
-              AppColors.green600,   // from-green-600
+              AppColors.green600, // from-green-600
               AppColors.emerald600, // to-emerald-600
             ],
           );
@@ -59,17 +59,17 @@ class GradientButton extends StatelessWidget {
     // Get button dimensions based on size
     final buttonPadding = switch (size) {
       GradientButtonSize.small => const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
       GradientButtonSize.medium => const EdgeInsets.symmetric(
-          horizontal: AppSpacing.lg,
-          vertical: AppSpacing.md,
-        ),
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.md,
+      ),
       GradientButtonSize.large => const EdgeInsets.symmetric(
-          horizontal: AppSpacing.xl,
-          vertical: AppSpacing.lg,
-        ),
+        horizontal: AppSpacing.xl,
+        vertical: AppSpacing.lg,
+      ),
     };
 
     final fontSize = switch (size) {
@@ -119,11 +119,7 @@ class GradientButton extends StatelessWidget {
                 ),
                 if (icon != null) ...[
                   SizedBox(width: AppSpacing.sm),
-                  Icon(
-                    icon,
-                    color: Colors.white,
-                    size: iconSize,
-                  ),
+                  Icon(icon, color: Colors.white, size: iconSize),
                 ],
               ],
             ),
@@ -133,10 +129,7 @@ class GradientButton extends StatelessWidget {
     );
 
     if (fullWidth) {
-      return SizedBox(
-        width: double.infinity,
-        child: button,
-      );
+      return SizedBox(width: double.infinity, child: button);
     }
 
     return button;
@@ -144,8 +137,4 @@ class GradientButton extends StatelessWidget {
 }
 
 /// Button size variants
-enum GradientButtonSize {
-  small,
-  medium,
-  large,
-}
+enum GradientButtonSize { small, medium, large }

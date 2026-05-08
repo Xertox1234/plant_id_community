@@ -44,10 +44,7 @@ abstract class RouteTransitions {
       child: child,
       transitionDuration: duration,
       transitionsBuilder: (context, animation, secondaryAnimation, child) {
-        return FadeTransition(
-          opacity: animation,
-          child: child,
-        );
+        return FadeTransition(opacity: animation, child: child);
       },
     );
   }
@@ -96,10 +93,7 @@ abstract class RouteTransitions {
           tween.chain(CurveTween(curve: Curves.easeInOut)),
         );
 
-        return SlideTransition(
-          position: offsetAnimation,
-          child: child,
-        );
+        return SlideTransition(position: offsetAnimation, child: child);
       },
     );
   }
@@ -124,10 +118,7 @@ abstract class RouteTransitions {
           tween.chain(CurveTween(curve: Curves.easeInOut)),
         );
 
-        return SlideTransition(
-          position: offsetAnimation,
-          child: child,
-        );
+        return SlideTransition(position: offsetAnimation, child: child);
       },
     );
   }
@@ -152,10 +143,7 @@ abstract class RouteTransitions {
           tween.chain(CurveTween(curve: Curves.easeInOut)),
         );
 
-        return SlideTransition(
-          position: offsetAnimation,
-          child: child,
-        );
+        return SlideTransition(position: offsetAnimation, child: child);
       },
     );
   }
@@ -186,10 +174,7 @@ abstract class RouteTransitions {
 
         return ScaleTransition(
           scale: animation.drive(scaleTween),
-          child: FadeTransition(
-            opacity: fadeAnimation,
-            child: child,
-          ),
+          child: FadeTransition(opacity: fadeAnimation, child: child),
         );
       },
     );
@@ -222,10 +207,7 @@ abstract class RouteTransitions {
 
         return SlideTransition(
           position: offsetAnimation,
-          child: FadeTransition(
-            opacity: animation,
-            child: child,
-          ),
+          child: FadeTransition(opacity: animation, child: child),
         );
       },
     );
@@ -292,8 +274,7 @@ extension PlatformExtension on BuildContext {
 
   /// Check if running on Android
   bool get isAndroid =>
-      platform == TargetPlatform.android ||
-      platform == TargetPlatform.fuchsia;
+      platform == TargetPlatform.android || platform == TargetPlatform.fuchsia;
 
   /// Check if running on desktop
   bool get isDesktop =>

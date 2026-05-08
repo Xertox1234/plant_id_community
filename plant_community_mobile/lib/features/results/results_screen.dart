@@ -19,18 +19,12 @@ import '../../models/plant.dart';
 class ResultsScreen extends StatelessWidget {
   final Plant plant;
 
-  const ResultsScreen({
-    super.key,
-    required this.plant,
-  });
+  const ResultsScreen({super.key, required this.plant});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Plant Identified'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('Plant Identified'), centerTitle: true),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(AppSpacing.lg),
@@ -119,12 +113,14 @@ class ResultsScreen extends StatelessWidget {
               color: AppColors.green100,
               child: const Center(child: CircularProgressIndicator()),
             ),
-            errorWidget: (context, url, error) => _buildImagePlaceholder(context),
+            errorWidget: (context, url, error) =>
+                _buildImagePlaceholder(context),
           )
         : Image.file(
             File(imagePath),
             fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => _buildImagePlaceholder(context),
+            errorBuilder: (context, error, stackTrace) =>
+                _buildImagePlaceholder(context),
           );
   }
 
@@ -132,9 +128,7 @@ class ResultsScreen extends StatelessWidget {
   Widget _buildImagePlaceholder(BuildContext context) {
     return Container(
       color: AppColors.lightCard,
-      child: const Center(
-        child: Icon(Icons.image_not_supported, size: 64),
-      ),
+      child: const Center(child: Icon(Icons.image_not_supported, size: 64)),
     );
   }
 
@@ -149,9 +143,9 @@ class ResultsScreen extends StatelessWidget {
             // Common Name
             Text(
               plant.name,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: AppSpacing.xs),
 
@@ -159,9 +153,9 @@ class ResultsScreen extends StatelessWidget {
             Text(
               plant.scientificName,
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    fontStyle: FontStyle.italic,
-                    color: Theme.of(context).textTheme.bodySmall?.color,
-                  ),
+                fontStyle: FontStyle.italic,
+                color: Theme.of(context).textTheme.bodySmall?.color,
+              ),
             ),
             const SizedBox(height: AppSpacing.md),
 
@@ -169,9 +163,9 @@ class ResultsScreen extends StatelessWidget {
             Text(
               plant.description,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).textTheme.bodySmall?.color,
-                    height: 1.5,
-                  ),
+                color: Theme.of(context).textTheme.bodySmall?.color,
+                height: 1.5,
+              ),
             ),
           ],
         ),
@@ -190,13 +184,17 @@ class ResultsScreen extends StatelessWidget {
             // Header
             Row(
               children: [
-                const Icon(Icons.water_drop, size: 20, color: AppColors.blue600),
+                const Icon(
+                  Icons.water_drop,
+                  size: 20,
+                  color: AppColors.blue600,
+                ),
                 const SizedBox(width: AppSpacing.sm),
                 Text(
                   'Care Instructions',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -259,9 +257,9 @@ class ResultsScreen extends StatelessWidget {
           child: Text(
             instruction,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).textTheme.bodySmall?.color,
-                  height: 1.5,
-                ),
+              color: Theme.of(context).textTheme.bodySmall?.color,
+              height: 1.5,
+            ),
           ),
         ),
       ],
@@ -276,8 +274,8 @@ class ResultsScreen extends StatelessWidget {
     return Text(
       'Identified on ${dateFormat.format(plant.timestamp)} at ${timeFormat.format(plant.timestamp)}',
       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).textTheme.bodySmall?.color,
-          ),
+        color: Theme.of(context).textTheme.bodySmall?.color,
+      ),
       textAlign: TextAlign.center,
     );
   }

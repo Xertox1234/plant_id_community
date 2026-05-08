@@ -54,7 +54,8 @@ class WeatherData {
   /// Create from OpenWeatherMap API response
   factory WeatherData.fromOpenWeatherMap(Map<String, dynamic> json) {
     final main = json['main'] as Map<String, dynamic>;
-    final weather = (json['weather'] as List<dynamic>)[0] as Map<String, dynamic>;
+    final weather =
+        (json['weather'] as List<dynamic>)[0] as Map<String, dynamic>;
     final wind = json['wind'] as Map<String, dynamic>?;
     final sys = json['sys'] as Map<String, dynamic>?;
     final coord = json['coord'] as Map<String, dynamic>?;
@@ -63,7 +64,8 @@ class WeatherData {
       location: json['name'] as String,
       latitude: coord?['lat'] as double?,
       longitude: coord?['lon'] as double?,
-      temperatureCelsius: (main['temp'] as num).toDouble() - 273.15, // Convert from Kelvin
+      temperatureCelsius:
+          (main['temp'] as num).toDouble() - 273.15, // Convert from Kelvin
       feelsLikeCelsius: main['feels_like'] != null
           ? (main['feels_like'] as num).toDouble() - 273.15
           : null,
@@ -75,7 +77,9 @@ class WeatherData {
           ? ((json['rain'] as Map<String, dynamic>)['1h'] as num?)?.toDouble()
           : null,
       precipitationProbability: null, // Not in current weather
-      windSpeedKmh: wind != null ? (wind['speed'] as num).toDouble() * 3.6 : null, // m/s to km/h
+      windSpeedKmh: wind != null
+          ? (wind['speed'] as num).toDouble() * 3.6
+          : null, // m/s to km/h
       windDirection: wind?['deg'] != null
           ? _degreesToCardinal(wind!['deg'] as int)
           : null,
@@ -150,7 +154,8 @@ class WeatherForecast {
   /// Create from OpenWeatherMap forecast API response
   factory WeatherForecast.fromOpenWeatherMap(Map<String, dynamic> json) {
     final main = json['main'] as Map<String, dynamic>;
-    final weather = (json['weather'] as List<dynamic>)[0] as Map<String, dynamic>;
+    final weather =
+        (json['weather'] as List<dynamic>)[0] as Map<String, dynamic>;
 
     return WeatherForecast(
       date: DateTime.fromMillisecondsSinceEpoch((json['dt'] as int) * 1000),

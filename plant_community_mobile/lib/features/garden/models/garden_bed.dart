@@ -24,7 +24,7 @@ class GardenBed {
   final int? depthInches;
 
   /// Layout data for plant positions (x, y coordinates)
-  /// Stored as JSON Map<String, dynamic>
+  /// Stored as JSON `Map<String, dynamic>`
   final Map<String, dynamic>? layoutData;
 
   /// Location and climate
@@ -85,7 +85,9 @@ class GardenBed {
           : null,
       hardinessZone: json['hardiness_zone'] as String?,
       soilType: json['soil_type'] as String?,
-      soilPh: json['soil_ph'] != null ? (json['soil_ph'] as num).toDouble() : null,
+      soilPh: json['soil_ph'] != null
+          ? (json['soil_ph'] as num).toDouble()
+          : null,
       isActive: json['is_active'] as bool? ?? true,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),

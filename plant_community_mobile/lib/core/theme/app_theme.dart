@@ -150,15 +150,33 @@ class AppTheme {
 
       // Text theme
       textTheme: TextTheme(
-        displayLarge: AppTypography.display.copyWith(color: AppColors.lightForeground),
-        headlineLarge: AppTypography.h1.copyWith(color: AppColors.lightForeground),
-        headlineMedium: AppTypography.h2.copyWith(color: AppColors.lightForeground),
-        headlineSmall: AppTypography.h3.copyWith(color: AppColors.lightForeground),
-        bodyLarge: AppTypography.body.copyWith(color: AppColors.lightForeground),
-        bodyMedium: AppTypography.bodySM.copyWith(color: AppColors.lightForeground),
-        bodySmall: AppTypography.bodyXS.copyWith(color: AppColors.lightForeground),
-        labelLarge: AppTypography.label.copyWith(color: AppColors.lightForeground),
-        labelMedium: AppTypography.caption.copyWith(color: AppColors.lightMutedForeground),
+        displayLarge: AppTypography.display.copyWith(
+          color: AppColors.lightForeground,
+        ),
+        headlineLarge: AppTypography.h1.copyWith(
+          color: AppColors.lightForeground,
+        ),
+        headlineMedium: AppTypography.h2.copyWith(
+          color: AppColors.lightForeground,
+        ),
+        headlineSmall: AppTypography.h3.copyWith(
+          color: AppColors.lightForeground,
+        ),
+        bodyLarge: AppTypography.body.copyWith(
+          color: AppColors.lightForeground,
+        ),
+        bodyMedium: AppTypography.bodySM.copyWith(
+          color: AppColors.lightForeground,
+        ),
+        bodySmall: AppTypography.bodyXS.copyWith(
+          color: AppColors.lightForeground,
+        ),
+        labelLarge: AppTypography.label.copyWith(
+          color: AppColors.lightForeground,
+        ),
+        labelMedium: AppTypography.caption.copyWith(
+          color: AppColors.lightMutedForeground,
+        ),
       ),
 
       // Icon theme
@@ -310,15 +328,31 @@ class AppTheme {
 
       // Text theme
       textTheme: TextTheme(
-        displayLarge: AppTypography.display.copyWith(color: AppColors.darkForeground),
-        headlineLarge: AppTypography.h1.copyWith(color: AppColors.darkForeground),
-        headlineMedium: AppTypography.h2.copyWith(color: AppColors.darkForeground),
-        headlineSmall: AppTypography.h3.copyWith(color: AppColors.darkForeground),
+        displayLarge: AppTypography.display.copyWith(
+          color: AppColors.darkForeground,
+        ),
+        headlineLarge: AppTypography.h1.copyWith(
+          color: AppColors.darkForeground,
+        ),
+        headlineMedium: AppTypography.h2.copyWith(
+          color: AppColors.darkForeground,
+        ),
+        headlineSmall: AppTypography.h3.copyWith(
+          color: AppColors.darkForeground,
+        ),
         bodyLarge: AppTypography.body.copyWith(color: AppColors.darkForeground),
-        bodyMedium: AppTypography.bodySM.copyWith(color: AppColors.darkForeground),
-        bodySmall: AppTypography.bodyXS.copyWith(color: AppColors.darkForeground),
-        labelLarge: AppTypography.label.copyWith(color: AppColors.darkForeground),
-        labelMedium: AppTypography.caption.copyWith(color: AppColors.darkMutedForeground),
+        bodyMedium: AppTypography.bodySM.copyWith(
+          color: AppColors.darkForeground,
+        ),
+        bodySmall: AppTypography.bodyXS.copyWith(
+          color: AppColors.darkForeground,
+        ),
+        labelLarge: AppTypography.label.copyWith(
+          color: AppColors.darkForeground,
+        ),
+        labelMedium: AppTypography.caption.copyWith(
+          color: AppColors.darkMutedForeground,
+        ),
       ),
 
       // Icon theme

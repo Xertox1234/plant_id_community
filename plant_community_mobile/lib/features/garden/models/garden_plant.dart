@@ -175,7 +175,7 @@ class GardenPlant {
     return healthStatus == HealthStatus.poor ||
         healthStatus == HealthStatus.critical ||
         healthStatus == HealthStatus.diseased ||
-        healthStatus == HealthStatus.pest_damaged;
+        healthStatus == HealthStatus.pestDamaged;
   }
 }
 
@@ -187,7 +187,7 @@ enum HealthStatus {
   poor('poor', 'Poor'),
   critical('critical', 'Critical'),
   diseased('diseased', 'Diseased'),
-  pest_damaged('pest_damaged', 'Pest Damaged'),
+  pestDamaged('pest_damaged', 'Pest Damaged'),
   recovering('recovering', 'Recovering');
 
   const HealthStatus(this.value, this.label);

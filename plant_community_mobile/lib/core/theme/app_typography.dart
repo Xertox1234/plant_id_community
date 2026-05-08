@@ -9,10 +9,12 @@ class AppTypography {
   // FONT FAMILY
   // ============================================
   /// Primary font family (system fonts)
-  static const String fontFamilySans = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
-  
+  static const String fontFamilySans =
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
   /// Monospace font family
-  static const String fontFamilyMono = 'SF Mono, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+  static const String fontFamilyMono =
+      'SF Mono, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
 
   // ============================================
   // FONT SIZES
@@ -28,7 +30,8 @@ class AppTypography {
   // FONT WEIGHTS
   // ============================================
   static const FontWeight fontWeightNormal = FontWeight.w400; // Body text
-  static const FontWeight fontWeightMedium = FontWeight.w500; // Headings, buttons, labels
+  static const FontWeight fontWeightMedium =
+      FontWeight.w500; // Headings, buttons, labels
 
   // ============================================
   // LINE HEIGHTS
@@ -39,7 +42,7 @@ class AppTypography {
   // ============================================
   // TEXT STYLES
   // ============================================
-  
+
   /// Display text (2xl)
   static const TextStyle display = TextStyle(
     fontSize: fontSize2XL,
@@ -132,7 +135,7 @@ class AppTypography {
   // ============================================
   // HELPER METHODS
   // ============================================
-  
+
   /// Apply color to text style
   static TextStyle withColor(TextStyle style, Color color) {
     return style.copyWith(color: color);

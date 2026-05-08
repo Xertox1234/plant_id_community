@@ -8,7 +8,9 @@ import 'firebase_storage_service.dart';
 
 /// Provider for plant identification orchestration.
 final plantIdentificationServiceProvider =
-    NotifierProvider<PlantIdentificationService, void>(PlantIdentificationService.new);
+    NotifierProvider<PlantIdentificationService, void>(
+      PlantIdentificationService.new,
+    );
 
 /// Coordinates image upload and backend plant identification.
 class PlantIdentificationService extends Notifier<void> {
@@ -46,21 +48,33 @@ class PlantIdentificationService extends Notifier<void> {
 
       final responseData = response.data;
       if (responseData is! Map<String, dynamic>) {
-        throw PlantIdentificationException('Plant identification returned an invalid response.');
+        throw PlantIdentificationException(
+          'Plant identification returned an invalid response.',
+        );
       }
 
       final name = _stringValue(responseData, ['name', 'common_name']);
-      final scientificName = _stringValue(responseData, ['scientific_name', 'scientificName']);
+      final scientificName = _stringValue(responseData, [
+        'scientific_name',
+        'scientificName',
+      ]);
 
-      if (name == null || name.isEmpty || scientificName == null || scientificName.isEmpty) {
-        throw PlantIdentificationException('No plant could be identified from this image.');
+      if (name == null ||
+          name.isEmpty ||
+          scientificName == null ||
+          scientificName.isEmpty) {
+        throw PlantIdentificationException(
+          'No plant could be identified from this image.',
+        );
       }
 
       return Plant(
         id: _stringValue(responseData, ['id']) ?? _uuid.v4(),
         name: name,
         scientificName: scientificName,
-        description: _stringValue(responseData, ['description']) ?? 'No description available.',
+        description:
+            _stringValue(responseData, ['description']) ??
+            'No description available.',
         care: _careInstructions(responseData),
         imageUrl: imageUrl,
         timestamp: DateTime.now(),
@@ -86,7 +100,9 @@ class PlantIdentificationService extends Notifier<void> {
     }
 
     try {
-      await ref.read(firebaseStorageServiceProvider.notifier).deletePlantImage(imageUrl);
+      await ref
+          .read(firebaseStorageServiceProvider.notifier)
+          .deletePlantImage(imageUrl);
     } catch (cleanupError) {
       if (kDebugMode) {
         debugPrint('[PLANT IDENTIFICATION] Failed to clean up uploaded image');
@@ -107,7 +123,10 @@ class PlantIdentificationService extends Notifier<void> {
   static List<String> _careInstructions(Map<String, dynamic> data) {
     final value = data['care_instructions'] ?? data['care'];
     if (value is List) {
-      return value.whereType<String>().where((item) => item.trim().isNotEmpty).toList();
+      return value
+          .whereType<String>()
+          .where((item) => item.trim().isNotEmpty)
+          .toList();
     }
     if (value is String && value.trim().isNotEmpty) {
       return [value.trim()];

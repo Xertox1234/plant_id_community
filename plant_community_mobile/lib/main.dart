@@ -22,11 +22,7 @@ void main() async {
     return;
   }
 
-  runApp(
-    const ProviderScope(
-      child: MyApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class ConfigurationErrorApp extends StatelessWidget {
@@ -99,4 +95,3 @@ class MyApp extends ConsumerWidget {
     );
   }
 }
-

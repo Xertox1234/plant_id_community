@@ -43,8 +43,8 @@ class FeatureCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final effectiveIconColor = iconColor ??
-        (isDark ? AppColors.green500 : AppColors.green600);
+    final effectiveIconColor =
+        iconColor ?? (isDark ? AppColors.green500 : AppColors.green600);
 
     return Card(
       elevation: AppSpacing.elevationSM,
@@ -82,16 +82,16 @@ class FeatureCard extends StatelessWidget {
                     Text(
                       title,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     Text(
                       description,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Theme.of(context).textTheme.bodySmall?.color,
-                            height: 1.5, // leading-relaxed
-                          ),
+                        color: Theme.of(context).textTheme.bodySmall?.color,
+                        height: 1.5, // leading-relaxed
+                      ),
                     ),
                   ],
                 ),
@@ -112,16 +112,18 @@ class FeatureCardColors {
     return switch (type) {
       FeatureType.camera => isDark ? AppColors.green500 : AppColors.green600,
       FeatureType.care => isDark ? AppColors.blue500 : AppColors.blue600,
-      FeatureType.community => isDark ? AppColors.purple500 : AppColors.purple600,
-      FeatureType.collection => isDark ? AppColors.amber500 : AppColors.amber600,
+      FeatureType.community =>
+        isDark ? AppColors.purple500 : AppColors.purple600,
+      FeatureType.collection =>
+        isDark ? AppColors.amber500 : AppColors.amber600,
     };
   }
 }
 
 /// Feature types with corresponding colors from design
 enum FeatureType {
-  camera,    // text-green-600 dark:text-green-500
-  care,      // text-blue-600 dark:text-blue-500
+  camera, // text-green-600 dark:text-green-500
+  care, // text-blue-600 dark:text-blue-500
   community, // text-purple-600 dark:text-purple-500
-  collection // text-amber-600 dark:text-amber-500
+  collection, // text-amber-600 dark:text-amber-500
 }
