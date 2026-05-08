@@ -50,7 +50,7 @@ ls -1d backend/apps/*/ web/src/*/ plant_community_mobile/lib/*/ 2>/dev/null | wc
 ```
 Multiply by ~2.5 (the average number of reviewers per batch given cross-cutting agents).
 
-4. Determine `wave_size`: if the user's invocation message includes `--wave-size N` (any positive integer), use that value. Otherwise default to `8`. Echo the value in the Phase 0 summary.
+4. Determine `wave_size`: search the invocation prompt you received from Main Claude for the pattern `--wave-size` followed by a positive integer. If found, parse the integer and use it; otherwise default to `8`. Echo the value in the Phase 0 summary.
 
 5. Compute reviewers that will be skipped because their gating root is missing:
    - `firebase/` missing → skip the `flutter-firebase-reviewer` rule for `firebase/**`
@@ -342,8 +342,10 @@ Read the partial checkpoint with the Read tool. It contains: `review_id`, `start
 
    New row format:
 ```
-| <YYYY-MM-DD HH:MM> | <review_id> | <files_reviewed> | <critical> | <high> | <medium> | <low> | [md](<review_id>-full-review.md) · [json](<review_id>-full-review.json) |
+| <YYYY-MM-DD HH:MM> | <review_id> | <files_reviewed> | <critical> | <high> | <medium> | <low> | <info> | [md](<review_id>-full-review.md) · [json](<review_id>-full-review.json) |
 ```
+
+   The table header in `INDEX.md` must include an `Info` column between `Low` and `Report`. If the header is missing it, add it before inserting the new row.
 
 10. **Delete the partial checkpoint** file `docs/reviews/.<review_id>-partial.json`:
 ```bash
@@ -412,7 +414,14 @@ Load the JSON report from `docs/reviews/<review_id>-full-review.json`. Apply the
 
 ### Step 4c: Confirm matches
 
-Print:
+If the filter matches **zero** findings, print:
+```
+0 findings matched, refine filter or type 'none'.
+>
+```
+Stop and wait for the user to supply a new filter string; return to Step 4b with it.
+
+If matches ≥ 1, print:
 ```
 Filter: <user filter>
 Matched: <N> findings across <M> files

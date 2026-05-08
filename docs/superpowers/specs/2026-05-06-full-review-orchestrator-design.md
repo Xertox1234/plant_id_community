@@ -452,9 +452,9 @@ def get_permissions(self):
 ```markdown
 # Full Review History
 
-| Date | Review ID | Files | Critical | High | Medium | Low | Report |
-|---|---|---|---|---|---|---|---|
-| 2026-05-06 14:30 | 2026-05-06-1430 | 287 | 12 | 47 | 89 | 156 | [md](2026-05-06-1430-full-review.md) · [json](2026-05-06-1430-full-review.json) |
+| Date | Review ID | Files | Critical | High | Medium | Low | Info | Report |
+|---|---|---|---|---|---|---|---|---|
+| 2026-05-06 14:30 | 2026-05-06-1430 | 287 | 12 | 47 | 89 | 156 | 23 | [md](2026-05-06-1430-full-review.md) · [json](2026-05-06-1430-full-review.json) |
 ```
 
 ### `.gitignore` additions

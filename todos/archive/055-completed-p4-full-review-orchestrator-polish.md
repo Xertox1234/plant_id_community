@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "055"
 tags: [agents, code-review, polish]
@@ -33,6 +33,24 @@ Low-priority items surfaced in the code review of PR #251 (`feature/full-review-
 
 - Items 1-3: small edits to `.claude/agents/full-review-orchestrator.md`. ~15 min total.
 - Item 4: add the check to a Makefile target or `.husky/pre-commit`. ~10 min.
+
+## Work Log
+
+### 2026-05-08 - Started by completing-todos skill (run 2026-05-08-0038)
+
+- Picked up by automated workflow.
+
+### 2026-05-08 - Completed by completing-todos skill (run 2026-05-08-0038)
+
+- Fixed 4 items in full-review-orchestrator.md:
+  1. Phase 0 step 4: pinned wave-size parsing to "search the invocation prompt you received from Main Claude" (not raw user input).
+  2. Phase 4c: added zero-match guard — prints "0 findings matched, refine filter or type 'none'." and loops back to filter prompt instead of dead-end "Dispatch repairs?".
+  3. Phase 3 step 9: added `<info>` column to INDEX.md row format template; added note to add Info column if missing.
+  4. docs/reviews/INDEX.md: added Info column to header, backfilled 40 info findings for the 2026-05-07 review.
+- Created scripts/check_reviewer_format.sh — checks every *-reviewer.md for required Output Format and Repair Mode blocks; runs clean against all 11 reviewers.
+- Updated docs/superpowers/specs spec to match new INDEX.md column format.
+- Verification: drift guard script exits 0; all file edits confirmed applied.
+- Review: 3 low findings (wave-size phrasing, nullglob edge case, spec sync) — all repaired.
 
 ## Related
 
