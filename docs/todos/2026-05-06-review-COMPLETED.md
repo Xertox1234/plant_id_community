@@ -3,11 +3,22 @@
 Source: Phase 3 self-improving agent review on commit `99bd7b3`
 Status: CRITICAL/HIGH/MEDIUM repaired in commit `4d8b9de`. LOW/INFO below.
 
+## Finding Status
+
+- [x] #14 disease-vote-dedup → todo 057 (completed 2026-05-07)
+- [x] #16 popular-posts-n1 → todo 058 (completed 2026-05-07)
+- [x] #17 disease-db-viewset-queryset → todo 059 (completed 2026-05-07)
+- [x] #18 users-views-import-order → todo 060 (completed 2026-05-07)
+- [x] #19 ics-safe-lambda-scope → todo 061 (completed 2026-05-07)
+- [x] #20 blog-middleware-patch-path → todo 062 (completed 2026-05-07)
+- [x] #21 celery-task-idempotency → todo 063 (completed 2026-05-07)
+
 ---
 
 ## LOW Priority
 
 ### Finding 14 — Disease vote deduplication (PlantDiseaseResultViewSet)
+
 **File**: `backend/apps/plant_identification/views.py:873`
 **Issue**: `PlantDiseaseResultViewSet.vote` increments upvotes/downvotes atomically with F() but has a TODO for preventing duplicate votes. Unlike `PlantIdentificationResultViewSet.vote` which uses a `PlantIdentificationVote` model, the disease vote endpoint has no per-user tracking.
 **Impact**: Users can vote multiple times on disease diagnosis results.
@@ -19,39 +30,47 @@ Status: CRITICAL/HIGH/MEDIUM repaired in commit `4d8b9de`. LOW/INFO below.
 ## INFO / Technical Debt
 
 ### Finding 16 — Popular posts endpoint N+1 still unresolved
+
 **File**: `backend/apps/blog/tests/test_analytics.py`
 **Issue**: Popular posts endpoint executes ~26 queries for 5 posts (4 queries/post N+1 pattern: author, categories, tags, comment count). The `assertLessEqual(30)` assertion in the test is a temporary ceiling.
 **Fix needed**: Add `select_related('author')` + `prefetch_related('categories', 'tags')` to the popular posts queryset, and convert comment count to an annotation. Should bring to ≤6 queries total.
 **Related**: Issue #117 (performance test assertion patterns)
 
 ### Finding 17 — PlantDiseaseDatabaseViewSet queryset not memoized
+
 **File**: `backend/apps/plant_identification/views.py:1014`
 **Issue**: The class-level `queryset = PlantDiseaseDatabase.objects.filter(...)` is evaluated at class definition time (Django behaviour), but filters in `get_queryset()` recreate the queryset on every request. Minor — not a bug, just a style inconsistency.
 **Fix needed**: Either move everything to `get_queryset()` (preferred) or document why the class-level queryset is intentionally there.
 
 ### Finding 18 — users/views.py import order
+
 **File**: `backend/apps/users/views.py:26`
 **Issue**: `from .constants import RATE_LIMIT_DEMO_DATA_CREATE, RATE_LIMIT_ONBOARDING_EVENT` was added after `from apps.plant_identification.constants import RATE_LIMITS`. PEP 8 local imports should be grouped. Low impact.
 **Fix needed**: Reorder so `from .constants import ...` precedes the `from apps.plant_identification.constants import ...` line.
 
 ### Finding 19 — `_ics_safe` lambda defined inside loop scope
+
 **File**: `backend/apps/users/views.py` (export_care_reminders_calendar)
 **Issue**: The `_ics_safe` lambda is defined before the `for reminder in reminders` loop, which is correct, but it would be cleaner as a module-level helper or at least named clearly.
 **Fix needed**: Promote to a module-level `_sanitize_ics_field()` function for testability. Low priority.
 
 ### Finding 20 — blog/middleware.py transaction.on_commit import path
+
 **File**: `backend/apps/blog/tests/test_analytics.py`
 **Issue**: The test now patches `apps.blog.middleware.transaction.on_commit` — this requires the middleware to import `transaction` from `django.db` at module scope (i.e., `from django.db import transaction`). Verify this is how the middleware imports it; if it uses `import django.db.transaction` the patch path would differ.
 **Fix needed**: Confirm middleware import style matches the patch path. If not, update the patch string.
 
 ### Finding 21 — Celery tasks lack idempotency guards
+
 **File**: `backend/apps/plant_identification/tasks.py`
 **Issue**: The `run_identification` Celery task (called via `run_identification.delay(str(request_obj.request_id))`) does not have an explicit idempotency guard. If Celery retries the task (e.g., on a transient failure), the identification could run twice.
 **Fix needed**: Add a guard at the start of the task:
+
 ```python
 request_obj = PlantIdentificationRequest.objects.get(request_id=task_request_id)
 if request_obj.status != 'pending':
     logger.info("[CELERY] Skipping duplicate task for %s (status=%s)", task_request_id, request_obj.status)
     return
 ```
+
 See `backend/docs/patterns/domain/celery.md` for idempotency pattern.
