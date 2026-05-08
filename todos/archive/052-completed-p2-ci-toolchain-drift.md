@@ -1,5 +1,5 @@
 ---
-status: blocked
+status: completed
 priority: p2
 issue_id: "052"
 tags: [ci, github-actions, flutter, node, python, dependencies, stabilization]
@@ -49,7 +49,7 @@ Key files:
 
 - [x] Supported Python/Node/Flutter versions are documented in the root README or setup docs.
 - [x] CI uses the documented versions.
-- [ ] Flutter CI can run `flutter pub get` successfully.
+- [x] Flutter CI can run `flutter pub get` successfully.
 - [x] Web CI can run install/build/audit successfully.
 - [x] Backend CI can install dependencies and run checks successfully.
 
@@ -74,6 +74,24 @@ Key files:
 - Verified `npm audit --audit-level=moderate` reports 0 vulnerabilities.
 - Verified `npm run build` passes, including TypeScript type-check.
 - Verified `npm run test -- --run` passes: 24 files, 663 tests passed.
+
+### 2026-05-08 - Completed by completing-todos skill (run 2026-05-08-1853)
+
+- Verification: all 5 acceptance criteria passed.
+- Review: 5 findings total, 0 blocking — medium finding (floating `channel: stable`
+  trades reproducibility for currency) noted below; already accepted in `mobile-ci.yml`.
+- Known issues: `flutter-version-file: plant_community_mobile/pubspec.yaml` could be
+  added to both CI workflows for auto-currency with a machine-readable anchor, but not
+  required to satisfy the acceptance criterion.
+
+### 2026-05-08 - Started by completing-todos skill (run 2026-05-08-1853)
+
+- Picked up by automated workflow. Dependencies 047 and 050 now completed.
+- One unchecked criterion: `Flutter CI can run flutter pub get successfully`.
+- Found `security-scan.yml` pins `flutter-version: '3.38.x'` — inconsistent with
+  `mobile-ci.yml` which uses `channel: stable`. Dropped the version pin and added
+  `cache: true` to match `mobile-ci.yml`.
+- Verified locally: `flutter pub get` → `Got dependencies!` (Flutter 3.41.9 / Dart 3.11.5).
 
 ### 2026-05-03 - Backend CI Validation
 
