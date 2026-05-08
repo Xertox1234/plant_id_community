@@ -188,7 +188,7 @@ This file is append-only. New entries are added by main Claude after each code r
 
 ---
 
-## Security
+## Security (2026-05-07 additions)
 
 ### [2026-05-07] Firebase verify_id_token() does NOT enforce email_verified — backend must gate explicitly
 
