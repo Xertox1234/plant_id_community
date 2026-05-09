@@ -197,7 +197,7 @@ LOCAL_APPS = [
     "apps.garden",  # Garden planner feature (Phase 1 - Backend)
 ]
 if ENABLE_FORUM:
-    # Machina-based legacy forum (provides 'forum' app label via machina.apps.forum)
+    # Integration shim for Machina; apps.forum excluded to avoid duplicate 'forum' label
     LOCAL_APPS.insert(2, "apps.forum_integration")
 else:
     # New headless forum (also uses 'forum' app label — mutually exclusive with Machina)
