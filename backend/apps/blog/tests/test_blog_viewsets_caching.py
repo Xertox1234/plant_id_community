@@ -471,3 +471,85 @@ class ByCategoryQueryCountTestCase(TestCase):
         self.assertIsInstance(data, list)
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["posts"], [])
+
+
+class InputValidation400TestCase(TestCase):
+    """Verify that non-integer and out-of-range parameters return HTTP 400."""
+
+    def setUp(self):
+        cache.clear()
+        self.factory = APIRequestFactory()
+
+    def _call(self, action, params=""):
+        view = BlogPostPageViewSet.as_view({"get": action})
+        request = self.factory.get(f"/api/v1/blog-posts/{action}/{params}")
+        return view(request)
+
+    # --- recent() ---
+
+    def test_recent_non_integer_limit_returns_400(self):
+        response = self._call("recent", "?limit=abc")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("integer", response.data["error"])
+
+    def test_recent_zero_limit_returns_400(self):
+        response = self._call("recent", "?limit=0")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("positive", response.data["error"])
+
+    def test_recent_negative_limit_returns_400(self):
+        response = self._call("recent", "?limit=-5")
+        self.assertEqual(response.status_code, 400)
+
+    def test_recent_valid_limit_returns_200(self):
+        response = self._call("recent", "?limit=5")
+        self.assertEqual(response.status_code, 200)
+
+    # --- popular() ---
+
+    def test_popular_non_integer_limit_returns_400(self):
+        response = self._call("popular", "?limit=abc")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("integer", response.data["error"])
+
+    def test_popular_zero_limit_returns_400(self):
+        response = self._call("popular", "?limit=0")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("positive", response.data["error"])
+
+    def test_popular_negative_days_returns_400(self):
+        response = self._call("popular", "?days=-1")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("days", response.data["error"])
+
+    def test_popular_non_integer_days_returns_400(self):
+        response = self._call("popular", "?days=last-week")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("integer", response.data["error"])
+
+    def test_popular_valid_params_returns_200(self):
+        response = self._call("popular", "?limit=5&days=7")
+        self.assertEqual(response.status_code, 200)
+
+    # --- listing_view() (called via 'list' mapping in tests) ---
+
+    def test_listing_view_non_integer_limit_returns_400(self):
+        view = BlogPostPageViewSet.as_view({"get": "list"})
+        request = self.factory.get("/api/v1/blog-posts/?limit=abc")
+        response = view(request)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("integer", response.data["error"])
+
+    def test_listing_view_zero_limit_returns_400(self):
+        view = BlogPostPageViewSet.as_view({"get": "list"})
+        request = self.factory.get("/api/v1/blog-posts/?limit=0")
+        response = view(request)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("positive", response.data["error"])
+
+    def test_listing_view_non_integer_offset_returns_400(self):
+        view = BlogPostPageViewSet.as_view({"get": "list"})
+        request = self.factory.get("/api/v1/blog-posts/?offset=xyz")
+        response = view(request)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("integer", response.data["error"])

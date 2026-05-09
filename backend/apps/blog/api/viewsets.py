@@ -514,7 +514,6 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         related_posts = (
             BlogPostPage.objects.live()
             .public()
-            .specific()
             .exclude(id=post.id)
             .filter(
                 Q(categories__in=post.categories.all()) | Q(tags__in=post.tags.all())
@@ -715,6 +714,10 @@ class BlogAuthorPageViewSet(PagesAPIViewSet):
             .public()
             .specific()
             .annotate(
+                # Counts live posts regardless of PageViewRestriction (no .public()
+                # equivalent in annotations without a complex subquery). The serializer
+                # fallback uses .live().public(), so the two paths can differ when page
+                # view restrictions are active. Tracked for alignment in a follow-up todo.
                 annotated_post_count=Count(
                     "author__blogpostpage",
                     filter=Q(author__blogpostpage__live=True),
