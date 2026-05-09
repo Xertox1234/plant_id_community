@@ -13,7 +13,7 @@ Performance Optimizations (Phase 2):
 import logging
 import time
 
-from django.db.models import Prefetch, Q
+from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 from rest_framework import filters
 from rest_framework.decorators import action
@@ -28,10 +28,14 @@ except ImportError:
     # For Wagtail versions where Query might be located elsewhere
     Query = None
 
+from apps.core.utils.query_sanitization import escape_search_query
+
 from ..constants import (
     POPULAR_POSTS_DEFAULT_DAYS,
     POPULAR_POSTS_DEFAULT_LIMIT,
     POPULAR_POSTS_MAX_LIMIT,
+    RECENT_POSTS_DEFAULT_LIMIT,
+    RECENT_POSTS_MAX_LIMIT,
 )
 from ..models import (
     BlogAuthorPage,
@@ -155,8 +159,8 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         # This prevents memory issues from aggressive prefetching
         action = getattr(self, "action", None)
 
-        if action in ("list", "popular"):
-            # List view: Optimized for multiple posts with limited related data
+        if action in ("list", "popular", "featured", "recent", "related"):
+            # List-style actions: full prefetch/annotation for BlogPostPageListSerializer
             from django.db.models import Count
 
             from ..models import BlogComment
@@ -298,7 +302,15 @@ class BlogPostPageViewSet(PagesAPIViewSet):
     @action(detail=False, methods=["get"])
     def recent(self, request):
         """Get recent blog posts."""
-        limit = int(request.GET.get("limit", 10))
+        try:
+            limit = min(
+                int(request.GET.get("limit", RECENT_POSTS_DEFAULT_LIMIT)),
+                RECENT_POSTS_MAX_LIMIT,
+            )
+        except ValueError:
+            return Response({"error": "limit must be an integer"}, status=400)
+        if limit <= 0:
+            return Response({"error": "limit must be a positive integer"}, status=400)
         recent_posts = self.get_queryset()[:limit]
 
         serializer = BlogPostPageListSerializer(
@@ -329,11 +341,18 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         """
         start_time = time.time()
 
-        limit = min(
-            int(request.GET.get("limit", POPULAR_POSTS_DEFAULT_LIMIT)),
-            POPULAR_POSTS_MAX_LIMIT,
-        )
-        days = int(request.GET.get("days", POPULAR_POSTS_DEFAULT_DAYS))
+        try:
+            limit = min(
+                int(request.GET.get("limit", POPULAR_POSTS_DEFAULT_LIMIT)),
+                POPULAR_POSTS_MAX_LIMIT,
+            )
+            days = int(request.GET.get("days", POPULAR_POSTS_DEFAULT_DAYS))
+        except ValueError:
+            return Response({"error": "limit and days must be integers"}, status=400)
+        if limit <= 0:
+            return Response({"error": "limit must be a positive integer"}, status=400)
+        if days < 0:
+            return Response({"error": "days must be >= 0 (0 = all time)"}, status=400)
 
         # Check cache first (TODO 040 fix)
         cached_response = BlogCacheService.get_popular_posts(limit, days)
@@ -400,11 +419,32 @@ class BlogPostPageViewSet(PagesAPIViewSet):
     @action(detail=False, methods=["get"])
     def by_category(self, request):
         """Get posts grouped by category."""
-        categories = BlogCategory.objects.filter(is_featured=True)
+        # Django Prefetch cannot apply a per-parent LIMIT in SQL; all posts for
+        # featured categories are fetched in one query and sliced in Python below.
+        # This is safe as long as featured categories stay small (< a few hundred posts).
+        posts_qs = (
+            BlogPostPage.objects.live()
+            .public()
+            .select_related("author", "series")
+            .prefetch_related(
+                "categories",
+                "tags",
+                Prefetch(
+                    "featured_image",
+                    queryset=Image.objects.prefetch_renditions("fill-300x200"),
+                ),
+            )
+            .annotate(
+                _comment_count=Count("comments", filter=Q(comments__is_approved=True))
+            )
+            .order_by("-first_published_at")
+        )
+        categories = BlogCategory.objects.filter(is_featured=True).prefetch_related(
+            Prefetch("blogpostpage_set", queryset=posts_qs, to_attr="_prefetched_posts")
+        )
 
         result = []
         for category in categories:
-            posts = self.get_queryset().filter(categories=category)[:5]
             result.append(
                 {
                     "category": {
@@ -415,7 +455,9 @@ class BlogPostPageViewSet(PagesAPIViewSet):
                         "icon": category.icon,
                     },
                     "posts": BlogPostPageListSerializer(
-                        posts, many=True, context={"request": request}
+                        category._prefetched_posts[:5],
+                        many=True,
+                        context={"request": request},
                     ).data,
                 }
             )
@@ -429,6 +471,8 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         if not query or len(query) < 2:
             return Response([])
 
+        safe_query = escape_search_query(query)
+
         # Search in titles and tags
         suggestions = []
 
@@ -436,7 +480,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         title_matches = (
             BlogPostPage.objects.live()
             .public()
-            .filter(title__icontains=query)
+            .filter(title__icontains=safe_query)
             .values_list("title", flat=True)[:5]
         )
         suggestions.extend(
@@ -448,7 +492,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         tag_matches = (
             Tag.objects.filter(
-                name__icontains=query,
+                name__icontains=safe_query,
                 taggit_taggeditem_items__content_type__model="blogpostpage",
             )
             .distinct()
@@ -463,13 +507,29 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         """Get posts related to a specific post."""
         post = self.get_object()
 
-        # Find related posts based on categories and tags
+        # Use a clean base queryset (no URL query-param filters) so that caller
+        # params like ?category=X don't silently narrow the related-posts pool.
+        from ..models import BlogComment
+
         related_posts = (
             BlogPostPage.objects.live()
             .public()
+            .specific()
             .exclude(id=post.id)
             .filter(
                 Q(categories__in=post.categories.all()) | Q(tags__in=post.tags.all())
+            )
+            .select_related("author", "series")
+            .prefetch_related(
+                "categories",
+                "tags",
+                Prefetch(
+                    "featured_image",
+                    queryset=Image.objects.prefetch_renditions("fill-400x300"),
+                ),
+            )
+            .annotate(
+                _comment_count=Count("comments", filter=Q(comments__is_approved=True))
             )
             .distinct()
             .order_by("-first_published_at")[:6]
@@ -499,8 +559,15 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         # Extract pagination and filter parameters for cache key
         # Calculate page number consistently (page numbers start at 1)
-        offset = int(request.GET.get("offset", 0))
-        limit = int(request.GET.get("limit", 20))  # Wagtail default is 20
+        try:
+            offset = max(0, int(request.GET.get("offset", 0)))
+            limit = int(request.GET.get("limit", 20))  # Wagtail default is 20
+            if limit <= 0:
+                return Response(
+                    {"error": "limit must be a positive integer"}, status=400
+                )
+        except ValueError:
+            return Response({"error": "offset and limit must be integers"}, status=400)
         page = (
             offset // limit
         ) + 1  # Page 1 = offset 0-19, Page 2 = offset 20-39, etc.
@@ -639,7 +706,22 @@ class BlogAuthorPageViewSet(PagesAPIViewSet):
     serializer_class = BlogAuthorPageSerializer
 
     def get_queryset(self):
-        return BlogAuthorPage.objects.live().public().specific()
+        # NOTE: annotation counts live posts only, not `.public()`.
+        # Wagtail's `.public()` also excludes PageViewRestriction pages; this
+        # project does not use PageViewRestriction so the counts are equivalent.
+        # If restrictions are added in future, update the filter to match.
+        return (
+            BlogAuthorPage.objects.live()
+            .public()
+            .specific()
+            .annotate(
+                annotated_post_count=Count(
+                    "author__blogpostpage",
+                    filter=Q(author__blogpostpage__live=True),
+                    distinct=True,
+                )
+            )
+        )
 
     known_query_parameters = PagesAPIViewSet.known_query_parameters.union(
         ["username", "expertise"]

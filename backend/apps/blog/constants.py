@@ -37,25 +37,52 @@ TARGET_COLD_DETAIL_RESPONSE_MS = 300  # Target response time for uncached detail
 # ============================================================================
 
 # View tracking constants
-VIEW_DEDUPLICATION_TIMEOUT = 900  # 15 minutes (prevents view inflation from page refreshes)
+VIEW_DEDUPLICATION_TIMEOUT = (
+    900  # 15 minutes (prevents view inflation from page refreshes)
+)
 VIEW_TRACKING_CACHE_PREFIX = "view:blog"  # Cache key prefix for deduplication
 
 # Bot detection keywords (comprehensive list for user agent filtering)
 VIEW_TRACKING_BOT_KEYWORDS = [
-    'bot', 'crawler', 'spider', 'scraper', 'curl', 'wget',
-    'python-requests', 'http-client', 'httpie', 'axios',
-    'googlebot', 'bingbot', 'slurp', 'duckduckbot',
-    'baiduspider', 'yandexbot', 'facebookexternalhit',
-    'twitterbot', 'linkedinbot', 'whatsapp', 'telegram',
-    'applebot', 'semrushbot', 'ahrefsbot', 'dotbot',
+    "bot",
+    "crawler",
+    "spider",
+    "scraper",
+    "curl",
+    "wget",
+    "python-requests",
+    "http-client",
+    "httpie",
+    "axios",
+    "googlebot",
+    "bingbot",
+    "slurp",
+    "duckduckbot",
+    "baiduspider",
+    "yandexbot",
+    "facebookexternalhit",
+    "twitterbot",
+    "linkedinbot",
+    "whatsapp",
+    "telegram",
+    "applebot",
+    "semrushbot",
+    "ahrefsbot",
+    "dotbot",
 ]
 
 # Popular posts API constants
 POPULAR_POSTS_DEFAULT_LIMIT = 10  # Default number of popular posts to return
 POPULAR_POSTS_MAX_LIMIT = 50  # Maximum allowed limit (prevent abuse)
 POPULAR_POSTS_DEFAULT_DAYS = 30  # Default time period (last 30 days)
-POPULAR_POSTS_CACHE_TIMEOUT = 1800  # 30 minutes (updates less frequently than regular content)
+POPULAR_POSTS_CACHE_TIMEOUT = (
+    1800  # 30 minutes (updates less frequently than regular content)
+)
 CACHE_PREFIX_POPULAR_POSTS = "blog:popular"  # Cache key prefix for popular posts
+
+# Recent posts API constants
+RECENT_POSTS_DEFAULT_LIMIT = 10
+RECENT_POSTS_MAX_LIMIT = 50  # Cap to prevent abuse / expensive slices
 
 # Analytics dashboard constants
 ANALYTICS_MIN_VIEWS_FOR_BADGE = 100  # Minimum views to show "popular" badge
