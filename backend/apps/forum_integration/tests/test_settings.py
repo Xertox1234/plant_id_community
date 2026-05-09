@@ -37,6 +37,7 @@ def _installed_apps_for(*, enable_forum: bool) -> list[str]:
     return result.stdout.strip().splitlines()
 
 
+# manage.py check may attempt DB/cache connections via Channels/caching system checks.
 def _manage_check(*, enable_forum: bool) -> subprocess.CompletedProcess:
     env = {
         **os.environ,
