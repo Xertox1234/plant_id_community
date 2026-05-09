@@ -251,7 +251,12 @@ class PostSerializer(serializers.ModelSerializer):
 
 
 class RichContentMixin:
-    """Mixin providing shared rich_content normalisation for forum serializers."""
+    """
+    Mixin providing shared rich_content normalisation for write serializers.
+
+    Raises serializers.ValidationError on invalid plant_mention blocks.
+    Requires a live database connection (queries PlantSpeciesPage by id).
+    """
 
     def _normalize_rich_content(self, rich_content):
         """
@@ -289,7 +294,7 @@ class RichContentMixin:
                 except (TypeError, ValueError):
                     plant_id = None
 
-            if not plant_id:
+            if plant_id is None:
                 raise serializers.ValidationError(
                     {
                         "rich_content": "plant_mention block requires a valid plant_page id"

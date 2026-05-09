@@ -1,16 +1,15 @@
-from django.test import TestCase
-from rest_framework import serializers
-from wagtail.models import Page, Site
-
-from machina.apps.forum.models import Forum
-from machina.apps.forum_conversation.models import Topic, Post
-
-from apps.plant_identification.models import PlantSpeciesPage
+from apps.forum_integration.models import RichPost
 from apps.forum_integration.serializers import (
+    CreatePostSerializer,
     CreateTopicSerializer,
     PostSerializer,
 )
-from apps.forum_integration.models import RichPost
+from apps.plant_identification.models import PlantSpeciesPage
+from django.test import TestCase
+from machina.apps.forum.models import Forum
+from machina.apps.forum_conversation.models import Post, Topic
+from rest_framework import serializers
+from wagtail.models import Page, Site
 
 
 class PlantMentionSerializationTests(TestCase):
@@ -75,6 +74,27 @@ class PlantMentionSerializationTests(TestCase):
         ]
         with self.assertRaises(serializers.ValidationError):
             serializer._normalize_rich_content(bad_content)
+
+    def test_post_serializer_normalize_valid_plant_mention(self):
+        serializer = CreatePostSerializer()
+        content = [
+            {
+                "type": "plant_mention",
+                "value": {
+                    "plant_page": self.plant_page.id,
+                    "display_text": "From reply",
+                },
+            }
+        ]
+        normalized = serializer._normalize_rich_content(content)
+        self.assertEqual(normalized[0]["value"]["plant_page"], self.plant_page.id)
+
+    def test_post_serializer_normalize_invalid_plant_id_raises(self):
+        serializer = CreatePostSerializer()
+        with self.assertRaises(serializers.ValidationError):
+            serializer._normalize_rich_content(
+                [{"type": "plant_mention", "value": {"plant_page": 999999}}]
+            )
 
     def test_read_side_enrichment_includes_page_meta(self):
         # Prepare a RichPost linked to our Post with a plant_mention block
