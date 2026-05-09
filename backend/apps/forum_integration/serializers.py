@@ -250,7 +250,79 @@ class PostSerializer(serializers.ModelSerializer):
         return expanded
 
 
-class CreateTopicSerializer(serializers.ModelSerializer):
+class RichContentMixin:
+    """
+    Mixin providing shared rich_content normalisation for write serializers.
+
+    Raises serializers.ValidationError on invalid plant_mention blocks.
+    Requires a live database connection (queries PlantSpeciesPage by id).
+    """
+
+    def _normalize_rich_content(self, rich_content):
+        """
+        Normalize incoming rich_content to ensure plant_mention blocks use a valid
+        PlantSpeciesPage id and have a consistent structure.
+
+        Expected block format (Stream-like):
+        {"type": "plant_mention", "value": {"plant_page": <id|obj>, "display_text": str}}
+        """
+        # Only process list-like content; otherwise pass through
+        if not isinstance(rich_content, (list, tuple)):
+            return rich_content
+
+        normalized = []
+        for block in rich_content:
+            if not isinstance(block, dict):
+                normalized.append(block)
+                continue
+
+            btype = block.get("type") or block.get("block")  # tolerate alternate key
+            if btype != "plant_mention":
+                normalized.append(block)
+                continue
+
+            value = block.get("value") or {}
+            plant_ref = value.get("plant_page")
+
+            # Coerce plant_page to an integer id
+            plant_id = None
+            if isinstance(plant_ref, dict):
+                plant_id = plant_ref.get("id") or plant_ref.get("pk")
+            elif isinstance(plant_ref, (int, str)):
+                try:
+                    plant_id = int(plant_ref)
+                except (TypeError, ValueError):
+                    plant_id = None
+
+            if plant_id is None:
+                raise serializers.ValidationError(
+                    {
+                        "rich_content": "plant_mention block requires a valid plant_page id"
+                    }
+                )
+
+            # Validate existence
+            if not PlantSpeciesPage.objects.filter(id=plant_id).exists():
+                raise serializers.ValidationError(
+                    {
+                        "rich_content": f"Invalid plant_page id {plant_id} in plant_mention block"
+                    }
+                )
+
+            normalized.append(
+                {
+                    "type": "plant_mention",
+                    "value": {
+                        "plant_page": plant_id,
+                        "display_text": value.get("display_text") or "",
+                    },
+                }
+            )
+
+        return normalized
+
+
+class CreateTopicSerializer(RichContentMixin, serializers.ModelSerializer):
     """Serializer for creating new topics with rich content support."""
 
     content = serializers.CharField(write_only=True, help_text="First post content")
@@ -333,71 +405,8 @@ class CreateTopicSerializer(serializers.ModelSerializer):
 
         return topic
 
-    def _normalize_rich_content(self, rich_content):
-        """
-        Normalize incoming rich_content to ensure plant_mention blocks use a valid
-        PlantSpeciesPage id and have a consistent structure.
 
-        Expected block format (Stream-like):
-        {"type": "plant_mention", "value": {"plant_page": <id|obj>, "display_text": str}}
-        """
-        # Only process list-like content; otherwise pass through
-        if not isinstance(rich_content, (list, tuple)):
-            return rich_content
-
-        normalized = []
-        for block in rich_content:
-            if not isinstance(block, dict):
-                normalized.append(block)
-                continue
-
-            btype = block.get("type") or block.get("block")  # tolerate alternate key
-            if btype != "plant_mention":
-                normalized.append(block)
-                continue
-
-            value = block.get("value") or {}
-            plant_ref = value.get("plant_page")
-
-            # Coerce plant_page to an integer id
-            plant_id = None
-            if isinstance(plant_ref, dict):
-                plant_id = plant_ref.get("id") or plant_ref.get("pk")
-            elif isinstance(plant_ref, (int, str)):
-                try:
-                    plant_id = int(plant_ref)
-                except (TypeError, ValueError):
-                    plant_id = None
-
-            if not plant_id:
-                raise serializers.ValidationError(
-                    {
-                        "rich_content": "plant_mention block requires a valid plant_page id"
-                    }
-                )
-
-            # Validate existence
-            if not PlantSpeciesPage.objects.filter(id=plant_id).exists():
-                raise serializers.ValidationError(
-                    {
-                        "rich_content": f"Invalid plant_page id {plant_id} in plant_mention block"
-                    }
-                )
-
-            normalized.append(
-                {
-                    "type": "plant_mention",
-                    "value": {
-                        "plant_page": plant_id,
-                        "display_text": value.get("display_text") or "",
-                    },
-                }
-            )
-
-        return normalized
-
-
-class CreatePostSerializer(serializers.ModelSerializer):
+class CreatePostSerializer(RichContentMixin, serializers.ModelSerializer):
     """Serializer for creating new posts with rich content support."""
 
     rich_content = serializers.JSONField(
@@ -457,10 +466,6 @@ class CreatePostSerializer(serializers.ModelSerializer):
         topic.save()
 
         return post
-
-    def _normalize_rich_content(self, rich_content):
-        """Delegate to CreateTopicSerializer's normalization for consistency."""
-        return CreateTopicSerializer._normalize_rich_content(self, rich_content)
 
 
 class ForumPostImageSerializer(serializers.ModelSerializer):
