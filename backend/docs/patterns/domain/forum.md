@@ -39,12 +39,14 @@
 ### Why This Approach?
 
 **Problem Solved**:
+
 - ✅ Prevents spam bots (NEW users have strict limits)
 - ✅ Rewards legitimate users (automatic progression)
 - ✅ Reduces moderation workload (automated tier management)
 - ✅ Encourages engagement (visible progression path)
 
 **Automatic vs Manual**:
+
 - **Levels 0-3**: Automatic based on activity + time
 - **Level 4 (EXPERT)**: Manual assignment by admin (moderators)
 
@@ -255,6 +257,7 @@ def invalidate_user_trust_cache(sender, instance, created, **kwargs):
 **Location**: `apps/forum/services/spam_detection_service.py`
 
 **Heuristics**:
+
 1. **Duplicate Content** (60 points) - Exact and fuzzy matching (85% similarity)
 2. **Rapid Posting** (55 points) - <10s between posts for NEW/BASIC users
 3. **Link Spam** (50 points) - Trust-based URL limits (NEW: 2, BASIC: 5, TRUSTED: 10)
@@ -397,6 +400,7 @@ cache.set(cache_key, result, CACHE_TIMEOUT_SPAM_CHECK)  # 5 minutes
 ```
 
 **Performance**:
+
 - Spam detection: <150ms per check
 - Cache hit rate: 80% during spam attacks (5-minute TTL)
 - False positive rate: <5%
@@ -464,6 +468,7 @@ class Command(BaseCommand):
 ```
 
 **Deployment Integration**:
+
 ```bash
 # In deployment script (post-migration)
 python manage.py migrate
@@ -491,6 +496,7 @@ def invalidate_moderation_cache(sender, instance, **kwargs):
 ```
 
 **Performance Impact**:
+
 - Cold start: 600ms → Cache warm: <50ms (92% faster)
 - Cache TTL: 5 minutes
 - Auto-invalidation on moderation actions
@@ -544,12 +550,14 @@ def send_promotion_email(sender, user, old_level, new_level, **kwargs):
 ### Use Cases for Signals
 
 **Trust Level Promotion**:
+
 - Send email notifications
 - Update user badges
 - Emit metrics/analytics events
 - Trigger webhooks
 
 **Spam Detection**:
+
 - Log spam attempts
 - Update user reputation scores
 - Alert moderators
@@ -683,6 +691,7 @@ class SpamDetectionServiceTests(TestCase):
 ### Test Coverage Goals
 
 **Trust Levels**:
+
 - ✅ All 5 tier calculations
 - ✅ Daily limit enforcement
 - ✅ Permission checks
@@ -690,6 +699,7 @@ class SpamDetectionServiceTests(TestCase):
 - ✅ Signal emission
 
 **Spam Detection**:
+
 - ✅ All 5 heuristics individually
 - ✅ Combined score threshold
 - ✅ Cache behavior
@@ -704,6 +714,7 @@ class SpamDetectionServiceTests(TestCase):
 ### Pitfall 1: Forgetting UUID Parameter in Trust-Protected Actions
 
 **Problem**:
+
 ```python
 @action(detail=True, methods=['POST'], permission_classes=[CanUploadImages])
 def upload_image(self, request):  # ❌ Missing uuid parameter!
@@ -717,6 +728,7 @@ def upload_image(self, request):  # ❌ Missing uuid parameter!
 ### Pitfall 2: Hardcoding Trust Level Requirements
 
 **Problem**:
+
 ```python
 if user.date_joined > timezone.now() - timedelta(days=7):
     # ❌ Hardcoded, inconsistent with constants
@@ -729,6 +741,7 @@ if user.date_joined > timezone.now() - timedelta(days=7):
 ### Pitfall 3: Not Caching Spam Checks
 
 **Problem**:
+
 ```python
 # ❌ No caching - DB query every check
 result = SpamDetectionService.is_spam(user, content)
@@ -749,6 +762,7 @@ result = SpamDetectionService.is_spam(user, content)
 ### Pitfall 5: Spam Score Addition Instead of Max
 
 **Problem**:
+
 ```python
 # ❌ Adding all keyword scores (inflates score)
 score = sum([commercial_score, financial_score, phishing_score])
@@ -760,6 +774,88 @@ score = sum([commercial_score, financial_score, phishing_score])
 # ✅ Use highest category score
 score = max(commercial_score, financial_score, phishing_score)
 ```
+
+---
+
+## Testing Startup Paths When `INSTALLED_APPS` Is Gated on a Feature Flag
+
+`ENABLE_FORUM` controls which apps appear in `INSTALLED_APPS` — but `INSTALLED_APPS` is
+evaluated once at module import time. `@override_settings(ENABLE_FORUM=True)` changes the
+attribute in the running process but **cannot re-evaluate the list**. This means:
+
+- Live app registry (`apps.get_app_configs()`) always reflects the value at startup.
+- `settings.INSTALLED_APPS` also reflects the value at startup, not the overridden one.
+
+**Pattern: use subprocess with the flag in the environment.**
+
+Spawn a fresh Python process that inherits the venv's `sys.executable` and sees the correct
+`ENABLE_FORUM` value from birth. Use `setUpClass` so the subprocess runs once per class, not
+once per test method. Always pin `DJANGO_SETTINGS_MODULE` explicitly — `setdefault` is a no-op
+when the parent test process has already set it.
+
+```python
+import os, subprocess, sys
+from django.conf import settings
+from django.test import SimpleTestCase
+
+_SETTINGS_MODULE = "plant_community_backend.settings"
+
+_INSTALLED_APPS_SCRIPT = (
+    "import os, sys; sys.path.insert(0, os.getcwd()); "
+    "import django; django.setup(); "
+    "from django.conf import settings as s; "
+    "print('\\n'.join(s.INSTALLED_APPS))"
+)
+
+
+def _installed_apps_for(*, enable_forum: bool) -> list[str]:
+    env = {
+        **os.environ,
+        "ENABLE_FORUM": "True" if enable_forum else "False",
+        "DJANGO_SETTINGS_MODULE": _SETTINGS_MODULE,
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", _INSTALLED_APPS_SCRIPT],
+        cwd=settings.BASE_DIR,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"django.setup() failed (ENABLE_FORUM={enable_forum}):\n"
+            f"STDERR:\n{result.stderr}\nSTDOUT:\n{result.stdout}"
+        )
+    return result.stdout.strip().splitlines()
+
+
+class EnableForumFalseInstalledAppsTest(SimpleTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._apps = _installed_apps_for(enable_forum=False)
+
+    def test_headless_forum_in_installed_apps(self):
+        self.assertIn("apps.forum", self._apps)
+
+    def test_machina_forum_not_in_installed_apps(self):
+        self.assertNotIn("machina.apps.forum", self._apps)
+```
+
+**Why `SimpleTestCase`?** These tests don't touch the database. `SimpleTestCase` skips
+transaction setup and is faster. Use `TestCase` only if you need DB fixtures.
+
+**Why not `call_command('check')`?** `call_command` runs in the current process with the
+current `INSTALLED_APPS`. It cannot test the other startup path. Subprocess is the only
+correct approach when the thing under test is computed at import time.
+
+**Implicit DB note:** `manage.py check` may attempt DB/cache connections via Channels and
+caching system checks. These tests require PostgreSQL to be reachable (consistent with the
+project's real-Postgres convention).
+
+See `backend/apps/forum_integration/tests/test_settings.py` for the full implementation
+(PR #263, todo 067).
 
 ---
 
@@ -786,7 +882,7 @@ These forum patterns ensure:
 
 ---
 
-**Last Reviewed**: November 13, 2025
-**Pattern Count**: 7 forum patterns (trust levels + spam detection)
+**Last Reviewed**: 2026-05-09
+**Pattern Count**: 8 forum patterns (trust levels + spam detection + startup-path testing)
 **Status**: ✅ Production-validated (54/54 tests passing)
 **Performance**: 80-95% cache hit rates, 92% dashboard load reduction
