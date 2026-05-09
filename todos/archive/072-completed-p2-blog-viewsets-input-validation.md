@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "072"
 tags: [api-design, validation, security, blog, viewsets]
@@ -61,14 +61,24 @@ Source: 2026-05-07-1641 full review, `api-design-reviewer` and `wagtail-reviewer
 
 ## Acceptance Criteria
 
-- [ ] `GET /api/v2/blog-posts/recent/?limit=abc` returns HTTP 400, not 500.
-- [ ] `GET /api/v2/blog-posts/popular/?days=abc` returns HTTP 400, not 500.
-- [ ] `GET /api/v2/blog-posts/?limit=0` (listing_view) returns HTTP 400, not 500.
-- [ ] `recent` limit is capped at a constant max value.
-- [ ] `search_suggestions` applies `escape_search_query()` before icontains filters.
-- [ ] `python manage.py test apps.blog --noinput` passes.
+- [x] `recent()` wraps int() in try/except ValueError → 400; capped at RECENT_POSTS_MAX_LIMIT=50.
+- [x] `popular()` wraps both limit and days in try/except → 400.
+- [x] `listing_view` wraps offset/limit in try/except → 400; guards limit <= 0.
+- [x] RECENT_POSTS_DEFAULT_LIMIT and RECENT_POSTS_MAX_LIMIT added to blog/constants.py.
+- [x] `search_suggestions` applies `escape_search_query(query)` before both icontains filters.
+- [x] 158 blog tests pass (7 skipped): `python manage.py test apps.blog.tests --noinput`.
 
 ## Work Log
+
+### 2026-05-09 - Completed by completing-todos skill (run 2026-05-09-1435)
+
+- Verification: all 6 acceptance criteria passed; 158 tests pass.
+- Review: 2 high repaired (missing limit <= 0 guard in recent(); limit <= 0 and days < 0
+  guards in popular()); 0 remaining blocking findings.
+
+### 2026-05-09 - Started by completing-todos skill (run 2026-05-09-1435)
+
+- Picked up by automated workflow.
 
 ### 2026-05-09 - Created from review 2026-05-07-1641
 

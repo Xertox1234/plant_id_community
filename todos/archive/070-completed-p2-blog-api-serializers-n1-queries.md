@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "070"
 tags: [performance, n+1, blog, serializers]
@@ -75,18 +75,42 @@ Add `select_related('author', 'series')` and `prefetch_related('categories', 'ta
 
 ## Acceptance Criteria
 
-- [ ] `BlogCategorySerializer.get_post_count` reads an annotation instead of running a
-      live count query per category when the annotation is present.
-- [ ] `BlogCategorySerializer.get_url` avoids a per-row `BlogCategoryPage` query
-      (either annotation, prefetch, or request-scoped cache).
-- [ ] `BlogSeriesSerializer.get_post_count` reads an annotation instead of per-series count.
-- [ ] `BlogAuthorPageSerializer.get_post_count` reads an annotation instead of per-author count.
-- [ ] `BlogAuthorPageSerializer.get_recent_posts` uses prefetched data.
-- [ ] `BlogPostPageSerializer._get_author_page_url` avoids a per-post DB lookup.
-- [ ] `BlogIndexPageSerializer` sub-queries use select_related/prefetch_related.
-- [ ] `python manage.py test apps.blog --noinput` passes with no regressions.
+- [x] `BlogCategorySerializer.get_post_count` checks `getattr(obj, 'annotated_post_count')` first
+      (falls back to count only when annotation absent).
+- [x] `BlogCategorySerializer.get_url` uses `self.context.setdefault('_category_page_url_cache', {})` —
+      one lookup per unique category per request, not per row.
+- [x] `BlogSeriesSerializer.get_post_count` same annotation guard.
+- [x] `BlogAuthorPageSerializer.get_post_count` same annotation guard; `BlogAuthorPageViewSet.get_queryset`
+      annotates `annotated_post_count=Count('author__blogpostpage', ...)`.
+- [x] `BlogAuthorPageSerializer.get_recent_posts` sub-query now uses `select_related/prefetch_related`
+      to prevent cascading N+1 within each author's recent posts.
+- [x] `BlogPostPageSerializer._get_author_page_url` uses `self.context.setdefault('_author_page_url_cache', {})`
+      — one lookup per unique author per request.
+- [x] `BlogIndexPageSerializer.get_featured_posts` and `get_recent_posts` use
+      `select_related('author','series').prefetch_related('categories','tags','featured_image').annotate(_comment_count=...)`.
+- [x] `BlogCategoryPageSerializer.get_posts` same prefetch/annotation treatment.
+- [x] 158 blog tests pass (7 skipped, 0 failures): `python manage.py test apps.blog.tests --noinput`.
 
 ## Work Log
+
+### 2026-05-09 - Completed by completing-todos skill (run 2026-05-09-1435)
+
+- Verification: all 9 acceptance criteria passed.
+  - BlogCategorySerializer annotation guard + request-scoped URL cache.
+  - BlogSeriesSerializer annotation guard.
+  - BlogAuthorPageSerializer annotation guard + sub-query prefetch.
+  - BlogPostPageSerializer._get_author_page_url request-scoped cache.
+  - BlogIndexPage and BlogCategoryPage sub-queries prefetch with Image.objects.prefetch_renditions.
+  - BlogAuthorPageViewSet annotates annotated_post_count.
+  - get_categories queryset annotated with Count('blogpostpage', ...).
+  - 158 tests pass.
+- Review: 3 medium repaired (annotation divergence comment; get_categories annotation active;
+  featured_image rendition prefetch corrected); 1 low repaired (removed inline imports); 1 info accepted.
+- Added top-level imports: Count, Prefetch, Q, Image to api/serializers.py.
+
+### 2026-05-09 - Started by completing-todos skill (run 2026-05-09-1435)
+
+- Picked up by automated workflow.
 
 ### 2026-05-09 - Created from review 2026-05-07-1641
 
