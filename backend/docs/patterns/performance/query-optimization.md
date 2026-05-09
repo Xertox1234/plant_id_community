@@ -1353,3 +1353,45 @@ class CreatePostSerializer(RichContentMixin, serializers.ModelSerializer):
 ```
 
 **Rule**: Any serializer helper appearing identically in two or more classes must be extracted to a mixin or module-level function before merging.
+
+---
+
+## Pattern 29: `Count(filter=Q(live=True))` ≠ `.live().public()`
+
+**Problem**: Annotating a queryset with `Count("author__blogpostpage", filter=Q(author__blogpostpage__live=True))` counts all live posts, including pages behind a `PageViewRestriction` (password-protected or login-required). Wagtail's `.public()` additionally excludes those pages. The two paths produce different counts whenever `PageViewRestriction` objects are active.
+
+There is no `Q()` expression that replicates `.public()` without a subquery against `PageViewRestriction`. Code that annotates counts and then falls back to a `.live().public()` filter will produce diverging results silently.
+
+**Options in preference order**:
+
+1. **Subquery** — replicate the restriction check inside the annotation:
+
+   ```python
+   from django.db.models import OuterRef, Subquery, IntegerField
+   from wagtail.models import PageViewRestriction
+
+   restricted_ids = PageViewRestriction.objects.filter(
+       page_id=OuterRef("author__blogpostpage__pk")
+   ).values("page_id")
+
+   annotated_qs = AuthorPage.objects.annotate(
+       post_count=Count(
+           "author__blogpostpage",
+           filter=Q(author__blogpostpage__live=True)
+                 & ~Q(author__blogpostpage__pk__in=Subquery(restricted_ids)),
+           distinct=True,
+       )
+   )
+   ```
+
+   Note: this is a correlated subquery per row — benchmark before deploying at scale.
+
+2. **Explicit divergence** — if the subquery is too expensive, document the gap in code and in this pattern doc so it is a known trade-off, not a hidden bug. Add a comment at the annotation site:
+
+   ```python
+   # NOTE: counts all live posts including PageViewRestriction-protected pages.
+   # .public() semantics require a subquery; accepted divergence — see
+   # docs/patterns/performance/query-optimization.md Pattern 29.
+   ```
+
+**Rule**: Never silently rely on `Count(filter=Q(live=True))` where `.live().public()` semantics are required. Choose option 1 or option 2 explicitly.

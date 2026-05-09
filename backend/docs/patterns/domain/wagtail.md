@@ -32,6 +32,7 @@ def invalidate_blog_cache(sender, instance, **kwargs):
 Invalidate both the individual post cache AND all list key variations on any publish/unpublish.
 
 Cache keys:
+
 - Post detail: `blog:post:{slug}` (TTL 24h)
 - Post list: `blog:list:{page}:{limit}:{filters_hash}` (TTL 24h)
 - Popular posts: `blog:popular:{period}:{limit}` (TTL 1h)
@@ -82,9 +83,57 @@ if isinstance(content_blocks, str):
 
 ---
 
+## `.specific()` Is Incompatible with `Prefetch(to_attr=…)`
+
+**Rule**: Never add `.specific()` to a queryset used as the inner queryset of a `Prefetch`.
+
+Wagtail's `.specific()` makes a second queryset pass that replaces the Python objects in memory. When you pass a `.specific()` queryset to `Prefetch("blogpostpage_set", queryset=posts_qs, to_attr="_prefetched_posts")`, the `to_attr` list is populated with the pre-specific objects. The `.specific()` re-fetch creates *new* objects that are never stored back into `to_attr` — the list stays populated with the originals, and any `prefetch_related` attached to the specific subclass is silently discarded.
+
+```python
+# WRONG — .specific() invalidates the Prefetch result
+posts_qs = BlogPostPage.objects.live().public().specific()  # ❌
+categories = BlogCategory.objects.prefetch_related(
+    Prefetch("blogpostpage_set", queryset=posts_qs, to_attr="_posts")
+)
+for cat in categories:
+    cat._posts  # contains base-class Page objects, not BlogPostPage specifics
+
+# CORRECT — use the concrete subclass queryset directly
+posts_qs = BlogPostPage.objects.live().public()  # ✅  already the concrete model
+categories = BlogCategory.objects.prefetch_related(
+    Prefetch("blogpostpage_set", queryset=posts_qs, to_attr="_posts")
+)
+```
+
+The same incompatibility applies to `.specific()` on the outer queryset when the outer objects are later iterated and their prefetch caches accessed.
+
+---
+
+## `ParentalManyToManyField.set()` Does Not Persist After `add_child()`
+
+**Rule**: After `parent.add_child(instance=post)`, do NOT call `post.categories.set([cat])` to persist M2M relations. Write directly to the through table instead.
+
+`ParentalManyToManyField` is backed by `django-modelcluster`. Calling `.set()` (or `.add()`) updates only the in-memory modelcluster state; no SQL `INSERT` is issued. The through table row is never written, so `cat.blogpostpage_set.count()` returns 0.
+
+This matters most in tests where you create pages via `add_child()` and then assign M2M relations:
+
+```python
+# WRONG — .set() only mutates in-memory modelcluster state; DB through table stays empty
+post.categories.set([cat])  # ❌
+
+# CORRECT — write the through-table row directly
+Through = BlogPostPage.categories.through
+Through.objects.get_or_create(blogpostpage=post, blogcategory=cat)  # ✅
+```
+
+The same applies to `.add()` and `.remove()` when called on a page that was saved via `add_child()`. If the page goes through a Wagtail form (e.g., the admin editor), the form save handles persistence correctly — the workaround is only needed for programmatic creation.
+
+---
+
 ## Version Mismatch — Dev vs Prod
 
 The project runs different Wagtail versions in dev and production:
+
 - `requirements-dev.txt`: `wagtail==7.1.2`
 - `requirements.txt`: `wagtail==7.4`
 
