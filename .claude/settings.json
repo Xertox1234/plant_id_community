@@ -1,0 +1,45 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/inject-patterns.sh",
+            "timeout": 10,
+            "statusMessage": "Loading binding rules for this file..."
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/guard-worktree-isolation.sh",
+            "timeout": 10,
+            "statusMessage": "Checking worktree isolation..."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/kimi-review.sh",
+            "timeout": 180,
+            "statusMessage": "Running kimi-review on staged changes..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -s /tmp/plant-id-deferred.txt ] && python3 -c \"import json; items=open('/tmp/plant-id-deferred.txt').read().strip(); print(json.dumps({'systemMessage': 'Deferred items not yet tracked as todos:\\n' + items + '\\n\\nAsk Claude to create todos for them in todos/'}))\" 2>/dev/null || true",
+            "statusMessage": "Checking for untracked deferred items..."
+          }
+        ]
+      }
+    ]
+  }
+}
