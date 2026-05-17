@@ -24,6 +24,7 @@ Rate limiting prevents abuse by restricting the number of requests a user can ma
 ### Common Attack Scenarios
 
 **File Upload Spam:**
+
 ```python
 # Without rate limiting:
 while True:
@@ -37,6 +38,7 @@ upload_large_file()  # ❌ 403 Forbidden (rate limited)
 ```
 
 **API Abuse:**
+
 ```python
 # Without rate limiting:
 for i in range(10000):
@@ -55,6 +57,7 @@ for i in range(10000):
 **Location**: `apps/forum/viewsets/post_viewset.py:242,360`
 
 **Pattern:**
+
 ```python
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
@@ -75,11 +78,13 @@ class PostViewSet(viewsets.ModelViewSet):
 ### 2. Key Components Explained
 
 **`@method_decorator`**
+
 - Required for DRF class-based views
 - Wraps function-based decorator for use on methods
 - **Must be applied AFTER `@action` decorator** (order matters!)
 
 **`ratelimit()` Parameters:**
+
 ```python
 ratelimit(
     key='user',       # Rate limit key (see Key Strategies below)
@@ -106,6 +111,7 @@ def upload_image(self, request, pk=None):
 ```
 
 **Why Order Matters:**
+
 - DRF's `@action` must be outermost to register the action
 - `@method_decorator(ratelimit())` must be innermost to intercept the request first
 - Wrong order = rate limiting bypassed or not applied
@@ -121,11 +127,13 @@ ratelimit(key='user', rate='10/h')
 ```
 
 **When to Use:**
+
 - Authenticated endpoints
 - Per-user quotas
 - File uploads, expensive operations
 
 **How It Works:**
+
 - Uses `request.user.pk` as key
 - Anonymous users get different key (IP-based fallback)
 
@@ -136,11 +144,13 @@ ratelimit(key='ip', rate='100/h')
 ```
 
 **When to Use:**
+
 - Anonymous endpoints
 - Public APIs
 - Login attempts (before authentication)
 
 **How It Works:**
+
 - Uses client IP address as key
 - Beware of proxies/NAT (multiple users same IP)
 
@@ -151,6 +161,7 @@ ratelimit(key='header:x-api-key', rate='1000/h')
 ```
 
 **When to Use:**
+
 - API key authentication
 - Partner integrations
 - Different quotas per API key
@@ -249,11 +260,13 @@ def test_upload_image_rate_limiting(self):
 **Symptom**: Tests pass with unlimited requests
 
 **Causes:**
+
 1. Wrong decorator order
 2. Missing `@method_decorator`
 3. `block=False` (rate limit recorded but not enforced)
 
 **Solution:**
+
 ```python
 # ✅ CORRECT
 @action(detail=True, methods=['POST'])
@@ -269,6 +282,7 @@ def my_action(self, request, pk=None):
 **Cause**: Redis not configured, using in-memory cache (process-specific)
 
 **Solution:**
+
 ```python
 # settings.py
 CACHES = {
@@ -286,6 +300,7 @@ CACHES = {
 **Cause**: Using `key='user'` for unauthenticated endpoints
 
 **Solution:**
+
 ```python
 # Use 'ip' key for anonymous endpoints
 @ratelimit(key='ip', rate='100/h')
@@ -300,6 +315,7 @@ def public_endpoint(request):
 **Cause**: Cache not cleared between tests, previous test's rate limits persist
 
 **Solution:**
+
 ```python
 def test_rate_limiting(self):
     from django.core.cache import cache
@@ -318,16 +334,11 @@ Rate limiting **requires Redis** for production:
 ```bash
 # .env
 REDIS_URL=redis://localhost:6379/1
-
-# Docker Compose
-services:
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
+# Redis service on port 6379
 ```
 
 **Why Redis?**
+
 - Shared state across multiple app servers
 - Fast key-value lookups (<1ms)
 - Automatic expiration (no manual cleanup)
@@ -336,6 +347,7 @@ services:
 ### Rate Limit Monitoring
 
 **CloudWatch/DataDog Metrics:**
+
 ```python
 # In custom middleware
 if getattr(request, 'limited', False):
@@ -343,6 +355,7 @@ if getattr(request, 'limited', False):
 ```
 
 **Log Analysis:**
+
 ```bash
 # Find rate-limited requests
 grep "Ratelimited" /var/log/app.log
@@ -403,6 +416,7 @@ def upload_image(self, request: Request, pk=None) -> Response:
 ```
 
 **Rationale:**
+
 - File uploads are expensive (disk I/O, bandwidth)
 - 10/hour = reasonable user behavior (not automated abuse)
 - User-based key = per-user quota, fair distribution
@@ -425,6 +439,7 @@ def delete_image(self, request: Request, pk=None, attachment_id=None) -> Respons
 ```
 
 **Rationale:**
+
 - Delete is cheaper than upload (no file transfer)
 - 20/hour (2x upload limit) allows users to clean up mistakes
 - Still prevents automated abuse
@@ -462,20 +477,24 @@ rate='20/h'  # Week 3 (final value based on 99th percentile usage)
 ### Rate Limit Bypass Attempts
 
 **IP Rotation:**
+
 - Attacker uses multiple IPs to bypass `key='ip'`
 - **Mitigation**: Use `key='user'` for authenticated endpoints
 
 **Account Creation:**
+
 - Attacker creates multiple accounts to bypass `key='user'`
 - **Mitigation**: Rate limit account creation endpoint (5/hour per IP)
 
 **Header Spoofing:**
+
 - Attacker spoofs `X-Forwarded-For` header
 - **Mitigation**: Trust only your load balancer's IP, validate headers
 
 ### Denial of Service via Rate Limiting
 
 **Attack**: Attacker triggers rate limits for legitimate users
+
 - Example: Trigger rate limit on user's behalf (if key leaks)
 - **Mitigation**: Use unpredictable keys, log anomalies
 
@@ -483,10 +502,10 @@ rate='20/h'  # Week 3 (final value based on 99th percentile usage)
 
 ## References
 
-- **django-ratelimit Documentation**: https://django-ratelimit.readthedocs.io/
-- **OWASP Rate Limiting**: https://cheatsheetseries.owasp.org/cheatsheets/Denial_of_Service_Cheat_Sheet.html
-- **Redis Best Practices**: https://redis.io/docs/management/optimization/
-- **DRF Method Decorators**: https://www.django-rest-framework.org/api-guide/viewsets/#marking-extra-actions-for-routing
+- **django-ratelimit Documentation**: <https://django-ratelimit.readthedocs.io/>
+- **OWASP Rate Limiting**: <https://cheatsheetseries.owasp.org/cheatsheets/Denial_of_Service_Cheat_Sheet.html>
+- **Redis Best Practices**: <https://redis.io/docs/management/optimization/>
+- **DRF Method Decorators**: <https://www.django-rest-framework.org/api-guide/viewsets/#marking-extra-actions-for-routing>
 
 ---
 

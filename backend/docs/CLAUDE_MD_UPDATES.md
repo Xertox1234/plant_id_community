@@ -7,11 +7,13 @@
 ### 1. Last Major Update (Line 10)
 
 **Current:**
+
 ```markdown
 **Last Major Update**: November 6, 2025 - Issue #133 Complete: Rate limiting now returns 429 (17/17 tests passing)
 ```
 
 **Suggestion:** Keep as-is or update to:
+
 ```markdown
 **Last Major Update**: November 6, 2025 - Issues #133 & #132 Complete: Rate limiting (429 + Retry-After) + API docs (OpenAPI schema)
 ```
@@ -21,6 +23,7 @@
 ### 2. Primary Documentation Section (Add after existing docs list)
 
 **Add to documentation list:**
+
 ```markdown
 - `RATE_LIMITING_PATTERNS_CODIFIED.md` - Rate limiting & API docs patterns (Issue #133, #132)
   - Pattern 1: django-ratelimit Exception Handling (Ratelimited → 429, not 403)
@@ -38,6 +41,7 @@
 ### 3. API Documentation Access (Add to Essential Commands)
 
 **Add new subsection:**
+
 ```markdown
 ### API Documentation (OpenAPI/Swagger)
 
@@ -50,15 +54,17 @@ open http://localhost:8000/api/redoc/       # ReDoc (clean reading)
 curl http://localhost:8000/api/schema/ > schema.yml
 
 # Validate schema
-docker run --rm -v "${PWD}:/local" openapitools/openapi-generator-cli validate -i /local/schema.yml
+# openapi-generator-cli validate -i schema.yml
 ```
 
 **Key Documentation Files:**
+
 - `backend/docs/TRUST_LEVELS_API.md` - API consumer guide (449 lines)
   - Trust level system overview
   - Error response examples (403, 429)
   - Client implementation guide (TypeScript/React)
   - Troubleshooting common issues
+
 ```
 
 ---
@@ -91,6 +97,7 @@ docker run --rm -v "${PWD}:/local" openapitools/openapi-generator-cli validate -
 ### 5. Update "Completed" Section (Line 739-742)
 
 **Current:**
+
 ```markdown
   - Permission integration tests (17/17 passing, 1 skipped - Issue #133)
   - **CRITICAL FIX (Issue #131)**: PostViewSet.get_permissions() now respects @action decorators
@@ -99,6 +106,7 @@ docker run --rm -v "${PWD}:/local" openapitools/openapi-generator-cli validate -
 ```
 
 **Update to:**
+
 ```markdown
   - Permission integration tests (17/17 passing, 1 skipped - Issue #133)
   - **CRITICAL FIX (Issue #131)**: PostViewSet.get_permissions() now respects @action decorators
@@ -112,6 +120,7 @@ docker run --rm -v "${PWD}:/local" openapitools/openapi-generator-cli validate -
 ### 6. Update "In Progress" Section (Line 746-753)
 
 **Current:**
+
 ```markdown
 ### 🚧 In Progress
 - **Issue #132**: Update API documentation for trust level requirements
@@ -124,6 +133,7 @@ docker run --rm -v "${PWD}:/local" openapitools/openapi-generator-cli validate -
 ```
 
 **Update to:**
+
 ```markdown
 ### 🚧 In Progress
 - Flutter feature implementation
@@ -158,6 +168,7 @@ class Ratelimited(PermissionDenied):  # Inherits from PermissionDenied!
 DRF's default exception handler sees `PermissionDenied` and returns 403.
 
 **WRONG - DRF handles Ratelimited before you can intercept:**
+
 ```python
 def custom_exception_handler(exc, context):
     response = drf_exception_handler(exc, context)  # ❌ Already converted to 403!
@@ -169,6 +180,7 @@ def custom_exception_handler(exc, context):
 ```
 
 **CORRECT - Check Ratelimited BEFORE calling DRF handler:**
+
 ```python
 from django_ratelimit.exceptions import Ratelimited
 
@@ -193,14 +205,17 @@ def custom_exception_handler(exc, context):
 ```
 
 **Why This Matters:**
+
 - Ratelimited inherits from PermissionDenied (Django exception)
 - DRF converts PermissionDenied to 403 automatically
 - Must intercept BEFORE DRF sees it
 - Should return 429 with Retry-After header (RFC 6585)
 
 **See:**
+
 - `apps/core/exceptions.py:41-78` - Correct implementation
 - `RATE_LIMITING_PATTERNS_CODIFIED.md` - Pattern 1 (full explanation)
+
 ```
 
 ---
@@ -240,14 +255,17 @@ Add these to the "Primary Documentation" section if not already present:
 ## Summary of Changes
 
 **Issues Resolved:**
+
 - ✅ Issue #133: Rate limiting returns 429 (not 403) + Retry-After header
 - ✅ Issue #132: Complete OpenAPI schema + TRUST_LEVELS_API.md
 
 **New Files Created:**
+
 - ✅ `backend/RATE_LIMITING_PATTERNS_CODIFIED.md` (874 lines)
 - ✅ `backend/docs/TRUST_LEVELS_API.md` (449 lines)
 
 **Key Improvements:**
+
 - ✅ HTTP standards compliance (RFC 6585)
 - ✅ Interactive API documentation at /api/docs/
 - ✅ Client-facing error messages with progress tracking
@@ -323,9 +341,11 @@ Comprehensive patterns document covering individual "Save to My Collection" butt
 ### Files Modified
 
 **New Files:**
+
 - `web/src/utils/plantUtils.js` (16 lines) - Centralized key generation
 
 **Modified Files:**
+
 - `web/src/services/plantIdService.js` (186 lines) - Complete rewrite (axios → fetch + CSRF)
 - `web/src/pages/IdentifyPage.jsx` (228 lines) - State management + removed 14 console.logs
 - `web/src/components/PlantIdentification/IdentificationResults.jsx` (150 lines) - Individual buttons + ARIA
@@ -333,6 +353,7 @@ Comprehensive patterns document covering individual "Save to My Collection" butt
 ### Integration with Existing Patterns
 
 **Related Documentation:**
+
 - `backend/docs/security/AUTHENTICATION_SECURITY.md` - HttpOnly cookie security (38KB)
 - `backend/docs/security/CSRF_COOKIE_POLICY.md` - Django CSRF configuration
 - `SPAM_DETECTION_PATTERNS_CODIFIED.md` - Standardized cache key format (similar utility pattern)
@@ -356,23 +377,27 @@ Comprehensive patterns document covering individual "Save to My Collection" butt
 ### Key Lessons Learned
 
 **CRITICAL Security Issues:**
+
 - localStorage for auth tokens = XSS vulnerability (NEVER do this)
 - CSRF tokens REQUIRED when using `credentials: 'include'`
 - Must check `csrftoken` cookie before every authenticated request
 - HttpOnly cookies protect against XSS (JavaScript can't access)
 
 **Performance Optimizations:**
+
 - Map.set() O(1) vs Set spreading O(n) - 70x faster
 - console.log() in loops = 237x slower
 - Centralized utilities prevent duplicate logic
 
 **Accessibility Requirements:**
+
 - aria-busy for loading states
 - aria-label with context (include item name)
 - aria-hidden for decorative icons
 - Focus styles for keyboard navigation
 
 **UX Best Practices:**
+
 - Individual buttons eliminate ambiguity
 - Three visual states: Default → Saving → Saved
 - Separate error states preserve context
@@ -381,6 +406,7 @@ Comprehensive patterns document covering individual "Save to My Collection" butt
 ### Testing Recommendations
 
 **Manual Testing (Complete):**
+
 - ✅ CSRF token extraction and injection
 - ✅ Individual save buttons per result
 - ✅ Saved state persistence
@@ -389,6 +415,7 @@ Comprehensive patterns document covering individual "Save to My Collection" butt
 - ✅ Accessibility (screen reader, keyboard navigation)
 
 **Automated Testing (Pending):**
+
 - Unit tests: `getPlantKey()` utility
 - Integration tests: Save functionality end-to-end
 - Accessibility tests: ARIA attribute validation
@@ -397,6 +424,7 @@ Comprehensive patterns document covering individual "Save to My Collection" butt
 ### Related Backend Patterns
 
 **Django CSRF Configuration** (from `settings.py`):
+
 ```python
 CSRF_COOKIE_HTTPONLY = False  # Must be False (JS reads for header)
 CSRF_COOKIE_SECURE = True     # HTTPS only (production)
@@ -405,6 +433,7 @@ SESSION_COOKIE_HTTPONLY = True # JS cannot access (XSS protection)
 ```
 
 **CSRF Endpoint** (from `apps/users/api/views.py`):
+
 ```python
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -418,6 +447,7 @@ def csrf_token_view(request):
 Add to "Primary Documentation" section after existing pattern files.
 
 **Update "Web Frontend" status** (line ~730):
+
 ```markdown
 - **Image uploads**: Drag-and-drop widget with validation, preview, delete - Phase 6 ✅
 - **Individual save buttons**: Per-result save for plant identification (CSRF + ARIA) ✅
@@ -427,6 +457,7 @@ Add to "Primary Documentation" section after existing pattern files.
 ---
 
 **Total New Documentation (Nov 6, 2025):**
+
 - RATE_LIMITING_PATTERNS_CODIFIED.md (874 lines) - Issues #133 & #132
 - TRUST_LEVELS_API.md (449 lines) - Issue #132
 - PLANT_SAVE_PATTERNS_CODIFIED.md (874+ lines) - Plant save feature

@@ -93,7 +93,7 @@ def test_get_executor_returns_singleton(self):
 - `PLANT_ID_MAX_WORKERS` allows runtime configuration without code changes
 - Validated in tests: respects env var, validates negative, caps at max
 
-**Docker/Kubernetes Deployments**:
+**Kubernetes Deployments**:
 - Container CPU limits vary (1 core vs. 8 cores)
 - Current implementation auto-scales: `cpu_count * 2` (with 10-worker cap)
 - Simple implementation: hardcoded 2 workers regardless of environment
@@ -260,7 +260,7 @@ NGINX → Gunicorn (4 workers) → Django
 - Input validation (prevents configuration errors)
 - Cleanup hooks (prevents memory leaks)
 - Logging (enables production debugging)
-- Environment support (Docker/Kubernetes compatibility)
+- Environment support (Kubernetes compatibility)
 
 ### Alternative: Document the Pattern
 
@@ -277,7 +277,7 @@ def get_executor() -> ThreadPoolExecutor:
     leading to resource leaks (100 requests = 200 threads lingering in memory).
 
     WHY ENVIRONMENT VARIABLE?
-    Production deployments (Docker/Kubernetes) need environment-specific tuning.
+    Production deployments (Kubernetes) need environment-specific tuning.
     Container with 1 CPU vs. 8 CPUs should use different worker counts.
 
     WHY MAX WORKERS CAP?

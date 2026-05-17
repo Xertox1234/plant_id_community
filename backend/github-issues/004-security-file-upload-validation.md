@@ -12,6 +12,7 @@
 ## Problem Statement / Motivation
 
 **Current State:**
+
 ```python
 # File: /backend/apps/plant_identification/api/simple_views.py:91-96
 allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
@@ -20,6 +21,7 @@ if image_file.content_type not in allowed_types:
 ```
 
 **Attack Scenario:**
+
 ```bash
 # Attacker uploads malicious executable with spoofed Content-Type
 curl -X POST /api/v1/plant-identification/identify/ \
@@ -29,6 +31,7 @@ curl -X POST /api/v1/plant-identification/identify/ \
 ```
 
 **Vulnerability:**
+
 1. Attacker uploads `malicious.exe` renamed to `malicious.jpg`
 2. Sets `Content-Type: image/jpeg` in HTTP request
 3. Validation checks only the **header** (easily spoofed)
@@ -36,6 +39,7 @@ curl -X POST /api/v1/plant-identification/identify/ \
 5. If file is stored/served without proper headers, potential XSS or RCE
 
 **CVSS 3.1 Score: 6.4 (MEDIUM)**
+
 ```
 Vector: CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N
 - Attack Vector: Network (N)
@@ -49,11 +53,13 @@ Vector: CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N
 ```
 
 **Real-World Examples:**
+
 - 2019: WordPress file upload vulnerability (CVE-2019-8943) - PHP code execution
 - 2020: Joomla directory traversal via file upload (CVE-2020-10238)
 - 2021: Drupal file validation bypass (CVE-2020-13671)
 
 **Why This Matters:**
+
 - Content-Type header is **client-controlled** and completely untrusted
 - File extensions can be renamed (malicious.exe → malicious.jpg)
 - Magic bytes reveal true file type regardless of name/header
@@ -64,16 +70,19 @@ Vector: CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N
 **Multi-Layer Defense in Depth Approach:**
 
 ### Layer 1: Content-Type Header Check (Fast but Spoofable)
+
 - First line of defense, reject obviously wrong types
 - Fast check before reading file contents
 - Don't rely on this alone!
 
 ### Layer 2: File Magic Bytes Verification (Reliable)
+
 - Read first 2048 bytes to detect actual file type
 - Uses `python-magic` library (libmagic wrapper)
 - Cannot be spoofed by renaming or header manipulation
 
 ### Layer 3: PIL Image Verification (Ensures Valid Image)
+
 - Try to open file with Pillow (PIL)
 - Call `img.verify()` to ensure complete, valid image
 - Catches corrupted or incomplete images
@@ -195,6 +204,7 @@ def identify_plant(request):
 ## Technical Considerations
 
 **Dependencies:**
+
 ```bash
 # requirements.txt
 python-magic==0.4.27  # File magic byte detection
@@ -202,6 +212,7 @@ Pillow==10.1.0        # Already installed for image processing
 ```
 
 **System Libraries:**
+
 ```bash
 # macOS (Homebrew)
 brew install libmagic
@@ -209,11 +220,12 @@ brew install libmagic
 # Ubuntu/Debian
 sudo apt-get install libmagic1
 
-# Alpine Linux (Docker)
+# Alpine Linux
 apk add libmagic
 ```
 
 **Magic Bytes Reference:**
+
 - JPEG: `FF D8 FF` (255 216 255)
 - PNG: `89 50 4E 47` (137 80 78 71)
 - WebP: `52 49 46 46` (RIFF)
@@ -221,11 +233,13 @@ apk add libmagic
 - Linux ELF: `7F 45 4C 46` (127 69 76 70)
 
 **Performance Impact:**
+
 - Magic byte detection: ~1-2ms (reads first 2KB only)
 - PIL verification: ~5-10ms (verifies without loading entire image)
 - Total overhead: ~6-12ms per upload (negligible vs. API call 2-9 seconds)
 
 **Security Hardening (Future):**
+
 - Re-encode images to strip metadata/EXIF data
 - Limit image dimensions to prevent decompression bombs
 - Scan for embedded code in image formats (XBM, XPM vulnerabilities)
@@ -233,6 +247,7 @@ apk add libmagic
 ## Acceptance Criteria
 
 **Code Changes:**
+
 - [ ] Create `/backend/apps/plant_identification/utils/file_validation.py`
 - [ ] Implement `validate_image_file()` with three layers
 - [ ] Add `python-magic` to requirements.txt
@@ -240,13 +255,16 @@ apk add libmagic
 - [ ] Document system dependency (libmagic) in README.md
 
 **Validation Layers:**
+
 - [ ] Layer 1: Content-Type header validation
 - [ ] Layer 2: Magic byte detection with python-magic
 - [ ] Layer 3: PIL image verification
 - [ ] Clear error messages for each validation failure type
 
 **Testing:**
+
 - [ ] Test valid images pass all layers
+
   ```python
   def test_valid_jpeg():
       with open('tests/fixtures/plant.jpg', 'rb') as f:
@@ -255,6 +273,7 @@ apk add libmagic
   ```
 
 - [ ] Test spoofed Content-Type rejected
+
   ```python
   def test_spoofed_content_type():
       # Upload malicious.exe with Content-Type: image/jpeg
@@ -263,6 +282,7 @@ apk add libmagic
   ```
 
 - [ ] Test corrupted images rejected
+
   ```python
   def test_corrupted_image():
       with pytest.raises(ValidationError, match="Invalid or corrupted"):
@@ -270,6 +290,7 @@ apk add libmagic
   ```
 
 - [ ] Test non-image files rejected
+
   ```python
   def test_pdf_file():
       with pytest.raises(ValidationError, match="File content does not match"):
@@ -277,6 +298,7 @@ apk add libmagic
   ```
 
 - [ ] Integration test with actual endpoint
+
   ```bash
   # Create malicious file disguised as JPEG
   cp /bin/ls malicious.jpg
@@ -289,19 +311,22 @@ apk add libmagic
   ```
 
 **Documentation:**
+
 - [ ] System dependency documented in README.md
-- [ ] Installation instructions for libmagic (macOS, Ubuntu, Docker)
+- [ ] Installation instructions for libmagic (macOS, Ubuntu)
 - [ ] Security audit documentation updated
 - [ ] File upload security best practices documented
 
 ## Success Metrics
 
 **Immediate (Within 7 days):**
+
 - ✅ Zero malicious file uploads possible (validated by security testing)
 - ✅ No legitimate image uploads rejected (false positive rate < 0.1%)
 - ✅ File upload latency increase < 20ms (acceptable overhead)
 
 **Long-term (Within 30 days):**
+
 - 📋 Security scanning in CI/CD (bandit, safety)
 - 📋 Automated security testing with fuzzing
 - 📋 OWASP File Upload Cheat Sheet compliance verified
@@ -309,13 +334,15 @@ apk add libmagic
 ## Dependencies & Risks
 
 **Dependencies:**
+
 - python-magic Python package
 - libmagic system library (platform-specific installation)
 - Pillow (already installed)
 
 **Risks:**
+
 - **Medium:** libmagic system library must be installed on all environments
-  - **Mitigation:** Add to Dockerfile, deployment docs, CI/CD setup
+  - **Mitigation:** Add to deployment docs, CI/CD setup
   - **Mitigation:** Fallback gracefully if libmagic not available (log error, use Content-Type only)
 
 - **Low:** Performance overhead from validation
@@ -331,24 +358,28 @@ apk add libmagic
 ## References & Research
 
 ### Internal References
+
 - **Code Review Finding:** security-sentinel agent (Finding #9)
 - **Security Audit:** `/backend/docs/development/SECURITY_AUDIT_REPORT.md`
 - **File Upload Endpoint:** `/backend/apps/plant_identification/api/simple_views.py:91-96`
 - **Image Processing:** `/backend/apps/plant_identification/services/plant_id_service.py`
 
 ### External References
-- **OWASP File Upload Cheat Sheet:** https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html
-- **python-magic Documentation:** https://github.com/ahupp/python-magic
-- **Pillow Security:** https://pillow.readthedocs.io/en/stable/releasenotes/index.html#security-issues
-- **CWE-434 Unrestricted File Upload:** https://cwe.mitre.org/data/definitions/434.html
-- **OWASP Top 10 A03:2021 Injection:** https://owasp.org/Top10/A03_2021-Injection/
+
+- **OWASP File Upload Cheat Sheet:** <https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html>
+- **python-magic Documentation:** <https://github.com/ahupp/python-magic>
+- **Pillow Security:** <https://pillow.readthedocs.io/en/stable/releasenotes/index.html#security-issues>
+- **CWE-434 Unrestricted File Upload:** <https://cwe.mitre.org/data/definitions/434.html>
+- **OWASP Top 10 A03:2021 Injection:** <https://owasp.org/Top10/A03_2021-Injection/>
 
 ### Related CVEs
+
 - **CVE-2019-8943:** WordPress file upload vulnerability (PHP code execution)
 - **CVE-2020-10238:** Joomla directory traversal via file upload
 - **CVE-2020-13671:** Drupal file validation bypass
 
 ### Related Work
+
 - **Issue #001:** Rotate exposed API keys (security hardening)
 - **Issue #002:** Fix insecure SECRET_KEY (security hardening)
 - **Git commit:** b4819df (Week 3 Quick Wins implementation)

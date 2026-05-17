@@ -30,7 +30,7 @@ The existing Plant ID Community is a **Progressive Web App (PWA)** built with:
 - **Frontend**: React 19.1.1 + Vite + Tailwind CSS 4.0
 - **Forum**: Django Machina (feature-flagged, integrated with Wagtail)
 - **Database**: PostgreSQL (single database for all content)
-- **Deployment**: Docker + Docker Compose + Nginx
+- **Deployment**: Nginx
 
 ### Key Findings
 
@@ -55,7 +55,7 @@ The existing Plant ID Community is a **Progressive Web App (PWA)** built with:
 - UUID-based secure references
 
 ✅ **Production-Ready Infrastructure**
-- Docker containerization
+- Linux containers
 - Redis caching
 - Celery task queue
 - WebSocket support via Channels
@@ -161,7 +161,7 @@ factory-boy==3.3.0
 
 - **Web Server**: Nginx (reverse proxy + static files)
 - **App Server**: Gunicorn (WSGI) + Daphne (ASGI for WebSockets)
-- **Container**: Docker + Docker Compose
+- **Container**: Linux containers
 - **Process Manager**: Celery for async tasks
 
 ---
@@ -187,10 +187,10 @@ class ForumBasePage(Page):
         blank=True,
         use_json_field=True
     )
-    
+
     # SEO
     meta_description = models.TextField(max_length=160)
-    
+
     # Settings
     show_breadcrumbs = models.BooleanField(default=True)
     enable_social_sharing = models.BooleanField(default=True)
@@ -264,21 +264,21 @@ category_icon = models.CharField(max_length=50)  # Icon class name
 ```python
 def get_context(self, request):
     context = super().get_context(request)
-    
+
     # Get topics from Machina
     topics = Topic.objects.filter(
         forum=self.machina_forum
     ).select_related('poster', 'last_post')
-    
+
     # Paginate
     paginator = Paginator(topics, self.topics_per_page)
     page_num = request.GET.get('page', 1)
     context['topics'] = paginator.get_page(page_num)
-    
+
     # Forum stats
     context['topic_count'] = topics.count()
     context['post_count'] = Post.objects.filter(topic__forum=self.machina_forum).count()
-    
+
     return context
 ```
 
@@ -364,7 +364,7 @@ class PlantMentionBlock(blocks.StructBlock):
         required=False,
         help_text="Optional override text"
     )
-    
+
     class Meta:
         icon = "tag"
         template = "forum_integration/blocks/plant_mention.html"
@@ -373,7 +373,7 @@ class PlantMentionBlock(blocks.StructBlock):
 
 **Template Output**:
 ```html
-<a href="{{ value.plant_page.url }}" 
+<a href="{{ value.plant_page.url }}"
    class="plant-mention"
    data-plant-id="{{ value.plant_page.id }}">
     {{ value.display_text|default:value.plant_page.title }}
@@ -495,10 +495,10 @@ class Forum(MPTTModel):
     name = models.CharField(max_length=100)
     slug = models.SlugField(max_length=255, unique=True)
     description = models.TextField(blank=True)
-    
+
     # Tree structure
     parent = TreeForeignKey('self', null=True, blank=True)
-    
+
     # Type
     type = models.PositiveSmallIntegerField(
         choices=[
@@ -507,10 +507,10 @@ class Forum(MPTTModel):
             (FORUM_LINK, 'Link')
         ]
     )
-    
+
     # Display
     image = models.ImageField(upload_to='forums', blank=True)
-    
+
     # Statistics
     posts_count = models.PositiveIntegerField(default=0)
     topics_count = models.PositiveIntegerField(default=0)
@@ -534,10 +534,10 @@ class Topic(models.Model):
     forum = models.ForeignKey(Forum, on_delete=models.CASCADE)
     subject = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255)
-    
+
     # Author
     poster = models.ForeignKey(settings.AUTH_USER_MODEL)
-    
+
     # Status
     status = models.PositiveIntegerField(
         choices=[
@@ -549,7 +549,7 @@ class Topic(models.Model):
         ],
         default=TOPIC_UNLOCKED
     )
-    
+
     # Type
     type = models.PositiveIntegerField(
         choices=[
@@ -559,14 +559,14 @@ class Topic(models.Model):
         ],
         default=TOPIC_POST
     )
-    
+
     # Moderation
     approved = models.BooleanField(default=True)
-    
+
     # Statistics
     posts_count = models.PositiveIntegerField(default=0)
     views_count = models.PositiveIntegerField(default=0)
-    
+
     # Tracking
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
@@ -583,25 +583,25 @@ class Topic(models.Model):
 class Post(models.Model):
     topic = models.ForeignKey(Topic, on_delete=models.CASCADE)
     poster = models.ForeignKey(settings.AUTH_USER_MODEL, null=True)
-    
+
     # Content
     subject = models.CharField(max_length=255)
     content = models.TextField()  # BBCode or Markdown
-    
+
     # Post position
     position = models.PositiveIntegerField(default=1)
-    
+
     # Moderation
     approved = models.BooleanField(default=True)
-    
+
     # Editing
     updated = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, related_name='+')
     updates_count = models.PositiveIntegerField(default=0)
-    
+
     # IP tracking (security)
     poster_ip = models.GenericIPAddressField(null=True, blank=True)
-    
+
     # Enable/disable specific features
     enable_signature = models.BooleanField(default=True)
 ```
@@ -618,15 +618,15 @@ Custom DRF serializers for API consumption:
 class ForumSerializer(serializers.ModelSerializer):
     """Serialize Forum for API"""
     wagtail_page = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = Forum
         fields = [
-            'id', 'name', 'slug', 'description', 
+            'id', 'name', 'slug', 'description',
             'type', 'posts_count', 'topics_count',
             'wagtail_page', 'parent_id'
         ]
-    
+
     def get_wagtail_page(self, obj):
         """Get associated Wagtail page if exists"""
         page = obj.wagtail_pages.first()
@@ -644,12 +644,12 @@ class TopicSerializer(serializers.ModelSerializer):
     author = UserSerializer(source='poster', read_only=True)
     forum_name = serializers.CharField(source='forum.name', read_only=True)
     last_post_date = serializers.DateTimeField(source='last_post.created', read_only=True)
-    
+
     class Meta:
         model = Topic
         fields = [
             'id', 'subject', 'slug', 'author', 'forum_name',
-            'status', 'type', 'approved', 'posts_count', 
+            'status', 'type', 'approved', 'posts_count',
             'views_count', 'created', 'updated', 'last_post_date'
         ]
 
@@ -658,7 +658,7 @@ class PostSerializer(serializers.ModelSerializer):
     """Serialize Post with content rendering"""
     author = UserSerializer(source='poster', read_only=True)
     content_html = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = Post
         fields = [
@@ -666,7 +666,7 @@ class PostSerializer(serializers.ModelSerializer):
             'author', 'position', 'approved',
             'created', 'updated', 'updates_count'
         ]
-    
+
     def get_content_html(self, obj):
         """Render BBCode/Markdown to HTML"""
         # Use Machina's built-in renderer
@@ -696,7 +696,7 @@ class TopicListAPIView(generics.ListAPIView):
     filterset_fields = ['forum', 'status', 'type', 'approved']
     ordering_fields = ['created', 'updated', 'views_count']
     ordering = ['-updated']
-    
+
     def get_queryset(self):
         return Topic.objects.filter(approved=True).select_related(
             'forum', 'poster', 'last_post'
@@ -707,24 +707,24 @@ class TopicDetailAPIView(generics.RetrieveAPIView):
     """Get topic with all posts"""
     serializer_class = TopicSerializer
     lookup_field = 'slug'
-    
+
     def get_queryset(self):
         return Topic.objects.filter(approved=True)
-    
+
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         serializer = self.get_serializer(instance)
-        
+
         # Get posts
         posts = Post.objects.filter(
             topic=instance,
             approved=True
         ).select_related('poster').order_by('position')
-        
+
         # Increment view count
         instance.views_count += 1
         instance.save(update_fields=['views_count'])
-        
+
         return Response({
             'topic': serializer.data,
             'posts': PostSerializer(posts, many=True).data
@@ -749,10 +749,10 @@ class TopicIndex(indexes.SearchIndex, indexes.Indexable):
     subject = indexes.CharField(model_attr='subject')
     author = indexes.CharField(model_attr='poster__username')
     created = indexes.DateTimeField(model_attr='created')
-    
+
     def get_model(self):
         return Topic
-    
+
     def index_queryset(self, using=None):
         """Only index approved topics"""
         return self.get_model().objects.filter(approved=True)
@@ -763,10 +763,10 @@ class PostIndex(indexes.SearchIndex, indexes.Indexable):
     content = indexes.CharField(model_attr='content')
     author = indexes.CharField(model_attr='poster__username')
     created = indexes.DateTimeField(model_attr='created')
-    
+
     def get_model(self):
         return Post
-    
+
     def index_queryset(self, using=None):
         """Only index approved posts"""
         return self.get_model().objects.filter(approved=True)
@@ -791,19 +791,19 @@ class PostIndex(indexes.SearchIndex, indexes.Indexable):
 class CustomUser(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
     username = models.CharField(max_length=150, unique=True)
-    
+
     # Plant-specific
     favorite_plant = models.CharField(max_length=200, blank=True)
     garden_type = models.CharField(max_length=50, choices=GARDEN_TYPE_CHOICES)
     experience_level = models.CharField(max_length=20, choices=EXPERIENCE_CHOICES)
-    
+
     # Location (for plant recommendations)
     location = models.CharField(max_length=200, blank=True)
     hardiness_zone = models.CharField(max_length=10, blank=True)
-    
+
     # Profile image
     avatar = ProcessedImageField(...)
-    
+
     # Stats
     plants_identified = models.PositiveIntegerField(default=0)
     forum_posts = models.PositiveIntegerField(default=0)
@@ -841,13 +841,13 @@ class PlantIdentificationConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.request_id = self.scope['url_route']['kwargs']['request_id']
         self.room_group_name = f'identification_{self.request_id}'
-        
+
         await self.channel_layer.group_add(
             self.room_group_name,
             self.channel_name
         )
         await self.accept()
-    
+
     async def send_identification_update(self, event):
         """Send identification progress to client"""
         await self.send(text_data=json.dumps({
@@ -1234,10 +1234,10 @@ def plant_identify_view(request):
 def process_plant_identification(request_id):
     """Process plant ID request in background"""
     request = PlantIdentificationRequest.objects.get(id=request_id)
-    
+
     # Call PlantNet API
     result = call_plantnet_api(request.image_url)
-    
+
     # Save results
     PlantIdentificationResult.objects.create(
         request=request,
@@ -1245,7 +1245,7 @@ def process_plant_identification(request_id):
         confidence=result['confidence'],
         alternatives=result['alternatives']
     )
-    
+
     # Send WebSocket update
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
@@ -1423,7 +1423,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 # Updated CustomUser model
 class CustomUser(AbstractBaseUser, PermissionsMixin):
     # Existing fields...
-    
+
     # NEW: Firebase integration
     firebase_uid = models.CharField(
         max_length=128,
@@ -1432,7 +1432,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         blank=True,
         help_text="Firebase Authentication UID"
     )
-    
+
     # NEW: Last synced timestamp
     firebase_synced_at = models.DateTimeField(null=True, blank=True)
 ```
@@ -1445,7 +1445,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
 **Current**: React PWA (monolithic)
 
-**New**: 
+**New**:
 - **Web**: React 19 + Vite + Tailwind 4 (headless Wagtail consumer)
 - **Mobile**: Flutter (iOS + Android native apps)
 
@@ -1513,7 +1513,7 @@ class FirebaseBackend:
             # Verify Firebase token
             decoded = auth.verify_id_token(firebase_token)
             uid = decoded['uid']
-            
+
             # Get or create Django user
             user, created = CustomUser.objects.get_or_create(
                 firebase_uid=uid,
@@ -1541,7 +1541,7 @@ DEFAULT_FILE_STORAGE = 'apps.core.storage.HybridStorage'
 # apps/core/storage.py
 class HybridStorage:
     """Route mobile uploads to Firebase, web uploads to local"""
-    
+
     def save(self, name, content, platform='web'):
         if platform == 'mobile':
             # Upload to Firebase Storage

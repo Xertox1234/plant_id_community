@@ -54,6 +54,7 @@ Phase 1 establishes the foundation for a **headless forum system** that will ser
 ### 1. Models (`apps/forum/models.py` - 675 lines)
 
 #### Category Model
+
 ```python
 class Category(models.Model):
     """Hierarchical forum category."""
@@ -65,12 +66,14 @@ class Category(models.Model):
 ```
 
 **Features**:
+
 - Hierarchical structure (self-referential foreign key)
 - Auto-generated slug with race condition protection
 - Soft delete pattern (`is_active` field)
 - Aggregate query methods (`get_thread_count()`, `get_post_count()`)
 
 #### Thread Model
+
 ```python
 class Thread(models.Model):
     """Forum discussion thread."""
@@ -85,12 +88,14 @@ class Thread(models.Model):
 ```
 
 **Features**:
+
 - UUID suffix on slug for guaranteed uniqueness
 - Cached denormalized counts (performance optimization)
 - F() expression atomic updates for view_count
 - Pin/lock functionality for moderators
 
 #### Post Model
+
 ```python
 class Post(models.Model):
     """Forum post within a thread."""
@@ -104,12 +109,14 @@ class Post(models.Model):
 ```
 
 **Features**:
+
 - Multi-format content support (plain, markdown, Draft.js)
 - Edit tracking (edited_at, edited_by fields)
 - First post designation (`is_first_post` flag)
 - Automatic thread statistics updates on save
 
 #### Attachment Model
+
 ```python
 class Attachment(models.Model):
     """Image attachment for forum posts."""
@@ -124,12 +131,14 @@ class Attachment(models.Model):
 ```
 
 **Features**:
+
 - Pillow-based MIME type detection (security)
 - ImageKit automatic thumbnail generation
 - File size validation (10MB max)
 - Extension whitelist (jpg, jpeg, png, gif, webp)
 
 #### Reaction Model
+
 ```python
 class Reaction(models.Model):
     """User reaction to a forum post."""
@@ -141,12 +150,14 @@ class Reaction(models.Model):
 ```
 
 **Features**:
+
 - 4 reaction types (like, love, helpful, thanks)
 - Toggle pattern (soft delete instead of hard delete)
 - UniqueConstraint (one reaction type per user per post)
 - Class method for toggle logic
 
 #### UserProfile Model
+
 ```python
 class UserProfile(models.Model):
     """Extended profile for forum users."""
@@ -158,6 +169,7 @@ class UserProfile(models.Model):
 ```
 
 **Features**:
+
 - 5-tier trust level system (new, basic, trusted, veteran, expert)
 - Automatic trust level calculation based on activity
 - Cached statistics (post_count, thread_count, helpful_count)
@@ -214,6 +226,7 @@ class ThreadAdmin(admin.ModelAdmin):
 ```
 
 **Features**:
+
 - Comprehensive list displays
 - Useful filters and search
 - Readonly fields for system-managed data
@@ -222,11 +235,13 @@ class ThreadAdmin(admin.ModelAdmin):
 ### 4. Database Migration (`apps/forum/migrations/0001_initial.py`)
 
 Creates:
+
 - 6 models (Category, Thread, Post, Attachment, Reaction, UserProfile)
 - 17 database indexes
 - 1 unique constraint (Reaction: post + user + reaction_type)
 
 **Migration Operations**:
+
 ```
 ✅ Create model Category
 ✅ Create model Post
@@ -248,12 +263,14 @@ Creates:
 **Decision**: Build as headless API, not traditional Django templates forum.
 
 **Rationale**:
+
 - Mobile-first strategy (Flutter is primary platform)
 - React web as companion (lightweight, desktop access)
 - Single API serves both platforms
 - No PWA complexity (avoiding service workers)
 
 **Implementation**:
+
 - Phase 1: Models + Admin (current)
 - Phase 2: DRF API with cache service
 - Phase 3-10: Additional features
@@ -263,11 +280,13 @@ Creates:
 **Decision**: Use UUIDs instead of auto-incrementing integers.
 
 **Rationale**:
+
 - **Security**: Prevents ID enumeration attacks
 - **Distributed Systems**: No ID collision across databases
 - **Pattern Consistency**: Matches blog app architecture
 
 **Implementation**:
+
 ```python
 id = models.UUIDField(
     primary_key=True,
@@ -282,11 +301,13 @@ id = models.UUIDField(
 **Decision**: Use `is_active` flag instead of hard deletes.
 
 **Rationale**:
+
 - Audit trail preservation
 - Data recovery capability
 - Referenced objects remain valid
 
 **Models with soft delete**:
+
 - Category
 - Thread
 - Post
@@ -297,11 +318,13 @@ id = models.UUIDField(
 **Decision**: Cache counts in denormalized fields instead of COUNT(*) queries.
 
 **Rationale**:
+
 - **Performance**: O(1) lookup vs O(n) count query
 - **Scalability**: Reduces database load at scale
 - **Pattern Consistency**: Matches Wagtail blog implementation
 
 **Implementation**:
+
 ```python
 # Thread model
 post_count = models.IntegerField(default=0)  # Cached
@@ -318,11 +341,13 @@ def update_post_count(self) -> None:
 **Decision**: Use F() expressions for incrementing counters.
 
 **Rationale**:
+
 - **Race Condition Safety**: Atomic database operation
 - **Performance**: No SELECT before UPDATE
 - **Pattern**: Follows P1 Code Review Pattern 1
 
 **Implementation**:
+
 ```python
 def increment_view_count(self) -> None:
     """Increment view count (use F() expression to avoid race conditions)."""
@@ -336,11 +361,13 @@ def increment_view_count(self) -> None:
 **Decision**: Allow categories to have parent categories (self-referential FK).
 
 **Rationale**:
+
 - **Organization**: "Plant Care" → "Succulents" → "Winter Care"
 - **Flexibility**: Flat or nested as needed
 - **Simplicity**: Simpler than django-mptt or django-treebeard
 
 **Implementation**:
+
 ```python
 parent = models.ForeignKey(
     'self',
@@ -356,12 +383,14 @@ parent = models.ForeignKey(
 **Decision**: Support plain text, Markdown, and Draft.js (rich text).
 
 **Rationale**:
+
 - **Flexibility**: Users choose their preferred format
 - **Mobile**: Plain text for simple mobile UX
 - **Web**: Rich text for desktop power users
 - **Future**: AI-generated content in structured format
 
 **Implementation**:
+
 ```python
 content_raw = models.TextField(max_length=50000)  # Always present
 content_rich = models.JSONField(null=True, blank=True)  # Optional Draft.js
@@ -376,12 +405,14 @@ content_format = models.CharField(
 **Decision**: 5-tier reputation system with automatic progression.
 
 **Rationale**:
+
 - **Spam Prevention**: New users have limited permissions
 - **Gamification**: Encourages quality contributions
 - **Moderation**: Trusted users can help moderate
-- **Pattern**: Similar to Stack Overflow, Discourse
+- **Pattern**: Similar to Stack Overflow
 
 **Levels**:
+
 1. **New** (0 days, 0 posts): Limited permissions
 2. **Basic** (7 days, 5 posts): Standard permissions
 3. **Trusted** (30 days, 25 posts): Edit others' posts
@@ -417,11 +448,13 @@ Post
 ### Index Strategy (17 Indexes)
 
 **Category (3 indexes)**:
+
 - `forum_cat_slug_idx`: Slug lookups (unique constraint)
 - `forum_cat_parent_active_idx`: Hierarchical queries
 - `forum_cat_order_idx`: Display ordering
 
 **Thread (5 indexes)**:
+
 - `forum_thread_slug_idx`: Slug lookups
 - `forum_thread_cat_active_idx`: Category listing (composite: category + is_active + last_activity)
 - `forum_thread_pin_activity_idx`: Pinned threads at top
@@ -429,18 +462,22 @@ Post
 - `forum_thread_created_idx`: Recent threads
 
 **Post (3 indexes)**:
+
 - `forum_post_thread_idx`: Thread's posts (composite: thread + is_active + created_at)
 - `forum_post_author_idx`: User's posts
 - `forum_post_created_idx`: Recent posts
 
 **Attachment (1 index)**:
+
 - `forum_attach_post_idx`: Post's attachments (composite: post + display_order)
 
 **Reaction (2 indexes)**:
+
 - `forum_react_post_type_idx`: Reaction counts (composite: post + reaction_type + is_active)
 - `forum_react_user_idx`: User's reactions
 
 **UserProfile (2 indexes)**:
+
 - `forum_profile_user_idx`: User lookup
 - `forum_profile_trust_idx`: Leaderboards (composite: trust_level + helpful_count)
 
@@ -603,6 +640,7 @@ pip install -r requirements.txt
 ```
 
 **Required packages**:
+
 - `django>=5.2`
 - `djangorestframework>=3.14`
 - `pillow>=11.0`  # Image processing
@@ -656,6 +694,7 @@ python manage.py migrate forum
 ```
 
 **Expected output**:
+
 ```
 Operations to perform:
   Apply all migrations: forum
@@ -678,6 +717,7 @@ python manage.py runserver
 Navigate to: `http://localhost:8000/admin/`
 
 You should see:
+
 - Forum → Categories
 - Forum → Threads
 - Forum → Posts
@@ -837,23 +877,27 @@ print(f"Posts: {post_count}")
 **Grade**: A+ (99/100)
 
 **Review Summary**:
+
 - All previous issues resolved
 - 0 IDE linting errors
 - Clean separation of concerns
 - Production-ready code quality
 
 **Only Suggestion** (-1 point):
+
 - Add test stubs for Phase 2 development (optional)
 
 ### Migration Safety
 
 **Migration review**:
+
 - ✅ Safe operations only (no data loss)
 - ✅ Proper dependencies
 - ✅ Reversible (can rollback)
 - ✅ Index creation (no table locks on PostgreSQL)
 
 **Rollback plan**:
+
 ```bash
 python manage.py migrate forum zero
 ```
@@ -865,6 +909,7 @@ python manage.py migrate forum zero
 ### 1. Machina Dependencies Temporarily Disabled
 
 **What's Disabled**:
+
 - `apps.search` (search functionality)
 - `apps.forum_integration` (old Machina forum)
 - `MACHINA_APPS` (Machina installed apps)
@@ -872,6 +917,7 @@ python manage.py migrate forum zero
 - Machina URLs
 
 **Impact**:
+
 - Search endpoints unavailable: `/api/v1/search/`, `/api/search/`
 - Old Machina forum unavailable: `/forum/`, `/machina/`
 - All other functionality works normally
@@ -879,6 +925,7 @@ python manage.py migrate forum zero
 **Reason**: Django app label conflict (our `apps.forum` vs Machina's `machina.apps.forum`)
 
 **Resolution Plan**:
+
 - Complete Phase 1-10 of new forum
 - Migrate data from Machina to new forum
 - Remove Machina entirely
@@ -889,6 +936,7 @@ python manage.py migrate forum zero
 **Status**: Models and admin interface only (Phase 1)
 
 **Coming in Phase 2**:
+
 - REST API endpoints (DRF)
 - Serializers
 - ViewSets with pagination
@@ -900,6 +948,7 @@ python manage.py migrate forum zero
 **Status**: Headless backend only
 
 **Coming in Phase 3-5**:
+
 - React web interface
 - Flutter mobile app
 - Real-time updates (WebSockets)
@@ -911,6 +960,7 @@ python manage.py migrate forum zero
 **Root Cause**: Post.save() calls thread.update_post_count() but there may be a signal timing issue
 
 **Workaround**: Manual refresh
+
 ```python
 thread.update_post_count()
 thread.refresh_from_db()
@@ -927,6 +977,7 @@ thread.refresh_from_db()
 **Goal**: Build REST API with caching and serializers
 
 **Tasks**:
+
 1. **Cache Service** (`services/forum_cache_service.py`)
    - Redis-based caching (pattern from BlogCacheService)
    - Dual-strategy cache invalidation
@@ -1020,6 +1071,7 @@ factory-boy>=3.3
 **Development**: SQLite (default Django database)
 
 **Production**: PostgreSQL 18+ with extensions:
+
 - `pg_trgm` (trigram search - for Phase 2)
 
 ---
@@ -1035,6 +1087,7 @@ factory-boy>=3.3
 5. `4de6abc` - docs: mark forum Phase 1 foundation as 100% complete
 
 **Total Changes**:
+
 - Files: 43 files
 - Additions: 11,568 lines
 - Deletions: 40 lines

@@ -13,7 +13,7 @@
 
 ## Overview
 
-Implement React 19 web frontend for the forum, providing a complete Discourse-like community discussion platform. This phase builds on the production-ready backend API (Phase 2c: 96/96 tests passing, Grade A 95/100) to deliver core components, thread management, and post creation functionality.
+Implement React 19 web frontend for the forum, providing a complete community discussion platform. This phase builds on the production-ready backend API (Phase 2c: 96/96 tests passing, Grade A 95/100) to deliver core components, thread management, and post creation functionality.
 
 **Target Users**: Web users on desktop and tablet devices
 **Duration**: ✅ Completed in Weeks 14-15 + 1 day polish
