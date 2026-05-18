@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "084"
 tags: [forum, config, audit-2026-05-17]
@@ -49,9 +49,8 @@ All in `apps/forum/` (see `docs/audits/2026-05-17-full.md` for detail):
 
 ## Acceptance Criteria
 
-- [ ] Forum-config decision recorded (promote `apps/forum/` or delete it).
-- [ ] If promoted: each finding fixed and forum tests run clean.
-- [ ] If deleted: `apps/forum/` removed; no dangling imports.
+- [x] Forum-config decision recorded (promote `apps/forum/` or delete it).
+- [x] If deleted: `apps/forum/` removed; no dangling imports.
 
 ## Work Log
 
@@ -59,3 +58,13 @@ All in `apps/forum/` (see `docs/audits/2026-05-17-full.md` for detail):
 
 - Deferred from the 2026-05-17 full audit (Phase 4). User confirmed Machina is the
   authoritative forum.
+
+### 2026-05-18 - Resolved by deletion
+
+- User decision: **delete `apps/forum/`**. Removed the entire `apps/forum/` app,
+  `backend/create_forum_test_data.py`, and `apps/users/management/commands/setup_trust_levels.py`
+  (both coupled to `apps.forum` models/services).
+- Fixed the `ENABLE_FORUM` flag: dropped the `else` branch that appended
+  `apps.forum`; removed the `apps.forum.urls` include from the root URLconf.
+- All findings H14/H15/H35/M6/M9/M11/M13/L5/L6/L31 are moot — the code no longer
+  exists. `manage.py check` passes; `apps.forum_integration` tests updated and pass.

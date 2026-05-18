@@ -123,11 +123,6 @@ urlpatterns = [
                     path("blog/", include("apps.blog.urls")),
                     path("blog-api/", include("apps.blog.api_urls")),
                     *(
-                        [path("forum/", include("apps.forum.urls"))]
-                        if not settings.ENABLE_FORUM
-                        else []
-                    ),
-                    *(
                         [path("forum/", include("apps.forum_integration.api_urls"))]
                         if settings.ENABLE_FORUM
                         else []
