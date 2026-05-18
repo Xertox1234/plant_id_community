@@ -9,10 +9,10 @@ name: Backend CI
       - '.python-version'
   pull_request:
     branches: [main, develop]
-    paths:
-      - 'backend/**'
-      - '.github/workflows/backend-ci.yml'
-      - '.python-version'
+    # No path filter on pull_request: the backend-checks job is a required
+    # status check, so it must report on every PR. A path-filtered required
+    # check never reports on PRs that miss the filter (e.g. docs-only changes),
+    # which permanently blocks the merge.
 
 jobs:
   backend-checks:
