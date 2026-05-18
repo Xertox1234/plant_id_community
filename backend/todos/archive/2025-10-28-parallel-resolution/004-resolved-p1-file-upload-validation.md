@@ -22,12 +22,14 @@ if image_file.content_type not in allowed_types:
 ```
 
 **Impact:**
+
 - Content-Type header can be spoofed by attacker
 - Malicious files (executables, scripts) can be uploaded with fake Content-Type
 - Potential RCE (Remote Code Execution) if files are processed without validation
 - Exploitability: HIGH
 
 **Proof of Concept:**
+
 ```bash
 # Attacker uploads malicious file with spoofed Content-Type
 curl -X POST /api/plant-identification/identify/ \
@@ -45,12 +47,14 @@ curl -X POST /api/plant-identification/identify/ \
 ## Proposed Solutions
 
 ### Option 1: Multi-Layer Validation (RECOMMENDED)
+
 - **Pros**: Defense in depth, catches all attack vectors
 - **Cons**: Additional dependency (python-magic)
 - **Effort**: Medium (1 hour)
 - **Risk**: Low (standard security practice)
 
 **Implementation:**
+
 ```python
 # 1. Install dependency
 # requirements.txt
@@ -135,6 +139,7 @@ def identify_plant(request):
 ```
 
 ### Option 2: Extension Validation Only (NOT RECOMMENDED)
+
 - **Pros**: Simple, no dependencies
 - **Cons**: Easy to bypass (rename malicious.exe to malicious.jpg)
 - **Effort**: Small (15 minutes)
@@ -157,6 +162,7 @@ def identify_plant(request):
   - External API integrations (Plant.id, PlantNet)
 
 - **System Dependencies**:
+
   ```bash
   # macOS
   brew install libmagic
@@ -174,8 +180,8 @@ def identify_plant(request):
 
 - Security audit report: `/backend/docs/development/SECURITY_AUDIT_REPORT.md`
 - Agent report: security-sentinel (Finding #9)
-- OWASP File Upload: https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload
-- python-magic docs: https://github.com/ahupp/python-magic
+- OWASP File Upload: <https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload>
+- python-magic docs: <https://github.com/ahupp/python-magic>
 
 ## Acceptance Criteria
 
@@ -195,13 +201,16 @@ def identify_plant(request):
 ## Work Log
 
 ### 2025-10-22 - Code Review Discovery
+
 **By:** security-sentinel agent
 **Actions:**
+
 - Discovered file upload validation vulnerability during security audit
 - Analyzed attack vectors (Content-Type spoofing)
 - Categorized as CRITICAL/HIGH priority (potential RCE)
 
 **Learnings:**
+
 - Never trust Content-Type header alone
 - Defense in depth: Multiple validation layers
 - Use magic bytes for file type detection
@@ -213,6 +222,7 @@ def identify_plant(request):
 **Urgency:** CRITICAL - Fix before production deployment
 **Deployment:** Requires libmagic system library installation
 **Testing:**
+
 ```bash
 # Test with actual malicious file
 cp /bin/ls malicious_executable.jpg
@@ -222,6 +232,7 @@ curl -X POST http://localhost:8000/api/v1/plant-identification/identify/ \
 ```
 
 **Attack Scenario:**
+
 1. Attacker uploads malicious.exe renamed to malicious.jpg
 2. Sets Content-Type: image/jpeg in HTTP request
 3. Without magic byte validation, file passes Content-Type check
@@ -229,6 +240,7 @@ curl -X POST http://localhost:8000/api/v1/plant-identification/identify/ \
 
 **Defense:**
 Magic bytes detect actual file type regardless of name/header:
+
 - JPEG: `FF D8 FF`
 - PNG: `89 50 4E 47`
 - Executable: `4D 5A` (Windows) or `7F 45 4C 46` (Linux ELF)
@@ -259,12 +271,14 @@ The file upload validation vulnerability has been **FULLY RESOLVED**. The system
 ### Validation Implementation
 
 **File: `/backend/apps/plant_identification/utils/file_validation.py`**
+
 - Three-layer validation (98 lines, production-ready)
 - Layer 1: Content-Type header check (fast, first defense)
 - Layer 2: python-magic byte verification (reliable, cannot be spoofed)
 - Layer 3: PIL image verification (ensures complete valid image)
 
 **File: `/backend/apps/core/validators.py`**
+
 - SecureFileValidator class with comprehensive validation
 - Includes size limits, dimension checks, aspect ratio validation
 - Used by model-level validators: `validate_plant_identification_image`
@@ -278,6 +292,7 @@ The file upload validation vulnerability has been **FULLY RESOLVED**. The system
 ### Security Testing Results
 
 All 6 security tests PASSED:
+
 1. ✓ Valid JPEG accepted
 2. ✓ Valid PNG accepted
 3. ✓ Text file with spoofed Content-Type rejected
@@ -310,6 +325,7 @@ All 6 security tests PASSED:
 ### Security Logging
 
 Both validation utilities include security logging:
+
 - Invalid file rejection logged with [SECURITY] prefix
 - Warnings when python-magic unavailable
 - File type mismatch detection logged for monitoring
@@ -339,6 +355,7 @@ curl -X POST http://localhost:8000/api/v1/plant-identification/identify/ \
 ### Production Deployment Notes
 
 1. **System Dependencies**
+
    ```bash
    # macOS
    brew install libmagic
@@ -346,11 +363,12 @@ curl -X POST http://localhost:8000/api/v1/plant-identification/identify/ \
    # Ubuntu/Debian
    sudo apt-get install libmagic1
 
-   # Alpine (Docker)
+   # Alpine Linux
    apk add libmagic
    ```
 
 2. **Python Dependencies**
+
    ```bash
    pip install -r requirements.txt  # includes python-magic==0.4.27
    ```
@@ -388,6 +406,7 @@ curl -X POST http://localhost:8000/api/v1/plant-identification/identify/ \
 ### Resolution Confirmation
 
 This TODO is now **RESOLVED**. The file upload validation system is:
+
 - ✓ Fully implemented with multi-layer defense
 - ✓ Tested against all known attack vectors
 - ✓ Production-ready with proper error handling

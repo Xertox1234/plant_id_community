@@ -39,7 +39,7 @@ These were completed earlier today and deployed:
 - Security rationale explaining cascade compromise prevention
 - Step-by-step upgrade instructions with multiple key generation methods
 - Troubleshooting guide covering common errors
-- CI/CD configuration examples (GitHub Actions, Docker, Kubernetes)
+- CI/CD configuration examples (GitHub Actions, Kubernetes)
 - Emergency rollback procedures
 - Complete validation checklist
 

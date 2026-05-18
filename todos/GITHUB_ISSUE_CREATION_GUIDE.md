@@ -37,6 +37,7 @@ This guide provides battle-tested templates and patterns for creating GitHub iss
 ### Philosophy
 
 Good issues are:
+
 - **Actionable**: Clear steps to reproduce and fix
 - **Measurable**: Specific acceptance criteria
 - **Traceable**: Links to code, docs, related issues
@@ -94,9 +95,11 @@ curl -X POST http://localhost:8000/api/auth/login \
 ## Impact
 
 **Technical Impact**:
+
 - [e.g., Session hijacking, data exfiltration, privilege escalation]
 
 **Business Impact**:
+
 - [e.g., User data breach, compliance violation (GDPR), reputational damage]
 
 **CVSS Vector**: `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N`
@@ -130,10 +133,12 @@ def login(request: Request) -> Response:
 ### Alternative Solutions
 
 **Option 2**: Account-based rate limiting
+
 - **Pros**: More accurate, prevents credential stuffing
 - **Cons**: Requires authentication check before rate limit
 
 **Option 3**: CAPTCHA after 3 failed attempts
+
 - **Pros**: User-friendly, prevents automated attacks
 - **Cons**: UX friction, accessibility concerns
 
@@ -187,7 +192,8 @@ done
 
 **Discovered By**: security-sentinel agent (Claude Code Review System)
 **Reported By**: @yourusername
-**Contact**: security@yourproject.com
+**Contact**: <security@yourproject.com>
+
 ```
 
 ---
@@ -225,6 +231,7 @@ def blog_list(request: Request) -> Response:
 ```
 
 **Issues**:
+
 1. No `select_related()` for foreign keys (author, category)
 2. No `prefetch_related()` for many-to-many (tags)
 3. Missing database index on `published_date` (used in filtering)
@@ -233,11 +240,13 @@ def blog_list(request: Request) -> Response:
 ## Performance Metrics
 
 **Before**:
+
 - **Queries**: 1 + N (author) + N (category) + N (tags) = 1 + 3N queries
 - **Time**: 300-800ms for 50 posts (15 queries per post × 50 = 750 queries!)
 - **Database Load**: High (750 queries/request)
 
 **After** (with optimizations):
+
 - **Queries**: 3-5 queries (1 main + 2-4 prefetch)
 - **Time**: <50ms (cached), ~100ms (cold)
 - **Database Load**: Low (5 queries/request)
@@ -270,12 +279,14 @@ def blog_list(request: Request) -> Response:
 ```
 
 **Pros**:
+
 - 100x query reduction (750 → 5 queries)
 - <50ms response time (cached)
 - Standard Django patterns
 - Low risk, well-tested approach
 
 **Cons**:
+
 - Cache invalidation complexity (must bust on post update)
 - Memory usage (Redis cache storage)
 
@@ -300,11 +311,13 @@ class Migration(migrations.Migration):
 ```
 
 **Pros**:
+
 - 10-20x improvement without caching
 - No cache invalidation complexity
 - Zero application code changes
 
 **Cons**:
+
 - Still does N+1 queries (need select_related too)
 - Slower than Option 1 (100ms vs 50ms)
 
@@ -318,6 +331,7 @@ class Migration(migrations.Migration):
 ### Implementation Steps
 
 1. **Add query optimization** (2 hours):
+
    ```bash
    cd backend
    # Update views.py with select_related/prefetch_related
@@ -325,6 +339,7 @@ class Migration(migrations.Migration):
    ```
 
 2. **Add Redis caching** (2 hours):
+
    ```bash
    # Install redis: brew install redis (macOS)
    # Update settings.py with CACHES config
@@ -332,6 +347,7 @@ class Migration(migrations.Migration):
    ```
 
 3. **Add cache invalidation** (2 hours):
+
    ```bash
    # Create signals.py for post_save/post_delete
    # Bust cache on BlogPost changes
@@ -339,6 +355,7 @@ class Migration(migrations.Migration):
    ```
 
 4. **Add database indexes** (1 hour):
+
    ```bash
    # Create migration for indexes
    # Run: python manage.py makemigrations
@@ -346,6 +363,7 @@ class Migration(migrations.Migration):
    ```
 
 5. **Verify performance** (1 hour):
+
    ```bash
    # Use Django Debug Toolbar to verify query count
    # Benchmark with: python manage.py test_performance
@@ -355,6 +373,7 @@ class Migration(migrations.Migration):
 ## Technical Details
 
 **Affected Files**:
+
 - `backend/apps/blog/views.py` (query optimization)
 - `backend/apps/blog/signals.py` (cache invalidation - NEW)
 - `backend/apps/blog/migrations/0012_add_performance_indexes.py` (NEW)
@@ -362,10 +381,12 @@ class Migration(migrations.Migration):
 - `backend/plant_community_backend/settings.py` (Redis config)
 
 **Database Changes**:
+
 - Add GIN index on `published_date` (PostgreSQL)
 - Add composite index on `(category, published_date)`
 
 **Configuration Changes**:
+
 ```python
 # settings.py
 CACHES = {
@@ -385,9 +406,9 @@ BLOG_DETAIL_CACHE_TIMEOUT = 3600  # 1 hour
 
 ## Resources
 
-- **Django Query Optimization**: https://docs.djangoproject.com/en/5.2/topics/db/optimization/
-- **Django Caching**: https://docs.djangoproject.com/en/5.2/topics/cache/
-- **PostgreSQL Indexes**: https://www.postgresql.org/docs/current/indexes.html
+- **Django Query Optimization**: <https://docs.djangoproject.com/en/5.2/topics/db/optimization/>
+- **Django Caching**: <https://docs.djangoproject.com/en/5.2/topics/cache/>
+- **PostgreSQL Indexes**: <https://www.postgresql.org/docs/current/indexes.html>
 - **Reference Implementation**: `backend/apps/plant_identification/services/plant_id_service.py` (caching example)
 
 ## Acceptance Criteria
@@ -404,6 +425,7 @@ BLOG_DETAIL_CACHE_TIMEOUT = 3600  # 1 hour
 ## Performance Benchmarks
 
 ### Before
+
 ```bash
 # Django Debug Toolbar
 Queries: 750 queries in 785ms
@@ -411,6 +433,7 @@ Cache: 0 hits, 0 misses
 ```
 
 ### After
+
 ```bash
 # Django Debug Toolbar
 Queries: 5 queries in 45ms (cached), 105ms (cold)
@@ -426,10 +449,12 @@ Cache: 95% hit rate (40% target exceeded)
 ## Work Log
 
 ### 2025-10-25 - Code Review Discovery
+
 - Discovered N+1 query problem in blog listing endpoint
 - Benchmarked current performance: 300-800ms per request
 - Identified missing indexes on published_date
 - Calculated potential improvement: 100x (750 → 5 queries)
+
 ```
 
 ---
@@ -471,6 +496,7 @@ export default function BlogDetailPage() {
 ```
 
 **Issues**:
+
 1. Importing entire libraries instead of specific functions
 2. Moment.js is deprecated and heavy (72 kB)
 3. Lodash full import when only using 1 function
@@ -479,6 +505,7 @@ export default function BlogDetailPage() {
 ## Bundle Analysis
 
 **Before**:
+
 ```bash
 npm run build
 
@@ -492,6 +519,7 @@ dist/assets/index-a1b2c3d4.js    378.15 kB │ gzip: 119.02 kB
 ```
 
 **After** (with optimizations):
+
 ```bash
 npm run build
 
@@ -524,18 +552,21 @@ export default function BlogDetailPage() {
 ```
 
 **Bundle savings**:
+
 - DOMPurify → isomorphic-dompurify: 45 kB → 12 kB (-33 kB)
 - Moment.js → date-fns: 72 kB → 8 kB (-64 kB)
 - Lodash → lodash/uniq: 71 kB → 2 kB (-69 kB)
 - **Total**: -166 kB (-34% bundle reduction)
 
 **Pros**:
+
 - Massive bundle size reduction
 - Modern, maintained libraries
 - Better tree-shaking support
 - Improved load times (3-5s → 1-2s on 3G)
 
 **Cons**:
+
 - API changes require code updates
 - date-fns uses different format tokens than Moment.js
 - Requires testing all date formatting
@@ -561,11 +592,13 @@ export default function BlogDetailPage() {
 ```
 
 **Pros**:
+
 - Defers heavy library loading
 - Smaller initial bundle
 - No API changes
 
 **Cons**:
+
 - Still loads heavy libraries (eventually)
 - Adds loading states (UX complexity)
 - Only helps initial load, not total bundle size
@@ -580,6 +613,7 @@ export default function BlogDetailPage() {
 ### Implementation Steps
 
 1. **Replace Moment.js with date-fns** (2 hours):
+
    ```bash
    npm uninstall moment
    npm install date-fns
@@ -590,6 +624,7 @@ export default function BlogDetailPage() {
    ```
 
 2. **Replace Lodash with specific imports** (1 hour):
+
    ```bash
    # No uninstall needed, just update imports
    # Before: import lodash from 'lodash'
@@ -597,6 +632,7 @@ export default function BlogDetailPage() {
    ```
 
 3. **Replace DOMPurify with isomorphic-dompurify** (2 hours):
+
    ```bash
    npm uninstall dompurify
    npm install isomorphic-dompurify
@@ -607,6 +643,7 @@ export default function BlogDetailPage() {
    ```
 
 4. **Verify bundle size** (1 hour):
+
    ```bash
    npm run build
    # Check dist/ output for size reduction
@@ -618,6 +655,7 @@ export default function BlogDetailPage() {
    ```
 
 5. **Test functionality** (2 hours):
+
    ```bash
    npm run test
    npm run test:e2e
@@ -629,6 +667,7 @@ export default function BlogDetailPage() {
 ## Technical Details
 
 **Affected Files**:
+
 - `web/src/components/BlogDetailPage.jsx` (primary)
 - `web/src/components/BlogCard.jsx` (date formatting)
 - `web/src/utils/formatDate.js` (date utility)
@@ -636,6 +675,7 @@ export default function BlogDetailPage() {
 - `web/package.json` (dependencies)
 
 **Dependency Changes**:
+
 ```json
 {
   "dependencies": {
@@ -650,6 +690,7 @@ export default function BlogDetailPage() {
 ```
 
 **Configuration Changes**:
+
 ```javascript
 // vite.config.js
 export default defineConfig({
@@ -668,10 +709,10 @@ export default defineConfig({
 
 ## Resources
 
-- **Bundlephobia**: https://bundlephobia.com/ (check library sizes before adding)
-- **Vite Bundle Visualizer**: https://www.npmjs.com/package/rollup-plugin-visualizer
-- **date-fns Migration Guide**: https://date-fns.org/v3.0.0/docs/Moment.js
-- **Lodash Individual Packages**: https://lodash.com/per-method-packages
+- **Bundlephobia**: <https://bundlephobia.com/> (check library sizes before adding)
+- **Vite Bundle Visualizer**: <https://www.npmjs.com/package/rollup-plugin-visualizer>
+- **date-fns Migration Guide**: <https://date-fns.org/v3.0.0/docs/Moment.js>
+- **Lodash Individual Packages**: <https://lodash.com/per-method-packages>
 
 ## Acceptance Criteria
 
@@ -688,6 +729,7 @@ export default defineConfig({
 ## Performance Benchmarks
 
 ### Before
+
 ```bash
 # Lighthouse score
 Performance: 72/100
@@ -696,6 +738,7 @@ Total Bundle Size: 378 kB (gzipped: 119 kB)
 ```
 
 ### After
+
 ```bash
 # Lighthouse score
 Performance: 89/100 (+17 points)
@@ -712,10 +755,12 @@ Total Bundle Size: 250 kB (gzipped: 78 kB) (-34%)
 ## Work Log
 
 ### 2025-10-25 - Bundle Analysis
+
 - Ran `npm run build` and analyzed bundle composition
 - Identified heavy libraries: Moment.js (72 kB), Lodash (71 kB), DOMPurify (45 kB)
 - Researched modern alternatives: date-fns, lodash/uniq, isomorphic-dompurify
 - Calculated potential savings: -166 kB (-34% reduction)
+
 ```
 
 ---
@@ -761,6 +806,7 @@ def current_user(request: Request) -> Response:
 ```
 
 **Issues**:
+
 1. No type checking on request parameter (could pass wrong type)
 2. No return type annotation (could return wrong type by mistake)
 3. Inconsistent with service layer (98% type hint coverage)
@@ -769,22 +815,26 @@ def current_user(request: Request) -> Response:
 ## Type Coverage Analysis
 
 **Service Layer** (excellent):
+
 ```python
 # backend/apps/plant_identification/services/plant_id_service.py
 def identify_plant(self, image_file) -> Optional[Dict[str, Any]]:  # ✅
 def _call_plant_id_api(self, encoded_image: str) -> Optional[Dict[str, Any]]:  # ✅
 def _cache_result(self, cache_key: str, result: Dict[str, Any]) -> None:  # ✅
 ```
+
 - **Coverage**: 98-100% on all service methods
 - **Benefits**: Catches errors at development time, better IDE support
 
 **Views Layer** (poor):
+
 ```python
 # backend/apps/users/views.py
 def register(request):  # ❌ No type hints
 def login(request):  # ❌ No type hints
 def logout(request):  # ❌ No type hints
 ```
+
 - **Coverage**: 3.6% (1/28 functions)
 - **Problem**: Public API has NO type safety while internal services do
 
@@ -811,12 +861,14 @@ def register(request: Request) -> Response:  # ✅ Type safe
 **Type Hint Patterns**:
 
 1. **Simple view** (most common):
+
    ```python
    def view_name(request: Request) -> Response:
        return Response({"data": ...})
    ```
 
 2. **View with decorators**:
+
    ```python
    @ratelimit(key='ip', rate='5/15m')
    def view_name(request: Request) -> Response:
@@ -824,6 +876,7 @@ def register(request: Request) -> Response:  # ✅ Type safe
    ```
 
 3. **View with multiple return types** (rare):
+
    ```python
    from typing import Union
    from django.http import HttpResponse
@@ -835,6 +888,7 @@ def register(request: Request) -> Response:  # ✅ Type safe
    ```
 
 **Pros**:
+
 - Type checking on public API surface
 - Catches errors at development time (not runtime)
 - IDE autocomplete improvements
@@ -842,6 +896,7 @@ def register(request: Request) -> Response:  # ✅ Type safe
 - Easier refactoring (type errors highlight breaking changes)
 
 **Cons**:
+
 - Requires 4-6 hours of work (28 functions)
 - Must verify all return paths return correct type
 - Requires mypy configuration update
@@ -868,6 +923,7 @@ def old_view(request):  # ❌ Not typed (legacy)
 ### Implementation Steps
 
 1. **Add imports** (5 minutes):
+
    ```python
    # backend/apps/users/views.py (top of file)
    from rest_framework.request import Request
@@ -876,6 +932,7 @@ def old_view(request):  # ❌ Not typed (legacy)
    ```
 
 2. **Add type hints** (4 hours):
+
    ```bash
    # Update each function signature
    # Pattern: def view_name(request: Request) -> Response:
@@ -890,6 +947,7 @@ def old_view(request):  # ❌ Not typed (legacy)
    ```
 
 3. **Configure mypy** (30 minutes):
+
    ```toml
    # pyproject.toml
    [[tool.mypy.overrides]]
@@ -900,6 +958,7 @@ def old_view(request):  # ❌ Not typed (legacy)
    ```
 
 4. **Run mypy** (1 hour):
+
    ```bash
    mypy apps/users/views.py --strict
 
@@ -911,6 +970,7 @@ def old_view(request):  # ❌ Not typed (legacy)
    ```
 
 5. **Verify tests** (30 minutes):
+
    ```bash
    python manage.py test apps.users --keepdb -v 2
    # Should pass: 18/18 authentication tests
@@ -919,6 +979,7 @@ def old_view(request):  # ❌ Not typed (legacy)
 ## Technical Details
 
 **Affected Files**:
+
 - `backend/apps/users/views.py` (1,501 lines - primary change)
 - `backend/pyproject.toml` (mypy configuration)
 - `backend/apps/users/tests/*.py` (verify tests still pass)
@@ -935,6 +996,7 @@ def old_view(request):  # ❌ Not typed (legacy)
 | ... | ... | ... | ... |
 
 **Reference Implementation**:
+
 ```python
 # backend/apps/plant_identification/services/plant_id_service.py
 # Excellent example of type hint coverage (98-100%)
@@ -951,6 +1013,7 @@ def _call_plant_id_api(self, encoded_image: str) -> Optional[Dict[str, Any]]:
 **Database Changes**: None
 
 **Configuration Changes**:
+
 ```toml
 # pyproject.toml
 [tool.mypy]
@@ -968,9 +1031,9 @@ strict_optional = true
 
 ## Resources
 
-- **DRF Type Hints Guide**: https://www.django-rest-framework.org/community/3.12-announcement/#improved-type-hints
-- **mypy Documentation**: https://mypy.readthedocs.io/en/stable/cheat_sheet_py3.html
-- **Python Type Hints (PEP 484)**: https://www.python.org/dev/peps/pep-0484/
+- **DRF Type Hints Guide**: <https://www.django-rest-framework.org/community/3.12-announcement/#improved-type-hints>
+- **mypy Documentation**: <https://mypy.readthedocs.io/en/stable/cheat_sheet_py3.html>
+- **Python Type Hints (PEP 484)**: <https://www.python.org/dev/peps/pep-0484/>
 - **Reference Implementation**: `backend/apps/plant_identification/services/*.py`
 
 ## Acceptance Criteria
@@ -987,6 +1050,7 @@ strict_optional = true
 ## Type Coverage Report
 
 ### Before
+
 ```bash
 mypy apps/users/views.py --strict
 # Result: 85 errors (mostly missing return types)
@@ -994,6 +1058,7 @@ mypy apps/users/views.py --strict
 ```
 
 ### After
+
 ```bash
 mypy apps/users/views.py --strict
 # Result: Success: no issues found in 1 source file
@@ -1009,10 +1074,12 @@ mypy apps/users/views.py --strict
 ## Work Log
 
 ### 2025-10-25 - Type Coverage Analysis
+
 - Audited all view functions in apps/users/views.py
 - Found 27/28 functions without return type hints
 - Compared to service layer (98-100% coverage) - significant gap
 - Identified as CRITICAL due to public API surface importance
+
 ```
 
 ---
@@ -1059,6 +1126,7 @@ class Migration(migrations.Migration):
 - [ ] Migration runs successfully on PostgreSQL (production)
 - [ ] Migration skips gracefully on SQLite (development)
 - [ ] Tests pass on both databases
+
 ```
 
 ---
@@ -1110,6 +1178,7 @@ export default memo(function BlogCard({ post }) {
 - [ ] Heavy computations use useMemo()
 - [ ] React DevTools Profiler shows reduced renders
 - [ ] All tests pass
+
 ```
 
 ---
@@ -1181,6 +1250,7 @@ class PlantIdentificationSerializer(serializers.Serializer):
 ## Labels
 
 `api-integration`, `backend`, `mobile`, `flutter`, `cross-platform`, `needs-fix`
+
 ```
 
 ---
@@ -1278,6 +1348,7 @@ def validate_image_format(self, image_file):  # Line 167 - NOT USED (public meth
 ```
 
 **Verification**:
+
 ```bash
 # Grep for usage across codebase
 cd backend
@@ -1305,11 +1376,13 @@ grep -r "validate_image_format" apps/
 ## Impact Analysis
 
 **Before**:
+
 - Lines of code: 245
 - Methods: 8 (5 used, 3 unused)
 - Complexity: High (unused code paths confuse readers)
 
 **After**:
+
 - Lines of code: 222 (-23 lines, -9%)
 - Methods: 5 (5 used, 0 unused)
 - Complexity: Lower (clearer code paths)
@@ -1325,6 +1398,7 @@ grep -r "validate_image_format" apps/
 ## Labels
 
 `technical-debt`, `code-cleanup`, `refactoring`, `backend`, `needs-fix`
+
 ```
 
 ---
@@ -1370,6 +1444,7 @@ auditlog.register(PlantIdentificationResult)
 ```
 
 **Audit Log Schema**:
+
 ```python
 AuditLogEntry:
     - timestamp: When was data accessed?
@@ -1381,6 +1456,7 @@ AuditLogEntry:
 ```
 
 **Retention Policy**:
+
 - **90 days**: Operational audits (query in Django admin)
 - **7 years**: Compliance archives (export to S3 cold storage)
 
@@ -1396,9 +1472,9 @@ AuditLogEntry:
 
 ## Resources
 
-- **GDPR Article 30**: https://gdpr-info.eu/art-30-gdpr/
-- **django-auditlog**: https://django-auditlog.readthedocs.io/
-- **SOC 2 Requirements**: https://www.aicpa.org/soc4so
+- **GDPR Article 30**: <https://gdpr-info.eu/art-30-gdpr/>
+- **django-auditlog**: <https://django-auditlog.readthedocs.io/>
+- **SOC 2 Requirements**: <https://www.aicpa.org/soc4so>
 - **Log Retention**: NIST SP 800-92
 
 ## Acceptance Criteria
@@ -1413,6 +1489,7 @@ AuditLogEntry:
 ## Labels
 
 `compliance`, `gdpr`, `audit-trail`, `security`, `backend`, `needs-implementation`
+
 ```
 
 ---
@@ -1531,7 +1608,7 @@ mobile:flutter      # Flutter mobile app
 mobile:ios          # iOS-specific issues
 mobile:android      # Android-specific issues
 
-infrastructure      # Docker, deployment, CI/CD
+infrastructure      # Deployment, CI/CD
 ```
 
 ### Type Labels
@@ -1740,6 +1817,7 @@ This guide provides comprehensive templates and workflows for converting code au
 6. **Measure success** - CVSS scores, performance metrics, test coverage
 
 **Next Steps**:
+
 1. Review existing todos in `/Users/williamtower/projects/plant_id_community/todos/`
 2. Convert each todo to GitHub issue using appropriate template
 3. Create milestone: "Code Audit Remediation - October 2025"
@@ -1750,6 +1828,7 @@ This guide provides comprehensive templates and workflows for converting code au
 ---
 
 **Resources**:
+
 - [GitHub Issues Docs](https://docs.github.com/en/issues)
 - [GitHub Security Advisories](https://docs.github.com/en/code-security/security-advisories)
 - [CVSS Calculator](https://nvd.nist.gov/vuln-metrics/cvss/v3-calculator)

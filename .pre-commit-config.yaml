@@ -197,7 +197,8 @@ repos:
             PLANNING/.*|
             backend/docs/development/SECURITY_INCIDENT_.*\.md$|
             todos/archive/.*\.md$|
-            docs/archive/.*\.md$
+            docs/archive/.*\.md$|
+            docs/reviews/.*\.md$
           )
 
   # ===================================

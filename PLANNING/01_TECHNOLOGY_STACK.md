@@ -102,7 +102,6 @@ This document outlines the latest stable versions of all technologies we'll be u
 ### Forum System
 - **Current**: Custom forum built with Wagtail (to be documented)
 - **Approach**: Extract and preserve forum code, potentially as Django app
-- **Alternative**: Consider integrating with Discourse API if needed
 
 ---
 

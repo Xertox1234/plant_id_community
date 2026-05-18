@@ -17,7 +17,6 @@
 - 7 Django apps with sophisticated functionality
 - 2,780+ lines of custom forum code (Django Machina + Wagtail integration)
 - Enhanced disease diagnosis system (25+ categories)
-- Complete Docker deployment infrastructure
 - Comprehensive documentation (15+ docs files)
 
 **Impact**: Clear understanding of what to preserve vs. transform
@@ -53,7 +52,7 @@
   - Forum (Django Machina) models
   - Garden calendar and community events
   - Search and activity logs
-  
+
 - **Firestore Schema**: Designed NoSQL collections for mobile
   - `users/` - User profiles synced with Firebase Auth
   - `plant_identifications/` - Mobile plant ID records

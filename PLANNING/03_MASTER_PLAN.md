@@ -52,7 +52,6 @@ Mobile:
 └── Mobile folder exists (legacy)
 
 Infrastructure:
-├── Docker & Docker Compose
 ├── Nginx
 └── WebSocket support
 ```
@@ -639,7 +638,6 @@ plant_id_community/
 ├── .env.example
 ├── .gitignore
 ├── README.md
-└── docker-compose.yml           # For local Django development
 ```
 
 ### B. Timeline Summary

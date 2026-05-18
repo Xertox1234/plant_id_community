@@ -195,7 +195,7 @@ Simply use **[Issue #55](https://github.com/Xertox1234/plant_id_community/issues
 - [ ] Security audit
 
 **Deliverables**:
-- ✅ Full Discourse-like UI
+- ✅ Full community forum UI
 - ✅ Mobile responsive
 - ✅ 80+ tests passing
 - ✅ Grade A code review

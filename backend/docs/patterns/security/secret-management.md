@@ -2,6 +2,7 @@
 
 **Last Updated**: November 13, 2025
 **Consolidated From**:
+
 - `plant_community_backend/settings.py` (SECRET_KEY validation)
 - `docs/development/SECURITY_PATTERNS_CODIFIED.md` (secret detection)
 - `todos/completed/005-completed-p1-api-key-rotation-verification.md` (key rotation)
@@ -32,6 +33,7 @@
 **Problem**: Django applications often ship with insecure default SECRET_KEY values, allowing production deployment with predictable keys. This enables session hijacking, CSRF bypass, and authentication bypass attacks.
 
 **Security Impact**:
+
 - Session cookie forgery → User impersonation
 - CSRF token prediction → State-changing attacks
 - Password reset token forgery → Account takeover
@@ -44,6 +46,7 @@
 ### Pattern: Fail-Fast Production Validation
 
 **Correct Implementation**:
+
 ```python
 import os
 from pathlib import Path
@@ -123,6 +126,7 @@ else:
 ### Pattern: Why Development Defaults Are Allowed
 
 **Development vs Production**:
+
 ```python
 # ✅ DEVELOPMENT (DEBUG=True)
 # - Insecure default allowed for quick setup
@@ -144,6 +148,7 @@ else:
 ```
 
 **Why This Works**:
+
 1. **Developer Experience**: Local setup "just works" without manual key generation
 2. **Production Safety**: Impossible to deploy with insecure defaults
 3. **Clear Errors**: Helpful messages guide correct setup
@@ -154,16 +159,19 @@ else:
 ### Pattern: Generate Secure SECRET_KEY
 
 **Command**:
+
 ```bash
 python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 ```
 
 **Output Example**:
+
 ```
 django-insecure-r3a!5$x^w8%y*z#k@m+n=p&q~s[t]u{v}w|x,y.z/a<b>c?d
 ```
 
 **Why Django's Generator?**:
+
 - Uses `secrets` module (cryptographically secure)
 - 50 characters by default
 - Includes special characters for entropy
@@ -178,6 +186,7 @@ django-insecure-r3a!5$x^w8%y*z#k@m+n=p&q~s[t]u{v}w|x,y.z/a<b>c?d
 **Problem**: API keys for external services (Plant.id, PlantNet, OpenAI, etc.) should NEVER be committed to repositories. Even "development" or "test" keys can be abused if exposed.
 
 **Types of API Keys**:
+
 1. **Plant.id API Key** - 50 characters, 100 requests/month free tier
 2. **PlantNet API Key** - 24 characters, 500 requests/day limit
 3. **OpenAI API Key** - Starts with `sk-`, charged per token
@@ -189,6 +198,7 @@ django-insecure-r3a!5$x^w8%y*z#k@m+n=p&q~s[t]u{v}w|x,y.z/a<b>c?d
 ### Pattern: API Key Storage (.env files)
 
 **Correct Storage**:
+
 ```bash
 # backend/.env (NEVER commit this file)
 
@@ -229,6 +239,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:5174
 **Location**: `backend/.env.example`
 
 **Content**:
+
 ```bash
 # Django Core
 # Generate with: python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
@@ -261,6 +272,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:5174
 ```
 
 **Key Differences**:
+
 - ✅ `.env.example` - Committed to repository, contains placeholders
 - ❌ `.env` - NEVER committed, contains real secrets
 - ✅ `.env.local` - Local overrides, also never committed
@@ -270,6 +282,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:5174
 ### Pattern: Loading Environment Variables
 
 **Using python-decouple**:
+
 ```python
 from decouple import config
 
@@ -286,6 +299,7 @@ ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost', cast=lambda v: [s.s
 ```
 
 **Using os.environ (alternative)**:
+
 ```python
 import os
 
@@ -308,6 +322,7 @@ if not SECRET_KEY:
 ### Pattern: Environment Variable Naming
 
 **Conventions**:
+
 ```bash
 # Django settings - SCREAMING_SNAKE_CASE
 SECRET_KEY=...
@@ -337,6 +352,7 @@ GOOGLE_OAUTH2_CLIENT_SECRET=...
 ### Pattern: Environment-Specific Configuration
 
 **Development (.env.dev)**:
+
 ```bash
 DEBUG=True
 SECRET_KEY=django-insecure-dev-only-DO-NOT-USE-IN-PRODUCTION-abc123xyz
@@ -347,6 +363,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:5174
 ```
 
 **Production (.env.prod)**:
+
 ```bash
 DEBUG=False
 SECRET_KEY=<50+ character secure key>
@@ -357,6 +374,7 @@ CORS_ALLOWED_ORIGINS=https://example.com,https://www.example.com
 ```
 
 **Testing (.env.test)**:
+
 ```bash
 DEBUG=True
 SECRET_KEY=test-secret-key-for-testing-only
@@ -373,6 +391,7 @@ REDIS_URL=redis://localhost:6379/2
 **Location**: `/.gitignore`
 
 **Environment & Secrets Section**:
+
 ```gitignore
 # ===================================
 # Environment & Secrets
@@ -397,6 +416,7 @@ service-account.json
 ```
 
 **Development / Reference Materials**:
+
 ```gitignore
 # ===================================
 # Development / Reference Materials
@@ -415,6 +435,7 @@ settings.local.py
 ```
 
 **Why Each Pattern**:
+
 - `.env*` - Catches all environment variable files
 - `*.key`, `*.pem` - SSL/TLS certificates and private keys
 - `secrets/` - Common directory for storing secrets
@@ -425,16 +446,17 @@ settings.local.py
 ### Pattern: What TO Commit vs NEVER Commit
 
 **✅ SAFE TO COMMIT**:
+
 ```bash
 .env.example           # Template with placeholders
 .env.template          # Alternative template name
 README.md              # Documentation with placeholder examples
 requirements.txt       # Dependencies (no secrets)
-docker-compose.yml     # Config with env var references (${SECRET_KEY})
 settings.py            # Code that LOADS secrets, not secrets themselves
 ```
 
 **❌ NEVER COMMIT**:
+
 ```bash
 .env                   # Real secrets
 .env.local             # Local overrides
@@ -455,43 +477,51 @@ CLAUDE.md              # May contain real credentials in examples
 **Location**: Extracted from Issue #1 Security Incident
 
 **Plant.id API Key**:
+
 ```regex
 PLANT_ID_API_KEY\s*=\s*[A-Za-z0-9]{40,60}
 ```
 
 **PlantNet API Key**:
+
 ```regex
 PLANTNET_API_KEY\s*=\s*[A-Za-z0-9]{20,30}
 ```
 
 **Generic API Key**:
+
 ```regex
 [A-Z_]+_API_KEY\s*=\s*['"][A-Za-z0-9_\-]{20,}['"]
 ```
 
 **Django SECRET_KEY**:
+
 ```regex
 SECRET_KEY\s*=\s*['"][A-Za-z0-9!@#$%^&*()_+\-=\[\]{}|;:,.<>?]{40,}['"]
 ```
 
 **Insecure Development Keys**:
+
 ```regex
 SECRET_KEY\s*=\s*['"].*\b(dev|test|insecure|change|sample|example)\b.*['"]
 ```
 
 **JWT Secret**:
+
 ```regex
 JWT_SECRET_KEY\s*=\s*['"][A-Za-z0-9_\-]{20,}['"]
 JWT_SECRET\s*=\s*['"][A-Za-z0-9_\-]{20,}['"]
 ```
 
 **OAuth Credentials**:
+
 ```regex
 [A-Z_]*CLIENT_SECRET\s*=\s*['"][A-Za-z0-9_\-]{20,}['"]
 [A-Z_]*OAUTH.*SECRET\s*=\s*['"][A-Za-z0-9_\-]{20,}['"]
 ```
 
 **OpenAI API Key**:
+
 ```regex
 sk-[A-Za-z0-9]{48}
 ```
@@ -501,6 +531,7 @@ sk-[A-Za-z0-9]{48}
 ### Pattern: Pre-Commit Secret Detection
 
 **Using grep**:
+
 ```bash
 #!/bin/bash
 # Check staged files for secrets
@@ -531,6 +562,7 @@ exit 0
 ### Pattern: API Key Rotation Workflow
 
 **When to Rotate**:
+
 1. **Immediately**: If key is exposed in public repository
 2. **Quarterly**: Routine security hygiene (recommended)
 3. **After Breach**: If any system compromise is suspected
@@ -541,6 +573,7 @@ exit 0
 ### Pattern: Plant.id API Key Rotation
 
 **Steps**:
+
 ```bash
 # 1. Generate new key at https://web.plant.id/
 # 2. Update .env file (do NOT commit)
@@ -568,6 +601,7 @@ heroku ps:restart  # Heroku
 **CRITICAL**: SECRET_KEY rotation invalidates all sessions and CSRF tokens
 
 **Steps**:
+
 ```bash
 # 1. Generate new key
 python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
@@ -588,6 +622,7 @@ heroku ps:restart
 ```
 
 **Zero-Downtime Rotation** (Advanced):
+
 ```python
 # settings.py - Multiple SECRET_KEY support
 SECRET_KEY = config('SECRET_KEY')
@@ -607,6 +642,7 @@ OLD_SECRET_KEYS = [
 **Location**: `backend/docs/deployment/UPGRADE_JWT_SECRET_KEY.md`
 
 **Steps**:
+
 ```bash
 # 1. Generate new JWT secret
 python -c 'import secrets; print(secrets.token_urlsafe(50))'
@@ -634,6 +670,7 @@ redis-cli FLUSHDB
 **Location**: `.git/hooks/pre-commit`
 
 **Implementation**:
+
 ```bash
 #!/bin/bash
 # Pre-commit hook to prevent secret leaks
@@ -691,6 +728,7 @@ exit 0
 ```
 
 **Installation**:
+
 ```bash
 # Make hook executable
 chmod +x .git/hooks/pre-commit
@@ -705,17 +743,20 @@ pre-commit install
 ### Pattern: Using detect-secrets Tool
 
 **Installation**:
+
 ```bash
 pip install detect-secrets
 ```
 
 **Initialize Baseline**:
+
 ```bash
 # Create baseline of current secrets (for exceptions)
 detect-secrets scan > .secrets.baseline
 ```
 
 **Pre-Commit Configuration** (`.pre-commit-config.yaml`):
+
 ```yaml
 repos:
   - repo: https://github.com/Yelp/detect-secrets
@@ -727,6 +768,7 @@ repos:
 ```
 
 **Run Manually**:
+
 ```bash
 # Scan all files
 detect-secrets scan
@@ -744,6 +786,7 @@ detect-secrets audit .secrets.baseline
 **Location**: Create in `backend/plant_community_backend/tests/test_settings.py`
 
 **Test Cases**:
+
 ```python
 import os
 import pytest
@@ -820,6 +863,7 @@ class TestSecretKeyValidation:
 ### Pattern: Test Environment Variable Loading
 
 **Test Cases**:
+
 ```python
 import os
 import pytest
@@ -870,6 +914,7 @@ class TestEnvironmentVariables:
 ### Pitfall 1: Committing .env Files
 
 **Problem**:
+
 ```bash
 # ❌ DANGER - Accidentally staging .env file
 git add .
@@ -878,6 +923,7 @@ git commit -m "Update configuration"
 ```
 
 **Solution**:
+
 ```bash
 # ✅ ALWAYS check what you're staging
 git status
@@ -899,6 +945,7 @@ git filter-branch --force --index-filter \
 ### Pitfall 2: Hardcoding Secrets in Code
 
 **Problem**:
+
 ```python
 # ❌ DANGER - Hardcoded secret in code
 SECRET_KEY = 'django-insecure-hardcoded-key-123'
@@ -906,6 +953,7 @@ PLANT_ID_API_KEY = 'W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4'
 ```
 
 **Solution**:
+
 ```python
 # ✅ CORRECT - Load from environment
 from decouple import config
@@ -919,6 +967,7 @@ PLANT_ID_API_KEY = config('PLANT_ID_API_KEY')
 ### Pitfall 3: Putting Secrets in Documentation
 
 **Problem**:
+
 ```markdown
 # ❌ DANGER - Real secrets in documentation
 ## Quick Start
@@ -931,6 +980,7 @@ export SECRET_KEY=django-insecure-real-production-key-abc123
 ```
 
 **Solution**:
+
 ```markdown
 # ✅ CORRECT - Placeholders in documentation
 ## Quick Start
@@ -951,18 +1001,21 @@ Get API keys from:
 ### Pitfall 4: Sharing .env Files via Slack/Email
 
 **Problem**:
+
 ```
 ❌ DANGER - "Hey, here's my .env file for reference"
 [Attaches .env with real production secrets]
 ```
 
 **Solution**:
+
 ```
 ✅ CORRECT - Share .env.example instead
 "Use .env.example as a template. I'll share secrets via 1Password/LastPass"
 ```
 
 **Use Secret Management Tools**:
+
 - 1Password (Teams)
 - LastPass (Teams)
 - AWS Secrets Manager
@@ -974,6 +1027,7 @@ Get API keys from:
 ### Pitfall 5: Not Rotating Compromised Keys
 
 **Problem**:
+
 ```
 ❌ DANGER - "Key was exposed but it's fine, I deleted the commit"
 # Git history still contains the key!
@@ -981,6 +1035,7 @@ Get API keys from:
 ```
 
 **Solution**:
+
 ```
 ✅ CORRECT - Immediate rotation workflow
 1. Generate new key
@@ -996,6 +1051,7 @@ Get API keys from:
 ## Security Checklist
 
 ### Development Setup
+
 - [ ] `.env` file created (not committed)
 - [ ] `.env.example` template committed (placeholders only)
 - [ ] All API keys loaded from environment variables
@@ -1003,6 +1059,7 @@ Get API keys from:
 - [ ] Pre-commit hooks installed for secret detection
 
 ### Production Deployment
+
 - [ ] `DEBUG=False` in production environment
 - [ ] `SECRET_KEY` set to unique 50+ character value
 - [ ] All API keys set in environment (not in code)
@@ -1010,6 +1067,7 @@ Get API keys from:
 - [ ] Secret rotation schedule established (quarterly)
 
 ### GitIgnore Configuration
+
 - [ ] `.env` and `.env.local` in .gitignore
 - [ ] `*.key`, `*.pem` in .gitignore
 - [ ] `secrets/` directory in .gitignore
@@ -1017,18 +1075,21 @@ Get API keys from:
 - [ ] Service account JSONs in .gitignore
 
 ### SECRET_KEY Validation
+
 - [ ] Production fails loudly if SECRET_KEY missing
 - [ ] Insecure patterns rejected (django-insecure, change-me, etc.)
 - [ ] Minimum length enforced (50 characters)
 - [ ] Development default clearly marked as insecure
 
 ### API Key Management
+
 - [ ] All external API keys in environment variables
 - [ ] Rate limits documented for each service
 - [ ] Fallback providers configured (Plant.id + PlantNet)
 - [ ] Key rotation procedures documented
 
 ### Secret Detection
+
 - [ ] Pre-commit hooks configured
 - [ ] detect-secrets baseline created
 - [ ] Regex patterns for all API keys documented
@@ -1049,4 +1110,3 @@ Get API keys from:
 **Pattern Count**: 20 secret management patterns
 **Status**: ✅ Production-validated
 **OWASP**: A07:2021 – Identification and Authentication Failures
-

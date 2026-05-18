@@ -15,7 +15,6 @@ The existing Plant ID Community platform is a **fully-functional Progressive Web
 - ✅ Custom forum implementation (Django Machina + Wagtail)
 - ✅ Enhanced disease diagnosis system (25+ categories)
 - ✅ Plant.id API integration for AI identification
-- ✅ Docker-based deployment infrastructure
 - ✅ Google Analytics 4 integration
 
 **Key Finding**: The codebase is production-ready and well-documented. Our restructure will **preserve** the backend CMS/forum functionality while **transforming** the frontend and adding native Flutter mobile apps.
@@ -89,7 +88,7 @@ forum_integration/
 - ✅ Social sharing integration
 - ✅ REST API for mobile access
 
-**Migration Impact**: 
+**Migration Impact**:
 - **Keep**: All Django Machina + Wagtail forum code
 - **Add**: REST API endpoints for Flutter app (read-only forum access)
 - **Modify**: Authentication to work with Firebase
@@ -244,31 +243,7 @@ mobile/
 
 ## 3. Deployment & Infrastructure
 
-### 3.1 Docker Setup
-
-**Files**:
-- `docker-compose.yml` - Development environment
-- `docker-compose.prod.yml` - Production setup
-- `backend/Dockerfile` - Django container
-- `frontend/Dockerfile` - React container
-- `nginx/nginx.prod.conf` - Nginx reverse proxy
-
-**Services**:
-- Django + Gunicorn (port 8000)
-- React + Vite (port 3000 in dev)
-- PostgreSQL (port 5432)
-- Redis (port 6379)
-- Nginx (ports 80/443 in prod)
-
-**Migration Impact**:
-- **Keep**: Docker setup for Django/Wagtail
-- **Simplify**: Remove React build if using Wagtail templates
-- **Add**: Firebase emulators for local development
-- **Update**: Nginx config for new frontend
-
----
-
-### 3.2 Database Schema
+### 3.1 Database Schema
 
 **PostgreSQL Tables** (estimated):
 - User accounts and profiles
@@ -345,7 +320,6 @@ mobile/
 - ✅ All guide files (DEPLOYMENT, EMAIL, SECURITY, etc.)
 
 ### Infrastructure
-- ✅ Docker configuration files
 - ✅ Nginx configuration
 - ✅ Scripts (backup, deploy, restore)
 
@@ -414,12 +388,12 @@ mobile/
    - Create `FORUM_CUSTOMIZATIONS.md`
    - List all custom features
    - Document Machina + Wagtail integration points
-   
+
 3. ⏳ **Create database schema documentation**
    - Export current PostgreSQL schema
    - Design Firestore schema for mobile
    - Map relationships between databases
-   
+
 4. ⏳ **Set up Firebase project**
    - Create Firebase project
    - Configure Authentication

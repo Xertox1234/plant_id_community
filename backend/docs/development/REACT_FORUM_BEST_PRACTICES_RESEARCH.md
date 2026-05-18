@@ -26,6 +26,7 @@
 #### Key Patterns for Forums
 
 **1. Compound Components Pattern**
+
 - **Use Case**: Complex forum components (thread cards, category lists)
 - **Benefits**: Break down components into smaller, manageable pieces with shared state
 - **Example**: ThreadCard with ThreadCard.Header, ThreadCard.Body, ThreadCard.Actions
@@ -33,6 +34,7 @@
 - **Rationale**: Forums have many composite UI elements that benefit from internal state management
 
 **2. Custom Hooks Pattern**
+
 - **Use Case**: Reusable logic (vote handling, post editing, real-time updates)
 - **Benefits**: Encapsulate and share functionality between components
 - **Examples**:
@@ -43,6 +45,7 @@
 - **Rationale**: Most powerful React pattern for sharing logic across forum features
 
 **3. Context API for Global State**
+
 - **Use Case**: User authentication, theme, notification state
 - **Benefits**: Avoid prop drilling across deep component trees
 - **Implementation**: AuthContext, ForumContext, NotificationContext
@@ -50,19 +53,23 @@
 - **Rationale**: Forums need user state accessible throughout the component tree
 
 **4. React 19 useOptimistic Hook**
+
 - **Use Case**: Instant UI feedback for votes, posts, reactions
 - **Benefits**: Show UI changes immediately before server confirms
 - **Official Docs**: [React.dev - useOptimistic](https://react.dev/reference/react/useOptimistic)
 - **Code Pattern**:
+
 ```javascript
 const [optimisticVotes, addOptimisticVote] = useOptimistic(
   votes,
   (state, newVote) => [...state, newVote]
 );
 ```
+
 - **Rationale**: Makes forum interactions feel instant and responsive
 
 **5. React 19 Form Actions**
+
 - **Use Case**: Post submission, reply creation, editing
 - **Benefits**: Automatic pending states, error handling, optimistic updates
 - **Official Docs**: [React.dev - Form Actions](https://react.dev/blog/2024/04/25/react-19#actions)
@@ -88,6 +95,7 @@ const [optimisticVotes, addOptimisticVote] = useOptimistic(
 **Comparison**: Preferred over `react-window` and deprecated `react-virtualized`
 
 **Key Advantages**:
+
 - Framework-agnostic (React, Vue, Solid, Svelte)
 - No built-in styling (full customization control)
 - Dynamic item sizing support
@@ -95,12 +103,14 @@ const [optimisticVotes, addOptimisticVote] = useOptimistic(
 - **Source**: [Medium - TanStack Virtual Optimization](https://medium.com/@sanjivchaudhary416/from-lag-to-lightning-how-tanstack-virtual-optimizes-1000s-of-items-smoothly-24f0998dc444)
 
 **When to Use**:
+
 - Thread lists with 100+ items
 - Long post threads with nested replies
 - Category listings with many subcategories
 - **Source**: [Medium - Optimizing Large Datasets](https://medium.com/@eva.matova6/optimizing-large-datasets-with-virtualized-lists-70920e10da54)
 
 **Basic Implementation**:
+
 ```javascript
 import { useVirtualizer } from '@tanstack/react-virtual';
 
@@ -152,6 +162,7 @@ function ThreadList({ threads }) {
 **Protocol**: Full-duplex, bidirectional communication
 **Latency**: Lowest latency due to persistent connection
 **Use Cases**:
+
 - Live comment updates
 - Real-time vote counts
 - Typing indicators
@@ -159,6 +170,7 @@ function ThreadList({ threads }) {
 - **Source**: [DEV - WebSockets vs SSE vs Polling](https://dev.to/crit3cal/websockets-vs-server-sent-events-vs-polling-a-full-stack-developers-guide-to-real-time-3312)
 
 **When to Choose WebSockets**:
+
 - Need bi-directional communication
 - Frequent updates (multiple per minute)
 - Building chat or collaborative features
@@ -170,12 +182,14 @@ function ThreadList({ threads }) {
 **Pattern**: Regular interval requests (e.g., every 30 seconds)
 **Downsides**: Higher server load, higher latency, more bandwidth
 **Use Cases**:
+
 - Notification checks (low frequency)
 - Thread view count updates
 - Non-critical updates
 - **Source**: [Merge Society - WebSocket vs Polling 2025](https://www.mergesociety.com/code-report/websocket-polling)
 
 **When to Choose Polling**:
+
 - Updates less than once per minute
 - Simpler infrastructure requirements
 - Fallback for WebSocket failures
@@ -190,6 +204,7 @@ function ThreadList({ threads }) {
 **Source**: [DEV - SSE Over WebSockets](https://dev.to/okrahul/real-time-updates-in-web-apps-why-i-chose-sse-over-websockets-k8k)
 
 **Recommendation for This Project**:
+
 - **Primary**: WebSockets for real-time thread/post updates
 - **Fallback**: Polling for older browsers or connection failures
 - **Implementation**: Django Channels for WebSocket support
@@ -209,11 +224,13 @@ function ThreadList({ threads }) {
 **Source**: [Smashing Magazine - Breadcrumbs UX](https://www.smashingmagazine.com/2022/04/breadcrumbs-ux-design/)
 
 **Example Structure**:
+
 ```
 Home > Plant Care > Tropical Plants > "How to care for Monstera" thread
 ```
 
 **Best Practices**:
+
 - Current page not clickable (displayed differently)
 - Clear visual separators (>, /, or →)
 - Located just below top-level navigation
@@ -221,12 +238,14 @@ Home > Plant Care > Tropical Plants > "How to care for Monstera" thread
 - **Source**: [Interaction Design Foundation - Breadcrumbs](https://www.interaction-design.org/literature/article/help-users-retrace-their-steps-with-breadcrumbs)
 
 **When to Use**:
+
 - Multi-level category structures (3+ levels)
 - E-commerce-style browsing
 - Users entering from search engines
 - **Source**: [Pencil & Paper - Breadcrumbs Guide](https://www.pencilandpaper.io/articles/breadcrumbs-ux)
 
 **When NOT to Use**:
+
 - Single-level forums (no hierarchy)
 - Linear navigation flows
 - Mobile screens (consider mobile-specific patterns)
@@ -252,6 +271,7 @@ Home > Plant Care > Tropical Plants > "How to care for Monstera" thread
    - Mixed view (collapse old threads)
 
 **Implementation Pattern**:
+
 ```javascript
 // Stop indenting after maxDepth
 const getIndentLevel = (depth) => Math.min(depth, MAX_INDENT_DEPTH);
@@ -268,12 +288,14 @@ const indentStyle = { marginLeft: `${getIndentLevel(depth) * 24}px` };
 
 **Best For**: Goal-oriented searching, comparison tasks
 **Use Cases**:
+
 - Thread search results
 - User profile post history
 - Archive browsing
 - **Source**: [Nielsen Norman Group - Infinite Scrolling](https://www.nngroup.com/articles/infinite-scrolling-tips/)
 
 **Advantages**:
+
 - Allows users to return to specific pages
 - Better for accessibility (keyboard/screen reader users)
 - Footer remains accessible
@@ -281,6 +303,7 @@ const indentStyle = { marginLeft: `${getIndentLevel(depth) * 24}px` };
 - **Source**: [UX Planet - Infinite Scroll vs Pagination](https://uxplanet.org/ux-infinite-scrolling-vs-pagination-1030d29376f1)
 
 **Implementation Best Practices**:
+
 - Show total results count
 - Allow jumping to specific pages
 - Preserve scroll position on back navigation
@@ -291,12 +314,14 @@ const indentStyle = { marginLeft: `${getIndentLevel(depth) * 24}px` };
 
 **Best For**: Continuous browsing, entertainment content
 **Use Cases**:
+
 - Main forum feed (new posts)
 - Activity streams
 - Image galleries
 - **Source**: [LogRocket - Pagination vs Infinite Scroll](https://blog.logrocket.com/ux-design/pagination-vs-infinite-scroll-ux/)
 
 **Accessibility Issues**:
+
 - Screen reader challenges with dynamic content
 - Difficult footer access
 - Performance issues on slow connections
@@ -304,6 +329,7 @@ const indentStyle = { marginLeft: `${getIndentLevel(depth) * 24}px` };
 - **Source**: [Smashing Magazine - Infinite Scroll UX](https://www.smashingmagazine.com/2022/03/designing-better-infinite-scroll/)
 
 **Best Practices IF Using Infinite Scroll**:
+
 - Change URL as new items load
 - Provide "Load More" button option
 - Make footer accessible (sticky or relocated)
@@ -315,6 +341,7 @@ const indentStyle = { marginLeft: `${getIndentLevel(depth) * 24}px` };
 
 **Pattern**: Pagination + "Load More" button
 **Benefits**:
+
 - User control over loading
 - Easy footer access
 - Works on slow connections
@@ -322,6 +349,7 @@ const indentStyle = { marginLeft: `${getIndentLevel(depth) * 24}px` };
 - **Source**: [Built In - Infinite Scroll Pros/Cons](https://builtin.com/articles/infinite-scroll)
 
 **Recommendation for This Project**:
+
 - **Thread Lists**: Pagination (20-50 threads per page)
 - **Post Lists**: Hybrid (10-20 posts, then "Load More")
 - **Activity Feed**: Infinite scroll (non-critical browsing)
@@ -339,6 +367,7 @@ const indentStyle = { marginLeft: `${getIndentLevel(depth) * 24}px` };
 **Source**: [Tailwind CSS - Responsive Design](https://tailwindcss.com/docs/responsive-design)
 
 **Example**:
+
 ```javascript
 // Mobile: vertical stack, Tablet: 2 columns, Desktop: 3 columns
 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -349,12 +378,14 @@ const indentStyle = { marginLeft: `${getIndentLevel(depth) * 24}px` };
 #### Mobile Navigation Patterns
 
 **1. Hamburger Menu** (Standard for complex navigation)
+
 - Use for 5+ navigation items
 - Place in top-left or top-right
 - Include clear close button
 - **Source**: [Mobile Responsive React Templates](https://reactemplates.com/blog/mobile-responsive-react-templates-best-practices-guide/)
 
 **2. Bottom Navigation Bar** (Alternative for primary actions)
+
 - 3-5 key actions
 - Easy thumb reach (bottom 1/3 of screen)
 - Fixed position
@@ -369,6 +400,7 @@ const indentStyle = { marginLeft: `${getIndentLevel(depth) * 24}px` };
 **Source**: [Keitaro - React UX Best Practices](https://www.keitaro.com/insights/2024/01/30/building-responsive-and-user-friendly-web-applications-with-react/)
 
 **Implementation**:
+
 ```javascript
 // Ensure minimum touch target size
 <button className="min-h-[44px] min-w-[44px] p-2">
@@ -379,12 +411,14 @@ const indentStyle = { marginLeft: `${getIndentLevel(depth) * 24}px` };
 #### Responsive Layout Tools
 
 **Recommended Libraries**:
+
 - **Tailwind CSS** - Utility-first, mobile-first breakpoints
 - **CSS Grid + Flexbox** - Modern layout primitives
 - **React Responsive** - Media query hooks for React
 - **Source**: [DEV - Modern Layout Design 2025](https://dev.to/er-raj-aryan/modern-layout-design-techniques-in-reactjs-2025-guide-3868)
 
 **Component Libraries**:
+
 - **Preline UI** - Tailwind components (responsive, accessible)
 - **Konsta UI** - Mobile-first Tailwind components
 - **Meraki UI** - RTL support, dark mode, responsive
@@ -403,6 +437,7 @@ const indentStyle = { marginLeft: `${getIndentLevel(depth) * 24}px` };
 **Source**: [UX Stack Exchange - Upvote/Downvote Order](https://ux.stackexchange.com/questions/58344/upvote-downvote-button-order)
 
 **Layout Options**:
+
 ```
 Horizontal:  [↑ 42] [↓]        (Most common)
 Vertical:    ↑                  (Reddit-style)
@@ -414,12 +449,14 @@ Vertical:    ↑                  (Reddit-style)
 
 **Modern Approach**: Neutral colors (avoid red/green)
 **Reasoning**:
+
 - Better for colorblind users
 - Less judgmental (not absolute good/bad)
 - Calmer user experience
 - **Source**: [UX Stack Exchange - Like/Dislike Display](https://ux.stackexchange.com/questions/111366/like-dislike-display-order)
 
 **Examples**:
+
 - YouTube: Gray (inactive), Blue (active) - no red
 - Reddit: Gray (inactive), Orange (upvote), Blue (downvote)
 - Avoid: Red/Green combinations
@@ -432,6 +469,7 @@ Vertical:    ↑                  (Reddit-style)
 
 **Recommendation**: Binary upvote/downvote for forums
 **Reasoning**:
+
 - 5-star systems mostly receive 1-star or 5-star (binary anyway)
 - Simpler cognitive load
 - Clear ranking for sorting
@@ -440,6 +478,7 @@ Vertical:    ↑                  (Reddit-style)
 #### Accessibility Considerations
 
 **Requirements**:
+
 - High-contrast focus indicators
 - Tooltip showing exact vote count on hover
 - Keyboard navigation support (Space/Enter to toggle)
@@ -447,6 +486,7 @@ Vertical:    ↑                  (Reddit-style)
 - **Source**: [Creative Bloq - Like Functionality UI](https://www.creativebloq.com/netmag/ui-design-pattern-tips-functionality-121413498)
 
 **Implementation**:
+
 ```javascript
 <button
   className="vote-button"
@@ -474,6 +514,7 @@ Vertical:    ↑                  (Reddit-style)
 **Source**: [W3C - Understanding Keyboard](https://www.w3.org/WAI/WCAG21/Understanding/keyboard.html)
 
 **Essential Keys for Forums**:
+
 - **Tab**: Move focus forward through interactive elements
 - **Shift + Tab**: Move focus backward
 - **Enter/Return**: Activate buttons, links, submit forms
@@ -486,11 +527,13 @@ Vertical:    ↑                  (Reddit-style)
 
 **WCAG 2.4.7 Focus Visible**: All keyboard-focused elements must be visibly indicated
 **WCAG 2.4.11 Focus Appearance (New in 2.2)**:
+
 - Minimum contrast ratio of 3:1 against unfocused state
 - Minimum 2px border thickness (or equivalent)
 - **Source**: [Accessibility Works - WCAG 2.2 Guide](https://www.accessibility.works/blog/wcag-2-2-guide/)
 
 **Implementation**:
+
 ```css
 /* Strong focus indicator */
 .thread-link:focus {
@@ -505,17 +548,20 @@ className="focus:ring-4 focus:ring-blue-500 focus:outline-none"
 #### Forum-Specific Keyboard Actions
 
 **Thread Navigation**:
+
 - Tab through thread cards
 - Enter to open thread
 - Escape to return to thread list
 
 **Nested Reply Navigation**:
+
 - Arrow keys to navigate between replies
 - Enter to expand/collapse threads
 - Tab to move through reply actions (vote, reply, edit)
 - **Source**: [UXPin - WCAG 2.1.1 Keyboard](https://www.uxpin.com/studio/blog/wcag-211-keyboard-accessibility-explained/)
 
 **Post Editor**:
+
 - Tab to formatting buttons
 - Ctrl+B for bold, Ctrl+I for italic (common shortcuts)
 - Escape to cancel editing
@@ -530,12 +576,14 @@ className="focus:ring-4 focus:ring-blue-500 focus:outline-none"
 #### Modal Dialog Requirements
 
 **1. Focus Trapping** (Critical)
+
 - Move focus inside modal when opened
 - Trap focus within modal (Tab cycles inside only)
 - Return focus to trigger element when closed
 - **Source**: [LogRocket - Accessible Modal Focus Trap](https://blog.logrocket.com/build-accessible-modal-focus-trap-react/)
 
 **Recommended Library**: `focus-trap-react`
+
 ```javascript
 import FocusTrap from 'focus-trap-react';
 
@@ -556,9 +604,11 @@ function PostEditorModal({ isOpen, onClose }) {
   );
 }
 ```
+
 **Source**: [DHiWise - Focus Trap React Guide](https://www.dhiwise.com/post/mastering-accessibility-with-focus-trap-react)
 
 **2. ARIA Attributes**
+
 - `role="dialog"` (or use `<dialog>` element)
 - `aria-modal="true"`
 - `aria-labelledby` (reference to title)
@@ -566,6 +616,7 @@ function PostEditorModal({ isOpen, onClose }) {
 - **Source**: [React Modal - Accessibility](https://reactcommunity.org/react-modal/accessibility/)
 
 **3. Keyboard Shortcuts**
+
 - **Escape**: Close modal (WCAG recommendation)
 - **Enter**: Submit form (if applicable)
 - **Source**: [UXPin - Accessible Modals Focus Traps](https://www.uxpin.com/studio/blog/how-to-build-accessible-modals-with-focus-traps/)
@@ -607,12 +658,14 @@ function PostEditorModal({ isOpen, onClose }) {
 #### ARIA Live Regions for Dynamic Content
 
 **Use Cases**:
+
 - New post notifications
 - Vote count updates
 - Loading states
 - Form validation errors
 
 **Pattern**:
+
 ```javascript
 <div aria-live="polite" aria-atomic="true" className="sr-only">
   {newPostCount > 0 && `${newPostCount} new posts available`}
@@ -620,6 +673,7 @@ function PostEditorModal({ isOpen, onClose }) {
 ```
 
 **ARIA Live Types**:
+
 - `aria-live="polite"`: Announce after current speech
 - `aria-live="assertive"`: Interrupt and announce immediately
 - `aria-atomic="true"`: Read entire region (not just changes)
@@ -628,6 +682,7 @@ function PostEditorModal({ isOpen, onClose }) {
 #### Semantic HTML
 
 **Use Proper Elements**:
+
 - `<nav>` for navigation menus
 - `<article>` for thread cards
 - `<button>` for actions (not `<div onclick>`)
@@ -635,6 +690,7 @@ function PostEditorModal({ isOpen, onClose }) {
 - `<form>` for post submission
 
 **Landmark Regions**:
+
 ```javascript
 <nav aria-label="Forum categories">...</nav>
 <main>
@@ -650,12 +706,14 @@ function PostEditorModal({ isOpen, onClose }) {
 
 **Purpose**: Allow keyboard users to skip navigation
 **Pattern**:
+
 ```javascript
 <a href="#main-content" className="sr-only focus:not-sr-only">
   Skip to main content
 </a>
 <main id="main-content">...</main>
 ```
+
 **Source**: Existing project implementation (`web/src/layouts/RootLayout.jsx`)
 
 ---
@@ -663,12 +721,14 @@ function PostEditorModal({ isOpen, onClose }) {
 ### Testing Recommendations
 
 **Manual Testing**:
+
 - Keyboard-only navigation (unplug mouse)
 - Screen reader testing (NVDA, VoiceOver, JAWS)
 - High contrast mode
 - Browser zoom to 200%
 
 **Automated Testing**:
+
 - **Axe DevTools** (browser extension)
 - **Lighthouse** (Chrome DevTools)
 - **eslint-plugin-jsx-a11y** (linting)
@@ -690,6 +750,7 @@ function PostEditorModal({ isOpen, onClose }) {
 **Source**: [Web.dev - Code Splitting Suspense](https://web.dev/code-splitting-suspense/)
 
 **Implementation**:
+
 ```javascript
 import { lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
@@ -713,9 +774,11 @@ function ForumRoutes() {
   );
 }
 ```
+
 **Source**: [UI.dev - React Router Code Splitting](https://ui.dev/react-router-code-splitting)
 
 **Best Practices**:
+
 - Use route-based splitting first (max size reduction)
 - Add component-based splitting for heavy features
 - Provide meaningful loading states
@@ -736,6 +799,7 @@ export async function sanitizeHTML(dirty, preset = 'default') {
 ```
 
 **Benefits**:
+
 - 22.57 kB saved in main bundle (project measurement)
 - Faster initial page load
 - Better Core Web Vitals scores
@@ -750,6 +814,7 @@ export async function sanitizeHTML(dirty, preset = 'default') {
 #### Lazy Loading Images
 
 **Native Approach** (Preferred):
+
 ```javascript
 <img
   src={post.imageUrl}
@@ -758,6 +823,7 @@ export async function sanitizeHTML(dirty, preset = 'default') {
   decoding="async"
 />
 ```
+
 **Source**: [Stack Overflow - React Image Lazy Loading](https://stackoverflow.com/questions/69054825/how-should-i-implement-lazy-loading-for-my-images-in-react)
 
 **Browser Support**: All major browsers (2024)
@@ -766,6 +832,7 @@ export async function sanitizeHTML(dirty, preset = 'default') {
 #### Responsive Images
 
 **Use srcset for Multiple Sizes**:
+
 ```javascript
 <img
   src="post-image-800.jpg"
@@ -779,6 +846,7 @@ export async function sanitizeHTML(dirty, preset = 'default') {
   loading="lazy"
 />
 ```
+
 **Source**: [ImageKit - React Image Optimization](https://imagekit.io/blog/react-image-optimization/)
 
 #### Modern Image Formats
@@ -788,6 +856,7 @@ export async function sanitizeHTML(dirty, preset = 'default') {
 **Source**: [Uploadcare - React Image Optimization](https://uploadcare.com/blog/react-image-optimization-techniques/)
 
 **Implementation**:
+
 ```javascript
 <picture>
   <source srcSet="image.avif" type="image/avif" />
@@ -800,6 +869,7 @@ export async function sanitizeHTML(dirty, preset = 'default') {
 
 **Existing Pattern**: Canvas-based client-side compression
 **Configuration**:
+
 - Max dimension: 1200px
 - Quality: 85%
 - Auto-compress files > 2MB
@@ -823,6 +893,7 @@ export async function sanitizeHTML(dirty, preset = 'default') {
 #### Why TanStack Query for Forums
 
 **Benefits**:
+
 - Automatic caching and refetching
 - Optimistic updates
 - Pagination support
@@ -915,6 +986,7 @@ function useCreatePost() {
 #### Cache Invalidation Strategies
 
 **1. Invalidation** (Most Common)
+
 - Marks data as stale
 - Triggers refetch if query is active
 - **Use for**: Post creation, editing, deletion
@@ -924,6 +996,7 @@ queryClient.invalidateQueries(['threads', categoryId]);
 ```
 
 **2. setQueryData** (Direct Update)
+
 - Immediately updates cache
 - No refetch required
 - **Use for**: Vote updates, reaction toggles
@@ -992,6 +1065,7 @@ function ThreadSearch() {
 ```
 
 **Hook Implementation**:
+
 ```javascript
 import { useState, useEffect } from 'react';
 
@@ -1098,6 +1172,7 @@ function PostEditorForm() {
 **Source**: [StackHawk - React XSS Guide](https://www.stackhawk.com/blog/react-xss-guide-examples-and-prevention/)
 
 **Centralized Sanitization Pattern** (Existing Project):
+
 ```javascript
 // web/src/utils/sanitize.js
 import DOMPurify from 'dompurify';
@@ -1125,6 +1200,7 @@ export function sanitizeForumPost(html) {
 ```
 
 **Component Usage**:
+
 ```javascript
 import { sanitizeForumPost } from '../utils/sanitize';
 
@@ -1148,6 +1224,7 @@ function PostContent({ html }) {
 **Source**: [Medium - Avoiding XSS via Markdown](https://medium.com/javascript-security/avoiding-xss-via-markdown-in-react-91665479900)
 
 **Benefits**:
+
 - No HTML execution (tags displayed as text)
 - No need for dangerouslySetInnerHTML
 - Converts Markdown to JSX (not HTML strings)
@@ -1179,11 +1256,13 @@ function PostContent({ markdown }) {
 #### Rich Text Editor Security
 
 **Recommended Editors**:
+
 - **Tiptap** - Modern, React-friendly, extensible
 - **Slate** - Fully customizable, React components
 - **Draft.js** - Facebook-maintained (mature, stable)
 
 **Security Checklist**:
+
 1. Sanitize output before storing in database
 2. Sanitize again before rendering (defense in depth)
 3. Disable HTML input mode if possible (Markdown only)
@@ -1191,6 +1270,7 @@ function PostContent({ markdown }) {
 5. Keep DOMPurify updated (bypass fixes)
 
 **DOMPurify Bypass Warning** (April 2024):
+
 - Version <= 3.1.0 had bypass vulnerability
 - Always use latest version
 - **Source**: [Mizu.re - DOMPurify Bypasses](https://mizu.re/post/exploring-the-dompurify-library-bypasses-and-fixes)
@@ -1225,6 +1305,7 @@ SECURE_CONTENT_SECURITY_POLICY = {
 **Source**: [DRF - AJAX, CSRF & CORS](https://www.django-rest-framework.org/topics/ajax-csrf-cors/)
 
 **React Implementation** (Existing Project Pattern):
+
 ```javascript
 // Get CSRF token from cookie
 function getCookie(name) {
@@ -1256,6 +1337,7 @@ async function createPost(postData) {
 #### Axios Configuration
 
 **Automatic CSRF Handling**:
+
 ```javascript
 import axios from 'axios';
 
@@ -1287,6 +1369,7 @@ axios.defaults.withCredentials = true;
 **Source**: [React Hook Form](https://react-hook-form.com/)
 
 **Post Editor Example**:
+
 ```javascript
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -1340,6 +1423,7 @@ function PostEditorForm() {
 **Source**: [LogRocket - React Hook Form Guide](https://blog.logrocket.com/react-hook-form-complete-guide/)
 
 **Validation Best Practices**:
+
 - Use `mode: 'onBlur'` for performance (not `onChange`)
 - Provide clear error messages
 - Use ARIA attributes for accessibility
@@ -1393,6 +1477,7 @@ function ForumLayout() {
 #### Relative Routing (v6 Feature)
 
 **All paths and links are relative to parent route**:
+
 ```javascript
 // Inside ThreadList component (at /forum/category/:categoryId)
 <Link to="thread/123">View Thread</Link>
@@ -1719,55 +1804,65 @@ export function useVoteOnPost() {
 ### Rich Text Editor Options
 
 **1. Tiptap** (Recommended for Modern React)
+
 - **Pros**: React-friendly, extensible, active development
-- **URL**: https://tiptap.dev/
+- **URL**: <https://tiptap.dev/>
 - **License**: MIT
 - **Use Case**: Full-featured WYSIWYG editor
 
 **2. Slate**
+
 - **Pros**: Fully customizable, React components
-- **URL**: https://www.slatejs.org/
+- **URL**: <https://www.slatejs.org/>
 - **License**: MIT
 - **Use Case**: Custom editing experiences
 
 **3. Draft.js**
+
 - **Pros**: Mature, Facebook-maintained
-- **URL**: https://draftjs.org/
+- **URL**: <https://draftjs.org/>
 - **License**: MIT
 - **Use Case**: Stable, production-tested
 
 **4. SimpleMDE/EasyMDE** (Markdown-based)
+
 - **Pros**: Simple, Markdown-focused
-- **URL**: https://github.com/Ionaru/easy-markdown-editor
+- **URL**: <https://github.com/Ionaru/easy-markdown-editor>
 - **License**: MIT
 - **Use Case**: Markdown forums (like Stack Overflow)
 
 ### Styling/UI Libraries
 
 **1. Tailwind CSS v4** (Existing Project)
+
 - Mobile-first responsive design
 - Utility-first approach
 - Dark mode support
 
 **2. Tailwind Component Libraries**
-- **Preline UI**: https://preline.co/ (responsive, accessible)
-- **Konsta UI**: https://konstaui.com/ (mobile-first)
-- **Meraki UI**: https://merakiui.com/ (RTL, dark mode)
+
+- **Preline UI**: <https://preline.co/> (responsive, accessible)
+- **Konsta UI**: <https://konstaui.com/> (mobile-first)
+- **Meraki UI**: <https://merakiui.com/> (RTL, dark mode)
 
 **3. Headless UI** (Accessible Components)
-- **URL**: https://headlessui.com/
+
+- **URL**: <https://headlessui.com/>
 - **Components**: Modals, dropdowns, tabs (unstyled)
 - **Accessibility**: Full WCAG 2.2 support
 
 ### Testing Libraries
 
 **1. Vitest** (Existing Project)
+
 - Fast, Vite-native test runner
 - React Testing Library integration
 
 **2. jest-axe** (Accessibility Testing)
+
 - Automated a11y checks in tests
 - Example:
+
 ```javascript
 import { render } from '@testing-library/react';
 import { axe } from 'jest-axe';
@@ -1784,17 +1879,17 @@ test('ThreadCard is accessible', async () => {
 **GitHub Repositories** (for code reference):
 
 1. **ReForum** (React + Redux)
-   - URL: https://github.com/proshoumma/ReForum
+   - URL: <https://github.com/proshoumma/ReForum>
    - Tech: React, Redux, Express, MongoDB
    - Features: OAuth, forum board
 
 2. **React Reddit Clone**
-   - URL: https://github.com/joriguzman/react-reddit
+   - URL: <https://github.com/joriguzman/react-reddit>
    - Tech: React
    - Features: Voting, nested comments
 
 3. **cwellsx/view** (TypeScript)
-   - URL: https://github.com/cwellsx/view
+   - URL: <https://github.com/cwellsx/view>
    - Tech: React, TypeScript
    - Features: Forum software
 
@@ -1846,21 +1941,25 @@ test('ThreadCard is accessible', async () => {
 ## Authority Level Summary
 
 **Tier 1 (Highest Authority)**:
+
 - W3C WCAG 2.2 official guidelines
 - Official React documentation (React 19)
 - Official library documentation (TanStack, React Router, DRF)
 
 **Tier 2 (Industry Standards)**:
+
 - Nielsen Norman Group UX research
 - Security research (CURE53, OWASP)
 - MDN Web Docs
 
 **Tier 3 (Community Consensus)**:
+
 - Stack Overflow / UX Stack Exchange discussions
-- Established patterns from popular forums (Reddit, Discourse)
+- Established patterns from popular forums (Reddit)
 - 2024 blog posts from recognized developers
 
 **Tier 4 (Reference)**:
+
 - Open source project examples
 - Component library documentation
 - Tutorial sites (LogRocket, DEV.to)
@@ -1885,4 +1984,3 @@ test('ThreadCard is accessible', async () => {
 **Research Completed**: October 30, 2025
 **Document Version**: 1.0
 **Total Sources Referenced**: 50+ authoritative sources
-

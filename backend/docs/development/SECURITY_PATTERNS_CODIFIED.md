@@ -12,6 +12,7 @@ This document codifies security patterns, anti-patterns, and detection rules lea
 ## Incident Overview
 
 **What Happened:**
+
 - `CLAUDE.md` file (intended for local development only) was committed to public repository
 - File contained real API keys: Plant.id, PlantNet, Django SECRET_KEY, JWT_SECRET_KEY
 - 12+ documentation files also contained these exposed keys
@@ -19,6 +20,7 @@ This document codifies security patterns, anti-patterns, and detection rules lea
 - Repository is PUBLIC on GitHub
 
 **Root Causes:**
+
 1. **Local development file treated as repository file** - `CLAUDE.md` was meant to be local-only
 2. **Documentation treated as "safe"** - Assumed documentation files couldn't contain secrets
 3. **No secret detection** - No pre-commit hooks or automated scanning
@@ -30,6 +32,7 @@ This document codifies security patterns, anti-patterns, and detection rules lea
 ### 1. API Keys (External Services)
 
 **Pattern Detected:**
+
 ```bash
 # Plant.id API Key (50 character alphanumeric)
 PLANT_ID_API_KEY=W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4
@@ -39,12 +42,14 @@ PLANTNET_API_KEY=2b10XCJNMzrPYiojVsddjK0n
 ```
 
 **Risk Level:** CRITICAL
+
 - 100 requests/month limit (Plant.id) - easily exhausted
 - 500 requests/day limit (PlantNet) - can be abused rapidly
 - Service disruption for legitimate users
 - Financial impact if free tier exceeded
 
 **Detection Regex:**
+
 ```regex
 # Plant.id pattern
 PLANT_ID_API_KEY\s*=\s*[A-Za-z0-9]{40,60}
@@ -59,18 +64,21 @@ PLANTNET_API_KEY\s*=\s*[A-Za-z0-9]{20,30}
 ### 2. Django SECRET_KEY
 
 **Pattern Detected:**
+
 ```bash
 # Development key with obvious insecure marking
 SECRET_KEY=django-insecure-dev-key-change-in-production-2024
 ```
 
 **Risk Level:** HIGH
+
 - Session hijacking via forged session cookies
 - CSRF token bypass (predictable token generation)
 - Password reset token forgery
 - Authentication bypass scenarios
 
 **Detection Regex:**
+
 ```regex
 # Django SECRET_KEY pattern (50+ chars, mixed characters)
 SECRET_KEY\s*=\s*['"][A-Za-z0-9!@#$%^&*()_+\-=\[\]{}|;:,.<>?]{40,}['"]
@@ -82,17 +90,20 @@ SECRET_KEY\s*=\s*['"].*\b(dev|test|insecure|change|sample|example)\b.*['"]
 ### 3. JWT Secret Keys
 
 **Pattern Detected:**
+
 ```bash
 # JWT signing key
 JWT_SECRET_KEY=jwt-dev-secret-key-change-in-production-2024
 ```
 
 **Risk Level:** CRITICAL
+
 - Complete authentication bypass via forged JWT tokens
 - User impersonation by generating valid tokens
 - Privilege escalation attacks
 
 **Detection Regex:**
+
 ```regex
 # JWT secret patterns
 JWT_SECRET_KEY\s*=\s*['"][A-Za-z0-9_\-]{20,}['"]
@@ -102,6 +113,7 @@ JWT_SECRET\s*=\s*['"][A-Za-z0-9_\-]{20,}['"]
 ### 4. OAuth Credentials
 
 **Pattern Detected (from .env.example):**
+
 ```bash
 GOOGLE_OAUTH2_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
 GOOGLE_OAUTH2_CLIENT_SECRET=your-google-client-secret
@@ -110,11 +122,13 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
 ```
 
 **Risk Level:** CRITICAL
+
 - OAuth flow bypass
 - User account takeover via forged OAuth responses
 - Unauthorized access to user data
 
 **Detection Regex:**
+
 ```regex
 # OAuth client secrets
 [A-Z_]*CLIENT_SECRET\s*=\s*['"][A-Za-z0-9_\-]{20,}['"]
@@ -153,16 +167,12 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
    - Risk: Development database passwords in migrations
    - **Solution:** Use environment variables in migrations
 
-3. **Docker files** - May contain build-time secrets
-   - `Dockerfile`, `docker-compose.yml`
-   - Risk: ARG values with real credentials
-   - **Solution:** Use secrets management, never ARG for sensitive data
-
 ## Anti-Patterns and Warning Signs
 
 ### Pattern 1: "It's just documentation"
 
 **Anti-pattern:**
+
 ```markdown
 # Quick Start Guide
 
@@ -171,6 +181,7 @@ Set up your environment:
 export PLANT_ID_API_KEY=W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4
 export SECRET_KEY=django-insecure-dev-key-change-in-production-2024
 ```
+
 ```
 
 **Why it's dangerous:**
@@ -188,6 +199,7 @@ Set up your environment:
 export PLANT_ID_API_KEY=your-plant-id-api-key-here
 export SECRET_KEY=$(python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())')
 ```
+
 ```
 
 ### Pattern 2: Development keys are "safe"
@@ -200,12 +212,14 @@ JWT_SECRET_KEY = 'jwt-dev-secret-key-change-in-production-2024'
 ```
 
 **Why it's dangerous:**
+
 - Dev keys end up in production
 - Demonstrates poor security practices
 - Creates false sense of security
 - Training developers to commit secrets
 
 **Correct pattern:**
+
 ```python
 # settings.py
 SECRET_KEY = os.environ.get('SECRET_KEY')
@@ -220,16 +234,19 @@ if not JWT_SECRET_KEY:
 ### Pattern 3: Local-only files in repository
 
 **Anti-pattern:**
+
 - `CLAUDE.md` committed to repository (meant for local use only)
 - Local configuration files tracked in git
 - Developer-specific setup files shared
 
 **Why it's dangerous:**
+
 - Local files often contain real credentials from working setups
 - Each developer's local config might expose different secrets
 - Files meant for personal use aren't reviewed carefully
 
 **Correct pattern:**
+
 ```gitignore
 # .gitignore
 
@@ -252,17 +269,20 @@ config.local.*
 ### Pattern 4: Template files with real values
 
 **Anti-pattern:**
+
 ```bash
 # .env.example (WRONG - contains real key!)
 PLANT_ID_API_KEY=W3YvEk2rx8g7Ko3fa8hKrlPJVqQeT2muIfikhKqvSBnaIUkXd4
 ```
 
 **Why it's dangerous:**
+
 - Templates get copied directly
 - Real keys accidentally committed as "examples"
 - Users don't realize they need to replace values
 
 **Correct pattern:**
+
 ```bash
 # .env.example (CORRECT - clear placeholders)
 # Plant.id (Kindwise) - Primary identification service (100 IDs/month free)
@@ -279,6 +299,7 @@ SECRET_KEY=your-secret-key-here
 ### Rule 1: Never commit CLAUDE.md
 
 **Check:**
+
 ```bash
 # Verify CLAUDE.md is in .gitignore
 grep -q "^CLAUDE.md$" .gitignore
@@ -288,10 +309,12 @@ grep -q "^CLAUDE.md$" .gitignore
 ```
 
 **Blocker if:**
+
 - `CLAUDE.md` exists in git repository
 - `CLAUDE.md` not listed in `.gitignore`
 
 **Message:**
+
 ```
 BLOCKER: CLAUDE.md must NEVER be committed to repository
 - This file is for local development context only
@@ -303,6 +326,7 @@ BLOCKER: CLAUDE.md must NEVER be committed to repository
 ### Rule 2: Verify .env files excluded
 
 **Check:**
+
 ```bash
 # All .env patterns must be in .gitignore
 grep -E "^\.env$|^\.env\.local$|^\.env\.\*\.local$" .gitignore
@@ -312,10 +336,12 @@ grep -E "^\.env$|^\.env\.local$|^\.env\.\*\.local$" .gitignore
 ```
 
 **Blocker if:**
+
 - Any `.env` file tracked in git (except `.env.example`)
 - `.env` patterns missing from `.gitignore`
 
 **Message:**
+
 ```
 BLOCKER: .env files MUST NOT be committed to repository
 - Found tracked .env file(s): {files}
@@ -326,6 +352,7 @@ BLOCKER: .env files MUST NOT be committed to repository
 ### Rule 3: Scan for API key patterns in committed files
 
 **Check:**
+
 ```bash
 # Scan all modified files for API key patterns
 git diff --cached --name-only | while read file; do
@@ -339,10 +366,12 @@ done
 ```
 
 **Warning if:**
+
 - File contains pattern matching real API keys
 - File is not `.env.example` or similar template
 
 **Message:**
+
 ```
 WARNING: Possible API key or secret detected in: {file}:{line}
 - Pattern: {pattern_matched}
@@ -354,6 +383,7 @@ WARNING: Possible API key or secret detected in: {file}:{line}
 ### Rule 4: Verify .env.example uses placeholders
 
 **Check:**
+
 ```bash
 # .env.example should have placeholder patterns
 grep -E "your-.*-key-here|your-.*-secret-here|<.*>|TODO|CHANGE|REPLACE" backend/.env.example
@@ -363,10 +393,12 @@ grep -E "Generate with:|Get from:|https://" backend/.env.example
 ```
 
 **Warning if:**
+
 - `.env.example` contains what looks like real keys (20+ alphanumeric chars)
 - Missing generation instructions for SECRET_KEY, JWT_SECRET_KEY
 
 **Message:**
+
 ```
 WARNING: .env.example may contain real credentials
 - Use clear placeholders: "your-plant-id-api-key-here"
@@ -378,6 +410,7 @@ WARNING: .env.example may contain real credentials
 ### Rule 5: Check documentation files for secrets
 
 **Check:**
+
 ```bash
 # Scan markdown files for potential secrets in code blocks
 find . -name "*.md" -type f ! -path "./.git/*" | while read file; do
@@ -389,10 +422,12 @@ done
 ```
 
 **Warning if:**
+
 - Documentation contains code examples with long alphanumeric values
 - Setup guides show export commands with real-looking credentials
 
 **Message:**
+
 ```
 WARNING: Documentation file contains potential secrets: {file}
 - Code examples must use placeholders, not real credentials
@@ -404,6 +439,7 @@ WARNING: Documentation file contains potential secrets: {file}
 ### Rule 6: OAuth credentials pattern detection
 
 **Check:**
+
 ```bash
 # Look for OAuth client secrets
 grep -rE "CLIENT_SECRET\s*=\s*['\"][A-Za-z0-9_\-]{20,}['\"]" \
@@ -411,10 +447,12 @@ grep -rE "CLIENT_SECRET\s*=\s*['\"][A-Za-z0-9_\-]{20,}['\"]" \
 ```
 
 **Blocker if:**
+
 - OAuth client secret found in any committed file
 - Pattern doesn't look like obvious placeholder
 
 **Message:**
+
 ```
 BLOCKER: OAuth client secret detected in: {file}:{line}
 - OAuth credentials MUST be environment variables only
@@ -537,31 +575,37 @@ See updated `/.claude/agents/code-review-specialist.md` for complete implementat
 ## Key Lessons Learned
 
 ### 1. Documentation files ARE code files
+
 - Treat markdown files with same security rigor as source code
 - Code examples in docs often contain copy-pasted real credentials
 - Search engines and scrapers index documentation
 
 ### 2. Local-only files need explicit exclusion
+
 - `CLAUDE.md` meant for local use must be in `.gitignore`
 - Create template versions (`.example`) for sharing
 - Local files often contain working credentials
 
 ### 3. "Development" doesn't mean "insecure"
+
 - Development keys set precedent for production practices
 - Train developers to never commit secrets, even in dev
 - Use environment variables from day one
 
 ### 4. Templates need obvious placeholders
+
 - "your-api-key-here" is better than "test-key-123"
 - Include URLs for where to get real keys
 - Add generation commands for secret keys
 
 ### 5. Automation is critical
+
 - Pre-commit hooks catch secrets before they enter git
 - Manual review is not sufficient
 - GitHub secret scanning provides additional safety net
 
 ### 6. .gitignore is a security control
+
 - Regularly review .gitignore for completeness
 - Add high-risk file patterns proactively
 - Include comments explaining why files are excluded

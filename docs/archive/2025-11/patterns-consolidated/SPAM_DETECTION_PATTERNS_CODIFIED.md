@@ -801,7 +801,7 @@ python manage.py warm_moderation_cache --force -v 2
 
 ### Integration with Deployment
 
-**Docker Entrypoint** (`docker-entrypoint.sh`):
+**Deployment Entrypoint** (`deploy-entrypoint.sh`):
 ```bash
 #!/bin/bash
 set -e

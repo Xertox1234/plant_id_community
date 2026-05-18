@@ -36,7 +36,7 @@ class CombinedPlantIdentificationService:
 
 **Rationale**:
 1. **Prevents resource leaks**: Django creates new service instances per request. Without singleton pattern, each request creates a new ThreadPoolExecutor with threads that persist after request completes (100 requests = 200 lingering threads)
-2. **Production-ready**: Environment variable support (PLANT_ID_MAX_WORKERS) enables Docker/Kubernetes tuning
+2. **Production-ready**: Environment variable support (PLANT_ID_MAX_WORKERS) enables Kubernetes tuning
 3. **Django pattern**: Follows same patterns as Django's connection pools and cache backends
 4. **Test coverage**: 8 comprehensive tests validate thread safety, configuration, cleanup
 5. **Future-proof**: Scales naturally via config if more than 2 APIs needed
