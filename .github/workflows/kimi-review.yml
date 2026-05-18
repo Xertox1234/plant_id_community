@@ -1,0 +1,57 @@
+name: kimi-review
+
+# Server-side code-review gate. Runs the vendored kimi-review CLI over each PR
+# diff; a [CRITICAL] finding fails the check so branch protection blocks the
+# merge. Unlike the local pre-commit hook, this runs for every contributor
+# regardless of whether they have the kimi-review CLI installed.
+
+on:
+  pull_request:
+    branches: [main]
+
+# A newer push to the same PR cancels an in-flight review run.
+concurrency:
+  group: kimi-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  kimi-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history so the base..HEAD diff can be computed.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install kimi-review dependencies
+        run: pip install --quiet openai
+
+      - name: Run kimi-review on the PR diff
+        env:
+          # kimi-review reads WORKER_API_KEY or OPENROUTER_API_KEY.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::warning::OPENROUTER_API_KEY secret is not set — kimi-review gate skipped."
+            exit 0
+          fi
+
+          REVIEW=$(git diff "${{ github.event.pull_request.base.sha }}...HEAD" \
+            | python3 scripts/kimi-review \
+                --scope "PR #${{ github.event.pull_request.number }}" \
+                --profile plant_id \
+                --tiers CRITICAL,WARNING 2>&1)
+          echo "$REVIEW"
+
+          # Block only on a bracketed [CRITICAL] finding with a body. The
+          # clean-output and "no findings" messages contain the bare word but
+          # never the tag. WARNING findings are reported but do not fail.
+          if printf '%s\n' "$REVIEW" | grep -Eq '[[]CRITICAL[]].*[^[:space:]]'; then
+            echo "::error::kimi-review reported CRITICAL finding(s) — see the log above."
+            exit 1
+          fi
+          echo "kimi-review: no CRITICAL findings."
