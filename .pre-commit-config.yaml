@@ -31,6 +31,7 @@ repos:
           (?x)^(
             .*\.lock$|
             .*\.min\.js$|
+            .*\.g\.dart$|
             backend/docs/development/SECURITY_INCIDENT_.*\.md$
           )
 
