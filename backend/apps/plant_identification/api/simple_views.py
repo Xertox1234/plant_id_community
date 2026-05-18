@@ -18,7 +18,6 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
 from django.core.exceptions import ValidationError
-from django.db import transaction
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
 from django.conf import settings
@@ -76,7 +75,6 @@ def get_rate_limit_key(group: str, request: Request) -> str:
     ),
     method='POST'
 )
-@transaction.atomic
 def identify_plant(request: Request) -> Response:
     """
     Plant identification endpoint using dual API integration.

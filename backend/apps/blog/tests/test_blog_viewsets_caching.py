@@ -276,16 +276,14 @@ class BlogPostPageViewSetCachingTestCase(TestCase):
         # Verify response succeeded
         self.assertEqual(response.status_code, 200)
 
-        # STRICT: Expect exactly 13 queries (regression protection - Issue #117 pattern)
-        # Query breakdown for 5 blog posts:
-        # - 1 count query (pagination)
-        # - 1 main query (blog posts)
-        # - ~11 prefetch queries (Wagtail relations: author, categories, tags, images, etc.)
-        # Without prefetching, this would be 30+ queries (N+1 problem)
+        # STRICT: Expect exactly 7 queries (regression protection - Issue #117 pattern)
+        # Count dropped from 13 to 7 when .specific() was removed from get_queryset()
+        # (audit C3): .specific() re-fetched objects, firing extra queries and
+        # discarding the prefetch caches.
         self.assertEqual(
             num_queries,
-            13,
-            f"Performance regression detected! Expected exactly 13 queries, got {num_queries}. "
+            7,
+            f"Performance regression detected! Expected exactly 7 queries, got {num_queries}. "
             f"This indicates N+1 problem or missing prefetch optimization in BlogPostPageViewSet. "
             f"See PERFORMANCE_TESTING_PATTERNS_CODIFIED.md for strict assertion rationale.",
         )
@@ -310,15 +308,14 @@ class BlogPostPageViewSetCachingTestCase(TestCase):
         # Verify response succeeded
         self.assertEqual(response.status_code, 200)
 
-        # STRICT: Expect exactly 20 queries (regression protection - Issue #117 pattern)
-        # Query breakdown for single blog post retrieve:
-        # - 1 main query (blog post)
-        # - ~19 prefetch queries (Wagtail full prefetch chain: author, categories, tags, images, content blocks, etc.)
-        # Without prefetching, this would need 40+ separate queries for each relation
+        # STRICT: Expect exactly 17 queries (regression protection - Issue #117 pattern)
+        # Count dropped from 20 to 17 when .specific() was removed from get_queryset()
+        # (audit C3): .specific() re-fetched objects, firing extra queries and
+        # discarding the Prefetch(to_attr=...) caches for related posts.
         self.assertEqual(
             num_queries,
-            20,
-            f"Performance regression detected! Expected exactly 20 queries, got {num_queries}. "
+            17,
+            f"Performance regression detected! Expected exactly 17 queries, got {num_queries}. "
             f"This indicates N+1 problem or missing prefetch optimization in BlogPostPageViewSet. "
             f"See PERFORMANCE_TESTING_PATTERNS_CODIFIED.md for strict assertion rationale.",
         )
@@ -434,13 +431,20 @@ class ByCategoryQueryCountTestCase(TestCase):
             f"to {count_4_cats} (4 empty categories). "
             f"by_category must use a fixed query plan regardless of category count.",
         )
-        # Absolute bound: categories query + posts prefetch = 2 queries plus
-        # Wagtail overhead. Must stay well under 15.
-        self.assertLessEqual(
+        # STRICT: Expect exactly 3 queries for 2 empty featured categories
+        # (regression protection — Issue #074).
+        # Query breakdown:
+        #   1. SELECT featured BlogCategory rows
+        #   2. SELECT prefetched BlogPostPage rows (via Prefetch on
+        #      blogpostpage_set; empty categories → empty result set, but the
+        #      query is still issued once by Django’s prefetch machinery)
+        #   3. Wagtail site / page base query for the .live().public() filters
+        # Without Prefetch this would be N+1: one query per category.
+        self.assertEqual(
             count_2_cats,
-            15,
-            f"by_category used {count_2_cats} queries for 2 empty categories — expected ≤15. "
-            "Check for unexpected overhead.",
+            3,
+            f"Performance regression detected! Expected exactly 3 queries, got {count_2_cats}. "
+            f"See PERFORMANCE_TESTING_PATTERNS_CODIFIED.md for strict assertion rationale.",
         )
 
     def test_by_category_response_shape(self):

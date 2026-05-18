@@ -101,7 +101,9 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
     def get_queryset(self):
         """Enhanced queryset with blog-specific filtering."""
-        queryset = BlogPostPage.objects.live().public().specific()
+        # No .specific() — BlogPostPage.objects already yields concrete instances,
+        # and .specific() rebuilds objects, discarding Prefetch(to_attr=...) caches.
+        queryset = BlogPostPage.objects.live().public()
 
         # Category filtering
         category_id = self.request.GET.get("category")

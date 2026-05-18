@@ -13,10 +13,12 @@ final plantIdentificationServiceProvider =
     );
 
 /// Coordinates image upload and backend plant identification.
+///
+/// A Riverpod [Notifier] is always built via the no-arg `.new` tear-off, so it
+/// must not declare constructor parameters. Override the provider with a mock
+/// subclass in tests instead.
 class PlantIdentificationService extends Notifier<void> {
-  final Uuid _uuid;
-
-  PlantIdentificationService({Uuid? uuid}) : _uuid = uuid ?? const Uuid();
+  final Uuid _uuid = const Uuid();
 
   @override
   void build() {

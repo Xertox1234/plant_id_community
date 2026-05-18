@@ -198,6 +198,7 @@ class CareReminderViewSet(viewsets.ModelViewSet):
         return CareReminder.objects.filter(
             user=self.request.user
         ).select_related(
+            'user',
             'garden_plant__garden'
         )
 
@@ -310,7 +311,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         """Return user's tasks with optimized queries."""
         return Task.objects.filter(
             user=self.request.user
-        ).select_related('garden')
+        ).select_related('user', 'garden')
 
     def perform_create(self, serializer):
         """Set user on creation."""
@@ -348,6 +349,7 @@ class PestIssueViewSet(viewsets.ModelViewSet):
         return PestIssue.objects.filter(
             user=self.request.user
         ).select_related(
+            'user',
             'garden_plant__garden'
         ).prefetch_related('images')
 
@@ -410,6 +412,7 @@ class JournalEntryViewSet(viewsets.ModelViewSet):
         return JournalEntry.objects.filter(
             user=self.request.user
         ).select_related(
+            'user',
             'garden',
             'garden_plant'
         ).prefetch_related('images')

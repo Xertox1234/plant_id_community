@@ -1,12 +1,14 @@
 import logging
 from typing import Dict
 
+import requests
+from apps.core.exceptions import ExternalAPIError
 from asgiref.sync import async_to_sync
 from celery import shared_task
 from celery.exceptions import Retry
 from channels.layers import get_channel_layer
 
-from .exceptions import RateLimitExceeded
+from .exceptions import APIUnavailable, RateLimitExceeded
 from .models import PlantIdentificationRequest
 from .services.identification_service import PlantIdentificationService
 
@@ -15,7 +17,13 @@ logger = logging.getLogger(__name__)
 
 @shared_task(
     bind=True,
-    autoretry_for=(Exception,),
+    # Retry only transient external-API failures — never permanent errors
+    # (bad input, missing records, programming bugs), which never recover.
+    autoretry_for=(
+        ExternalAPIError,
+        APIUnavailable,
+        requests.exceptions.RequestException,
+    ),
     retry_backoff=True,
     retry_kwargs={"max_retries": 5},
     retry_jitter=True,

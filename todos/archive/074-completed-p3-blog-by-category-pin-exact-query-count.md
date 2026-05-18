@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "074"
 tags: [testing, performance, blog]
@@ -41,8 +41,28 @@ File: `backend/apps/blog/tests/test_blog_viewsets_caching.py`
 Class: `ByCategoryQueryCountTestCase`
 Method: `test_by_category_query_count_fixed_across_n_categories`
 
+## Work Log
+
+### 2026-05-18 - Started by completing-todos skill (run 2026-05-18-1053)
+
+- Picked up by automated workflow.
+
+### 2026-05-18 - Implemented
+
+- Ran `ByCategoryQueryCountTestCase.test_by_category_query_count_fixed_across_n_categories` with
+  `CaptureQueriesContext`; confirmed exact baseline count for 2 empty featured categories is **3**.
+- Replaced `assertLessEqual(count_2_cats, 15)` with `assertEqual(count_2_cats, 3)` and added
+  per-query breakdown comment per project convention.
+- Verification: `python manage.py test apps.blog.tests.test_blog_viewsets_caching.ByCategoryQueryCountTestCase.test_by_category_query_count_fixed_across_n_categories --noinput` → OK (1 test passed).
+- Verification: `python manage.py test apps.blog.tests --noinput` → exit code 0 (all tests passed).
+
+### 2026-05-18 - Completed by completing-todos skill (run 2026-05-18-1053)
+
+- Verification: all 2 acceptance criteria passed.
+- Review: no blocking findings (minimal test-only change; 1 file affected).
+
 ## Acceptance Criteria
 
-- [ ] The `assertLessEqual(count_2_cats, 15)` is replaced with `assertEqual(count_2_cats, N)`
+- [x] The `assertLessEqual(count_2_cats, 15)` is replaced with `assertEqual(count_2_cats, 3)`
       where N is documented with a per-query breakdown comment.
-- [ ] `python manage.py test apps.blog.tests --noinput` passes.
+- [x] `python manage.py test apps.blog.tests --noinput` passes.
