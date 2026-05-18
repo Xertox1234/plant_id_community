@@ -9,6 +9,7 @@ import '../../features/splash/splash_screen.dart';
 import '../../features/home/home_page.dart';
 import '../../features/camera/camera_screen.dart';
 import '../../features/results/results_screen.dart';
+import '../../features/profile/profile_screen.dart';
 import '../../models/plant.dart';
 import '../../services/auth_service.dart';
 
@@ -107,6 +108,15 @@ GoRouter appRouter(Ref ref) {
         },
       ),
       GoRoute(
+        path: AppRoutes.profile,
+        name: 'profile',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: const ProfileScreen(),
+        ),
+      ),
+      GoRoute(
         path: AppRoutes.settings,
         name: 'settings',
         pageBuilder: (context, state) => _buildPageWithTransition(
@@ -131,15 +141,6 @@ GoRouter appRouter(Ref ref) {
           context: context,
           state: state,
           child: const _PlaceholderScreen(title: 'Register'),
-        ),
-      ),
-      GoRoute(
-        path: AppRoutes.profile,
-        name: 'profile',
-        pageBuilder: (context, state) => _buildPageWithTransition(
-          context: context,
-          state: state,
-          child: const _PlaceholderScreen(title: 'Profile'),
         ),
       ),
       GoRoute(

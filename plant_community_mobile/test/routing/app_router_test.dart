@@ -255,16 +255,20 @@ void main() {
           ),
         );
 
-        // Navigate to protected route (profile)
-        router.go(AppRoutes.profile);
+        // Navigate to a protected route. Use /garden (a placeholder screen)
+        // rather than /profile — ProfileScreen performs network I/O on mount,
+        // which a pure routing test should not exercise.
+        router.go(AppRoutes.garden);
         await tester.pump(const Duration(milliseconds: 100));
 
-        // Should be allowed to access profile
+        // The auth guard should allow an authenticated user through.
         expect(
           router.routerDelegate.currentConfiguration.uri.path,
-          equals(AppRoutes.profile),
+          equals(AppRoutes.garden),
         );
 
+        // Drain the SplashScreen's pending timer (initial route) so it does
+        // not outlive the widget tree.
         await tester.pump(const Duration(seconds: 4));
       });
 
