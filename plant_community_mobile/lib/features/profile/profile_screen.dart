@@ -1,5 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import '../../core/routing/app_router.dart';
 import '../../models/user_profile.dart';
 import '../../services/user_profile_service.dart';
 import '../../services/auth_service.dart';
@@ -133,9 +136,20 @@ class _ProfileHeader extends StatelessWidget {
               backgroundImage: profile.avatar != null
                   ? NetworkImage(profile.avatar!)
                   : null,
+              onBackgroundImageError: profile.avatar != null
+                  ? (error, _) {
+                      if (kDebugMode) {
+                        debugPrint(
+                          '[PROFILE] Avatar image failed to load: $error',
+                        );
+                      }
+                    }
+                  : null,
               child: profile.avatar == null
                   ? Text(
-                      profile.username.substring(0, 1).toUpperCase(),
+                      profile.username.isNotEmpty
+                          ? profile.username[0].toUpperCase()
+                          : '?',
                       style: Theme.of(context).textTheme.headlineLarge
                           ?.copyWith(
                             color: Theme.of(
@@ -398,8 +412,30 @@ class _SettingsSection extends ConsumerWidget {
 
   const _SettingsSection({required this.profile});
 
+  /// Apply a single notification-preference toggle. On failure, surface a
+  /// snackbar and refresh so the switch reverts to the real backend state.
+  Future<void> _applyPreference(
+    BuildContext context,
+    WidgetRef ref,
+    Future<void> Function() update,
+  ) async {
+    try {
+      await update();
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update preferences: $e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+      ref.read(userProfileServiceProvider.notifier).refresh();
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(userProfileServiceProvider.notifier);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -414,24 +450,11 @@ class _SettingsSection extends ConsumerWidget {
               title: const Text('Email Notifications'),
               subtitle: const Text('Receive email updates'),
               value: profile.emailNotifications,
-              onChanged: (value) async {
-                try {
-                  await ref
-                      .read(userProfileServiceProvider.notifier)
-                      .updateProfile(emailNotifications: value);
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Failed to update preferences: $e'),
-                        backgroundColor: Theme.of(context).colorScheme.error,
-                      ),
-                    );
-                    // Refresh to revert UI to actual backend state
-                    ref.read(userProfileServiceProvider.notifier).refresh();
-                  }
-                }
-              },
+              onChanged: (value) => _applyPreference(
+                context,
+                ref,
+                () => notifier.updateProfile(emailNotifications: value),
+              ),
               secondary: const Icon(Icons.email_outlined),
             ),
 
@@ -440,24 +463,11 @@ class _SettingsSection extends ConsumerWidget {
               title: const Text('Plant ID Notifications'),
               subtitle: const Text('Get notified about plant identifications'),
               value: profile.plantIdNotifications,
-              onChanged: (value) async {
-                try {
-                  await ref
-                      .read(userProfileServiceProvider.notifier)
-                      .updateProfile(plantIdNotifications: value);
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Failed to update preferences: $e'),
-                        backgroundColor: Theme.of(context).colorScheme.error,
-                      ),
-                    );
-                    // Refresh to revert UI to actual backend state
-                    ref.read(userProfileServiceProvider.notifier).refresh();
-                  }
-                }
-              },
+              onChanged: (value) => _applyPreference(
+                context,
+                ref,
+                () => notifier.updateProfile(plantIdNotifications: value),
+              ),
               secondary: const Icon(Icons.eco),
             ),
 
@@ -466,24 +476,11 @@ class _SettingsSection extends ConsumerWidget {
               title: const Text('Forum Notifications'),
               subtitle: const Text('Get notified about forum activity'),
               value: profile.forumNotifications,
-              onChanged: (value) async {
-                try {
-                  await ref
-                      .read(userProfileServiceProvider.notifier)
-                      .updateProfile(forumNotifications: value);
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Failed to update preferences: $e'),
-                        backgroundColor: Theme.of(context).colorScheme.error,
-                      ),
-                    );
-                    // Refresh to revert UI to actual backend state
-                    ref.read(userProfileServiceProvider.notifier).refresh();
-                  }
-                }
-              },
+              onChanged: (value) => _applyPreference(
+                context,
+                ref,
+                () => notifier.updateProfile(forumNotifications: value),
+              ),
               secondary: const Icon(Icons.forum),
             ),
 
@@ -555,7 +552,8 @@ class _LogoutButton extends ConsumerWidget {
               const SnackBar(content: Text('Logged out successfully')),
             );
 
-            // Navigate to login screen (TODO: implement navigation)
+            // Leave the (auth-protected) profile screen for the login route.
+            context.go(AppRoutes.login);
           } catch (e) {
             if (!context.mounted) return;
 

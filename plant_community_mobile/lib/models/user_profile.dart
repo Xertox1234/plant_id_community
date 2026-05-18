@@ -256,4 +256,66 @@ class UserProfile {
         location != null &&
         location!.isNotEmpty;
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is UserProfile &&
+        other.id == id &&
+        other.username == username &&
+        other.email == email &&
+        other.firstName == firstName &&
+        other.lastName == lastName &&
+        other.displayName == displayName &&
+        other.bio == bio &&
+        other.location == location &&
+        other.website == website &&
+        other.gardeningExperience == gardeningExperience &&
+        other.avatar == avatar &&
+        other.avatarThumbnail == avatarThumbnail &&
+        other.profileVisibility == profileVisibility &&
+        other.showEmail == showEmail &&
+        other.showLocation == showLocation &&
+        other.emailNotifications == emailNotifications &&
+        other.plantIdNotifications == plantIdNotifications &&
+        other.forumNotifications == forumNotifications &&
+        other.followerCount == followerCount &&
+        other.followingCount == followingCount &&
+        other.plantsIdentified == plantsIdentified &&
+        other.identificationsHelped == identificationsHelped &&
+        other.forumPostsCount == forumPostsCount &&
+        other.plantCollectionsCount == plantCollectionsCount &&
+        other.dateJoined == dateJoined &&
+        other.lastLogin == lastLogin;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    id,
+    username,
+    email,
+    firstName,
+    lastName,
+    displayName,
+    bio,
+    location,
+    website,
+    gardeningExperience,
+    avatar,
+    avatarThumbnail,
+    profileVisibility,
+    showEmail,
+    showLocation,
+    emailNotifications,
+    plantIdNotifications,
+    forumNotifications,
+    followerCount,
+    followingCount,
+    plantsIdentified,
+    identificationsHelped,
+    forumPostsCount,
+    plantCollectionsCount,
+    dateJoined,
+    lastLogin,
+  ]);
 }

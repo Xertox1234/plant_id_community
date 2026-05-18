@@ -1,5 +1,8 @@
+import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/models/user_profile.dart';
+import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
 
 void main() {
@@ -225,23 +228,147 @@ void main() {
     });
   });
 
-  // Integration tests would go here
-  // These would require mocking ApiService and testing the actual service methods
-  // Example structure:
-  //
-  // group('UserProfileService', () {
-  //   testWidgets('fetchProfile returns profile data', (tester) async {
-  //     final container = ProviderContainer(
-  //       overrides: [
-  //         // Mock ApiService to return test data
-  //       ],
-  //     );
-  //
-  //     final service = container.read(userProfileServiceProvider.notifier);
-  //     final profile = await service.fetchProfile();
-  //
-  //     expect(profile, isNotNull);
-  //     expect(profile!.username, equals('testuser'));
-  //   });
-  // });
+  group('UserProfileService', () {
+    late _FakeApiService fakeApi;
+
+    setUp(() => fakeApi = _FakeApiService());
+
+    ProviderContainer makeContainer() {
+      final container = ProviderContainer(
+        overrides: [apiServiceProvider.overrideWithValue(fakeApi)],
+        // Disable Riverpod's automatic retry so a failed build settles
+        // deterministically on AsyncError instead of cycling through
+        // AsyncLoading(retrying).
+        retry: (_, _) => null,
+      );
+      addTearDown(container.dispose);
+      // userProfileServiceProvider is autoDispose; keep a listener so it is
+      // not disposed mid-load while a test awaits its future.
+      container.listen(userProfileServiceProvider, (_, _) {});
+      return container;
+    }
+
+    test('build() loads and parses the profile on success', () async {
+      fakeApi.getResult = _response(_profileJson(username: 'alice'));
+      final container = makeContainer();
+
+      final profile = await container.read(userProfileServiceProvider.future);
+
+      expect(profile, isNotNull);
+      expect(profile!.username, equals('alice'));
+      expect(profile.firstName, equals('John'));
+    });
+
+    test('build() surfaces AsyncError when the fetch fails', () async {
+      // Regression guard: fetchProfile must THROW so build() yields
+      // AsyncValue.error — not swallow the failure into AsyncData(null).
+      fakeApi.getResult = ApiException('server down', statusCode: 500);
+      final container = makeContainer();
+
+      // Let the async build settle, then inspect the resulting state.
+      await pumpEventQueue();
+
+      final state = container.read(userProfileServiceProvider);
+      expect(state, isA<AsyncError<UserProfile?>>());
+      expect((state as AsyncError).error, isA<UserProfileException>());
+    });
+
+    test(
+      'updateProfile sends only non-null fields and returns the profile',
+      () async {
+        fakeApi.getResult = _response(_profileJson());
+        final container = makeContainer();
+        await container.read(userProfileServiceProvider.future);
+
+        fakeApi.patchResult = _response({
+          'message': 'ok',
+          'user': _profileJson(username: 'updated'),
+        });
+
+        final notifier = container.read(userProfileServiceProvider.notifier);
+        final updated = await notifier.updateProfile(bio: 'New bio');
+
+        expect(updated, isNotNull);
+        expect(updated!.username, equals('updated'));
+        expect(fakeApi.lastPatchPath, equals('/auth/user/update/'));
+        expect(fakeApi.lastPatchData, equals({'bio': 'New bio'}));
+      },
+    );
+
+    test('updateProfile throws UserProfileException on API failure', () async {
+      fakeApi.getResult = _response(_profileJson());
+      final container = makeContainer();
+      await container.read(userProfileServiceProvider.future);
+
+      fakeApi.patchResult = ApiException('bad request', statusCode: 400);
+      final notifier = container.read(userProfileServiceProvider.notifier);
+
+      await expectLater(
+        notifier.updateProfile(bio: 'x'),
+        throwsA(isA<UserProfileException>()),
+      );
+    });
+
+    test('clear() resets state to data(null)', () async {
+      fakeApi.getResult = _response(_profileJson());
+      final container = makeContainer();
+      await container.read(userProfileServiceProvider.future);
+
+      container.read(userProfileServiceProvider.notifier).clear();
+
+      final state = container.read(userProfileServiceProvider);
+      expect(state, isA<AsyncData<UserProfile?>>());
+      expect(state.value, isNull);
+    });
+  });
 }
+
+/// Minimal [ApiService] stand-in for tests. Each method returns its configured
+/// result, or throws it when the result is an [Exception]. No real network.
+class _FakeApiService extends ApiService {
+  _FakeApiService() : super(baseUrl: 'http://fake.local', authToken: null);
+
+  Object? getResult;
+  Object? patchResult;
+  String? lastPatchPath;
+  Map<String, dynamic>? lastPatchData;
+
+  @override
+  Future<Response> get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
+    final result = getResult;
+    if (result is Exception) throw result;
+    return result as Response;
+  }
+
+  @override
+  Future<Response> patch(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
+    lastPatchPath = path;
+    lastPatchData = data as Map<String, dynamic>?;
+    final result = patchResult;
+    if (result is Exception) throw result;
+    return result as Response;
+  }
+}
+
+Response<dynamic> _response(dynamic data) => Response<dynamic>(
+  requestOptions: RequestOptions(path: '/'),
+  data: data,
+);
+
+Map<String, dynamic> _profileJson({String username = 'testuser'}) => {
+  'id': 1,
+  'username': username,
+  'email': 'test@example.com',
+  'first_name': 'John',
+  'date_joined': '2025-01-15T10:00:00Z',
+  'email_notifications': true,
+};

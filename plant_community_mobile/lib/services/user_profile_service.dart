@@ -35,16 +35,18 @@ part 'user_profile_service.g.dart';
 class UserProfileService extends _$UserProfileService {
   @override
   Future<UserProfile?> build() async {
-    // Auto-fetch profile on initialization
-    return await fetchProfile();
+    // Auto-fetch on init. A thrown UserProfileException propagates out of
+    // build() and Riverpod surfaces it as AsyncValue.error.
+    return fetchProfile();
   }
 
-  /// Fetch current user's profile from backend
+  /// Fetch the current user's profile from the backend.
   ///
-  /// Returns null if user is not authenticated or fetch fails
-  ///
-  /// Throws [UserProfileException] if API call fails
-  Future<UserProfile?> fetchProfile() async {
+  /// Throws [UserProfileException] if the API call fails. Callers that need an
+  /// `AsyncValue.error` state (`build`, `refresh`) let it propagate — do NOT
+  /// catch it here and assign `state` manually, or the value returned to
+  /// `build()` overwrites the error state.
+  Future<UserProfile> fetchProfile() async {
     try {
       if (kDebugMode) {
         debugPrint('[USER_PROFILE] Fetching current user profile');
@@ -52,54 +54,27 @@ class UserProfileService extends _$UserProfileService {
 
       final apiService = ref.read(apiServiceProvider);
 
-      // Backend response: GET /api/v1/auth/user/
-      // Returns UserProfileSerializer data directly (no wrapper):
-      // {
-      //   "id": 1,
-      //   "username": "john_doe",
-      //   "email": "john@example.com",
-      //   "first_name": "John",
-      //   ... (all profile fields)
-      // }
+      // GET /api/v1/auth/user/ returns UserProfileSerializer data directly
+      // (no wrapper object).
       final response = await apiService.get('/auth/user/');
 
       if (kDebugMode) {
         debugPrint('[USER_PROFILE] Profile fetched successfully');
       }
 
-      final profile = UserProfile.fromJson(
-        response.data as Map<String, dynamic>,
-      );
-
-      // Update state
-      state = AsyncValue.data(profile);
-
-      return profile;
+      return UserProfile.fromJson(response.data as Map<String, dynamic>);
     } on ApiException catch (e) {
       if (kDebugMode) {
         debugPrint(
           '[USER_PROFILE ERROR] Failed to fetch profile: ${e.message}',
         );
       }
-
-      // Set error state
-      state = AsyncValue.error(
-        UserProfileException('Failed to load profile: ${e.message}'),
-        StackTrace.current,
-      );
-
-      return null;
+      throw UserProfileException('Failed to load profile: ${e.message}');
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[USER_PROFILE ERROR] Unexpected error: $e');
       }
-
-      state = AsyncValue.error(
-        UserProfileException('Failed to load profile: $e'),
-        StackTrace.current,
-      );
-
-      return null;
+      throw UserProfileException('Failed to load profile: $e');
     }
   }
 
@@ -205,10 +180,13 @@ class UserProfileService extends _$UserProfileService {
   // TODO: Add uploadAvatar() method when FirebaseStorageService is implemented
   // TODO: Add deleteAvatar() method when FirebaseStorageService is implemented
 
-  /// Refresh profile data from backend
-  ///
-  /// Alias for fetchProfile() for clarity
-  Future<UserProfile?> refresh() => fetchProfile();
+  /// Refresh profile data from the backend, updating [state] with the result.
+  /// A failed fetch lands as `AsyncValue.error` (via [AsyncValue.guard]) so the
+  /// UI can show its error/retry branch.
+  Future<void> refresh() async {
+    state = const AsyncValue<UserProfile?>.loading();
+    state = await AsyncValue.guard(fetchProfile);
+  }
 
   /// Clear profile state (on logout)
   void clear() {
