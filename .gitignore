@@ -146,6 +146,7 @@ $RECYCLE.BIN/
 # ===================================
 .vscode/
 .idea/
+.windsurf/
 *.swp
 *.swo
 *~
