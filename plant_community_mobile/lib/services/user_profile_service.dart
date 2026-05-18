@@ -67,7 +67,9 @@ class UserProfileService extends _$UserProfileService {
         debugPrint('[USER_PROFILE] Profile fetched successfully');
       }
 
-      final profile = UserProfile.fromJson(response.data as Map<String, dynamic>);
+      final profile = UserProfile.fromJson(
+        response.data as Map<String, dynamic>,
+      );
 
       // Update state
       state = AsyncValue.data(profile);
@@ -75,7 +77,9 @@ class UserProfileService extends _$UserProfileService {
       return profile;
     } on ApiException catch (e) {
       if (kDebugMode) {
-        debugPrint('[USER_PROFILE ERROR] Failed to fetch profile: ${e.message}');
+        debugPrint(
+          '[USER_PROFILE ERROR] Failed to fetch profile: ${e.message}',
+        );
       }
 
       // Set error state
@@ -183,7 +187,9 @@ class UserProfileService extends _$UserProfileService {
       return updatedProfile;
     } on ApiException catch (e) {
       if (kDebugMode) {
-        debugPrint('[USER_PROFILE ERROR] Failed to update profile: ${e.message}');
+        debugPrint(
+          '[USER_PROFILE ERROR] Failed to update profile: ${e.message}',
+        );
       }
 
       throw UserProfileException('Failed to update profile: ${e.message}');

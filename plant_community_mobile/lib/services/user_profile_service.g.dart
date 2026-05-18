@@ -36,7 +36,7 @@ part of 'user_profile_service.dart';
 /// ```
 
 @ProviderFor(UserProfileService)
-const userProfileServiceProvider = UserProfileServiceProvider._();
+final userProfileServiceProvider = UserProfileServiceProvider._();
 
 /// User profile service for managing user profile data
 ///
@@ -92,7 +92,7 @@ final class UserProfileServiceProvider
   /// // Refresh profile data
   /// await profileService.refresh();
   /// ```
-  const UserProfileServiceProvider._()
+  UserProfileServiceProvider._()
     : super(
         from: null,
         argument: null,
@@ -146,7 +146,6 @@ abstract class _$UserProfileService extends $AsyncNotifier<UserProfile?> {
   @$mustCallSuper
   @override
   void runBuild() {
-    final created = build();
     final ref = this.ref as $Ref<AsyncValue<UserProfile?>, UserProfile?>;
     final element =
         ref.element
@@ -156,6 +155,6 @@ abstract class _$UserProfileService extends $AsyncNotifier<UserProfile?> {
               Object?,
               Object?
             >;
-    element.handleValue(ref, created);
+    element.handleCreate(ref, build);
   }
 }

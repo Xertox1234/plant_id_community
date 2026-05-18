@@ -29,9 +29,7 @@ class ProfileScreen extends ConsumerWidget {
             onPressed: () {
               // TODO: Navigate to profile edit screen
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Edit profile coming soon!'),
-                ),
+                const SnackBar(content: Text('Edit profile coming soon!')),
               );
             },
           ),
@@ -40,9 +38,7 @@ class ProfileScreen extends ConsumerWidget {
       body: profileAsync.when(
         data: (profile) {
           if (profile == null) {
-            return const Center(
-              child: Text('No profile data available'),
-            );
+            return const Center(child: Text('No profile data available'));
           }
 
           return RefreshIndicator(
@@ -84,9 +80,7 @@ class ProfileScreen extends ConsumerWidget {
             ),
           );
         },
-        loading: () => const Center(
-          child: CircularProgressIndicator(),
-        ),
+        loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stack) => Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -142,8 +136,11 @@ class _ProfileHeader extends StatelessWidget {
               child: profile.avatar == null
                   ? Text(
                       profile.username.substring(0, 1).toUpperCase(),
-                      style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                            color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      style: Theme.of(context).textTheme.headlineLarge
+                          ?.copyWith(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onPrimaryContainer,
                           ),
                     )
                   : null,
@@ -164,8 +161,8 @@ class _ProfileHeader extends StatelessWidget {
             Text(
               '@${profile.username}',
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Theme.of(context).colorScheme.secondary,
-                  ),
+                color: Theme.of(context).colorScheme.secondary,
+              ),
             ),
 
             const SizedBox(height: 4),
@@ -174,8 +171,8 @@ class _ProfileHeader extends StatelessWidget {
             Text(
               profile.email,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -241,17 +238,13 @@ class _StatCard extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Column(
           children: [
-            Icon(
-              icon,
-              size: 32,
-              color: Theme.of(context).colorScheme.primary,
-            ),
+            Icon(icon, size: 32, color: Theme.of(context).colorScheme.primary),
             const SizedBox(height: 8),
             Text(
               value,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
             Text(
@@ -354,7 +347,7 @@ class _ProfileDetailsSection extends StatelessWidget {
       'Sep',
       'Oct',
       'Nov',
-      'Dec'
+      'Dec',
     ];
     return '${months[date.month - 1]} ${date.year}';
   }
@@ -377,11 +370,7 @@ class _DetailRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(
-          icon,
-          size: 20,
-          color: Theme.of(context).colorScheme.secondary,
-        ),
+        Icon(icon, size: 20, color: Theme.of(context).colorScheme.secondary),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -390,14 +379,11 @@ class _DetailRow extends StatelessWidget {
               Text(
                 label,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
               const SizedBox(height: 4),
-              Text(
-                value,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
+              Text(value, style: Theme.of(context).textTheme.bodyMedium),
             ],
           ),
         ),
@@ -420,10 +406,7 @@ class _SettingsSection extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Settings',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text('Settings', style: Theme.of(context).textTheme.titleLarge),
             const Divider(),
 
             // Email Notifications
@@ -433,9 +416,9 @@ class _SettingsSection extends ConsumerWidget {
               value: profile.emailNotifications,
               onChanged: (value) async {
                 try {
-                  await ref.read(userProfileServiceProvider.notifier).updateProfile(
-                        emailNotifications: value,
-                      );
+                  await ref
+                      .read(userProfileServiceProvider.notifier)
+                      .updateProfile(emailNotifications: value);
                 } catch (e) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -459,9 +442,9 @@ class _SettingsSection extends ConsumerWidget {
               value: profile.plantIdNotifications,
               onChanged: (value) async {
                 try {
-                  await ref.read(userProfileServiceProvider.notifier).updateProfile(
-                        plantIdNotifications: value,
-                      );
+                  await ref
+                      .read(userProfileServiceProvider.notifier)
+                      .updateProfile(plantIdNotifications: value);
                 } catch (e) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -485,9 +468,9 @@ class _SettingsSection extends ConsumerWidget {
               value: profile.forumNotifications,
               onChanged: (value) async {
                 try {
-                  await ref.read(userProfileServiceProvider.notifier).updateProfile(
-                        forumNotifications: value,
-                      );
+                  await ref
+                      .read(userProfileServiceProvider.notifier)
+                      .updateProfile(forumNotifications: value);
                 } catch (e) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -569,9 +552,7 @@ class _LogoutButton extends ConsumerWidget {
 
             // Show success message
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Logged out successfully'),
-              ),
+              const SnackBar(content: Text('Logged out successfully')),
             );
 
             // Navigate to login screen (TODO: implement navigation)

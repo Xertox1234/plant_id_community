@@ -161,9 +161,11 @@ class UserProfile {
       followerCount: followerCount ?? this.followerCount,
       followingCount: followingCount ?? this.followingCount,
       plantsIdentified: plantsIdentified ?? this.plantsIdentified,
-      identificationsHelped: identificationsHelped ?? this.identificationsHelped,
+      identificationsHelped:
+          identificationsHelped ?? this.identificationsHelped,
       forumPostsCount: forumPostsCount ?? this.forumPostsCount,
-      plantCollectionsCount: plantCollectionsCount ?? this.plantCollectionsCount,
+      plantCollectionsCount:
+          plantCollectionsCount ?? this.plantCollectionsCount,
       dateJoined: dateJoined ?? this.dateJoined,
       lastLogin: lastLogin ?? this.lastLogin,
     );
@@ -249,6 +251,9 @@ class UserProfile {
 
   /// Check if profile is complete (has bio and location)
   bool get isProfileComplete {
-    return bio != null && bio!.isNotEmpty && location != null && location!.isNotEmpty;
+    return bio != null &&
+        bio!.isNotEmpty &&
+        location != null &&
+        location!.isNotEmpty;
   }
 }

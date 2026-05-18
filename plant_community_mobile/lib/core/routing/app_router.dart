@@ -21,7 +21,6 @@ abstract class AppRoutes {
   static const home = '/home';
   static const camera = '/camera';
   static const results = '/results';
-  static const profile = '/profile';
   static const settings = '/settings';
   // Auth routes (screens not yet implemented)
   static const login = '/login';
@@ -142,15 +141,6 @@ GoRouter appRouter(Ref ref) {
           context: context,
           state: state,
           child: const _PlaceholderScreen(title: 'Register'),
-        ),
-      ),
-      GoRoute(
-        path: AppRoutes.profile,
-        name: 'profile',
-        pageBuilder: (context, state) => _buildPageWithTransition(
-          context: context,
-          state: state,
-          child: const _PlaceholderScreen(title: 'Profile'),
         ),
       ),
       GoRoute(
