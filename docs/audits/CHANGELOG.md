@@ -29,4 +29,4 @@ links to the full audit manifest with detailed findings and resolutions.
   identity fields in Firebase token exchange); H1 closed a GitHub-OAuth
   account-takeover path. Discovery surfaced that `apps/forum/` is not installed
   under `ENABLE_FORUM=True` (Machina is the active forum).
-- **Commit(s):** (pending — fix commit on branch `audit/full-2026-05-17`)
+- **Commit(s):** `aa42902` (branch `audit/full-2026-05-17`)
