@@ -171,10 +171,13 @@ pids/
 # ===================================
 # Development / Reference Materials
 # ===================================
-# Claude Code configuration and tools (ignore contents, not dir itself, so agents/ and skills/ exceptions work)
+# Claude Code configuration and tools (ignore contents, not dir itself, so the exceptions work)
 .claude/*
 !.claude/agents/
 !.claude/skills/
+!.claude/hooks/
+!.claude/settings.json
+# .claude/settings.local.json stays ignored — it holds per-developer overrides
 
 # CLAUDE.md contains project-specific context and may include sensitive info
 # Use CLAUDE.md.example as template

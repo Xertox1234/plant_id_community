@@ -156,6 +156,40 @@ Non-review agents (invoke directly for implementation tasks):
 
 - `wagtail-cms-orchestrator.md` — CMS content, API integration, data flow tracing
 - `frontend-developer.md` — React UI/UX implementation
+- `docs-researcher.md` — validates findings against current library docs (used by `/audit` Phase 2.5)
+
+## Harness Automation
+
+The `.claude/` harness automates rule injection, commit-time review, and
+knowledge capture. It is committed to the repo — `.claude/` changes on `main`
+reach only **new** worktrees; existing worktrees keep their setup until rebased.
+
+### Hooks (`.claude/settings.json` → `.claude/hooks/`)
+
+- **`inject-patterns.sh`** — before every Edit/Write, injects the discipline
+  preamble plus the matching `docs/rules/<domain>.md` checklists.
+- **`kimi-review.sh`** — before a `git commit` Bash call, runs `kimi-review` on
+  the staged diff. A `[CRITICAL]` finding blocks the commit; `WARNING` is
+  surfaced as context. Bypass with `SKIP_KIMI_REVIEW=1`.
+- **`guard-worktree-isolation.sh`** — blocks a worktree session from editing
+  files in the main checkout.
+- Each hook has a `test-*.sh` next to it — run them after editing a hook.
+
+### `docs/rules/` — binding rules
+
+Short, auto-injected "always/never" checklists, one file per domain (`security`,
+`database`, `api`, `caching`, `celery`, `wagtail`, `testing`, `react`,
+`typescript`, `flutter`, `firebase`). Long-form detail stays in the
+`*/docs/patterns/` libraries. `kimi-review --rules <domain>` also loads them.
+
+### Skills
+
+- **`/codify`** — at the end of a session, extracts patterns/learnings/review
+  rules from the branch diff and routes them to `docs/rules/`, the
+  `*/docs/patterns/` libraries, `docs/LEARNINGS.md`, or the review agents.
+- **`/audit [scope]`** — structured 8-phase audit: specialist-agent discovery,
+  doc-research validation, per-fix verification, manifest tracking in
+  `docs/audits/`, code review, and codification.
 
 ## Environment Variables
 
@@ -173,8 +207,9 @@ Non-review agents (invoke directly for implementation tasks):
 
 ## Cheap-Worker Delegation (Kimi K2.6)
 
-Three CLI tools delegate bulk I/O to a cheap worker model (Kimi K2.6 via OpenRouter).
-Claude handles reasoning and architecture; the worker handles token-heavy reading/writing.
+Five CLI tools delegate bulk I/O and review to a cheap worker model (Kimi K2.6
+via OpenRouter). Claude handles reasoning and architecture; the worker handles
+token-heavy reading/writing and first-pass review.
 
 ### ask-kimi — bulk file reading
 
@@ -208,6 +243,28 @@ extract-chat <session.jsonl> -o /tmp/chat.txt
 ```
 
 Use before post-session doc updates: extract → ask-kimi to suggest changes → apply with Edit.
+
+### kimi-review — staged-diff code review
+
+Runs automatically as a commit gate (the `kimi-review.sh` hook and the
+`kimi-review` pre-commit hook). A `[CRITICAL]` finding blocks the commit;
+`WARNING` is surfaced but does not block. Bypass with `SKIP_KIMI_REVIEW=1`.
+Run it manually after a new component/viewset/migration:
+
+```bash
+kimi-review --base main --profile plant_id --rules <domain> --tiers CRITICAL,WARNING
+```
+
+### kimi-challenge — adversarial design review
+
+Before committing to an architectural decision or choosing between two
+approaches, pressure-test it:
+
+```bash
+kimi-challenge --decision "<the approach>" --paths <relevant-files>
+```
+
+Claude still makes the final call — kimi-challenge surfaces the weaknesses.
 
 ### Delegation rules
 
