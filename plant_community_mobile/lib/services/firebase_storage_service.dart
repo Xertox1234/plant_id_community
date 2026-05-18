@@ -22,18 +22,16 @@ class FirebaseStorageService extends Notifier<void> {
     '.gif': 'image/gif',
   };
 
-  final FirebaseStorage? _providedStorage;
-  final Uuid _uuid;
+  final Uuid _uuid = const Uuid();
 
-  FirebaseStorageService({FirebaseStorage? storage, Uuid? uuid})
-    : _providedStorage = storage,
-      _uuid = uuid ?? const Uuid();
-
-  FirebaseStorage get _storage => _providedStorage ?? FirebaseStorage.instance;
+  // A Riverpod Notifier is always built via the no-arg `.new` tear-off, so it
+  // must not declare constructor parameters. Tests override the provider with
+  // a mock subclass (MockFirebaseStorageService) instead of injecting here.
+  FirebaseStorage get _storage => FirebaseStorage.instance;
 
   @override
   void build() {
-    // Stateless service; dependencies are initialized in the constructor.
+    // Stateless service.
   }
 
   /// Upload a plant image and return its download URL.

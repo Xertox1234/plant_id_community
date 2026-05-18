@@ -262,14 +262,12 @@ class AuthService extends _$AuthService {
         return;
       }
 
-      // Call Django backend to exchange token
+      // Call Django backend to exchange token. Send ONLY the Firebase ID token —
+      // the backend derives email/display name from the cryptographically
+      // verified token, never from client-supplied fields.
       final response = await apiService.post(
         '/auth/firebase-token-exchange/',
-        data: {
-          'firebase_token': firebaseToken,
-          'email': user.email,
-          'display_name': user.displayName,
-        },
+        data: {'firebase_token': firebaseToken},
       );
 
       // Extract JWT tokens from response

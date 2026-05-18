@@ -75,15 +75,17 @@ class ForumStartupCheckTest(SimpleTestCase):
 
 
 class EnableForumFalseInstalledAppsTest(SimpleTestCase):
-    """INSTALLED_APPS is correct when ENABLE_FORUM=False (headless forum path)."""
+    """INSTALLED_APPS is correct when ENABLE_FORUM=False (no forum installed)."""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls._apps = _installed_apps_for(enable_forum=False)
 
-    def test_headless_forum_in_installed_apps(self):
-        self.assertIn("apps.forum", self._apps)
+    def test_headless_forum_not_in_installed_apps(self):
+        # The headless apps.forum app was removed; ENABLE_FORUM=False now
+        # installs no forum at all.
+        self.assertNotIn("apps.forum", self._apps)
 
     def test_forum_integration_not_in_installed_apps(self):
         self.assertNotIn("apps.forum_integration", self._apps)

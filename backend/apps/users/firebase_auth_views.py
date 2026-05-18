@@ -184,11 +184,12 @@ def firebase_token_exchange(request: Request) -> Response:
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Get or create Django user
+        # Get or create Django user. display_name comes from the verified
+        # Firebase token's `name` claim — never from client-supplied request data.
         user, created = get_or_create_user_from_firebase(
             firebase_uid=firebase_uid,
             firebase_email=firebase_email,
-            display_name=request.data.get('display_name'),
+            display_name=decoded_token.get('name'),
         )
 
         if created:

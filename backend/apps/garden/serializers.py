@@ -72,6 +72,26 @@ class PlantCareLibrarySerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at']
 
 
+def _verify_image_integrity(value):
+    """Layer 4 upload validation: confirm the file is a real, undamaged image.
+
+    Extension and Content-Type are client-supplied and spoofable; this opens the
+    file with PIL and verifies it, so a renamed/forged non-image is rejected.
+    """
+    from PIL import Image as PILImage
+
+    try:
+        value.seek(0)
+        with PILImage.open(value) as img:
+            img.verify()
+    except Exception as exc:
+        raise serializers.ValidationError(
+            "File is not a valid image or is corrupted."
+        ) from exc
+    finally:
+        value.seek(0)
+
+
 class PestImageSerializer(serializers.ModelSerializer):
     """Pest issue image serializer with validation."""
 
@@ -100,6 +120,9 @@ class PestImageSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 f"Invalid MIME type. Allowed: {', '.join(ALLOWED_IMAGE_MIME_TYPES)}"
             )
+
+        # Content verification (magic-byte check)
+        _verify_image_integrity(value)
 
         return value
 
@@ -132,6 +155,9 @@ class JournalImageSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 f"Invalid MIME type. Allowed: {', '.join(ALLOWED_IMAGE_MIME_TYPES)}"
             )
+
+        # Content verification (magic-byte check)
+        _verify_image_integrity(value)
 
         return value
 
@@ -407,7 +433,8 @@ class GardenSerializer(serializers.ModelSerializer):
 
     def get_plant_count(self, obj):
         """Return total number of plants in garden."""
-        return obj.plants.count()
+        # len() over the prefetched 'plants' cache — .count() would re-query.
+        return len(obj.plants.all())
 
     def validate_dimensions(self, value):
         """Validate dimensions JSON format and limits."""
@@ -524,4 +551,5 @@ class GardenListSerializer(serializers.ModelSerializer):
 
     def get_plant_count(self, obj):
         """Return total number of plants in garden."""
-        return obj.plants.count()
+        # len() over the prefetched 'plants' cache — .count() would re-query.
+        return len(obj.plants.all())

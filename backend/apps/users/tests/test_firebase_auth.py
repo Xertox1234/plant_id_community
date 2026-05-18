@@ -35,14 +35,13 @@ class FirebaseTokenExchangeTestCase(TestCase):
     @patch('apps.users.firebase_auth_views.firebase_auth.verify_id_token')
     def test_successful_token_exchange_new_user(self, mock_verify):
         """Test successful token exchange for a new user."""
-        # Mock Firebase token verification
-        mock_verify.return_value = self.decoded_token
+        # Mock Firebase token verification — display name comes from the
+        # verified token's `name` claim, not from client-supplied request data.
+        mock_verify.return_value = {**self.decoded_token, 'name': 'Test User'}
 
-        # Make request
+        # Make request — client sends ONLY the Firebase token
         response = self.client.post(self.url, {
             'firebase_token': self.firebase_token,
-            'email': 'test@example.com',
-            'display_name': 'Test User',
         }, format='json')
 
         # Assert response
@@ -161,14 +160,13 @@ class FirebaseTokenExchangeTestCase(TestCase):
             first_name=''
         )
 
-        # Mock Firebase token verification
-        mock_verify.return_value = self.decoded_token
+        # Mock Firebase token verification — display name comes from the
+        # verified token's `name` claim, not from client-supplied request data.
+        mock_verify.return_value = {**self.decoded_token, 'name': 'Updated Name'}
 
-        # Make request with display_name
+        # Make request — client sends ONLY the Firebase token
         response = self.client.post(self.url, {
             'firebase_token': self.firebase_token,
-            'email': 'test@example.com',
-            'display_name': 'Updated Name',
         }, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

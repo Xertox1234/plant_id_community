@@ -602,19 +602,23 @@ def forum_activity(request: Request) -> Response:
         .order_by("-created")[:10]
     )
 
-    # Calculate activity stats
+    # Calculate activity stats — one aggregate() per model instead of 4 COUNTs
+    from django.db.models import Count, Q
+
     thirty_days_ago = timezone.now() - timedelta(days=30)
+    topic_stats = Topic.objects.filter(poster=request.user, approved=True).aggregate(
+        total=Count("id"),
+        this_month=Count("id", filter=Q(created__gte=thirty_days_ago)),
+    )
+    post_stats = Post.objects.filter(poster=request.user, approved=True).aggregate(
+        total=Count("id"),
+        this_month=Count("id", filter=Q(created__gte=thirty_days_ago)),
+    )
     stats = {
-        "total_topics": Topic.objects.filter(
-            poster=request.user, approved=True
-        ).count(),
-        "total_posts": Post.objects.filter(poster=request.user, approved=True).count(),
-        "topics_this_month": Topic.objects.filter(
-            poster=request.user, approved=True, created__gte=thirty_days_ago
-        ).count(),
-        "posts_this_month": Post.objects.filter(
-            poster=request.user, approved=True, created__gte=thirty_days_ago
-        ).count(),
+        "total_topics": topic_stats["total"],
+        "total_posts": post_stats["total"],
+        "topics_this_month": topic_stats["this_month"],
+        "posts_this_month": post_stats["this_month"],
     }
 
     return Response(

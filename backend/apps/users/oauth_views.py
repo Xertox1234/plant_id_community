@@ -280,7 +280,12 @@ def _handle_github_callback(request, code):
             email_response = requests.get(email_url, headers=headers)
             if email_response.status_code == 200:
                 emails = email_response.json()
-                primary_email = next((email for email in emails if email['primary']), None)
+                # Require BOTH primary and verified — matching a Django account by
+                # an unverified email is an account-takeover vector.
+                primary_email = next(
+                    (e for e in emails if e.get('primary') and e.get('verified')),
+                    None,
+                )
                 if primary_email:
                     user_data['email'] = primary_email['email']
         

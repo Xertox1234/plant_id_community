@@ -197,11 +197,8 @@ LOCAL_APPS = [
     "apps.garden",  # Garden planner feature (Phase 1 - Backend)
 ]
 if ENABLE_FORUM:
-    # Integration shim for Machina; apps.forum excluded to avoid duplicate 'forum' label
+    # Machina forum integration shim
     LOCAL_APPS.insert(2, "apps.forum_integration")
-else:
-    # New headless forum (also uses 'forum' app label — mutually exclusive with Machina)
-    LOCAL_APPS.append("apps.forum")
 
 INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 if ENABLE_FORUM:

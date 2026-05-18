@@ -246,3 +246,28 @@ This file is append-only. New entries are added by main Claude after each code r
 **Rule**: Any test module importing from django-machina must verify the full app subtree is in `INSTALLED_APPS` — a missing entry causes an import-time failure, not a test-time assertion failure, so the problem is invisible until the suite is run.
 **Agent**: test-quality-reviewer
 **Agent**: security-reviewer
+
+---
+
+## Audit 2026-05-17 (full audit additions)
+
+### [2026-05-17] A stub `tests.py` next to a `tests/` package aborts ALL Django test discovery
+
+**Mistake**: Six apps (`blog`, `core`, `forum`, `garden`, `plant_identification`, `users`) each kept the Django default 3-line stub `apps/<app>/tests.py` *and* had a real `apps/<app>/tests/` package. `unittest`'s discovery imports a module named `tests` and a package named `tests` from the same directory, raising `ImportError: 'tests' module incorrectly imported` — and it aborts the **entire** `manage.py test` run, not just that app. The backend test suite was completely unrunnable and nobody noticed because CI ran apps explicitly.
+**Fix**: Delete the stub `tests.py` files (audit C1). Tests live in the `tests/` package.
+**Rule**: An app must have **either** `tests.py` **or** a `tests/` package — never both. When you add a `tests/` package, delete the stub `tests.py` in the same commit.
+**Agent**: baseline (audit Phase 1)
+
+### [2026-05-17] A discovery-blocking collision hides every downstream broken module
+
+**Mistake**: While C1's collision aborted discovery, three unrelated pre-existing breakages were completely invisible: `test_diagnosis_{api,models}.py` import a `DiagnosisCard` model removed in migration 0025 (H37), and `PlantDiseaseDatabaseSerializer` declares a `created_at` field its model lacks, breaking OpenAPI schema generation (H38). They only surfaced once C1 was fixed and discovery ran end-to-end.
+**Fix**: Tracked in todo 080.
+**Rule**: After fixing anything that blocks test collection/build, expect a wave of newly-visible failures — re-run the full suite and triage them; they are not regressions from your fix.
+**Agent**: baseline (audit Phases 3 & 5)
+
+### [2026-05-17] `ENABLE_FORUM=True` *disables* the headless `apps/forum/` app
+
+**Mistake**: `settings.py` appends `apps.forum` to `LOCAL_APPS` only in the `else` branch of `if ENABLE_FORUM:` — when `ENABLE_FORUM=True` the legacy **Machina** forum is installed and the headless DRF `apps/forum/` is NOT. `.env` sets `ENABLE_FORUM=True`, so `apps/forum/` (viewsets, models, 16 test modules) is dead code in the running config, and all its tests error with `RuntimeError: ... isn't in INSTALLED_APPS`. The flag name reads backwards relative to which forum it enables, and the root `CLAUDE.md` describes `apps/forum/` as the active forum — a direct contradiction.
+**Fix**: Deferred (todo 084) — the forum-config question (promote `apps/forum/` or delete it) needs an owner decision.
+**Rule**: `apps/forum/` and Machina are mutually exclusive and gated by `ENABLE_FORUM`; `apps/forum/` is only live when `ENABLE_FORUM=False`. Do not assume `apps/forum/` code runs in the current dev/prod config.
+**Agent**: baseline (audit Phase 1)

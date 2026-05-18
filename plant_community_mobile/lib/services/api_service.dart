@@ -377,7 +377,7 @@ class ApiService {
           filePath,
           filename: filePath.split('/').last,
         ),
-        if (data != null) ...data,
+        ...?data,
       });
 
       return await _dio.post(
