@@ -29,17 +29,6 @@
           }
         ]
       }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -s /tmp/plant-id-deferred.txt ] && python3 -c \"import json; items=open('/tmp/plant-id-deferred.txt').read().strip(); print(json.dumps({'systemMessage': 'Deferred items not yet tracked as todos:\\n' + items + '\\n\\nAsk Claude to create todos for them in todos/'}))\" 2>/dev/null || true",
-            "statusMessage": "Checking for untracked deferred items..."
-          }
-        ]
-      }
     ]
   }
 }

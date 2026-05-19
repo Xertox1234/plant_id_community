@@ -5,15 +5,19 @@
 set -uo pipefail
 
 HOOK="$(cd "$(dirname "$0")" && pwd)/inject-patterns.sh"
-SPILL_FILE="/tmp/plant-id-injection-context.md"
+# inject-patterns.sh writes its spill file to a per-PID path
+# (/tmp/plant-id-injection-context.<pid>.md), so match them with a glob.
+SPILL_GLOB="/tmp/plant-id-injection-context.*.md"
 PASS=0; FAIL=0
 
 run_hook() {
   local input="$1"
-  rm -f "$SPILL_FILE"
-  local output spill=""
+  rm -f $SPILL_GLOB
+  local output spill="" f
   output=$(echo "$input" | bash "$HOOK" 2>/dev/null || true)
-  [ -f "$SPILL_FILE" ] && spill=$(cat "$SPILL_FILE")
+  for f in $SPILL_GLOB; do
+    [ -f "$f" ] && spill+=$(cat "$f")
+  done
   printf '%s\n%s' "$output" "$spill"
 }
 
@@ -39,7 +43,7 @@ check_no_match() {
 
 check_empty() {
   local name="$1" input="$2" output
-  rm -f "$SPILL_FILE"
+  rm -f $SPILL_GLOB
   output=$(echo "$input" | bash "$HOOK" 2>/dev/null || true)
   if [ -z "$output" ]; then
     echo "PASS: $name"; PASS=$((PASS + 1))

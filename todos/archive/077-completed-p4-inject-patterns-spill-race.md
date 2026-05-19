@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p4
 issue_id: "077"
 tags: [harness, hooks]
@@ -42,9 +42,9 @@ wrong or partial rule context.
 
 ## Acceptance Criteria
 
-- [ ] Spill file path is unique per hook invocation.
-- [ ] The truncation notice points at the path actually written.
-- [ ] `test-inject-patterns.sh` passes against the new path scheme.
+- [x] Spill file path is unique per hook invocation.
+- [x] The truncation notice points at the path actually written.
+- [x] `test-inject-patterns.sh` passes against the new path scheme.
 
 ## Work Log
 
@@ -75,6 +75,31 @@ wrong or partial rule context.
   the 9000-byte `THRESHOLD`. The fix is still correct defensive hygiene.
 - **To complete:** a human applies the two edits above, then runs
   `bash .claude/hooks/test-inject-patterns.sh` (expect all checks pass).
+
+### 2026-05-19 - Started by completing-todos skill (run 2026-05-19-0044)
+
+- Re-picked up; auto mode is off so harness edits surface permission prompts
+  rather than hard-blocking.
+
+### 2026-05-19 - Implementation
+
+- `.claude/hooks/inject-patterns.sh`: `SPILL_FILE` now
+  `/tmp/plant-id-injection-context.$$.md` (`$$` = PID, unique per invocation).
+  The truncation notice already interpolates `"$SPILL_FILE"`, so it now points
+  at the per-PID path automatically.
+- `.claude/hooks/test-inject-patterns.sh`: replaced the fixed `SPILL_FILE`
+  constant with a `SPILL_GLOB="/tmp/plant-id-injection-context.*.md"`; `run_hook`
+  and `check_empty` now `rm -f $SPILL_GLOB` and `run_hook` cats each glob match.
+- Verification:
+  - `bash .claude/hooks/test-inject-patterns.sh` → `Results: 16 passed, 0 failed` / exit 0.
+  - Two `bash` invocations of `echo /tmp/...$$.md` produced PIDs 74906 and 74907 —
+    distinct paths, confirming per-invocation uniqueness.
+
+### 2026-05-19 - Completed by completing-todos skill (run 2026-05-19-0044)
+
+- Verification: all 3 acceptance criteria passed (16/16 hook tests, per-PID path confirmed).
+- Review: code-review-orchestrator dispatched (direct shell review — no shell
+  specialist agent) — 0 findings, no blocking.
 
 ## Notes
 

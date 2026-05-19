@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p4
 issue_id: "078"
 tags: [harness, hooks, skills]
@@ -56,9 +56,9 @@ dead plumbing.
 
 ## Acceptance Criteria
 
-- [ ] Either the deferred file is written by a real code path, or the Stop hook
+- [x] Either the deferred file is written by a real code path, or the Stop hook
       is removed.
-- [ ] `.claude/settings.json` remains valid JSON.
+- [x] `.claude/settings.json` remains valid JSON.
 
 ## Work Log
 
@@ -83,6 +83,24 @@ dead plumbing.
   `/tmp/plant-id-deferred.txt`, which no code path writes; the harness works
   fully without it (see Notes). After deletion the file is still valid JSON —
   verify with `python3 -m json.tool .claude/settings.json`.
+
+### 2026-05-19 - Started + implemented by completing-todos skill (run 2026-05-19-0044)
+
+- Re-picked up; auto mode off, so the `.claude/settings.json` edit was
+  permission-prompted and approved rather than hard-blocked.
+- Applied **Option 2** — deleted the `"Stop"` hook block from
+  `.claude/settings.json` (the dead plumbing that grepped the never-written
+  `/tmp/plant-id-deferred.txt`).
+- Verification:
+  - `grep '"Stop"' .claude/settings.json` → no match (hook removed).
+  - `python3 -m json.tool .claude/settings.json` → exit 0 (valid JSON).
+  - `grep -rln "plant-id-deferred" .claude/` → no references remain.
+
+### 2026-05-19 - Completed by completing-todos skill (run 2026-05-19-0044)
+
+- Verification: both acceptance criteria passed (Stop hook removed; JSON valid).
+- Review: code-review-orchestrator dispatched (direct JSON-config review) —
+  0 findings, no blocking.
 
 ## Notes
 
