@@ -105,10 +105,12 @@ if [ -n "$DOMAINS" ]; then
   done
 fi
 
-# Spill overflow to a stable temp file so the agent can read the rest.
+# Spill overflow to a per-invocation temp file so the agent can read the rest.
 # Claude Code's hook-output cap is ~10K; multi-domain injections can exceed this.
+# The `$$` PID suffix keeps concurrent hook invocations from clobbering each
+# other's spill file.
 THRESHOLD=9000
-SPILL_FILE="/tmp/plant-id-injection-context.md"
+SPILL_FILE="/tmp/plant-id-injection-context.$$.md"
 CONTEXT_SIZE=$(wc -c < "$TMPFILE")
 if [ "$CONTEXT_SIZE" -gt "$THRESHOLD" ]; then
   cp "$TMPFILE" "$SPILL_FILE"
