@@ -1,21 +1,22 @@
 """
 Garden Calendar Models
 
-This module contains models for community events, seasonal templates, 
+This module contains models for community events, seasonal templates,
 weather alerts, and location-based calendar features.
 """
 
-from django.db import models
-from django.contrib.auth import get_user_model
-from django.utils import timezone
-from django.core.validators import MinValueValidator, MaxValueValidator
 import uuid
 
+from django.contrib.auth import get_user_model
+from django.core.validators import MaxValueValidator, MinValueValidator
+from django.db import models
+from django.utils import timezone
+
 from .constants import (
+    CARE_TASK_PRIORITY,
+    CARE_TASK_TYPES,
     HEALTH_STATUS_CHOICES,
     HEALTH_STATUS_DEFAULT,
-    CARE_TASK_TYPES,
-    CARE_TASK_PRIORITY,
 )
 
 User = get_user_model()
@@ -25,196 +26,179 @@ class CommunityEvent(models.Model):
     """
     Model for community-shared calendar events like plant swaps, workshops, etc.
     """
-    
+
     EVENT_TYPES = [
-        ('plant_swap', 'Plant Swap'),
-        ('workshop', 'Workshop/Class'),
-        ('garden_tour', 'Garden Tour'),
-        ('vendor_sale', 'Plant Sale/Vendor'),
-        ('bulk_order', 'Group/Bulk Order'),
-        ('meetup', 'General Meetup'),
-        ('maintenance', 'Community Garden Maintenance'),
-        ('harvest', 'Community Harvest'),
-        ('other', 'Other Event'),
+        ("plant_swap", "Plant Swap"),
+        ("workshop", "Workshop/Class"),
+        ("garden_tour", "Garden Tour"),
+        ("vendor_sale", "Plant Sale/Vendor"),
+        ("bulk_order", "Group/Bulk Order"),
+        ("meetup", "General Meetup"),
+        ("maintenance", "Community Garden Maintenance"),
+        ("harvest", "Community Harvest"),
+        ("other", "Other Event"),
     ]
-    
+
     PRIVACY_LEVELS = [
-        ('public', 'Public - Anyone can see'),
-        ('local', 'Local - People in same city/region'),
-        ('zone', 'Zone - People in same hardiness zone'),
-        ('friends', 'Friends - Only people I follow'),
-        ('private', 'Private - Invitation only'),
+        ("public", "Public - Anyone can see"),
+        ("local", "Local - People in same city/region"),
+        ("zone", "Zone - People in same hardiness zone"),
+        ("friends", "Friends - Only people I follow"),
+        ("private", "Private - Invitation only"),
     ]
-    
+
     # Basic Event Information
     uuid = models.UUIDField(
         default=uuid.uuid4,
         editable=False,
         unique=True,
-        help_text="Unique identifier for secure references"
+        help_text="Unique identifier for secure references",
     )
-    
+
     organizer = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        related_name='organized_events',
-        help_text="User who created this event"
+        related_name="organized_events",
+        help_text="User who created this event",
     )
-    
-    title = models.CharField(
-        max_length=200,
-        help_text="Event title/name"
-    )
-    
-    description = models.TextField(
-        help_text="Detailed event description"
-    )
-    
+
+    title = models.CharField(max_length=200, help_text="Event title/name")
+
+    description = models.TextField(help_text="Detailed event description")
+
     event_type = models.CharField(
-        max_length=20,
-        choices=EVENT_TYPES,
-        help_text="Type of community event"
+        max_length=20, choices=EVENT_TYPES, help_text="Type of community event"
     )
-    
+
     # Date and Time
-    start_datetime = models.DateTimeField(
-        help_text="Event start date and time"
-    )
-    
+    start_datetime = models.DateTimeField(help_text="Event start date and time")
+
     end_datetime = models.DateTimeField(
         blank=True,
         null=True,
-        help_text="Event end date and time (optional for short events)"
+        help_text="Event end date and time (optional for short events)",
     )
-    
+
     is_all_day = models.BooleanField(
-        default=False,
-        help_text="Is this an all-day event?"
+        default=False, help_text="Is this an all-day event?"
     )
-    
+
     # Location
     location_name = models.CharField(
         max_length=200,
         blank=True,
-        help_text="Venue name or general location description"
+        help_text="Venue name or general location description",
     )
-    
+
     address = models.TextField(
-        blank=True,
-        help_text="Full address (will be masked based on privacy settings)"
+        blank=True, help_text="Full address (will be masked based on privacy settings)"
     )
-    
+
     city = models.CharField(
-        max_length=100,
-        blank=True,
-        help_text="City for regional filtering"
+        max_length=100, blank=True, help_text="City for regional filtering"
     )
-    
+
     hardiness_zone = models.CharField(
         max_length=5,
         blank=True,
-        help_text="USDA Hardiness Zone for climate-relevant events"
+        help_text="USDA Hardiness Zone for climate-relevant events",
     )
-    
+
     latitude = models.DecimalField(
         max_digits=9,
         decimal_places=6,
         null=True,
         blank=True,
-        help_text="Latitude for precise location (optional)"
+        help_text="Latitude for precise location (optional)",
     )
-    
+
     longitude = models.DecimalField(
         max_digits=9,
         decimal_places=6,
         null=True,
         blank=True,
-        help_text="Longitude for precise location (optional)"
+        help_text="Longitude for precise location (optional)",
     )
-    
+
     # Privacy and Visibility
     privacy_level = models.CharField(
         max_length=10,
         choices=PRIVACY_LEVELS,
-        default='local',
-        help_text="Who can see this event"
+        default="local",
+        help_text="Who can see this event",
     )
-    
+
     max_attendees = models.PositiveIntegerField(
         blank=True,
         null=True,
-        help_text="Maximum number of attendees (leave blank for unlimited)"
+        help_text="Maximum number of attendees (leave blank for unlimited)",
     )
-    
+
     # Event Features
     requires_rsvp = models.BooleanField(
-        default=False,
-        help_text="Does this event require RSVP?"
+        default=False, help_text="Does this event require RSVP?"
     )
-    
+
     is_recurring = models.BooleanField(
-        default=False,
-        help_text="Is this a recurring event?"
+        default=False, help_text="Is this a recurring event?"
     )
-    
+
     recurrence_rule = models.JSONField(
         blank=True,
         null=True,
-        help_text="JSON data for recurring event rules (RRULE format)"
+        help_text="JSON data for recurring event rules (RRULE format)",
     )
-    
+
     # Contact Information
     contact_email = models.EmailField(
-        blank=True,
-        help_text="Contact email for event questions"
+        blank=True, help_text="Contact email for event questions"
     )
-    
+
     contact_phone = models.CharField(
         max_length=20,
         blank=True,
-        help_text="Contact phone number (will be masked based on privacy)"
+        help_text="Contact phone number (will be masked based on privacy)",
     )
-    
+
     external_url = models.URLField(
-        blank=True,
-        help_text="External link for more information or registration"
+        blank=True, help_text="External link for more information or registration"
     )
-    
+
     # Weather Dependency
     weather_dependent = models.BooleanField(
         default=False,
-        help_text="Should this event be canceled/postponed due to bad weather?"
+        help_text="Should this event be canceled/postponed due to bad weather?",
     )
-    
+
     weather_backup_plan = models.TextField(
         blank=True,
-        help_text="What happens if weather is bad? (indoor venue, reschedule, etc.)"
+        help_text="What happens if weather is bad? (indoor venue, reschedule, etc.)",
     )
-    
+
     # Forum Integration - using string reference for optional dependency
     forum_topic_id = models.PositiveIntegerField(
         blank=True,
         null=True,
-        help_text="ID of associated forum discussion topic (if forum enabled)"
+        help_text="ID of associated forum discussion topic (if forum enabled)",
     )
-    
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
-        ordering = ['start_datetime']
-        verbose_name = 'Community Event'
-        verbose_name_plural = 'Community Events'
+        ordering = ["start_datetime"]
+        verbose_name = "Community Event"
+        verbose_name_plural = "Community Events"
         indexes = [
-            models.Index(fields=['start_datetime', 'privacy_level']),
-            models.Index(fields=['city', 'hardiness_zone']),
-            models.Index(fields=['event_type', 'start_datetime']),
+            models.Index(fields=["start_datetime", "privacy_level"]),
+            models.Index(fields=["city", "hardiness_zone"]),
+            models.Index(fields=["event_type", "start_datetime"]),
         ]
-    
+
     def __str__(self):
         return f"{self.title} - {self.start_datetime.strftime('%Y-%m-%d')}"
-    
+
     @property
     def duration_hours(self):
         """Calculate event duration in hours."""
@@ -222,17 +206,22 @@ class CommunityEvent(models.Model):
             delta = self.end_datetime - self.start_datetime
             return delta.total_seconds() / 3600
         return 1  # Default to 1 hour for events without end time
-    
+
     @property
     def is_past(self):
         """Check if event has already occurred."""
         return self.start_datetime < timezone.now()
-    
+
     @property
     def attendee_count(self):
         """Get current number of attendees."""
+        # `_attendee_count` is annotated by the CommunityEvent list queryset to
+        # avoid an N+1 COUNT per event. Underscore-named to avoid colliding with
+        # this property.
+        if hasattr(self, "_attendee_count"):
+            return self._attendee_count
         return self.attendees.count()
-    
+
     @property
     def spots_remaining(self):
         """Get number of spots remaining (if max_attendees is set)."""
@@ -245,45 +234,34 @@ class EventAttendee(models.Model):
     """
     Model to track event attendees/RSVPs.
     """
-    
+
     RSVP_STATUS = [
-        ('going', 'Going'),
-        ('maybe', 'Maybe'),
-        ('not_going', 'Not Going'),
-        ('invited', 'Invited (No Response)'),
+        ("going", "Going"),
+        ("maybe", "Maybe"),
+        ("not_going", "Not Going"),
+        ("invited", "Invited (No Response)"),
     ]
-    
+
     event = models.ForeignKey(
-        CommunityEvent,
-        on_delete=models.CASCADE,
-        related_name='attendees'
+        CommunityEvent, on_delete=models.CASCADE, related_name="attendees"
     )
-    
+
     user = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name='event_attendances'
+        User, on_delete=models.CASCADE, related_name="event_attendances"
     )
-    
-    status = models.CharField(
-        max_length=10,
-        choices=RSVP_STATUS,
-        default='going'
-    )
-    
-    notes = models.TextField(
-        blank=True,
-        help_text="Optional notes from the attendee"
-    )
-    
+
+    status = models.CharField(max_length=10, choices=RSVP_STATUS, default="going")
+
+    notes = models.TextField(blank=True, help_text="Optional notes from the attendee")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
-        unique_together = ['event', 'user']
-        verbose_name = 'Event Attendee'
-        verbose_name_plural = 'Event Attendees'
-    
+        unique_together = ["event", "user"]
+        verbose_name = "Event Attendee"
+        verbose_name_plural = "Event Attendees"
+
     def __str__(self):
         return f"{self.user.username} - {self.event.title} ({self.status})"
 
@@ -293,338 +271,304 @@ class SeasonalTemplate(models.Model):
     Model for zone-based seasonal task templates that automatically generate
     care reminders based on location and climate.
     """
-    
+
     TASK_TYPES = [
-        ('watering', 'Watering'),
-        ('fertilizing', 'Fertilizing'),
-        ('pruning', 'Pruning'),
-        ('planting', 'Planting'),
-        ('harvesting', 'Harvesting'),
-        ('pest_control', 'Pest Control'),
-        ('disease_prevention', 'Disease Prevention'),
-        ('soil_preparation', 'Soil Preparation'),
-        ('mulching', 'Mulching'),
-        ('winterization', 'Winter Preparation'),
-        ('spring_cleanup', 'Spring Cleanup'),
-        ('inspection', 'Plant Inspection'),
-        ('other', 'Other Task'),
+        ("watering", "Watering"),
+        ("fertilizing", "Fertilizing"),
+        ("pruning", "Pruning"),
+        ("planting", "Planting"),
+        ("harvesting", "Harvesting"),
+        ("pest_control", "Pest Control"),
+        ("disease_prevention", "Disease Prevention"),
+        ("soil_preparation", "Soil Preparation"),
+        ("mulching", "Mulching"),
+        ("winterization", "Winter Preparation"),
+        ("spring_cleanup", "Spring Cleanup"),
+        ("inspection", "Plant Inspection"),
+        ("other", "Other Task"),
     ]
-    
+
     SEASONS = [
-        ('spring', 'Spring'),
-        ('summer', 'Summer'),
-        ('fall', 'Fall/Autumn'),
-        ('winter', 'Winter'),
+        ("spring", "Spring"),
+        ("summer", "Summer"),
+        ("fall", "Fall/Autumn"),
+        ("winter", "Winter"),
     ]
-    
+
     # Template Identification
     name = models.CharField(
-        max_length=200,
-        help_text="Template name (e.g., 'Spring Tomato Care - Zone 7')"
+        max_length=200, help_text="Template name (e.g., 'Spring Tomato Care - Zone 7')"
     )
-    
+
     description = models.TextField(
         help_text="Detailed description of this seasonal template"
     )
-    
+
     # Location and Climate
     hardiness_zones = models.JSONField(
         help_text="List of USDA zones this template applies to (e.g., ['7a', '7b', '8a'])"
     )
-    
+
     season = models.CharField(
-        max_length=10,
-        choices=SEASONS,
-        help_text="Primary season for this template"
+        max_length=10, choices=SEASONS, help_text="Primary season for this template"
     )
-    
+
     # Task Details
     task_type = models.CharField(
-        max_length=20,
-        choices=TASK_TYPES,
-        help_text="Type of gardening task"
+        max_length=20, choices=TASK_TYPES, help_text="Type of gardening task"
     )
-    
+
     plant_types = models.JSONField(
         blank=True,
         null=True,
-        help_text="List of plant types this applies to (e.g., ['tomatoes', 'roses', 'succulents'])"
+        help_text="List of plant types this applies to (e.g., ['tomatoes', 'roses', 'succulents'])",
     )
-    
+
     # Timing
     start_month = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(12)],
-        help_text="Month to start this task (1-12)"
+        help_text="Month to start this task (1-12)",
     )
-    
+
     end_month = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(12)],
         blank=True,
         null=True,
-        help_text="Month to end this task (optional, for multi-month tasks)"
+        help_text="Month to end this task (optional, for multi-month tasks)",
     )
-    
+
     day_of_month = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(31)],
         blank=True,
         null=True,
-        help_text="Specific day of month (optional, defaults to 1st)"
+        help_text="Specific day of month (optional, defaults to 1st)",
     )
-    
+
     frequency_days = models.PositiveIntegerField(
-        default=7,
-        help_text="How often to repeat this task (in days)"
+        default=7, help_text="How often to repeat this task (in days)"
     )
-    
+
     # Weather Conditions
     temperature_min = models.SmallIntegerField(
         blank=True,
         null=True,
-        help_text="Minimum temperature (Fahrenheit) for this task"
+        help_text="Minimum temperature (Fahrenheit) for this task",
     )
-    
+
     temperature_max = models.SmallIntegerField(
         blank=True,
         null=True,
-        help_text="Maximum temperature (Fahrenheit) for this task"
+        help_text="Maximum temperature (Fahrenheit) for this task",
     )
-    
+
     requires_no_frost = models.BooleanField(
-        default=False,
-        help_text="Should this task wait until frost danger has passed?"
+        default=False, help_text="Should this task wait until frost danger has passed?"
     )
-    
+
     requires_no_rain = models.BooleanField(
-        default=False,
-        help_text="Should this task be skipped during rainy weather?"
+        default=False, help_text="Should this task be skipped during rainy weather?"
     )
-    
+
     # Content
     instructions = models.TextField(
         help_text="Detailed instructions for this seasonal task"
     )
-    
-    tips = models.TextField(
-        blank=True,
-        help_text="Additional tips and advice"
-    )
-    
+
+    tips = models.TextField(blank=True, help_text="Additional tips and advice")
+
     # Priority and Visibility
     priority = models.CharField(
         max_length=10,
         choices=[
-            ('low', 'Low Priority'),
-            ('medium', 'Medium Priority'),
-            ('high', 'High Priority'),
-            ('critical', 'Critical/Time Sensitive'),
+            ("low", "Low Priority"),
+            ("medium", "Medium Priority"),
+            ("high", "High Priority"),
+            ("critical", "Critical/Time Sensitive"),
         ],
-        default='medium'
+        default="medium",
     )
-    
+
     is_active = models.BooleanField(
-        default=True,
-        help_text="Is this template active and should generate tasks?"
+        default=True, help_text="Is this template active and should generate tasks?"
     )
-    
+
     # Metadata
     created_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
         blank=True,
         null=True,
-        related_name='created_templates',
-        help_text="User who created this template (optional for system templates)"
+        related_name="created_templates",
+        help_text="User who created this template (optional for system templates)",
     )
-    
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
-        ordering = ['season', 'start_month', 'day_of_month', 'task_type']
-        verbose_name = 'Seasonal Template'
-        verbose_name_plural = 'Seasonal Templates'
+        ordering = ["season", "start_month", "day_of_month", "task_type"]
+        verbose_name = "Seasonal Template"
+        verbose_name_plural = "Seasonal Templates"
         indexes = [
-            models.Index(fields=['season', 'start_month']),
-            models.Index(fields=['task_type', 'is_active']),
+            models.Index(fields=["season", "start_month"]),
+            models.Index(fields=["task_type", "is_active"]),
         ]
-    
+
     def __str__(self):
-        zones_str = ', '.join(self.hardiness_zones) if self.hardiness_zones else 'All Zones'
+        zones_str = (
+            ", ".join(self.hardiness_zones) if self.hardiness_zones else "All Zones"
+        )
         return f"{self.name} ({zones_str}) - {self.get_season_display()}"
-    
+
     @property
     def applicable_zones_display(self):
         """Get human-readable list of applicable zones."""
         if self.hardiness_zones:
-            return ', '.join(sorted(self.hardiness_zones))
-        return 'All Zones'
+            return ", ".join(sorted(self.hardiness_zones))
+        return "All Zones"
 
 
 class WeatherAlert(models.Model):
     """
     Model for weather-based alerts and notifications that affect garden tasks.
     """
-    
+
     ALERT_TYPES = [
-        ('frost', 'Frost Warning'),
-        ('freeze', 'Freeze Warning'),
-        ('high_wind', 'High Wind Alert'),
-        ('heavy_rain', 'Heavy Rain Alert'),
-        ('drought', 'Drought Conditions'),
-        ('heat_wave', 'Excessive Heat'),
-        ('severe_weather', 'Severe Weather Warning'),
-        ('good_conditions', 'Favorable Conditions'),
+        ("frost", "Frost Warning"),
+        ("freeze", "Freeze Warning"),
+        ("high_wind", "High Wind Alert"),
+        ("heavy_rain", "Heavy Rain Alert"),
+        ("drought", "Drought Conditions"),
+        ("heat_wave", "Excessive Heat"),
+        ("severe_weather", "Severe Weather Warning"),
+        ("good_conditions", "Favorable Conditions"),
     ]
-    
+
     SEVERITY_LEVELS = [
-        ('info', 'Informational'),
-        ('low', 'Low Impact'),
-        ('medium', 'Medium Impact'),
-        ('high', 'High Impact'),
-        ('critical', 'Critical/Emergency'),
+        ("info", "Informational"),
+        ("low", "Low Impact"),
+        ("medium", "Medium Impact"),
+        ("high", "High Impact"),
+        ("critical", "Critical/Emergency"),
     ]
-    
+
     # Alert Identification
     alert_type = models.CharField(
-        max_length=20,
-        choices=ALERT_TYPES,
-        help_text="Type of weather alert"
+        max_length=20, choices=ALERT_TYPES, help_text="Type of weather alert"
     )
-    
+
     severity = models.CharField(
         max_length=10,
         choices=SEVERITY_LEVELS,
-        default='medium',
-        help_text="Severity level of this alert"
+        default="medium",
+        help_text="Severity level of this alert",
     )
-    
+
     # Location
     zip_code = models.CharField(
-        max_length=10,
-        help_text="ZIP code this alert applies to"
+        max_length=10, help_text="ZIP code this alert applies to"
     )
-    
+
     city = models.CharField(
-        max_length=100,
-        blank=True,
-        help_text="City name for display"
+        max_length=100, blank=True, help_text="City name for display"
     )
-    
+
     hardiness_zone = models.CharField(
-        max_length=5,
-        blank=True,
-        help_text="USDA zone this alert applies to"
+        max_length=5, blank=True, help_text="USDA zone this alert applies to"
     )
-    
+
     # Alert Details
-    title = models.CharField(
-        max_length=200,
-        help_text="Alert title/headline"
-    )
-    
-    message = models.TextField(
-        help_text="Detailed alert message"
-    )
-    
+    title = models.CharField(max_length=200, help_text="Alert title/headline")
+
+    message = models.TextField(help_text="Detailed alert message")
+
     recommendations = models.TextField(
-        blank=True,
-        help_text="Recommended actions for gardeners"
+        blank=True, help_text="Recommended actions for gardeners"
     )
-    
+
     # Timing
-    start_datetime = models.DateTimeField(
-        help_text="When the weather condition starts"
-    )
-    
+    start_datetime = models.DateTimeField(help_text="When the weather condition starts")
+
     end_datetime = models.DateTimeField(
-        blank=True,
-        null=True,
-        help_text="When the weather condition ends (if known)"
+        blank=True, null=True, help_text="When the weather condition ends (if known)"
     )
-    
+
     expires_at = models.DateTimeField(
         help_text="When this alert expires and should be removed"
     )
-    
+
     # Weather Data
     temperature_low = models.SmallIntegerField(
-        blank=True,
-        null=True,
-        help_text="Predicted low temperature (Fahrenheit)"
+        blank=True, null=True, help_text="Predicted low temperature (Fahrenheit)"
     )
-    
+
     temperature_high = models.SmallIntegerField(
-        blank=True,
-        null=True,
-        help_text="Predicted high temperature (Fahrenheit)"
+        blank=True, null=True, help_text="Predicted high temperature (Fahrenheit)"
     )
-    
+
     wind_speed = models.PositiveSmallIntegerField(
-        blank=True,
-        null=True,
-        help_text="Wind speed in MPH"
+        blank=True, null=True, help_text="Wind speed in MPH"
     )
-    
+
     precipitation_chance = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         blank=True,
         null=True,
-        help_text="Chance of precipitation (0-100%)"
+        help_text="Chance of precipitation (0-100%)",
     )
-    
+
     precipitation_amount = models.DecimalField(
         max_digits=4,
         decimal_places=2,
         blank=True,
         null=True,
-        help_text="Expected precipitation in inches"
+        help_text="Expected precipitation in inches",
     )
-    
+
     # System Fields
     is_active = models.BooleanField(
-        default=True,
-        help_text="Is this alert currently active?"
+        default=True, help_text="Is this alert currently active?"
     )
-    
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
-        ordering = ['-severity', '-start_datetime']
-        verbose_name = 'Weather Alert'
-        verbose_name_plural = 'Weather Alerts'
+        ordering = ["-severity", "-start_datetime"]
+        verbose_name = "Weather Alert"
+        verbose_name_plural = "Weather Alerts"
         indexes = [
-            models.Index(fields=['zip_code', 'is_active']),
-            models.Index(fields=['start_datetime', 'end_datetime']),
-            models.Index(fields=['alert_type', 'severity']),
+            models.Index(fields=["zip_code", "is_active"]),
+            models.Index(fields=["start_datetime", "end_datetime"]),
+            models.Index(fields=["alert_type", "severity"]),
         ]
-    
+
     def __str__(self):
         location = self.city if self.city else self.zip_code
         return f"{self.get_alert_type_display()} - {location} ({self.start_datetime.strftime('%m/%d')})"
-    
+
     @property
     def is_current(self):
         """Check if alert is currently in effect."""
         now = timezone.now()
         return (
-            self.is_active and
-            self.start_datetime <= now and
-            (self.end_datetime is None or self.end_datetime >= now) and
-            self.expires_at >= now
+            self.is_active
+            and self.start_datetime <= now
+            and (self.end_datetime is None or self.end_datetime >= now)
+            and self.expires_at >= now
         )
-    
+
     @property
     def color_code(self):
         """Get color code for UI display based on severity."""
         colors = {
-            'info': '#3B82F6',      # Blue
-            'low': '#10B981',       # Green
-            'medium': '#F59E0B',    # Amber
-            'high': '#EF4444',      # Red
-            'critical': '#7C2D12',  # Dark Red
+            "info": "#3B82F6",  # Blue
+            "low": "#10B981",  # Green
+            "medium": "#F59E0B",  # Amber
+            "high": "#EF4444",  # Red
+            "critical": "#7C2D12",  # Dark Red
         }
-        return colors.get(self.severity, '#6B7280')  # Default Gray
+        return colors.get(self.severity, "#6B7280")  # Default Gray
 
 
 # =============================================================================
@@ -639,9 +583,7 @@ class GrowingZone(models.Model):
     """
 
     zone_code = models.CharField(
-        max_length=5,
-        unique=True,
-        help_text="USDA zone code (e.g., '7a', '7b')"
+        max_length=5, unique=True, help_text="USDA zone code (e.g., '7a', '7b')"
     )
 
     temp_min = models.SmallIntegerField(
@@ -653,35 +595,28 @@ class GrowingZone(models.Model):
     )
 
     description = models.TextField(
-        blank=True,
-        help_text="Description of climate characteristics"
+        blank=True, help_text="Description of climate characteristics"
     )
 
     first_frost_date = models.CharField(
-        max_length=10,
-        blank=True,
-        help_text="Average first frost date (MM-DD format)"
+        max_length=10, blank=True, help_text="Average first frost date (MM-DD format)"
     )
 
     last_frost_date = models.CharField(
-        max_length=10,
-        blank=True,
-        help_text="Average last frost date (MM-DD format)"
+        max_length=10, blank=True, help_text="Average last frost date (MM-DD format)"
     )
 
     growing_season_days = models.PositiveSmallIntegerField(
-        null=True,
-        blank=True,
-        help_text="Average growing season length in days"
+        null=True, blank=True, help_text="Average growing season length in days"
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['zone_code']
-        verbose_name = 'Growing Zone'
-        verbose_name_plural = 'Growing Zones'
+        ordering = ["zone_code"]
+        verbose_name = "Growing Zone"
+        verbose_name_plural = "Growing Zones"
 
     def __str__(self):
         return f"Zone {self.zone_code} ({self.temp_min}°F to {self.temp_max}°F)"
@@ -693,20 +628,20 @@ class GardenBed(models.Model):
     """
 
     BED_TYPES = [
-        ('raised', 'Raised Bed'),
-        ('in_ground', 'In-Ground Bed'),
-        ('container', 'Container Garden'),
-        ('greenhouse', 'Greenhouse'),
-        ('indoor', 'Indoor Growing'),
-        ('hydroponic', 'Hydroponic System'),
-        ('other', 'Other'),
+        ("raised", "Raised Bed"),
+        ("in_ground", "In-Ground Bed"),
+        ("container", "Container Garden"),
+        ("greenhouse", "Greenhouse"),
+        ("indoor", "Indoor Growing"),
+        ("hydroponic", "Hydroponic System"),
+        ("other", "Other"),
     ]
 
     SUN_EXPOSURE = [
-        ('full_sun', 'Full Sun (6+ hours)'),
-        ('partial_sun', 'Partial Sun (4-6 hours)'),
-        ('partial_shade', 'Partial Shade (2-4 hours)'),
-        ('full_shade', 'Full Shade (<2 hours)'),
+        ("full_sun", "Full Sun (6+ hours)"),
+        ("partial_sun", "Partial Sun (4-6 hours)"),
+        ("partial_shade", "Partial Shade (2-4 hours)"),
+        ("full_shade", "Full Shade (<2 hours)"),
     ]
 
     # Primary Key
@@ -715,86 +650,71 @@ class GardenBed(models.Model):
         editable=False,
         unique=True,
         primary_key=True,
-        help_text="Unique identifier for secure references"
+        help_text="Unique identifier for secure references",
     )
 
     # Ownership
     owner = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        related_name='garden_beds',
-        help_text="User who owns this garden bed"
+        related_name="garden_beds",
+        help_text="User who owns this garden bed",
     )
 
     # Basic Information
-    name = models.CharField(
-        max_length=200,
-        help_text="Name of this garden bed"
-    )
+    name = models.CharField(max_length=200, help_text="Name of this garden bed")
 
     description = models.TextField(
-        blank=True,
-        help_text="Detailed description of this bed"
+        blank=True, help_text="Detailed description of this bed"
     )
 
     bed_type = models.CharField(
         max_length=20,
         choices=BED_TYPES,
-        default='raised',
-        help_text="Type of garden bed"
+        default="raised",
+        help_text="Type of garden bed",
     )
 
     # Dimensions (in inches for precision)
     length_inches = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="Length in inches"
+        null=True, blank=True, help_text="Length in inches"
     )
 
     width_inches = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="Width in inches"
+        null=True, blank=True, help_text="Width in inches"
     )
 
     depth_inches = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="Depth/height in inches"
+        null=True, blank=True, help_text="Depth/height in inches"
     )
 
     # Layout Data (for visual canvas designer)
     layout_data = models.JSONField(
         default=dict,
         blank=True,
-        help_text="JSON data for plant positions on canvas (x, y coordinates)"
+        help_text="JSON data for plant positions on canvas (x, y coordinates)",
     )
 
     # Location and Climate
     location_name = models.CharField(
         max_length=200,
         blank=True,
-        help_text="Location description (e.g., 'Backyard', 'Front Porch')"
+        help_text="Location description (e.g., 'Backyard', 'Front Porch')",
     )
 
     sun_exposure = models.CharField(
-        max_length=20,
-        choices=SUN_EXPOSURE,
-        blank=True,
-        help_text="Daily sun exposure"
+        max_length=20, choices=SUN_EXPOSURE, blank=True, help_text="Daily sun exposure"
     )
 
     hardiness_zone = models.CharField(
-        max_length=5,
-        blank=True,
-        help_text="USDA Hardiness Zone"
+        max_length=5, blank=True, help_text="USDA Hardiness Zone"
     )
 
     # Soil Information
     soil_type = models.CharField(
         max_length=100,
         blank=True,
-        help_text="Soil type (e.g., 'Clay', 'Sandy', 'Loam')"
+        help_text="Soil type (e.g., 'Clay', 'Sandy', 'Loam')",
     )
 
     soil_ph = models.DecimalField(
@@ -803,32 +723,28 @@ class GardenBed(models.Model):
         null=True,
         blank=True,
         validators=[MinValueValidator(0), MaxValueValidator(14)],
-        help_text="Soil pH level (0-14)"
+        help_text="Soil pH level (0-14)",
     )
 
     # Status
     is_active = models.BooleanField(
-        default=True,
-        help_text="Is this bed currently in use?"
+        default=True, help_text="Is this bed currently in use?"
     )
 
-    notes = models.TextField(
-        blank=True,
-        help_text="General notes about this bed"
-    )
+    notes = models.TextField(blank=True, help_text="General notes about this bed")
 
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['-updated_at']
-        verbose_name = 'Garden Bed'
-        verbose_name_plural = 'Garden Beds'
+        ordering = ["-updated_at"]
+        verbose_name = "Garden Bed"
+        verbose_name_plural = "Garden Beds"
         indexes = [
-            models.Index(fields=['owner', '-updated_at']),
-            models.Index(fields=['owner', 'is_active']),
-            models.Index(fields=['hardiness_zone']),
+            models.Index(fields=["owner", "-updated_at"]),
+            models.Index(fields=["owner", "is_active"]),
+            models.Index(fields=["hardiness_zone"]),
         ]
 
     def __str__(self):
@@ -859,6 +775,12 @@ class GardenBed(models.Model):
     @property
     def plant_count(self):
         """Get number of plants in this bed."""
+        # `_plant_count` is annotated by GardenBedViewSet.get_queryset() to avoid
+        # an N+1 COUNT per bed in list responses. The underscore name is required:
+        # annotating `plant_count` directly collides with this property (no
+        # setter) and raises AttributeError when the queryset is evaluated.
+        if hasattr(self, "_plant_count"):
+            return self._plant_count
         return self.plants.filter(is_active=True).count()
 
     @property
@@ -884,16 +806,16 @@ class Plant(models.Model):
     """
 
     GROWTH_STAGES = [
-        ('seed', 'Seed'),
-        ('germination', 'Germination'),
-        ('seedling', 'Seedling'),
-        ('vegetative', 'Vegetative Growth'),
-        ('budding', 'Budding'),
-        ('flowering', 'Flowering'),
-        ('fruiting', 'Fruiting/Producing'),
-        ('harvest', 'Harvest Ready'),
-        ('dormant', 'Dormant'),
-        ('declining', 'Declining'),
+        ("seed", "Seed"),
+        ("germination", "Germination"),
+        ("seedling", "Seedling"),
+        ("vegetative", "Vegetative Growth"),
+        ("budding", "Budding"),
+        ("flowering", "Flowering"),
+        ("fruiting", "Fruiting/Producing"),
+        ("harvest", "Harvest Ready"),
+        ("dormant", "Dormant"),
+        ("declining", "Declining"),
     ]
 
     # Primary Key
@@ -902,66 +824,53 @@ class Plant(models.Model):
         editable=False,
         unique=True,
         primary_key=True,
-        help_text="Unique identifier for secure references"
+        help_text="Unique identifier for secure references",
     )
 
     # Relationships
     garden_bed = models.ForeignKey(
         GardenBed,
         on_delete=models.CASCADE,
-        related_name='plants',
-        help_text="Garden bed this plant is in"
+        related_name="plants",
+        help_text="Garden bed this plant is in",
     )
 
     plant_species = models.ForeignKey(
-        'plant_identification.PlantSpecies',
+        "plant_identification.PlantSpecies",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='garden_instances',
-        help_text="Link to identified plant species (optional)"
+        related_name="garden_instances",
+        help_text="Link to identified plant species (optional)",
     )
 
     # Plant Identification
-    common_name = models.CharField(
-        max_length=200,
-        help_text="Common name of plant"
-    )
+    common_name = models.CharField(max_length=200, help_text="Common name of plant")
 
     scientific_name = models.CharField(
-        max_length=200,
-        blank=True,
-        help_text="Scientific name (if known)"
+        max_length=200, blank=True, help_text="Scientific name (if known)"
     )
 
     variety = models.CharField(
-        max_length=200,
-        blank=True,
-        help_text="Specific variety or cultivar"
+        max_length=200, blank=True, help_text="Specific variety or cultivar"
     )
 
     # Planting Information
-    planted_date = models.DateField(
-        help_text="Date this plant was planted/sown"
-    )
+    planted_date = models.DateField(help_text="Date this plant was planted/sown")
 
     source = models.CharField(
         max_length=200,
         blank=True,
-        help_text="Where plant came from (nursery, seed packet, gift, etc.)"
+        help_text="Where plant came from (nursery, seed packet, gift, etc.)",
     )
 
     # Position in Bed
     position_x = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="X coordinate on canvas (for visual layout)"
+        null=True, blank=True, help_text="X coordinate on canvas (for visual layout)"
     )
 
     position_y = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="Y coordinate on canvas (for visual layout)"
+        null=True, blank=True, help_text="Y coordinate on canvas (for visual layout)"
     )
 
     # Health and Growth
@@ -969,53 +878,47 @@ class Plant(models.Model):
         max_length=20,
         choices=HEALTH_STATUS_CHOICES,
         default=HEALTH_STATUS_DEFAULT,
-        help_text="Current health status"
+        help_text="Current health status",
     )
 
     growth_stage = models.CharField(
         max_length=20,
         choices=GROWTH_STAGES,
         blank=True,
-        help_text="Current growth stage"
+        help_text="Current growth stage",
     )
 
     # Status
     is_active = models.BooleanField(
-        default=True,
-        help_text="Is this plant still growing/alive?"
+        default=True, help_text="Is this plant still growing/alive?"
     )
 
     removed_date = models.DateField(
-        null=True,
-        blank=True,
-        help_text="Date plant was removed/died"
+        null=True, blank=True, help_text="Date plant was removed/died"
     )
 
     removal_reason = models.CharField(
         max_length=200,
         blank=True,
-        help_text="Why plant was removed (harvested, died, etc.)"
+        help_text="Why plant was removed (harvested, died, etc.)",
     )
 
     # Notes
-    notes = models.TextField(
-        blank=True,
-        help_text="General notes about this plant"
-    )
+    notes = models.TextField(blank=True, help_text="General notes about this plant")
 
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['garden_bed', '-planted_date']
-        verbose_name = 'Plant'
-        verbose_name_plural = 'Plants'
+        ordering = ["garden_bed", "-planted_date"]
+        verbose_name = "Plant"
+        verbose_name_plural = "Plants"
         indexes = [
-            models.Index(fields=['garden_bed', '-planted_date']),
-            models.Index(fields=['garden_bed', 'is_active']),
-            models.Index(fields=['health_status']),
-            models.Index(fields=['common_name']),
+            models.Index(fields=["garden_bed", "-planted_date"]),
+            models.Index(fields=["garden_bed", "is_active"]),
+            models.Index(fields=["health_status"]),
+            models.Index(fields=["common_name"]),
         ]
 
     def __str__(self):
@@ -1025,6 +928,7 @@ class Plant(models.Model):
     def days_since_planted(self):
         """Calculate days since planting."""
         from django.utils import timezone
+
         today = timezone.now().date()
         return (today - self.planted_date).days
 
@@ -1047,10 +951,7 @@ class Plant(models.Model):
     @property
     def pending_care_tasks_count(self):
         """Count of pending care tasks."""
-        return self.care_tasks.filter(
-            completed=False,
-            skipped=False
-        ).count()
+        return self.care_tasks.filter(completed=False, skipped=False).count()
 
 
 class PlantImage(models.Model):
@@ -1064,43 +965,36 @@ class PlantImage(models.Model):
         editable=False,
         unique=True,
         primary_key=True,
-        help_text="Unique identifier for secure references"
+        help_text="Unique identifier for secure references",
     )
 
     plant = models.ForeignKey(
         Plant,
         on_delete=models.CASCADE,
-        related_name='images',
-        help_text="Plant this image belongs to"
+        related_name="images",
+        help_text="Plant this image belongs to",
     )
 
     image = models.ImageField(
-        upload_to='garden_plants/%Y/%m/',
-        help_text="Plant photograph"
+        upload_to="garden_plants/%Y/%m/", help_text="Plant photograph"
     )
 
     caption = models.CharField(
-        max_length=200,
-        blank=True,
-        help_text="Image caption/description"
+        max_length=200, blank=True, help_text="Image caption/description"
     )
 
-    taken_date = models.DateField(
-        auto_now_add=True,
-        help_text="Date photo was taken"
-    )
+    taken_date = models.DateField(auto_now_add=True, help_text="Date photo was taken")
 
     is_primary = models.BooleanField(
-        default=False,
-        help_text="Is this the primary/featured image?"
+        default=False, help_text="Is this the primary/featured image?"
     )
 
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-taken_date']
-        verbose_name = 'Plant Image'
-        verbose_name_plural = 'Plant Images'
+        ordering = ["-taken_date"]
+        verbose_name = "Plant Image"
+        verbose_name_plural = "Plant Images"
 
     def __str__(self):
         return f"Image of {self.plant.common_name} - {self.taken_date}"
@@ -1117,86 +1011,66 @@ class CareTask(models.Model):
         editable=False,
         unique=True,
         primary_key=True,
-        help_text="Unique identifier for secure references"
+        help_text="Unique identifier for secure references",
     )
 
     # Relationships
     plant = models.ForeignKey(
         Plant,
         on_delete=models.CASCADE,
-        related_name='care_tasks',
-        help_text="Plant this task is for"
+        related_name="care_tasks",
+        help_text="Plant this task is for",
     )
 
     created_by = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        related_name='created_care_tasks',
-        help_text="User who created this task"
+        related_name="created_care_tasks",
+        help_text="User who created this task",
     )
 
     # Task Details
     task_type = models.CharField(
-        max_length=20,
-        choices=CARE_TASK_TYPES,
-        help_text="Type of care task"
+        max_length=20, choices=CARE_TASK_TYPES, help_text="Type of care task"
     )
 
     custom_task_name = models.CharField(
-        max_length=200,
-        blank=True,
-        help_text="Custom task name (if task_type='custom')"
+        max_length=200, blank=True, help_text="Custom task name (if task_type='custom')"
     )
 
-    title = models.CharField(
-        max_length=200,
-        help_text="Task title/description"
-    )
+    title = models.CharField(max_length=200, help_text="Task title/description")
 
-    notes = models.TextField(
-        blank=True,
-        help_text="Additional notes or instructions"
-    )
+    notes = models.TextField(blank=True, help_text="Additional notes or instructions")
 
     priority = models.CharField(
         max_length=10,
         choices=CARE_TASK_PRIORITY,
-        default='medium',
-        help_text="Task priority level"
+        default="medium",
+        help_text="Task priority level",
     )
 
     # Scheduling
-    scheduled_date = models.DateTimeField(
-        help_text="When this task should be done"
-    )
+    scheduled_date = models.DateTimeField(help_text="When this task should be done")
 
     is_recurring = models.BooleanField(
-        default=False,
-        help_text="Does this task repeat?"
+        default=False, help_text="Does this task repeat?"
     )
 
     recurrence_interval_days = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="How often to repeat (in days)"
+        null=True, blank=True, help_text="How often to repeat (in days)"
     )
 
     recurrence_end_date = models.DateField(
-        null=True,
-        blank=True,
-        help_text="When to stop recurring (optional)"
+        null=True, blank=True, help_text="When to stop recurring (optional)"
     )
 
     # Completion Status
     completed = models.BooleanField(
-        default=False,
-        help_text="Has this task been completed?"
+        default=False, help_text="Has this task been completed?"
     )
 
     completed_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="When task was completed"
+        null=True, blank=True, help_text="When task was completed"
     )
 
     completed_by = models.ForeignKey(
@@ -1204,31 +1078,22 @@ class CareTask(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='completed_care_tasks',
-        help_text="User who completed this task"
+        related_name="completed_care_tasks",
+        help_text="User who completed this task",
     )
 
     # Skip Status
-    skipped = models.BooleanField(
-        default=False,
-        help_text="Was this task skipped?"
-    )
+    skipped = models.BooleanField(default=False, help_text="Was this task skipped?")
 
-    skip_reason = models.TextField(
-        blank=True,
-        help_text="Why task was skipped"
-    )
+    skip_reason = models.TextField(blank=True, help_text="Why task was skipped")
 
     skipped_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="When task was skipped"
+        null=True, blank=True, help_text="When task was skipped"
     )
 
     # Notification
     notification_sent = models.BooleanField(
-        default=False,
-        help_text="Has notification been sent?"
+        default=False, help_text="Has notification been sent?"
     )
 
     # Timestamps
@@ -1236,14 +1101,14 @@ class CareTask(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['scheduled_date']
-        verbose_name = 'Care Task'
-        verbose_name_plural = 'Care Tasks'
+        ordering = ["scheduled_date"]
+        verbose_name = "Care Task"
+        verbose_name_plural = "Care Tasks"
         indexes = [
-            models.Index(fields=['plant', 'scheduled_date']),
-            models.Index(fields=['created_by', 'completed', 'skipped']),
-            models.Index(fields=['task_type', 'scheduled_date']),
-            models.Index(fields=['scheduled_date', 'completed']),
+            models.Index(fields=["plant", "scheduled_date"]),
+            models.Index(fields=["created_by", "completed", "skipped"]),
+            models.Index(fields=["task_type", "scheduled_date"]),
+            models.Index(fields=["scheduled_date", "completed"]),
         ]
 
     def __str__(self):
@@ -1253,10 +1118,11 @@ class CareTask(models.Model):
     def is_overdue(self):
         """Check if task is past due."""
         from django.utils import timezone
+
         return (
-            not self.completed and
-            not self.skipped and
-            self.scheduled_date < timezone.now()
+            not self.completed
+            and not self.skipped
+            and self.scheduled_date < timezone.now()
         )
 
     @property
@@ -1267,6 +1133,7 @@ class CareTask(models.Model):
     def mark_complete(self, user):
         """Mark task as completed."""
         from django.utils import timezone
+
         self.completed = True
         self.completed_at = timezone.now()
         self.completed_by = user
@@ -1276,9 +1143,10 @@ class CareTask(models.Model):
         if self.is_recurring and self.recurrence_interval_days:
             self._create_next_occurrence()
 
-    def mark_skip(self, user, reason=''):
+    def mark_skip(self, user, reason=""):
         """Mark task as skipped."""
         from django.utils import timezone
+
         self.skipped = True
         self.skip_reason = reason
         self.skipped_at = timezone.now()
@@ -1287,11 +1155,12 @@ class CareTask(models.Model):
     def _create_next_occurrence(self):
         """Create next recurring task instance."""
         from datetime import timedelta
-        from django.utils import timezone
 
         # Check if we've reached end date
         if self.recurrence_end_date:
-            next_date = self.scheduled_date + timedelta(days=self.recurrence_interval_days)
+            next_date = self.scheduled_date + timedelta(
+                days=self.recurrence_interval_days
+            )
             if next_date.date() > self.recurrence_end_date:
                 return  # Stop recurring
 
@@ -1304,7 +1173,8 @@ class CareTask(models.Model):
             title=self.title,
             notes=self.notes,
             priority=self.priority,
-            scheduled_date=self.scheduled_date + timedelta(days=self.recurrence_interval_days),
+            scheduled_date=self.scheduled_date
+            + timedelta(days=self.recurrence_interval_days),
             is_recurring=True,
             recurrence_interval_days=self.recurrence_interval_days,
             recurrence_end_date=self.recurrence_end_date,
@@ -1321,52 +1191,48 @@ class CareLog(models.Model):
         editable=False,
         unique=True,
         primary_key=True,
-        help_text="Unique identifier for secure references"
+        help_text="Unique identifier for secure references",
     )
 
     plant = models.ForeignKey(
         Plant,
         on_delete=models.CASCADE,
-        related_name='care_logs',
-        help_text="Plant this log entry is for"
+        related_name="care_logs",
+        help_text="Plant this log entry is for",
     )
 
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        related_name='plant_care_logs',
-        help_text="User who created this log"
+        related_name="plant_care_logs",
+        help_text="User who created this log",
     )
 
     log_date = models.DateTimeField(
-        auto_now_add=True,
-        help_text="When this log entry was created"
+        auto_now_add=True, help_text="When this log entry was created"
     )
 
     activity_type = models.CharField(
         max_length=50,
         blank=True,
-        help_text="Type of activity (watering, fertilizing, etc.)"
+        help_text="Type of activity (watering, fertilizing, etc.)",
     )
 
-    notes = models.TextField(
-        blank=True,
-        help_text="Log entry content/observations"
-    )
+    notes = models.TextField(blank=True, help_text="Log entry content/observations")
 
     # Plant health tracking
     plant_health_before = models.CharField(
         max_length=20,
         blank=True,
         choices=HEALTH_STATUS_CHOICES,
-        help_text="Plant health status before this care activity"
+        help_text="Plant health status before this care activity",
     )
 
     plant_health_after = models.CharField(
         max_length=20,
         blank=True,
         choices=HEALTH_STATUS_CHOICES,
-        help_text="Plant health status after this care activity"
+        help_text="Plant health status after this care activity",
     )
 
     # Activity metrics
@@ -1375,12 +1241,11 @@ class CareLog(models.Model):
         decimal_places=2,
         null=True,
         blank=True,
-        help_text="Hours spent on this activity"
+        help_text="Hours spent on this activity",
     )
 
     materials_used = models.TextField(
-        blank=True,
-        help_text="Materials or products used"
+        blank=True, help_text="Materials or products used"
     )
 
     cost = models.DecimalField(
@@ -1388,46 +1253,43 @@ class CareLog(models.Model):
         decimal_places=2,
         null=True,
         blank=True,
-        help_text="Cost of materials/service"
+        help_text="Cost of materials/service",
     )
 
     # Weather conditions
     weather_conditions = models.TextField(
-        blank=True,
-        help_text="Weather conditions during activity"
+        blank=True, help_text="Weather conditions during activity"
     )
 
     # Optional metrics (legacy fields - kept for backward compatibility)
     temperature = models.SmallIntegerField(
-        null=True,
-        blank=True,
-        help_text="Temperature at time of log (Fahrenheit)"
+        null=True, blank=True, help_text="Temperature at time of log (Fahrenheit)"
     )
 
     humidity = models.PositiveSmallIntegerField(
         null=True,
         blank=True,
         validators=[MinValueValidator(0), MaxValueValidator(100)],
-        help_text="Humidity percentage"
+        help_text="Humidity percentage",
     )
 
     tags = models.JSONField(
-        default=list,
-        blank=True,
-        help_text="Tags for categorizing logs"
+        default=list, blank=True, help_text="Tags for categorizing logs"
     )
 
     class Meta:
-        ordering = ['-log_date']
-        verbose_name = 'Care Log Entry'
-        verbose_name_plural = 'Care Log Entries'
+        ordering = ["-log_date"]
+        verbose_name = "Care Log Entry"
+        verbose_name_plural = "Care Log Entries"
         indexes = [
-            models.Index(fields=['plant', '-log_date']),
-            models.Index(fields=['user', '-log_date']),
+            models.Index(fields=["plant", "-log_date"]),
+            models.Index(fields=["user", "-log_date"]),
         ]
 
     def __str__(self):
-        return f"Log for {self.plant.common_name} - {self.log_date.strftime('%Y-%m-%d')}"
+        return (
+            f"Log for {self.plant.common_name} - {self.log_date.strftime('%Y-%m-%d')}"
+        )
 
 
 class Harvest(models.Model):
@@ -1436,59 +1298,52 @@ class Harvest(models.Model):
     """
 
     HARVEST_UNITS = [
-        ('count', 'Count (individual items)'),
-        ('lb', 'Pounds'),
-        ('oz', 'Ounces'),
-        ('kg', 'Kilograms'),
-        ('g', 'Grams'),
-        ('bunch', 'Bunches'),
-        ('basket', 'Baskets'),
+        ("count", "Count (individual items)"),
+        ("lb", "Pounds"),
+        ("oz", "Ounces"),
+        ("kg", "Kilograms"),
+        ("g", "Grams"),
+        ("bunch", "Bunches"),
+        ("basket", "Baskets"),
     ]
 
     plant = models.ForeignKey(
         Plant,
         on_delete=models.CASCADE,
-        related_name='harvests',
-        help_text="Plant that was harvested"
+        related_name="harvests",
+        help_text="Plant that was harvested",
     )
 
-    harvest_date = models.DateField(
-        help_text="Date of harvest"
-    )
+    harvest_date = models.DateField(help_text="Date of harvest")
 
     quantity = models.DecimalField(
-        max_digits=8,
-        decimal_places=2,
-        help_text="Quantity harvested"
+        max_digits=8, decimal_places=2, help_text="Quantity harvested"
     )
 
     unit = models.CharField(
         max_length=10,
         choices=HARVEST_UNITS,
-        default='count',
-        help_text="Unit of measurement"
+        default="count",
+        help_text="Unit of measurement",
     )
 
     quality_rating = models.PositiveSmallIntegerField(
         null=True,
         blank=True,
         validators=[MinValueValidator(1), MaxValueValidator(5)],
-        help_text="Quality rating (1-5 stars)"
+        help_text="Quality rating (1-5 stars)",
     )
 
-    notes = models.TextField(
-        blank=True,
-        help_text="Notes about this harvest"
-    )
+    notes = models.TextField(blank=True, help_text="Notes about this harvest")
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-harvest_date']
-        verbose_name = 'Harvest'
-        verbose_name_plural = 'Harvests'
+        ordering = ["-harvest_date"]
+        verbose_name = "Harvest"
+        verbose_name_plural = "Harvests"
         indexes = [
-            models.Index(fields=['plant', '-harvest_date']),
+            models.Index(fields=["plant", "-harvest_date"]),
         ]
 
     def __str__(self):

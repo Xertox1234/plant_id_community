@@ -7,7 +7,7 @@ solving CORS issues and providing a unified API interface.
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import F
+from django.db.models import Count, F
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -134,9 +134,13 @@ class PlantIdentificationRequestViewSet(viewsets.ModelViewSet):
     parser_classes = [MultiPartParser, FormParser]
 
     def get_queryset(self):
-        return PlantIdentificationRequest.objects.filter(
-            user=self.request.user
-        ).order_by("-created_at")
+        # `_results_count` annotation feeds the serializer's results_count field
+        # without a COUNT query per identification request.
+        return (
+            PlantIdentificationRequest.objects.filter(user=self.request.user)
+            .annotate(_results_count=Count("identification_results"))
+            .order_by("-created_at")
+        )
 
     @method_decorator(
         ratelimit(
@@ -799,8 +803,12 @@ class PlantDiseaseRequestViewSet(viewsets.ModelViewSet):
     parser_classes = [MultiPartParser, FormParser]
 
     def get_queryset(self):
-        return PlantDiseaseRequest.objects.filter(user=self.request.user).order_by(
-            "-created_at"
+        # `_results_count` annotation feeds both PlantDiseaseRequestSerializer
+        # and the WithResults variant without a per-request COUNT query.
+        return (
+            PlantDiseaseRequest.objects.filter(user=self.request.user)
+            .annotate(_results_count=Count("diagnosis_results"))
+            .order_by("-created_at")
         )
 
     def get_serializer_class(self):
@@ -1162,8 +1170,10 @@ class PlantDiseaseDatabaseViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
-        queryset = PlantDiseaseDatabase.objects.filter(diagnosis_count__gte=1).order_by(
-            "-diagnosis_count", "-confidence_score"
+        queryset = (
+            PlantDiseaseDatabase.objects.filter(diagnosis_count__gte=1)
+            .annotate(_affected_plant_count=Count("affected_plants", distinct=True))
+            .order_by("-diagnosis_count", "-confidence_score")
         )
 
         disease_type = self.request.query_params.get("type")

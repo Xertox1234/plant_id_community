@@ -129,6 +129,8 @@ class PlantIdentificationRequestSerializer(serializers.ModelSerializer):
 
     def get_results_count(self, obj):
         """Get count of identification results."""
+        if hasattr(obj, "_results_count"):
+            return obj._results_count
         return obj.identification_results.count()
 
 
@@ -199,6 +201,8 @@ class PlantDiseaseRequestSerializer(serializers.ModelSerializer):
 
     def get_results_count(self, obj):
         """Get count of diagnosis results."""
+        if hasattr(obj, "_results_count"):
+            return obj._results_count
         return obj.diagnosis_results.count()
 
 
@@ -482,6 +486,8 @@ class PlantIdentificationRequestWithResultsSerializer(serializers.ModelSerialize
 
     def get_results_count(self, obj):
         """Get count of identification results."""
+        if hasattr(obj, "_results_count"):
+            return obj._results_count
         return obj.identification_results.count()
 
 
@@ -542,6 +548,8 @@ class PlantDiseaseDatabaseSerializer(serializers.ModelSerializer):
 
     def get_affected_plant_count(self, obj):
         """Get count of affected plant species."""
+        if hasattr(obj, "_affected_plant_count"):
+            return obj._affected_plant_count
         return obj.affected_plants.count()
 
 
@@ -714,4 +722,6 @@ class PlantDiseaseRequestWithResultsSerializer(serializers.ModelSerializer):
 
     def get_results_count(self, obj):
         """Get count of diagnosis results."""
+        if hasattr(obj, "_results_count"):
+            return obj._results_count
         return obj.diagnosis_results.count()
