@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p4
 issue_id: "078"
 tags: [harness, hooks, skills]
@@ -66,6 +66,23 @@ dead plumbing.
 
 - Filed during the OCRecipes harness port (commit `da3e6da`); the Stop hook was
   ported but its writer was not.
+
+### 2026-05-18 - Attempted by completing-todos skill (run 2026-05-18-2300) — SKIPPED (blocked)
+
+- Picked up by the automated sweep; **blocked by the harness self-modification guard**.
+- Both proposed solutions edit `.claude/` harness files, which the auto-mode
+  classifier hard-blocks when the agent itself attempts the edit:
+  - Option 1 → `.claude/skills/audit/SKILL.md` + `.claude/skills/codify/SKILL.md`.
+  - Option 2 → `.claude/settings.json` (delete the `Stop` block).
+- Attempted Option 2 (the recommended one — removing dead plumbing is lower-risk
+  than wiring two skills to write `/tmp`): editing `.claude/settings.json` was
+  denied as Self-Modification.
+- Recommended resolution (for a human to apply): **Option 2** — delete the
+  `"Stop"` block from `.claude/settings.json` (the `,` after the PreToolUse `]`
+  through the `"Stop": [ ... ]` array). The Stop hook only greps
+  `/tmp/plant-id-deferred.txt`, which no code path writes; the harness works
+  fully without it (see Notes). After deletion the file is still valid JSON —
+  verify with `python3 -m json.tool .claude/settings.json`.
 
 ## Notes
 

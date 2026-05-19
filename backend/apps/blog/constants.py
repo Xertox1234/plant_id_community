@@ -81,7 +81,9 @@ POPULAR_POSTS_CACHE_TIMEOUT = (
 CACHE_PREFIX_POPULAR_POSTS = "blog:popular"  # Cache key prefix for popular posts
 
 # Recent posts API constants
-RECENT_POSTS_DEFAULT_LIMIT = 10
+RECENT_POSTS_DEFAULT_LIMIT = (
+    10  # Default number of recent posts returned when ?limit is not specified
+)
 RECENT_POSTS_MAX_LIMIT = 50  # Cap to prevent abuse / expensive slices
 
 # Analytics dashboard constants

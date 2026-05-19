@@ -162,7 +162,9 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         action = getattr(self, "action", None)
 
         if action in ("list", "popular", "featured", "recent", "related"):
-            # List-style actions: full prefetch/annotation for BlogPostPageListSerializer
+            # List-style actions: full prefetch/annotation for BlogPostPageListSerializer.
+            # `by_category` is intentionally absent — that action builds its own
+            # queryset directly and does not flow through get_queryset().
             from django.db.models import Count
 
             from ..models import BlogComment
@@ -707,19 +709,16 @@ class BlogAuthorPageViewSet(PagesAPIViewSet):
     serializer_class = BlogAuthorPageSerializer
 
     def get_queryset(self):
-        # NOTE: annotation counts live posts only, not `.public()`.
-        # Wagtail's `.public()` also excludes PageViewRestriction pages; this
-        # project does not use PageViewRestriction so the counts are equivalent.
-        # If restrictions are added in future, update the filter to match.
         return (
             BlogAuthorPage.objects.live()
             .public()
             .specific()
             .annotate(
-                # Counts live posts regardless of PageViewRestriction (no .public()
-                # equivalent in annotations without a complex subquery). The serializer
-                # fallback uses .live().public(), so the two paths can differ when page
-                # view restrictions are active. Tracked for alignment in a follow-up todo.
+                # Counts all live posts; does not exclude PageViewRestriction-protected
+                # pages the way the serializer's `.live().public()` fallback does.
+                # Accepted divergence — the blog uses no PageViewRestriction objects, so
+                # both paths return the same count. See Pattern 29 in
+                # docs/patterns/performance/query-optimization.md.
                 annotated_post_count=Count(
                     "author__blogpostpage",
                     filter=Q(author__blogpostpage__live=True),

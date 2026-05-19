@@ -1395,3 +1395,5 @@ There is no `Q()` expression that replicates `.public()` without a subquery agai
    ```
 
 **Rule**: Never silently rely on `Count(filter=Q(live=True))` where `.live().public()` semantics are required. Choose option 1 or option 2 explicitly.
+
+**Accepted divergence — `BlogAuthorPageViewSet`**: `backend/apps/blog/api/viewsets.py` `BlogAuthorPageViewSet.get_queryset()` annotates `annotated_post_count` with `Count(filter=Q(live=True))`, while `BlogAuthorPageSerializer.get_post_count()` falls back to `.live().public()`. Option 2 (explicit divergence) is accepted here: the blog has no `PageViewRestriction` objects — author pages and blog posts are all public — so the annotation and the fallback return identical counts in practice. The correlated subquery in option 1 would add per-row cost for a gap that cannot occur given current content. If `PageViewRestriction` is ever introduced for blog content, switch that annotation to option 1.

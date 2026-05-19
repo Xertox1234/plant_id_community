@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "080"
 tags: [testing, tech-debt, audit-2026-05-17]
@@ -49,11 +49,36 @@ Removal migration: `apps/plant_identification/migrations/0025_*`.
 
 ## Acceptance Criteria
 
-- [ ] No module imports the non-existent `DiagnosisCard`.
-- [ ] `python manage.py test apps.plant_identification --noinput` — 0 errors.
+- [x] No module imports the non-existent `DiagnosisCard`.
+- [x] `python manage.py test apps.plant_identification --noinput` — 0 errors.
 
 ## Work Log
 
 ### 2026-05-17 - Created
 
 - Discovered during Phase 3 verification of the 2026-05-17 full audit.
+
+### 2026-05-18 - Started by completing-todos skill (run 2026-05-18-2300)
+
+- Picked up by automated workflow.
+
+### 2026-05-18 - Implementation
+
+- Confirmed `DiagnosisCard` + `DiagnosisReminder` models were deleted in
+  migration `0025`; only `SavedDiagnosis` survives, and the router registers
+  `SavedDiagnosisViewSet` (not `DiagnosisCardViewSet`).
+- `api/diagnosis_serializers.py` and `api/diagnosis_viewsets.py` formed a
+  self-contained dead-code island (nothing else imports them). Deleted all four
+  stale modules via `git rm`: `test_diagnosis_api.py`, `test_diagnosis_models.py`,
+  `api/diagnosis_serializers.py`, `api/diagnosis_viewsets.py`.
+- H38: `PlantDiseaseDatabase` has `first_diagnosed` + `updated_at` but no
+  `created_at`. Removed the invalid `created_at` from `PlantDiseaseDatabaseSerializer.Meta.fields`.
+- Verification:
+  - `grep -rn "DiagnosisCard" --include="*.py" apps/ | grep -v /migrations/` → NONE.
+  - `python manage.py test apps.plant_identification --noinput` → `Ran 104 tests in 57.575s` / `OK` / exit 0.
+
+### 2026-05-18 - Completed by completing-todos skill (run 2026-05-18-2300)
+
+- Verification: both acceptance criteria passed (no `DiagnosisCard` imports; 104 tests OK).
+- Review: code-review-orchestrator dispatched (django-drf / api-design / test-quality / performance reviewers) — 0 findings, no blocking.
+- Source audit `docs/audits/2026-05-17-full.md`: H37 and H38 table rows marked `fixed`. Doc not renamed COMPLETED — the audit has many other open findings.
