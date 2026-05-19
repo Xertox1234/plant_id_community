@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p3
 issue_id: "086"
 tags: [database, ops, cleanup]
@@ -52,6 +52,36 @@ DELETE FROM django_migrations WHERE app = 'forum';
 
 - Follow-up to the `apps/forum/` deletion. Flagged by kimi-review during the
   deletion commit.
+
+### 2026-05-18 - Investigated by completing-todos skill (run 2026-05-18-2300) — SKIPPED
+
+- Picked up by automated workflow; investigated and **skipped** — see below.
+- **The todo's assumption about dev is wrong.** The local dev DB
+  (`plant_community`) DOES contain orphaned forum tables, despite the
+  `ENABLE_FORUM=True` reasoning in Findings. Verified via Django DB introspection:
+  - 8 orphan tables: `forum_attachment`, `forum_category`, `forum_flaggedcontent`,
+    `forum_moderationaction`, `forum_post`, `forum_reaction`, `forum_thread`,
+    `forum_userprofile`.
+  - 6 stale `django_migrations` rows for app `forum`.
+  - These belong to the custom headless `apps/forum/` app (their names do not
+    match Machina's schema, e.g. Machina has no `forum_thread`/`forum_userprofile`).
+- Confirmed `apps/forum/` still exists on disk but is fully deactivated:
+  it is in **neither** branch of `INSTALLED_APPS` (`settings.py` LOCAL_APPS), and
+  `apps/forum/migrations/` contains no migration files. So the 8 tables are
+  genuine orphans — the custom forum app was installed + migrated at some earlier
+  point, then removed without dropping its tables.
+- **Why skipped:** This is a destructive, multi-environment ops task that cannot
+  be safely completed from an automated coding session:
+  1. Dropping the 8 tables requires a DB backup first (per the Recommended
+     Action) — an unbacked-up `DROP TABLE ... CASCADE` is irreversible.
+  2. Staging/production cannot be inspected or modified from this session.
+  Needs a human/ops runbook execution with backups, per environment.
+
+### Corrected status
+
+- Dev: orphan tables/migration rows **present** (listed above) — drop pending,
+  backup-first.
+- Staging/Production: **unknown** — not reachable from this session.
 
 ## Notes
 

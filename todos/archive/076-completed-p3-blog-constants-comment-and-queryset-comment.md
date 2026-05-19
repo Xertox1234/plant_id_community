@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "076"
 tags: [style, blog]
@@ -39,6 +39,30 @@ Two minor comment inconsistencies introduced in PR #266:
 
 ## Acceptance Criteria
 
-- [ ] `RECENT_POSTS_DEFAULT_LIMIT` has an inline comment consistent with the rest of `constants.py`.
-- [ ] The `get_queryset()` action-guard comment explains why `by_category` is absent.
-- [ ] `python manage.py test apps.blog.tests --noinput` passes (no functional change).
+- [x] `RECENT_POSTS_DEFAULT_LIMIT` has an inline comment consistent with the rest of `constants.py`.
+- [x] The `get_queryset()` action-guard comment explains why `by_category` is absent.
+- [x] `python manage.py test apps.blog.tests --noinput` passes (no functional change).
+
+## Work Log
+
+### 2026-05-18 - Started by completing-todos skill (run 2026-05-18-2300)
+
+- Picked up by automated workflow.
+
+### 2026-05-18 - Implementation
+
+- `backend/apps/blog/constants.py:84` — added inline comment to
+  `RECENT_POSTS_DEFAULT_LIMIT`, matching the style of the rest of the file.
+- `backend/apps/blog/api/viewsets.py:165` — extended the list-action prefetch
+  comment to note `by_category` is intentionally absent (it builds its own
+  queryset and does not flow through `get_queryset()`).
+- Comment-only change, no functional impact.
+- Verification: `python manage.py test apps.blog.tests --noinput` → `Ran 173
+  tests in 21.670s` / `OK (skipped=7)` / exit 0.
+
+### 2026-05-18 - Completed by completing-todos skill (run 2026-05-18-2300)
+
+- Verification: all 3 acceptance criteria passed.
+- Review: code-review-orchestrator dispatched (wagtail / api-design / performance
+  reviewers) — 0 findings, no blocking.
+- `source_finding` is empty — no source-review checkoff needed.

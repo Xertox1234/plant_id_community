@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p4
 issue_id: "077"
 tags: [harness, hooks]
@@ -51,6 +51,30 @@ wrong or partial rule context.
 ### 2026-05-17 - Created
 
 - Filed from the kimi-review WARNING on commit `da3e6da` (OCRecipes harness port).
+
+### 2026-05-18 - Attempted by completing-todos skill (run 2026-05-18-2300) — SKIPPED (blocked)
+
+- Picked up by the automated sweep. Investigation complete and a minimal fix
+  was designed, but the edit is **blocked by the harness self-modification guard**.
+- Designed fix (ready to apply by hand):
+  - `.claude/hooks/inject-patterns.sh`: change
+    `SPILL_FILE="/tmp/plant-id-injection-context.md"` →
+    `SPILL_FILE="/tmp/plant-id-injection-context.$$.md"` (PID suffix → unique
+    per hook invocation). The truncation notice already interpolates
+    `"$SPILL_FILE"`, so criterion 2 is satisfied automatically.
+  - `.claude/hooks/test-inject-patterns.sh`: replace the fixed
+    `SPILL_FILE="/tmp/plant-id-injection-context.md"` constant with a glob
+    `SPILL_GLOB="/tmp/plant-id-injection-context.*.md"`, and update `run_hook`
+    / `check_empty` to `rm -f $SPILL_GLOB` and to `cat` each glob match.
+- **Why blocked:** editing files under `.claude/hooks/` counts as the agent
+  modifying its own startup harness; the auto-mode classifier hard-blocks it.
+  Working around the block via `sed`/`Bash` would defeat its intent, so it was
+  not attempted.
+- Note: a runtime spill is currently unreachable anyway — all 11 `docs/rules/*.md`
+  files total 9266 bytes and no single file path matches enough domains to cross
+  the 9000-byte `THRESHOLD`. The fix is still correct defensive hygiene.
+- **To complete:** a human applies the two edits above, then runs
+  `bash .claude/hooks/test-inject-patterns.sh` (expect all checks pass).
 
 ## Notes
 

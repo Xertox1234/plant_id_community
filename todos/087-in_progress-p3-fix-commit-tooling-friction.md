@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p3
 issue_id: "087"
 tags: [tooling, ci, dev-experience]
@@ -59,6 +59,33 @@ Observed during the 2026-05-17 full audit (Phase 7 — see
 
 - Follow-up requested after the 2026-05-17 full audit, which hit both snags
   repeatedly during its commit phase.
+
+### 2026-05-18 - Investigated by completing-todos skill (run 2026-05-18-2300) — SKIPPED
+
+- Picked up by the automated sweep; investigated and **skipped**. Per-criterion status:
+- **Criterion 1 (self-recant `[CRITICAL]` no longer blocks):** NOT done — needs
+  design, not a sweep-pace fix. The gate (`.claude/hooks/kimi-review.sh` step 8)
+  greps `[[]CRITICAL[]].*[^[:space:]]`, which already tolerates the bare word and
+  a bare `[CRITICAL]` tag, but still blocks when the model emits a real
+  `[CRITICAL] path:line — desc` finding and recants later in the same response.
+  Both candidate fixes are risky: a retraction-phrase grep is brittle in both
+  directions (could suppress genuine findings phrased "on closer inspection…"),
+  and a structured-verdict approach requires changing `scripts/kimi-review`'s
+  system prompt — a change that affects every commit gate in the project and
+  deserves a brainstorming pass first.
+- **Criterion 2 (review only the staged diff):** ALREADY SATISFIED by current
+  code. `.claude/hooks/kimi-review.sh` scopes via `git diff --cached` for both
+  the file list (step 5) and the piped diff (step 7); `scripts/kimi-review`
+  gives piped stdin priority over `--base` (lines 108–110). The audit's
+  mis-scoping was a *manual* `kimi-review --base main` invocation, not the hook
+  path — no code change needed for the hook.
+- **Criterion 3 (repo formatter-clean):** NOT done — requires a dedicated
+  `style: apply formatter repo-wide` commit plus a SHA in `.git-blame-ignore-revs`.
+  The completing-todos skill forbids auto-commit (safety rail #1), and running
+  the formatter without committing would pollute every subsequent todo's diff
+  and code review. This must be a deliberate human-driven commit.
+- **Net:** 1 of 3 criteria already met (criterion 2). Criteria 1 and 3 each need
+  a dedicated, human-supervised effort — not appropriate for an automated sweep.
 
 ## Notes
 
