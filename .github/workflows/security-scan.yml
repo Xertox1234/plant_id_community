@@ -44,9 +44,19 @@ jobs:
       - name: Run pip-audit (fail on vulnerabilities)
         run: |
           cd backend
-          # CVE-2026-42304 (Twisted 25.5.0): suppressed 2026-05-08 — no stable fix exists (fix is RC-only 26.4.0rc2).
-          # Remove this flag when Twisted >=26.4.0 stable is released on PyPI.
-          pip-audit -r requirements.txt --ignore-vuln CVE-2026-42304
+          # Suppressed advisories — each has no upstream fix and is not reachable through app code.
+          # Revisit and drop the flag whenever a patched release ships (tracked in todo 089).
+          # CVE-2026-42304 (Twisted 25.5.0): no stable fix exists (fix is RC-only 26.4.0rc2). Remove when Twisted >=26.4.0 stable releases.
+          # PYSEC-2026-89  (Markdown 3.8.1): no upstream fix (OSV: all versions affected); markdown not imported by app code; DoS path unreachable.
+          # PYSEC-2026-97  (nltk 3.9.4):     no upstream fix (already latest); filestring() path traversal not called by app code.
+          # PYSEC-2024-277 (joblib 1.5.2):   supplier-disputed; not imported by app code.
+          # PYSEC-2025-183 (PyJWT 2.12.1):   supplier-disputed; mitigated by project's strong SECRET_KEY (>=50 chars) requirement.
+          pip-audit -r requirements.txt \
+            --ignore-vuln CVE-2026-42304 \
+            --ignore-vuln PYSEC-2026-89 \
+            --ignore-vuln PYSEC-2026-97 \
+            --ignore-vuln PYSEC-2024-277 \
+            --ignore-vuln PYSEC-2025-183
         continue-on-error: false
 
       - name: Upload pip-audit report
