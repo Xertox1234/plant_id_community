@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: pending
 priority: p3
 issue_id: "086"
 tags: [database, ops, cleanup]
