@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: pending
 priority: p3
 issue_id: "087"
 tags: [tooling, ci, dev-experience]
