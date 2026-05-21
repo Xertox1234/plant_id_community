@@ -112,9 +112,13 @@ issue is mitigated by the project's strong-`SECRET_KEY` requirement.
   "review by" note per advisory, or a non-gating scheduled pip-audit run without
   the ignore flags to surface when fixes ship.
 - `PYSEC-2025-183` (PyJWT) is the weakest suppression — auth-critical lib,
-  disputed advisory, mitigation (SECRET_KEY ≥50 chars) asserted but not
-  re-validated in CI. Suggested follow-up: a test asserting SECRET_KEY length so
-  the mitigation can't silently regress.
+  disputed advisory. **Resolved:** the mitigation is already enforced fail-fast.
+  PyJWT signs with `JWT_SECRET_KEY` (`SIMPLE_JWT["SIGNING_KEY"]`, settings.py:674),
+  which is validated `>=50` chars at settings import in ALL environments
+  (settings.py:658) — Django won't boot with a short key, so every CI job that
+  loads settings enforces it. The workflow comment was corrected to cite
+  `JWT_SECRET_KEY` + settings.py:658 (it previously cited `SECRET_KEY`, which is
+  only length-checked in production). No separate test needed.
 
 ### 2026-05-20 - Completed by completing-todos skill (run 2026-05-20-2330)
 
