@@ -475,6 +475,7 @@ class ForumPostImageSerializer(serializers.ModelSerializer):
     thumbnail_url = serializers.CharField(source="thumbnail.url", read_only=True)
     width = serializers.IntegerField(source="image.width", read_only=True)
     height = serializers.IntegerField(source="image.height", read_only=True)
+    uploaded_at = serializers.DateTimeField(source="created_at", read_only=True)
 
     class Meta:
         model = ForumPostImage
@@ -483,7 +484,6 @@ class ForumPostImageSerializer(serializers.ModelSerializer):
             "url",
             "thumbnail_url",
             "alt_text",
-            "caption",
             "original_filename",
             "file_size",
             "upload_order",
