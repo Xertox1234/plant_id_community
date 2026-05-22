@@ -77,31 +77,33 @@ while IFS= read -r file; do
   esac
 done <<< "$FILES"
 
-# 7) Run review on the staged diff. Only CRITICAL + WARNING (project convention).
-#    docs/rules/ holds the compact binding-rule checklists; missing files are
-#    silently skipped by kimi-review, so passing names freely is safe.
+# 7) Run review on the staged diff with Tier A deterministic verification. Only
+#    CRITICAL + WARNING (project convention). docs/rules/ holds the compact
+#    binding-rule checklists; missing files are silently skipped by kimi-review,
+#    so passing names freely is safe.
 if [ -n "$PATTERNS" ]; then
   REVIEW=$(git diff --cached | kimi-review \
     --scope "staged for commit" \
     --profile plant_id \
     --rules "$PATTERNS" \
+    --verify deterministic \
     --tiers CRITICAL,WARNING 2>&1)
 else
   REVIEW=$(git diff --cached | kimi-review \
     --scope "staged for commit" \
     --profile plant_id \
+    --verify deterministic \
     --tiers CRITICAL,WARNING 2>&1)
 fi
+REVIEW_STATUS=$?
 
-# 8) Detect CRITICAL findings. kimi-review emits every real finding as
-#    `[TIER] path:line — description`, so an actual CRITICAL finding carries the
-#    bracketed `[CRITICAL]` tag followed by a body. The discriminating signal is
-#    the brackets: negative phrasing ("No CRITICAL or WARNING findings") contains
-#    the bare word but never the bracketed tag. The trailing `.*[^[:space:]]`
-#    requires a finding body, so a bare `[CRITICAL]` does not block. Literal
-#    brackets use POSIX bracket-expression escaping for GNU/BSD grep portability.
-if printf '%s\n' "$REVIEW" | grep -Eq '[[]CRITICAL[]].*[^[:space:]]'; then
-  REASON=$(printf 'kimi-review blocked the commit — CRITICAL finding present.\n\n%s\n\n%s' \
+# 8) Block only on the engine's blocking exit code (2 = a CRITICAL survived
+#    verification). The engine emits structured findings and owns the blocking
+#    decision, so the hook no longer parses prose. Any other non-zero exit is a
+#    tool error (timeout, missing key) which falls through to additionalContext
+#    (fail-open) rather than blocking.
+if [ "$REVIEW_STATUS" -eq 2 ]; then
+  REASON=$(printf 'kimi-review blocked the commit — verified CRITICAL finding present.\n\n%s\n\n%s' \
     "${PATTERNS:+rules: $PATTERNS}" \
     "$REVIEW")
   jq -n --arg reason "$REASON" \
