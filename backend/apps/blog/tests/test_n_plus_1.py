@@ -303,6 +303,10 @@ class BlogAuthorsListN1Test(BlogListN1TestMixin, TestCase):
             bio=f"<p>bio {i}</p>",
         )
         self.root.add_child(instance=author_page)
+        # Give every author the same two expertise tags so the taggit
+        # resolution path (expertise_areas.all()) actually fires per row —
+        # without tags the N+1 measurement below would be vacuous.
+        author_page.expertise_areas.add("ferns", "mosses")
         post = BlogPostPage(
             title=f"Author Post {i}",
             slug=f"author-post-{i}",
@@ -326,3 +330,57 @@ class BlogAuthorsListN1Test(BlogListN1TestMixin, TestCase):
         large = self._measure(self.url)
 
         self._assert_no_n_plus_1(self.url, small, large)
+
+    def _measure_taggit_queries(self, url):
+        """Return the number of queries that resolve ``expertise_areas`` tags.
+
+        ``BlogAuthorSerializer.expertise_areas`` is a taggit
+        ``TagListSerializerField`` that reads ``obj.expertise_areas.all()``.
+        taggit resolves that with a SELECT joining ``taggit_tag``; without a
+        prefetch the serializer issues one such query per author (the N+1 this
+        todo fixes), and with ``prefetch_related('expertise_areas')`` it
+        resolves every author's tags in a single query. Counting
+        ``taggit_tag``-shaped queries isolates this endpoint's expertise N+1 —
+        distinct from the ``COUNT``-shaped serializer N+1 that ``_measure()``
+        targets (todo 079), which deliberately excludes this one.
+        """
+        cache.clear()
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(url)
+        self.assertEqual(
+            response.status_code,
+            200,
+            f"Expected 200 from {url}, got {response.status_code}",
+        )
+        return sum(1 for q in ctx.captured_queries if "taggit_tag" in q["sql"])
+
+    def test_no_expertise_areas_n_plus_1(self):
+        """expertise_areas (taggit) must not scale taggit_tag queries with authors."""
+        # Small fixture: 2 authors, each with expertise tags.
+        self._make_author_with_post()
+        self._make_author_with_post()
+        small = self._measure_taggit_queries(self.url)
+
+        # Guard against a vacuous pass: the taggit path must actually fire.
+        self.assertGreaterEqual(
+            small,
+            1,
+            "Expected at least one taggit_tag query — expertise_areas is not "
+            "being resolved, so this test would pass vacuously.",
+        )
+
+        # Large fixture: 6 authors total.
+        for _ in range(4):
+            self._make_author_with_post()
+        large = self._measure_taggit_queries(self.url)
+
+        self.assertEqual(
+            small,
+            large,
+            f"expertise_areas N+1 on the authors endpoint: taggit_tag query "
+            f"total grew from {small} (2 authors) to {large} (6 authors). "
+            f"BlogAuthorViewSet.get_queryset() must "
+            f"prefetch_related('expertise_areas') so taggit resolves all "
+            f"authors' tags in one query. "
+            f"See docs/patterns/performance/query-optimization.md.",
+        )

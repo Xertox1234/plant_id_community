@@ -83,6 +83,21 @@ DELETE FROM django_migrations WHERE app = 'forum';
   backup-first.
 - Staging/Production: **unknown** — not reachable from this session.
 
+### 2026-05-21 - Re-confirmed SKIP by completing-todos skill (run 2026-05-21-2253)
+
+- Picked up again as part of a 4-todo goal sweep (086, 087, 088, 091).
+- Re-confirmed **not completable from a coding session** — the prior skip stands:
+  1. Acceptance criteria require checking + dropping orphan tables in **each
+     environment** (incl. staging/production), which are unreachable from this
+     session.
+  2. `DROP TABLE ... CASCADE` is destructive and irreversible without a prior
+     backup — outside the safe scope of automated work, and authoring a
+     table-dropping migration unilaterally is a hard-to-reverse design decision
+     that needs human/ops sign-off.
+- **Human action needed:** per-environment ops runbook — back up, run the
+  inspect/DROP SQL in Recommended Action, delete the stale `forum`
+  `django_migrations` rows. Left `pending`.
+
 ## Notes
 
 p3 — no functional impact; purely storage/cleanliness. Skip entirely for any

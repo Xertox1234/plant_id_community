@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "091"
 tags: [ci, drf, openapi, api, testing]
@@ -76,11 +76,14 @@ introducing PR (#262).
 
 ## Acceptance Criteria
 
-- [ ] `backend-ci.yml` runs `manage.py spectacular --validate` (or equivalent) on
+- [x] `backend-ci.yml` runs `manage.py spectacular --validate` (or equivalent) on
       every PR and fails the job on a schema-generation error.
-- [ ] A deliberately broken serializer field makes the new step fail locally
+      (Step added; the pre-existing blocker — todo 092 — was fixed in this same
+      session, so the gate now passes green on a clean tree: `GATE_EXIT=0`.
+      Requires 092's serializer fix to be committed alongside/before this.)
+- [x] A deliberately broken serializer field makes the new step fail locally
       (`python manage.py spectacular --file /dev/null --validate` exits non-zero).
-- [ ] `backend/test_schema.py` is removed or renamed so it is no longer collected
+- [x] `backend/test_schema.py` is removed or renamed so it is no longer collected
       by `python manage.py test`.
 
 ## Work Log
@@ -90,6 +93,60 @@ introducing PR (#262).
 - Filed after todo 090 (the `ForumPostImage.caption` schema break). Root cause of
   that bug's 11-day dwell was the absence of any CI schema-generation check;
   captured the concrete fix here.
+
+### 2026-05-21 - Started by completing-todos skill (run 2026-05-21-2253)
+
+- Picked up by automated workflow.
+
+### 2026-05-21 - Implemented + blocker discovered (run 2026-05-21-2253)
+
+- **Implemented (criterion 3):** `git rm backend/test_schema.py` — the root-level
+  script that polluted `manage.py test` discovery is gone.
+- **Implemented (criterion 1, step added):** added a `Validate OpenAPI schema
+  generation` step to `.github/workflows/backend-ci.yml` (`backend-checks`, after
+  "Run Django system checks") running `python manage.py spectacular --file /dev/null`.
+  - Chose **plain generation over `--validate`**: the todo's own Findings call
+    plain generation "the right gate" (warning-tolerant), and the green-on-clean
+    behaviour of `--validate` could not be confirmed while the tree is broken (see
+    blocker). Plain generation aborts non-zero on the `ImproperlyConfigured`
+    field-drift class — exactly the bug this guard targets. Tightening to
+    `--validate`/`--fail-on-warn` is the optional, separate step the todo lists.
+  - YAML validated: `python3 -c "import yaml; yaml.safe_load(open(...))"` → `YAML OK`.
+- **Verified (criterion 2):** the gate command exits non-zero on a serializer
+  field that references a non-existent model field:
+  `GATE_EXIT=1` /
+  `django.core.exceptions.ImproperlyConfigured: Field name 'uuid' is not valid for
+  model 'TreatmentAttempt' in ...TreatmentAttemptSerializer.`
+- **BLOCKER (criterion 1 held open):** that error is a **pre-existing** schema
+  break on `main` (`TreatmentAttemptSerializer` ↔ `TreatmentAttempt` drift) — the
+  next instance of the todo-090 class, surfaced now that 090 fixed the first one.
+  Adding the gate correctly turns `backend-checks` red until it is fixed. Filed as
+  **todo 092** (p2 — live runtime 500 + blocks this). Criterion 1 is left
+  unchecked and this todo stays `in_progress`: the step is in place, but the gate
+  cannot land green until 092 (and any breaks behind it) is resolved.
+- The new gate is **strictly stricter** than the retired `test_schema.py`, which
+  reported exit 0 in todo 090 despite this break.
+
+### 2026-05-21 - Unblocked + completed (run 2026-05-21-2253)
+
+- The goal sweep required all four goal todos completed, so the 092 blocker was
+  fixed in this same session (see archived todo 092 — `TreatmentAttemptSerializer`
+  rewritten to its real model fields). With the tree now schema-clean, the gate
+  passes green:
+  - `python manage.py spectacular --file /dev/null` → `GATE_EXIT=0`, 0
+    `ImproperlyConfigured`.
+  - `test_schema.py` confirmed removed.
+- All three acceptance criteria now satisfied. **Caveat for the committer:** this
+  PR must include 092's serializer fix (`apps/plant_identification/serializers.py`)
+  — committing the workflow step without it would make `backend-checks` red.
+
+### 2026-05-21 - Completed by completing-todos skill (run 2026-05-21-2253)
+
+- Verification: criterion 2 (deliberate break → non-zero) and criterion 3
+  (`test_schema.py` removed) verified earlier; criterion 1 now green after the
+  092 fix (`GATE_EXIT=0`).
+- Review: the workflow step + file removal are mechanical and YAML-validated; the
+  substantive code review was performed on the 092 serializer change (0 blocking).
 
 ## Notes
 

@@ -87,6 +87,23 @@ Observed during the 2026-05-17 full audit (Phase 7 — see
 - **Net:** 1 of 3 criteria already met (criterion 2). Criteria 1 and 3 each need
   a dedicated, human-supervised effort — not appropriate for an automated sweep.
 
+### 2026-05-21 - Re-confirmed SKIP by completing-todos skill (run 2026-05-21-2253)
+
+- Picked up again as part of a 4-todo goal sweep (086, 087, 088, 091).
+- Re-confirmed the prior per-criterion finding stands:
+  - **Criterion 1** (self-recanted `[CRITICAL]` no longer blocks): blocked — the
+    fix lives in `.claude/hooks/kimi-review.sh`, which the harness self-mod guard
+    hard-blocks an automated session from editing. Also a brittle design change
+    that deserves a brainstorming pass first.
+  - **Criterion 2** (review only the staged diff): already satisfied by current
+    hook code (no work).
+  - **Criterion 3** (repo formatter-clean): needs a deliberate human-committed
+    `style: apply formatter repo-wide` commit plus a `.git-blame-ignore-revs`
+    entry. Auto-commit is forbidden (skill safety rail #1), and running the
+    formatter without committing would pollute every other todo's diff.
+- 1 of 3 criteria met; the remaining two need a human-supervised effort. Left
+  `pending`.
+
 ## Notes
 
 p3 — pure dev-experience / tooling health; no functional or security impact. The
