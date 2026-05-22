@@ -138,9 +138,11 @@ class FlutterSecurityScanner:
 
             for pkg in packages:
                 name = pkg.get('package', 'unknown')
-                current = pkg.get('current', {}).get('version', 'unknown')
-                latest = pkg.get('latest', {}).get('version', 'unknown')
-                resolvable = pkg.get('resolvable', {}).get('version', 'unknown')
+                # `flutter pub outdated --json` emits null (not a missing key) for
+                # current/latest when a package is absent or unresolvable, so
+                # `.get(key, {})` returns None, not the default — guard with `or {}`.
+                current = (pkg.get('current') or {}).get('version', 'unknown')
+                latest = (pkg.get('latest') or {}).get('version', 'unknown')
                 is_discontinued = pkg.get('isDiscontinued', False)
 
                 if is_discontinued:
