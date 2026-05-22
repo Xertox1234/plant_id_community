@@ -1,9 +1,10 @@
 name: kimi-review
 
 # Server-side code-review gate. Runs the vendored kimi-review CLI over each PR
-# diff; a [CRITICAL] finding fails the check so branch protection blocks the
-# merge. Unlike the local pre-commit hook, this runs for every contributor
-# regardless of whether they have the kimi-review CLI installed.
+# diff with Tier B agentic verification; a verified CRITICAL finding (engine exit
+# code 2) fails the check so branch protection blocks the merge. Unlike the local
+# pre-commit hook, this runs for every contributor regardless of whether they have
+# the kimi-review CLI installed.
 
 on:
   pull_request:
@@ -28,7 +29,8 @@ jobs:
           python-version: '3.13'
 
       - name: Install kimi-review dependencies
-        run: pip install --quiet openai
+        # The structured-output draft + agentic verify loop need a recent SDK.
+        run: pip install --quiet "openai>=1.40,<2"
 
       - name: Run kimi-review on the PR diff
         env:
@@ -40,18 +42,28 @@ jobs:
             exit 0
           fi
 
-          REVIEW=$(git diff "${{ github.event.pull_request.base.sha }}...HEAD" \
+          # Tier B agentic verify reads the working tree; under the pull_request
+          # trigger that is already the PR-head checkout, so no head-sha is needed.
+          if REVIEW=$(git diff "${{ github.event.pull_request.base.sha }}...HEAD" \
             | python3 scripts/kimi-review \
                 --scope "PR #${{ github.event.pull_request.number }}" \
                 --profile plant_id \
-                --tiers CRITICAL,WARNING 2>&1)
+                --verify agentic \
+                --tiers CRITICAL,WARNING 2>&1); then
+            STATUS=0
+          else
+            STATUS=$?
+          fi
           echo "$REVIEW"
 
-          # Block only on a bracketed [CRITICAL] finding with a body. The
-          # clean-output and "no findings" messages contain the bare word but
-          # never the tag. WARNING findings are reported but do not fail.
-          if printf '%s\n' "$REVIEW" | grep -Eq '[[]CRITICAL[]].*[^[:space:]]'; then
-            echo "::error::kimi-review reported CRITICAL finding(s) — see the log above."
+          # Engine exit 2 = a CRITICAL survived verification → block the merge.
+          if [ "$STATUS" -eq 2 ]; then
+            echo "::error::kimi-review reported a verified CRITICAL finding — see the log above."
             exit 1
+          fi
+          # CI fails closed on any other tool error (the local gate fails open).
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::kimi-review failed to run (exit $STATUS)."
+            exit "$STATUS"
           fi
           echo "kimi-review: no CRITICAL findings."
