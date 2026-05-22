@@ -624,35 +624,27 @@ class SavedCareInstructionsSerializer(serializers.ModelSerializer):
 class TreatmentAttemptSerializer(serializers.ModelSerializer):
     """Serializer for TreatmentAttempt model."""
 
-    diagnosis_info = PlantDiseaseResultSerializer(
-        source="diagnosis_result", read_only=True
+    username = serializers.CharField(
+        source="saved_diagnosis.user.username", read_only=True
     )
-    disease_name = serializers.CharField(
-        source="diagnosis_result.suggested_disease_name", read_only=True
+    treatment_name = serializers.CharField(
+        source="treatment.treatment_name", read_only=True
     )
-    username = serializers.CharField(source="user.username", read_only=True)
 
     class Meta:
         model = TreatmentAttempt
         fields = [
             "id",
-            "uuid",
-            "user",
-            "username",
-            "diagnosis_result",
-            "diagnosis_info",
-            "disease_name",
+            "saved_diagnosis",
+            "treatment",
             "treatment_name",
-            "treatment_type",
-            "application_method",
-            "dosage_frequency",
-            "start_date",
-            "expected_duration",
-            "completed",
-            "completion_date",
-            "effectiveness",
-            "notes",
-            "completion_notes",
+            "username",
+            "started_date",
+            "completed_date",
+            "effectiveness_rating",
+            "success",
+            "user_notes",
+            "side_effects",
             "created_at",
             "updated_at",
         ]

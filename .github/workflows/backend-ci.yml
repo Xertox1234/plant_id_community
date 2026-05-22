@@ -59,3 +59,13 @@ jobs:
 
       - name: Run Django system checks
         run: python manage.py check
+
+      - name: Validate OpenAPI schema generation
+        # Catches serializer<->model field drift: a serializer referencing a
+        # non-existent model field raises ImproperlyConfigured during generation,
+        # which silently breaks /api/schema, /api/docs and /api/redoc AND crashes
+        # the affected endpoint at runtime. Schema generation aborts (non-zero
+        # exit) on such errors, failing the job. No --fail-on-warn yet: the
+        # pre-existing "unable to guess serializer" warnings on auth APIViews are
+        # warnings, not errors, and must not fail the build.
+        run: python manage.py spectacular --file /dev/null

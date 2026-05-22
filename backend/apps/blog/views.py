@@ -322,6 +322,7 @@ class BlogAuthorViewSet(viewsets.ReadOnlyModelViewSet):
         return (
             BlogAuthorPage.objects.filter(author__blogpostpage__live=True)
             .select_related("author")
+            .prefetch_related("expertise_areas")
             .annotate(
                 _post_count=Count(
                     "author__blogpostpage",

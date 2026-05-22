@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "088"
 tags: [performance, n+1, blog]
@@ -41,10 +41,10 @@ of authors on the page.
 
 ## Acceptance Criteria
 
-- [ ] `/blog/authors/` list issues a constant number of `taggit_tag` queries
+- [x] `/blog/authors/` list issues a constant number of `taggit_tag` queries
       regardless of author count (verified by a strict query-count test —
       extend `apps/blog/tests/test_n_plus_1.py`).
-- [ ] `python manage.py test apps.blog --noinput` passes.
+- [x] `python manage.py test apps.blog --noinput` passes.
 
 ## Work Log
 
@@ -52,3 +52,34 @@ of authors on the page.
 
 - Surfaced during todo 079 (N+1 serializer counts) — flagged as an out-of-scope
   sibling N+1 on the same endpoint and deferred to this follow-up.
+
+### 2026-05-21 - Started by completing-todos skill (run 2026-05-21-2253)
+
+- Picked up by automated workflow.
+
+### 2026-05-21 - Implemented + verified (run 2026-05-21-2253)
+
+- **Fix:** added `.prefetch_related("expertise_areas")` to
+  `BlogAuthorViewSet.get_queryset()` (`apps/blog/views.py`). `expertise_areas`
+  is a `ClusterTaggableManager`; `BlogAuthorSerializer.expertise_areas`
+  (`TagListSerializerField`) reads `obj.expertise_areas.all()`, which taggit
+  resolves with a `taggit_tag` SELECT — one per author without the prefetch.
+- **Test (TDD):** added `_measure_taggit_queries()` + `test_no_expertise_areas_n_plus_1`
+  to `BlogAuthorsListN1Test`, counting only `taggit_tag`-shaped queries (the
+  existing `_measure()` deliberately counts only `COUNT(...)` queries and
+  excludes this N+1, so reusing it would pass vacuously). `_make_author_with_post`
+  now assigns two expertise tags so the path is non-vacuous.
+- **Red (pre-fix):**
+  `AssertionError: 2 != 6 : expertise_areas N+1 on the authors endpoint:
+  taggit_tag query total grew from 2 (2 authors) to 6 (6 authors).`
+- **Green (post-fix):** `Ran 2 tests in 1.620s / OK` for `BlogAuthorsListN1Test`
+  (taggit count constant; existing COUNT test still green).
+- **Full suite:** `python manage.py test apps.blog --noinput` →
+  `Ran 178 tests in 27.222s / OK (skipped=7)`.
+
+### 2026-05-21 - Completed by completing-todos skill (run 2026-05-21-2253)
+
+- Verification: both acceptance criteria passed (taggit query count constant
+  across 2→6 authors; `apps.blog` suite green, 178 tests).
+- Review: code-review-orchestrator routed to django-drf / performance /
+  test-quality reviewers — 0 findings, none blocking.
