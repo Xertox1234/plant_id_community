@@ -20,32 +20,12 @@ import {
 } from '../../services/diagnosisService';
 import { logger } from '../../utils/logger';
 import type {
+  DiagnosisBlock,
   DiagnosisCard,
   DiagnosisReminder,
   TreatmentStatus,
   SeverityAssessment,
 } from '@/types';
-
-/**
- * Custom StreamFieldBlock for diagnosis care instructions
- * (extends beyond blog types to include treatment-specific blocks)
- */
-interface StreamFieldBlock {
-  type: string;
-  value: unknown;
-}
-
-interface StreamFieldValue {
-  title?: string;
-  description?: string;
-  frequency?: string;
-  symptom?: string;
-  what_to_look_for?: string;
-  items?: string[];
-  url?: string;
-  alt_text?: string;
-  caption?: string;
-}
 
 interface ReminderResults {
   results: DiagnosisReminder[];
@@ -79,24 +59,16 @@ function formatDate(dateString: string): string {
 /**
  * StreamField Block Renderer
  */
-function StreamFieldBlockComponent({ block }: { block: StreamFieldBlock }) {
-  const { type, value } = block;
-  const typedValue = value as StreamFieldValue;
-
-  switch (type) {
+function StreamFieldBlockComponent({ block }: { block: DiagnosisBlock }) {
+  switch (block.type) {
     case 'heading':
-      return (
-        <h3 className="text-xl font-semibold text-gray-900 mt-6 mb-3">
-          {typedValue as unknown as string}
-        </h3>
-      );
+      return <h3 className="text-xl font-semibold text-gray-900 mt-6 mb-3">{block.value}</h3>;
 
     case 'paragraph':
-      return (
-        <p className="text-gray-700 mb-4 leading-relaxed">{typedValue as unknown as string}</p>
-      );
+      return <p className="text-gray-700 mb-4 leading-relaxed">{block.value}</p>;
 
-    case 'treatment_step':
+    case 'treatment_step': {
+      const typedValue = block.value;
       return (
         <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-4">
           <div className="flex items-start">
@@ -121,8 +93,10 @@ function StreamFieldBlockComponent({ block }: { block: StreamFieldBlock }) {
           </div>
         </div>
       );
+    }
 
-    case 'symptom_check':
+    case 'symptom_check': {
+      const typedValue = block.value;
       return (
         <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-4">
           <div className="flex items-start">
@@ -146,6 +120,7 @@ function StreamFieldBlockComponent({ block }: { block: StreamFieldBlock }) {
           </div>
         </div>
       );
+    }
 
     case 'prevention_tip':
       return (
@@ -164,7 +139,7 @@ function StreamFieldBlockComponent({ block }: { block: StreamFieldBlock }) {
             </svg>
             <div className="flex-1">
               <h4 className="font-semibold text-green-900 mb-1">Prevention Tip</h4>
-              <p className="text-green-800">{typedValue as unknown as string}</p>
+              <p className="text-green-800">{block.value}</p>
             </div>
           </div>
         </div>
@@ -173,7 +148,7 @@ function StreamFieldBlockComponent({ block }: { block: StreamFieldBlock }) {
     case 'list_block':
       return (
         <ul className="list-disc list-inside space-y-2 mb-4 text-gray-700">
-          {typedValue.items?.map((item, index) => (
+          {block.value.items?.map((item, index) => (
             <li key={index} className="ml-4">
               {item}
             </li>
@@ -181,7 +156,8 @@ function StreamFieldBlockComponent({ block }: { block: StreamFieldBlock }) {
         </ul>
       );
 
-    case 'image':
+    case 'image': {
+      const typedValue = block.value;
       return (
         <div className="mb-6">
           <img
@@ -194,11 +170,12 @@ function StreamFieldBlockComponent({ block }: { block: StreamFieldBlock }) {
           )}
         </div>
       );
+    }
 
     default:
       logger.warn('[StreamFieldBlock] Unknown block type', {
         component: 'StreamFieldBlock',
-        context: { type },
+        context: { block },
       });
       return null;
   }
@@ -626,7 +603,7 @@ export default function DiagnosisDetailPage() {
           {card.care_instructions && card.care_instructions.length > 0 ? (
             <div className="prose prose-green max-w-none">
               {card.care_instructions.map((block, index) => (
-                <StreamFieldBlockComponent key={index} block={block as StreamFieldBlock} />
+                <StreamFieldBlockComponent key={index} block={block as DiagnosisBlock} />
               ))}
             </div>
           ) : (

@@ -47,7 +47,12 @@ def create_error_response(
     status_code: int = status.HTTP_400_BAD_REQUEST,
 ) -> Response:
     """
-    Create standardized error response structure.
+    Create a standardized error response.
+
+    Matches the canonical error shape emitted by
+    ``apps.core.exceptions.custom_exception_handler`` so every API error has the
+    same contract: a flat body with ``error``, ``message``, ``code`` and
+    ``status_code``, plus an optional ``errors`` map for field/detail data.
 
     Args:
         code: Error code identifier (e.g., 'INVALID_CREDENTIALS')
@@ -59,13 +64,13 @@ def create_error_response(
         Response object with standardized error structure
     """
     error_data = {
-        "error": {
-            "code": code,
-            "message": message,
-        }
+        "error": True,
+        "message": message,
+        "code": code,
+        "status_code": status_code,
     }
     if details:
-        error_data["error"]["details"] = details
+        error_data["errors"] = {"detail": details}
 
     return Response(error_data, status=status_code)
 

@@ -64,19 +64,20 @@ class _SplashScreenState extends State<SplashScreen>
         return;
       }
 
-      setState(() {
-        if (_progress >= 100) {
-          timer.cancel();
-          // Navigate to home after completion
-          Future.delayed(const Duration(milliseconds: 300), () {
-            if (mounted) {
-              context.go(AppRoutes.home);
-            }
-          });
-        } else {
+      if (_progress >= 100) {
+        timer.cancel();
+        // Navigate after completion. Kept out of setState because navigation is
+        // a side effect, not a state mutation.
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) {
+            context.go(AppRoutes.home);
+          }
+        });
+      } else {
+        setState(() {
           _progress += 2;
-        }
-      });
+        });
+      }
     });
   }
 

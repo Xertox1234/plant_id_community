@@ -32,6 +32,7 @@ describe('ThreadCard', () => {
     const thread = createMockThread({
       author: {
         id: 1,
+        email: 'plantlover@example.com',
         username: 'plantlover',
         display_name: 'Plant Enthusiast',
       },
@@ -46,8 +47,9 @@ describe('ThreadCard', () => {
     const thread = createMockThread({
       author: {
         id: 1,
+        email: 'plantlover@example.com',
         username: 'plantlover',
-        display_name: null,
+        display_name: undefined,
       },
     });
 
@@ -129,6 +131,7 @@ describe('ThreadCard', () => {
         name: 'Plant Care',
         slug: 'plant-care',
         icon: '🌱',
+        created_at: '2025-01-01T00:00:00Z',
       },
     });
 
@@ -155,6 +158,7 @@ describe('ThreadCard', () => {
         name: 'Plant Care',
         slug: 'plant-care',
         icon: '🌱',
+        created_at: '2025-01-01T00:00:00Z',
       },
     });
 

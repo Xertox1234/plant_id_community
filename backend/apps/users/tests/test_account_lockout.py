@@ -9,19 +9,17 @@ Tests account lockout after failed login attempts including:
 - Lockout expiry and auto-unlock
 """
 
-from django.test import TestCase
+import time
+from unittest.mock import patch
+
+from apps.core.constants import ACCOUNT_LOCKOUT_DURATION, ACCOUNT_LOCKOUT_THRESHOLD
+from apps.core.security import SecurityMonitor
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
-from rest_framework.test import APIClient
+from django.test import TestCase, override_settings
 from rest_framework import status
-from apps.core.security import SecurityMonitor
-from apps.core.constants import (
-    ACCOUNT_LOCKOUT_THRESHOLD,
-    ACCOUNT_LOCKOUT_DURATION,
-)
-from unittest.mock import patch
-import time
+from rest_framework.test import APIClient
 
 User = get_user_model()
 
@@ -33,9 +31,7 @@ class AccountLockoutTestCase(TestCase):
         """Set up test fixtures."""
         self.client = APIClient()
         self.user = User.objects.create_user(
-            username='testuser',
-            email='test@example.com',
-            password='TestPassword123!'
+            username="testuser", email="test@example.com", password="TestPassword123!"
         )
         cache.clear()
 
@@ -49,20 +45,19 @@ class AccountLockoutTestCase(TestCase):
 
         Returns the CSRF token string or None if not available.
         """
-        response = self.client.get('/api/v1/auth/csrf/')
-        csrf_cookie = response.cookies.get('csrftoken')
+        response = self.client.get("/api/v1/auth/csrf/")
+        csrf_cookie = response.cookies.get("csrftoken")
         if csrf_cookie:
             return csrf_cookie.value
         # Fallback: try to get from cookie jar
-        return self.client.cookies.get('csrftoken', None)
+        return self.client.cookies.get("csrftoken", None)
 
     def test_account_locked_after_threshold_failed_attempts(self):
         """Test that account is locked after exceeding failed login threshold."""
         # Make failed login attempts up to threshold
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             is_locked, attempts = SecurityMonitor.track_failed_login_attempt(
-                username='testuser',
-                ip_address='192.168.1.100'
+                username="testuser", ip_address="192.168.1.100"
             )
 
             if i < ACCOUNT_LOCKOUT_THRESHOLD - 1:
@@ -72,7 +67,7 @@ class AccountLockoutTestCase(TestCase):
                 self.assertTrue(is_locked)
 
         # Verify account is locked
-        is_locked, time_remaining = SecurityMonitor.is_account_locked('testuser')
+        is_locked, time_remaining = SecurityMonitor.is_account_locked("testuser")
         self.assertTrue(is_locked)
         self.assertIsNotNone(time_remaining)
         self.assertGreater(time_remaining, 0)
@@ -82,8 +77,7 @@ class AccountLockoutTestCase(TestCase):
         # Lock the account
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
-                username='testuser',
-                ip_address='192.168.1.100'
+                username="testuser", ip_address="192.168.1.100"
             )
 
         # Get CSRF token
@@ -91,60 +85,54 @@ class AccountLockoutTestCase(TestCase):
 
         # Attempt login (even with correct password)
         response = self.client.post(
-            '/api/v1/auth/login/',
-            data={
-                'username': 'testuser',
-                'password': 'TestPassword123!'
-            },
-            HTTP_X_CSRFTOKEN=csrf_token
+            "/api/v1/auth/login/",
+            data={"username": "testuser", "password": "TestPassword123!"},
+            HTTP_X_CSRFTOKEN=csrf_token,
         )
 
         # Should be rejected due to lockout
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertIn('error', response.data)
-        self.assertEqual(response.data['error']['code'], 'ACCOUNT_LOCKED')
+        self.assertIn("error", response.data)
+        self.assertEqual(response.data["code"], "ACCOUNT_LOCKED")
 
     def test_lockout_email_notification_sent(self):
         """Test that email notification is sent on account lockout."""
         # Lock the account
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
-                username='testuser',
-                ip_address='192.168.1.100'
+                username="testuser", ip_address="192.168.1.100"
             )
 
         # Check that email was sent
         self.assertEqual(len(mail.outbox), 1)
         email = mail.outbox[0]
-        self.assertIn('testuser', email.body)
-        self.assertIn('locked', email.subject.lower())
-        self.assertEqual(email.to, ['test@example.com'])
+        self.assertIn("testuser", email.body)
+        self.assertIn("locked", email.subject.lower())
+        self.assertEqual(email.to, ["test@example.com"])
 
     def test_lockout_email_contains_unlock_time(self):
         """Test that lockout email contains unlock time information."""
         # Lock the account
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
-                username='testuser',
-                ip_address='192.168.1.100'
+                username="testuser", ip_address="192.168.1.100"
             )
 
         # Check email content
         email = mail.outbox[0]
-        self.assertIn('Unlocks at:', email.body)
-        self.assertIn('Failed attempts:', email.body)
-        self.assertIn('IP addresses:', email.body)
+        self.assertIn("Unlocks at:", email.body)
+        self.assertIn("Failed attempts:", email.body)
+        self.assertIn("IP addresses:", email.body)
 
     def test_lockout_tracks_multiple_ip_addresses(self):
         """Test that lockout tracks all IP addresses involved in failed attempts."""
         # Make failed attempts from different IPs
-        ips = ['192.168.1.100', '192.168.1.101', '192.168.1.102']
+        ips = ["192.168.1.100", "192.168.1.101", "192.168.1.102"]
 
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             ip = ips[i % len(ips)]
             SecurityMonitor.track_failed_login_attempt(
-                username='testuser',
-                ip_address=ip
+                username="testuser", ip_address=ip
             )
 
         # Check that email contains all IPs
@@ -157,17 +145,15 @@ class AccountLockoutTestCase(TestCase):
         # Make some failed attempts (but not enough to lock)
         for i in range(5):
             SecurityMonitor.track_failed_login_attempt(
-                username='testuser',
-                ip_address='192.168.1.100'
+                username="testuser", ip_address="192.168.1.100"
             )
 
         # Clear failed attempts (simulating successful login)
-        SecurityMonitor._clear_failed_attempts('testuser')
+        SecurityMonitor._clear_failed_attempts("testuser")
 
         # Verify attempts are cleared
         is_locked, attempts = SecurityMonitor.track_failed_login_attempt(
-            username='testuser',
-            ip_address='192.168.1.100'
+            username="testuser", ip_address="192.168.1.100"
         )
 
         # Should be first attempt after clearing
@@ -178,12 +164,11 @@ class AccountLockoutTestCase(TestCase):
         # Lock the account
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
-                username='testuser',
-                ip_address='192.168.1.100'
+                username="testuser", ip_address="192.168.1.100"
             )
 
         # Check initial lockout
-        is_locked, time_remaining = SecurityMonitor.is_account_locked('testuser')
+        is_locked, time_remaining = SecurityMonitor.is_account_locked("testuser")
         self.assertTrue(is_locked)
 
         # Time remaining should be close to lockout duration
@@ -198,17 +183,16 @@ class AccountLockoutTestCase(TestCase):
         # Lock the account
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
-                username='testuser',
-                ip_address='192.168.1.100'
+                username="testuser", ip_address="192.168.1.100"
             )
 
         # Mock time passage (advance time to simulate expiry)
         # We need to patch the time module in the security module specifically
-        with patch('apps.core.security.time.time') as mock_time:
+        with patch("apps.core.security.time.time") as mock_time:
             # Set current time to past lockout expiry
             mock_time.return_value = lock_time + ACCOUNT_LOCKOUT_DURATION + 1
 
-            is_locked, time_remaining = SecurityMonitor.is_account_locked('testuser')
+            is_locked, time_remaining = SecurityMonitor.is_account_locked("testuser")
 
             # Should be unlocked after duration
             self.assertFalse(is_locked)
@@ -219,27 +203,26 @@ class AccountLockoutTestCase(TestCase):
         # Lock the account
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
-                username='testuser',
-                ip_address='192.168.1.100'
+                username="testuser", ip_address="192.168.1.100"
             )
 
         # Verify locked
-        is_locked, _ = SecurityMonitor.is_account_locked('testuser')
+        is_locked, _ = SecurityMonitor.is_account_locked("testuser")
         self.assertTrue(is_locked)
 
         # Manually unlock
-        was_locked = SecurityMonitor.unlock_account('testuser')
+        was_locked = SecurityMonitor.unlock_account("testuser")
         self.assertTrue(was_locked)
 
         # Verify unlocked
-        is_locked, time_remaining = SecurityMonitor.is_account_locked('testuser')
+        is_locked, time_remaining = SecurityMonitor.is_account_locked("testuser")
         self.assertFalse(is_locked)
         self.assertIsNone(time_remaining)
 
     def test_unlock_account_not_locked(self):
         """Test unlocking an account that isn't locked."""
         # Account is not locked
-        was_locked = SecurityMonitor.unlock_account('testuser')
+        was_locked = SecurityMonitor.unlock_account("testuser")
 
         # Should return False (wasn't locked)
         self.assertFalse(was_locked)
@@ -247,21 +230,19 @@ class AccountLockoutTestCase(TestCase):
     def test_lockout_window_time_limit(self):
         """Test that failed attempts outside time window don't count."""
         # Make old failed attempts (mock old timestamps)
-        with patch('time.time') as mock_time:
+        with patch("time.time") as mock_time:
             # Set time to past (outside window)
             old_time = time.time() - 1000  # More than 15 minutes ago
             mock_time.return_value = old_time
 
             for i in range(5):
                 SecurityMonitor.track_failed_login_attempt(
-                    username='testuser',
-                    ip_address='192.168.1.100'
+                    username="testuser", ip_address="192.168.1.100"
                 )
 
         # Make new attempt (within window)
         is_locked, attempts = SecurityMonitor.track_failed_login_attempt(
-            username='testuser',
-            ip_address='192.168.1.100'
+            username="testuser", ip_address="192.168.1.100"
         )
 
         # Old attempts should be filtered out, so not locked
@@ -269,36 +250,32 @@ class AccountLockoutTestCase(TestCase):
 
     def test_different_usernames_independent_lockouts(self):
         """Test that lockout tracking is per-username."""
-        user2 = User.objects.create_user(
-            username='testuser2',
-            email='test2@example.com',
-            password='TestPassword123!'
+        User.objects.create_user(
+            username="testuser2", email="test2@example.com", password="TestPassword123!"
         )
 
         # Lock first user
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
-                username='testuser',
-                ip_address='192.168.1.100'
+                username="testuser", ip_address="192.168.1.100"
             )
 
         # Check first user is locked
-        is_locked, _ = SecurityMonitor.is_account_locked('testuser')
+        is_locked, _ = SecurityMonitor.is_account_locked("testuser")
         self.assertTrue(is_locked)
 
         # Check second user is NOT locked
-        is_locked, _ = SecurityMonitor.is_account_locked('testuser2')
+        is_locked, _ = SecurityMonitor.is_account_locked("testuser2")
         self.assertFalse(is_locked)
 
     def test_lockout_security_alert_triggered(self):
         """Test that security alert is triggered on account lockout."""
         # Mock the alert trigger
-        with patch.object(SecurityMonitor, '_trigger_security_alert') as mock_alert:
+        with patch.object(SecurityMonitor, "_trigger_security_alert") as mock_alert:
             # Lock the account
             for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
                 SecurityMonitor.track_failed_login_attempt(
-                    username='testuser',
-                    ip_address='192.168.1.100'
+                    username="testuser", ip_address="192.168.1.100"
                 )
 
             # Verify alert was triggered
@@ -306,34 +283,31 @@ class AccountLockoutTestCase(TestCase):
             call_args = mock_alert.call_args[0]
 
             # Check alert type
-            self.assertEqual(call_args[0], 'account_lockout')
+            self.assertEqual(call_args[0], "account_lockout")
 
             # Check alert details
             alert_details = call_args[1]
-            self.assertEqual(alert_details['username'], 'testuser')
-            self.assertEqual(alert_details['attempts'], ACCOUNT_LOCKOUT_THRESHOLD)
+            self.assertEqual(alert_details["username"], "testuser")
+            self.assertEqual(alert_details["attempts"], ACCOUNT_LOCKOUT_THRESHOLD)
 
     def test_lockout_with_nonexistent_user(self):
         """Test lockout tracking for non-existent username."""
         # Track failed attempts for non-existent user
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             is_locked, attempts = SecurityMonitor.track_failed_login_attempt(
-                username='nonexistent',
-                ip_address='192.168.1.100'
+                username="nonexistent", ip_address="192.168.1.100"
             )
 
         # Should still lock even if user doesn't exist
         # (prevents username enumeration)
-        is_locked, _ = SecurityMonitor.is_account_locked('nonexistent')
+        is_locked, _ = SecurityMonitor.is_account_locked("nonexistent")
         self.assertTrue(is_locked)
 
     def test_lockout_email_not_sent_if_user_has_no_email(self):
         """Test that lockout email is not sent if user has no email address."""
         # Create user without email
-        user_no_email = User.objects.create_user(
-            username='noemail',
-            email='',
-            password='TestPassword123!'
+        User.objects.create_user(
+            username="noemail", email="", password="TestPassword123!"
         )
 
         # Clear mail outbox
@@ -342,8 +316,7 @@ class AccountLockoutTestCase(TestCase):
         # Lock the account
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
-                username='noemail',
-                ip_address='192.168.1.100'
+                username="noemail", ip_address="192.168.1.100"
             )
 
         # No email should be sent
@@ -354,8 +327,7 @@ class AccountLockoutTestCase(TestCase):
         # Lock the account
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
-                username='testuser',
-                ip_address='192.168.1.100'
+                username="testuser", ip_address="192.168.1.100"
             )
 
         # Get CSRF token
@@ -363,18 +335,15 @@ class AccountLockoutTestCase(TestCase):
 
         # Attempt login
         response = self.client.post(
-            '/api/v1/auth/login/',
-            data={
-                'username': 'testuser',
-                'password': 'TestPassword123!'
-            },
-            HTTP_X_CSRFTOKEN=csrf_token
+            "/api/v1/auth/login/",
+            data={"username": "testuser", "password": "TestPassword123!"},
+            HTTP_X_CSRFTOKEN=csrf_token,
         )
 
         # Check error message includes time information
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        error_details = response.data['error']['details']
-        self.assertIn('minutes', error_details.lower())
+        error_details = response.data["errors"]["detail"]
+        self.assertIn("minutes", error_details.lower())
 
 
 class AccountLockoutIntegrationTestCase(TestCase):
@@ -384,9 +353,7 @@ class AccountLockoutIntegrationTestCase(TestCase):
         """Set up test fixtures."""
         self.client = APIClient()
         self.user = User.objects.create_user(
-            username='testuser',
-            email='test@example.com',
-            password='TestPassword123!'
+            username="testuser", email="test@example.com", password="TestPassword123!"
         )
         cache.clear()
 
@@ -400,94 +367,75 @@ class AccountLockoutIntegrationTestCase(TestCase):
 
         Returns the CSRF token string or None if not available.
         """
-        response = self.client.get('/api/v1/auth/csrf/')
-        csrf_cookie = response.cookies.get('csrftoken')
+        response = self.client.get("/api/v1/auth/csrf/")
+        csrf_cookie = response.cookies.get("csrftoken")
         if csrf_cookie:
             return csrf_cookie.value
         # Fallback: try to get from cookie jar
-        return self.client.cookies.get('csrftoken', None)
+        return self.client.cookies.get("csrftoken", None)
 
+    @override_settings(RATELIMIT_ENABLE=False)
     def test_complete_lockout_flow_via_api(self):
-        """Test complete account lockout flow via API endpoints."""
+        """Account lockout triggers after the threshold of failed logins via the API.
+
+        Rate limiting is disabled here so the lockout path (threshold = 10) is
+        actually reachable; otherwise the 5/15m login rate limit returns 429 at the
+        6th attempt and masks the lockout behavior this test exists to verify.
+        """
         # Get CSRF token
         csrf_token = self.get_csrf_token()
 
-        # Make failed login attempts
-        last_response = None
+        # Make failed login attempts up to the lockout threshold
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             response = self.client.post(
-                '/api/v1/auth/login/',
-                data={
-                    'username': 'testuser',
-                    'password': 'WrongPassword123!'
-                },
-                HTTP_X_CSRFTOKEN=csrf_token
+                "/api/v1/auth/login/",
+                data={"username": "testuser", "password": "WrongPassword123!"},
+                HTTP_X_CSRFTOKEN=csrf_token,
             )
 
             if i < ACCOUNT_LOCKOUT_THRESHOLD - 1:
-                # Should fail with invalid credentials (401), rate limiting (429), or permission denied (403)
-                self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN, status.HTTP_429_TOO_MANY_REQUESTS])
+                # Wrong password before the threshold → invalid credentials.
+                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
             else:
-                # Last attempt should trigger account lockout (429) or rate limiting (403)
-                # Note: Rate limiting (@ratelimit 5/15m) may trigger before account lockout (10 attempts)
-                last_response = response
-                self.assertIn(response.status_code, [status.HTTP_429_TOO_MANY_REQUESTS, status.HTTP_403_FORBIDDEN])
+                # Final attempt crosses the threshold → account locked.
+                self.assertEqual(
+                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS
+                )
+                self.assertEqual(response.data["code"], "ACCOUNT_LOCKED")
 
-        # Verify email was sent only if account lockout was triggered (not just rate limiting)
-        # Rate limit (5/15m) may trigger 429 BEFORE lockout threshold (10 attempts) is reached
-        # Check response data to distinguish lockout 429 from rate-limit 429
-        lockout_triggered = (
-            last_response is not None
-            and last_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-            and hasattr(last_response, 'data')
-            and isinstance(last_response.data.get('error'), dict)
-            and last_response.data['error'].get('code') == 'ACCOUNT_LOCKED'
-        )
-        if lockout_triggered:
-            self.assertEqual(len(mail.outbox), 1)
-        # else: rate limiting blocked before lockout - no email expected
+        # Lockout sends exactly one notification email.
+        self.assertEqual(len(mail.outbox), 1)
 
-        # Attempt login with correct password (should still be locked or rate limited)
+        # A subsequent attempt with the correct password is still rejected because
+        # the account is locked.
         response = self.client.post(
-            '/api/v1/auth/login/',
-            data={
-                'username': 'testuser',
-                'password': 'TestPassword123!'
-            },
-            HTTP_X_CSRFTOKEN=csrf_token
+            "/api/v1/auth/login/",
+            data={"username": "testuser", "password": "TestPassword123!"},
+            HTTP_X_CSRFTOKEN=csrf_token,
         )
 
-        # Should be either account locked (429) or rate limited (403)
-        self.assertIn(response.status_code, [status.HTTP_429_TOO_MANY_REQUESTS, status.HTTP_403_FORBIDDEN])
-        if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
-            error = response.data.get('error')
-            if isinstance(error, dict):
-                self.assertEqual(error.get('code'), 'ACCOUNT_LOCKED')
-            # else: plain rate-limit 429 (not account lockout), no code assertion needed
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.data["code"], "ACCOUNT_LOCKED")
 
     def test_lockout_cleared_after_successful_login_post_expiry(self):
         """Test that account can login successfully after lockout expires."""
         # Lock account
         for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
-                username='testuser',
-                ip_address='192.168.1.100'
+                username="testuser", ip_address="192.168.1.100"
             )
 
         # Manually unlock (simulating expiry)
-        SecurityMonitor.unlock_account('testuser')
+        SecurityMonitor.unlock_account("testuser")
 
         # Get CSRF token
         csrf_token = self.get_csrf_token()
 
         # Login should succeed
         response = self.client.post(
-            '/api/v1/auth/login/',
-            data={
-                'username': 'testuser',
-                'password': 'TestPassword123!'
-            },
-            HTTP_X_CSRFTOKEN=csrf_token
+            "/api/v1/auth/login/",
+            data={"username": "testuser", "password": "TestPassword123!"},
+            HTTP_X_CSRFTOKEN=csrf_token,
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

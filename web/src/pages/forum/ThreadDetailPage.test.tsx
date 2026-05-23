@@ -7,6 +7,7 @@ import ThreadDetailPage from './ThreadDetailPage';
 import { createMockThread, createMockPost } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
 import { useAuth } from '../../contexts/AuthContext';
+import type { AuthContextValue } from '../../contexts/AuthContext';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -42,9 +43,11 @@ vi.mock('../../components/forum/TipTapEditor', () => ({
 function renderThreadDetailPage(
   categorySlug = 'plant-care',
   threadSlug = 'watering-tips',
-  authState = { user: null, isAuthenticated: false }
+  authState: Partial<AuthContextValue> = { user: null, isAuthenticated: false }
 ) {
-  useAuth.mockReturnValue(authState);
+  // The component only reads user/isAuthenticated; useAuth is fully mocked, so a
+  // partial value is sufficient for these render tests.
+  vi.mocked(useAuth).mockReturnValue(authState as AuthContextValue);
 
   return render(
     <MemoryRouter initialEntries={[`/forum/${categorySlug}/${threadSlug}`]}>
@@ -101,6 +104,7 @@ describe('ThreadDetailPage', () => {
       title: 'How to water succulents?',
       author: {
         id: 1,
+        email: 'gardener@example.com',
         username: 'gardener',
         display_name: 'Master Gardener',
       },
@@ -133,6 +137,7 @@ describe('ThreadDetailPage', () => {
         name: 'Plant Care',
         slug: 'plant-care',
         icon: '🌱',
+        created_at: '2025-01-01T00:00:00Z',
       },
     });
 
@@ -262,7 +267,7 @@ describe('ThreadDetailPage', () => {
     });
 
     renderThreadDetailPage('plant-care', 'watering-tips', {
-      user: { id: 1, username: 'testuser' },
+      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
       isAuthenticated: true,
     });
 
@@ -283,7 +288,7 @@ describe('ThreadDetailPage', () => {
     });
 
     renderThreadDetailPage('plant-care', 'watering-tips', {
-      user: { id: 1, username: 'testuser' },
+      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
       isAuthenticated: true,
     });
 
@@ -304,7 +309,7 @@ describe('ThreadDetailPage', () => {
     const createPostSpy = vi.spyOn(forumService, 'createPost').mockResolvedValue(newPost);
 
     const { container } = renderThreadDetailPage('plant-care', 'watering-tips', {
-      user: { id: 1, username: 'testuser' },
+      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
       isAuthenticated: true,
     });
 
@@ -339,7 +344,7 @@ describe('ThreadDetailPage', () => {
     });
 
     renderThreadDetailPage('plant-care', 'watering-tips', {
-      user: { id: 1, username: 'testuser' },
+      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
       isAuthenticated: true,
     });
 
@@ -368,7 +373,7 @@ describe('ThreadDetailPage', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     renderThreadDetailPage('plant-care', 'watering-tips', {
-      user: { id: 1, username: 'testuser' },
+      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
       isAuthenticated: true,
     });
 
@@ -486,7 +491,7 @@ describe('ThreadDetailPage', () => {
     vi.spyOn(forumService, 'createPost').mockResolvedValue(newPost);
 
     const { container } = renderThreadDetailPage('plant-care', 'watering-tips', {
-      user: { id: 1, username: 'testuser' },
+      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
       isAuthenticated: true,
     });
 

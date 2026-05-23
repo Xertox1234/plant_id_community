@@ -8,6 +8,7 @@ API endpoints for community events, seasonal templates, and weather alerts.
 import math
 from typing import Optional
 
+from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -1223,17 +1224,31 @@ class PlantViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Create PlantImage
-        plant_image = PlantImage.objects.create(
-            plant=plant,
-            image=image_file,
-            caption=request.data.get("caption", ""),
-            is_primary=request.data.get("is_primary", False),
-        )
+        # Create PlantImage. Lock the plant row and re-check the count inside the
+        # transaction so two concurrent uploads cannot both pass the limit check
+        # (the check at the top of this method is only an early-exit optimization).
+        with transaction.atomic():
+            locked_plant = Plant.objects.select_for_update().get(pk=plant.pk)
+            if locked_plant.images.count() >= MAX_IMAGES_PER_PLANT:
+                return Response(
+                    {
+                        "error": f"Maximum {MAX_IMAGES_PER_PLANT} images allowed per plant"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        # If setting as primary, unset other images
-        if plant_image.is_primary:
-            plant.images.exclude(uuid=plant_image.uuid).update(is_primary=False)
+            plant_image = PlantImage.objects.create(
+                plant=locked_plant,
+                image=image_file,
+                caption=request.data.get("caption", ""),
+                is_primary=request.data.get("is_primary", False),
+            )
+
+            # If setting as primary, unset other images
+            if plant_image.is_primary:
+                locked_plant.images.exclude(uuid=plant_image.uuid).update(
+                    is_primary=False
+                )
 
         serializer = PlantImageSerializer(plant_image, context={"request": request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)

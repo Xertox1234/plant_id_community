@@ -516,12 +516,13 @@ class PopularPostsAPITests(TestCase):
 
         query_count = len(context.captured_queries)
 
-        # N+1 fixed: popular action now uses list-branch prefetch (select_related + prefetch_related + annotate).
-        # Measured: ~14 queries for 5 posts (was ~26). Ceiling set at 20 to tolerate minor env variance.
-        self.assertLessEqual(
+        # N+1 fixed: popular action uses list-branch prefetch (select_related +
+        # prefetch_related + annotate). Pinned exactly so any added query (N+1
+        # regression) fails the test. Measured: 8 queries for 5 posts.
+        self.assertEqual(
             query_count,
-            20,
-            f"Query count too high: {query_count} queries. "
+            8,
+            f"Query count changed: {query_count} queries (expected 8). "
             f"Queries: {[q['sql'][:100] for q in context.captured_queries]}",
         )
 
@@ -541,9 +542,12 @@ class PopularPostsAPITests(TestCase):
 
         query_count = len(context.captured_queries)
 
-        # N+1 fixed: popular action now uses list-branch prefetch. Measured: ~13 queries for 5 posts.
-        self.assertLessEqual(
-            query_count, 20, f"All-time query count too high: {query_count} queries"
+        # N+1 fixed: popular action uses list-branch prefetch. Pinned exactly to
+        # catch regressions. Measured: 7 queries for 5 posts.
+        self.assertEqual(
+            query_count,
+            7,
+            f"All-time query count changed: {query_count} queries (expected 7)",
         )
 
         print(f"\n[PERF] All-time popular query count: {query_count} queries")
@@ -783,20 +787,15 @@ class TrendingIndexTests(TestCase):
             )
             print(explain_output)
 
-            # Verify query completes quickly (main performance indicator)
-            # Should be <100ms even with Seq Scan on small test data
+            # Verify the query planned and executed under EXPLAIN ANALYZE. The
+            # absolute execution time is logged for monitoring but NOT asserted —
+            # wall-clock query time is environment-dependent and flaky under CI.
             self.assertIn("Execution Time:", explain_output)
-            # Extract execution time
             for line in explain_output.split("\n"):
                 if "Execution Time:" in line:
                     exec_time_str = line.split("Execution Time:")[1].strip()
                     exec_time_ms = float(exec_time_str.split(" ")[0])
-                    self.assertLess(
-                        exec_time_ms,
-                        100.0,
-                        f"Query took {exec_time_ms}ms (expected <100ms)",
-                    )
-                    print(f"[PERF] Query executed in {exec_time_ms}ms (target: <100ms)")
+                    print(f"[PERF] Trending query executed in {exec_time_ms}ms")
                     break
 
     def test_trending_query_correctness(self):

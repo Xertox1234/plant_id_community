@@ -28,6 +28,7 @@ describe('PostCard', () => {
     const post = createMockPost({
       author: {
         id: 1,
+        email: 'plantlover@example.com',
         username: 'plantlover',
         display_name: 'Green Thumb',
         trust_level: 'member',
@@ -44,8 +45,9 @@ describe('PostCard', () => {
     const post = createMockPost({
       author: {
         id: 1,
+        email: 'plantlover@example.com',
         username: 'plantlover',
-        display_name: null,
+        display_name: undefined,
         trust_level: 'basic',
       },
     });
@@ -195,6 +197,7 @@ describe('PostCard', () => {
     const post = createMockPost({
       author: {
         id: 1,
+        email: 'gardener@example.com',
         username: 'gardener',
         display_name: 'Garden Expert',
         trust_level: 'regular',
@@ -211,8 +214,9 @@ describe('PostCard', () => {
     const post = createMockPost({
       author: {
         id: 1,
+        email: 'plantlover@example.com',
         username: 'plantlover',
-        display_name: null,
+        display_name: undefined,
         trust_level: 'basic',
       },
     });

@@ -33,7 +33,15 @@ abstract class AppRoutes {
 /// Router provider for the app
 @riverpod
 GoRouter appRouter(Ref ref) {
-  final authState = ref.watch(authServiceProvider);
+  // Re-run redirects when auth status flips without rebuilding the whole router.
+  // Watching the auth provider here would recreate GoRouter on every auth change
+  // and discard navigation state; refreshListenable keeps the instance stable.
+  final authChanged = ValueNotifier<int>(0);
+  ref.listen(
+    authServiceProvider.select((state) => state.isAuthenticated),
+    (_, _) => authChanged.value++,
+  );
+  ref.onDispose(authChanged.dispose);
 
   // Protected routes that require authentication
   const protectedRoutes = {AppRoutes.profile, AppRoutes.garden};
@@ -43,8 +51,9 @@ GoRouter appRouter(Ref ref) {
   return GoRouter(
     initialLocation: AppRoutes.splash,
     debugLogDiagnostics: kDebugMode,
+    refreshListenable: authChanged,
     redirect: (context, state) {
-      final isAuthenticated = authState.isAuthenticated;
+      final isAuthenticated = ref.read(authServiceProvider).isAuthenticated;
       final location = state.uri.path;
 
       // Redirect unauthenticated users away from protected routes

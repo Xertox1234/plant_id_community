@@ -4,14 +4,18 @@ Firebase Authentication Views for Mobile App Integration
 This module handles authentication between Firebase (mobile app) and Django (backend).
 It validates Firebase ID tokens and exchanges them for Django JWT tokens.
 """
+
 from __future__ import annotations
 
 import logging
 import uuid
-from typing import Dict, Any, Tuple, Optional
+from typing import Optional, Tuple
 
-from django.conf import settings
+import firebase_admin
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
+from firebase_admin import auth as firebase_auth
+from firebase_admin import credentials
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -19,11 +23,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-import firebase_admin
-from firebase_admin import auth as firebase_auth, credentials
-
 # Federated providers that self-verify email — no explicit email_verified check needed.
-_TRUSTED_FIREBASE_PROVIDERS = frozenset({'google.com', 'apple.com'})
+_TRUSTED_FIREBASE_PROVIDERS = frozenset({"google.com", "apple.com"})
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -45,10 +46,10 @@ def redact_email(email: str) -> str:
     Returns:
         Redacted email string safe for logs
     """
-    if not email or '@' not in email:
-        return '***'
+    if not email or "@" not in email:
+        return "***"
 
-    local, domain = email.split('@', 1)
+    local, domain = email.split("@", 1)
     if len(local) <= 2:
         return f"{'*' * len(local)}@{domain}"
 
@@ -85,7 +86,7 @@ def _ensure_firebase_initialized() -> None:
     _firebase_initialized = True
 
 
-@api_view(['POST'])
+@api_view(["POST"])
 @permission_classes([AllowAny])
 def firebase_token_exchange(request: Request) -> Response:
     """
@@ -129,29 +130,33 @@ def firebase_token_exchange(request: Request) -> Response:
 
     try:
         # Extract Firebase token from request
-        firebase_token = request.data.get('firebase_token')
+        firebase_token = request.data.get("firebase_token")
 
         if not firebase_token:
             logger.warning("[FIREBASE AUTH] No firebase_token in request")
             return Response(
                 {"error": "firebase_token is required"},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         # Validate Firebase token
         try:
             decoded_token = firebase_auth.verify_id_token(firebase_token)
-            firebase_uid = decoded_token['uid']
-            firebase_email = decoded_token.get('email')
-            email_verified = bool(decoded_token.get('email_verified'))
-            sign_in_provider = (
-                decoded_token.get('firebase', {}).get('sign_in_provider', '')
+            firebase_uid = decoded_token["uid"]
+            firebase_email = decoded_token.get("email")
+            email_verified = bool(decoded_token.get("email_verified"))
+            sign_in_provider = decoded_token.get("firebase", {}).get(
+                "sign_in_provider", ""
             )
 
             # Reject unverified-email tokens to prevent account takeover via Firebase
             # email/password sign-up to a never-verified address that collides with an
             # existing Django user. Federated providers (Google, Apple) self-verify.
-            if firebase_email and not email_verified and sign_in_provider not in _TRUSTED_FIREBASE_PROVIDERS:
+            if (
+                firebase_email
+                and not email_verified
+                and sign_in_provider not in _TRUSTED_FIREBASE_PROVIDERS
+            ):
                 logger.warning(
                     f"[FIREBASE AUTH] Rejected unverified email login "
                     f"(provider={sign_in_provider}, email={redact_email(firebase_email)})"
@@ -161,7 +166,9 @@ def firebase_token_exchange(request: Request) -> Response:
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
-            logger.info(f"[FIREBASE AUTH] Token validated for uid={firebase_uid}, email={redact_email(firebase_email)}")
+            logger.info(
+                f"[FIREBASE AUTH] Token validated for uid={firebase_uid}, email={redact_email(firebase_email)}"
+            )
 
         except firebase_auth.ExpiredIdTokenError as e:
             # NOTE: ExpiredIdTokenError must be caught before InvalidIdTokenError
@@ -169,19 +176,18 @@ def firebase_token_exchange(request: Request) -> Response:
             logger.warning(f"[FIREBASE AUTH] Expired Firebase token: {str(e)}")
             return Response(
                 {"error": "Firebase token has expired"},
-                status=status.HTTP_401_UNAUTHORIZED
+                status=status.HTTP_401_UNAUTHORIZED,
             )
         except firebase_auth.InvalidIdTokenError as e:
             logger.warning(f"[FIREBASE AUTH] Invalid Firebase token: {str(e)}")
             return Response(
-                {"error": "Invalid Firebase token"},
-                status=status.HTTP_401_UNAUTHORIZED
+                {"error": "Invalid Firebase token"}, status=status.HTTP_401_UNAUTHORIZED
             )
         except Exception as e:
             logger.error(f"[FIREBASE AUTH ERROR] Token verification failed: {str(e)}")
             return Response(
                 {"error": "Token verification failed"},
-                status=status.HTTP_401_UNAUTHORIZED
+                status=status.HTTP_401_UNAUTHORIZED,
             )
 
         # Get or create Django user. display_name comes from the verified
@@ -189,13 +195,17 @@ def firebase_token_exchange(request: Request) -> Response:
         user, created = get_or_create_user_from_firebase(
             firebase_uid=firebase_uid,
             firebase_email=firebase_email,
-            display_name=decoded_token.get('name'),
+            display_name=decoded_token.get("name"),
+            email_verified=email_verified
+            or sign_in_provider in _TRUSTED_FIREBASE_PROVIDERS,
         )
 
         if created:
             logger.info(f"[FIREBASE AUTH] Created new user: {redact_email(user.email)}")
         else:
-            logger.info(f"[FIREBASE AUTH] Existing user authenticated: {redact_email(user.email)}")
+            logger.info(
+                f"[FIREBASE AUTH] Existing user authenticated: {redact_email(user.email)}"
+            )
 
         # Generate Django JWT tokens
         refresh = RefreshToken.for_user(user)
@@ -203,22 +213,33 @@ def firebase_token_exchange(request: Request) -> Response:
         refresh_token = str(refresh)
 
         # Return tokens and user info
-        return Response({
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "display_name": user.get_full_name() or user.username,
-                "is_active": user.is_active,
-            }
-        }, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "display_name": user.get_full_name() or user.username,
+                    "is_active": user.is_active,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    except ValueError as e:
+        # Account-linking conflict (e.g., the email is already bound to a different
+        # Firebase UID). Fail closed with a 409 rather than an opaque 500.
+        logger.warning(f"[FIREBASE AUTH] Account linking conflict: {str(e)}")
+        return Response(
+            {"error": "Account linking conflict"}, status=status.HTTP_409_CONFLICT
+        )
 
     except Exception as e:
         logger.error(f"[FIREBASE AUTH ERROR] Unexpected error: {str(e)}")
         return Response(
             {"error": "Internal server error"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
 
@@ -226,6 +247,7 @@ def get_or_create_user_from_firebase(
     firebase_uid: str,
     firebase_email: str,
     display_name: Optional[str] = None,
+    email_verified: bool = False,
 ) -> Tuple[User, bool]:
     """
     Get or create a Django user from Firebase credentials.
@@ -238,34 +260,81 @@ def get_or_create_user_from_firebase(
         firebase_uid: Firebase user ID
         firebase_email: User's email from Firebase
         display_name: Optional display name for new users
+        email_verified: Whether the caller has proven control of the email
+            (Firebase `email_verified` claim, or a trusted federated provider).
+            Required before linking/backfilling a UID onto an existing email
+            account — prevents account takeover via an unverified email.
 
     Returns:
         Tuple of (User instance, created boolean)
 
     Raises:
-        ValueError: If email is invalid or empty
+        ValueError: If email is invalid, already bound to a different Firebase
+            UID, or unverified when linking to an existing account.
     """
-    if not firebase_email or '@' not in firebase_email:
+    if not firebase_email or "@" not in firebase_email:
         raise ValueError(f"Invalid Firebase email: {firebase_email}")
 
-    # Try to find existing user by email
+    # Prefer the stable Firebase UID. Linking by email alone is a takeover risk
+    # if an email is ever reassigned at the identity provider.
     try:
-        user = User.objects.get(email=firebase_email)
-        created = False
-
-        # Update display name if provided and user has none
+        user = User.objects.get(firebase_uid=firebase_uid)
         if display_name and not user.first_name:
             user.first_name = display_name
-            user.save()
-            logger.info(f"[FIREBASE AUTH] Updated display name for {redact_email(user.email)}")
+            user.save(update_fields=["first_name"])
+            logger.info(
+                f"[FIREBASE AUTH] Updated display name for {redact_email(user.email)}"
+            )
+        return user, False
+    except User.DoesNotExist:
+        pass
 
-        return user, created
+    # Fall back to email for accounts created before UID binding existed.
+    try:
+        user = User.objects.get(email=firebase_email)
+
+        if user.firebase_uid and user.firebase_uid != firebase_uid:
+            # This email is already bound to a different Firebase identity.
+            logger.warning(
+                f"[FIREBASE AUTH] UID mismatch for {redact_email(firebase_email)}: "
+                f"account bound to a different Firebase UID"
+            )
+            raise ValueError("Email is already linked to a different Firebase account")
+
+        # Only link/backfill a UID onto an existing account when the caller has
+        # proven control of the email. Without this, an unverified email could be
+        # used to seize an existing account. (The token-exchange view already
+        # enforces this upstream; re-checked here as defence-in-depth.)
+        if not user.firebase_uid and not email_verified:
+            logger.warning(
+                f"[FIREBASE AUTH] Refused to bind unverified email "
+                f"{redact_email(firebase_email)} to existing account"
+            )
+            raise ValueError(
+                "Email must be verified before linking to an existing account"
+            )
+
+        # Backfill the binding on first sign-in for a legacy email account.
+        update_fields = []
+        if not user.firebase_uid:
+            user.firebase_uid = firebase_uid
+            update_fields.append("firebase_uid")
+        if display_name and not user.first_name:
+            user.first_name = display_name
+            update_fields.append("first_name")
+        if update_fields:
+            user.save(update_fields=update_fields)
+            logger.info(
+                f"[FIREBASE AUTH] Bound Firebase UID for {redact_email(user.email)}"
+            )
+
+        return user, False
 
     except User.DoesNotExist:
         pass
 
     # User doesn't exist - create new user with collision-safe username
-    base_username = firebase_email.split('@')[0]
+    base_username = firebase_email.split("@")[0]
     username = base_username
 
     # Check for username collision
@@ -282,22 +351,30 @@ def get_or_create_user_from_firebase(
         user = User.objects.create(
             email=firebase_email,
             username=username,
-            first_name=display_name or '',
+            first_name=display_name or "",
             is_active=True,
+            firebase_uid=firebase_uid,
         )
-        logger.info(f"[FIREBASE AUTH] Created user '{user.username}' for {redact_email(firebase_email)}")
+        logger.info(
+            f"[FIREBASE AUTH] Created user '{user.username}' for {redact_email(firebase_email)}"
+        )
 
         return user, True
+
+    except IntegrityError:
+        # A concurrent first sign-in for THIS identity won the create race —
+        # return the row it inserted. Match strictly on the unique firebase_uid;
+        # never fall back to email here, or a different identity that won an email
+        # race could be handed this caller's session (account takeover). If no row
+        # matches our UID, fail closed — the retry hits the explicit
+        # "different Firebase account" check and returns 409.
+        existing = User.objects.filter(firebase_uid=firebase_uid).first()
+        if existing is not None:
+            return existing, False
+        raise
 
     except Exception as e:
         logger.error(
             f"[FIREBASE AUTH ERROR] Failed to create user for {redact_email(firebase_email)}: {str(e)}"
         )
         raise
-
-    # NOTE: Store Firebase UID in user profile if you have a UserProfile model
-    # with firebase_uid field:
-    #
-    # if hasattr(user, 'profile') and not user.profile.firebase_uid:
-    #     user.profile.firebase_uid = firebase_uid
-    #     user.profile.save()
