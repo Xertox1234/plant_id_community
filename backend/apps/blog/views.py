@@ -7,6 +7,7 @@ Following the existing pattern from plant identification and forum APIs.
 
 import logging
 
+from apps.core.utils.query_sanitization import escape_search_query
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Prefetch, Q
 from django_filters.rest_framework import DjangoFilterBackend
@@ -111,7 +112,7 @@ class BlogPostPageViewSet(viewsets.ReadOnlyModelViewSet):
         # Filter by tag if provided
         tag = self.request.query_params.get("tag")
         if tag:
-            queryset = queryset.filter(tags__name__icontains=tag)
+            queryset = queryset.filter(tags__name__icontains=escape_search_query(tag))
 
         # Filter by author username if provided
         author_username = self.request.query_params.get("author")
@@ -516,15 +517,18 @@ def blog_search(request):
             {"detail": "Search query is required."}, status=status.HTTP_400_BAD_REQUEST
         )
 
+    # Escape SQL LIKE wildcards before icontains to prevent query-cost abuse.
+    escaped_query = escape_search_query(query)
+
     # Search blog posts
     posts = (
         BlogPostPage.objects.live()
         .public()
         .filter(
-            Q(title__icontains=query)
-            | Q(introduction__icontains=query)
-            | Q(content_blocks__icontains=query)
-            | Q(tags__name__icontains=query)
+            Q(title__icontains=escaped_query)
+            | Q(introduction__icontains=escaped_query)
+            | Q(content_blocks__icontains=escaped_query)
+            | Q(tags__name__icontains=escaped_query)
         )
         .distinct()
         .select_related("author")
@@ -533,7 +537,7 @@ def blog_search(request):
 
     # Search categories
     categories = BlogCategory.objects.filter(
-        Q(name__icontains=query) | Q(description__icontains=query)
+        Q(name__icontains=escaped_query) | Q(description__icontains=escaped_query)
     )[:10]
 
     results = {

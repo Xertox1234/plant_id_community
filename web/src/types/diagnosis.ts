@@ -4,18 +4,80 @@
 
 /**
  * Diagnosis StreamField block types
+ *
+ * Discriminated union: each `type` literal pairs with the matching `value`
+ * shape so consumers can narrow on `block.type` without unsafe casts.
  */
-export interface DiagnosisBlock {
-  type:
-    | 'heading'
-    | 'paragraph'
-    | 'treatment_step'
-    | 'symptom_check'
-    | 'prevention_tip'
-    | 'list_block';
-  value: unknown;
+interface BaseDiagnosisBlock {
   id?: string;
 }
+
+/** CharBlock — simple string value */
+export interface HeadingDiagnosisBlock extends BaseDiagnosisBlock {
+  type: 'heading';
+  value: string;
+}
+
+/** TextBlock — simple string value */
+export interface ParagraphDiagnosisBlock extends BaseDiagnosisBlock {
+  type: 'paragraph';
+  value: string;
+}
+
+/** TextBlock — simple string value */
+export interface PreventionTipDiagnosisBlock extends BaseDiagnosisBlock {
+  type: 'prevention_tip';
+  value: string;
+}
+
+/** StructBlock — title, description, optional frequency */
+export interface TreatmentStepDiagnosisBlock extends BaseDiagnosisBlock {
+  type: 'treatment_step';
+  value: {
+    title?: string;
+    description?: string;
+    frequency?: string;
+  };
+}
+
+/** StructBlock — symptom name and what to look for */
+export interface SymptomCheckDiagnosisBlock extends BaseDiagnosisBlock {
+  type: 'symptom_check';
+  value: {
+    symptom?: string;
+    what_to_look_for?: string;
+  };
+}
+
+/** ListBlock — array of string items */
+export interface ListDiagnosisBlock extends BaseDiagnosisBlock {
+  type: 'list_block';
+  value: {
+    items?: string[];
+  };
+}
+
+/** ImageBlock — rendered in the detail view (not creatable in the editor) */
+export interface ImageDiagnosisBlock extends BaseDiagnosisBlock {
+  type: 'image';
+  value: {
+    url?: string;
+    alt_text?: string;
+    caption?: string;
+  };
+}
+
+export type DiagnosisBlock =
+  | HeadingDiagnosisBlock
+  | ParagraphDiagnosisBlock
+  | PreventionTipDiagnosisBlock
+  | TreatmentStepDiagnosisBlock
+  | SymptomCheckDiagnosisBlock
+  | ListDiagnosisBlock
+  | ImageDiagnosisBlock;
+
+/** The discriminant literal for a diagnosis StreamField block. */
+export type DiagnosisBlockType = DiagnosisBlock['type'];
 
 /**
  * Plant identification result

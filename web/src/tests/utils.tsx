@@ -6,18 +6,17 @@
  */
 
 import { render } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import type { RenderOptions } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from '../contexts/AuthContext';
+import type { BlogPost, StreamFieldBlock } from '@/types/blog';
 
 /**
  * Renders a component with React Router and Auth context.
  * Use this for components that need routing or authentication.
- *
- * @param {React.ReactElement} ui - Component to render
- * @param {Object} options - Render options
- * @returns {Object} Testing Library render result
  */
-export function renderWithRouter(ui, options = {}) {
+export function renderWithRouter(ui: ReactElement, options: Omit<RenderOptions, 'wrapper'> = {}) {
   return render(
     <BrowserRouter>
       <AuthProvider>{ui}</AuthProvider>
@@ -29,23 +28,28 @@ export function renderWithRouter(ui, options = {}) {
 /**
  * Renders a component with only React Router (no Auth context).
  * Use this for components that don't need authentication.
- *
- * @param {React.ReactElement} ui - Component to render
- * @param {Object} options - Render options
- * @returns {Object} Testing Library render result
  */
-export function renderWithRouterOnly(ui, options = {}) {
+export function renderWithRouterOnly(
+  ui: ReactElement,
+  options: Omit<RenderOptions, 'wrapper'> = {}
+) {
   return render(<BrowserRouter>{ui}</BrowserRouter>, options);
 }
 
 /**
  * Creates a mock blog post object for testing.
- *
- * @param {Object} overrides - Properties to override
- * @returns {Object} Mock blog post
  */
-export function createMockBlogPost(overrides = {}) {
+export function createMockBlogPost(overrides: Partial<BlogPost> = {}): BlogPost {
   return {
+    id: 1,
+    meta: {
+      type: 'blog.BlogPage',
+      detail_url: 'https://example.com/api/v2/pages/1/',
+      html_url: 'https://example.com/blog/test-post/',
+      slug: 'test-post',
+      first_published_at: '2025-10-25T10:00:00Z',
+    },
+    content_blocks: [],
     slug: 'test-post',
     title: 'Test Blog Post',
     introduction: '<p>This is a test introduction</p>',
@@ -70,10 +74,8 @@ export function createMockBlogPost(overrides = {}) {
 
 /**
  * Creates mock StreamField blocks for testing.
- *
- * @returns {Array} Array of mock blocks
  */
-export function createMockStreamBlocks() {
+export function createMockStreamBlocks(): StreamFieldBlock[] {
   return [
     {
       id: '1',

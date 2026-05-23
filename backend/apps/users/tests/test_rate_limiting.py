@@ -8,12 +8,11 @@ Tests per-IP and per-user rate limits for authentication endpoints including:
 - Authenticated vs anonymous rate limits
 """
 
-from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
-from rest_framework.test import APIClient
-from rest_framework import status
 from django.core.cache import cache
-import time
+from django.test import TestCase
+from rest_framework import status
+from rest_framework.test import APIClient
 
 User = get_user_model()
 
@@ -25,9 +24,7 @@ class LoginRateLimitingTestCase(TestCase):
         """Set up test fixtures."""
         self.client = APIClient()
         self.user = User.objects.create_user(
-            username='testuser',
-            email='test@example.com',
-            password='TestPassword123!'
+            username="testuser", email="test@example.com", password="TestPassword123!"
         )
         # Clear cache before each test
         cache.clear()
@@ -39,33 +36,27 @@ class LoginRateLimitingTestCase(TestCase):
     def test_login_rate_limit_per_ip(self):
         """Test that login is rate limited to 5 attempts per 15 minutes per IP."""
         # Get CSRF token
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         # Make 5 login attempts (should succeed)
         for i in range(5):
             response = self.client.post(
-                '/api/v1/auth/login/',
-                data={
-                    'username': 'testuser',
-                    'password': 'WrongPassword123!'
-                },
-                HTTP_X_CSRFTOKEN=csrf_token
+                "/api/v1/auth/login/",
+                data={"username": "testuser", "password": "WrongPassword123!"},
+                HTTP_X_CSRFTOKEN=csrf_token,
             )
             # Should fail due to wrong password but not rate limited
             self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED])
 
         # 6th attempt should be rate limited
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         response = self.client.post(
-            '/api/v1/auth/login/',
-            data={
-                'username': 'testuser',
-                'password': 'WrongPassword123!'
-            },
-            HTTP_X_CSRFTOKEN=csrf_token
+            "/api/v1/auth/login/",
+            data={"username": "testuser", "password": "WrongPassword123!"},
+            HTTP_X_CSRFTOKEN=csrf_token,
         )
 
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
@@ -73,81 +64,70 @@ class LoginRateLimitingTestCase(TestCase):
     def test_login_rate_limit_different_ips(self):
         """Test that rate limit is per-IP (different IPs have separate limits)."""
         # Get CSRF token
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         # Make 5 attempts from first IP
         for i in range(5):
             self.client.post(
-                '/api/v1/auth/login/',
-                data={
-                    'username': 'testuser',
-                    'password': 'WrongPassword123!'
-                },
+                "/api/v1/auth/login/",
+                data={"username": "testuser", "password": "WrongPassword123!"},
                 HTTP_X_CSRFTOKEN=csrf_token,
-                REMOTE_ADDR='192.168.1.1'
+                REMOTE_ADDR="192.168.1.1",
             )
 
         # Attempt from different IP should not be rate limited
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         response = self.client.post(
-            '/api/v1/auth/login/',
-            data={
-                'username': 'testuser',
-                'password': 'WrongPassword123!'
-            },
+            "/api/v1/auth/login/",
+            data={"username": "testuser", "password": "WrongPassword123!"},
             HTTP_X_CSRFTOKEN=csrf_token,
-            REMOTE_ADDR='192.168.1.2'
+            REMOTE_ADDR="192.168.1.2",
         )
 
         # Should fail due to wrong password but NOT rate limited
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_successful_login_not_rate_limited(self):
-        """Test that successful logins don't count toward rate limit."""
+    def test_login_rate_limit_counts_successful_attempts(self):
+        """The login rate limit (5/15m) counts every attempt by IP, including
+        successful ones — the 6th login in the window is blocked with 429."""
         # Get CSRF token
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         # Make 5 successful logins
         for i in range(5):
             # Logout if logged in
-            self.client.post('/api/v1/auth/logout/', HTTP_X_CSRFTOKEN=csrf_token)
+            self.client.post("/api/v1/auth/logout/", HTTP_X_CSRFTOKEN=csrf_token)
 
-            csrf_response = self.client.get('/api/v1/auth/csrf/')
-            csrf_token = csrf_response.cookies.get('csrftoken').value
+            csrf_response = self.client.get("/api/v1/auth/csrf/")
+            csrf_token = csrf_response.cookies.get("csrftoken").value
 
             response = self.client.post(
-                '/api/v1/auth/login/',
-                data={
-                    'username': 'testuser',
-                    'password': 'TestPassword123!'
-                },
-                HTTP_X_CSRFTOKEN=csrf_token
+                "/api/v1/auth/login/",
+                data={"username": "testuser", "password": "TestPassword123!"},
+                HTTP_X_CSRFTOKEN=csrf_token,
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # 6th successful login should still work (not rate limited)
-        self.client.post('/api/v1/auth/logout/', HTTP_X_CSRFTOKEN=csrf_token)
+        self.client.post("/api/v1/auth/logout/", HTTP_X_CSRFTOKEN=csrf_token)
 
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         response = self.client.post(
-            '/api/v1/auth/login/',
-            data={
-                'username': 'testuser',
-                'password': 'TestPassword123!'
-            },
-            HTTP_X_CSRFTOKEN=csrf_token
+            "/api/v1/auth/login/",
+            data={"username": "testuser", "password": "TestPassword123!"},
+            HTTP_X_CSRFTOKEN=csrf_token,
         )
 
-        # Note: This might be rate limited by django-ratelimit
-        # The rate limit applies to ALL requests, not just failed ones
-        # So this test may need adjustment based on actual implementation
-        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS])
+        # The @ratelimit(5/15m) decorator counts ALL login POSTs by IP, not just
+        # failed ones, so the 6th attempt in the window is blocked regardless of
+        # whether the credentials are valid.
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
 
 class RegistrationRateLimitingTestCase(TestCase):
@@ -165,36 +145,36 @@ class RegistrationRateLimitingTestCase(TestCase):
     def test_registration_rate_limit_per_ip(self):
         """Test that registration is rate limited to 3 per hour per IP."""
         # Get CSRF token
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         # Make 3 registration attempts (should succeed)
         for i in range(3):
             response = self.client.post(
-                '/api/v1/auth/register/',
+                "/api/v1/auth/register/",
                 data={
-                    'username': f'testuser{i}',
-                    'email': f'test{i}@example.com',
-                    'password': 'TestPassword123!',
-                    'confirmPassword': 'TestPassword123!'
+                    "username": f"testuser{i}",
+                    "email": f"test{i}@example.com",
+                    "password": "TestPassword123!",
+                    "confirmPassword": "TestPassword123!",
                 },
-                HTTP_X_CSRFTOKEN=csrf_token
+                HTTP_X_CSRFTOKEN=csrf_token,
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # 4th attempt should be rate limited
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         response = self.client.post(
-            '/api/v1/auth/register/',
+            "/api/v1/auth/register/",
             data={
-                'username': 'testuser4',
-                'email': 'test4@example.com',
-                'password': 'TestPassword123!',
-                'confirmPassword': 'TestPassword123!'
+                "username": "testuser4",
+                "email": "test4@example.com",
+                "password": "TestPassword123!",
+                "confirmPassword": "TestPassword123!",
             },
-            HTTP_X_CSRFTOKEN=csrf_token
+            HTTP_X_CSRFTOKEN=csrf_token,
         )
 
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
@@ -202,37 +182,37 @@ class RegistrationRateLimitingTestCase(TestCase):
     def test_registration_rate_limit_different_ips(self):
         """Test that registration rate limit is per-IP."""
         # Get CSRF token
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         # Make 3 registrations from first IP
         for i in range(3):
             self.client.post(
-                '/api/v1/auth/register/',
+                "/api/v1/auth/register/",
                 data={
-                    'username': f'testuser{i}',
-                    'email': f'test{i}@example.com',
-                    'password': 'TestPassword123!',
-                    'confirmPassword': 'TestPassword123!'
+                    "username": f"testuser{i}",
+                    "email": f"test{i}@example.com",
+                    "password": "TestPassword123!",
+                    "confirmPassword": "TestPassword123!",
                 },
                 HTTP_X_CSRFTOKEN=csrf_token,
-                REMOTE_ADDR='192.168.1.1'
+                REMOTE_ADDR="192.168.1.1",
             )
 
         # Registration from different IP should work
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         response = self.client.post(
-            '/api/v1/auth/register/',
+            "/api/v1/auth/register/",
             data={
-                'username': 'testuser_different_ip',
-                'email': 'test_different@example.com',
-                'password': 'TestPassword123!',
-                'confirmPassword': 'TestPassword123!'
+                "username": "testuser_different_ip",
+                "email": "test_different@example.com",
+                "password": "TestPassword123!",
+                "confirmPassword": "TestPassword123!",
             },
             HTTP_X_CSRFTOKEN=csrf_token,
-            REMOTE_ADDR='192.168.1.2'
+            REMOTE_ADDR="192.168.1.2",
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -245,23 +225,18 @@ class TokenRefreshRateLimitingTestCase(TestCase):
         """Set up test fixtures."""
         self.client = APIClient()
         self.user = User.objects.create_user(
-            username='testuser',
-            email='test@example.com',
-            password='TestPassword123!'
+            username="testuser", email="test@example.com", password="TestPassword123!"
         )
         cache.clear()
 
         # Login to get refresh token
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         self.client.post(
-            '/api/v1/auth/login/',
-            data={
-                'username': 'testuser',
-                'password': 'TestPassword123!'
-            },
-            HTTP_X_CSRFTOKEN=csrf_token
+            "/api/v1/auth/login/",
+            data={"username": "testuser", "password": "TestPassword123!"},
+            HTTP_X_CSRFTOKEN=csrf_token,
         )
 
     def tearDown(self):
@@ -272,23 +247,23 @@ class TokenRefreshRateLimitingTestCase(TestCase):
         """Test that token refresh is rate limited to 10 per hour."""
         # Make 10 refresh requests (should succeed)
         for i in range(10):
-            csrf_response = self.client.get('/api/v1/auth/csrf/')
-            csrf_token = csrf_response.cookies.get('csrftoken').value
+            csrf_response = self.client.get("/api/v1/auth/csrf/")
+            csrf_token = csrf_response.cookies.get("csrftoken").value
 
             response = self.client.post(
-                '/api/v1/auth/token/refresh/',
-                HTTP_X_CSRFTOKEN=csrf_token
+                "/api/v1/auth/token/refresh/", HTTP_X_CSRFTOKEN=csrf_token
             )
             # Some may fail if token is blacklisted, but should not be rate limited
-            self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_401_UNAUTHORIZED])
+            self.assertIn(
+                response.status_code, [status.HTTP_200_OK, status.HTTP_401_UNAUTHORIZED]
+            )
 
         # 11th attempt should be rate limited
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         response = self.client.post(
-            '/api/v1/auth/token/refresh/',
-            HTTP_X_CSRFTOKEN=csrf_token
+            "/api/v1/auth/token/refresh/", HTTP_X_CSRFTOKEN=csrf_token
         )
 
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
@@ -301,9 +276,7 @@ class RateLimitHeadersTestCase(TestCase):
         """Set up test fixtures."""
         self.client = APIClient()
         self.user = User.objects.create_user(
-            username='testuser',
-            email='test@example.com',
-            password='TestPassword123!'
+            username="testuser", email="test@example.com", password="TestPassword123!"
         )
         cache.clear()
 
@@ -314,18 +287,15 @@ class RateLimitHeadersTestCase(TestCase):
     def test_rate_limit_response_includes_retry_after(self):
         """Test that rate limited responses include Retry-After header."""
         # Get CSRF token
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         # Make requests until rate limited
         for i in range(6):
             response = self.client.post(
-                '/api/v1/auth/login/',
-                data={
-                    'username': 'testuser',
-                    'password': 'WrongPassword123!'
-                },
-                HTTP_X_CSRFTOKEN=csrf_token
+                "/api/v1/auth/login/",
+                data={"username": "testuser", "password": "WrongPassword123!"},
+                HTTP_X_CSRFTOKEN=csrf_token,
             )
 
         if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
@@ -342,9 +312,7 @@ class AnonymousVsAuthenticatedRateLimitsTestCase(TestCase):
         """Set up test fixtures."""
         self.client = APIClient()
         self.user = User.objects.create_user(
-            username='testuser',
-            email='test@example.com',
-            password='TestPassword123!'
+            username="testuser", email="test@example.com", password="TestPassword123!"
         )
         cache.clear()
 
@@ -365,16 +333,13 @@ class AnonymousVsAuthenticatedRateLimitsTestCase(TestCase):
     def test_authentication_increases_rate_limit(self):
         """Test that authenticated users get higher rate limits."""
         # Login
-        csrf_response = self.client.get('/api/v1/auth/csrf/')
-        csrf_token = csrf_response.cookies.get('csrftoken').value
+        csrf_response = self.client.get("/api/v1/auth/csrf/")
+        csrf_token = csrf_response.cookies.get("csrftoken").value
 
         self.client.post(
-            '/api/v1/auth/login/',
-            data={
-                'username': 'testuser',
-                'password': 'TestPassword123!'
-            },
-            HTTP_X_CSRFTOKEN=csrf_token
+            "/api/v1/auth/login/",
+            data={"username": "testuser", "password": "TestPassword123!"},
+            HTTP_X_CSRFTOKEN=csrf_token,
         )
 
         # Test that authenticated user can make more requests

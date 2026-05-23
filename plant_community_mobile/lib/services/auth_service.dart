@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import '../core/utils/log_redaction.dart';
 import 'api_service.dart';
 
 part 'auth_service.g.dart';
@@ -92,7 +93,9 @@ class AuthService extends _$AuthService {
       user,
     ) async {
       if (kDebugMode) {
-        debugPrint('[AUTH] Firebase auth state changed: ${user?.email}');
+        debugPrint(
+          '[AUTH] Firebase auth state changed: ${redactEmail(user?.email)}',
+        );
       }
 
       if (user != null) {
@@ -134,7 +137,7 @@ class AuthService extends _$AuthService {
       state = state.copyWith(isLoading: true, error: null);
 
       if (kDebugMode) {
-        debugPrint('[AUTH] Signing in with email: $email');
+        debugPrint('[AUTH] Signing in with email: ${redactEmail(email)}');
       }
 
       final credential = await _firebaseAuth.signInWithEmailAndPassword(
@@ -144,7 +147,8 @@ class AuthService extends _$AuthService {
 
       if (kDebugMode) {
         debugPrint(
-          '[AUTH] Firebase sign in successful: ${credential.user?.email}',
+          '[AUTH] Firebase sign in successful: '
+          '${redactEmail(credential.user?.email)}',
         );
       }
 
@@ -173,7 +177,7 @@ class AuthService extends _$AuthService {
       state = state.copyWith(isLoading: true, error: null);
 
       if (kDebugMode) {
-        debugPrint('[AUTH] Registering new user: $email');
+        debugPrint('[AUTH] Registering new user: ${redactEmail(email)}');
       }
 
       final credential = await _firebaseAuth.createUserWithEmailAndPassword(
@@ -186,7 +190,9 @@ class AuthService extends _$AuthService {
       await credential.user?.reload();
 
       if (kDebugMode) {
-        debugPrint('[AUTH] User registered: ${credential.user?.email}');
+        debugPrint(
+          '[AUTH] User registered: ${redactEmail(credential.user?.email)}',
+        );
       }
 
       // Auth state listener will handle token exchange

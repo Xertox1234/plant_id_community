@@ -54,9 +54,7 @@ describe('SearchPage', () => {
     vi.clearAllMocks();
 
     // Mock fetchCategories to return empty array by default
-    vi.spyOn(forumService, 'fetchCategories').mockResolvedValue({
-      results: [],
-    });
+    vi.spyOn(forumService, 'fetchCategories').mockResolvedValue([]);
 
     // Mock searchForum to return empty results by default
     vi.spyOn(forumService, 'searchForum').mockResolvedValue(createMockSearchResults());
@@ -90,9 +88,7 @@ describe('SearchPage', () => {
         createMockCategory({ id: '2', name: 'Pest Control', slug: 'pest-control' }),
       ];
 
-      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue({
-        results: mockCategories,
-      });
+      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue(mockCategories);
 
       renderSearchPage();
 
@@ -230,9 +226,7 @@ describe('SearchPage', () => {
         createMockCategory({ id: '1', name: 'Plant Care', slug: 'plant-care' }),
       ];
 
-      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue({
-        results: mockCategories,
-      });
+      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue(mockCategories);
 
       renderSearchPage();
 
@@ -257,9 +251,7 @@ describe('SearchPage', () => {
         createMockCategory({ id: '1', name: 'Plant Care', slug: 'plant-care' }),
       ];
 
-      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue({
-        results: mockCategories,
-      });
+      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue(mockCategories);
 
       renderSearchPage('/forum/search?q=watering');
 
@@ -344,7 +336,7 @@ describe('SearchPage', () => {
         has_next_threads: true, // Need this to show pagination controls
       });
 
-      forumService.searchForum.mockImplementation(() => Promise.resolve(mockResults));
+      vi.mocked(forumService.searchForum).mockImplementation(() => Promise.resolve(mockResults));
 
       renderSearchPage('/forum/search?q=watering');
 
@@ -363,7 +355,7 @@ describe('SearchPage', () => {
         page: 2, // Set page > 1 to ensure pagination controls render
       });
 
-      forumService.searchForum.mockImplementation(() => Promise.resolve(mockResults));
+      vi.mocked(forumService.searchForum).mockImplementation(() => Promise.resolve(mockResults));
 
       renderSearchPage('/forum/search?q=watering&page=2');
 

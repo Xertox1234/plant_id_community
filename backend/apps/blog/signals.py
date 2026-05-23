@@ -17,9 +17,12 @@ Pattern:
 """
 
 import logging
+
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from wagtail.signals import page_published, page_unpublished
+
+from .models import BlogPostPage
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +32,7 @@ logger = logging.getLogger(__name__)
 def get_blog_cache_service():
     """Lazy import to avoid circular dependencies."""
     from .services.blog_cache_service import BlogCacheService
+
     return BlogCacheService
 
 
@@ -51,9 +55,7 @@ def invalidate_blog_cache_on_publish(sender, **kwargs):
     - Cache invalidation: <5ms (delete operations are fast)
     - Acceptable trade-off for cache freshness
     """
-    from .models import BlogPostPage
-
-    instance = kwargs.get('instance')
+    instance = kwargs.get("instance")
 
     # Only handle blog posts (not other Wagtail pages)
     # Use isinstance() check - Wagtail uses multi-table inheritance
@@ -83,9 +85,7 @@ def invalidate_blog_cache_on_unpublish(sender, **kwargs):
     - Invalidate specific post cache (now returns 404)
     - Invalidate ALL list caches (post no longer visible)
     """
-    from .models import BlogPostPage
-
-    instance = kwargs.get('instance')
+    instance = kwargs.get("instance")
 
     # Only handle blog posts
     # Use isinstance() check - Wagtail uses multi-table inheritance
@@ -102,7 +102,7 @@ def invalidate_blog_cache_on_unpublish(sender, **kwargs):
         logger.error(f"[CACHE] Error invalidating cache on unpublish: {e}")
 
 
-@receiver(post_delete)
+@receiver(post_delete, sender=BlogPostPage)
 def invalidate_blog_cache_on_delete(sender, **kwargs):
     """
     Invalidate caches when blog post is deleted.
@@ -114,16 +114,11 @@ def invalidate_blog_cache_on_delete(sender, **kwargs):
     - Invalidate specific post cache (prevent 404 caching)
     - Invalidate ALL list caches (post removed from all lists)
 
-    Note:
-        Uses isinstance() check - sender parameter is less reliable
-        than checking the instance type directly.
+    Scoped to ``sender=BlogPostPage`` so it does not fire on every project-wide
+    delete; the isinstance() guard below is kept as defense-in-depth.
     """
-    from .models import BlogPostPage
+    instance = kwargs.get("instance")
 
-    instance = kwargs.get('instance')
-
-    # Check if this is a BlogPostPage deletion
-    # Use isinstance() for consistency with other signal handlers
     if not instance or not isinstance(instance, BlogPostPage):
         return
 

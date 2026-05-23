@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import StreamFieldRenderer from './StreamFieldRenderer';
+import type { StreamFieldBlock } from '@/types/blog';
 
 describe('StreamFieldRenderer', () => {
   describe('Basic Rendering', () => {
@@ -22,7 +23,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('renders multiple blocks', () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         { id: '1', type: 'heading', value: 'Heading 1' },
         { id: '2', type: 'heading', value: 'Heading 2' },
       ];
@@ -36,7 +37,7 @@ describe('StreamFieldRenderer', () => {
 
   describe('Block Types', () => {
     it('renders heading block', () => {
-      const blocks = [{ id: '1', type: 'heading', value: 'Test Heading' }];
+      const blocks: StreamFieldBlock[] = [{ id: '1', type: 'heading', value: 'Test Heading' }];
       render(<StreamFieldRenderer blocks={blocks} />);
 
       const heading = screen.getByText('Test Heading');
@@ -45,7 +46,9 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('renders paragraph block with sanitized HTML', async () => {
-      const blocks = [{ id: '1', type: 'paragraph', value: '<p>Safe paragraph text</p>' }];
+      const blocks: StreamFieldBlock[] = [
+        { id: '1', type: 'paragraph', value: '<p>Safe paragraph text</p>' },
+      ];
       render(<StreamFieldRenderer blocks={blocks} />);
 
       await waitFor(() => {
@@ -56,14 +59,14 @@ describe('StreamFieldRenderer', () => {
     // Removed tests for image block (block no longer supported - TODO #033)
 
     it('renders quote block with string value', () => {
-      const blocks = [{ id: '1', type: 'quote', value: 'Test quote text' }];
+      const blocks: StreamFieldBlock[] = [{ id: '1', type: 'quote', value: 'Test quote text' }];
       render(<StreamFieldRenderer blocks={blocks} />);
 
       expect(screen.getByText('Test quote text')).toBeInTheDocument();
     });
 
     it('renders quote block with object value and attribution', () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'quote',
@@ -81,7 +84,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('renders quote block with canonical quote_text field', async () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'quote',
@@ -101,7 +104,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('renders code block', () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'code',
@@ -120,7 +123,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('renders plant_spotlight block with all fields', async () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'plant_spotlight',
@@ -146,7 +149,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('renders plant_spotlight block with canonical backend fields', async () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'plant_spotlight',
@@ -179,7 +182,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('renders call_to_action block', () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'call_to_action',
@@ -203,7 +206,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('renders call_to_action block with canonical backend fields', async () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'call_to_action',
@@ -227,7 +230,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('does not render an empty call_to_action link when button text is missing', () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'call_to_action',
@@ -248,13 +251,15 @@ describe('StreamFieldRenderer', () => {
     // Removed tests for list and embed blocks (blocks no longer supported - TODO #033)
 
     it('renders unsupported block type with warning', () => {
-      const blocks = [
+      // Deliberately an out-of-union type to exercise the default/fallback path
+      // for unknown backend blocks.
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'unknown_block_type',
           value: 'Some value',
         },
-      ];
+      ] as unknown as StreamFieldBlock[];
 
       render(<StreamFieldRenderer blocks={blocks} />);
 
@@ -265,7 +270,7 @@ describe('StreamFieldRenderer', () => {
 
   describe('XSS Protection', () => {
     it('sanitizes malicious script tags in paragraph blocks', async () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'paragraph',
@@ -284,7 +289,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('sanitizes malicious onclick attributes', async () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'paragraph',
@@ -301,7 +306,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('sanitizes malicious iframe tags in paragraph', async () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'paragraph',
@@ -323,7 +328,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('sanitizes XSS in plant_spotlight description', async () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'plant_spotlight',
@@ -344,7 +349,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('allows safe HTML tags in paragraph', async () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'paragraph',
@@ -361,7 +366,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('preserves safe embedded images in paragraph StreamField rich text', async () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'paragraph',
@@ -381,7 +386,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('sanitizes unsafe embedded image URLs in paragraph StreamField rich text', async () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'paragraph',
@@ -402,7 +407,7 @@ describe('StreamFieldRenderer', () => {
     // Removed tests for image and list blocks (no longer supported - TODO #033)
 
     it('handles quote with only attribution', () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'quote',
@@ -418,7 +423,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('handles blocks without IDs (uses index as key)', () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         { type: 'heading', value: 'Heading 1' },
         { type: 'heading', value: 'Heading 2' },
       ];
@@ -430,7 +435,7 @@ describe('StreamFieldRenderer', () => {
     });
 
     it('handles code block without language', () => {
-      const blocks = [
+      const blocks: StreamFieldBlock[] = [
         {
           id: '1',
           type: 'code',
@@ -451,9 +456,9 @@ describe('StreamFieldRenderer', () => {
 
   describe('Performance', () => {
     it('renders many blocks efficiently', () => {
-      const blocks = Array.from({ length: 50 }, (_, i) => ({
+      const blocks: StreamFieldBlock[] = Array.from({ length: 50 }, (_, i) => ({
         id: `${i}`,
-        type: 'heading',
+        type: 'heading' as const,
         value: `Heading ${i}`,
       }));
 

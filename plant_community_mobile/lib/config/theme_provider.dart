@@ -11,14 +11,9 @@ part 'theme_provider.g.dart';
 class ThemeModeNotifier extends _$ThemeModeNotifier {
   static const _storage = FlutterSecureStorage();
   static const _themeModeKey = 'theme_mode';
-  bool _isDisposed = false;
 
   @override
   ThemeMode build() {
-    _isDisposed = false;
-    ref.onDispose(() {
-      _isDisposed = true;
-    });
     _loadSavedPreference();
     return ThemeMode.system;
   }
@@ -51,7 +46,7 @@ class ThemeModeNotifier extends _$ThemeModeNotifier {
     try {
       final savedValue = await _storage.read(key: _themeModeKey);
       final savedMode = _themeModeFromStorageValue(savedValue);
-      if (!_isDisposed && savedMode != null) {
+      if (ref.mounted && savedMode != null) {
         state = savedMode;
       }
     } catch (error) {

@@ -89,7 +89,12 @@ class CachedLLMService:
         user: The Django user making the request (for rate limiting)
     """
 
-    def __init__(self, service: LLMService, feature: str = 'wagtail_ai', user: Optional[Any] = None):
+    def __init__(
+        self,
+        service: LLMService,
+        feature: str = "wagtail_ai",
+        user: Optional[Any] = None,
+    ):
         """
         Initialize cached LLM service wrapper.
 
@@ -141,16 +146,16 @@ class CachedLLMService:
         """
         try:
             if messages and isinstance(messages[0], dict):
-                content = messages[0].get('content', [])
+                content = messages[0].get("content", [])
                 if isinstance(content, list):
                     for item in content:
-                        if isinstance(item, dict) and item.get('type') == 'text':
-                            return item.get('text', '')[:200]  # First 200 chars
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            return item.get("text", "")[:200]  # First 200 chars
                 elif isinstance(content, str):
                     return content[:200]
         except Exception:
             pass
-        return ''
+        return ""
 
     def completion(self, messages: list[dict], **kwargs) -> Any:
         """
@@ -180,7 +185,43 @@ class CachedLLMService:
         cache_key = self._generate_cache_key(messages)
         prompt_preview = self._extract_prompt_from_messages(messages)
 
-        # Check cache first
+        # Enforce the rate limit BEFORE serving from cache. A cached prompt must
+        # still count against the user's quota, otherwise the quota can be bypassed
+        # indefinitely by replaying a previously cached request.
+        if self.user and not isinstance(self.user, AnonymousUser):
+            is_staff = getattr(self.user, "is_staff", False)
+            if not AIRateLimiter.check_user_limit(self.user.id, is_staff):
+                logger.warning(
+                    f"[RATE_LIMIT] User {self.user.id} exceeded rate limit "
+                    f"for {self.feature}"
+                )
+                # Return rate limit error as a mock completion response
+                return type(
+                    "CompletionResponse",
+                    (),
+                    {
+                        "choices": [
+                            type(
+                                "Choice",
+                                (),
+                                {
+                                    "message": type(
+                                        "Message",
+                                        (),
+                                        {
+                                            "content": (
+                                                "Rate limit exceeded. Please try again later or "
+                                                "upgrade your subscription for higher limits."
+                                            )
+                                        },
+                                    )()
+                                },
+                            )()
+                        ]
+                    },
+                )()
+
+        # Check cache (after the rate limit has been enforced above)
         cached_response = AICacheService.get_cached_response(self.feature, cache_key)
         if cached_response:
             logger.info(
@@ -189,46 +230,34 @@ class CachedLLMService:
             )
             # Convert cached dict back to completion response format
             # The agent expects response.choices[0].message.content
-            return type('CompletionResponse', (), {
-                'choices': [
-                    type('Choice', (), {
-                        'message': type('Message', (), {
-                            'content': cached_response.get('text', '')
-                        })()
-                    })()
-                ]
-            })()
+            return type(
+                "CompletionResponse",
+                (),
+                {
+                    "choices": [
+                        type(
+                            "Choice",
+                            (),
+                            {
+                                "message": type(
+                                    "Message",
+                                    (),
+                                    {"content": cached_response.get("text", "")},
+                                )()
+                            },
+                        )()
+                    ]
+                },
+            )()
 
-        # Cache miss - check rate limits
         logger.info(
             f"[CACHE] MISS for {self.feature} (key: {cache_key[:8]}...) "
             f"- calling LLM API"
         )
 
-        # Rate limiting (if user provided)
-        if self.user and not isinstance(self.user, AnonymousUser):
-            tier = getattr(self.user, 'subscription_tier', 'free')
-            if not AIRateLimiter.check_and_increment(self.user, self.feature, tier):
-                logger.warning(
-                    f"[RATE_LIMIT] User {self.user.id} exceeded rate limit "
-                    f"for {self.feature} (tier: {tier})"
-                )
-                # Return rate limit error as a mock completion response
-                return type('CompletionResponse', (), {
-                    'choices': [
-                        type('Choice', (), {
-                            'message': type('Message', (), {
-                                'content': (
-                                    "Rate limit exceeded. Please try again later or "
-                                    "upgrade your subscription for higher limits."
-                                )
-                            })()
-                        })()
-                    ]
-                })()
-
         # Call original LLM service
         import time
+
         start_time = time.time()
 
         try:
@@ -240,9 +269,7 @@ class CachedLLMService:
 
             # Cache successful response
             AICacheService.set_cached_response(
-                self.feature,
-                cache_key,
-                {'text': response_text}
+                self.feature, cache_key, {"text": response_text}
             )
 
             logger.info(
@@ -306,7 +333,7 @@ def install_wagtail_ai_v3_integration():
         _original_get_llm_service = wagtail_ai_base.get_llm_service
 
         # Create wrapper function
-        def cached_get_llm_service(alias: str = 'default') -> LLMService:
+        def cached_get_llm_service(alias: str = "default") -> LLMService:
             """
             Cached wrapper for get_llm_service.
 
@@ -326,8 +353,8 @@ def install_wagtail_ai_v3_integration():
             # must be implemented at the agent level if needed
             cached_service = CachedLLMService(
                 service=original_service,
-                feature=f'wagtail_ai_{alias}',
-                user=None  # Could be passed via context in the future
+                feature=f"wagtail_ai_{alias}",
+                user=None,  # Could be passed via context in the future
             )
 
             logger.debug(
@@ -342,17 +369,14 @@ def install_wagtail_ai_v3_integration():
         logger.info(
             "[WAGTAIL_AI_V3] ✅ Caching and rate limiting integration installed successfully"
         )
-        logger.info(
-            "[WAGTAIL_AI_V3] Expected cache hit rate: 80-95% after warmup"
-        )
+        logger.info("[WAGTAIL_AI_V3] Expected cache hit rate: 80-95% after warmup")
         logger.info(
             "[WAGTAIL_AI_V3] Expected cost reduction: 80-95% (OpenAI API calls)"
         )
 
     except Exception as e:
         logger.error(
-            f"[WAGTAIL_AI_V3] ❌ Failed to install integration: {e}",
-            exc_info=True
+            f"[WAGTAIL_AI_V3] ❌ Failed to install integration: {e}", exc_info=True
         )
 
 
@@ -369,7 +393,9 @@ def uninstall_wagtail_ai_v3_integration():
     global _original_get_llm_service
 
     if _original_get_llm_service is None:
-        logger.warning("[WAGTAIL_AI_V3] Integration not installed, nothing to uninstall")
+        logger.warning(
+            "[WAGTAIL_AI_V3] Integration not installed, nothing to uninstall"
+        )
         return
 
     try:
@@ -383,6 +409,5 @@ def uninstall_wagtail_ai_v3_integration():
 
     except Exception as e:
         logger.error(
-            f"[WAGTAIL_AI_V3] ❌ Failed to uninstall integration: {e}",
-            exc_info=True
+            f"[WAGTAIL_AI_V3] ❌ Failed to uninstall integration: {e}", exc_info=True
         )

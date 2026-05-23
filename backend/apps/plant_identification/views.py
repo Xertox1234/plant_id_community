@@ -170,8 +170,10 @@ class PlantIdentificationRequestViewSet(viewsets.ModelViewSet):
 
         if use_celery:
             try:
-                # Enqueue task for async processing
-                run_identification.delay(str(request_obj.request_id))
+                # Enqueue task only after the creating transaction commits, so the
+                # worker cannot fetch the request before its row is visible.
+                request_id = str(request_obj.request_id)
+                transaction.on_commit(lambda: run_identification.delay(request_id))
                 logger.info(
                     "Enqueued identification task for %s", request_obj.request_id
                 )

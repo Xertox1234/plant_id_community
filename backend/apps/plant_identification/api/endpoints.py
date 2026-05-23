@@ -2,6 +2,7 @@
 Wagtail API endpoints for plant identification snippets and pages.
 """
 
+from apps.core.utils.query_sanitization import escape_search_query
 from django.db.models import Count
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -85,7 +86,7 @@ class PlantSpeciesAPIViewSet(BaseAPIViewSet):
         # Family filtering
         family = self.request.GET.get("family")
         if family:
-            queryset = queryset.filter(family__icontains=family)
+            queryset = queryset.filter(family__icontains=escape_search_query(family))
 
         # Care requirements filtering
         light_requirements = self.request.GET.get("light_requirements")
@@ -331,7 +332,9 @@ class PlantSpeciesPageViewSet(PagesAPIViewSet):
 
         family = self.request.GET.get("family")
         if family:
-            queryset = queryset.filter(plant_species__family__icontains=family)
+            queryset = queryset.filter(
+                plant_species__family__icontains=escape_search_query(family)
+            )
 
         light_requirements = self.request.GET.get("light_requirements")
         if light_requirements:

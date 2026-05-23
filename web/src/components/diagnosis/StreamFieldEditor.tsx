@@ -3,9 +3,21 @@ import type { DiagnosisBlock } from '@/types';
 import { logger } from '@/utils/logger';
 
 /**
+ * Block types that can be created from the editor menu. The 'image' variant of
+ * DiagnosisBlock is render-only (produced by the backend), so it is excluded.
+ */
+type EditableBlockType = Exclude<DiagnosisBlock['type'], 'image'>;
+
+interface BlockTypeOption {
+  value: EditableBlockType;
+  label: string;
+  icon: string;
+}
+
+/**
  * Block type options
  */
-const BLOCK_TYPES = [
+const BLOCK_TYPES: BlockTypeOption[] = [
   { value: 'heading', label: 'Heading', icon: 'H' },
   { value: 'paragraph', label: 'Paragraph', icon: 'P' },
   { value: 'treatment_step', label: 'Treatment Step', icon: '✓' },
@@ -36,14 +48,14 @@ function BlockEditor({
   isFirst,
   isLast,
 }: BlockEditorProps) {
-  const { type, value } = block;
+  const { type } = block;
 
-  const handleValueChange = (newValue) => {
-    onChange({ ...block, value: newValue });
+  const handleValueChange = (newValue: DiagnosisBlock['value']) => {
+    onChange({ ...block, value: newValue } as DiagnosisBlock);
   };
 
   // Render editor based on block type
-  switch (type) {
+  switch (block.type) {
     case 'heading':
       return (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -64,7 +76,7 @@ function BlockEditor({
           </div>
           <input
             type="text"
-            value={(value as string) || ''}
+            value={block.value || ''}
             onChange={(e) => handleValueChange(e.target.value)}
             placeholder="Enter heading text..."
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
@@ -91,7 +103,7 @@ function BlockEditor({
             />
           </div>
           <textarea
-            value={(value as string) || ''}
+            value={block.value || ''}
             onChange={(e) => handleValueChange(e.target.value)}
             placeholder="Enter paragraph text..."
             rows={3}
@@ -101,9 +113,7 @@ function BlockEditor({
       );
 
     case 'treatment_step': {
-      const stepValue = value as
-        | { title?: string; description?: string; frequency?: string }
-        | undefined;
+      const stepValue = block.value;
       return (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
@@ -160,7 +170,7 @@ function BlockEditor({
     }
 
     case 'symptom_check': {
-      const symptomValue = value as { symptom?: string; what_to_look_for?: string } | undefined;
+      const symptomValue = block.value;
       return (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
@@ -227,7 +237,7 @@ function BlockEditor({
             />
           </div>
           <textarea
-            value={(value as string) || ''}
+            value={block.value || ''}
             onChange={(e) => handleValueChange(e.target.value)}
             placeholder="Enter prevention tip..."
             rows={3}
@@ -237,7 +247,7 @@ function BlockEditor({
       );
 
     case 'list_block': {
-      const listValue = value as { items?: string[] } | undefined;
+      const listValue = block.value;
       return (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
@@ -275,18 +285,23 @@ function BlockEditor({
 /**
  * List editor sub-component
  */
-function ListEditor({ items, onChange }) {
+interface ListEditorProps {
+  items: string[];
+  onChange: (items: string[]) => void;
+}
+
+function ListEditor({ items, onChange }: ListEditorProps) {
   const addItem = () => {
     onChange([...items, '']);
   };
 
-  const updateItem = (index, value) => {
+  const updateItem = (index: number, value: string) => {
     const newItems = [...items];
     newItems[index] = value;
     onChange(newItems);
   };
 
-  const deleteItem = (index) => {
+  const deleteItem = (index: number) => {
     onChange(items.filter((_, i) => i !== index));
   };
 
@@ -327,7 +342,15 @@ function ListEditor({ items, onChange }) {
 /**
  * Block control buttons (move up/down, delete)
  */
-function BlockControls({ onDelete, onMoveUp, onMoveDown, isFirst, isLast }) {
+interface BlockControlsProps {
+  onDelete: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  isFirst: boolean;
+  isLast: boolean;
+}
+
+function BlockControls({ onDelete, onMoveUp, onMoveDown, isFirst, isLast }: BlockControlsProps) {
   return (
     <div className="flex items-center gap-1">
       <button
@@ -371,33 +394,41 @@ function BlockControls({ onDelete, onMoveUp, onMoveDown, isFirst, isLast }) {
 /**
  * Main StreamFieldEditor Component
  */
-export default function StreamFieldEditor({ value = [], onChange, readOnly = false }) {
+interface StreamFieldEditorProps {
+  value?: DiagnosisBlock[];
+  onChange: (blocks: DiagnosisBlock[]) => void;
+  readOnly?: boolean;
+}
+
+export default function StreamFieldEditor({
+  value = [],
+  onChange,
+  readOnly = false,
+}: StreamFieldEditorProps) {
   const [showBlockMenu, setShowBlockMenu] = useState(false);
 
   /**
    * Add new block
    */
-  const addBlock = (blockType) => {
-    let newBlock = { type: blockType, value: null };
+  const addBlock = (blockType: EditableBlockType) => {
+    let newBlock: DiagnosisBlock;
 
     // Initialize value based on block type
     switch (blockType) {
       case 'heading':
       case 'paragraph':
       case 'prevention_tip':
-        newBlock.value = '';
+        newBlock = { type: blockType, value: '' };
         break;
       case 'treatment_step':
-        newBlock.value = { title: '', description: '', frequency: '' };
+        newBlock = { type: blockType, value: { title: '', description: '', frequency: '' } };
         break;
       case 'symptom_check':
-        newBlock.value = { symptom: '', what_to_look_for: '' };
+        newBlock = { type: blockType, value: { symptom: '', what_to_look_for: '' } };
         break;
       case 'list_block':
-        newBlock.value = { items: [''] };
+        newBlock = { type: blockType, value: { items: [''] } };
         break;
-      default:
-        newBlock.value = '';
     }
 
     const newBlocks = [...value, newBlock];
@@ -410,7 +441,7 @@ export default function StreamFieldEditor({ value = [], onChange, readOnly = fal
   /**
    * Update block at index
    */
-  const updateBlock = (index, updatedBlock) => {
+  const updateBlock = (index: number, updatedBlock: DiagnosisBlock) => {
     const newBlocks = [...value];
     newBlocks[index] = updatedBlock;
     onChange(newBlocks);
@@ -419,7 +450,7 @@ export default function StreamFieldEditor({ value = [], onChange, readOnly = fal
   /**
    * Delete block at index
    */
-  const deleteBlock = (index) => {
+  const deleteBlock = (index: number) => {
     if (confirm('Are you sure you want to delete this block?')) {
       const newBlocks = value.filter((_, i) => i !== index);
       onChange(newBlocks);
@@ -430,7 +461,7 @@ export default function StreamFieldEditor({ value = [], onChange, readOnly = fal
   /**
    * Move block up
    */
-  const moveBlockUp = (index) => {
+  const moveBlockUp = (index: number) => {
     if (index === 0) return;
     const newBlocks = [...value];
     [newBlocks[index - 1], newBlocks[index]] = [newBlocks[index], newBlocks[index - 1]];
@@ -440,7 +471,7 @@ export default function StreamFieldEditor({ value = [], onChange, readOnly = fal
   /**
    * Move block down
    */
-  const moveBlockDown = (index) => {
+  const moveBlockDown = (index: number) => {
     if (index === value.length - 1) return;
     const newBlocks = [...value];
     [newBlocks[index], newBlocks[index + 1]] = [newBlocks[index + 1], newBlocks[index]];

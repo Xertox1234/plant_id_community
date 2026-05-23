@@ -75,8 +75,20 @@ describe('CategoryCard', () => {
   it('renders subcategories when present', () => {
     const category = createMockCategory({
       children: [
-        { id: 'sub-1', name: 'Watering', slug: 'watering', icon: '💧' },
-        { id: 'sub-2', name: 'Fertilizing', slug: 'fertilizing', icon: '🌿' },
+        {
+          id: 'sub-1',
+          name: 'Watering',
+          slug: 'watering',
+          icon: '💧',
+          created_at: '2025-01-01T00:00:00Z',
+        },
+        {
+          id: 'sub-2',
+          name: 'Fertilizing',
+          slug: 'fertilizing',
+          icon: '🌿',
+          created_at: '2025-01-01T00:00:00Z',
+        },
       ],
     });
 

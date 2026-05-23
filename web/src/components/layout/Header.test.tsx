@@ -26,8 +26,8 @@ vi.mock('../../utils/logger', () => ({
 describe('Header', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    authService.getStoredUser.mockReturnValue(null);
-    authService.getCurrentUser.mockResolvedValue(null);
+    vi.mocked(authService.getStoredUser).mockReturnValue(null);
+    vi.mocked(authService.getCurrentUser).mockResolvedValue(null);
   });
 
   describe('Basic Rendering', () => {
@@ -115,8 +115,8 @@ describe('Header', () => {
 
   describe('Unauthenticated State', () => {
     it('shows login and signup buttons when not authenticated', async () => {
-      authService.getStoredUser.mockReturnValue(null);
-      authService.getCurrentUser.mockResolvedValue(null);
+      vi.mocked(authService.getStoredUser).mockReturnValue(null);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(null);
 
       renderWithRouter(<Header />);
 
@@ -128,8 +128,8 @@ describe('Header', () => {
     });
 
     it('renders signup button with correct link', async () => {
-      authService.getStoredUser.mockReturnValue(null);
-      authService.getCurrentUser.mockResolvedValue(null);
+      vi.mocked(authService.getStoredUser).mockReturnValue(null);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(null);
 
       const { container } = renderWithRouter(<Header />);
 
@@ -140,8 +140,8 @@ describe('Header', () => {
     });
 
     it('renders login button with correct link', async () => {
-      authService.getStoredUser.mockReturnValue(null);
-      authService.getCurrentUser.mockResolvedValue(null);
+      vi.mocked(authService.getStoredUser).mockReturnValue(null);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(null);
 
       const { container } = renderWithRouter(<Header />);
 
@@ -160,8 +160,8 @@ describe('Header', () => {
         username: 'Test User',
       };
 
-      authService.getStoredUser.mockReturnValue(mockUser);
-      authService.getCurrentUser.mockResolvedValue(mockUser);
+      vi.mocked(authService.getStoredUser).mockReturnValue(mockUser);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(mockUser);
 
       renderWithRouter(<Header />);
 
@@ -178,8 +178,8 @@ describe('Header', () => {
         username: 'Test User',
       };
 
-      authService.getStoredUser.mockReturnValue(mockUser);
-      authService.getCurrentUser.mockResolvedValue(mockUser);
+      vi.mocked(authService.getStoredUser).mockReturnValue(mockUser);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(mockUser);
 
       renderWithRouter(<Header />);
 
@@ -200,8 +200,8 @@ describe('Header', () => {
         email: 'test@example.com',
       };
 
-      authService.getStoredUser.mockReturnValue(mockUser);
-      authService.getCurrentUser.mockResolvedValue(mockUser);
+      vi.mocked(authService.getStoredUser).mockReturnValue(mockUser);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(mockUser);
 
       renderWithRouter(<Header />);
 
@@ -219,8 +219,8 @@ describe('Header', () => {
         username: 'Mobile User',
       };
 
-      authService.getStoredUser.mockReturnValue(mockUser);
-      authService.getCurrentUser.mockResolvedValue(mockUser);
+      vi.mocked(authService.getStoredUser).mockReturnValue(mockUser);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(mockUser);
 
       renderWithRouter(<Header />);
 
@@ -240,8 +240,8 @@ describe('Header', () => {
         username: 'Test User',
       };
 
-      authService.getStoredUser.mockReturnValue(mockUser);
-      authService.getCurrentUser.mockResolvedValue(mockUser);
+      vi.mocked(authService.getStoredUser).mockReturnValue(mockUser);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(mockUser);
 
       renderWithRouter(<Header />);
 
@@ -261,9 +261,9 @@ describe('Header', () => {
         username: 'Test User',
       };
 
-      authService.getStoredUser.mockReturnValue(mockUser);
-      authService.getCurrentUser.mockResolvedValue(mockUser);
-      authService.logout.mockResolvedValue();
+      vi.mocked(authService.getStoredUser).mockReturnValue(mockUser);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(mockUser);
+      vi.mocked(authService.logout).mockResolvedValue();
 
       renderWithRouter(<Header />);
 
@@ -283,9 +283,9 @@ describe('Header', () => {
         username: 'Test User',
       };
 
-      authService.getStoredUser.mockReturnValue(mockUser);
-      authService.getCurrentUser.mockResolvedValue(mockUser);
-      authService.logout.mockResolvedValue();
+      vi.mocked(authService.getStoredUser).mockReturnValue(mockUser);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(mockUser);
+      vi.mocked(authService.logout).mockResolvedValue();
 
       renderWithRouter(<Header />);
 
@@ -315,8 +315,8 @@ describe('Header', () => {
         username: 'Test User',
       };
 
-      authService.getStoredUser.mockReturnValue(mockUser);
-      authService.getCurrentUser.mockResolvedValue(mockUser);
+      vi.mocked(authService.getStoredUser).mockReturnValue(mockUser);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(mockUser);
 
       renderWithRouter(<Header />);
 
