@@ -203,11 +203,13 @@ Each has a colocated `*.test.tsx`/`*.test.ts` to realign.
   (toggle), `/search/`. Each method maps machina-shaped responses
   (`subject`/`poster`/`last_post_on`) to the clean React types
   (`title`/`author`/`last_activity_at`).
-- **Switch to hybrid id+slug URLs** — routes/links become
-  `/forum/{categoryId-or-slug}/{topicId}-{title-slug}`; navigation parses the
+- **Switch to hybrid id+slug URLs** — links become
+  `/forum/{categoryId}-{slug}/{topicId}-{title-slug}`; navigation parses the
   leading id for lookups and treats the slug as decorative (client-generated
-  from the title). Update `App.tsx` routes, `ThreadCard`/`CategoryCard` links,
-  and `useParams` consumers (`ThreadListPage`, `ThreadDetailPage`).
+  from the title). Update `ThreadCard`/`CategoryCard` links and the `useParams`
+  consumers (`ThreadListPage`, `ThreadDetailPage`). **`App.tsx` routes need no
+  change** — React Router matches the `:categorySlug`/`:threadSlug` segments by
+  position, so they already capture the `id-slug` values.
 - **Adapt reactions** to the toggle endpoint (`POST /posts/{id}/reactions/`
   returns counts + the user's active reactions) — drop the assumption of a
   `/reactions/` CRUD resource with stable reaction ids.
