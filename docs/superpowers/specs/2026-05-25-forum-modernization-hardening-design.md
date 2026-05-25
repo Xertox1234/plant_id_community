@@ -297,10 +297,9 @@ Each has a colocated `*.test.tsx`/`*.test.ts` to realign.
   known gaps. Triage by severity; only CRITICAL/HIGH are in-scope for this
   project, the rest become deferred todos.
 
-## Open Questions for Implementation Planning
+## Decisions & Open Questions for Implementation Planning
 
-- Should AI-assist be locked to trusted users (not just rate-limited) given it is
-  a direct cost vector? (Default assumption: per-user daily request cap is enough
-  for now; revisit if abuse is observed.)
+- **Decided:** AI-assist is **rate-limit only** (per-user daily request cap) — no
+  trusted-users lock. Revisit only if abuse is observed.
 - Exact per-endpoint rate-limit values (the `page_size` cap is set at 100; rate
   values default to `apps/users` conventions, finalized in the plan).
