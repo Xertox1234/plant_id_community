@@ -61,20 +61,35 @@ New forum features are **deferred** (see Out of Scope).
 | Layer | Decision |
 |-------|----------|
 | django-machina data layer | **Unchanged** — source of truth for forum data |
-| DRF API (`forum_integration`) | **Hardened + contract kept**, not redesigned |
+| DRF API (`forum_integration`) | **Unchanged in Phase 1** (id-based contract kept); **hardened in Phase 2**, not redesigned |
 | Auth (`apps/users`, JWT/Firebase) | **Unchanged** — public read, authenticated write |
-| React forum (`web/.../forum`) | **Finished, secured, made responsive** |
+| React forum (`web/.../forum`) | **Finished** (via a translation-layer `forumService` + hybrid id+slug URLs), **secured, made responsive** |
 | `backend/apps/forum` (gutted) | **Deleted** |
 | Server-rendered `*_simple.html` views/templates | **Deleted** (dead permission-bypass code) |
 
 ### Decided trade-offs
 
-- **API contract fix direction: change React, not the API.** Fewer files, no
-  backward-compat shim, and **no DB migration for the contract realignment**
-  (this guarantee is scoped to the React/endpoint changes — it is *not* a
-  claim that all of Phase 2 is migration-free). The React `forumService.ts` +
-  types + pages are realigned to the real endpoints. "Threads" naming is
-  cosmetic and out of scope.
+- **API contract fix direction: Option C — hybrid id+slug URLs, frontend-side
+  translation (no migration).** The React forum and the backend implement *two
+  different contracts*: React expects slug-based RESTful resources with a clean
+  domain model (`title`/`author`/`last_activity_at`, top-level `/reactions/`);
+  the backend serves id-based, action-suffixed endpoints with machina-shaped
+  fields (`subject`/`poster`/`last_post_on`, toggle `POST /posts/{id}/reactions/`).
+  Machina **topic slugs are not unique** (`SlugField`, no `unique=True`,
+  auto-slugified from the subject), so pure slug URLs would need a uniqueness
+  migration + dedupe — **rejected**. Decision: **keep the id-based backend
+  untouched** and adapt the frontend:
+  - `forumService.ts` becomes a thin **translation layer** — it calls the
+    real id-based endpoints and remaps responses to the clean React types.
+  - URLs become **id-anchored with a decorative slug**
+    (`/forum/{categorySlug}/{topicId}-{title-slug}` — the Discourse/Reddit/SO
+    pattern): lookups use the unambiguous id; the slug is cosmetic for SEO and
+    can be generated client-side from the title.
+  - Reaction calls adapt to the backend's existing **toggle** endpoint.
+  Result: no DB migration, backend logic stays stable, and the clean React
+  types + SEO-friendly URLs are preserved. (This supersedes an earlier
+  assumption that the mismatch was a cosmetic `/threads`↔`/topics` rename; the
+  divergence is structural — different endpoints, identifiers, and field names.)
 - **Server-side sanitizer: `nh3`** (maintained, Rust-based ammonia bindings).
   `bleach==6.3.0` is already installed, but Mozilla **archived/deprecated bleach
   in 2023** — building new authoritative security logic on an unmaintained
@@ -126,9 +141,13 @@ Confirmed by direct inspection of `backend/apps/forum_integration/api_views.py`,
    permission checks "for debugging"; commented out of `urls.py` but should be
    deleted, not left lying around.
 
-**Functional blocker:** the `/threads/` ↔ `/topics/` mismatch between
-`web/src/services/forumService.ts` and `api_urls.py` means the React forum can't
-load at all.
+**Functional blocker (structural, not cosmetic):** `web/src/services/forumService.ts`
+implements an entirely different contract from `api_urls.py` — slug-based RESTful
+resources vs. id-based action-suffixed endpoints, with different field names
+(`title`/`author`/`last_activity_at` vs `subject`/`poster`/`last_post_on`) and a
+different reaction model (top-level `/reactions/` CRUD vs `POST /posts/{id}/reactions/`
+toggle). The React forum can't load at all. Resolved in Phase 1 via Option C
+(see Decided trade-offs).
 
 **Already fine (do not "fix"):** API `permission_classes` are set explicitly per
 view; ownership checks are present (`post.poster != request.user and not
@@ -174,21 +193,32 @@ Each has a colocated `*.test.tsx`/`*.test.ts` to realign.
 
 ## Phased Plan
 
-### Phase 1 — Make it work (functional)
+### Phase 1 — Make it work (functional) — Option C
 
-- **Realign the React API contract to the real endpoints.** Produce an
-  endpoint-by-endpoint mapping (React expected → actual API) covering
-  `/categories/`, `/categories/{id}/topics/`, `/topics/{id}/`, `/posts/`,
-  `/posts/{id}/` (PATCH/DELETE), `/posts/{id}/images/…`, `/posts/{id}/reactions/`,
-  `/search/`, `/stats/`. Update `forumService.ts`, `types/forum.ts`, and the
-  pages/components accordingly.
-- **Finish unfinished pages/flows:** `ThreadDetailPage` reply flow + pagination,
-  create-topic and reply, reactions wiring, `ImageUploadWidget` against the real
-  upload endpoint.
+- **Rewrite `forumService.ts` as a translation layer** against the real id-based
+  endpoints (`api_urls.py`): `/categories/`, `/categories/{forum_id}/topics/`,
+  `/categories/{forum_id}/topics/create/`, `/topics/{id}/`, `/topics/`,
+  `/posts/?topic={id}`, `/posts/create/`, `/posts/{id}/` (PATCH),
+  `/posts/{id}/delete/`, `/posts/{id}/images/…`, `/posts/{id}/reactions/`
+  (toggle), `/search/`. Each method maps machina-shaped responses
+  (`subject`/`poster`/`last_post_on`) to the clean React types
+  (`title`/`author`/`last_activity_at`).
+- **Switch to hybrid id+slug URLs** — routes/links become
+  `/forum/{categoryId-or-slug}/{topicId}-{title-slug}`; navigation parses the
+  leading id for lookups and treats the slug as decorative (client-generated
+  from the title). Update `App.tsx` routes, `ThreadCard`/`CategoryCard` links,
+  and `useParams` consumers (`ThreadListPage`, `ThreadDetailPage`).
+- **Adapt reactions** to the toggle endpoint (`POST /posts/{id}/reactions/`
+  returns counts + the user's active reactions) — drop the assumption of a
+  `/reactions/` CRUD resource with stable reaction ids.
+- **Finish unfinished flows:** `ThreadDetailPage` reply + post pagination,
+  create-topic/reply, reactions wiring, `ImageUploadWidget` against
+  `/posts/{id}/images/upload/`.
 - **Prove the golden path end-to-end** against the live backend: list categories
   → open category → open topic → reply → react → upload image.
-- **Tests:** realign `forumService.test.ts` to actual endpoints; component tests
-  for completed pages; one Playwright e2e for the golden path.
+- **Tests:** rewrite `forumService.test.ts` for the translation layer (mock the
+  id endpoints, assert the remapped output); component tests for completed pages;
+  one Playwright e2e for the golden path.
 
 ### Phase 2 — Make it safe (security — the core)
 
