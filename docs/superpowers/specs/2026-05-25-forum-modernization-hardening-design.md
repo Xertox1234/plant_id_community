@@ -135,8 +135,13 @@ Confirmed by direct inspection of `backend/apps/forum_integration/api_views.py`,
    with an XSS test) — but that is defense-in-depth, not authoritative. Any other
    consumer (email, the old templates, the mobile app, a future API client)
    renders it raw.
-5. **Trust levels not wired** — API hardcodes `"can_attach_files": user.is_staff`
-   (`api_views.py:1096`) instead of using machina's trust-level / PermissionHandler.
+5. **Trust-level wiring is mostly fine (corrected).** Attachment permission **is**
+   enforced via machina `PermissionHandler.can_attach_files()` in the upload view
+   (`api_views.py:645`) and reported via the primary path of the trust-level
+   endpoint (`api_views.py:1085`). The only blemish is the `except` **fallback**
+   (`api_views.py:1096`) reporting `can_attach_files: user.is_staff` when the
+   handler raises — a minor reporting inconsistency, **not** a security hole.
+   (Earlier recon mis-read line 1096 in isolation; direct reading corrected it.)
 6. **Dead permission-bypassing views** — `forum_integration/views.py` skips
    permission checks "for debugging"; commented out of `urls.py` but should be
    deleted, not left lying around.
@@ -262,22 +267,20 @@ Each has a colocated `*.test.tsx`/`*.test.ts` to realign.
        API clients) authoritatively.
      - *Defense-in-depth:* keep React's read-side sanitize; audit **all** render
        sites (PostCard ✓, thread-list excerpts, search snippets).
-   - **Forum-level authorization (security)** — the API currently gates writes
-     with plain `IsAuthenticated` and does not consult machina's per-forum
-     permissions. `MACHINA_DEFAULT_AUTHENTICATED_USER_FORUM_PERMISSIONS`
-     (`settings.py:751`) grants authenticated users full rights *except*
-     `can_attach_files`, so this is functionally correct **for default/public
-     forums**. **Time-boxed (1 day):** verify whether any forum is configured
-     restricted and, if so, enforce machina `PermissionHandler` read/write checks
-     in the API. **Fallback if blocked:** keep the current explicit
-     `IsAuthenticated` + ownership gates (safe for the all-public model) and file
-     a follow-up todo.
-   - **Attachment gating** — replace the hardcoded
-     `"can_attach_files": user.is_staff` (`api_views.py:1096`) with machina's
-     `PermissionHandler.can_attach_files(forum, user)`. Note: `is_staff` is
-     already a *safe* (restrictive) default, not a hole — this change makes it
-     *correct* (honors configured grants). **Fallback:** keep `is_staff` if the
-     PermissionHandler integration proves config-heavy within the time-box.
+   - **Forum-level authorization (security)** — topic/reply creation
+     (`CreateTopicView`, `PostCreateView`) gate with plain `IsAuthenticated` and
+     do **not** consult machina's per-forum `can_start_new_topics` /
+     `can_reply_to_topics`. (Attachment uploads *do* already check
+     `PermissionHandler.can_attach_files()`.)
+     `MACHINA_DEFAULT_AUTHENTICATED_USER_FORUM_PERMISSIONS` (`settings.py:751`)
+     grants authenticated users those rights by default, so this is functionally
+     correct **for default/public forums**. **Time-boxed (1 day):** verify
+     whether any forum is configured restricted and, if so, add the
+     `PermissionHandler` create/reply checks. **Fallback if blocked:** keep the
+     current `IsAuthenticated` + ownership gates and file a follow-up todo.
+   - **Trust-level reporting fallback (minor)** — fix the `except` fallback at
+     `api_views.py:1096` so it reports `can_attach_files` consistently with the
+     enforced permission rather than `user.is_staff`. Cosmetic/reporting only.
    - **Delete dead code** — server-rendered `*_simple.html` views/templates and
      the gutted `backend/apps/forum`.
    - **Per-endpoint authz audit** — confirm every `AllowAny` is intentional
