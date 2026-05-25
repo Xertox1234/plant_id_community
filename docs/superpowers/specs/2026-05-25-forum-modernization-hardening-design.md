@@ -79,11 +79,18 @@ New forum features are **deferred** (see Out of Scope).
   `bleach==6.3.0` is already installed, but Mozilla **archived/deprecated bleach
   in 2023** — building new authoritative security logic on an unmaintained
   dependency is a poor bet. We add `nh3` (small, ships prebuilt wheels) as the
-  primary sanitizer and keep the already-present `bleach` as a fallback if `nh3`
-  wheels are problematic on the deploy target. Verified: `nh3` is **not**
-  currently installed, so this adds one dependency. The backend allowlist
-  mirrors the existing React `SANITIZE_PRESETS.FORUM` config
-  (`web/src/utils/sanitize.ts`).
+  sanitizer. Verified: `nh3` is **not** currently installed, so this adds one
+  dependency. **bleach vs nh3 is a deploy-time install choice, not a runtime
+  fallback** — we pick one sanitizer at dependency-install time (default `nh3`;
+  if the deploy target lacks an `nh3` wheel, install `bleach` instead). No
+  runtime `try/except`-import shim — that complexity isn't warranted.
+- **Sanitizer allowlist is an explicit, tested translation — not a "mirror."**
+  `nh3.clean(tags=…, attributes=…)` uses a different allowlist model than React's
+  DOMPurify-based `SANITIZE_PRESETS.FORUM` (`web/src/utils/sanitize.ts`). The
+  plan must **define the nh3 tag/attribute allowlist as a deliberate translation
+  of the FORUM preset and add a parity test** (same input → equivalent allowed
+  output), so it neither strips legitimate content nor admits disallowed
+  elements.
 
 ## Verified Current State (recon, with references)
 
@@ -205,17 +212,22 @@ Each has a colocated `*.test.tsx`/`*.test.ts` to realign.
      allowlist + MIME + size + **PIL magic-byte verify / re-encode**); stop
      trusting client `content_type`.
    - **Rich-content XSS (new + legacy)** —
-     - *On write:* **sanitize `content_raw` server-side with `nh3`** (allowlist
-       mirroring `SANITIZE_PRESETS.FORUM`) as the authoritative layer.
+     - *On write:* **sanitize `content_raw` server-side with `nh3`** as the
+       authoritative layer, using the explicitly-translated, parity-tested
+       allowlist (see Decided trade-offs).
      - *content_format:* enforce an allowed set via a **serializer `ChoiceField`**
        (`plain`/`draftail`/`html`), **not** model-level `choices` — the
        authoritative gate is the API (all writes are API-mediated) and this
        avoids a migration on the `models.py:480` field.
      - *Legacy data:* add a **one-time backfill management command**
-       (`sanitize_forum_content`) that re-sanitizes all existing `content_raw`.
-       React already read-sanitizes (`PostCard.tsx`), so the React consumer is
-       not currently exposed; the backfill closes the gap for every *other*
-       consumer (email, RSS, future API clients) authoritatively.
+       (`sanitize_forum_content`) that re-sanitizes all existing `content_raw`,
+       using the same allowlist as the write path. **Ordering requirement: the
+       backfill ships in the same release as the write sanitizer and is run as a
+       required step of that deploy** — so no window exists where new content is
+       sanitized but legacy rows are not. React already read-sanitizes
+       (`PostCard.tsx`), so the React consumer is not currently exposed; the
+       backfill closes the gap for every *other* consumer (email, RSS, future
+       API clients) authoritatively.
      - *Defense-in-depth:* keep React's read-side sanitize; audit **all** render
        sites (PostCard ✓, thread-list excerpts, search snippets).
    - **Forum-level authorization (security)** — the API currently gates writes
@@ -269,12 +281,15 @@ Each has a colocated `*.test.tsx`/`*.test.ts` to realign.
 - **machina permission/attachment wiring** may surface config gaps. Time-boxed
   to 1 day; fall back to the current explicit `IsAuthenticated` + `is_staff`
   gates (safe for the all-public model) with a documented follow-up if blocked.
-- **Legacy `content_raw` data** is unsanitized until the backfill command runs.
-  Mitigation: the backfill is part of Phase 2 and the React consumer already
-  read-sanitizes, so exposure is bounded to non-React consumers in the window
-  before backfill. Run the backfill before any non-React consumer ships.
+- **Legacy `content_raw` data** is unsanitized until the backfill runs.
+  Mitigation: the backfill ships in the **same release as the write sanitizer
+  and is a required deploy step** (Phase 2.2), and the React consumer already
+  read-sanitizes — so there is no window where new content is clean but legacy
+  rows are not, and the only exposed surface (non-React consumers) does not exist
+  yet.
 - **`nh3` adds a dependency.** It ships prebuilt wheels for common platforms; if
-  the deploy target lacks a wheel, fall back to the already-installed `bleach`.
+  the deploy target lacks a wheel, install `bleach` instead (a deploy-time
+  choice — see Decided trade-offs — not a runtime fallback).
 - **Contract realignment surface** — the React forum may expect response shapes
   the API doesn't return (e.g., slugs vs. ids). The Phase 1 mapping step exists
   to surface these before coding; some serializer additions may be needed.
