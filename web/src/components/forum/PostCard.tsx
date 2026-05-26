@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useMemo } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { sanitizeHtml, SANITIZE_PRESETS } from '../../utils/sanitize';
 import { useAuth } from '../../contexts/AuthContext';
@@ -33,7 +33,6 @@ function getReactionEmoji(type: string): string {
  */
 function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
   const { user } = useAuth();
-  const [showActions, setShowActions] = useState(false);
 
   const isAuthor = user && String(user.id) === String(post.author.id);
   const isModerator = user && (user.is_staff || user.is_moderator);
@@ -56,14 +55,12 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
   return (
     <div
       className={`
-        bg-white rounded-lg shadow-md p-6
+        group bg-white rounded-lg shadow-md p-6
         ${post.is_first_post ? 'border-l-4 border-green-500' : ''}
       `}
-      onMouseEnter={() => setShowActions(true)}
-      onMouseLeave={() => setShowActions(false)}
     >
       {/* Post Header */}
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex items-start justify-between flex-wrap gap-2 mb-4">
         {/* Author Info */}
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
@@ -108,19 +105,19 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
           </div>
         </div>
 
-        {/* Actions (edit/delete) */}
-        {canEdit && showActions && (
-          <div className="flex gap-2">
+        {/* Actions (edit/delete) — always visible on mobile, fade in on desktop hover */}
+        {canEdit && (
+          <div className="flex gap-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
             <button
               onClick={() => onEdit?.(post)}
-              className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded"
+              className="min-h-11 px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded inline-flex items-center"
               title="Edit post"
             >
               ✏️ Edit
             </button>
             <button
               onClick={() => onDelete?.(post)}
-              className="px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded"
+              className="min-h-11 px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded inline-flex items-center"
               title="Delete post"
             >
               🗑️ Delete
@@ -131,7 +128,7 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
 
       {/* Post Content */}
       <div
-        className="prose max-w-none mb-4"
+        className="prose prose-sm sm:prose-base max-w-none mb-4 break-words prose-pre:overflow-x-auto prose-img:max-w-full prose-img:h-auto prose-table:block prose-table:overflow-x-auto"
         dangerouslySetInnerHTML={{ __html: sanitizedContent }}
       />
 
@@ -143,7 +140,7 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
             key={type}
             type="button"
             onClick={() => onReact?.(post.id, type)}
-            className="flex items-center gap-1 px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-sm transition-colors"
+            className="inline-flex items-center gap-1 min-h-11 px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-sm transition-colors"
             aria-label={`React ${type}`}
             title={`React ${type}`}
           >

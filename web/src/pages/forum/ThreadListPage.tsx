@@ -204,7 +204,7 @@ export default function ThreadListPage() {
           <select
             value={ordering}
             onChange={handleOrderChange}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+            className="min-h-11 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
           >
             <option value="-last_activity_at">Recent Activity</option>
             <option value="-created_at">Newest First</option>
