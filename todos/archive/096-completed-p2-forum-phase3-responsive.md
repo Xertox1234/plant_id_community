@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "096"
 tags: [forum, web, frontend, responsive]
