@@ -94,20 +94,25 @@ export async function signup(userData: SignupData): Promise<User> {
     });
 
     if (!response.ok) {
-      let errorData: ApiError;
+      let errorData: Record<string, unknown>;
       try {
         errorData = await response.json();
       } catch {
         throw new Error(`Signup failed with status ${response.status}`);
       }
 
-      // Log detailed error for debugging
-      logger.error('[authService] Signup failed:', {
-        status: response.status,
-        error: errorData,
-      });
+      logger.error('[authService] Signup failed:', { status: response.status, error: errorData });
 
-      throw new Error(errorData.message || `Signup failed with status ${response.status}`);
+      // Canonical: {message: "..."} | DRF detail: {detail: "..."} | DRF field validation: {field: ["msg"]}
+      const message =
+        (typeof errorData.message === 'string' && errorData.message) ||
+        (typeof errorData.detail === 'string' && errorData.detail) ||
+        Object.values(errorData)
+          .flatMap((v) => (Array.isArray(v) ? v : [v]))
+          .find((v): v is string => typeof v === 'string') ||
+        `Signup failed with status ${response.status}`;
+
+      throw new Error(message);
     }
 
     const data: AuthResponse = await response.json();

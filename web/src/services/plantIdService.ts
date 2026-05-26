@@ -13,10 +13,18 @@ import type {
   IdentificationHistoryItem,
   SavePlantInput,
 } from '../types/plantId';
-import type { ApiError } from '../types/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const API_VERSION = 'v1';
+
+function extractErrorMessage(data: unknown): string | undefined {
+  if (data === null || typeof data !== 'object') return undefined;
+  const d = data as Record<string, unknown>;
+  if (typeof d.message === 'string' && d.message) return d.message;
+  if (typeof d.detail === 'string' && d.detail) return d.detail;
+  if (typeof d.error === 'string' && d.error) return d.error;
+  return undefined;
+}
 
 /**
  * Identify a plant from an uploaded image
@@ -44,8 +52,10 @@ async function identifyPlant(imageFile: File): Promise<PlantIdentificationResult
     );
 
     if (!response.ok) {
-      const errorData: ApiError = await response.json();
-      throw new Error(errorData.message || 'Failed to identify plant. Please try again.');
+      const errorData: unknown = await response.json().catch(() => null);
+      throw new Error(
+        extractErrorMessage(errorData) || 'Failed to identify plant. Please try again.'
+      );
     }
 
     return response.json();
@@ -148,8 +158,8 @@ async function saveToCollection(plantData: SavePlantInput): Promise<UserPlant> {
     );
 
     if (!response.ok) {
-      const errorData: ApiError = await response.json();
-      throw new Error(errorData.message || 'Failed to save plant');
+      const errorData: unknown = await response.json().catch(() => null);
+      throw new Error(extractErrorMessage(errorData) || 'Failed to save plant');
     }
 
     return response.json();

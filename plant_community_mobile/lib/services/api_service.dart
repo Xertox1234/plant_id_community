@@ -438,6 +438,9 @@ class ApiService {
           message =
               responseData['message']?.toString() ??
               responseData['detail']?.toString() ??
+              (responseData['error'] is String
+                  ? responseData['error'] as String
+                  : null) ??
               e.response?.statusMessage ??
               'Request failed with status $statusCode';
         } else if (responseData is String) {
