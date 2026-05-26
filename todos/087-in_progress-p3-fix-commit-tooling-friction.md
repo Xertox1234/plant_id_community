@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p3
 issue_id: "087"
 tags: [tooling, ci, dev-experience]
@@ -103,6 +103,22 @@ Observed during the 2026-05-17 full audit (Phase 7 — see
     formatter without committing would pollute every other todo's diff.
 - 1 of 3 criteria met; the remaining two need a human-supervised effort. Left
   `pending`.
+
+### 2026-05-26 - Re-confirmed SKIP by completing-todos skill (run 2026-05-26-1959)
+
+- Picked up as part of a 4-todo sweep (086, 087, 097, 098).
+- Same prior-skip reasoning still stands:
+  - **Criterion 1** (self-recanted `[CRITICAL]` no longer blocks): fix lives in
+    `.claude/hooks/kimi-review.sh` — harness self-mod guard hard-blocks automated
+    edits to `.claude/` files. Also a design-sensitive change needing human review.
+  - **Criterion 2** (review only staged diff): already satisfied by current hook
+    code — no code change needed.
+  - **Criterion 3** (repo formatter-clean): needs a deliberate human-committed
+    `style: apply formatter repo-wide` commit; auto-commit forbidden by skill
+    safety rail #1, and running the formatter without committing would pollute
+    all subsequent todo diffs.
+- **Human action needed:** edit `.claude/hooks/kimi-review.sh` and run formatter
+  repo-wide in a dedicated commit. Left in `in_progress` / skipped by automated sweep.
 
 ## Notes
 

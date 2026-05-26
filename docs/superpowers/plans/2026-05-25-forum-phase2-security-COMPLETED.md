@@ -689,3 +689,8 @@ git commit -m "test(forum): add security regression suite (xss, rate-limit, uplo
 - `python manage.py test apps.forum_integration --noinput` green, including the new security suite.
 - Backfill command run as part of the deploy (same release as sanitize-on-write).
 - No dead permission-bypass code remains.
+
+## Finding Status
+
+- [x] #M1 str(e) leaked in 500 responses → todo 097 (completed 2026-05-26)
+- [x] #M2 original_filename unsanitized → todo 098 (completed 2026-05-26)

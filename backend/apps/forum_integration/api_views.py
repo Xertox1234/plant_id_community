@@ -2,6 +2,7 @@
 DRF API Views for Forum Integration.
 """
 
+import logging
 import os
 
 from apps.core.utils.query_sanitization import escape_search_query
@@ -45,6 +46,8 @@ from .serializers import (  # noqa: E402
     TopicSerializer,
     TopicWithFirstPostSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ForumCategoryListView(generics.ListAPIView):
@@ -137,8 +140,9 @@ def all_topics_list(request):
             }
         )
 
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+    except Exception:
+        logger.exception("[ERROR] all_topics_list failed")
+        return JsonResponse({"error": "An error occurred."}, status=500)
 
 
 class TopicDetailView(generics.RetrieveAPIView):
@@ -362,9 +366,10 @@ def forum_ai_assist(request):
             {"content": ai_content, "prompt_type": prompt_type, "success": True}
         )
 
-    except Exception as e:
+    except Exception:
+        logger.exception("[ERROR] forum_ai_assist failed")
         return Response(
-            {"error": f"AI assistance failed: {str(e)}"},
+            {"error": "An error occurred."},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -629,9 +634,10 @@ class PostReactionView(APIView):
                 }
             )
 
-        except Exception as e:
+        except Exception:
+            logger.exception("[ERROR] PostReactionView.post failed")
             return Response(
-                {"error": f"Failed to update reaction: {str(e)}"},
+                {"error": "An error occurred."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -812,7 +818,7 @@ class PostImageUploadView(APIView):
                 image = ForumPostImage.objects.create(
                     post=post,
                     image=uploaded_file,
-                    original_filename=uploaded_file.name,
+                    original_filename=os.path.basename(uploaded_file.name)[:255],
                     file_size=uploaded_file.size,
                     alt_text=request.data.get(f"alt_text_{i}", ""),
                     # upload_order will be set automatically in the model's save method
@@ -834,8 +840,11 @@ class PostImageUploadView(APIView):
                     }
                 )
 
-            except Exception as e:
-                errors.append(f"Failed to upload {uploaded_file.name}: {str(e)}")
+            except Exception:
+                logger.exception(
+                    "[ERROR] image upload failed for %s", uploaded_file.name
+                )
+                errors.append(f"Failed to upload {uploaded_file.name}: upload error")
 
         response_data = {
             "message": f"Successfully uploaded {len(uploaded_images)} images",
@@ -1203,9 +1212,10 @@ def user_trust_level(request):
                 "can_download_files": True,
             }
 
-    except Exception as e:
+    except Exception:
+        logger.exception("[ERROR] user_trust_level failed")
         return Response(
-            {"error": f"Failed to check permissions: {str(e)}"},
+            {"error": "An error occurred."},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
