@@ -278,4 +278,18 @@ describe('forumService (translation layer)', () => {
       'Rate limit exceeded'
     );
   });
+
+  it('propagates backend errors with canonical message field', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({
+        error: true,
+        message: 'Permission denied',
+        code: 'forbidden',
+        status_code: 403,
+      }),
+    });
+    await expect(createPost({ thread: 12, content_raw: 'x' })).rejects.toThrow('Permission denied');
+  });
 });

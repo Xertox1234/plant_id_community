@@ -53,8 +53,8 @@ async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Pr
     },
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    const error = await response.json().catch(() => ({ message: 'Request failed' }));
+    throw new Error(error.message || error.detail || `HTTP ${response.status}`);
   }
   if (response.status === 204) return undefined as T;
   return response.json();
@@ -240,8 +240,8 @@ export async function uploadPostImage(postId: string, imageFile: File): Promise<
     body: formData,
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    const error = await response.json().catch(() => ({ message: 'Upload failed' }));
+    throw new Error(error.message || error.detail || `HTTP ${response.status}`);
   }
   const data = (await response.json()) as { images: BackendImage[] };
   return mapImageToAttachment(data.images[0]);

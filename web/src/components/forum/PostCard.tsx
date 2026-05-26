@@ -35,7 +35,7 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
   const { user } = useAuth();
   const [showActions, setShowActions] = useState(false);
 
-  const isAuthor = user && user.id === post.author.id;
+  const isAuthor = user && String(user.id) === String(post.author.id);
   const isModerator = user && (user.is_staff || user.is_moderator);
   const canEdit = isAuthor || isModerator;
 

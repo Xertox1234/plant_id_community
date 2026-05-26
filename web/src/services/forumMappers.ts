@@ -99,6 +99,9 @@ export function mapTopicToThread(t: BackendTopic): Thread {
     last_activity_at: t.last_post_on || t.created,
     post_count: t.posts_count ?? 0,
     view_count: t.views_count ?? 0,
+    // TODO: TopicSerializer does not expose type (TOPIC_STICKY) or status
+    // (TOPIC_LOCKED/TOPIC_UNLOCKED). Add these fields to the backend serializer
+    // before attempting to map them here.
     is_pinned: false,
     is_locked: false,
     is_active: true,
@@ -116,6 +119,8 @@ export function mapPostToPost(p: BackendPost, threadId: string): Post {
     created_at: p.created,
     updated_at: p.updated,
     is_active: true,
+    // TODO: PostSerializer does not expose reaction counts. Add a reaction_counts
+    // field to the backend serializer before mapping here.
     reaction_counts: {},
   };
 }
