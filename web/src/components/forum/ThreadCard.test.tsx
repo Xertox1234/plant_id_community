@@ -123,8 +123,9 @@ describe('ThreadCard', () => {
     expect(screen.getByText(/ago/i)).toBeInTheDocument();
   });
 
-  it('links to correct thread URL', () => {
+  it('links to correct thread URL with hybrid id+slug', () => {
     const thread = createMockThread({
+      id: 'thread-1',
       slug: 'watering-tips',
       category: {
         id: 'cat-123',
@@ -138,7 +139,7 @@ describe('ThreadCard', () => {
     renderThreadCard(thread);
 
     const link = screen.getByRole('link');
-    expect(link).toHaveAttribute('href', '/forum/plant-care/watering-tips');
+    expect(link).toHaveAttribute('href', '/forum/cat-123-plant-care/thread-1-watering-tips');
   });
 
   it('hides excerpt in compact mode', () => {
