@@ -245,6 +245,12 @@ class CreatePostView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         """Create post and return success response."""
+        topic = get_object_or_404(Topic, id=self.kwargs["topic_id"])
+        if topic.status == Topic.TOPIC_LOCKED:
+            return Response(
+                {"error": "This topic is locked and cannot receive new replies."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         post = serializer.save()
@@ -394,12 +400,17 @@ class PostCreateView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         """Create post and return success response."""
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        # Get topic from request data
         topic_id = request.data.get("topic")
         topic = get_object_or_404(Topic, id=topic_id)
+
+        if topic.status == Topic.TOPIC_LOCKED:
+            return Response(
+                {"error": "This topic is locked and cannot receive new replies."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
         # Save with topic context
         serializer.context["topic"] = topic
@@ -1175,12 +1186,19 @@ def user_trust_level(request):
                 ),
             }
         except Exception:
-            # Fallback permissions for authenticated users
+            # Degraded fallback — only reached when PermissionHandler itself raises.
+            # Log the real failure so it is visible; do not silently swallow it.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "[FORUM] user_trust_level: PermissionHandler raised, using fallback",
+                exc_info=True,
+            )
             permissions_check = {
                 "can_read_forum": True,
                 "can_start_new_topics": True,
                 "can_reply_to_topics": True,
-                "can_attach_files": user.is_staff,
+                "can_attach_files": user.is_staff,  # fallback only — not enforcement
                 "can_download_files": True,
             }
 
@@ -1352,6 +1370,10 @@ class UserTopicsListView(generics.ListAPIView):
     def get_queryset(self):
         user_id = self.kwargs["user_id"]
 
+        # IDOR guard: only the owner or staff may list another user's topics.
+        if self.request.user.id != user_id and not self.request.user.is_staff:
+            raise permissions.PermissionDenied("You can only view your own topics.")
+
         # Get topics created by this user
         queryset = (
             Topic.objects.filter(poster_id=user_id, approved=True)
@@ -1390,6 +1412,12 @@ class UserWatchedTopicsListView(generics.ListAPIView):
 
     def get_queryset(self):
         user_id = self.kwargs["user_id"]
+
+        # IDOR guard: only the owner or staff may list another user's watched topics.
+        if self.request.user.id != user_id and not self.request.user.is_staff:
+            raise permissions.PermissionDenied(
+                "You can only view your own watched topics."
+            )
 
         # For now, return topics the user has participated in recently
         # This is a simplified implementation - Django Machina has a more complex watching system
