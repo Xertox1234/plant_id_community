@@ -1,24 +1,6 @@
-/**
- * Forum Service Tests
- *
- * Comprehensive tests for forum service covering:
- * - Category operations (fetch all, tree, single)
- * - Thread operations (fetch, create, search, pagination)
- * - Post operations (fetch, create, update, delete)
- * - Reaction operations (add, remove, fetch)
- * - Image upload operations (upload, delete, validation)
- * - Search functionality with filters
- * - Error handling and validation
- *
- * Priority: P1 - CRITICAL (Forum is core community feature)
- * Coverage Target: 95%+ branch coverage
- * Estimated Test Count: 27 tests
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   fetchCategories,
-  fetchCategoryTree,
   fetchCategory,
   fetchThreads,
   fetchThread,
@@ -27,115 +9,63 @@ import {
   createPost,
   updatePost,
   deletePost,
-  addReaction,
-  removeReaction,
+  toggleReaction,
   fetchReactions,
-  searchForum,
   uploadPostImage,
   deletePostImage,
+  searchForum,
 } from './forumService';
 import { clearCsrfToken } from '../utils/csrf';
-import type {
-  Category,
-  Thread,
-  Post,
-  Reaction,
-  Attachment,
-  CreateThreadInput,
-  CreatePostInput,
-  UpdatePostInput,
-  AddReactionInput,
-  SearchForumOptions,
-} from '../types/forum';
 
-// Test fixtures
-const mockUser = {
-  id: 1,
-  email: 'test@example.com',
-  username: 'testuser',
-  display_name: 'Test User',
-  trust_level: 'basic' as const,
-};
-
-const mockCategory: Category = {
-  id: 'cat-123',
+const backendUser = { id: 1, username: 'jdoe', first_name: 'Jane', last_name: 'Doe' };
+const backendForum = {
+  id: 3,
   name: 'Plant Care',
-  slug: 'plant-care',
-  description: 'Tips and advice for plant care',
-  thread_count: 42,
-  post_count: 156,
-  created_at: '2025-01-01T00:00:00Z',
+  description: 'Tips',
+  topics_count: 2,
+  posts_count: 9,
+  last_activity: '2026-01-02T00:00:00Z',
+};
+const backendTopic = {
+  id: 12,
+  subject: 'Succulent help',
+  poster: backendUser,
+  forum: { id: 3, name: 'Plant Care', slug: 'plant-care' },
+  created: '2026-01-01T00:00:00Z',
+  posts_count: 5,
+  last_post_on: '2026-01-02T00:00:00Z',
+  replies_count: 4,
+  views_count: 99,
+};
+const backendPost = {
+  id: 50,
+  content: '<p>hello</p>',
+  poster: backendUser,
+  created: '2026-01-01T00:00:00Z',
+  updated: '2026-01-01T00:00:00Z',
+  content_format: 'html',
 };
 
-const mockThread: Thread = {
-  id: 'thread-123',
-  title: 'How to care for succulents?',
-  slug: 'how-to-care-for-succulents',
-  excerpt: 'Looking for succulent care tips',
-  category: mockCategory,
-  author: mockUser,
-  created_at: '2025-01-01T00:00:00Z',
-  last_activity_at: '2025-01-02T00:00:00Z',
-  post_count: 5,
-  view_count: 42,
-  is_pinned: false,
-  is_locked: false,
-  is_active: true,
-};
-
-const mockPost: Post = {
-  id: 'post-123',
-  thread: 'thread-123',
-  author: { ...mockUser, trust_level: 'basic' },
-  content_raw: 'This is a test post',
-  content_html: '<p>This is a test post</p>',
-  content_format: 'markdown',
-  created_at: '2025-01-01T00:00:00Z',
-  is_first_post: false,
-  is_active: true,
-  reaction_counts: { like: 5, love: 2 },
-};
-
-const mockAttachment: Attachment = {
-  id: 'attach-123',
-  image: 'https://example.com/image.jpg',
-  image_thumbnail: 'https://example.com/image_thumb.jpg',
-  uploaded_at: '2025-01-01T00:00:00Z',
-};
-
-const mockReaction: Reaction = {
-  id: 'reaction-123',
-  post: 'post-123',
-  user: mockUser,
-  reaction_type: 'like',
-  created_at: '2025-01-01T00:00:00Z',
-};
-
-// Mock fetch
 let fetchMock: ReturnType<typeof vi.fn>;
-let documentCookieMock: string;
+let cookie: string;
 
 beforeEach(() => {
   fetchMock = vi.fn();
   global.fetch = fetchMock as unknown as typeof fetch;
-
-  // Mock document.cookie
-  documentCookieMock = 'csrftoken=test-csrf-token';
+  cookie = 'csrftoken=test-csrf-token';
   Object.defineProperty(document, 'cookie', {
-    get: () => documentCookieMock,
-    set: (value: string) => {
-      documentCookieMock = value;
+    get: () => cookie,
+    set: (v: string) => {
+      cookie = v;
     },
     configurable: true,
   });
-
   clearCsrfToken();
   document.head.querySelector('meta[name="csrf-token"]')?.remove();
-  const csrfMeta = document.createElement('meta');
-  csrfMeta.setAttribute('name', 'csrf-token');
-  csrfMeta.setAttribute('content', 'test-csrf-token');
-  document.head.appendChild(csrfMeta);
-
+  const meta = document.createElement('meta');
+  meta.setAttribute('name', 'csrf-token');
+  meta.setAttribute('content', 'test-csrf-token');
+  document.head.appendChild(meta);
   vi.clearAllMocks();
 });
 
@@ -145,792 +75,207 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('forumService', () => {
-  // ============================================================================
-  // CATEGORY TESTS
-  // ============================================================================
+function okJson(body: unknown) {
+  return { ok: true, status: 200, json: async () => body };
+}
 
-  describe('fetchCategories', () => {
-    it('should fetch all categories', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [mockCategory],
-      });
-
-      // Act
-      const result = await fetchCategories();
-
-      // Assert
-      expect(result).toEqual([mockCategory]);
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/v1/forum/categories/'),
-        expect.objectContaining({
-          credentials: 'include',
-          headers: expect.objectContaining({
-            'X-CSRFToken': 'test-csrf-token',
-          }),
-        })
-      );
+describe('forumService (translation layer)', () => {
+  it('fetchCategories unwraps DRF results and maps fields', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ results: [backendForum], count: 1 }));
+    const result = await fetchCategories();
+    expect(result[0]).toMatchObject({
+      id: '3',
+      name: 'Plant Care',
+      thread_count: 2,
+      post_count: 9,
     });
-
-    it('should handle empty category list', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [],
-      });
-
-      // Act
-      const result = await fetchCategories();
-
-      // Assert
-      expect(result).toEqual([]);
-    });
-
-    it('should handle API errors gracefully', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        json: async () => ({ detail: 'Server error' }),
-      });
-
-      // Act & Assert
-      await expect(fetchCategories()).rejects.toThrow('Server error');
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/forum/categories/'),
+      expect.objectContaining({ credentials: 'include' })
+    );
   });
 
-  describe('fetchCategoryTree', () => {
-    it('should fetch hierarchical category structure', async () => {
-      // Arrange
-      const treeData: Category[] = [
-        {
-          ...mockCategory,
-          children: [
-            {
-              id: 'cat-456',
-              name: 'Watering',
-              slug: 'watering',
-              created_at: '2025-01-01T00:00:00Z',
-            },
-          ],
-        },
-      ];
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => treeData,
-      });
-
-      // Act
-      const result = await fetchCategoryTree();
-
-      // Assert
-      expect(result).toEqual(treeData);
-      expect(result[0].children).toHaveLength(1);
-    });
+  it('fetchCategory resolves by integer id from the list', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ results: [backendForum], count: 1 }));
+    const c = await fetchCategory(3);
+    expect(c.id).toBe('3');
   });
 
-  describe('fetchCategory', () => {
-    it('should fetch single category by slug', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockCategory,
-      });
-
-      // Act
-      const result = await fetchCategory('plant-care');
-
-      // Assert
-      expect(result).toEqual(mockCategory);
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/categories/plant-care/'),
-        expect.any(Object)
-      );
-    });
-
-    it('should handle 404 for invalid slug', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        json: async () => ({ detail: 'Not found' }),
-      });
-
-      // Act & Assert
-      await expect(fetchCategory('invalid-slug')).rejects.toThrow('Not found');
-    });
+  it('fetchThreads hits the category topics endpoint and maps topics->threads', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({ results: [backendTopic], count: 1, next: null, previous: null })
+    );
+    const result = await fetchThreads({ category: 3, page: 1 });
+    expect(result.items[0]).toMatchObject({ id: '12', title: 'Succulent help', post_count: 5 });
+    expect(result.meta.count).toBe(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/categories/3/topics/?page=1'),
+      expect.any(Object)
+    );
   });
 
-  // ============================================================================
-  // THREAD TESTS
-  // ============================================================================
-
-  describe('fetchThreads', () => {
-    it('should fetch threads with default pagination', async () => {
-      // Arrange
-      const response = {
-        results: [mockThread],
-        count: 1,
-        next: null,
-        previous: null,
-      };
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => response,
-      });
-
-      // Act
-      const result = await fetchThreads();
-
-      // Assert
-      expect(result.items).toEqual([mockThread]);
-      expect(result.meta.count).toBe(1);
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('page=1'), expect.any(Object));
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('limit=20'),
-        expect.any(Object)
-      );
-    });
-
-    it('should filter threads by category', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ results: [mockThread], count: 1 }),
-      });
-
-      // Act
-      await fetchThreads({ category: 'plant-care' });
-
-      // Assert
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('category=plant-care'),
-        expect.any(Object)
-      );
-    });
-
-    it('should search threads by query', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ results: [mockThread], count: 1 }),
-      });
-
-      // Act
-      await fetchThreads({ search: 'succulents' });
-
-      // Assert
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('search=succulents'),
-        expect.any(Object)
-      );
-    });
-
-    it('should paginate thread results', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ results: [mockThread], count: 100 }),
-      });
-
-      // Act
-      await fetchThreads({ page: 2, limit: 10 });
-
-      // Assert
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('page=2'), expect.any(Object));
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('limit=10'),
-        expect.any(Object)
-      );
-    });
-
-    it('should handle custom ordering', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ results: [mockThread], count: 1 }),
-      });
-
-      // Act
-      await fetchThreads({ ordering: '-created_at' });
-
-      // Assert
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('ordering=-created_at'),
-        expect.any(Object)
-      );
-    });
+  it('fetchThreads without category hits /topics/', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ results: [backendTopic], count: 1 }));
+    await fetchThreads({ page: 2 });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/topics/?page=2'),
+      expect.any(Object)
+    );
   });
 
-  describe('fetchThread', () => {
-    it('should fetch single thread by slug', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockThread,
-      });
-
-      // Act
-      const result = await fetchThread('how-to-care-for-succulents');
-
-      // Assert
-      expect(result).toEqual(mockThread);
-    });
+  it('fetchThread unwraps {topic} from the detail endpoint', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({ topic: backendTopic, posts: { results: [], count: 0 } })
+    );
+    const t = await fetchThread(12);
+    expect(t).toMatchObject({ id: '12', title: 'Succulent help' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/topics/12/'),
+      expect.any(Object)
+    );
   });
 
-  describe('createThread', () => {
-    it('should create new thread with valid data', async () => {
-      // Arrange
-      const input: CreateThreadInput = {
-        title: 'New Thread',
-        category: 'plant-care',
-        excerpt: 'Thread excerpt',
-        first_post_content: 'First post content',
-        first_post_format: 'markdown',
-      };
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockThread,
-      });
-
-      // Act
-      const result = await createThread(input);
-
-      // Assert
-      expect(result).toEqual(mockThread);
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/threads/'),
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify(input),
-        })
-      );
+  it('createThread posts subject/content to the create endpoint', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({ message: 'ok', topic: backendTopic, first_post_id: 50 })
+    );
+    const t = await createThread({
+      title: 'Succulent help',
+      category: 3,
+      first_post_content: 'hello',
+      first_post_format: 'html',
     });
-
-    it('should validate CSRF token on create', async () => {
-      // Arrange
-      const input: CreateThreadInput = {
-        title: 'New Thread',
-        category: 'plant-care',
-        excerpt: 'Thread excerpt',
-        first_post_content: 'First post content',
-      };
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockThread,
-      });
-
-      // Act
-      await createThread(input);
-
-      // Assert
-      const fetchCall = fetchMock.mock.calls[0];
-      const headers = fetchCall[1].headers;
-      expect(headers['X-CSRFToken']).toBe('test-csrf-token');
-    });
-
-    it('should handle trust level restrictions (403)', async () => {
-      // Arrange
-      const input: CreateThreadInput = {
-        title: 'New Thread',
-        category: 'plant-care',
-        excerpt: 'Thread excerpt',
-        first_post_content: 'First post content',
-      };
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 403,
-        json: async () => ({ detail: 'Trust level too low' }),
-      });
-
-      // Act & Assert
-      await expect(createThread(input)).rejects.toThrow('Trust level too low');
-    });
+    expect(t.id).toBe('12');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/categories/3/topics/create/');
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body)).toMatchObject({ subject: 'Succulent help', content: 'hello' });
   });
 
-  // ============================================================================
-  // POST TESTS
-  // ============================================================================
-
-  describe('fetchPosts', () => {
-    it('should fetch posts for a thread', async () => {
-      // Arrange
-      const response = {
-        results: [mockPost],
-        count: 1,
-        next: null,
-        previous: null,
-      };
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => response,
-      });
-
-      // Act
-      const result = await fetchPosts({ thread: 'thread-123' });
-
-      // Assert
-      expect(result.items).toEqual([mockPost]);
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('thread=thread-123'),
-        expect.any(Object)
-      );
-    });
-
-    it('should throw error if thread is missing', async () => {
-      // Act & Assert
-      await expect(fetchPosts({ thread: '' })).rejects.toThrow('Thread slug is required');
-    });
-
-    it('should paginate post results', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ results: [mockPost], count: 50 }),
-      });
-
-      // Act
-      await fetchPosts({ thread: 'thread-123', page: 2, limit: 10 });
-
-      // Assert
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('page=2'), expect.any(Object));
-    });
+  it('fetchPosts queries by topic id and maps posts', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ results: [backendPost], count: 1 }));
+    const result = await fetchPosts({ thread: 12, page: 1 });
+    expect(result.items[0]).toMatchObject({ id: '50', thread: '12', content_raw: '<p>hello</p>' });
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('topic=12'), expect.any(Object));
   });
 
-  describe('createPost', () => {
-    it('should create new post with content', async () => {
-      // Arrange
-      const input: CreatePostInput = {
-        thread: 'thread-123',
-        content_raw: 'Test post content',
-        content_format: 'markdown',
-      };
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockPost,
-      });
-
-      // Act
-      const result = await createPost(input);
-
-      // Assert
-      expect(result).toEqual(mockPost);
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/posts/'),
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify(input),
-        })
-      );
-    });
-
-    it('should handle spam detection errors (429)', async () => {
-      // Arrange
-      const input: CreatePostInput = {
-        thread: 'thread-123',
-        content_raw: 'Spam content',
-      };
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 429,
-        json: async () => ({ detail: 'Spam detected' }),
-      });
-
-      // Act & Assert
-      await expect(createPost(input)).rejects.toThrow('Spam detected');
-    });
-
-    it('should handle rate limiting (429)', async () => {
-      // Arrange
-      const input: CreatePostInput = {
-        thread: 'thread-123',
-        content_raw: 'Test content',
-      };
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 429,
-        json: async () => ({ detail: 'Rate limit exceeded' }),
-      });
-
-      // Act & Assert
-      await expect(createPost(input)).rejects.toThrow('Rate limit exceeded');
-    });
+  it('createPost posts to /posts/create/ and unwraps {data}', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ message: 'ok', data: backendPost }));
+    const p = await createPost({ thread: 12, content_raw: 'hi', content_format: 'html' });
+    expect(p.id).toBe('50');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/posts/create/');
+    expect(JSON.parse(opts.body)).toMatchObject({ topic: 12, content: 'hi' });
   });
 
-  describe('updatePost', () => {
-    it('should update existing post', async () => {
-      // Arrange
-      const update: UpdatePostInput = {
-        content_raw: 'Updated content',
-        content_format: 'markdown',
-      };
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ ...mockPost, content_raw: 'Updated content' }),
-      });
-
-      // Act
-      const result = await updatePost('post-123', update);
-
-      // Assert
-      expect(result.content_raw).toBe('Updated content');
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/posts/post-123/'),
-        expect.objectContaining({
-          method: 'PATCH',
-        })
-      );
-    });
+  it('updatePost PATCHes content and unwraps {data}', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({ message: 'ok', data: { ...backendPost, content: '<p>edited</p>' } })
+    );
+    const p = await updatePost('50', { content_raw: '<p>edited</p>', content_format: 'html' });
+    expect(p.content_raw).toBe('<p>edited</p>');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/posts/50/');
+    expect(opts.method).toBe('PATCH');
   });
 
-  describe('deletePost', () => {
-    it('should soft delete post by UUID', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => undefined,
-      });
-
-      // Act
-      await deletePost('post-123');
-
-      // Assert
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/posts/post-123/'),
-        expect.objectContaining({
-          method: 'DELETE',
-        })
-      );
-    });
+  it('deletePost hits the /delete/ suffix endpoint', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 204, json: async () => undefined });
+    await deletePost('50');
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/posts/50/delete/'),
+      expect.objectContaining({ method: 'DELETE' })
+    );
   });
 
-  // ============================================================================
-  // REACTION TESTS
-  // ============================================================================
-
-  describe('addReaction', () => {
-    it('should add reaction to post', async () => {
-      // Arrange
-      const input: AddReactionInput = {
-        post: 'post-123',
+  it('toggleReaction posts reaction_type and normalizes counts', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({
+        success: true,
+        action: 'added',
         reaction_type: 'like',
-      };
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockReaction,
-      });
-
-      // Act
-      const result = await addReaction(input);
-
-      // Assert
-      expect(result).toEqual(mockReaction);
+        reactions: { like: { count: 3, users: [] } },
+        user_reactions: ['like'],
+      })
+    );
+    const r = await toggleReaction('50', 'like');
+    expect(r).toMatchObject({
+      action: 'added',
+      reaction_counts: { like: 3 },
+      user_reactions: ['like'],
     });
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/posts/50/reactions/');
+    expect(JSON.parse(opts.body)).toEqual({ reaction_type: 'like' });
   });
 
-  describe('removeReaction', () => {
-    it('should remove reaction by ID', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => undefined,
-      });
-
-      // Act
-      await removeReaction('reaction-123');
-
-      // Assert
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/reactions/reaction-123/'),
-        expect.objectContaining({
-          method: 'DELETE',
-        })
-      );
-    });
+  it('fetchReactions normalizes counts and user_reactions', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({
+        post_id: 50,
+        reactions: { like: { count: 3, users: [] } },
+        user_reactions: [],
+        total_reactions: 3,
+      })
+    );
+    const r = await fetchReactions('50');
+    expect(r.reaction_counts).toEqual({ like: 3 });
   });
 
-  describe('fetchReactions', () => {
-    it('should fetch reactions for a post', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [mockReaction],
-      });
-
-      // Act
-      const result = await fetchReactions('post-123');
-
-      // Assert
-      expect(result).toEqual([mockReaction]);
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('post=post-123'),
-        expect.any(Object)
-      );
-    });
+  it('uploadPostImage sends FormData with the plural field name to images/upload/', async () => {
+    const file = new File(['x'], 'a.jpg', { type: 'image/jpeg' });
+    fetchMock.mockResolvedValueOnce(
+      okJson({
+        message: 'ok',
+        images: [
+          { id: 7, image_url: 'http://x/a.jpg', thumbnail_url: 'http://x/t.jpg', upload_order: 0 },
+        ],
+        post_id: 50,
+      })
+    );
+    const a = await uploadPostImage('50', file);
+    expect(a).toMatchObject({ id: '7', image_url: 'http://x/a.jpg', display_order: 0 });
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/posts/50/images/upload/');
+    expect(opts.body).toBeInstanceOf(FormData);
+    expect((opts.body as FormData).has('images')).toBe(true);
   });
 
-  // ============================================================================
-  // SEARCH TESTS
-  // ============================================================================
-
-  describe('searchForum', () => {
-    it('should search threads and posts by query', async () => {
-      // Arrange
-      const options: SearchForumOptions = {
-        q: 'succulents',
-        page: 1,
-        page_size: 20,
-      };
-      const response = {
-        query: 'succulents',
-        threads: [mockThread],
-        posts: [mockPost],
-        total_threads: 1,
-        total_posts: 1,
-        page: 1,
-        page_size: 20,
-        has_next_threads: false,
-        has_next_posts: false,
-      };
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => response,
-      });
-
-      // Act
-      const result = await searchForum(options);
-
-      // Assert
-      expect(result.threads).toEqual([mockThread]);
-      expect(result.posts).toEqual([mockPost]);
-      expect(result.total_threads).toBe(1);
-      expect(result.total_posts).toBe(1);
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('q=succulents'),
-        expect.any(Object)
-      );
-    });
-
-    it('should throw error for empty query', async () => {
-      // Act & Assert
-      await expect(searchForum({ q: '' })).rejects.toThrow('Search query is required');
-      await expect(searchForum({ q: '   ' })).rejects.toThrow('Search query is required');
-    });
-
-    it('should filter search by category', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          query: 'test',
-          threads: [],
-          posts: [],
-          total_threads: 0,
-          total_posts: 0,
-          page: 1,
-          page_size: 20,
-          has_next_threads: false,
-          has_next_posts: false,
-        }),
-      });
-
-      // Act
-      await searchForum({ q: 'test', category: 'plant-care' });
-
-      // Assert
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('category=plant-care'),
-        expect.any(Object)
-      );
-    });
-
-    it('should filter search by author', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          query: 'test',
-          threads: [],
-          posts: [],
-          total_threads: 0,
-          total_posts: 0,
-          page: 1,
-          page_size: 20,
-          has_next_threads: false,
-          has_next_posts: false,
-        }),
-      });
-
-      // Act
-      await searchForum({ q: 'test', author: 'testuser' });
-
-      // Assert
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('author=testuser'),
-        expect.any(Object)
-      );
-    });
-
-    it('should filter search by date range', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          query: 'test',
-          threads: [],
-          posts: [],
-          total_threads: 0,
-          total_posts: 0,
-          page: 1,
-          page_size: 20,
-          has_next_threads: false,
-          has_next_posts: false,
-        }),
-      });
-
-      // Act
-      await searchForum({
-        q: 'test',
-        date_from: '2025-01-01',
-        date_to: '2025-01-31',
-      });
-
-      // Assert
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('date_from=2025-01-01'),
-        expect.any(Object)
-      );
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('date_to=2025-01-31'),
-        expect.any(Object)
-      );
-    });
+  it('deletePostImage hits the images/{id}/delete/ endpoint', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 204, json: async () => undefined });
+    await deletePostImage('50', '7');
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/posts/50/images/7/delete/'),
+      expect.objectContaining({ method: 'DELETE' })
+    );
   });
 
-  // ============================================================================
-  // IMAGE UPLOAD TESTS
-  // ============================================================================
-
-  describe('uploadPostImage', () => {
-    it('should upload image file to post', async () => {
-      // Arrange
-      const file = new File(['image data'], 'test.jpg', { type: 'image/jpeg' });
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockAttachment,
-      });
-
-      // Act
-      const result = await uploadPostImage('post-123', file);
-
-      // Assert
-      expect(result).toEqual(mockAttachment);
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/posts/post-123/upload_image/'),
-        expect.objectContaining({
-          method: 'POST',
-          credentials: 'include',
-        })
-      );
-      // Verify FormData was sent (body should be FormData instance)
-      const fetchCall = fetchMock.mock.calls[0];
-      expect(fetchCall[1].body).toBeInstanceOf(FormData);
-    });
-
-    it('should validate CSRF token on upload', async () => {
-      // Arrange
-      const file = new File(['image data'], 'test.jpg', { type: 'image/jpeg' });
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockAttachment,
-      });
-
-      // Act
-      await uploadPostImage('post-123', file);
-
-      // Assert
-      const fetchCall = fetchMock.mock.calls[0];
-      const headers = fetchCall[1].headers;
-      expect(headers['X-CSRFToken']).toBe('test-csrf-token');
-    });
-
-    it('should handle file size validation errors', async () => {
-      // Arrange
-      const file = new File(['image data'], 'test.jpg', { type: 'image/jpeg' });
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        json: async () => ({ detail: 'File size exceeds 5MB limit' }),
-      });
-
-      // Act & Assert
-      await expect(uploadPostImage('post-123', file)).rejects.toThrow(
-        'File size exceeds 5MB limit'
-      );
-    });
-
-    it('should handle max attachment count errors', async () => {
-      // Arrange
-      const file = new File(['image data'], 'test.jpg', { type: 'image/jpeg' });
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        json: async () => ({ detail: 'Maximum 6 images per post' }),
-      });
-
-      // Act & Assert
-      await expect(uploadPostImage('post-123', file)).rejects.toThrow('Maximum 6 images per post');
-    });
-
-    it('should handle invalid file type errors', async () => {
-      // Arrange
-      const file = new File(['pdf data'], 'test.pdf', { type: 'application/pdf' });
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        json: async () => ({ detail: 'Invalid file type' }),
-      });
-
-      // Act & Assert
-      await expect(uploadPostImage('post-123', file)).rejects.toThrow('Invalid file type');
-    });
-
-    it('should handle upload failure without JSON response', async () => {
-      // Arrange
-      const file = new File(['image data'], 'test.jpg', { type: 'image/jpeg' });
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        json: async () => {
-          throw new Error('Not JSON');
-        },
-      });
-
-      // Act & Assert
-      await expect(uploadPostImage('post-123', file)).rejects.toThrow('Upload failed');
-    });
+  it('searchForum maps topics->threads and posts->posts', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({ query: 'succ', topics: [backendTopic], posts: [backendPost] })
+    );
+    const r = await searchForum({ q: 'succ' });
+    expect(r.threads[0].id).toBe('12');
+    expect(r.posts[0].id).toBe('50');
+    expect(r.total_threads).toBe(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/search/?q=succ'),
+      expect.any(Object)
+    );
   });
 
-  describe('deletePostImage', () => {
-    it('should delete image from post', async () => {
-      // Arrange
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => undefined,
-      });
+  it('searchForum rejects empty queries', async () => {
+    await expect(searchForum({ q: '   ' })).rejects.toThrow('Search query is required');
+  });
 
-      // Act
-      await deletePostImage('post-123', 'attach-123');
-
-      // Assert
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/posts/post-123/delete_image/attach-123/'),
-        expect.objectContaining({
-          method: 'DELETE',
-        })
-      );
+  it('propagates backend errors with detail', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: async () => ({ detail: 'Rate limit exceeded' }),
     });
+    await expect(createPost({ thread: 12, content_raw: 'x' })).rejects.toThrow(
+      'Rate limit exceeded'
+    );
   });
 });
