@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
@@ -64,6 +65,56 @@ void main() {
         final exception = ApiException('Network error', statusCode: null);
         expect(exception.message, 'Network error');
         expect(exception.statusCode, isNull);
+      });
+    });
+
+    group('handleDioException - canonical flat error shape', () {
+      DioException makeBadResponse(Map<String, dynamic> data, int statusCode) {
+        final requestOptions = RequestOptions(path: '/test');
+        final response = Response<dynamic>(
+          requestOptions: requestOptions,
+          data: data,
+          statusCode: statusCode,
+        );
+        return DioException(
+          requestOptions: requestOptions,
+          response: response,
+          type: DioExceptionType.badResponse,
+        );
+      }
+
+      test('reads top-level message from canonical shape', () {
+        final e = makeBadResponse(
+          {'error': true, 'message': 'Invalid credentials', 'code': 'auth_failed', 'status_code': 400},
+          400,
+        );
+        final result = apiService.handleDioException(e) as ApiException;
+        expect(result.message, 'Invalid credentials');
+        expect(result.message, isNot('true'));
+      });
+
+      test('never surfaces boolean true as the error string', () {
+        final e = makeBadResponse(
+          {'error': true, 'message': 'Account locked', 'code': 'account_locked', 'status_code': 403},
+          403,
+        );
+        final result = apiService.handleDioException(e) as ApiException;
+        expect(result.message, isNot('true'));
+      });
+
+      test('does not surface boolean error field when message is absent', () {
+        // Regression guard: a payload with only {error: true} (no message, no detail)
+        // under the old code returned 'true'; correct code must not.
+        final e = makeBadResponse({'error': true}, 400);
+        final result = apiService.handleDioException(e) as ApiException;
+        expect(result.message, isNot('true'));
+        expect(result.message, isNotEmpty);
+      });
+
+      test('still reads legacy DRF detail field when message is absent', () {
+        final e = makeBadResponse({'detail': 'Not found.'}, 404);
+        final result = apiService.handleDioException(e) as ApiException;
+        expect(result.message, 'Not found.');
       });
     });
 
@@ -162,5 +213,3 @@ void main() {
 ///   expect(response.data['species'], isNotNull);
 /// });
 /// ```
-
-

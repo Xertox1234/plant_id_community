@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import PostCard from './PostCard';
+import { useAuth } from '../../contexts/AuthContext';
 import { createMockPost } from '../../tests/forumUtils';
 
 // Mock the AuthContext
@@ -244,5 +245,28 @@ describe('PostCard', () => {
 
     // Should show first letter of username
     expect(screen.getByText('p')).toBeInTheDocument();
+  });
+
+  it('edit and delete buttons are in the DOM for the post owner without hover', () => {
+    vi.mocked(useAuth).mockReturnValueOnce({
+      user: { id: 1, email: 'owner@example.com', is_staff: false, is_moderator: false },
+      isAuthenticated: true,
+      isLoading: false,
+      error: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+      signup: vi.fn(),
+      clearError: vi.fn(),
+    });
+
+    const post = createMockPost({
+      author: { id: 1, username: 'owner', email: '', display_name: 'Owner', trust_level: 'member' },
+    });
+
+    renderPostCard(post);
+
+    // Buttons must be in the DOM regardless of hover state (CSS hides them on md+).
+    expect(screen.getByTitle('Edit post')).toBeInTheDocument();
+    expect(screen.getByTitle('Delete post')).toBeInTheDocument();
   });
 });

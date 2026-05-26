@@ -131,6 +131,7 @@ msgpack==1.1.2
 mypy==1.20.2
 mypy_extensions==1.1.0
 nltk==3.9.4
+nh3==0.2.18
 openai==2.34.0
 openpyxl==3.1.5
 packaging==25.0

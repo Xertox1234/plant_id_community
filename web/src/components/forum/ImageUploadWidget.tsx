@@ -462,12 +462,12 @@ export default function ImageUploadWidget({
               <div className="absolute top-2 left-2 rounded bg-black bg-opacity-60 px-2 py-1 text-xs text-white">
                 {index + 1}
               </div>
-              <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-opacity flex items-center justify-center">
-                <div className="flex flex-wrap justify-center gap-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+              <div className="absolute inset-0 bg-black bg-opacity-30 md:bg-opacity-0 md:group-hover:bg-opacity-40 transition-opacity flex items-center justify-center">
+                <div className="flex flex-wrap justify-center gap-2 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
                   <Button
                     onClick={() => moveAttachment(index, -1)}
                     variant="secondary"
-                    className="bg-white text-gray-900 hover:bg-gray-100 disabled:opacity-50"
+                    className="min-h-11 min-w-11 inline-flex items-center justify-center bg-white text-gray-900 hover:bg-gray-100 disabled:opacity-50"
                     aria-label="Move image left"
                     disabled={index === 0 || reordering}
                   >
@@ -476,7 +476,7 @@ export default function ImageUploadWidget({
                   <Button
                     onClick={() => moveAttachment(index, 1)}
                     variant="secondary"
-                    className="bg-white text-gray-900 hover:bg-gray-100 disabled:opacity-50"
+                    className="min-h-11 min-w-11 inline-flex items-center justify-center bg-white text-gray-900 hover:bg-gray-100 disabled:opacity-50"
                     aria-label="Move image right"
                     disabled={index === orderedAttachments.length - 1 || reordering}
                   >
@@ -485,7 +485,7 @@ export default function ImageUploadWidget({
                   <Button
                     onClick={() => handleDelete(attachment.id)}
                     variant="secondary"
-                    className="bg-red-600 hover:bg-red-700 text-white"
+                    className="min-h-11 inline-flex items-center justify-center bg-red-600 hover:bg-red-700 text-white"
                     aria-label="Delete image"
                     disabled={reordering}
                   >

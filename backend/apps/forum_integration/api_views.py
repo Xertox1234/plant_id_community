@@ -2,18 +2,35 @@
 DRF API Views for Forum Integration.
 """
 
+import os
+
 from apps.core.utils.query_sanitization import escape_search_query
 from django.core.paginator import Paginator
 from django.db.models import F
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django_ratelimit.decorators import ratelimit
 from machina.apps.forum.models import Forum
 from machina.apps.forum_conversation.models import Post, Topic
 from machina.core.loading import get_class
+from PIL import Image, UnidentifiedImageError
 from rest_framework import generics, permissions, status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from .constants import (
+    FORUM_DEFAULT_PAGE_SIZE,
+    FORUM_IMAGE_ALLOWED_CONTENT_TYPES,
+    FORUM_IMAGE_ALLOWED_EXTENSIONS,
+    FORUM_IMAGE_ALLOWED_PIL_FORMATS,
+    FORUM_IMAGE_MAX_BYTES,
+    FORUM_IMAGE_MAX_PER_POST,
+    FORUM_MAX_PAGE_SIZE,
+    FORUM_RATE_LIMITS,
+)
 
 # Import Django Machina permission handler
 PermissionHandler = get_class("forum_permission.handler", "PermissionHandler")
@@ -71,7 +88,10 @@ def all_topics_list(request):
         )
 
         # Simple pagination
-        page_size = int(request.GET.get("page_size", 25))
+        page_size = min(
+            max(1, int(request.GET.get("page_size", FORUM_DEFAULT_PAGE_SIZE))),
+            FORUM_MAX_PAGE_SIZE,
+        )
         page = int(request.GET.get("page", 1))
 
         paginator = Paginator(topics, page_size)
@@ -166,6 +186,12 @@ class TopicDetailView(generics.RetrieveAPIView):
         )
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["create_topic"], method="POST", block=True
+    ),
+    name="create",
+)
 class CreateTopicView(generics.CreateAPIView):
     """Create a new topic."""
 
@@ -199,6 +225,12 @@ class CreateTopicView(generics.CreateAPIView):
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["create_post"], method="POST", block=True
+    ),
+    name="create",
+)
 class CreatePostView(generics.CreateAPIView):
     """Create a new post (reply)."""
 
@@ -214,6 +246,12 @@ class CreatePostView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         """Create post and return success response."""
+        topic = get_object_or_404(Topic, id=self.kwargs["topic_id"])
+        if topic.status == Topic.TOPIC_LOCKED:
+            return Response(
+                {"error": "This topic is locked and cannot receive new replies."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         post = serializer.save()
@@ -228,6 +266,7 @@ class CreatePostView(generics.CreateAPIView):
 
 @api_view(["GET"])
 @permission_classes([permissions.AllowAny])
+@ratelimit(key="ip", rate=FORUM_RATE_LIMITS["search"], method="GET", block=True)
 def forum_search(request):
     """Search forum topics and posts."""
     query = request.GET.get("q", "").strip()
@@ -297,6 +336,7 @@ def forum_stats(request):
 
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
+@ratelimit(key="user", rate=FORUM_RATE_LIMITS["ai_assist"], method="POST", block=True)
 def forum_ai_assist(request):
     """AI assistance for forum post creation."""
 
@@ -347,6 +387,12 @@ class PostListView(generics.ListAPIView):
         return Post.objects.none()
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["create_post"], method="POST", block=True
+    ),
+    name="create",
+)
 class PostCreateView(generics.CreateAPIView):
     """Create a new post (reply)."""
 
@@ -355,12 +401,17 @@ class PostCreateView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         """Create post and return success response."""
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        # Get topic from request data
         topic_id = request.data.get("topic")
         topic = get_object_or_404(Topic, id=topic_id)
+
+        if topic.status == Topic.TOPIC_LOCKED:
+            return Response(
+                {"error": "This topic is locked and cannot receive new replies."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
         # Save with topic context
         serializer.context["topic"] = topic
@@ -375,6 +426,18 @@ class PostCreateView(generics.CreateAPIView):
         )
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["update_post"], method="PUT", block=True
+    ),
+    name="update",
+)
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["update_post"], method="PATCH", block=True
+    ),
+    name="partial_update",
+)
 class PostUpdateView(generics.UpdateAPIView):
     """Update an existing post."""
 
@@ -387,7 +450,7 @@ class PostUpdateView(generics.UpdateAPIView):
 
         # Check if user can edit this post
         if post.poster != self.request.user and not self.request.user.is_staff:
-            raise permissions.PermissionDenied("You cannot edit this post")
+            raise PermissionDenied("You cannot edit this post")
 
         return post
 
@@ -406,6 +469,12 @@ class PostUpdateView(generics.UpdateAPIView):
         )
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["delete_post"], method="DELETE", block=True
+    ),
+    name="destroy",
+)
 class PostDeleteView(generics.DestroyAPIView):
     """Delete a post."""
 
@@ -417,7 +486,7 @@ class PostDeleteView(generics.DestroyAPIView):
 
         # Check if user can delete this post
         if post.poster != self.request.user and not self.request.user.is_staff:
-            raise permissions.PermissionDenied("You cannot delete this post")
+            raise PermissionDenied("You cannot delete this post")
 
         return post
 
@@ -502,6 +571,10 @@ class TopicUpdateView(generics.UpdateAPIView):
         )
 
 
+@method_decorator(
+    ratelimit(key="user", rate=FORUM_RATE_LIMITS["react"], method="POST", block=True),
+    name="post",
+)
 class PostReactionView(APIView):
     """Create, update, or remove reactions on forum posts."""
 
@@ -629,6 +702,12 @@ class PostImageListView(generics.ListAPIView):
         )
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["upload_image"], method="POST", block=True
+    ),
+    name="post",
+)
 class PostImageUploadView(APIView):
     """Upload images to a forum post."""
 
@@ -671,41 +750,61 @@ class PostImageUploadView(APIView):
 
         uploaded_files = request.FILES.getlist("images")
 
-        # Validate number of images (max 6 per post)
+        # Validate number of images (max per post)
         existing_count = ForumPostImage.objects.filter(post=post).count()
         total_count = existing_count + len(uploaded_files)
 
-        if total_count > 6:
+        if total_count > FORUM_IMAGE_MAX_PER_POST:
             return Response(
                 {
                     "error": (
-                        f"Maximum 6 images per post. You have {existing_count} "
-                        f"images and are trying to add {len(uploaded_files)} more."
+                        f"Maximum {FORUM_IMAGE_MAX_PER_POST} images per post. "
+                        f"You have {existing_count} images and are trying to add "
+                        f"{len(uploaded_files)} more."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Validate file sizes and types
-        max_size = 5 * 1024 * 1024  # 5MB
-        allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-
         uploaded_images = []
         errors = []
 
         for i, uploaded_file in enumerate(uploaded_files):
-            # Validate file size
-            if uploaded_file.size > max_size:
+            # Layer 1: extension allowlist
+            ext = os.path.splitext(uploaded_file.name)[1].lower()
+            if ext not in FORUM_IMAGE_ALLOWED_EXTENSIONS:
+                errors.append(
+                    f"File {uploaded_file.name} has an unsupported extension."
+                )
+                continue
+
+            # Layer 2: declared MIME (cheap reject; not trusted alone)
+            if uploaded_file.content_type not in FORUM_IMAGE_ALLOWED_CONTENT_TYPES:
+                errors.append(
+                    f"File {uploaded_file.name} is not a supported image type."
+                )
+                continue
+
+            # Layer 3: size
+            if uploaded_file.size > FORUM_IMAGE_MAX_BYTES:
                 errors.append(
                     f"File {uploaded_file.name} is too large. Maximum size is 5MB."
                 )
                 continue
 
-            # Validate file type
-            if uploaded_file.content_type not in allowed_types:
-                errors.append(
-                    f"File {uploaded_file.name} is not a supported image type."
-                )
+            # Layer 4: magic number — verify real image bytes with PIL
+            try:
+                uploaded_file.seek(0)
+                with Image.open(uploaded_file) as im:
+                    im.verify()
+                    if im.format not in FORUM_IMAGE_ALLOWED_PIL_FORMATS:
+                        errors.append(
+                            f"File {uploaded_file.name} content is not an allowed image."
+                        )
+                        continue
+                uploaded_file.seek(0)  # reset for storage
+            except (UnidentifiedImageError, OSError):
+                errors.append(f"File {uploaded_file.name} is not a valid image.")
                 continue
 
             try:
@@ -1088,12 +1187,19 @@ def user_trust_level(request):
                 ),
             }
         except Exception:
-            # Fallback permissions for authenticated users
+            # Degraded fallback — only reached when PermissionHandler itself raises.
+            # Log the real failure so it is visible; do not silently swallow it.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "[FORUM] user_trust_level: PermissionHandler raised, using fallback",
+                exc_info=True,
+            )
             permissions_check = {
                 "can_read_forum": True,
                 "can_start_new_topics": True,
                 "can_reply_to_topics": True,
-                "can_attach_files": user.is_staff,
+                "can_attach_files": user.is_staff,  # fallback only — not enforcement
                 "can_download_files": True,
             }
 
@@ -1265,6 +1371,10 @@ class UserTopicsListView(generics.ListAPIView):
     def get_queryset(self):
         user_id = self.kwargs["user_id"]
 
+        # IDOR guard: only the owner or staff may list another user's topics.
+        if self.request.user.id != user_id and not self.request.user.is_staff:
+            raise PermissionDenied("You can only view your own topics.")
+
         # Get topics created by this user
         queryset = (
             Topic.objects.filter(poster_id=user_id, approved=True)
@@ -1303,6 +1413,10 @@ class UserWatchedTopicsListView(generics.ListAPIView):
 
     def get_queryset(self):
         user_id = self.kwargs["user_id"]
+
+        # IDOR guard: only the owner or staff may list another user's watched topics.
+        if self.request.user.id != user_id and not self.request.user.is_staff:
+            raise PermissionDenied("You can only view your own watched topics.")
 
         # For now, return topics the user has participated in recently
         # This is a simplified implementation - Django Machina has a more complex watching system

@@ -205,7 +205,7 @@ describe('plantIdService', () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 400,
-        json: async () => ({ error: 'Invalid image format' }),
+        json: async () => ({ error: true, message: 'Invalid image format' }),
       });
 
       // Act & Assert
@@ -242,7 +242,7 @@ describe('plantIdService', () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 429,
-        json: async () => ({ error: 'API quota exceeded. Please try again later.' }),
+        json: async () => ({ error: true, message: 'API quota exceeded. Please try again later.' }),
       });
 
       // Act & Assert
@@ -448,7 +448,7 @@ describe('plantIdService', () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 400,
-        json: async () => ({ error: 'Duplicate plant in collection' }),
+        json: async () => ({ error: true, message: 'Duplicate plant in collection' }),
       });
 
       // Act & Assert

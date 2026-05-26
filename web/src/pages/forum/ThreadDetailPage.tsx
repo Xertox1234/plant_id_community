@@ -256,17 +256,17 @@ export default function ThreadDetailPage() {
 
       {/* Thread Header */}
       <div className="mb-8 bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-start gap-4 mb-4">
+        <div className="flex items-start flex-wrap gap-4 mb-4">
           {thread.category.icon && (
             <span className="text-4xl" aria-hidden="true">
               {thread.category.icon}
             </span>
           )}
 
-          <div className="flex-1">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">{thread.title}</h1>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl sm:text-3xl font-bold text-gray-900 mb-2">{thread.title}</h1>
 
-            <div className="flex items-center gap-4 text-sm text-gray-500">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-sm text-gray-500">
               <span>
                 by{' '}
                 <strong className="text-gray-700">
@@ -327,6 +327,7 @@ export default function ThreadDetailPage() {
             variant="outline"
             loading={loadingMore}
             disabled={loadingMore}
+            className="min-h-11"
           >
             {loadingMore
               ? 'Loading...'

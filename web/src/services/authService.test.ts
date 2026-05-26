@@ -296,9 +296,8 @@ describe('authService', () => {
     it('should handle validation errors (400)', async () => {
       // Arrange
       const validationError = {
-        error: {
-          message: 'Password must be at least 8 characters',
-        },
+        error: true,
+        message: 'Password must be at least 8 characters',
       };
       fetchMock.mockResolvedValueOnce({
         ok: false,

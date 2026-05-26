@@ -242,7 +242,7 @@ class ApiService {
         options: options,
       );
     } on DioException catch (e) {
-      throw _handleDioException(e);
+      throw handleDioException(e);
     }
   }
 
@@ -269,7 +269,7 @@ class ApiService {
         options: options,
       );
     } on DioException catch (e) {
-      throw _handleDioException(e);
+      throw handleDioException(e);
     }
   }
 
@@ -296,7 +296,7 @@ class ApiService {
         options: options,
       );
     } on DioException catch (e) {
-      throw _handleDioException(e);
+      throw handleDioException(e);
     }
   }
 
@@ -320,7 +320,7 @@ class ApiService {
         options: options,
       );
     } on DioException catch (e) {
-      throw _handleDioException(e);
+      throw handleDioException(e);
     }
   }
 
@@ -347,7 +347,7 @@ class ApiService {
         options: options,
       );
     } on DioException catch (e) {
-      throw _handleDioException(e);
+      throw handleDioException(e);
     }
   }
 
@@ -387,12 +387,13 @@ class ApiService {
         options: Options(headers: {'Content-Type': 'multipart/form-data'}),
       );
     } on DioException catch (e) {
-      throw _handleDioException(e);
+      throw handleDioException(e);
     }
   }
 
   /// Convert DioException to user-friendly error message
-  Exception _handleDioException(DioException e) {
+  @visibleForTesting
+  Exception handleDioException(DioException e) {
     switch (e.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
@@ -427,12 +428,19 @@ class ApiService {
           );
         }
 
-        // Try to extract error message from response data
+        // Try to extract error message from response data.
+        // Canonical shape: {error: true, message: "...", code: "...", status_code: N}
+        // Legacy DRF shape: {detail: "..."}
+        // message wins over detail to match the canonical contract; detail is fallback for
+        // plain DRF responses that have no message field.
         final responseData = e.response?.data;
         if (responseData is Map<String, dynamic>) {
           message =
+              responseData['message']?.toString() ??
               responseData['detail']?.toString() ??
-              responseData['error']?.toString() ??
+              (responseData['error'] is String
+                  ? responseData['error'] as String
+                  : null) ??
               e.response?.statusMessage ??
               'Request failed with status $statusCode';
         } else if (responseData is String) {

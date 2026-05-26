@@ -59,15 +59,33 @@ Run backend commands from `backend/` with the venv active. Test DB after migrati
 
 ## Task 0: Audit-first — run `security-reviewer`
 
-- [ ] **Step 1: Run the forum security review**
+- [x] **Step 1: Run the forum security review**
 
-Invoke the repo's `security-reviewer` agent (per root `CLAUDE.md` → Code Review Agents) scoped to the forum surface: `backend/apps/forum_integration/api_views.py`, `serializers.py`, `models.py`, and the Phase-1 React forum. Capture findings.
+Invoked on 2026-05-26. Files reviewed: `api_views.py`, `serializers.py`, `models.py`, `forumService.ts`, `web/src/pages/forum/`, `web/src/components/forum/`.
 
-- [ ] **Step 2: Triage**
+- [x] **Step 2: Triage**
 
-Record findings in this plan as a checklist. **In scope for Phase 2:** CRITICAL + HIGH. **Out of scope:** MEDIUM/LOW → file as new `todos/` entries. The tasks below are the known floor; add tasks for any CRITICAL/HIGH the reviewer surfaces beyond them.
+**CONFIRMED known gaps (all covered by existing tasks):**
 
-- [ ] **Step 3: Commit the triage notes** (append to this plan; no code yet)
+- No rate limiting → Task 5
+- Unbounded `page_size` in `all_topics_list` → Task 6. *Correction: `TopicDetailView` hardcodes 10 (not vulnerable).*
+- Image upload: size + client content-type only → Task 7
+- No server-side sanitization; `content_format` unconstrained → Tasks 2–3
+
+**NEW HIGH findings:**
+
+- [H1] `ForumCategoryListView`, `ForumTopicsListView`, `TopicDetailView`, `PostListView`, `TopicsFeedView`, `forum_search`, `PostImageListView`, `TopicMarkViewedView` — all bypass `PermissionHandler.can_read_forum()`. Private/restricted forums would leak to any caller. → Covered by Task 8 (verify if restricted forums exist; if yes, enforce). If all forums public (expected): document and close.
+- [H2] `CreateTopicView` (line 169), `CreatePostView` (line 202), `PostCreateView` (line 350) — bypass `can_start_new_topics`/`can_reply_to_topics`; `CreatePostView`/`PostCreateView` also don't check `topic.status == TOPIC_LOCKED`. → Covered by Task 8.
+- [H3] **NEW — IDOR on `UserTopicsListView`/`UserWatchedTopicsListView`** (`api_views.py:1254–1285`, `1293–1336`): `user_id` from URL is never validated against `request.user`. Any authenticated user can read any other user's topic/watched-topic history. → **Added to Task 10 (per-endpoint audit).**
+
+**MEDIUM (out of scope, convert to todos):**
+
+- M1: `all_topics_list:121`, `forum_ai_assist:327`, `PostReactionView:561`, `user_trust_level:1102` — `str(e)` returned in 500 responses.
+- M2: `api_views.py:716` — `original_filename` stored/returned unsanitized from client.
+
+**CLEARED (no issue):** CSRF wiring correct, SQL injection in search handled by `escape_search_query`, ownership checks on edit/delete correct, mass assignment not possible, frontend XSS covered by `sanitizeHtml`.
+
+- [x] **Step 3: Commit the triage notes** (append to this plan; no code yet)
 
 ```bash
 git add docs/superpowers/plans/2026-05-25-forum-phase2-security.md

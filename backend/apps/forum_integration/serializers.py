@@ -9,6 +9,7 @@ from machina.apps.forum_conversation.models import Post, Topic
 from rest_framework import serializers
 
 from .models import ForumPostImage, RichPost
+from .sanitization import sanitize_forum_html
 
 User = get_user_model()
 
@@ -331,8 +332,11 @@ class CreateTopicSerializer(RichContentMixin, serializers.ModelSerializer):
         write_only=True,
         help_text="Rich content JSON (Stream-like blocks)",
     )
-    content_format = serializers.CharField(
-        required=False, write_only=True, default="plain"
+    content_format = serializers.ChoiceField(
+        choices=["plain", "draftail", "html"],
+        required=False,
+        write_only=True,
+        default="plain",
     )
     ai_assisted = serializers.BooleanField(
         required=False, write_only=True, default=False
@@ -349,6 +353,9 @@ class CreateTopicSerializer(RichContentMixin, serializers.ModelSerializer):
             "ai_assisted",
             "ai_prompts_used",
         ]
+
+    def validate_content(self, value):
+        return sanitize_forum_html(value)
 
     def create(self, validated_data):
         """Create topic and first post with rich content support."""
@@ -414,8 +421,11 @@ class CreatePostSerializer(RichContentMixin, serializers.ModelSerializer):
         write_only=True,
         help_text="Rich content JSON (Stream-like blocks)",
     )
-    content_format = serializers.CharField(
-        required=False, write_only=True, default="plain"
+    content_format = serializers.ChoiceField(
+        choices=["plain", "draftail", "html"],
+        required=False,
+        write_only=True,
+        default="plain",
     )
     ai_assisted = serializers.BooleanField(
         required=False, write_only=True, default=False
@@ -431,6 +441,9 @@ class CreatePostSerializer(RichContentMixin, serializers.ModelSerializer):
             "ai_assisted",
             "ai_prompts_used",
         ]
+
+    def validate_content(self, value):
+        return sanitize_forum_html(value)
 
     def create(self, validated_data):
         """Create new post with rich content support."""
