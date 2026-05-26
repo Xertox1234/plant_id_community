@@ -160,9 +160,6 @@ urlpatterns = [
     ),
     # Blog Administration Interface
     path("blog-admin/", include("apps.blog.admin_urls")),
-    # Forum Integration (optional)
-    # Only include when ENABLE_FORUM=True to avoid migration issues during smoke tests
-    # *([path('forum/', include('apps.forum_integration.urls'))] if settings.ENABLE_FORUM else []),
     # *([path('machina/', include('machina.urls'))] if settings.ENABLE_FORUM else []),
     # React SPA routes (Issue #013 - Meta tag pattern for CSRF)
     # These routes serve the React app with CSRF token in meta tag
