@@ -210,3 +210,13 @@ export interface SearchForumResponse {
   has_next_threads: boolean;
   has_next_posts: boolean;
 }
+
+/** Result of toggling a reaction on a post (backend toggle endpoint). */
+export interface ReactionToggleResult {
+  action: 'added' | 'removed';
+  reaction_type: string;
+  /** Map of reaction_type -> count, e.g. { like: 5, love: 2 } */
+  reaction_counts: Record<string, number>;
+  /** Reaction types the current user currently has active on this post */
+  user_reactions: string[];
+}
