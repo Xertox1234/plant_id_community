@@ -244,6 +244,7 @@ export async function uploadPostImage(postId: string, imageFile: File): Promise<
     throw new Error(error.message || error.detail || `HTTP ${response.status}`);
   }
   const data = (await response.json()) as { images: BackendImage[] };
+  if (!data.images?.length) throw new Error('Upload returned no image');
   return mapImageToAttachment(data.images[0]);
 }
 
