@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p1
 issue_id: "095"
 tags: [forum, backend, security]
@@ -68,6 +68,10 @@ No DB migration required (sanitization/limits are serializer/view-level;
 `content_format` constrained at the serializer).
 
 ## Work Log
+
+### 2026-05-26 - Started by completing-todos skill (run 2026-05-26-1644)
+
+- Picked up by automated workflow.
 
 ### 2026-05-25 - Created
 
