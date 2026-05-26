@@ -44,7 +44,7 @@ final class ThemeModeNotifierProvider
   }
 }
 
-String _$themeModeNotifierHash() => r'c25cc35849763c2ff04fb95c7c4edb61f0b97cdb';
+String _$themeModeNotifierHash() => r'590b983d12c36c28681142df4064781ff4cc34b3';
 
 /// Theme mode notifier that manages theme state.
 
