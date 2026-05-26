@@ -8,7 +8,11 @@ interface PostCardProps {
   post: Post;
   onEdit?: (post: Post) => void;
   onDelete?: (post: Post) => void;
+  onReact?: (postId: string, reactionType: string) => void;
 }
+
+// The four reaction types the backend supports.
+const REACTION_TYPES = ['like', 'love', 'helpful', 'thanks'] as const;
 
 // Helper function for reaction emojis
 function getReactionEmoji(type: string): string {
@@ -27,7 +31,7 @@ function getReactionEmoji(type: string): string {
  * Displays a single post in a thread.
  * Includes author info, content, reactions, and edit/delete options.
  */
-function PostCard({ post, onEdit, onDelete }: PostCardProps) {
+function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
   const { user } = useAuth();
   const [showActions, setShowActions] = useState(false);
 
@@ -131,24 +135,23 @@ function PostCard({ post, onEdit, onDelete }: PostCardProps) {
         dangerouslySetInnerHTML={{ __html: sanitizedContent }}
       />
 
-      {/* Reactions */}
-      {post.reaction_counts && Object.keys(post.reaction_counts).length > 0 && (
-        <div className="flex gap-3 pt-4 border-t border-gray-200">
-          {Object.entries(post.reaction_counts).map(
-            ([type, count]) =>
-              count > 0 && (
-                <button
-                  key={type}
-                  className="flex items-center gap-1 px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-sm transition-colors"
-                  title={`${count} ${type} reactions`}
-                >
-                  <span>{getReactionEmoji(type)}</span>
-                  <span className="font-medium">{count}</span>
-                </button>
-              )
-          )}
-        </div>
-      )}
+      {/* Reactions — always show the four reaction buttons so a user can add a
+          first reaction; counts default to 0 when none exist yet. */}
+      <div className="flex gap-3 pt-4 border-t border-gray-200">
+        {REACTION_TYPES.map((type) => (
+          <button
+            key={type}
+            type="button"
+            onClick={() => onReact?.(post.id, type)}
+            className="flex items-center gap-1 px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-sm transition-colors"
+            aria-label={`React ${type}`}
+            title={`React ${type}`}
+          >
+            <span>{getReactionEmoji(type)}</span>
+            <span className="font-medium">{post.reaction_counts?.[type] ?? 0}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

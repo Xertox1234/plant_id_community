@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback, FormEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { fetchThread, fetchPosts, createPost, deletePost } from '../../services/forumService';
+import {
+  fetchThread,
+  fetchPosts,
+  createPost,
+  deletePost,
+  toggleReaction,
+} from '../../services/forumService';
+import { parseLeadingId } from '../../utils/forumUrls';
 import { useAuth } from '../../contexts/AuthContext';
 import PostCard from '../../components/forum/PostCard';
 import TipTapEditor from '../../components/forum/TipTapEditor';
@@ -27,6 +34,9 @@ export default function ThreadDetailPage() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
 
+  // The route param is a hybrid "id-slug"; lookups use the leading topic id.
+  const topicId = parseLeadingId(threadSlug);
+
   const [thread, setThread] = useState<Thread | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -36,7 +46,6 @@ export default function ThreadDetailPage() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPosts, setTotalPosts] = useState<number>(0);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
-  const postsPerPage = 20;
 
   // Reply form state
   const [replyContent, setReplyContent] = useState<string>('');
@@ -46,15 +55,15 @@ export default function ThreadDetailPage() {
   // Load thread and initial posts
   useEffect(() => {
     const loadData = async () => {
-      if (!threadSlug) return;
+      if (topicId == null) return;
 
       try {
         setLoading(true);
         setError(null);
 
         const [threadData, postsData] = (await Promise.all([
-          fetchThread(threadSlug),
-          fetchPosts({ thread: threadSlug, page: 1, limit: postsPerPage }),
+          fetchThread(topicId),
+          fetchPosts({ thread: topicId, page: 1 }),
         ])) as [Thread, PostsData];
 
         setThread(threadData);
@@ -74,7 +83,7 @@ export default function ThreadDetailPage() {
     };
 
     loadData();
-  }, [threadSlug, categorySlug]);
+  }, [topicId, threadSlug, categorySlug]);
 
   // Handle reply submission
   const handleReplySubmit = useCallback(
@@ -91,7 +100,7 @@ export default function ThreadDetailPage() {
         return;
       }
 
-      if (!thread) {
+      if (!thread || topicId == null) {
         setReplyError('Thread not found');
         return;
       }
@@ -101,9 +110,9 @@ export default function ThreadDetailPage() {
         setReplyError(null);
 
         const newPost = (await createPost({
-          thread: thread.id,
+          thread: topicId,
           content_raw: replyContent,
-          content_format: 'rich', // TipTap outputs HTML
+          content_format: 'html', // TipTap outputs HTML
         })) as Post;
 
         setPosts((prev) => [...prev, newPost]);
@@ -126,7 +135,7 @@ export default function ThreadDetailPage() {
         setIsSubmitting(false);
       }
     },
-    [isAuthenticated, navigate, replyContent, thread]
+    [isAuthenticated, navigate, replyContent, thread, topicId]
   );
 
   // Handle post deletion
@@ -149,18 +158,37 @@ export default function ThreadDetailPage() {
     }
   }, []);
 
+  // Toggle a reaction on a post and reflect the new counts in place.
+  const handleReact = useCallback(
+    async (postId: string, reactionType: string) => {
+      if (!isAuthenticated) {
+        navigate('/login', { state: { from: window.location.pathname } });
+        return;
+      }
+
+      try {
+        const result = await toggleReaction(postId, reactionType);
+        setPosts((prev) =>
+          prev.map((p) => (p.id === postId ? { ...p, reaction_counts: result.reaction_counts } : p))
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not react');
+      }
+    },
+    [isAuthenticated, navigate]
+  );
+
   // Load more posts (pagination)
   const handleLoadMore = useCallback(async () => {
-    if (!threadSlug) return;
+    if (topicId == null) return;
 
     try {
       setLoadingMore(true);
       const nextPage = currentPage + 1;
 
       const postsData = (await fetchPosts({
-        thread: threadSlug,
+        thread: topicId,
         page: nextPage,
-        limit: postsPerPage,
       })) as PostsData;
 
       setPosts((prev) => [...prev, ...postsData.items]);
@@ -175,7 +203,7 @@ export default function ThreadDetailPage() {
     } finally {
       setLoadingMore(false);
     }
-  }, [currentPage, threadSlug, thread?.id]);
+  }, [currentPage, topicId, thread?.id]);
 
   if (loading) {
     return (
@@ -264,7 +292,7 @@ export default function ThreadDetailPage() {
       <div className="space-y-4 mb-8">
         {posts.map((post) => (
           <div key={post.id} id={`post-${post.id}`}>
-            <PostCard post={post} onDelete={handleDeletePost} />
+            <PostCard post={post} onDelete={handleDeletePost} onReact={handleReact} />
           </div>
         ))}
       </div>
