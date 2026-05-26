@@ -87,10 +87,12 @@ export async function fetchCategory(forumId: number): Promise<Category> {
 // ---------------------------------------------------------------------------
 
 export async function fetchThreads(
-  options: { page?: number; category?: number } = {}
+  options: { page?: number; category?: number; search?: string; ordering?: string } = {}
 ): Promise<PaginatedResponse<Thread>> {
-  const { page = 1, category } = options;
+  const { page = 1, category, search, ordering } = options;
   const params = new URLSearchParams({ page: String(page) });
+  if (search) params.set('search', search);
+  if (ordering) params.set('ordering', ordering);
   const path =
     category != null
       ? `${FORUM_BASE}/categories/${category}/topics/?${params}`
@@ -244,6 +246,7 @@ export async function uploadPostImage(postId: string, imageFile: File): Promise<
     throw new Error(error.message || error.detail || `HTTP ${response.status}`);
   }
   const data = (await response.json()) as { images: BackendImage[] };
+  if (!data.images?.length) throw new Error('Upload returned no image');
   return mapImageToAttachment(data.images[0]);
 }
 

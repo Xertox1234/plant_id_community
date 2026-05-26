@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p1
 issue_id: "095"
 tags: [forum, backend, security]
@@ -54,13 +54,13 @@ forum-level authz verification, dead-code removal, and a security regression sui
 
 ## Acceptance Criteria
 
-- [ ] `security-reviewer` CRITICAL/HIGH findings resolved or converted to todos.
-- [ ] Rate limiting on all write/AI/search endpoints (429 via `apps/core` handler);
+- [x] `security-reviewer` CRITICAL/HIGH findings resolved or converted to todos.
+- [x] Rate limiting on all write/AI/search endpoints (429 via `apps/core` handler);
       `page_size` capped; 4-layer image validation; server-side sanitization +
       `content_format` choices + backfill run.
-- [ ] `python manage.py test apps.forum_integration --noinput` green, incl. the new
+- [x] `python manage.py test apps.forum_integration --noinput` green, incl. the new
       `test_security.py` (xss, rate-limit, upload, pagination, authz).
-- [ ] Dead permission-bypass code removed (`views.py`, `*_simple.html`, `apps/forum`).
+- [x] Dead permission-bypass code removed (`views.py`, `*_simple.html`, `apps/forum`).
 
 ## Acceptance note
 
@@ -68,6 +68,17 @@ No DB migration required (sanitization/limits are serializer/view-level;
 `content_format` constrained at the serializer).
 
 ## Work Log
+
+### 2026-05-26 - Completed by completing-todos skill (run 2026-05-26-1644)
+
+- Verification: all 4 acceptance criteria passed. `Ran 38 tests in 6.934s OK (skipped=3)`.
+- Review: kimi-review passed all commits — no CRITICAL/WARNING findings at commit time.
+- Tasks 0–11 executed: audit (T0), constants (T1), sanitization module + serializer
+  ChoiceField (T2), backfill command (T4), rate-limit decorators on all write/search/AI
+  endpoints (T5), page_size caps (T6), 4-layer image upload validation (T7), authz/trust
+  fallback reporting fix + IDOR guards (T8/T10), dead-code removal (T9), security
+  regression suite 14 tests (T11). Fixed `permissions.PermissionDenied` AttributeError
+  (should be `rest_framework.exceptions.PermissionDenied`).
 
 ### 2026-05-26 - Started by completing-todos skill (run 2026-05-26-1644)
 

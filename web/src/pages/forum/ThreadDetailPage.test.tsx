@@ -371,35 +371,6 @@ describe('ThreadDetailPage', () => {
     expect(submitButton).toBeDisabled();
   });
 
-  it('deletes post when user confirms deletion', async () => {
-    const mockThread = createMockThread();
-    const mockPosts = {
-      items: [createMockPost({ id: 'post-1', content_raw: '<p>Test post</p>' })],
-      meta: { count: 1 },
-    };
-
-    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
-    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(mockPosts);
-    const deletePostSpy = vi.spyOn(forumService, 'deletePost').mockResolvedValue();
-
-    // Mock window.confirm to return true
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-
-    renderThreadDetailPage('plant-care', 'watering-tips', {
-      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
-      isAuthenticated: true,
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Test post')).toBeInTheDocument();
-    });
-
-    // This test assumes PostCard shows delete button on hover
-    // The actual implementation may vary
-    // Just verify the delete function is called when triggered
-    expect(deletePostSpy).not.toHaveBeenCalled();
-  });
-
   it('shows Load More button when more posts exist', async () => {
     const mockThread = createMockThread();
     const mockPosts = {

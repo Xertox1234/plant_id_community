@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p3
 issue_id: "086"
 tags: [database, ops, cleanup]
@@ -97,6 +97,19 @@ DELETE FROM django_migrations WHERE app = 'forum';
 - **Human action needed:** per-environment ops runbook — back up, run the
   inspect/DROP SQL in Recommended Action, delete the stale `forum`
   `django_migrations` rows. Left `pending`.
+
+### 2026-05-26 - Re-confirmed SKIP by completing-todos skill (run 2026-05-26-1959)
+
+- Picked up as part of a 4-todo sweep (086, 087, 097, 098).
+- Same prior-skip reasoning still stands — no change in circumstances:
+  1. Acceptance criteria require inspecting and dropping orphan tables in **each
+     environment** (dev + staging/production). Staging/production remain
+     unreachable from this coding session.
+  2. `DROP TABLE ... CASCADE` is irreversible without a prior backup; executing
+     destructive DB ops without a backup is outside safe automated scope.
+- **Human action needed:** back up each environment, run the inspect/DROP SQL
+  from Recommended Action, delete stale `django_migrations` rows for app `forum`.
+  Left in `in_progress` / skipped by automated sweep.
 
 ## Notes
 

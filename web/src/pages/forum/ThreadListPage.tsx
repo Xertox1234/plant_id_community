@@ -58,7 +58,7 @@ export default function ThreadListPage() {
         // Load category info and threads in parallel
         const [categoryData, threadsData] = (await Promise.all([
           fetchCategory(forumId),
-          fetchThreads({ category: forumId, page }),
+          fetchThreads({ category: forumId, page, search: search || undefined, ordering }),
         ])) as [Category, ThreadsData];
 
         setCategory(categoryData);

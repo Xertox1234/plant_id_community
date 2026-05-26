@@ -2,6 +2,7 @@
 DRF API Views for Forum Integration.
 """
 
+import logging
 import os
 
 from apps.core.utils.query_sanitization import escape_search_query
@@ -45,6 +46,8 @@ from .serializers import (  # noqa: E402
     TopicSerializer,
     TopicWithFirstPostSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ForumCategoryListView(generics.ListAPIView):
@@ -128,17 +131,25 @@ def all_topics_list(request):
             }
             results.append(topic_data)
 
+        def _page_url(request, page_num):
+            params = request.GET.copy()
+            params["page"] = str(page_num)
+            return request.build_absolute_uri(f"?{params.urlencode()}")
+
         return JsonResponse(
             {
                 "count": paginator.count,
-                "next": f"?page={page + 1}" if page_obj.has_next() else None,
-                "previous": f"?page={page - 1}" if page_obj.has_previous() else None,
+                "next": _page_url(request, page + 1) if page_obj.has_next() else None,
+                "previous": (
+                    _page_url(request, page - 1) if page_obj.has_previous() else None
+                ),
                 "results": results,
             }
         )
 
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+    except Exception:
+        logger.exception("[ERROR] all_topics_list failed")
+        return JsonResponse({"error": "An error occurred."}, status=500)
 
 
 class TopicDetailView(generics.RetrieveAPIView):
@@ -362,9 +373,10 @@ def forum_ai_assist(request):
             {"content": ai_content, "prompt_type": prompt_type, "success": True}
         )
 
-    except Exception as e:
+    except Exception:
+        logger.exception("[ERROR] forum_ai_assist failed")
         return Response(
-            {"error": f"AI assistance failed: {str(e)}"},
+            {"error": "An error occurred."},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -494,9 +506,7 @@ class PostDeleteView(generics.DestroyAPIView):
         """Delete post and return success message."""
         instance = self.get_object()
         self.perform_destroy(instance)
-        return Response(
-            {"message": "Post deleted successfully"}, status=status.HTTP_204_NO_CONTENT
-        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class TopicMarkViewedView(APIView):
@@ -621,17 +631,18 @@ class PostReactionView(APIView):
                     "success": True,
                     "reaction_type": reaction_type,
                     "is_active": reaction.is_active,
-                    "action": "added" if (created or reaction.is_active) else "removed",
+                    "action": "added" if reaction.is_active else "removed",
                     "post_id": post_id,
                     "reactions": reaction_counts,
                     "user_reactions": user_reactions,
-                    "message": f'Reaction {reaction_type} {"added" if (created or reaction.is_active) else "removed"}',
+                    "message": f'Reaction {reaction_type} {"added" if reaction.is_active else "removed"}',
                 }
             )
 
-        except Exception as e:
+        except Exception:
+            logger.exception("[ERROR] PostReactionView.post failed")
             return Response(
-                {"error": f"Failed to update reaction: {str(e)}"},
+                {"error": "An error occurred."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -803,7 +814,7 @@ class PostImageUploadView(APIView):
                         )
                         continue
                 uploaded_file.seek(0)  # reset for storage
-            except (UnidentifiedImageError, OSError):
+            except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
                 errors.append(f"File {uploaded_file.name} is not a valid image.")
                 continue
 
@@ -812,7 +823,7 @@ class PostImageUploadView(APIView):
                 image = ForumPostImage.objects.create(
                     post=post,
                     image=uploaded_file,
-                    original_filename=uploaded_file.name,
+                    original_filename=os.path.basename(uploaded_file.name)[:255],
                     file_size=uploaded_file.size,
                     alt_text=request.data.get(f"alt_text_{i}", ""),
                     # upload_order will be set automatically in the model's save method
@@ -834,8 +845,11 @@ class PostImageUploadView(APIView):
                     }
                 )
 
-            except Exception as e:
-                errors.append(f"Failed to upload {uploaded_file.name}: {str(e)}")
+            except Exception:
+                logger.exception(
+                    "[ERROR] image upload failed for %s", uploaded_file.name
+                )
+                errors.append(f"Failed to upload {uploaded_file.name}: upload error")
 
         response_data = {
             "message": f"Successfully uploaded {len(uploaded_images)} images",
@@ -1015,7 +1029,7 @@ def generate_forum_ai_content(prompt_type, context, selected_text, user):
         "correct": """
         Improve the grammar, clarity, and readability of this forum post while keeping the original meaning:
 
-        {selected_text if selected_text else context}
+        {text_to_correct}
 
         Corrected version:
         """,
@@ -1025,7 +1039,9 @@ def generate_forum_ai_content(prompt_type, context, selected_text, user):
 
     # Format the prompt
     formatted_prompt = prompt_template.format(  # noqa: F841
-        context=context, selected_text=selected_text
+        context=context,
+        selected_text=selected_text,
+        text_to_correct=selected_text if selected_text else context,
     )
 
     # For now, return a mock response (in real implementation, call OpenAI API)
@@ -1129,16 +1145,20 @@ class TopicsFeedView(generics.ListAPIView):
         if forum_id:
             queryset = queryset.filter(forum_id=forum_id)
 
-        # Optional limit for performance
-        limit = self.request.query_params.get("limit")
-        if limit:
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        """Apply optional ?limit= cap after filtering to avoid slicing the queryset
+        before DRF's filter/paginator can operate on it."""
+        queryset = self.filter_queryset(self.get_queryset())
+        limit_param = request.query_params.get("limit")
+        if limit_param:
             try:
-                limit = int(limit)
-                queryset = queryset[: min(limit, 50)]  # Max 50 items for performance
+                queryset = queryset[: min(int(limit_param), 50)]
             except (ValueError, TypeError):
                 pass
-
-        return queryset
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
 
 @api_view(["GET"])
@@ -1203,9 +1223,10 @@ def user_trust_level(request):
                 "can_download_files": True,
             }
 
-    except Exception as e:
+    except Exception:
+        logger.exception("[ERROR] user_trust_level failed")
         return Response(
-            {"error": f"Failed to check permissions: {str(e)}"},
+            {"error": "An error occurred."},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
