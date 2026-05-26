@@ -58,7 +58,11 @@ export default function ThreadDetailPage() {
   // Load thread and initial posts
   useEffect(() => {
     const loadData = async () => {
-      if (topicId == null) return;
+      if (topicId == null) {
+        setError('Invalid thread URL');
+        setLoading(false);
+        return;
+      }
 
       try {
         setLoading(true);

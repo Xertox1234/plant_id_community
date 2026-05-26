@@ -50,8 +50,14 @@ export interface BackendImage {
 
 type ForumAuthor = Thread['author'];
 
-export function mapUser(u: BackendUser | null): ForumAuthor | null {
-  if (!u) return null;
+const DELETED_USER = {
+  id: '',
+  username: '[deleted]',
+  display_name: '[deleted]',
+} as unknown as ForumAuthor;
+
+export function mapUser(u: BackendUser | null): ForumAuthor {
+  if (!u) return DELETED_USER;
   const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
   // Translation boundary: the backend user shape is narrower than the auth `User`
   // type the forum reuses, and forum ids are strings. Cast through `unknown`.
@@ -88,7 +94,7 @@ export function mapTopicToThread(t: BackendTopic): Thread {
     title: t.subject,
     slug: slugifyTitle(t.subject),
     category,
-    author: mapUser(t.poster) as Thread['author'],
+    author: mapUser(t.poster),
     created_at: t.created,
     last_activity_at: t.last_post_on || t.created,
     post_count: t.posts_count ?? 0,
@@ -103,7 +109,7 @@ export function mapPostToPost(p: BackendPost, threadId: string): Post {
   return {
     id: String(p.id),
     thread: threadId,
-    author: mapUser(p.poster) as Post['author'],
+    author: mapUser(p.poster),
     content_raw: p.content,
     content_html: p.content,
     content_format: p.content_format || 'html',

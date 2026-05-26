@@ -67,6 +67,20 @@ describe('ThreadDetailPage', () => {
     });
   });
 
+  it('shows error (not infinite spinner) when threadSlug has no leading id', async () => {
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: 'no-id-here',
+    });
+
+    renderThreadDetailPage();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Invalid thread URL/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
   it('shows loading spinner while fetching data', () => {
     vi.spyOn(forumService, 'fetchThread').mockImplementation(() => new Promise(() => {}));
     vi.spyOn(forumService, 'fetchPosts').mockImplementation(() => new Promise(() => {}));

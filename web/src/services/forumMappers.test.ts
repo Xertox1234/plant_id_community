@@ -19,7 +19,10 @@ describe('forumMappers', () => {
     expect(mapUser({ id: 2, username: 'nobody', first_name: '', last_name: '' }).display_name).toBe(
       'nobody'
     );
-    expect(mapUser(null)).toBeNull();
+    const deleted = mapUser(null);
+    expect(deleted.id).toBe('');
+    expect(deleted.username).toBe('[deleted]');
+    expect(deleted.display_name).toBe('[deleted]');
   });
 
   it('maps a forum to a category (renames counts, derives slug)', () => {
