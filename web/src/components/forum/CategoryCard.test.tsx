@@ -63,13 +63,13 @@ describe('CategoryCard', () => {
     expect(screen.getByText(/posts/i)).toBeInTheDocument();
   });
 
-  it('links to category page with correct slug', () => {
-    const category = createMockCategory({ slug: 'plant-care' });
+  it('links to category page with hybrid id+slug', () => {
+    const category = createMockCategory({ id: 'cat-1', slug: 'plant-care' });
 
     renderCategoryCard(category);
 
     const link = screen.getByRole('link');
-    expect(link).toHaveAttribute('href', '/forum/plant-care');
+    expect(link).toHaveAttribute('href', '/forum/cat-1-plant-care');
   });
 
   it('renders subcategories when present', () => {

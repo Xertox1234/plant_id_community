@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { logger } from '../../utils/logger';
+import { threadPath } from '../../utils/forumUrls';
 import type { Thread } from '@/types';
 
 interface ThreadCardProps {
@@ -32,7 +33,7 @@ function ThreadCard({ thread, compact = false }: ThreadCardProps) {
     }
   }, [thread.last_activity_at, thread.id]);
 
-  const threadUrl = `/forum/${thread.category.slug}/${thread.slug}`;
+  const threadUrl = threadPath(thread.category, thread);
 
   return (
     <div

@@ -60,11 +60,25 @@ describe('ThreadDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Mock useParams to return categorySlug and threadSlug
+    // Mock useParams to return hybrid id-slug params; lookups use the leading id.
     vi.mocked(ReactRouter.useParams).mockReturnValue({
-      categorySlug: 'plant-care',
-      threadSlug: 'watering-tips',
+      categorySlug: '3-plant-care',
+      threadSlug: '12-watering-tips',
     });
+  });
+
+  it('shows error (not infinite spinner) when threadSlug has no leading id', async () => {
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: 'no-id-here',
+    });
+
+    renderThreadDetailPage();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Invalid thread URL/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('shows loading spinner while fetching data', () => {
@@ -89,11 +103,10 @@ describe('ThreadDetailPage', () => {
     renderThreadDetailPage();
 
     await waitFor(() => {
-      expect(fetchThreadSpy).toHaveBeenCalledWith('watering-tips');
+      expect(fetchThreadSpy).toHaveBeenCalledWith(12);
       expect(fetchPostsSpy).toHaveBeenCalledWith({
-        thread: 'watering-tips',
+        thread: 12,
         page: 1,
-        limit: 20,
       });
     });
   });
@@ -327,9 +340,9 @@ describe('ThreadDetailPage', () => {
 
     await waitFor(() => {
       expect(createPostSpy).toHaveBeenCalledWith({
-        thread: 'thread-1',
+        thread: 12,
         content_raw: expect.stringContaining('My reply'),
-        content_format: 'rich',
+        content_format: 'html',
       });
     });
   });
@@ -457,9 +470,8 @@ describe('ThreadDetailPage', () => {
 
     await waitFor(() => {
       expect(fetchPostsSpy).toHaveBeenCalledWith({
-        thread: 'watering-tips',
+        thread: 12,
         page: 2,
-        limit: 20,
       });
     });
   });
@@ -511,5 +523,92 @@ describe('ThreadDetailPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/6 replies/i)).toBeInTheDocument();
     });
+  });
+
+  it('toggles a reaction and updates the count for authenticated users', async () => {
+    const mockThread = createMockThread({ id: 'thread-1' });
+    const mockPosts = {
+      items: [createMockPost({ id: 'post-1', reaction_counts: {} })],
+      meta: { count: 1 },
+    };
+
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(mockPosts);
+    const toggleSpy = vi.spyOn(forumService, 'toggleReaction').mockResolvedValue({
+      action: 'added',
+      reaction_type: 'like',
+      reaction_counts: { like: 1 },
+      user_reactions: ['like'],
+    });
+
+    renderThreadDetailPage('3-plant-care', '12-watering-tips', {
+      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
+      isAuthenticated: true,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('React like')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByLabelText('React like'));
+
+    await waitFor(() => {
+      expect(toggleSpy).toHaveBeenCalledWith('post-1', 'like');
+    });
+    expect(screen.getByLabelText('React like')).toHaveTextContent('1');
+  });
+
+  it('does not call the API when an unauthenticated user reacts', async () => {
+    const mockThread = createMockThread({ id: 'thread-1' });
+    const mockPosts = {
+      items: [createMockPost({ id: 'post-1', reaction_counts: {} })],
+      meta: { count: 1 },
+    };
+
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(mockPosts);
+    const toggleSpy = vi.spyOn(forumService, 'toggleReaction');
+
+    renderThreadDetailPage('3-plant-care', '12-watering-tips', {
+      user: null,
+      isAuthenticated: false,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('React like')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByLabelText('React like'));
+
+    expect(toggleSpy).not.toHaveBeenCalled();
+  });
+
+  it('shows an inline error without unmounting the thread when a reaction fails', async () => {
+    const mockThread = createMockThread({ id: 'thread-1', title: 'Stay Visible' });
+    const mockPosts = {
+      items: [createMockPost({ id: 'post-1', reaction_counts: {} })],
+      meta: { count: 1 },
+    };
+
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(mockPosts);
+    vi.spyOn(forumService, 'toggleReaction').mockRejectedValue(new Error('Reaction failed'));
+
+    renderThreadDetailPage('3-plant-care', '12-watering-tips', {
+      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
+      isAuthenticated: true,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('React like')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByLabelText('React like'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Reaction failed')).toBeInTheDocument();
+    });
+    // The thread view stays mounted — not replaced by the page-level error panel.
+    expect(screen.getByRole('heading', { level: 1, name: 'Stay Visible' })).toBeInTheDocument();
   });
 });

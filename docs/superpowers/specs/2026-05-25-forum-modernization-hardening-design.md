@@ -1,0 +1,340 @@
+# Forum Modernization & Hardening (Web) — Design
+
+- **Date:** 2026-05-25
+- **Status:** Approved (brainstorming) — ready for implementation planning
+- **Scope:** Web forum only. The Flutter mobile app is explicitly out of scope.
+- **Author:** Brainstorming session (William + Claude)
+
+## Background
+
+The repo's web forum is a half-finished revival sitting on a working backend. A
+prior Discourse install was fully removed (no remnants in the codebase). What
+"works with Django" today is a **django-machina**–based forum, exposed through a
+custom DRF API and consumed (incompletely) by a React frontend.
+
+Three layers exist:
+
+1. **Backend data layer — django-machina** (installed via `ENABLE_FORUM=True` in
+   `backend/plant_community_backend/settings.py`). Provides categories, topics,
+   posts, permissions, trust levels, moderation, search, tracking, polls.
+2. **API shim — `backend/apps/forum_integration/`** (DRF). Wraps machina behind
+   `/api/v1/forum/*` (wired in `backend/plant_community_backend/urls.py`). Adds
+   rich posts, image attachments (max 6/post), reactions, search, AI-assist,
+   plant mentions, and a moderation queue. This is the **active** forum app.
+3. **Frontend — React 19 + TS** in `web/src/pages/forum/` and
+   `web/src/components/forum/`. Modern (TipTap editor, image upload widget) but
+   **abandoned half-built and currently broken**: it calls `/threads/` endpoints
+   while the API serves `/topics/`, so it cannot fetch anything.
+
+Two dead/legacy artifacts also exist and should be removed:
+
+- `backend/apps/forum/` — gutted stub (only a `.backup` test file), not in
+  `INSTALLED_APPS`.
+- Server-rendered Django templates (`forum_integration/templates/.../*_simple.html`)
+  and their views, which **bypass permission checks "temporarily for debugging."**
+  Already commented out of `urls.py`, so not exposed — but dead risky code.
+
+## Goal
+
+Take the abandoned React forum to a state that is:
+
+1. **Working** end-to-end against the live django-machina + DRF backend.
+2. **Secure** to a "safe to put online" bar — the user's explicit bar is "stable
+   and won't get hacked the minute I put it online."
+3. **Mobile-responsive** — usable on phone/tablet browsers.
+
+New forum features are **deferred** (see Out of Scope).
+
+## Non-Goals / Out of Scope
+
+- **New features:** notifications, @-mentions, unread tracking, subscriptions /
+  bookmarks, mark-as-solved / best-answer, reporting / flagging, polls, topic
+  tags. (Several are machina-backed and cheap later — captured for a follow-up.)
+- **API resource renaming** (`/topics/` → `/threads/`). Cosmetic; not worth the
+  backend churn under this scope.
+- **Flutter mobile app.**
+- **Building new registration defenses** — signup is already IP-rate-limited
+  (see Preconditions). We verify, we don't rebuild.
+
+## Architecture — What Stays vs. Changes
+
+| Layer | Decision |
+|-------|----------|
+| django-machina data layer | **Unchanged** — source of truth for forum data |
+| DRF API (`forum_integration`) | **Unchanged in Phase 1** (id-based contract kept); **hardened in Phase 2**, not redesigned |
+| Auth (`apps/users`, JWT/Firebase) | **Unchanged** — public read, authenticated write |
+| React forum (`web/.../forum`) | **Finished** (via a translation-layer `forumService` + hybrid id+slug URLs), **secured, made responsive** |
+| `backend/apps/forum` (gutted) | **Deleted** |
+| Server-rendered `*_simple.html` views/templates | **Deleted** (dead permission-bypass code) |
+
+### Decided trade-offs
+
+- **API contract fix direction: Option C — hybrid id+slug URLs, frontend-side
+  translation (no migration).** The React forum and the backend implement *two
+  different contracts*: React expects slug-based RESTful resources with a clean
+  domain model (`title`/`author`/`last_activity_at`, top-level `/reactions/`);
+  the backend serves id-based, action-suffixed endpoints with machina-shaped
+  fields (`subject`/`poster`/`last_post_on`, toggle `POST /posts/{id}/reactions/`).
+  Machina **topic slugs are not unique** (`SlugField`, no `unique=True`,
+  auto-slugified from the subject), so pure slug URLs would need a uniqueness
+  migration + dedupe — **rejected**. Decision: **keep the id-based backend
+  untouched** and adapt the frontend:
+  - `forumService.ts` becomes a thin **translation layer** — it calls the
+    real id-based endpoints and remaps responses to the clean React types.
+  - URLs become **id-anchored with a decorative slug**
+    (`/forum/{categorySlug}/{topicId}-{title-slug}` — the Discourse/Reddit/SO
+    pattern): lookups use the unambiguous id; the slug is cosmetic for SEO and
+    can be generated client-side from the title.
+  - Reaction calls adapt to the backend's existing **toggle** endpoint.
+  Result: no DB migration, backend logic stays stable, and the clean React
+  types + SEO-friendly URLs are preserved. (This supersedes an earlier
+  assumption that the mismatch was a cosmetic `/threads`↔`/topics` rename; the
+  divergence is structural — different endpoints, identifiers, and field names.)
+- **Server-side sanitizer: `nh3`** (maintained, Rust-based ammonia bindings).
+  `bleach==6.3.0` is already installed, but Mozilla **archived/deprecated bleach
+  in 2023** — building new authoritative security logic on an unmaintained
+  dependency is a poor bet. We add `nh3` (small, ships prebuilt wheels) as the
+  sanitizer. Verified: `nh3` is **not** currently installed, so this adds one
+  dependency. **bleach vs nh3 is a deploy-time install choice, not a runtime
+  fallback** — we pick one sanitizer at dependency-install time (default `nh3`;
+  if the deploy target lacks an `nh3` wheel, install `bleach` instead). No
+  runtime `try/except`-import shim — that complexity isn't warranted.
+- **Sanitizer allowlist is an explicit, tested translation — not a "mirror."**
+  `nh3.clean(tags=…, attributes=…)` uses a different allowlist model than React's
+  DOMPurify-based `SANITIZE_PRESETS.FORUM` (`web/src/utils/sanitize.ts`). The
+  plan must **define the nh3 tag/attribute allowlist as a deliberate translation
+  of the FORUM preset and add a parity test** (same input → equivalent allowed
+  output), so it neither strips legitimate content nor admits disallowed
+  elements.
+
+## Verified Current State (recon, with references)
+
+Confirmed by direct inspection of `backend/apps/forum_integration/api_views.py`,
+`serializers.py`, and `web/src/components/forum/PostCard.tsx`:
+
+**Security gaps (the spine of Phase 2):**
+
+1. **No rate limiting anywhere** in the forum API — `grep` for
+   `ratelimit/throttle` in `api_views.py`/`api_urls.py` returns nothing. Posts,
+   reactions, image uploads, search, and **`forum_ai_assist`** are all
+   unthrottled → spam floods, brute force, and real-money LLM cost abuse.
+   (`django-ratelimit==4.1.0` is already a dependency, used in `apps/users`,
+   `apps/garden`, etc.; the 429 conversion lives in `apps/core/exceptions.py` /
+   `apps/core/middleware.py` — the forum just doesn't use it.)
+2. **Unbounded pagination** — `page_size = int(request.GET.get("page_size", 25))`
+   (`api_views.py:74`) goes straight into `Paginator` with no cap, on `AllowAny`
+   endpoints → `?page_size=10000000` is a trivial memory DoS.
+3. **Spoofable image upload** — only `uploaded_file.size` (5 MB) and
+   client-supplied `uploaded_file.content_type` are checked
+   (`api_views.py:689–705`). No magic-byte / PIL verification, no extension
+   allowlist, no re-encode. Violates the repo's own 4-layer file-upload pattern.
+4. **No server-side HTML sanitization** — raw TipTap HTML is stored in
+   `content_raw`; `content_format` is an unconstrained `CharField`
+   (`serializers.py:334`). React sanitizes on render
+   (`PostCard.tsx:48–49,131` via `sanitizeHtml(..., SANITIZE_PRESETS.FORUM)`,
+   with an XSS test) — but that is defense-in-depth, not authoritative. Any other
+   consumer (email, the old templates, the mobile app, a future API client)
+   renders it raw.
+5. **Trust-level wiring is mostly fine (corrected).** Attachment permission **is**
+   enforced via machina `PermissionHandler.can_attach_files()` in the upload view
+   (`api_views.py:645`) and reported via the primary path of the trust-level
+   endpoint (`api_views.py:1085`). The only blemish is the `except` **fallback**
+   (`api_views.py:1096`) reporting `can_attach_files: user.is_staff` when the
+   handler raises — a minor reporting inconsistency, **not** a security hole.
+   (Earlier recon mis-read line 1096 in isolation; direct reading corrected it.)
+6. **Dead permission-bypassing views** — `forum_integration/views.py` skips
+   permission checks "for debugging"; commented out of `urls.py` but should be
+   deleted, not left lying around.
+
+**Functional blocker (structural, not cosmetic):** `web/src/services/forumService.ts`
+implements an entirely different contract from `api_urls.py` — slug-based RESTful
+resources vs. id-based action-suffixed endpoints, with different field names
+(`title`/`author`/`last_activity_at` vs `subject`/`poster`/`last_post_on`) and a
+different reaction model (top-level `/reactions/` CRUD vs `POST /posts/{id}/reactions/`
+toggle). The React forum can't load at all. Resolved in Phase 1 via Option C
+(see Decided trade-offs).
+
+**Already fine (do not "fix"):** API `permission_classes` are set explicitly per
+view; ownership checks are present (`post.poster != request.user and not
+request.user.is_staff`, e.g. `api_views.py:389,419,660`); CSRF is wired; search
+escapes SQL wildcards via `escape_search_query()`.
+
+### React forum inventory (Phase 1 starting point)
+
+Everything below **exists** but is **broken at runtime** because `forumService.ts`
+targets `/threads/` while the API serves `/topics/`. "Broken" = renders but can't
+fetch; "partial" = also has unfinished flows.
+
+| File | Status |
+|------|--------|
+| `web/src/pages/ForumPage.tsx` | exists — entry/wrapper |
+| `web/src/pages/forum/CategoryListPage.tsx` | exists, broken (contract) |
+| `web/src/pages/forum/ThreadListPage.tsx` | exists, broken (contract) |
+| `web/src/pages/forum/ThreadDetailPage.tsx` | exists, **partial** + broken (reply flow, pagination) |
+| `web/src/pages/forum/SearchPage.tsx` | exists, broken (contract) |
+| `web/src/components/forum/CategoryCard.tsx` | exists |
+| `web/src/components/forum/ThreadCard.tsx` | exists |
+| `web/src/components/forum/PostCard.tsx` | exists — read-sanitizes content ✓ |
+| `web/src/components/forum/TipTapEditor.tsx` | exists — emits raw HTML via `getHTML()` |
+| `web/src/components/forum/ImageUploadWidget.tsx` | exists — needs wiring to real upload endpoint |
+| `web/src/services/forumService.ts` | exists, **broken** (wrong endpoints) — primary Phase 1 fix |
+| `web/src/types/forum.ts` | exists — needs realignment to API response shapes |
+
+Each has a colocated `*.test.tsx`/`*.test.ts` to realign.
+
+## Preconditions (verify before launch — not built here)
+
+- **Open registration is the dominant day-one attack vector.** Signup in
+  `apps/users/views.py` is already IP-rate-limited (multiple `@ratelimit`
+  decorators; `apps/users/tests/test_rate_limiting.py` exists). **No CAPTCHA**
+  found. Launch gate: confirm **email verification is enforced** before exposing
+  the forum publicly. If not, that is a separate task, not this one.
+- **Shared-endpoint consumers.** The Flutter app shares the backend but,
+  verified, **does not currently consume any forum endpoint** (zero
+  forum-API references in `plant_community_mobile/lib`). So the Phase 2 API
+  changes (429s, `page_size` caps, stricter upload validation) carry **no mobile
+  compatibility risk today**. Forward-looking note only: if a Flutter forum
+  client is added later, it must handle 429 responses and the `page_size` cap.
+
+## Phased Plan
+
+### Phase 1 — Make it work (functional) — Option C
+
+- **Rewrite `forumService.ts` as a translation layer** against the real id-based
+  endpoints (`api_urls.py`): `/categories/`, `/categories/{forum_id}/topics/`,
+  `/categories/{forum_id}/topics/create/`, `/topics/{id}/`, `/topics/`,
+  `/posts/?topic={id}`, `/posts/create/`, `/posts/{id}/` (PATCH),
+  `/posts/{id}/delete/`, `/posts/{id}/images/…`, `/posts/{id}/reactions/`
+  (toggle), `/search/`. Each method maps machina-shaped responses
+  (`subject`/`poster`/`last_post_on`) to the clean React types
+  (`title`/`author`/`last_activity_at`).
+- **Switch to hybrid id+slug URLs** — links become
+  `/forum/{categoryId}-{slug}/{topicId}-{title-slug}`; navigation parses the
+  leading id for lookups and treats the slug as decorative (client-generated
+  from the title). Update `ThreadCard`/`CategoryCard` links and the `useParams`
+  consumers (`ThreadListPage`, `ThreadDetailPage`). **`App.tsx` routes need no
+  change** — React Router matches the `:categorySlug`/`:threadSlug` segments by
+  position, so they already capture the `id-slug` values.
+- **Adapt reactions** to the toggle endpoint (`POST /posts/{id}/reactions/`
+  returns counts + the user's active reactions) — drop the assumption of a
+  `/reactions/` CRUD resource with stable reaction ids.
+- **Finish unfinished flows:** `ThreadDetailPage` reply + post pagination,
+  create-topic/reply, reactions wiring, `ImageUploadWidget` against
+  `/posts/{id}/images/upload/`.
+- **Prove the golden path end-to-end** against the live backend: list categories
+  → open category → open topic → reply → react → upload image.
+- **Tests:** rewrite `forumService.test.ts` for the translation layer (mock the
+  id endpoints, assert the remapped output); component tests for completed pages;
+  one Playwright e2e for the golden path.
+
+### Phase 2 — Make it safe (security — the core)
+
+1. **Audit first.** Run the repo's `security-reviewer` agent over the whole forum
+   surface (backend `api_views.py`/`serializers.py` + React forum), triage
+   findings by severity. This catches what greps missed; the items below are the
+   known floor, not the ceiling.
+2. **Harden, using existing repo patterns:**
+   - **Rate limiting** (`django-ratelimit`) on create-topic, create-post,
+     reactions, image upload, and search. **AI-assist gets a stricter per-user
+     daily request cap** (`@ratelimit(key="user", rate="N/d")`) — a request
+     count, **not** a token/dollar accounting cap, so it needs no custom spend
+     state (django-ratelimit uses the existing Redis cache backend). 429
+     responses and their logging are already handled centrally by
+     `apps/core/exceptions.py` (it converts `Ratelimited` → 429 and emits
+     `logger.warning("429 Rate Limit Exceeded", ...)`), so every endpoint that
+     adds the decorator inherits correct status + logging for free.
+   - **Pagination caps** — clamp `page_size` (max 100) on every list endpoint
+     (closes the `?page_size=10000000` DoS at `api_views.py:74`).
+   - **Image upload** — add the project's 4-layer validation (extension
+     allowlist + MIME + size + **PIL magic-byte verify / re-encode**); stop
+     trusting client `content_type`.
+   - **Rich-content XSS (new + legacy)** —
+     - *On write:* **sanitize `content_raw` server-side with `nh3`** as the
+       authoritative layer, using the explicitly-translated, parity-tested
+       allowlist (see Decided trade-offs).
+     - *content_format:* enforce an allowed set via a **serializer `ChoiceField`**
+       (`plain`/`draftail`/`html`), **not** model-level `choices` — the
+       authoritative gate is the API (all writes are API-mediated) and this
+       avoids a migration on the `models.py:480` field.
+     - *Legacy data:* add a **one-time backfill management command**
+       (`sanitize_forum_content`) that re-sanitizes all existing `content_raw`,
+       using the same allowlist as the write path. **Ordering requirement: the
+       backfill ships in the same release as the write sanitizer and is run as a
+       required step of that deploy** — so no window exists where new content is
+       sanitized but legacy rows are not. React already read-sanitizes
+       (`PostCard.tsx`), so the React consumer is not currently exposed; the
+       backfill closes the gap for every *other* consumer (email, RSS, future
+       API clients) authoritatively.
+     - *Defense-in-depth:* keep React's read-side sanitize; audit **all** render
+       sites (PostCard ✓, thread-list excerpts, search snippets).
+   - **Forum-level authorization (security)** — topic/reply creation
+     (`CreateTopicView`, `PostCreateView`) gate with plain `IsAuthenticated` and
+     do **not** consult machina's per-forum `can_start_new_topics` /
+     `can_reply_to_topics`. (Attachment uploads *do* already check
+     `PermissionHandler.can_attach_files()`.)
+     `MACHINA_DEFAULT_AUTHENTICATED_USER_FORUM_PERMISSIONS` (`settings.py:751`)
+     grants authenticated users those rights by default, so this is functionally
+     correct **for default/public forums**. **Time-boxed (1 day):** verify
+     whether any forum is configured restricted and, if so, add the
+     `PermissionHandler` create/reply checks. **Fallback if blocked:** keep the
+     current `IsAuthenticated` + ownership gates and file a follow-up todo.
+   - **Trust-level reporting fallback (minor)** — fix the `except` fallback at
+     `api_views.py:1096` so it reports `can_attach_files` consistently with the
+     enforced permission rather than `user.is_staff`. Cosmetic/reporting only.
+   - **Delete dead code** — server-rendered `*_simple.html` views/templates and
+     the gutted `backend/apps/forum`.
+   - **Per-endpoint authz audit** — confirm every `AllowAny` is intentional
+     (read-only) and every write is owner/staff-gated.
+3. **Verify the registration precondition** (above); document the launch gate.
+4. **Tests — security regression suite:** 429 on each rate-limited endpoint
+   (incl. AI-assist daily cap); oversized `page_size` clamped/rejected;
+   spoofed-MIME / non-image upload rejected; stored-XSS payload sanitized
+   server-side on write; `content_format` outside the allowed set rejected by the
+   serializer; the backfill command neutralizes a pre-existing malicious
+   `content_raw` row; non-owner edit/delete forbidden.
+
+### Phase 3 — Make it fit (responsive)
+
+- Mobile overhaul of forum pages/components per
+  `web/RESPONSIVE_LAYOUT_PATTERNS.md` and `web/docs/patterns/tailwind.md`:
+  category grid → stacked, denser thread lists, readable post width, compact /
+  sticky reply editor (TipTap toolbar on small screens), touch-friendly image
+  upload + lightbox, nav / breadcrumbs.
+- **Verify in a real mobile-width browser** (not just tests), plus Playwright
+  viewport tests at mobile / tablet / desktop.
+
+## Testing Strategy (overall)
+
+- **Backend:** pytest against a **real DB (no mocks**, per repo rule); strict
+  query-count assertions where relevant (forum list/detail serialization).
+- **Web:** Vitest component + service tests; Playwright e2e for the golden path
+  and responsive viewports.
+- **Security regression suite** as enumerated in Phase 2.4.
+
+## Risks
+
+- **machina permission/attachment wiring** may surface config gaps. Time-boxed
+  to 1 day; fall back to the current explicit `IsAuthenticated` + `is_staff`
+  gates (safe for the all-public model) with a documented follow-up if blocked.
+- **Legacy `content_raw` data** is unsanitized until the backfill runs.
+  Mitigation: the backfill ships in the **same release as the write sanitizer
+  and is a required deploy step** (Phase 2.2), and the React consumer already
+  read-sanitizes — so there is no window where new content is clean but legacy
+  rows are not, and the only exposed surface (non-React consumers) does not exist
+  yet.
+- **`nh3` adds a dependency.** It ships prebuilt wheels for common platforms; if
+  the deploy target lacks a wheel, install `bleach` instead (a deploy-time
+  choice — see Decided trade-offs — not a runtime fallback).
+- **Contract realignment surface** — the React forum may expect response shapes
+  the API doesn't return (e.g., slugs vs. ids). The Phase 1 mapping step exists
+  to surface these before coding; some serializer additions may be needed.
+- **Audit scope creep** — `security-reviewer` may surface findings beyond the
+  known gaps. Triage by severity; only CRITICAL/HIGH are in-scope for this
+  project, the rest become deferred todos.
+
+## Decisions & Open Questions for Implementation Planning
+
+- **Decided:** AI-assist is **rate-limit only** (per-user daily request cap) — no
+  trusted-users lock. Revisit only if abuse is observed.
+- Exact per-endpoint rate-limit values (the `page_size` cap is set at 100; rate
+  values default to `apps/users` conventions, finalized in the plan).

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import PostCard from './PostCard';
 import { createMockPost } from '../../tests/forumUtils';
@@ -158,18 +159,22 @@ describe('PostCard', () => {
     expect(screen.getByText('1')).toBeInTheDocument();
   });
 
-  it('does not render reactions section when no reactions', () => {
+  it('always renders the four reaction buttons, defaulting counts to 0', () => {
     const post = createMockPost({
       reaction_counts: {},
     });
 
     renderPostCard(post);
 
-    // Should not have reaction buttons
-    expect(screen.queryByText('👍')).not.toBeInTheDocument();
+    // All four reaction buttons render so a user can add a first reaction.
+    expect(screen.getByLabelText('React like')).toBeInTheDocument();
+    expect(screen.getByLabelText('React love')).toBeInTheDocument();
+    expect(screen.getByLabelText('React helpful')).toBeInTheDocument();
+    expect(screen.getByLabelText('React thanks')).toBeInTheDocument();
+    expect(screen.getAllByText('0')).toHaveLength(4);
   });
 
-  it('does not render reactions with zero count', () => {
+  it('shows each reaction type with its count (0 when absent)', () => {
     const post = createMockPost({
       reaction_counts: {
         like: 0,
@@ -179,9 +184,23 @@ describe('PostCard', () => {
 
     renderPostCard(post);
 
-    // Should only show love reaction (count > 0)
-    expect(screen.queryByText('👍')).not.toBeInTheDocument();
-    expect(screen.getByText('❤️')).toBeInTheDocument();
+    expect(screen.getByLabelText('React love')).toHaveTextContent('2');
+    expect(screen.getByLabelText('React like')).toHaveTextContent('0');
+  });
+
+  it('calls onReact with the post id and reaction type when clicked', async () => {
+    const onReact = vi.fn();
+    const post = createMockPost({ id: 'post-9' });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onReact={onReact} />
+      </BrowserRouter>
+    );
+
+    await userEvent.click(screen.getByLabelText('React like'));
+
+    expect(onReact).toHaveBeenCalledWith('post-9', 'like');
   });
 
   it('applies green border for first post', () => {

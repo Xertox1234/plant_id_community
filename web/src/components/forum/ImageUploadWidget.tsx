@@ -1,5 +1,10 @@
 import { useState, useRef, useEffect, ChangeEvent, DragEvent, KeyboardEvent } from 'react';
-import { uploadPostImage, deletePostImage, reorderPostImages } from '../../services/forumService';
+import {
+  uploadPostImage,
+  deletePostImage,
+  reorderPostImages,
+  fetchPostImages,
+} from '../../services/forumService';
 import Button from '../ui/Button';
 import { logger } from '../../utils/logger';
 import {
@@ -248,12 +253,21 @@ export default function ImageUploadWidget({
       }
     } catch (err) {
       const error = err as Error;
-      setOrderedAttachments(previousAttachments);
       logger.error('[IMAGE_UPLOAD] Reorder failed', {
         postId,
         error: error.message,
       });
       setError(error.message);
+      // Reorder is a sequence of PATCHes with no transaction, so a mid-sequence
+      // failure can leave the server partially reordered. Re-fetch the true order
+      // rather than trusting the pre-reorder snapshot; fall back to it only if the
+      // resync also fails.
+      try {
+        const serverAttachments = await fetchPostImages(postId);
+        setOrderedAttachments(serverAttachments);
+      } catch {
+        setOrderedAttachments(previousAttachments);
+      }
     } finally {
       setReordering(false);
       setDraggedAttachmentId(null);

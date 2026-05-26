@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { Link } from 'react-router-dom';
+import { categoryPath } from '../../utils/forumUrls';
 import type { Category } from '@/types';
 
 interface CategoryCardProps {
@@ -18,7 +19,7 @@ function CategoryCard({ category }: CategoryCardProps) {
   return (
     <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow p-6">
       {/* Category Header - Clickable Link */}
-      <Link to={`/forum/${category.slug}`} className="block">
+      <Link to={categoryPath(category)} className="block">
         <div className="flex items-start gap-4">
           {/* Icon */}
           {category.icon && (
@@ -57,7 +58,7 @@ function CategoryCard({ category }: CategoryCardProps) {
             {category.children.map((child) => (
               <Link
                 key={child.id}
-                to={`/forum/${child.slug}`}
+                to={categoryPath(child)}
                 className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-sm text-gray-700 rounded-full transition-colors"
               >
                 {child.icon && <span className="mr-1">{child.icon}</span>}

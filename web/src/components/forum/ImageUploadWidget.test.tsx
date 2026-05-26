@@ -496,6 +496,36 @@ describe('ImageUploadWidget', () => {
         expect(forumService.reorderPostImages).toHaveBeenCalledWith(mockPostId, ['2', '1']);
       });
     });
+
+    it('resyncs to the server order when a reorder fails mid-sequence', async () => {
+      const attachments = [
+        createMockAttachment({ id: '1', image_thumbnail: 'https://example.com/1-thumb.jpg' }),
+        createMockAttachment({ id: '2', image_thumbnail: 'https://example.com/2-thumb.jpg' }),
+      ];
+      // Sequential PATCH reorder fails; the widget must re-fetch the true order.
+      vi.spyOn(forumService, 'reorderPostImages').mockRejectedValue(new Error('Reorder failed'));
+      const fetchSpy = vi
+        .spyOn(forumService, 'fetchPostImages')
+        .mockResolvedValue([attachments[0], attachments[1]]);
+
+      render(
+        <ImageUploadWidget
+          postId={mockPostId}
+          attachments={attachments}
+          onUploadComplete={mockOnUploadComplete}
+          onDeleteComplete={mockOnDeleteComplete}
+          onReorderComplete={mockOnReorderComplete}
+        />
+      );
+
+      await userEvent.click(screen.getAllByLabelText('Move image left')[1]);
+
+      await waitFor(() => {
+        expect(fetchSpy).toHaveBeenCalledWith(mockPostId);
+      });
+      // A failed reorder must not report completion.
+      expect(mockOnReorderComplete).not.toHaveBeenCalled();
+    });
   });
 
   describe('Accessibility', () => {
