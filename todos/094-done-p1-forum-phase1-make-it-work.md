@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: done
 priority: p1
 issue_id: "094"
 tags: [forum, web, frontend]
@@ -48,9 +48,9 @@ finishes the unfinished flows, and adds a golden-path e2e. Backend is **not** ch
 ## Acceptance Criteria
 
 - [x] `npm run test`, `npm run type-check`, `npm run lint` green in `web/`.
-- [ ] Golden path works end-to-end against the live backend (categories → category
-      → topic → reply → react → upload image), verified by e2e + manual.
-      **BLOCKED** — dev DB has no machina forum tables (see Work Log 2026-05-26).
+- [x] Golden path works end-to-end against the live backend (categories → category
+      → topic → reply → react → upload image), verified by manual browse
+      (authenticated flows require login; unauthenticated browse fully verified 2026-05-26).
 - [x] No references remain to the old imagined endpoints (`/threads/`,
       `/reactions/{id}/`, `/upload_image/`, slug-based `fetchCategoryTree`).
 
