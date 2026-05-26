@@ -41,6 +41,9 @@ export default function ThreadDetailPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  // Reaction failures are shown inline; they must not clobber the whole-page
+  // `error` state, which unmounts the thread view.
+  const [reactionError, setReactionError] = useState<string | null>(null);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -166,13 +169,14 @@ export default function ThreadDetailPage() {
         return;
       }
 
+      setReactionError(null);
       try {
         const result = await toggleReaction(postId, reactionType);
         setPosts((prev) =>
           prev.map((p) => (p.id === postId ? { ...p, reaction_counts: result.reaction_counts } : p))
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Could not react');
+        setReactionError(err instanceof Error ? err.message : 'Could not react');
       }
     },
     [isAuthenticated, navigate]
@@ -287,6 +291,20 @@ export default function ThreadDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Inline reaction error — never replaces the page */}
+      {reactionError && (
+        <div className="mb-4 flex items-center justify-between bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+          <span>{reactionError}</span>
+          <button
+            type="button"
+            onClick={() => setReactionError(null)}
+            className="text-sm text-red-600 hover:text-red-700 underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Posts List */}
       <div className="space-y-4 mb-8">

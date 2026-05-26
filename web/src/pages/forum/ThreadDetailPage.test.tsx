@@ -568,4 +568,33 @@ describe('ThreadDetailPage', () => {
 
     expect(toggleSpy).not.toHaveBeenCalled();
   });
+
+  it('shows an inline error without unmounting the thread when a reaction fails', async () => {
+    const mockThread = createMockThread({ id: 'thread-1', title: 'Stay Visible' });
+    const mockPosts = {
+      items: [createMockPost({ id: 'post-1', reaction_counts: {} })],
+      meta: { count: 1 },
+    };
+
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(mockPosts);
+    vi.spyOn(forumService, 'toggleReaction').mockRejectedValue(new Error('Reaction failed'));
+
+    renderThreadDetailPage('3-plant-care', '12-watering-tips', {
+      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
+      isAuthenticated: true,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('React like')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByLabelText('React like'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Reaction failed')).toBeInTheDocument();
+    });
+    // The thread view stays mounted — not replaced by the page-level error panel.
+    expect(screen.getByRole('heading', { level: 1, name: 'Stay Visible' })).toBeInTheDocument();
+  });
 });
