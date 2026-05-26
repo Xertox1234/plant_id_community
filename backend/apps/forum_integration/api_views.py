@@ -2,6 +2,8 @@
 DRF API Views for Forum Integration.
 """
 
+import os
+
 from apps.core.utils.query_sanitization import escape_search_query
 from django.core.paginator import Paginator
 from django.db.models import F
@@ -12,12 +14,22 @@ from django_ratelimit.decorators import ratelimit
 from machina.apps.forum.models import Forum
 from machina.apps.forum_conversation.models import Post, Topic
 from machina.core.loading import get_class
+from PIL import Image, UnidentifiedImageError
 from rest_framework import generics, permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .constants import FORUM_DEFAULT_PAGE_SIZE, FORUM_MAX_PAGE_SIZE, FORUM_RATE_LIMITS
+from .constants import (
+    FORUM_DEFAULT_PAGE_SIZE,
+    FORUM_IMAGE_ALLOWED_CONTENT_TYPES,
+    FORUM_IMAGE_ALLOWED_EXTENSIONS,
+    FORUM_IMAGE_ALLOWED_PIL_FORMATS,
+    FORUM_IMAGE_MAX_BYTES,
+    FORUM_IMAGE_MAX_PER_POST,
+    FORUM_MAX_PAGE_SIZE,
+    FORUM_RATE_LIMITS,
+)
 
 # Import Django Machina permission handler
 PermissionHandler = get_class("forum_permission.handler", "PermissionHandler")
@@ -726,41 +738,61 @@ class PostImageUploadView(APIView):
 
         uploaded_files = request.FILES.getlist("images")
 
-        # Validate number of images (max 6 per post)
+        # Validate number of images (max per post)
         existing_count = ForumPostImage.objects.filter(post=post).count()
         total_count = existing_count + len(uploaded_files)
 
-        if total_count > 6:
+        if total_count > FORUM_IMAGE_MAX_PER_POST:
             return Response(
                 {
                     "error": (
-                        f"Maximum 6 images per post. You have {existing_count} "
-                        f"images and are trying to add {len(uploaded_files)} more."
+                        f"Maximum {FORUM_IMAGE_MAX_PER_POST} images per post. "
+                        f"You have {existing_count} images and are trying to add "
+                        f"{len(uploaded_files)} more."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Validate file sizes and types
-        max_size = 5 * 1024 * 1024  # 5MB
-        allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-
         uploaded_images = []
         errors = []
 
         for i, uploaded_file in enumerate(uploaded_files):
-            # Validate file size
-            if uploaded_file.size > max_size:
+            # Layer 1: extension allowlist
+            ext = os.path.splitext(uploaded_file.name)[1].lower()
+            if ext not in FORUM_IMAGE_ALLOWED_EXTENSIONS:
+                errors.append(
+                    f"File {uploaded_file.name} has an unsupported extension."
+                )
+                continue
+
+            # Layer 2: declared MIME (cheap reject; not trusted alone)
+            if uploaded_file.content_type not in FORUM_IMAGE_ALLOWED_CONTENT_TYPES:
+                errors.append(
+                    f"File {uploaded_file.name} is not a supported image type."
+                )
+                continue
+
+            # Layer 3: size
+            if uploaded_file.size > FORUM_IMAGE_MAX_BYTES:
                 errors.append(
                     f"File {uploaded_file.name} is too large. Maximum size is 5MB."
                 )
                 continue
 
-            # Validate file type
-            if uploaded_file.content_type not in allowed_types:
-                errors.append(
-                    f"File {uploaded_file.name} is not a supported image type."
-                )
+            # Layer 4: magic number — verify real image bytes with PIL
+            try:
+                uploaded_file.seek(0)
+                with Image.open(uploaded_file) as im:
+                    im.verify()
+                    if im.format not in FORUM_IMAGE_ALLOWED_PIL_FORMATS:
+                        errors.append(
+                            f"File {uploaded_file.name} content is not an allowed image."
+                        )
+                        continue
+                uploaded_file.seek(0)  # reset for storage
+            except (UnidentifiedImageError, OSError):
+                errors.append(f"File {uploaded_file.name} is not a valid image.")
                 continue
 
             try:
