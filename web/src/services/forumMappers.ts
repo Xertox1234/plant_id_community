@@ -53,12 +53,13 @@ type ForumAuthor = Thread['author'];
 export function mapUser(u: BackendUser | null): ForumAuthor | null {
   if (!u) return null;
   const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
-  // tsconfig strict:false — return the fields the forum UI reads.
+  // Translation boundary: the backend user shape is narrower than the auth `User`
+  // type the forum reuses, and forum ids are strings. Cast through `unknown`.
   return {
     id: String(u.id),
     username: u.username,
     display_name: fullName || u.username,
-  } as ForumAuthor;
+  } as unknown as ForumAuthor;
 }
 
 export function mapForumToCategory(f: BackendForum): Category {
