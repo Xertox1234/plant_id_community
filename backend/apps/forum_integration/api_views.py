@@ -17,6 +17,7 @@ from machina.core.loading import get_class
 from PIL import Image, UnidentifiedImageError
 from rest_framework import generics, permissions, status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -449,7 +450,7 @@ class PostUpdateView(generics.UpdateAPIView):
 
         # Check if user can edit this post
         if post.poster != self.request.user and not self.request.user.is_staff:
-            raise permissions.PermissionDenied("You cannot edit this post")
+            raise PermissionDenied("You cannot edit this post")
 
         return post
 
@@ -485,7 +486,7 @@ class PostDeleteView(generics.DestroyAPIView):
 
         # Check if user can delete this post
         if post.poster != self.request.user and not self.request.user.is_staff:
-            raise permissions.PermissionDenied("You cannot delete this post")
+            raise PermissionDenied("You cannot delete this post")
 
         return post
 
@@ -1372,7 +1373,7 @@ class UserTopicsListView(generics.ListAPIView):
 
         # IDOR guard: only the owner or staff may list another user's topics.
         if self.request.user.id != user_id and not self.request.user.is_staff:
-            raise permissions.PermissionDenied("You can only view your own topics.")
+            raise PermissionDenied("You can only view your own topics.")
 
         # Get topics created by this user
         queryset = (
@@ -1415,9 +1416,7 @@ class UserWatchedTopicsListView(generics.ListAPIView):
 
         # IDOR guard: only the owner or staff may list another user's watched topics.
         if self.request.user.id != user_id and not self.request.user.is_staff:
-            raise permissions.PermissionDenied(
-                "You can only view your own watched topics."
-            )
+            raise PermissionDenied("You can only view your own watched topics.")
 
         # For now, return topics the user has participated in recently
         # This is a simplified implementation - Django Machina has a more complex watching system
