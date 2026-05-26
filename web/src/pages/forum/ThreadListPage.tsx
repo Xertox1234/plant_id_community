@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, FormEvent } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { fetchThreads, fetchCategory } from '../../services/forumService';
+import { parseLeadingId } from '../../utils/forumUrls';
 import ThreadCard from '../../components/forum/ThreadCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
@@ -42,20 +43,22 @@ export default function ThreadListPage() {
     const loadData = async () => {
       if (!categorySlug) return;
 
+      // The route param is a hybrid "id-slug"; lookups use the leading id.
+      const forumId = parseLeadingId(categorySlug);
+      if (forumId == null) {
+        setError('Invalid category URL');
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         setError(null);
 
         // Load category info and threads in parallel
         const [categoryData, threadsData] = (await Promise.all([
-          fetchCategory(categorySlug),
-          fetchThreads({
-            category: categorySlug,
-            page,
-            limit,
-            search,
-            ordering,
-          }),
+          fetchCategory(forumId),
+          fetchThreads({ category: forumId, page }),
         ])) as [Category, ThreadsData];
 
         setCategory(categoryData);

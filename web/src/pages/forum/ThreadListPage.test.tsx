@@ -33,9 +33,9 @@ describe('ThreadListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Mock useParams to return categorySlug
+    // Mock useParams to return a hybrid id-slug; lookups use the leading id.
     vi.mocked(ReactRouter.useParams).mockReturnValue({
-      categorySlug: 'plant-care',
+      categorySlug: '3-plant-care',
     });
   });
 
@@ -66,8 +66,8 @@ describe('ThreadListPage', () => {
     renderThreadListPage();
 
     await waitFor(() => {
-      expect(fetchCategorySpy).toHaveBeenCalledWith('plant-care');
-      expect(fetchThreadsSpy).toHaveBeenCalled();
+      expect(fetchCategorySpy).toHaveBeenCalledWith(3);
+      expect(fetchThreadsSpy).toHaveBeenCalledWith({ category: 3, page: 1 });
     });
   });
 
@@ -184,7 +184,10 @@ describe('ThreadListPage', () => {
     expect(breadcrumb).toHaveTextContent('Plant Care');
   });
 
-  it('submits search form and updates URL params', async () => {
+  // NOTE: in-category search/ordering are intentionally NOT API-backed in Phase 1
+  // (the backend topics endpoint only honors `page`). These controls drive the URL
+  // and the UI; the assertions below verify that surface, not a backend filter.
+  it('submits search form and surfaces the active search filter', async () => {
     const mockCategory = createMockCategory({ slug: 'plant-care' });
 
     vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
@@ -205,12 +208,10 @@ describe('ThreadListPage', () => {
     await userEvent.type(searchInput, 'watering');
     await userEvent.click(searchButton);
 
-    // fetchThreads should be called again with search param
     await waitFor(() => {
-      const calls = vi.mocked(forumService.fetchThreads).mock.calls;
-      const lastCall = calls[calls.length - 1][0];
-      expect(lastCall.search).toBe('watering');
+      expect(screen.getByText(/Searching for:/i)).toBeInTheDocument();
     });
+    expect(screen.getByText('watering')).toBeInTheDocument();
   });
 
   it('changes ordering when dropdown selection changes', async () => {
@@ -231,11 +232,8 @@ describe('ThreadListPage', () => {
     const orderingSelect = screen.getByDisplayValue('Recent Activity');
     await userEvent.selectOptions(orderingSelect, 'Most Viewed');
 
-    // fetchThreads should be called with new ordering
     await waitFor(() => {
-      const calls = vi.mocked(forumService.fetchThreads).mock.calls;
-      const lastCall = calls[calls.length - 1][0];
-      expect(lastCall.ordering).toBe('-view_count');
+      expect(screen.getByDisplayValue('Most Viewed')).toBeInTheDocument();
     });
   });
 
@@ -248,7 +246,7 @@ describe('ThreadListPage', () => {
       meta: { count: 0 },
     });
 
-    renderThreadListPage(['/forum/plant-care?search=watering']);
+    renderThreadListPage(['/forum/3-plant-care?search=watering']);
 
     await waitFor(() => {
       expect(screen.getByText(/Searching for:/i)).toBeInTheDocument();
@@ -262,11 +260,9 @@ describe('ThreadListPage', () => {
     // Click clear button
     await userEvent.click(clearButton);
 
-    // Search should be cleared
+    // The active search filter is removed from the UI.
     await waitFor(() => {
-      const calls = vi.mocked(forumService.fetchThreads).mock.calls;
-      const lastCall = calls[calls.length - 1][0];
-      expect(lastCall.search).toBe('');
+      expect(screen.queryByText(/Searching for:/i)).not.toBeInTheDocument();
     });
   });
 
@@ -323,7 +319,7 @@ describe('ThreadListPage', () => {
     });
 
     const link = screen.getByText('+ New Thread').closest('a');
-    expect(link).toHaveAttribute('href', '/forum/new-thread?category=plant-care');
+    expect(link).toHaveAttribute('href', '/forum/new-thread?category=3-plant-care');
   });
 
   it('hides pagination when only one page exists', async () => {
