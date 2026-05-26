@@ -459,10 +459,10 @@ export default function ImageUploadWidget({
                 alt={attachment.alt_text || attachment.original_filename || 'Uploaded image'}
                 className="w-full h-32 object-cover"
               />
-              <div className="absolute top-2 left-2 rounded bg-black bg-opacity-60 px-2 py-1 text-xs text-white">
+              <div className="absolute top-2 left-2 rounded bg-black/60 px-2 py-1 text-xs text-white">
                 {index + 1}
               </div>
-              <div className="absolute inset-0 bg-black bg-opacity-30 md:bg-opacity-0 md:group-hover:bg-opacity-40 transition-opacity flex items-center justify-center">
+              <div className="absolute inset-0 bg-black/30 md:bg-transparent md:group-hover:bg-black/40 transition-opacity flex items-center justify-center">
                 <div className="flex flex-wrap justify-center gap-2 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
                   <Button
                     onClick={() => moveAttachment(index, -1)}

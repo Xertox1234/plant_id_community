@@ -87,10 +87,12 @@ export async function fetchCategory(forumId: number): Promise<Category> {
 // ---------------------------------------------------------------------------
 
 export async function fetchThreads(
-  options: { page?: number; category?: number } = {}
+  options: { page?: number; category?: number; search?: string; ordering?: string } = {}
 ): Promise<PaginatedResponse<Thread>> {
-  const { page = 1, category } = options;
+  const { page = 1, category, search, ordering } = options;
   const params = new URLSearchParams({ page: String(page) });
+  if (search) params.set('search', search);
+  if (ordering) params.set('ordering', ordering);
   const path =
     category != null
       ? `${FORUM_BASE}/categories/${category}/topics/?${params}`

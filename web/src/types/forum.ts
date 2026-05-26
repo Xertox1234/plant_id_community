@@ -147,7 +147,7 @@ export interface CreateThreadInput {
   category: string;
   excerpt: string;
   first_post_content: string;
-  first_post_format?: 'plain' | 'markdown' | 'rich';
+  first_post_format?: 'plain' | 'draftail' | 'html';
 }
 
 /**
@@ -156,7 +156,7 @@ export interface CreateThreadInput {
 export interface CreatePostInput {
   thread: string;
   content_raw: string;
-  content_format?: 'plain' | 'markdown' | 'rich';
+  content_format?: 'plain' | 'draftail' | 'html';
 }
 
 /**

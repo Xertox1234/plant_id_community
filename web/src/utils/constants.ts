@@ -11,8 +11,8 @@
 // Matches backend: MAX_ATTACHMENTS_PER_POST = 6
 export const MAX_IMAGES = 6;
 
-// Matches backend: MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024
-export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+// Matches backend: FORUM_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 // Matches backend: ALLOWED_IMAGE_MIME_TYPES
 export const ALLOWED_IMAGE_TYPES = [

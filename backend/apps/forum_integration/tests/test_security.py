@@ -226,6 +226,9 @@ class PaginationCapTests(TestCase):
                 approved=True,
             )
 
+    def setUp(self):
+        self.client = APIClient()
+
     def test_page_size_capped_at_maximum(self):
         resp = self.client.get("/api/v1/forum/topics/?page_size=100000")
         self.assertEqual(resp.status_code, 200)

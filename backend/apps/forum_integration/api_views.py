@@ -131,11 +131,18 @@ def all_topics_list(request):
             }
             results.append(topic_data)
 
+        def _page_url(request, page_num):
+            params = request.GET.copy()
+            params["page"] = str(page_num)
+            return request.build_absolute_uri(f"?{params.urlencode()}")
+
         return JsonResponse(
             {
                 "count": paginator.count,
-                "next": f"?page={page + 1}" if page_obj.has_next() else None,
-                "previous": f"?page={page - 1}" if page_obj.has_previous() else None,
+                "next": _page_url(request, page + 1) if page_obj.has_next() else None,
+                "previous": (
+                    _page_url(request, page - 1) if page_obj.has_previous() else None
+                ),
                 "results": results,
             }
         )
@@ -499,9 +506,7 @@ class PostDeleteView(generics.DestroyAPIView):
         """Delete post and return success message."""
         instance = self.get_object()
         self.perform_destroy(instance)
-        return Response(
-            {"message": "Post deleted successfully"}, status=status.HTTP_204_NO_CONTENT
-        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class TopicMarkViewedView(APIView):
@@ -626,11 +631,11 @@ class PostReactionView(APIView):
                     "success": True,
                     "reaction_type": reaction_type,
                     "is_active": reaction.is_active,
-                    "action": "added" if (created or reaction.is_active) else "removed",
+                    "action": "added" if reaction.is_active else "removed",
                     "post_id": post_id,
                     "reactions": reaction_counts,
                     "user_reactions": user_reactions,
-                    "message": f'Reaction {reaction_type} {"added" if (created or reaction.is_active) else "removed"}',
+                    "message": f'Reaction {reaction_type} {"added" if reaction.is_active else "removed"}',
                 }
             )
 
@@ -809,7 +814,7 @@ class PostImageUploadView(APIView):
                         )
                         continue
                 uploaded_file.seek(0)  # reset for storage
-            except (UnidentifiedImageError, OSError):
+            except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
                 errors.append(f"File {uploaded_file.name} is not a valid image.")
                 continue
 
@@ -1024,7 +1029,7 @@ def generate_forum_ai_content(prompt_type, context, selected_text, user):
         "correct": """
         Improve the grammar, clarity, and readability of this forum post while keeping the original meaning:
 
-        {selected_text if selected_text else context}
+        {text_to_correct}
 
         Corrected version:
         """,
@@ -1034,7 +1039,9 @@ def generate_forum_ai_content(prompt_type, context, selected_text, user):
 
     # Format the prompt
     formatted_prompt = prompt_template.format(  # noqa: F841
-        context=context, selected_text=selected_text
+        context=context,
+        selected_text=selected_text,
+        text_to_correct=selected_text if selected_text else context,
     )
 
     # For now, return a mock response (in real implementation, call OpenAI API)
@@ -1138,16 +1145,20 @@ class TopicsFeedView(generics.ListAPIView):
         if forum_id:
             queryset = queryset.filter(forum_id=forum_id)
 
-        # Optional limit for performance
-        limit = self.request.query_params.get("limit")
-        if limit:
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        """Apply optional ?limit= cap after filtering to avoid slicing the queryset
+        before DRF's filter/paginator can operate on it."""
+        queryset = self.filter_queryset(self.get_queryset())
+        limit_param = request.query_params.get("limit")
+        if limit_param:
             try:
-                limit = int(limit)
-                queryset = queryset[: min(limit, 50)]  # Max 50 items for performance
+                queryset = queryset[: min(int(limit_param), 50)]
             except (ValueError, TypeError):
                 pass
-
-        return queryset
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
 
 @api_view(["GET"])

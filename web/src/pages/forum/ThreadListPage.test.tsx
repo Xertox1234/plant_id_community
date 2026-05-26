@@ -67,7 +67,12 @@ describe('ThreadListPage', () => {
 
     await waitFor(() => {
       expect(fetchCategorySpy).toHaveBeenCalledWith(3);
-      expect(fetchThreadsSpy).toHaveBeenCalledWith({ category: 3, page: 1 });
+      expect(fetchThreadsSpy).toHaveBeenCalledWith({
+        category: 3,
+        page: 1,
+        search: undefined,
+        ordering: '-last_activity_at',
+      });
     });
   });
 
