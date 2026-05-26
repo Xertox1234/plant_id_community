@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p1
 issue_id: "094"
 tags: [forum, web, frontend]
@@ -47,10 +47,11 @@ finishes the unfinished flows, and adds a golden-path e2e. Backend is **not** ch
 
 ## Acceptance Criteria
 
-- [ ] `npm run test`, `npm run type-check`, `npm run lint` green in `web/`.
+- [x] `npm run test`, `npm run type-check`, `npm run lint` green in `web/`.
 - [ ] Golden path works end-to-end against the live backend (categories → category
       → topic → reply → react → upload image), verified by e2e + manual.
-- [ ] No references remain to the old imagined endpoints (`/threads/`,
+      **BLOCKED** — dev DB has no machina forum tables (see Work Log 2026-05-26).
+- [x] No references remain to the old imagined endpoints (`/threads/`,
       `/reactions/{id}/`, `/upload_image/`, slug-based `fetchCategoryTree`).
 
 ## Work Log
@@ -59,6 +60,64 @@ finishes the unfinished flows, and adds a golden-path e2e. Backend is **not** ch
 
 - Spec + Phase 1 plan written and committed on `feat/forum-web-modernization`.
   Todo created to execute Phase 1 in a fresh session.
+
+### 2026-05-26 - Started by completing-todos skill (run 2026-05-26-0056)
+
+- Picked up by automated workflow. Verified the backend contract in
+  `apps/forum_integration/api_urls.py` + `api_views.py` matches the plan's
+  translation target (endpoints, reaction toggle shape, image shapes). Mapped
+  the blast radius of the service API changes across `web/src`.
+
+### 2026-05-26 - Phase 1 implemented (Tasks 1-10), left in_progress (criterion #2 blocked)
+
+Executed the plan task-by-task (TDD). 10 commits on `feat/forum-web-modernization`:
+`forumUrls` helpers, `ReactionToggleResult` type, `forumMappers`, `forumService`
+translation-layer rewrite + tests, hybrid id+slug card links, integer-id parsing in
+both route pages, post reactions wired to the toggle endpoint, image-reorder
+error-resync, golden-path e2e spec, and a code-review fix.
+
+**Criterion #1 — DONE.** Final run in `web/`:
+
+- `npm run test` → `Test Files 26 passed (26) / Tests 661 passed (661)`
+- `npm run type-check` → `tsc --noEmit` (no errors)
+- `npm run lint` → `eslint .` (no errors)
+
+**Criterion #3 — DONE.** `grep -rnE "/threads/|/reactions/$|/upload_image/|/delete_image/|/reorder_images/|categories/tree|addReaction|removeReaction"` across `web/` (excl. node_modules, `/threads/i` UI regex) → `NONE FOUND`. The only `/reactions/` refs are the correct new toggle endpoint `/posts/{id}/reactions/`.
+
+**Criterion #2 — BLOCKED (env, not code).** The live e2e + manual golden path cannot
+run: this dev DB has no django-machina forum tables. Evidence:
+
+- `GET /api/v1/forum/categories/` → HTTP 500.
+- Django shell repro: `django.db.utils.ProgrammingError: relation "forum_forum" does not exist`.
+- `showmigrations`: `forum` has only `0001_initial` applied (0002–0012 pending);
+  `forum_conversation` has none applied.
+Resolving needs `manage.py migrate` + seeding a forum/topic/post — a stateful backend
+action outside Phase 1's frontend-only scope ("Option C: backend untouched"), and the
+DB's partial machina state is flagged messy by todo 086 (drop-orphan-forum-tables).
+NOT attempted without user authorization. The translation layer is verified at the
+contract level by the 661 unit/component tests, which assert exact endpoints, payloads,
+and response mapping against the backend contract read from `api_urls.py`/`api_views.py`.
+
+**Code review (feature-dev:code-reviewer):** 1 critical, fixed (commit `ab358ae`) —
+`handleReact` wrote failures to the page-level `error` state, which (via the
+`if (error || !thread)` early return) would unmount the whole thread on a failed
+reaction; now shown inline via `reactionError` + a regression test. Lower-severity
+notes accepted for Phase 1 (see Known issues below).
+
+**Known issues — accepted for Phase 1:**
+
+- `mapForumToCategory.created_at` uses the forum's `last_activity` (no creation date
+  in `ForumCategorySerializer`); no component renders it. (review #3)
+- `updatePost` returns `thread: ''` (backend update response omits the topic id); no
+  edit-post flow is wired in Phase 1 and nothing reads `post.thread`. (review #4, plan-documented)
+- `searchForum` <3-char queries hit the backend and surface a generic error; search
+  page is not in the golden path. (review #5)
+
+**Intentional Phase-1 limitations (carry into PR):** flat category tree;
+in-category search/ordering/limit not API-backed (only `page`); sequential image
+reorder (resyncs from server on partial failure); search filters
+(category/author/date) passed through but ignored by the backend; dead
+`/forum/new-thread` link (no route — new-thread page out of scope).
 
 ## Notes
 
