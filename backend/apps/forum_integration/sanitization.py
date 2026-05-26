@@ -54,11 +54,12 @@ def sanitize_forum_html(html: str | None) -> str | None:
 
     Applied on every write (create/update). The returned value is safe for
     direct storage and for rendering via dangerouslySetInnerHTML.
+    Accepts Machina MarkupText or any str-coercible value.
     """
     if not html:
         return html
     return nh3.clean(
-        html,
+        str(html),  # coerce Machina MarkupText to plain str
         tags=ALLOWED_TAGS,
         attributes=ALLOWED_ATTRIBUTES,
         url_schemes=ALLOWED_URL_SCHEMES,
