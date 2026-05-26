@@ -7,6 +7,8 @@ from django.core.paginator import Paginator
 from django.db.models import F
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django_ratelimit.decorators import ratelimit
 from machina.apps.forum.models import Forum
 from machina.apps.forum_conversation.models import Post, Topic
 from machina.core.loading import get_class
@@ -14,6 +16,8 @@ from rest_framework import generics, permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from .constants import FORUM_DEFAULT_PAGE_SIZE, FORUM_MAX_PAGE_SIZE, FORUM_RATE_LIMITS
 
 # Import Django Machina permission handler
 PermissionHandler = get_class("forum_permission.handler", "PermissionHandler")
@@ -71,7 +75,10 @@ def all_topics_list(request):
         )
 
         # Simple pagination
-        page_size = int(request.GET.get("page_size", 25))
+        page_size = min(
+            max(1, int(request.GET.get("page_size", FORUM_DEFAULT_PAGE_SIZE))),
+            FORUM_MAX_PAGE_SIZE,
+        )
         page = int(request.GET.get("page", 1))
 
         paginator = Paginator(topics, page_size)
@@ -166,6 +173,12 @@ class TopicDetailView(generics.RetrieveAPIView):
         )
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["create_topic"], method="POST", block=True
+    ),
+    name="create",
+)
 class CreateTopicView(generics.CreateAPIView):
     """Create a new topic."""
 
@@ -199,6 +212,12 @@ class CreateTopicView(generics.CreateAPIView):
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["create_post"], method="POST", block=True
+    ),
+    name="create",
+)
 class CreatePostView(generics.CreateAPIView):
     """Create a new post (reply)."""
 
@@ -228,6 +247,7 @@ class CreatePostView(generics.CreateAPIView):
 
 @api_view(["GET"])
 @permission_classes([permissions.AllowAny])
+@ratelimit(key="ip", rate=FORUM_RATE_LIMITS["search"], method="GET", block=True)
 def forum_search(request):
     """Search forum topics and posts."""
     query = request.GET.get("q", "").strip()
@@ -297,6 +317,7 @@ def forum_stats(request):
 
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
+@ratelimit(key="user", rate=FORUM_RATE_LIMITS["ai_assist"], method="POST", block=True)
 def forum_ai_assist(request):
     """AI assistance for forum post creation."""
 
@@ -347,6 +368,12 @@ class PostListView(generics.ListAPIView):
         return Post.objects.none()
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["create_post"], method="POST", block=True
+    ),
+    name="create",
+)
 class PostCreateView(generics.CreateAPIView):
     """Create a new post (reply)."""
 
@@ -375,6 +402,18 @@ class PostCreateView(generics.CreateAPIView):
         )
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["update_post"], method="PUT", block=True
+    ),
+    name="update",
+)
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["update_post"], method="PATCH", block=True
+    ),
+    name="partial_update",
+)
 class PostUpdateView(generics.UpdateAPIView):
     """Update an existing post."""
 
@@ -406,6 +445,12 @@ class PostUpdateView(generics.UpdateAPIView):
         )
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["delete_post"], method="DELETE", block=True
+    ),
+    name="destroy",
+)
 class PostDeleteView(generics.DestroyAPIView):
     """Delete a post."""
 
@@ -502,6 +547,10 @@ class TopicUpdateView(generics.UpdateAPIView):
         )
 
 
+@method_decorator(
+    ratelimit(key="user", rate=FORUM_RATE_LIMITS["react"], method="POST", block=True),
+    name="post",
+)
 class PostReactionView(APIView):
     """Create, update, or remove reactions on forum posts."""
 
@@ -629,6 +678,12 @@ class PostImageListView(generics.ListAPIView):
         )
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["upload_image"], method="POST", block=True
+    ),
+    name="post",
+)
 class PostImageUploadView(APIView):
     """Upload images to a forum post."""
 
