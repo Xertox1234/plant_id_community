@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "093"
 tags: [api, frontend, flutter, auth, bug, contract]
@@ -65,12 +65,12 @@ Consumers audited:
 
 ## Acceptance Criteria
 
-- [ ] Flutter `ApiService` error handling reads top-level `message` for the new
+- [x] Flutter `ApiService` error handling reads top-level `message` for the new
       shape — a unit/widget test feeds a `{error: true, message: "X", code, status_code}`
       DioException response and asserts the surfaced message is `"X"`, never `"true"`.
-- [ ] No web consumer reads the removed nested `error.{code,message,details}`
+- [x] No web consumer reads the removed nested `error.{code,message,details}`
       without a flat-shape fallback (verified by grep + updated where found).
-- [ ] `cd plant_community_mobile && flutter test` passes; `cd web && npm run test`
+- [x] `cd plant_community_mobile && flutter test` passes; `cd web && npm run test`
       and `npm run type-check` pass.
 
 ## Technical Details
@@ -81,6 +81,27 @@ Consumers audited:
 - Web consumer (already safe, reference pattern): `web/src/services/authService.ts:110-120`.
 
 ## Work Log
+
+### 2026-05-26 - Completed by completing-todos skill (run 2026-05-26-1410)
+
+- Verification: all 3 acceptance criteria passed — 662/662 web tests, type-check clean, 76/76 Flutter tests (4 new).
+- Review: 3 findings total (1 high, 2 medium) — all repaired:
+  - [high] authService.ts signup: removed dead code branch + stale union type; aligned with login pattern.
+  - [medium] Flutter test: added edge-case test `{error: true}` alone to detect regressed behavior.
+  - [medium] api_service.dart: fixed `detail ?? message` → `message ?? detail` to match canonical priority.
+  - authService.test.ts: updated signup validation error fixture from old nested shape to canonical flat shape.
+
+### 2026-05-26 - Implemented by completing-todos skill (run 2026-05-26-1410)
+
+- Picked up by automated workflow.
+- Baseline confirmed clean: web type-check ✓, 662 web tests ✓, 72 Flutter tests ✓.
+- `ApiError` type updated: `error: string` → `error: true`, added `message: string`, `status_code?: number`, `errors?: Record<string, unknown>`. This weaponizes type-check as AC2 verifier.
+- `diagnosisService.ts`: fixed 3 `.catch()` fallbacks (now emit `{error: true as const, message: ...}`) + 3 `error.error` reads → `error.message`.
+- `plantIdService.ts`: fixed 2 `errorData.error` reads → `errorData.message`.
+- `api_service.dart`: fixed extraction chain — replaced `responseData['error']?.toString()` with `responseData['message']?.toString()`, preserving `detail` first for legacy DRF format. Renamed `_handleDioException` → `handleDioException` with `@visibleForTesting`.
+- Added 3 Flutter unit tests in `test/api_service_test.dart` verifying canonical shape yields real message, never `"true"`, and legacy `detail` shape still works.
+- Updated 8 test mock responses from old `{error: 'string'}` to canonical `{error: true, message: 'string'}`.
+- Verification: type-check ✓, 662/662 web tests ✓, 75/75 Flutter tests ✓ (3 new).
 
 ### 2026-05-21 - Created
 

@@ -42,7 +42,8 @@ function getAuthHeaders(): Record<string, string> {
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const error: ApiError = await response.json().catch(() => ({
-      error: `Request failed with status ${response.status}`,
+      error: true as const,
+      message: `Request failed with status ${response.status}`,
     }));
 
     logger.error('[diagnosisService] API error:', {
@@ -50,7 +51,9 @@ async function handleResponse<T>(response: Response): Promise<T> {
       error,
     });
 
-    throw new Error(error.error || error.detail || `Request failed with status ${response.status}`);
+    throw new Error(
+      error.message || error.detail || `Request failed with status ${response.status}`
+    );
   }
 
   return response.json();
@@ -161,9 +164,10 @@ export async function deleteDiagnosisCard(uuid: string): Promise<void> {
 
   if (!response.ok) {
     const error: ApiError = await response.json().catch(() => ({
-      error: `Delete failed with status ${response.status}`,
+      error: true as const,
+      message: `Delete failed with status ${response.status}`,
     }));
-    throw new Error(error.error || error.detail || 'Delete failed');
+    throw new Error(error.message || error.detail || 'Delete failed');
   }
 }
 
@@ -373,8 +377,9 @@ export async function deleteReminder(uuid: string): Promise<void> {
 
   if (!response.ok) {
     const error: ApiError = await response.json().catch(() => ({
-      error: `Delete failed with status ${response.status}`,
+      error: true as const,
+      message: `Delete failed with status ${response.status}`,
     }));
-    throw new Error(error.error || error.detail || 'Delete failed');
+    throw new Error(error.message || error.detail || 'Delete failed');
   }
 }

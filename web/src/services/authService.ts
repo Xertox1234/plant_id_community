@@ -94,7 +94,7 @@ export async function signup(userData: SignupData): Promise<User> {
     });
 
     if (!response.ok) {
-      let errorData: ApiError | { error?: { message?: string }; message?: string };
+      let errorData: ApiError;
       try {
         errorData = await response.json();
       } catch {
@@ -107,17 +107,7 @@ export async function signup(userData: SignupData): Promise<User> {
         error: errorData,
       });
 
-      // Extract error message from backend
-      const errorMessage =
-        'error' in errorData &&
-        errorData.error &&
-        typeof errorData.error === 'object' &&
-        'message' in errorData.error
-          ? errorData.error.message
-          : 'message' in errorData
-            ? errorData.message
-            : JSON.stringify(errorData);
-      throw new Error(errorMessage);
+      throw new Error(errorData.message || `Signup failed with status ${response.status}`);
     }
 
     const data: AuthResponse = await response.json();

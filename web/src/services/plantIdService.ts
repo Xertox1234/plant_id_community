@@ -45,7 +45,7 @@ async function identifyPlant(imageFile: File): Promise<PlantIdentificationResult
 
     if (!response.ok) {
       const errorData: ApiError = await response.json();
-      throw new Error(errorData.error || 'Failed to identify plant. Please try again.');
+      throw new Error(errorData.message || 'Failed to identify plant. Please try again.');
     }
 
     return response.json();
@@ -149,7 +149,7 @@ async function saveToCollection(plantData: SavePlantInput): Promise<UserPlant> {
 
     if (!response.ok) {
       const errorData: ApiError = await response.json();
-      throw new Error(errorData.error || 'Failed to save plant');
+      throw new Error(errorData.message || 'Failed to save plant');
     }
 
     return response.json();

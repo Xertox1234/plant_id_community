@@ -193,7 +193,7 @@ describe('diagnosisService', () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 500,
-        json: async () => ({ error: 'Server error' }),
+        json: async () => ({ error: true, message: 'Server error' }),
       });
 
       // Act & Assert
@@ -225,7 +225,7 @@ describe('diagnosisService', () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 404,
-        json: async () => ({ error: 'Diagnosis card not found' }),
+        json: async () => ({ error: true, message: 'Diagnosis card not found' }),
       });
 
       // Act & Assert
@@ -274,7 +274,7 @@ describe('diagnosisService', () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 400,
-        json: async () => ({ error: 'Invalid confidence score' }),
+        json: async () => ({ error: true, message: 'Invalid confidence score' }),
       });
 
       // Act & Assert
@@ -336,7 +336,7 @@ describe('diagnosisService', () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 403,
-        json: async () => ({ error: 'Permission denied' }),
+        json: async () => ({ error: true, message: 'Permission denied' }),
       });
 
       // Act & Assert
@@ -634,7 +634,7 @@ describe('diagnosisService', () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 404,
-        json: async () => ({ error: 'Reminder not found' }),
+        json: async () => ({ error: true, message: 'Reminder not found' }),
       });
 
       // Act & Assert

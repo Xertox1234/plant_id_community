@@ -38,10 +38,15 @@ export interface DRFPaginatedResponse<T> {
 }
 
 /**
- * API error response
+ * API error response — canonical flat shape emitted by custom_exception_handler
+ * and create_error_response in users/views.py.
+ * Shape: {error: true, message, code, status_code, errors?, detail?}
  */
 export interface ApiError {
-  error: string;
-  detail?: string;
+  error: true;
+  message: string;
   code?: string;
+  status_code?: number;
+  detail?: string;
+  errors?: Record<string, unknown>;
 }
