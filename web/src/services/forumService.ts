@@ -291,8 +291,8 @@ export async function searchForum(options: SearchForumOptions): Promise<SearchFo
     posts,
     total_threads: threads.length,
     total_posts: posts.length,
-    has_next_threads: threads.length >= 10,
-    has_next_posts: posts.length >= 10,
+    has_next_threads: threads.length >= page_size,
+    has_next_posts: posts.length >= page_size,
     page,
     page_size: page_size ?? threads.length + posts.length,
   } as SearchForumResponse;
