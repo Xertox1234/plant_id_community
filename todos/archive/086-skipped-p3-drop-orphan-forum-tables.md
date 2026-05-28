@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: skipped
 priority: p3
 issue_id: "086"
 tags: [database, ops, cleanup]
@@ -110,6 +110,13 @@ DELETE FROM django_migrations WHERE app = 'forum';
 - **Human action needed:** back up each environment, run the inspect/DROP SQL
   from Recommended Action, delete stale `django_migrations` rows for app `forum`.
   Left in `in_progress` / skipped by automated sweep.
+
+### 2026-05-28 - Archived as skipped (run 2026-05-28-1709)
+
+- No accessible dev DB (psql not on PATH, Django virtualenv not active). Prior skip entries checked a DB that is no longer reachable.
+- Staging/production remain unreachable from this coding session.
+- Zero functional impact — purely dead storage. The SQL runbook in Recommended Action is documented; ops can execute it when desired.
+- Archived rather than left cycling through automated sweeps.
 
 ## Notes
 
