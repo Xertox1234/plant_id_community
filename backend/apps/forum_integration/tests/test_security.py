@@ -387,6 +387,50 @@ class ImageUploadValidationTests(TestCase):
         self.assertEqual(len(resp.data.get("errors", [])), 1)
         self.assertEqual(ForumPostImage.objects.filter(post=self.post).count(), 1)
 
+    def test_multiple_images_get_sequential_upload_orders(self):
+        # todo 116: uploading several images in one request must assign distinct
+        # sequential upload_orders (0, 1, 2). Before the fix the 2nd image computed
+        # `(0 or -1) + 1 == 0` and collided on unique_together(post, upload_order).
+        files = [
+            SimpleUploadedFile(
+                f"seq{i}.png", _make_png_bytes(), content_type="image/png"
+            )
+            for i in range(3)
+        ]
+        resp = self.client.post(self.url, {"images": files}, format="multipart")
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(len(resp.data["images"]), 3)
+        orders = sorted(
+            ForumPostImage.objects.filter(post=self.post).values_list(
+                "upload_order", flat=True
+            )
+        )
+        self.assertEqual(orders, [0, 1, 2])
+
+    def test_update_image_metadata_preserves_upload_order(self):
+        # todo 116: editing metadata must NOT relocate upload_order — the save()
+        # auto-assign is insert-only. Without the pk-is-None guard, patching the
+        # order-0 image would re-fire the auto-assign and bump it to max+1.
+        files = [
+            SimpleUploadedFile(f"u{i}.png", _make_png_bytes(), content_type="image/png")
+            for i in range(2)
+        ]
+        self.client.post(self.url, {"images": files}, format="multipart")
+        first = (
+            ForumPostImage.objects.filter(post=self.post)
+            .order_by("upload_order")
+            .first()
+        )
+        self.assertEqual(first.upload_order, 0)
+
+        patch_url = f"/api/v1/forum/posts/{self.post.id}/images/{first.id}/"
+        resp = self.client.patch(patch_url, {"alt_text": "edited"}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["image"]["upload_order"], 0)
+        first.refresh_from_db()
+        self.assertEqual(first.upload_order, 0)
+        self.assertEqual(first.alt_text, "edited")
+
 
 @override_settings(ENABLE_FORUM=True)
 class RateLimitTests(TestCase):

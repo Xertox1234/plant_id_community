@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "116"
 tags: [forum, backend, data-integrity]
@@ -57,11 +57,11 @@ concurrent uploads to the same post.
 
 ## Acceptance Criteria
 
-- [ ] A post can store up to `FORUM_IMAGE_MAX_PER_POST` images, each with a
+- [x] A post can store up to `FORUM_IMAGE_MAX_PER_POST` images, each with a
   distinct `upload_order` (0, 1, 2, …).
-- [ ] Uploading multiple images in one request assigns sequential orders without
+- [x] Uploading multiple images in one request assigns sequential orders without
   collision.
-- [ ] Regression test: upload 3 images to a post → 3 stored with orders 0/1/2.
+- [x] Regression test: upload 3 images to a post → 3 stored with orders 0/1/2.
 
 ## Work Log
 
@@ -70,3 +70,24 @@ concurrent uploads to the same post.
 - Found while implementing todo 113 (image cap concurrency). The auto-assign
   `(max_order or -1)` collides on the 2nd image. Tracked separately to keep 113
   scoped to the cap race.
+
+### 2026-05-28 - Completed by completing-todos skill (run 2026-05-28-2019)
+
+- Fixed `ForumPostImage.save()`: `(max_order or -1)` -> `(max_order if max_order
+  is not None else -1)`, AND gated the auto-assign on `self.pk is None` so it runs
+  on INSERT only.
+- The pk-is-None guard was prompted by code review: with only the falsy fix, a
+  bare `image.save()` in `PostImageUpdateView.patch()` would re-fire the
+  auto-assign and *relocate* an order-0 image when editing its alt_text. Insert-only
+  assignment fixes that (and lets reorder set order 0 explicitly, which the old
+  `== 0` guard blocked).
+- Tests (`test_security.py::ImageUploadValidationTests`):
+  `test_multiple_images_get_sequential_upload_orders` (upload 3 -> orders 0/1/2) and
+  `test_update_image_metadata_preserves_upload_order` (patch alt_text -> order
+  unchanged). Both fail without the respective fix.
+- Concurrency: safe — the sole create path is `PostImageUploadView`, which holds
+  the todo-113 `select_for_update` lock across the Max-read + assign.
+- Verification: `Ran 66 tests ... OK`.
+- Review (feature-dev:code-reviewer): fix correct for all cases (first/subsequent/
+  gap); 0 critical/high; the medium finding (update-path relocation) is what the
+  pk-is-None guard resolves.
