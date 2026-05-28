@@ -7,6 +7,7 @@ Tests are accumulated here as tasks complete.  Run the full suite with:
 import io
 
 from apps.forum_integration.constants import FORUM_MAX_PAGE_SIZE
+from apps.forum_integration.models import RichPost
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -392,3 +393,119 @@ class IDORTests(TestCase):
     def test_user_cannot_access_other_users_topics(self):
         resp = self.client.get(f"/api/v1/forum/users/{self.user_a.id}/topics/")
         self.assertEqual(resp.status_code, 403)
+
+
+# ---------------------------------------------------------------------------
+# PR-291: CreatePostSerializer.update() — PATCH must not drop rich_content
+# ---------------------------------------------------------------------------
+
+
+@override_settings(ENABLE_FORUM=True)
+class PatchPostRichContentTests(TestCase):
+    """PATCH /api/v1/forum/posts/<id>/ must persist rich_content via RichPost."""
+
+    @classmethod
+    def setUpTestData(cls):
+        _ensure_site()
+        cls.forum = Forum.objects.create(
+            name="Patch Rich Content Forum", type=Forum.FORUM_POST
+        )
+        cls.user = User.objects.create_user(
+            username="patch_rich_tester",
+            email="patch_rich_tester@example.com",
+            password="pass123!",  # pragma: allowlist secret
+        )
+        cls.topic = Topic.objects.create(
+            forum=cls.forum,
+            poster=cls.user,
+            subject="Patch rich content topic",
+            type=Topic.TOPIC_POST,
+            status=Topic.TOPIC_UNLOCKED,
+            approved=True,
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def _make_post(self, content="<p>initial</p>"):
+        return Post.objects.create(
+            topic=self.topic, poster=self.user, content=content, approved=True
+        )
+
+    def test_patch_with_rich_content_updates_rich_post_record(self):
+        post = self._make_post()
+        RichPost.objects.create(
+            post=post,
+            rich_content=[{"type": "paragraph", "value": "old"}],
+            content_format="draftail",
+        )
+        new_blocks = [{"type": "paragraph", "value": "updated"}]
+
+        resp = self.client.patch(
+            f"/api/v1/forum/posts/{post.id}/",
+            {
+                "content": "<p>updated</p>",
+                "content_format": "draftail",
+                "rich_content": new_blocks,
+            },
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        rich_post = RichPost.objects.get(post=post)
+        self.assertEqual(rich_post.rich_content, new_blocks)
+        self.assertEqual(rich_post.content_format, "draftail")
+
+    def test_patch_creates_rich_post_when_post_had_none(self):
+        post = self._make_post()
+        self.assertFalse(RichPost.objects.filter(post=post).exists())
+        blocks = [{"type": "paragraph", "value": "new rich"}]
+
+        resp = self.client.patch(
+            f"/api/v1/forum/posts/{post.id}/",
+            {
+                "content": "<p>rich now</p>",
+                "content_format": "draftail",
+                "rich_content": blocks,
+            },
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        rich_post = RichPost.objects.get(post=post)
+        self.assertEqual(rich_post.rich_content, blocks)
+
+    def test_patch_plain_content_does_not_create_rich_post(self):
+        post = self._make_post()
+        self.assertFalse(RichPost.objects.filter(post=post).exists())
+
+        resp = self.client.patch(
+            f"/api/v1/forum/posts/{post.id}/",
+            {"content": "<p>just plain</p>"},
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(RichPost.objects.filter(post=post).exists())
+
+    def test_patch_ai_metadata_persisted_on_rich_post(self):
+        post = self._make_post()
+        prompts = ["describe this plant"]
+
+        resp = self.client.patch(
+            f"/api/v1/forum/posts/{post.id}/",
+            {
+                "content": "<p>ai content</p>",
+                "content_format": "draftail",
+                "rich_content": [{"type": "paragraph", "value": "ai"}],
+                "ai_assisted": True,
+                "ai_prompts_used": prompts,
+            },
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        rich_post = RichPost.objects.get(post=post)
+        self.assertTrue(rich_post.ai_assisted)
+        self.assertEqual(rich_post.ai_prompts_used, prompts)
