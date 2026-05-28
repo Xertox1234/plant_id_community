@@ -5,6 +5,7 @@
  * Handles authentication, error handling, and data transformation.
  */
 
+import { getCsrfToken } from '../utils/csrf';
 import { logger } from '../utils/logger';
 import type {
   DiagnosisCard,
@@ -21,18 +22,17 @@ import type { ApiError } from '../types/api';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-/**
- * Get authentication headers with JWT token from cookies
- */
-function getAuthHeaders(): Record<string, string> {
-  const token = document.cookie
-    .split('; ')
-    .find((row) => row.startsWith('access_token='))
-    ?.split('=')[1];
+/** Headers for read-only requests. Auth is handled by the HttpOnly cookie via credentials: 'include'. */
+function getHeaders(): Record<string, string> {
+  return { 'Content-Type': 'application/json' };
+}
 
+/** Headers for mutating requests — adds X-CSRFToken per web/CLAUDE.md convention. */
+async function getMutatingHeaders(): Promise<Record<string, string>> {
+  const csrfToken = await getCsrfToken();
   return {
     'Content-Type': 'application/json',
-    ...(token && { Authorization: `Bearer ${token}` }),
+    ...(csrfToken && { 'X-CSRFToken': csrfToken }),
   };
 }
 
@@ -93,7 +93,7 @@ export async function fetchDiagnosisCards(
 
   const response = await fetch(url, {
     method: 'GET',
-    headers: getAuthHeaders(),
+    headers: getHeaders(),
     credentials: 'include',
   });
 
@@ -108,7 +108,7 @@ export async function fetchDiagnosisCard(uuid: string): Promise<DiagnosisCard> {
 
   const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-cards/${uuid}/`, {
     method: 'GET',
-    headers: getAuthHeaders(),
+    headers: getHeaders(),
     credentials: 'include',
   });
 
@@ -123,7 +123,7 @@ export async function createDiagnosisCard(data: CreateDiagnosisCardInput): Promi
 
   const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-cards/`, {
     method: 'POST',
-    headers: getAuthHeaders(),
+    headers: await getMutatingHeaders(),
     credentials: 'include',
     body: JSON.stringify(data),
   });
@@ -142,7 +142,7 @@ export async function updateDiagnosisCard(
 
   const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-cards/${uuid}/`, {
     method: 'PATCH',
-    headers: getAuthHeaders(),
+    headers: await getMutatingHeaders(),
     credentials: 'include',
     body: JSON.stringify(data),
   });
@@ -158,7 +158,7 @@ export async function deleteDiagnosisCard(uuid: string): Promise<void> {
 
   const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-cards/${uuid}/`, {
     method: 'DELETE',
-    headers: getAuthHeaders(),
+    headers: await getMutatingHeaders(),
     credentials: 'include',
   });
 
@@ -179,7 +179,7 @@ export async function fetchFavoriteDiagnosisCards(): Promise<PaginatedDiagnosisC
 
   const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-cards/favorites/`, {
     method: 'GET',
-    headers: getAuthHeaders(),
+    headers: getHeaders(),
     credentials: 'include',
   });
 
@@ -196,7 +196,7 @@ export async function fetchActiveTreatments(): Promise<DiagnosisCard[]> {
     `${API_URL}/api/plant-identification/diagnosis-cards/active_treatments/`,
     {
       method: 'GET',
-      headers: getAuthHeaders(),
+      headers: getHeaders(),
       credentials: 'include',
     }
   );
@@ -214,7 +214,7 @@ export async function fetchSuccessfulTreatments(): Promise<DiagnosisCard[]> {
     `${API_URL}/api/plant-identification/diagnosis-cards/successful_treatments/`,
     {
       method: 'GET',
-      headers: getAuthHeaders(),
+      headers: getHeaders(),
       credentials: 'include',
     }
   );
@@ -232,7 +232,7 @@ export async function toggleFavorite(uuid: string): Promise<DiagnosisCard> {
     `${API_URL}/api/plant-identification/diagnosis-cards/${uuid}/toggle_favorite/`,
     {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: await getMutatingHeaders(),
       credentials: 'include',
     }
   );
@@ -267,7 +267,7 @@ export async function fetchReminders(
 
   const response = await fetch(url, {
     method: 'GET',
-    headers: getAuthHeaders(),
+    headers: getHeaders(),
     credentials: 'include',
   });
 
@@ -282,7 +282,7 @@ export async function createReminder(data: CreateReminderInput): Promise<Diagnos
 
   const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-reminders/`, {
     method: 'POST',
-    headers: getAuthHeaders(),
+    headers: await getMutatingHeaders(),
     credentials: 'include',
     body: JSON.stringify(data),
   });
@@ -300,7 +300,7 @@ export async function fetchUpcomingReminders(): Promise<DiagnosisReminder[]> {
     `${API_URL}/api/plant-identification/diagnosis-reminders/upcoming/`,
     {
       method: 'GET',
-      headers: getAuthHeaders(),
+      headers: getHeaders(),
       credentials: 'include',
     }
   );
@@ -318,7 +318,7 @@ export async function snoozeReminder(uuid: string, hours: number = 24): Promise<
     `${API_URL}/api/plant-identification/diagnosis-reminders/${uuid}/snooze/`,
     {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: await getMutatingHeaders(),
       credentials: 'include',
       body: JSON.stringify({ hours }),
     }
@@ -337,7 +337,7 @@ export async function cancelReminder(uuid: string): Promise<DiagnosisReminder> {
     `${API_URL}/api/plant-identification/diagnosis-reminders/${uuid}/cancel/`,
     {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: await getMutatingHeaders(),
       credentials: 'include',
     }
   );
@@ -355,7 +355,7 @@ export async function acknowledgeReminder(uuid: string): Promise<DiagnosisRemind
     `${API_URL}/api/plant-identification/diagnosis-reminders/${uuid}/acknowledge/`,
     {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: await getMutatingHeaders(),
       credentials: 'include',
     }
   );
@@ -371,7 +371,7 @@ export async function deleteReminder(uuid: string): Promise<void> {
 
   const response = await fetch(`${API_URL}/api/plant-identification/diagnosis-reminders/${uuid}/`, {
     method: 'DELETE',
-    headers: getAuthHeaders(),
+    headers: await getMutatingHeaders(),
     credentials: 'include',
   });
 
