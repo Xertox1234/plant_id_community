@@ -39,6 +39,10 @@ export interface BackendPost {
   created: string;
   updated?: string;
   content_format?: string;
+  /** Map of reaction_type -> active count, e.g. { like: 5, love: 2 }. */
+  reaction_counts?: Record<string, number>;
+  /** The post's topic (thread) id (todo 112). */
+  topic_id?: number;
 }
 export interface BackendImage {
   id: number;
@@ -120,9 +124,7 @@ export function mapPostToPost(p: BackendPost, threadId: string): Post {
     created_at: p.created,
     updated_at: p.updated,
     is_active: true,
-    // TODO: PostSerializer does not expose reaction counts. Add a reaction_counts
-    // field to the backend serializer before mapping here.
-    reaction_counts: {},
+    reaction_counts: p.reaction_counts ?? {},
   };
 }
 

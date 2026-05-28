@@ -119,7 +119,7 @@ class ApiService {
               break;
           }
 
-          if (_shouldRetry(error)) {
+          if (shouldRetry(error)) {
             try {
               final response = await _retry(error);
               return handler.resolve(response);
@@ -134,10 +134,15 @@ class ApiService {
     );
   }
 
-  bool _shouldRetry(DioException error) {
+  @visibleForTesting
+  bool shouldRetry(DioException error) {
     final statusCode = error.response?.statusCode;
+    // 429 is intentionally excluded from retry: the server has explicitly asked
+    // the client to back off. Retrying a non-idempotent mutation (create post /
+    // topic, image upload) on a 429 can create duplicate records (todo 110). The
+    // 429 is surfaced to the caller instead; manual retry after the rate window
+    // resets is the correct UX.
     final retryableStatus =
-        statusCode == 429 ||
         statusCode == 500 ||
         statusCode == 502 ||
         statusCode == 503 ||

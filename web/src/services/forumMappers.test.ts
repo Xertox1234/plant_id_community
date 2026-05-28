@@ -105,6 +105,22 @@ describe('forumMappers', () => {
     });
   });
 
+  it('maps reaction_counts from the backend post when present', () => {
+    const p = mapPostToPost(
+      {
+        id: 51,
+        content: '<p>hi</p>',
+        poster: { id: 1, username: 'jdoe', first_name: '', last_name: '' },
+        created: '2026-01-01T00:00:00Z',
+        updated: '2026-01-01T00:00:00Z',
+        content_format: 'html',
+        reaction_counts: { like: 3, love: 1 },
+      },
+      '12'
+    );
+    expect(p.reaction_counts).toEqual({ like: 3, love: 1 });
+  });
+
   it('maps an image to an attachment (image_url->image, upload_order->display_order)', () => {
     const a = mapImageToAttachment({
       id: 7,

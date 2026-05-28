@@ -144,6 +144,10 @@ class PostSerializer(serializers.ModelSerializer):
     rich_content = serializers.SerializerMethodField()
     content_format = serializers.SerializerMethodField()
     ai_assisted = serializers.SerializerMethodField()
+    reaction_counts = serializers.SerializerMethodField()
+    # The post's topic (thread) id, so clients can navigate / re-fetch after an
+    # edit without a separate lookup (todo 112).
+    topic_id = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Post
@@ -156,6 +160,8 @@ class PostSerializer(serializers.ModelSerializer):
             "rich_content",
             "content_format",
             "ai_assisted",
+            "reaction_counts",
+            "topic_id",
         ]
 
     def _get_rich_post(self, obj):
@@ -180,6 +186,23 @@ class PostSerializer(serializers.ModelSerializer):
     def get_ai_assisted(self, obj):
         rich_post = self._get_rich_post(obj)
         return rich_post.ai_assisted if rich_post else False
+
+    def get_reaction_counts(self, obj):
+        """Return ``{reaction_type: active_count}`` for this post.
+
+        Iterates ``obj.reactions`` (prefetched by list views via
+        ``prefetch_related("reactions")`` to avoid an N+1) and tallies *active*
+        reactions in Python — so the result is correct whether or not the
+        prefetch was applied. Types with zero active reactions are omitted; the
+        client treats a missing key as 0.
+        """
+        counts = {}
+        for reaction in obj.reactions.all():
+            if reaction.is_active:
+                counts[reaction.reaction_type] = (
+                    counts.get(reaction.reaction_type, 0) + 1
+                )
+        return counts
 
     def _expand_rich_content(self, content):
         """

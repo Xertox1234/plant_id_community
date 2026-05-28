@@ -160,6 +160,11 @@ export async function createPost(data: {
     method: 'POST',
     body: JSON.stringify({ topic: thread, content: content_raw, content_format }),
   });
+  if (!res?.data) {
+    // Defensive guard (todo 111): a response without `data` (e.g. the old
+    // {message, post} shape) must fail clearly, not crash in mapPostToPost.
+    throw new Error('createPost: response is missing "data" — unexpected response shape');
+  }
   return mapPostToPost(res.data, String(thread));
 }
 
@@ -169,7 +174,9 @@ export async function updatePost(postId: string, data: UpdatePostInput): Promise
     method: 'PATCH',
     body: JSON.stringify({ content: content_raw, content_format }),
   });
-  return mapPostToPost(res.data, '');
+  // todo 112: map the real topic id from the response (was '', which produced
+  // Post.thread === '' and broke any downstream navigation/re-fetch).
+  return mapPostToPost(res.data, String(res.data.topic_id));
 }
 
 export async function deletePost(postId: string): Promise<void> {
@@ -282,7 +289,9 @@ export async function searchForum(options: SearchForumOptions): Promise<SearchFo
     `${FORUM_BASE}/search/?${params}`
   );
   const threads = (data.topics || []).map(mapTopicToThread);
-  const posts = (data.posts || []).map((p) => mapPostToPost(p, ''));
+  // todo 112: search posts carry topic_id (PostSerializer), so map a real thread
+  // id rather than '' (same empty-thread bug as updatePost, flagged in review).
+  const posts = (data.posts || []).map((p) => mapPostToPost(p, String(p.topic_id)));
   return {
     query: q.trim(),
     threads,
