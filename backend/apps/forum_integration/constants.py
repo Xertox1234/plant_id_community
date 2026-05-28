@@ -16,6 +16,7 @@ FORUM_RATE_LIMITS = {
 # --- Pagination ---
 FORUM_MAX_PAGE_SIZE = 100
 FORUM_DEFAULT_PAGE_SIZE = 25
+FORUM_TOPIC_POSTS_PER_PAGE = 10
 
 # --- Image upload validation ---
 FORUM_IMAGE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB

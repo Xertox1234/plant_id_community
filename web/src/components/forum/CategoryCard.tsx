@@ -17,7 +17,7 @@ function CategoryCard({ category }: CategoryCardProps) {
   const hasChildren = category.children && category.children.length > 0;
 
   return (
-    <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow p-6">
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-shadow p-6">
       {/* Category Header - Clickable Link */}
       <Link to={categoryPath(category)} className="block">
         <div className="flex items-start gap-4">
@@ -30,20 +30,28 @@ function CategoryCard({ category }: CategoryCardProps) {
 
           {/* Category Info */}
           <div className="flex-1">
-            <h3 className="text-xl font-bold text-gray-900 hover:text-green-600 transition-colors">
+            <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 hover:text-green-600 transition-colors">
               {category.name}
             </h3>
 
-            {category.description && <p className="text-gray-600 mt-1">{category.description}</p>}
+            {category.description && (
+              <p className="text-gray-600 dark:text-gray-400 mt-1">{category.description}</p>
+            )}
 
             {/* Stats */}
-            <div className="flex gap-4 mt-3 text-sm text-gray-500">
+            <div className="flex gap-4 mt-3 text-sm text-gray-500 dark:text-gray-400">
               <span>
-                <strong className="text-gray-700">{category.thread_count || 0}</strong> threads
+                <strong className="text-gray-700 dark:text-gray-300">
+                  {category.thread_count || 0}
+                </strong>{' '}
+                threads
               </span>
               <span>•</span>
               <span>
-                <strong className="text-gray-700">{category.post_count || 0}</strong> posts
+                <strong className="text-gray-700 dark:text-gray-300">
+                  {category.post_count || 0}
+                </strong>{' '}
+                posts
               </span>
             </div>
           </div>
@@ -52,14 +60,14 @@ function CategoryCard({ category }: CategoryCardProps) {
 
       {/* Subcategories (if any) - Outside main link to avoid nested anchors */}
       {hasChildren && (
-        <div className="mt-4 pt-4 border-t border-gray-200">
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           <div className="flex flex-wrap gap-2">
-            <span className="text-sm text-gray-500">Subcategories:</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Subcategories:</span>
             {category.children.map((child) => (
               <Link
                 key={child.id}
                 to={categoryPath(child)}
-                className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-sm text-gray-700 rounded-full transition-colors"
+                className="px-3 py-1 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-sm text-gray-700 dark:text-gray-300 rounded-full transition-colors"
               >
                 {child.icon && <span className="mr-1">{child.icon}</span>}
                 {child.name}

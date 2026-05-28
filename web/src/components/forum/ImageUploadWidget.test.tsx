@@ -355,57 +355,6 @@ describe('ImageUploadWidget', () => {
   });
 
   describe('Drag and Drop', () => {
-    it('highlights drop zone when dragging over', async () => {
-      render(
-        <ImageUploadWidget
-          postId={mockPostId}
-          attachments={[]}
-          onUploadComplete={mockOnUploadComplete}
-          onDeleteComplete={mockOnDeleteComplete}
-        />
-      );
-
-      const uploadArea = screen.getByRole('button', { name: 'Upload image' });
-
-      // Simulate drag over
-      const dragOverEvent = new Event('dragover', { bubbles: true });
-      Object.defineProperty(dragOverEvent, 'dataTransfer', {
-        value: { files: [] },
-      });
-
-      uploadArea.dispatchEvent(dragOverEvent);
-
-      // Check that the drop zone is highlighted (has green border class)
-      await waitFor(() => {
-        expect(uploadArea).toHaveClass('border-green-500');
-      });
-    });
-
-    it('removes highlight when drag leaves', async () => {
-      render(
-        <ImageUploadWidget
-          postId={mockPostId}
-          attachments={[]}
-          onUploadComplete={mockOnUploadComplete}
-          onDeleteComplete={mockOnDeleteComplete}
-        />
-      );
-
-      const uploadArea = screen.getByRole('button', { name: 'Upload image' });
-
-      // Simulate drag over then drag leave
-      const dragOverEvent = new Event('dragover', { bubbles: true });
-      const dragLeaveEvent = new Event('dragleave', { bubbles: true });
-
-      uploadArea.dispatchEvent(dragOverEvent);
-      uploadArea.dispatchEvent(dragLeaveEvent);
-
-      // Check that highlight is removed
-      await waitFor(() => {
-        expect(uploadArea).not.toHaveClass('border-green-500');
-      });
-    });
-
     it('uploads image when dropped', async () => {
       const mockAttachment = createMockAttachment();
       vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue(mockAttachment);

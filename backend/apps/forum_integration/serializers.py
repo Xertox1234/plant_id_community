@@ -112,6 +112,8 @@ class TopicSerializer(serializers.ModelSerializer):
             "last_poster",
             "replies_count",
             "views_count",
+            "type",
+            "status",
         ]
 
     def get_forum(self, obj):

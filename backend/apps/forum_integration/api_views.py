@@ -7,7 +7,7 @@ import os
 
 from apps.core.utils.query_sanitization import escape_search_query
 from django.core.paginator import Paginator
-from django.db.models import F
+from django.db.models import Case, Count, F, IntegerField, When
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -31,6 +31,7 @@ from .constants import (
     FORUM_IMAGE_MAX_PER_POST,
     FORUM_MAX_PAGE_SIZE,
     FORUM_RATE_LIMITS,
+    FORUM_TOPIC_POSTS_PER_PAGE,
 )
 
 # Import Django Machina permission handler
@@ -160,7 +161,13 @@ class TopicDetailView(generics.RetrieveAPIView):
 
     def get_object(self):
         """Get topic by ID."""
-        return get_object_or_404(Topic, id=self.kwargs["topic_id"], approved=True)
+        return get_object_or_404(
+            Topic.objects.select_related(
+                "forum", "poster", "last_post", "last_post__poster"
+            ),
+            id=self.kwargs["topic_id"],
+            approved=True,
+        )
 
     def retrieve(self, request, *args, **kwargs):
         """Get topic with its posts."""
@@ -175,7 +182,7 @@ class TopicDetailView(generics.RetrieveAPIView):
 
         # Pagination
         page_number = request.GET.get("page", 1)
-        paginator = Paginator(posts, 10)  # 10 posts per page
+        paginator = Paginator(posts, FORUM_TOPIC_POSTS_PER_PAGE)
         page_obj = paginator.get_page(page_number)
 
         # Serialize data
@@ -611,20 +618,29 @@ class PostReactionView(APIView):
                 post_id=post_id, user_id=request.user.id, reaction_type=reaction_type
             )
 
-            # Get updated reaction counts for this post
+            # Single query: counts + which types the current user has reacted with.
+            reaction_rows = (
+                PostReaction.objects.filter(post_id=post_id, is_active=True)
+                .values("reaction_type")
+                .annotate(
+                    count=Count("id"),
+                    user_reacted=Count(
+                        Case(
+                            When(user_id=request.user.id, then=1),
+                            output_field=IntegerField(),
+                        )
+                    ),
+                )
+            )
             reaction_counts = {}
             user_reactions = []
-
-            for count_data in PostReaction.get_post_reaction_counts(post_id):
-                reaction_counts[count_data["reaction_type"]] = {
-                    "count": count_data["count"],
-                    "users": [],  # We don't expose user lists for privacy
+            for row in reaction_rows:
+                reaction_counts[row["reaction_type"]] = {
+                    "count": row["count"],
+                    "users": [],
                 }
-
-            # Get current user's reactions
-            user_reactions = list(
-                PostReaction.get_user_reactions_for_post(post_id, request.user.id)
-            )
+                if row["user_reacted"]:
+                    user_reactions.append(row["reaction_type"])
 
             return Response(
                 {
@@ -1403,15 +1419,15 @@ class UserTopicsListView(generics.ListAPIView):
             .order_by("-last_post_on")
         )
 
-        # Apply permission filtering (only show topics from forums user can access)
+        # Apply permission filtering — bulk check via get_readable_forums to avoid N+1.
+        # Note: get_readable_forums enforces MPTT tree-hierarchy (a forum is excluded if
+        # an ancestor category lacks can_read_forum). This is stricter than the previous
+        # per-forum loop but matches Machina's intended access model for nested forums.
         perm_handler = PermissionHandler()
-        accessible_forums = []
-
-        for forum in Forum.objects.filter(type=Forum.FORUM_POST):
-            if perm_handler.can_read_forum(forum, self.request.user):
-                accessible_forums.append(forum.id)
-
-        queryset = queryset.filter(forum_id__in=accessible_forums)
+        readable_forums = perm_handler.get_readable_forums(
+            Forum.objects.filter(type=Forum.FORUM_POST), self.request.user
+        )
+        queryset = queryset.filter(forum__in=readable_forums)
 
         return queryset
 
@@ -1453,15 +1469,15 @@ class UserWatchedTopicsListView(generics.ListAPIView):
             .order_by("-last_post_on")
         )
 
-        # Apply permission filtering
+        # Apply permission filtering — bulk check via get_readable_forums to avoid N+1.
+        # Note: get_readable_forums enforces MPTT tree-hierarchy (a forum is excluded if
+        # an ancestor category lacks can_read_forum). This is stricter than the previous
+        # per-forum loop but matches Machina's intended access model for nested forums.
         perm_handler = PermissionHandler()
-        accessible_forums = []
-
-        for forum in Forum.objects.filter(type=Forum.FORUM_POST):
-            if perm_handler.can_read_forum(forum, self.request.user):
-                accessible_forums.append(forum.id)
-
-        queryset = queryset.filter(forum_id__in=accessible_forums)
+        readable_forums = perm_handler.get_readable_forums(
+            Forum.objects.filter(type=Forum.FORUM_POST), self.request.user
+        )
+        queryset = queryset.filter(forum__in=readable_forums)
 
         return queryset
 
