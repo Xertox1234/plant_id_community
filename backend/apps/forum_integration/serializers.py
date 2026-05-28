@@ -482,6 +482,35 @@ class CreatePostSerializer(RichContentMixin, serializers.ModelSerializer):
 
         return post
 
+    def update(self, instance, validated_data):
+        """Update post, including rich content on the related RichPost record."""
+        rich_content = validated_data.pop("rich_content", None)
+        content_format = validated_data.pop("content_format", "plain")
+        ai_assisted = validated_data.pop("ai_assisted", False)
+        ai_prompts_used = validated_data.pop("ai_prompts_used", None)
+
+        # Update the Post fields (content is already sanitized by validate_content)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        # Update or create the RichPost record
+        if rich_content is not None:
+            rich_content = self._normalize_rich_content(rich_content)
+
+        if rich_content or content_format != "plain":
+            RichPost.objects.update_or_create(
+                post=instance,
+                defaults={
+                    "rich_content": rich_content,
+                    "content_format": content_format,
+                    "ai_assisted": ai_assisted,
+                    "ai_prompts_used": ai_prompts_used,
+                },
+            )
+
+        return instance
+
 
 class ForumPostImageSerializer(serializers.ModelSerializer):
     """Serializer for forum post images."""
