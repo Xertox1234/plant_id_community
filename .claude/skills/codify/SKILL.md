@@ -119,12 +119,47 @@ a new file in the right subdirectory only if none fits):
 When unsure how to classify a finding, consult `.claude/agents/pattern-codifier.md`
 — it encodes this project's pattern-routing logic.
 
+## Step 5b — Emit a write-time trigger (only if the finding has a textual signature)
+
+For any rule/learning you just codified that has a **clear, regex-matchable
+signature** — a specific decorator, import, function call, or code shape that
+appears in the code being written — also register a just-in-time trigger so it
+fires at write-time, not only in review:
+
+```bash
+python3 scripts/inject/capture_trigger.py \
+  --id <kebab-id> \
+  --domains <d1,d2> \
+  --path-glob '<repo-relative fnmatch glob>' \
+  --content-present '<regex matched against the NEW edit fragment>' \
+  --content-absent '<regex on the RESULTING file that suppresses when the fix is present>' \
+  --message '<one-line warning + the fix>' \
+  --pattern-ref <path/to/pattern-doc.md> \
+  --source "codify: $(git branch --show-current)" \
+  --severity warn
+```
+
+Rules:
+
+- Use `--severity warn` here (human-curated). Leave `candidate` for review automation.
+- Do this ONLY when a real signature exists. A signature-less lesson stays prose —
+  forcing it into a trigger manufactures false positives and erodes trust in the
+  whole system.
+- `--content-present` matches the new fragment ("are you introducing X?");
+  `--content-absent` matches the resulting file ("...and is the fix missing?").
+  Omit `--content-absent` if there is no clean "already-fixed" marker.
+- `--pattern-ref` must resolve to a real file; `capture_trigger.py` drops it with
+  a warning if it doesn't (no dangling pointers).
+- After capturing, run `python3 scripts/inject/test_match_triggers.py` to confirm
+  the index still validates. For a high-traffic trigger, add a positive AND a
+  negative fixture to `scripts/inject/test_match_triggers.py` before committing.
+
 ## Step 6 — Commit
 
 Stage each file you wrote explicitly — do not `git add` whole directories.
 
 ```bash
-git add docs/rules/<domain>.md docs/LEARNINGS.md .claude/agents/<agent>.md
+git add docs/rules/<domain>.md docs/LEARNINGS.md docs/rules/triggers.json .claude/agents/<agent>.md
 git commit -m "docs: codify findings from $(git branch --show-current)"
 ```
 
