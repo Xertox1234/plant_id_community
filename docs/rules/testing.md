@@ -12,3 +12,6 @@ Compact checklist auto-injected before edits.
   empty results, boundary values.
 - Pin query counts on any endpoint touched by a performance change.
 - Web: Vitest for units, Playwright for e2e. Mobile: `flutter test`.
+- **Freeze time in count-to-limit rate-limit tests** (`freezegun.freeze_time`) so
+  all N requests share one window — django-ratelimit's jittered window can roll
+  over mid-hammer and flake the `assertEqual(..., 429)`.

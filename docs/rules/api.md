@@ -14,3 +14,7 @@ Compact checklist auto-injected before edits. Long-form:
   — so logs are greppable by subsystem.
 - Serializer field changes are API-contract changes — version or document them.
 - Validate at the boundary (request data); trust internal calls.
+- **`Retry-After` must reflect the actual rate window, not a constant.**
+  `django-ratelimit`'s `Ratelimited` carries no rate (the decorator discards it),
+  so capture the rate at the decorator site (`apps/core/ratelimit.py` wraps it and
+  re-raises with `.rate`) and map it (`/m`→60, `/h`→3600, …) in the handler.

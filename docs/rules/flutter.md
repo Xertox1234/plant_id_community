@@ -14,3 +14,6 @@ Compact checklist auto-injected before edits. Long-form:
 - `go_router` redirects guard on auth state; gate debug-only routes with
   `kDebugMode`.
 - Null safety: no `!` force-unwrap on values that can genuinely be null.
+- **Never retry `429` (rate limit) on non-idempotent requests** — retrying a
+  rate-limited POST/PATCH can create duplicate records. Exclude 429 from the retry
+  predicate and surface it to the UI as a rate-limit error.
