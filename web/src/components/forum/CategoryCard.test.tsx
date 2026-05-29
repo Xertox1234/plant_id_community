@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import CategoryCard from './CategoryCard';
 import { createMockCategory } from '../../tests/forumUtils';
@@ -118,12 +118,10 @@ describe('CategoryCard', () => {
     // Description should not be rendered
   });
 
-  it('applies hover effects (class verification)', () => {
-    const category = createMockCategory();
-
-    const { container } = renderCategoryCard(category);
-
-    const card = container.querySelector('.shadow-md');
-    expect(card).toHaveClass('hover:shadow-lg');
+  it('category name heading is rendered inside the clickable link', () => {
+    const category = createMockCategory({ name: 'Plant Care' });
+    renderCategoryCard(category);
+    const link = screen.getByRole('link', { name: /Plant Care/ });
+    expect(within(link).getByRole('heading', { level: 3, name: 'Plant Care' })).toBeInTheDocument();
   });
 });

@@ -65,6 +65,23 @@ describe('forumMappers', () => {
       view_count: 99,
     });
     expect(t.author?.display_name).toBe('Jane Doe');
+    expect(t.is_pinned).toBe(false);
+    expect(t.is_locked).toBe(false);
+  });
+
+  it('maps topic type=1 (sticky) to is_pinned=true, status=1 (locked) to is_locked=true', () => {
+    const base = {
+      id: 1,
+      subject: 'S',
+      poster: null,
+      forum: null,
+      created: '2026-01-01T00:00:00Z',
+    };
+    expect(mapTopicToThread({ ...base, type: 1 }).is_pinned).toBe(true);
+    expect(mapTopicToThread({ ...base, type: 0 }).is_pinned).toBe(false);
+    expect(mapTopicToThread({ ...base, type: 2 }).is_pinned).toBe(false);
+    expect(mapTopicToThread({ ...base, status: 1 }).is_locked).toBe(true);
+    expect(mapTopicToThread({ ...base, status: 0 }).is_locked).toBe(false);
   });
 
   it('maps a post (content->content_raw, created->created_at)', () => {
@@ -86,6 +103,22 @@ describe('forumMappers', () => {
       content_format: 'html',
       reaction_counts: {},
     });
+  });
+
+  it('maps reaction_counts from the backend post when present', () => {
+    const p = mapPostToPost(
+      {
+        id: 51,
+        content: '<p>hi</p>',
+        poster: { id: 1, username: 'jdoe', first_name: '', last_name: '' },
+        created: '2026-01-01T00:00:00Z',
+        updated: '2026-01-01T00:00:00Z',
+        content_format: 'html',
+        reaction_counts: { like: 3, love: 1 },
+      },
+      '12'
+    );
+    expect(p.reaction_counts).toEqual({ like: 3, love: 1 });
   });
 
   it('maps an image to an attachment (image_url->image, upload_order->display_order)', () => {

@@ -118,6 +118,62 @@ void main() {
       });
     });
 
+    group('shouldRetry & 429 handling (todo 110)', () {
+      DioException makeError({
+        required int statusCode,
+        String method = 'POST',
+        bool retryUnsafe = false,
+      }) {
+        final requestOptions = RequestOptions(
+          path: '/test',
+          method: method,
+          extra: retryUnsafe ? {ApiService.retryUnsafeRequestKey: true} : {},
+        );
+        final response = Response<dynamic>(
+          requestOptions: requestOptions,
+          statusCode: statusCode,
+        );
+        return DioException(
+          requestOptions: requestOptions,
+          response: response,
+          type: DioExceptionType.badResponse,
+        );
+      }
+
+      test('does NOT retry 429 even when the request is marked retry-unsafe', () {
+        // The core fix: a rate-limited non-idempotent mutation must not be
+        // resubmitted, or it can create duplicate records.
+        final e = makeError(statusCode: 429, method: 'POST', retryUnsafe: true);
+        expect(apiService.shouldRetry(e), isFalse);
+      });
+
+      test('does NOT retry 429 on an otherwise-safe GET', () {
+        final e = makeError(statusCode: 429, method: 'GET');
+        expect(apiService.shouldRetry(e), isFalse);
+      });
+
+      test('still retries 500 for a retry-unsafe request (regression guard)', () {
+        final e = makeError(statusCode: 500, method: 'POST', retryUnsafe: true);
+        expect(apiService.shouldRetry(e), isTrue);
+      });
+
+      test('does not retry 500 for an unmarked mutation', () {
+        final e = makeError(statusCode: 500, method: 'POST');
+        expect(apiService.shouldRetry(e), isFalse);
+      });
+
+      test('429 is surfaced to the caller as a rate-limit ApiException', () {
+        // Verifies AC2: handleDioException maps a 429 to a rate-limit
+        // ApiException. The interceptor propagates 429 (shouldRetry returns
+        // false, proven by the tests above), so the caller receives this shape.
+        final result =
+            apiService.handleDioException(makeError(statusCode: 429))
+                as ApiException;
+        expect(result.statusCode, 429);
+        expect(result.message, contains('Too many requests'));
+      });
+    });
+
     group('Request Methods - API Coverage', () {
       // These tests verify that all HTTP methods are available
       // Integration tests with a real backend should be done separately

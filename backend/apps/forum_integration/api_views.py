@@ -5,13 +5,14 @@ DRF API Views for Forum Integration.
 import logging
 import os
 
+from apps.core.ratelimit import ratelimit  # rate-preserving wrapper (todo 115)
 from apps.core.utils.query_sanitization import escape_search_query
 from django.core.paginator import Paginator
-from django.db.models import F
+from django.db import transaction
+from django.db.models import Case, Count, F, IntegerField, When
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
-from django_ratelimit.decorators import ratelimit
 from machina.apps.forum.models import Forum
 from machina.apps.forum_conversation.models import Post, Topic
 from machina.core.loading import get_class
@@ -31,6 +32,9 @@ from .constants import (
     FORUM_IMAGE_MAX_PER_POST,
     FORUM_MAX_PAGE_SIZE,
     FORUM_RATE_LIMITS,
+    FORUM_TOPIC_DEFAULT_ORDERING,
+    FORUM_TOPIC_ORDERING_MAP,
+    FORUM_TOPIC_POSTS_PER_PAGE,
 )
 
 # Import Django Machina permission handler
@@ -68,12 +72,23 @@ class ForumTopicsListView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        """Return topics for specific forum."""
+        """Return topics for a forum, honoring the client `ordering` param.
+
+        The ordering value is resolved through FORUM_TOPIC_ORDERING_MAP (an
+        allowlist) so an unknown/malicious value falls back to the default
+        rather than reaching .order_by() unescaped.
+        """
         forum_id = self.kwargs["forum_id"]
+        # Default to "" (never a valid frontend key) so the allowlist fallback
+        # is always explicit — including the no-param case.
+        requested = self.request.query_params.get("ordering", "")
+        safe_ordering = FORUM_TOPIC_ORDERING_MAP.get(
+            requested, FORUM_TOPIC_DEFAULT_ORDERING
+        )
         return (
             Topic.objects.filter(forum_id=forum_id, approved=True)
             .select_related("poster", "last_post", "last_post__poster")
-            .order_by("-last_post_on")
+            .order_by(safe_ordering)
         )
 
 
@@ -160,7 +175,13 @@ class TopicDetailView(generics.RetrieveAPIView):
 
     def get_object(self):
         """Get topic by ID."""
-        return get_object_or_404(Topic, id=self.kwargs["topic_id"], approved=True)
+        return get_object_or_404(
+            Topic.objects.select_related(
+                "forum", "poster", "last_post", "last_post__poster"
+            ),
+            id=self.kwargs["topic_id"],
+            approved=True,
+        )
 
     def retrieve(self, request, *args, **kwargs):
         """Get topic with its posts."""
@@ -170,12 +191,13 @@ class TopicDetailView(generics.RetrieveAPIView):
         posts = (
             Post.objects.filter(topic=topic, approved=True)
             .select_related("poster", "rich_content")
+            .prefetch_related("reactions")
             .order_by("created")
         )
 
         # Pagination
         page_number = request.GET.get("page", 1)
-        paginator = Paginator(posts, 10)  # 10 posts per page
+        paginator = Paginator(posts, FORUM_TOPIC_POSTS_PER_PAGE)
         page_obj = paginator.get_page(page_number)
 
         # Serialize data
@@ -236,45 +258,6 @@ class CreateTopicView(generics.CreateAPIView):
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 
-@method_decorator(
-    ratelimit(
-        key="user", rate=FORUM_RATE_LIMITS["create_post"], method="POST", block=True
-    ),
-    name="create",
-)
-class CreatePostView(generics.CreateAPIView):
-    """Create a new post (reply)."""
-
-    serializer_class = CreatePostSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_serializer_context(self):
-        """Add topic to serializer context."""
-        context = super().get_serializer_context()
-        topic_id = self.kwargs["topic_id"]
-        context["topic"] = get_object_or_404(Topic, id=topic_id)
-        return context
-
-    def create(self, request, *args, **kwargs):
-        """Create post and return success response."""
-        topic = get_object_or_404(Topic, id=self.kwargs["topic_id"])
-        if topic.status == Topic.TOPIC_LOCKED:
-            return Response(
-                {"error": "This topic is locked and cannot receive new replies."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        post = serializer.save()
-
-        # Return post data
-        post_serializer = PostSerializer(post)
-        return Response(
-            {"message": "Reply posted successfully", "post": post_serializer.data},
-            status=status.HTTP_201_CREATED,
-        )
-
-
 @api_view(["GET"])
 @permission_classes([permissions.AllowAny])
 @ratelimit(key="ip", rate=FORUM_RATE_LIMITS["search"], method="GET", block=True)
@@ -296,10 +279,14 @@ def forum_search(request):
         subject__icontains=escaped_query, approved=True
     ).select_related("forum", "poster")[:10]
 
-    # Search posts
-    posts = Post.objects.filter(
-        content__icontains=escaped_query, approved=True
-    ).select_related("topic", "topic__forum", "poster", "rich_content")[:10]
+    # Search posts. prefetch reactions so PostSerializer.reaction_counts does not
+    # N+1 across the (capped) result set; the slice is applied at evaluation, so
+    # the prefetch still targets only the returned rows.
+    posts = (
+        Post.objects.filter(content__icontains=escaped_query, approved=True)
+        .select_related("topic", "topic__forum", "poster", "rich_content")
+        .prefetch_related("reactions")[:10]
+    )
 
     return Response(
         {
@@ -394,6 +381,7 @@ class PostListView(generics.ListAPIView):
             return (
                 Post.objects.filter(topic_id=topic_id, approved=True)
                 .select_related("poster", "rich_content")
+                .prefetch_related("reactions")
                 .order_by("created")
             )
         return Post.objects.none()
@@ -509,6 +497,12 @@ class PostDeleteView(generics.DestroyAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@method_decorator(
+    ratelimit(
+        key="ip", rate=FORUM_RATE_LIMITS["mark_viewed"], method="POST", block=True
+    ),
+    name="post",
+)
 class TopicMarkViewedView(APIView):
     """Mark a topic as viewed."""
 
@@ -531,6 +525,12 @@ class TopicMarkViewedView(APIView):
         return Response({"message": "Topic marked as viewed"})
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["update_topic"], method="PATCH", block=True
+    ),
+    name="patch",
+)
 class TopicUpdateView(generics.UpdateAPIView):
     """Update topic properties (pin, lock, solve)."""
 
@@ -611,20 +611,29 @@ class PostReactionView(APIView):
                 post_id=post_id, user_id=request.user.id, reaction_type=reaction_type
             )
 
-            # Get updated reaction counts for this post
+            # Single query: counts + which types the current user has reacted with.
+            reaction_rows = (
+                PostReaction.objects.filter(post_id=post_id, is_active=True)
+                .values("reaction_type")
+                .annotate(
+                    count=Count("id"),
+                    user_reacted=Count(
+                        Case(
+                            When(user_id=request.user.id, then=1),
+                            output_field=IntegerField(),
+                        )
+                    ),
+                )
+            )
             reaction_counts = {}
             user_reactions = []
-
-            for count_data in PostReaction.get_post_reaction_counts(post_id):
-                reaction_counts[count_data["reaction_type"]] = {
-                    "count": count_data["count"],
-                    "users": [],  # We don't expose user lists for privacy
+            for row in reaction_rows:
+                reaction_counts[row["reaction_type"]] = {
+                    "count": row["count"],
+                    "users": [],
                 }
-
-            # Get current user's reactions
-            user_reactions = list(
-                PostReaction.get_user_reactions_for_post(post_id, request.user.id)
-            )
+                if row["user_reacted"]:
+                    user_reactions.append(row["reaction_type"])
 
             return Response(
                 {
@@ -761,95 +770,111 @@ class PostImageUploadView(APIView):
 
         uploaded_files = request.FILES.getlist("images")
 
-        # Validate number of images (max per post)
-        existing_count = ForumPostImage.objects.filter(post=post).count()
-        total_count = existing_count + len(uploaded_files)
-
-        if total_count > FORUM_IMAGE_MAX_PER_POST:
-            return Response(
-                {
-                    "error": (
-                        f"Maximum {FORUM_IMAGE_MAX_PER_POST} images per post. "
-                        f"You have {existing_count} images and are trying to add "
-                        f"{len(uploaded_files)} more."
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         uploaded_images = []
         errors = []
 
-        for i, uploaded_file in enumerate(uploaded_files):
-            # Layer 1: extension allowlist
-            ext = os.path.splitext(uploaded_file.name)[1].lower()
-            if ext not in FORUM_IMAGE_ALLOWED_EXTENSIONS:
-                errors.append(
-                    f"File {uploaded_file.name} has an unsupported extension."
-                )
-                continue
+        # Lock the post row for the whole cap-check + insert so concurrent uploads
+        # to the same post serialize (todo 113). Without the lock two requests can
+        # both read the same existing_count, both pass the guard, and together
+        # exceed FORUM_IMAGE_MAX_PER_POST.
+        with transaction.atomic():
+            locked_post = get_object_or_404(
+                Post.objects.select_for_update(), id=post_id
+            )
 
-            # Layer 2: declared MIME (cheap reject; not trusted alone)
-            if uploaded_file.content_type not in FORUM_IMAGE_ALLOWED_CONTENT_TYPES:
-                errors.append(
-                    f"File {uploaded_file.name} is not a supported image type."
-                )
-                continue
+            # Validate number of images (max per post) — under the row lock.
+            existing_count = ForumPostImage.objects.filter(post=locked_post).count()
+            total_count = existing_count + len(uploaded_files)
 
-            # Layer 3: size
-            if uploaded_file.size > FORUM_IMAGE_MAX_BYTES:
-                errors.append(
-                    f"File {uploaded_file.name} is too large. Maximum size is 5MB."
-                )
-                continue
-
-            # Layer 4: magic number — verify real image bytes with PIL
-            try:
-                uploaded_file.seek(0)
-                with Image.open(uploaded_file) as im:
-                    im.verify()
-                    if im.format not in FORUM_IMAGE_ALLOWED_PIL_FORMATS:
-                        errors.append(
-                            f"File {uploaded_file.name} content is not an allowed image."
-                        )
-                        continue
-                uploaded_file.seek(0)  # reset for storage
-            except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
-                errors.append(f"File {uploaded_file.name} is not a valid image.")
-                continue
-
-            try:
-                # Create ForumPostImage
-                image = ForumPostImage.objects.create(
-                    post=post,
-                    image=uploaded_file,
-                    original_filename=os.path.basename(uploaded_file.name)[:255],
-                    file_size=uploaded_file.size,
-                    alt_text=request.data.get(f"alt_text_{i}", ""),
-                    # upload_order will be set automatically in the model's save method
-                )
-
-                uploaded_images.append(
+            if total_count > FORUM_IMAGE_MAX_PER_POST:
+                return Response(
                     {
-                        "id": image.id,
-                        "original_filename": image.original_filename,
-                        "file_size": image.file_size,
-                        "file_size_mb": image.file_size_mb,
-                        "upload_order": image.upload_order,
-                        "alt_text": image.alt_text,
-                        "display_name": image.display_name,
-                        "image_url": image.image.url,
-                        "thumbnail_url": image.thumbnail.url,
-                        "large_thumbnail_url": image.large_thumbnail.url,
-                        "created_at": image.created_at.isoformat(),
-                    }
+                        "error": (
+                            f"Maximum {FORUM_IMAGE_MAX_PER_POST} images per post. "
+                            f"You have {existing_count} images and are trying to add "
+                            f"{len(uploaded_files)} more."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            except Exception:
-                logger.exception(
-                    "[ERROR] image upload failed for %s", uploaded_file.name
-                )
-                errors.append(f"Failed to upload {uploaded_file.name}: upload error")
+            for i, uploaded_file in enumerate(uploaded_files):
+                # Layer 1: extension allowlist
+                ext = os.path.splitext(uploaded_file.name)[1].lower()
+                if ext not in FORUM_IMAGE_ALLOWED_EXTENSIONS:
+                    errors.append(
+                        f"File {uploaded_file.name} has an unsupported extension."
+                    )
+                    continue
+
+                # Layer 2: declared MIME (cheap reject; not trusted alone)
+                if uploaded_file.content_type not in FORUM_IMAGE_ALLOWED_CONTENT_TYPES:
+                    errors.append(
+                        f"File {uploaded_file.name} is not a supported image type."
+                    )
+                    continue
+
+                # Layer 3: size
+                if uploaded_file.size > FORUM_IMAGE_MAX_BYTES:
+                    errors.append(
+                        f"File {uploaded_file.name} is too large. Maximum size is 5MB."
+                    )
+                    continue
+
+                # Layer 4: magic number — verify real image bytes with PIL
+                try:
+                    uploaded_file.seek(0)
+                    with Image.open(uploaded_file) as im:
+                        im.verify()
+                        if im.format not in FORUM_IMAGE_ALLOWED_PIL_FORMATS:
+                            errors.append(
+                                f"File {uploaded_file.name} content is not an allowed image."
+                            )
+                            continue
+                    uploaded_file.seek(0)  # reset for storage
+                except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+                    errors.append(f"File {uploaded_file.name} is not a valid image.")
+                    continue
+
+                try:
+                    # Nested savepoint: a failed insert rolls back only this file
+                    # and keeps the surrounding (locked) transaction usable for the
+                    # remaining files — preserving partial-success semantics.
+                    with transaction.atomic():
+                        image = ForumPostImage.objects.create(
+                            post=locked_post,
+                            image=uploaded_file,
+                            original_filename=os.path.basename(uploaded_file.name)[
+                                :255
+                            ],
+                            file_size=uploaded_file.size,
+                            alt_text=request.data.get(f"alt_text_{i}", ""),
+                            # upload_order is set automatically in the model's save
+                        )
+
+                    uploaded_images.append(
+                        {
+                            "id": image.id,
+                            "original_filename": image.original_filename,
+                            "file_size": image.file_size,
+                            "file_size_mb": image.file_size_mb,
+                            "upload_order": image.upload_order,
+                            "alt_text": image.alt_text,
+                            "display_name": image.display_name,
+                            "image_url": image.image.url,
+                            "thumbnail_url": image.thumbnail.url,
+                            "large_thumbnail_url": image.large_thumbnail.url,
+                            "created_at": image.created_at.isoformat(),
+                        }
+                    )
+
+                except Exception:
+                    logger.exception(
+                        "[ERROR] image upload failed for %s", uploaded_file.name
+                    )
+                    errors.append(
+                        f"Failed to upload {uploaded_file.name}: upload error"
+                    )
 
         response_data = {
             "message": f"Successfully uploaded {len(uploaded_images)} images",
@@ -867,6 +892,12 @@ class PostImageUploadView(APIView):
         return Response(response_data, status=status_code)
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["image_delete"], method="DELETE", block=True
+    ),
+    name="delete",
+)
 class PostImageDeleteView(APIView):
     """Delete a specific image from a forum post."""
 
@@ -917,6 +948,12 @@ class PostImageDeleteView(APIView):
         )
 
 
+@method_decorator(
+    ratelimit(
+        key="user", rate=FORUM_RATE_LIMITS["image_update"], method="PATCH", block=True
+    ),
+    name="patch",
+)
 class PostImageUpdateView(APIView):
     """Update image metadata (alt text, order)."""
 
@@ -1136,7 +1173,7 @@ class TopicsFeedView(generics.ListAPIView):
                 "last_post",
                 "last_post__poster",
             )
-            .prefetch_related("first_post__images")
+            .prefetch_related("first_post__images", "first_post__reactions")
             .order_by("-last_post_on")
         )
 
@@ -1403,15 +1440,15 @@ class UserTopicsListView(generics.ListAPIView):
             .order_by("-last_post_on")
         )
 
-        # Apply permission filtering (only show topics from forums user can access)
+        # Apply permission filtering — bulk check via get_readable_forums to avoid N+1.
+        # Note: get_readable_forums enforces MPTT tree-hierarchy (a forum is excluded if
+        # an ancestor category lacks can_read_forum). This is stricter than the previous
+        # per-forum loop but matches Machina's intended access model for nested forums.
         perm_handler = PermissionHandler()
-        accessible_forums = []
-
-        for forum in Forum.objects.filter(type=Forum.FORUM_POST):
-            if perm_handler.can_read_forum(forum, self.request.user):
-                accessible_forums.append(forum.id)
-
-        queryset = queryset.filter(forum_id__in=accessible_forums)
+        readable_forums = perm_handler.get_readable_forums(
+            Forum.objects.filter(type=Forum.FORUM_POST), self.request.user
+        )
+        queryset = queryset.filter(forum__in=readable_forums)
 
         return queryset
 
@@ -1453,15 +1490,15 @@ class UserWatchedTopicsListView(generics.ListAPIView):
             .order_by("-last_post_on")
         )
 
-        # Apply permission filtering
+        # Apply permission filtering — bulk check via get_readable_forums to avoid N+1.
+        # Note: get_readable_forums enforces MPTT tree-hierarchy (a forum is excluded if
+        # an ancestor category lacks can_read_forum). This is stricter than the previous
+        # per-forum loop but matches Machina's intended access model for nested forums.
         perm_handler = PermissionHandler()
-        accessible_forums = []
-
-        for forum in Forum.objects.filter(type=Forum.FORUM_POST):
-            if perm_handler.can_read_forum(forum, self.request.user):
-                accessible_forums.append(forum.id)
-
-        queryset = queryset.filter(forum_id__in=accessible_forums)
+        readable_forums = perm_handler.get_readable_forums(
+            Forum.objects.filter(type=Forum.FORUM_POST), self.request.user
+        )
+        queryset = queryset.filter(forum__in=readable_forums)
 
         return queryset
 

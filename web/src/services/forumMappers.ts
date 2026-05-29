@@ -27,6 +27,10 @@ export interface BackendTopic {
   last_post_on?: string | null;
   replies_count?: number;
   views_count?: number;
+  /** Machina Topic.type: 0=post, 1=sticky, 2=announce */
+  type?: number;
+  /** Machina Topic.status: 0=unlocked, 1=locked */
+  status?: number;
 }
 export interface BackendPost {
   id: number;
@@ -35,6 +39,10 @@ export interface BackendPost {
   created: string;
   updated?: string;
   content_format?: string;
+  /** Map of reaction_type -> active count, e.g. { like: 5, love: 2 }. */
+  reaction_counts?: Record<string, number>;
+  /** The post's topic (thread) id (todo 112). */
+  topic_id?: number;
 }
 export interface BackendImage {
   id: number;
@@ -99,11 +107,8 @@ export function mapTopicToThread(t: BackendTopic): Thread {
     last_activity_at: t.last_post_on || t.created,
     post_count: t.posts_count ?? 0,
     view_count: t.views_count ?? 0,
-    // TODO: TopicSerializer does not expose type (TOPIC_STICKY) or status
-    // (TOPIC_LOCKED/TOPIC_UNLOCKED). Add these fields to the backend serializer
-    // before attempting to map them here.
-    is_pinned: false,
-    is_locked: false,
+    is_pinned: (t.type ?? 0) === 1,
+    is_locked: (t.status ?? 0) === 1,
     is_active: true,
   };
 }
@@ -119,9 +124,7 @@ export function mapPostToPost(p: BackendPost, threadId: string): Post {
     created_at: p.created,
     updated_at: p.updated,
     is_active: true,
-    // TODO: PostSerializer does not expose reaction counts. Add a reaction_counts
-    // field to the backend serializer before mapping here.
-    reaction_counts: {},
+    reaction_counts: p.reaction_counts ?? {},
   };
 }
 

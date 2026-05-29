@@ -64,14 +64,16 @@ export default function TipTapEditor({
   }, [editor]);
 
   if (!editor) {
-    return <div className="p-4 text-gray-500">Loading editor...</div>;
+    return <div className="p-4 text-gray-500 dark:text-gray-400">Loading editor...</div>;
   }
 
   return (
-    <div className={`border border-gray-300 rounded-lg overflow-hidden ${className}`}>
+    <div
+      className={`border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden ${className}`}
+    >
       {/* Toolbar */}
       {editable && (
-        <div className="bg-gray-50 border-b border-gray-300 p-2 flex gap-1 flex-wrap">
+        <div className="bg-gray-50 dark:bg-gray-800 border-b border-gray-300 dark:border-gray-600 p-2 flex gap-1 flex-wrap">
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleBold().run()}
             isActive={editor.isActive('bold')}
@@ -96,7 +98,7 @@ export default function TipTapEditor({
             <s>S</s>
           </ToolbarButton>
 
-          <div className="w-px bg-gray-300 mx-1" aria-hidden="true" />
+          <div className="w-px bg-gray-300 dark:bg-gray-600 mx-1" aria-hidden="true" />
 
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
@@ -114,7 +116,7 @@ export default function TipTapEditor({
             H3
           </ToolbarButton>
 
-          <div className="w-px bg-gray-300 mx-1" aria-hidden="true" />
+          <div className="w-px bg-gray-300 dark:bg-gray-600 mx-1" aria-hidden="true" />
 
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleBulletList().run()}
@@ -140,7 +142,7 @@ export default function TipTapEditor({
             "
           </ToolbarButton>
 
-          <div className="w-px bg-gray-300 mx-1" aria-hidden="true" />
+          <div className="w-px bg-gray-300 dark:bg-gray-600 mx-1" aria-hidden="true" />
 
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleCode().run()}
@@ -158,7 +160,7 @@ export default function TipTapEditor({
             {'{ }'}
           </ToolbarButton>
 
-          <div className="w-px bg-gray-300 mx-1" aria-hidden="true" />
+          <div className="w-px bg-gray-300 dark:bg-gray-600 mx-1" aria-hidden="true" />
 
           <ToolbarButton
             onClick={() => {
@@ -187,7 +189,7 @@ export default function TipTapEditor({
       {/* Editor Content */}
       <EditorContent
         editor={editor}
-        className="prose max-w-none p-4 min-h-[200px] focus:outline-none"
+        className="prose max-w-none p-4 min-h-[200px] focus:outline-none dark:prose-invert"
       />
     </div>
   );
@@ -209,7 +211,7 @@ function ToolbarButton({ onClick, isActive, title, children }: ToolbarButtonProp
       title={title}
       className={`
         px-3 py-1.5 rounded text-sm font-medium transition-colors
-        ${isActive ? 'bg-green-200 text-green-900' : 'bg-white text-gray-700 hover:bg-gray-100'}
+        ${isActive ? 'bg-green-200 dark:bg-green-900/30 text-green-900 dark:text-green-400' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'}
       `}
     >
       {children}

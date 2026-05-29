@@ -44,6 +44,7 @@ const backendPost = {
   created: '2026-01-01T00:00:00Z',
   updated: '2026-01-01T00:00:00Z',
   content_format: 'html',
+  topic_id: 12,
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -168,12 +169,23 @@ describe('forumService (translation layer)', () => {
     expect(JSON.parse(opts.body)).toMatchObject({ topic: 12, content: 'hi' });
   });
 
-  it('updatePost PATCHes content and unwraps {data}', async () => {
+  it('createPost throws a clear error when the response is missing {data}', async () => {
+    // Defensive guard (todo 111): the old {message, post} shape (no `data`) must
+    // throw clearly rather than crash inside mapPostToPost on undefined.id.
+    fetchMock.mockResolvedValueOnce(okJson({ message: 'ok', post: backendPost }));
+    await expect(
+      createPost({ thread: 12, content_raw: 'hi', content_format: 'html' })
+    ).rejects.toThrow(/missing "data"/);
+  });
+
+  it('updatePost maps topic_id to a non-empty thread (todo 112)', async () => {
     fetchMock.mockResolvedValueOnce(
-      okJson({ message: 'ok', data: { ...backendPost, content: '<p>edited</p>' } })
+      okJson({ message: 'ok', data: { ...backendPost, content: '<p>edited</p>', topic_id: 77 } })
     );
     const p = await updatePost('50', { content_raw: '<p>edited</p>', content_format: 'html' });
     expect(p.content_raw).toBe('<p>edited</p>');
+    // todo 112: was '' (broken). Now the real topic id from the response.
+    expect(p.thread).toBe('77');
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toContain('/posts/50/');
     expect(opts.method).toBe('PATCH');
@@ -257,6 +269,8 @@ describe('forumService (translation layer)', () => {
     const r = await searchForum({ q: 'succ' });
     expect(r.threads[0].id).toBe('12');
     expect(r.posts[0].id).toBe('50');
+    // todo 112: search posts get a real thread id from topic_id, not ''.
+    expect(r.posts[0].thread).toBe('12');
     expect(r.total_threads).toBe(1);
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/search/?q=succ'),

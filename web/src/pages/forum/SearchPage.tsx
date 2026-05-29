@@ -21,7 +21,7 @@ function highlightText(text: string | undefined, query: string) {
   const regex = new RegExp(`(${terms.join('|')})`, 'gi');
   return text.split(regex).map((part, index) =>
     new RegExp(`^(${terms.join('|')})$`, 'i').test(part) ? (
-      <mark key={`${part}-${index}`} className="bg-yellow-200 rounded px-0.5">
+      <mark key={`${part}-${index}`} className="bg-yellow-200 dark:bg-yellow-900/30 rounded px-0.5">
         {part}
       </mark>
     ) : (
@@ -270,8 +270,8 @@ export default function SearchPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Forum Search</h1>
-        <p className="text-gray-600">Search across threads and posts</p>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">Forum Search</h1>
+        <p className="text-gray-600 dark:text-gray-400">Search across threads and posts</p>
       </div>
 
       {/* Search Bar */}
@@ -282,7 +282,7 @@ export default function SearchPage() {
             value={searchInput}
             onChange={handleSearchInput}
             placeholder="Search forum..."
-            className="w-full px-4 py-3 pl-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            className="w-full px-4 py-3 pl-12 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-800 dark:text-gray-100"
             aria-label="Search query"
           />
           <svg
@@ -304,9 +304,9 @@ export default function SearchPage() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Filters</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Filters</h2>
           {hasActiveFilters && (
             <button
               onClick={handleClearFilters}
@@ -322,7 +322,7 @@ export default function SearchPage() {
           <div>
             <label
               htmlFor="category-filter"
-              className="block text-sm font-medium text-gray-700 mb-2"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
             >
               Category
             </label>
@@ -330,7 +330,7 @@ export default function SearchPage() {
               id="category-filter"
               value={category}
               onChange={handleCategoryFilter}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
             >
               <option value="">All Categories</option>
               {categories.map((cat) => (
@@ -343,7 +343,10 @@ export default function SearchPage() {
 
           {/* Author Filter */}
           <div>
-            <label htmlFor="author-filter" className="block text-sm font-medium text-gray-700 mb-2">
+            <label
+              htmlFor="author-filter"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+            >
               Author
             </label>
             <input
@@ -352,7 +355,7 @@ export default function SearchPage() {
               value={author}
               onChange={handleAuthorFilter}
               placeholder="Username"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
             />
           </div>
 
@@ -360,7 +363,7 @@ export default function SearchPage() {
           <div>
             <label
               htmlFor="date-from-filter"
-              className="block text-sm font-medium text-gray-700 mb-2"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
             >
               From
             </label>
@@ -369,7 +372,7 @@ export default function SearchPage() {
               type="date"
               value={dateFrom}
               onChange={(e) => handleDateFilter('date_from', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
             />
           </div>
 
@@ -377,7 +380,7 @@ export default function SearchPage() {
           <div>
             <label
               htmlFor="date-to-filter"
-              className="block text-sm font-medium text-gray-700 mb-2"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
             >
               To
             </label>
@@ -386,7 +389,7 @@ export default function SearchPage() {
               type="date"
               value={dateTo}
               onChange={(e) => handleDateFilter('date_to', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
             />
           </div>
         </div>
@@ -400,8 +403,8 @@ export default function SearchPage() {
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-          <p className="text-red-800">{error}</p>
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
+          <p className="text-red-800 dark:text-red-300">{error}</p>
         </div>
       )}
 
@@ -421,7 +424,7 @@ export default function SearchPage() {
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
             />
           </svg>
-          <p className="text-gray-600">Enter a search query to begin</p>
+          <p className="text-gray-600 dark:text-gray-400">Enter a search query to begin</p>
         </div>
       )}
 
@@ -429,7 +432,7 @@ export default function SearchPage() {
         <div>
           {/* Results Summary */}
           <div className="mb-6">
-            <p className="text-gray-700">
+            <p className="text-gray-700 dark:text-gray-300">
               Found <span className="font-semibold">{searchResults.total_threads}</span> thread(s)
               and <span className="font-semibold">{searchResults.total_posts}</span> post(s) for{' '}
               <span className="font-semibold">"{query}"</span>
@@ -439,7 +442,7 @@ export default function SearchPage() {
           {/* Thread Results */}
           {searchResults.threads && searchResults.threads.length > 0 && (
             <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
                 Threads ({searchResults.total_threads})
               </h2>
               <div className="space-y-4">
@@ -449,7 +452,7 @@ export default function SearchPage() {
                     {(hasSearchMatch(thread.title, query) ||
                       hasSearchMatch(thread.excerpt, query)) && (
                       <p
-                        className="mt-2 text-sm text-gray-700 bg-yellow-50 border border-yellow-100 rounded-lg p-3"
+                        className="mt-2 text-sm text-gray-700 dark:text-gray-300 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-800 rounded-lg p-3"
                         aria-label="Highlighted thread match"
                       >
                         {highlightText(thread.title, query)}
@@ -465,7 +468,7 @@ export default function SearchPage() {
           {/* Post Results */}
           {searchResults.posts && searchResults.posts.length > 0 && (
             <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
                 Posts ({searchResults.total_posts})
               </h2>
               <div className="space-y-4">
@@ -474,7 +477,7 @@ export default function SearchPage() {
                     <PostCard post={post} />
                     {hasSearchMatch(post.content_raw, query) && (
                       <p
-                        className="mt-2 text-sm text-gray-700 bg-yellow-50 border border-yellow-100 rounded-lg p-3"
+                        className="mt-2 text-sm text-gray-700 dark:text-gray-300 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-800 rounded-lg p-3"
                         aria-label="Highlighted post match"
                       >
                         {highlightText(post.content_raw, query)}
@@ -503,8 +506,12 @@ export default function SearchPage() {
                   d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                 />
               </svg>
-              <p className="text-gray-600 mb-2">No results found for "{query}"</p>
-              <p className="text-gray-500 text-sm">Try different keywords or remove some filters</p>
+              <p className="text-gray-600 dark:text-gray-400 mb-2">
+                No results found for "{query}"
+              </p>
+              <p className="text-gray-500 dark:text-gray-400 text-sm">
+                Try different keywords or remove some filters
+              </p>
             </div>
           )}
 
@@ -518,7 +525,7 @@ export default function SearchPage() {
               >
                 Previous
               </Button>
-              <span className="px-4 py-2 text-gray-700">Page {page}</span>
+              <span className="px-4 py-2 text-gray-700 dark:text-gray-300">Page {page}</span>
               <Button
                 onClick={() => handlePageChange(page + 1)}
                 disabled={!searchResults.has_next_threads && !searchResults.has_next_posts}

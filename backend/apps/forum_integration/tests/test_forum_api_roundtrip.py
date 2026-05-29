@@ -3,6 +3,7 @@ import unittest
 from apps.plant_identification.models import PlantSpeciesPage
 from django.contrib.auth import get_user_model
 from django.test import override_settings
+from django.urls import NoReverseMatch, reverse
 from machina.apps.forum.models import Forum
 from rest_framework.test import APIClient, APITestCase
 from wagtail.models import Page, Site
@@ -129,7 +130,10 @@ class ForumPlantMentionAPIRoundtripTests(APITestCase):
                 }
             ],
         }
-        reply_url = f"/api/forum/topics/{topic_id}/posts/create/"
+        # Modern create-post route (legacy topics/<id>/posts/create/ removed in
+        # todo 111); the topic is supplied in the body, not the URL path.
+        reply_payload["topic"] = topic_id
+        reply_url = "/api/forum/posts/create/"
         reply_resp = self.client.post(reply_url, data=reply_payload, format="json")
         self.assertEqual(reply_resp.status_code, 201, msg=reply_resp.content)
 
@@ -152,6 +156,17 @@ class ForumPlantMentionAPIRoundtripTests(APITestCase):
         page_meta = value.get("page")
         self.assertIsNotNone(page_meta)
         self.assertEqual(page_meta.get("id"), self.plant_page.id)
+
+    def test_legacy_post_create_route_removed(self):
+        # todo 111: the legacy topics/<id>/posts/create/ route was removed (its
+        # mismatched {message, post} response shape crashed the web client, which
+        # expects {data}). Its URL name must no longer reverse. (resolve() would
+        # match a Wagtail catch-all here, so assert on the named route instead.)
+        with self.assertRaises(NoReverseMatch):
+            reverse("forum_api:create_post_legacy")
+        # Sanity: the modern create-post route name still reverses — guards
+        # against a wrong-namespace false positive.
+        self.assertTrue(reverse("forum_api:create_post"))
 
     @unittest.skip(
         "Pre-existing URL routing bug: 'Invalid version in URL path' (commit 763028f) — tracked in todo 067"
