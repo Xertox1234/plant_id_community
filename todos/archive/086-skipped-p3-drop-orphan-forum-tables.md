@@ -1,5 +1,9 @@
 ---
+<<<<<<<< HEAD:todos/archive/086-skipped-p3-drop-orphan-forum-tables.md
 status: skipped
+========
+status: in_progress
+>>>>>>>> origin/main:todos/086-in_progress-p3-drop-orphan-forum-tables.md
 priority: p3
 issue_id: "086"
 tags: [database, ops, cleanup]
@@ -111,6 +115,7 @@ DELETE FROM django_migrations WHERE app = 'forum';
   from Recommended Action, delete stale `django_migrations` rows for app `forum`.
   Left in `in_progress` / skipped by automated sweep.
 
+<<<<<<<< HEAD:todos/archive/086-skipped-p3-drop-orphan-forum-tables.md
 ### 2026-05-28 - Archived as skipped (run 2026-05-28-1709)
 
 - No accessible dev DB (psql not on PATH, Django virtualenv not active). Prior skip entries checked a DB that is no longer reachable.
@@ -118,6 +123,8 @@ DELETE FROM django_migrations WHERE app = 'forum';
 - Zero functional impact — purely dead storage. The SQL runbook in Recommended Action is documented; ops can execute it when desired.
 - Archived rather than left cycling through automated sweeps.
 
+========
+>>>>>>>> origin/main:todos/086-in_progress-p3-drop-orphan-forum-tables.md
 ## Notes
 
 p3 — no functional impact; purely storage/cleanliness. Skip entirely for any
