@@ -271,3 +271,45 @@ This file is append-only. New entries are added by main Claude after each code r
 **Fix**: Deferred (todo 084) — the forum-config question (promote `apps/forum/` or delete it) needs an owner decision.
 **Rule**: `apps/forum/` and Machina are mutually exclusive and gated by `ENABLE_FORUM`; `apps/forum/` is only live when `ENABLE_FORUM=False`. Do not assume `apps/forum/` code runs in the current dev/prod config.
 **Agent**: baseline (audit Phase 1)
+
+---
+
+## Forum todos 104–116 (2026-05-29 additions)
+
+> Note: the active forum API app is `apps/forum_integration/` (Machina-based,
+> `ENABLE_FORUM=True`), NOT `apps/forum/` — see the 2026-05-17 entry above.
+
+### [2026-05-29] django-ratelimit's `Ratelimited` is bare — `Retry-After` cannot be derived in the handler
+
+**Mistake**: The 429 exception handler hardcoded `Retry-After: 3600`, so a `30/m` search limit told clients to back off an hour. The obvious fix ("read `exc.rate`") is impossible: in django-ratelimit 4.1.0, `Ratelimited` is `class Ratelimited(PermissionDenied): pass` (no rate), and the `@ratelimit` decorator discards the usage dict — it keeps only `request.limited`. Neither the exception nor the request exposes the rate downstream (todo 115).
+**Fix**: A drop-in `ratelimit` wrapper (`apps/core/ratelimit.py`) catches `Ratelimited` and re-raises `RatelimitedWithRate(rate)` — a subclass, so `isinstance(exc, Ratelimited)` still matches — and the handler derives the window from `exc.rate` (`/m`→60, `/h`→3600, …) guarded by `isinstance(rate, str)` (rate may be a callable).
+**Rule**: Don't assume `Ratelimited` carries the rate; capture it at the decorator site. `Retry-After` must reflect the real window, not a constant. See `backend/docs/patterns/architecture/rate-limiting.md`.
+**Agent**: api-design-reviewer
+
+### [2026-05-29] A relation-reading `SerializerMethodField` N+1s EVERY list endpoint that uses the serializer
+
+**Mistake**: Adding `reaction_counts` (iterates `obj.reactions`) to the shared `PostSerializer` fixed the list endpoint but silently introduced an N+1 on the public community feed (`TopicsFeedView` → `first_post`, a `PostSerializer` subclass) and on `forum_search`. Only the directly-edited `PostListView` got a prefetch; code review caught the other two as a CRITICAL (todo 105).
+**Fix**: `prefetch_related("reactions")` on every list queryset feeding the serializer (incl. `TopicsFeedView` via `first_post__reactions`), with a `CaptureQueriesContext` constant-count N+1 guard per path.
+**Rule**: When you add a field that reads a relation to a SHARED serializer, audit and prefetch in ALL list views (and nested-serializer parents) that use it — not just the one you came to change. Add a query-count test per path.
+**Agent**: performance-reviewer
+
+### [2026-05-29] `(max_order or -1) + 1` collides because 0 is falsy — a post could never hold >1 image
+
+**Mistake**: `ForumPostImage.save()` auto-assigned `upload_order` with `(max_order or -1) + 1`. When the current max was `0`, `0 or -1` evaluates to `-1`, so the 2nd image also got order 0 and collided on `unique_together(post, upload_order)` — no post could ever store more than one image (todo 116). The same guard also re-fired on UPDATE, relocating an order-0 image when its alt_text was edited.
+**Fix**: `(max_order if max_order is not None else -1) + 1`, and gate the auto-assign on `self.pk is None` (insert-only) so updates preserve order.
+**Rule**: Never use `or` for a numeric default where 0 is valid — use `is None`. Model `save()` auto-assignment must be insert-only (`self.pk is None`), or it mutates rows on every update.
+**Agent**: django-drf-reviewer
+
+### [2026-05-29] Catching a DB error inside `transaction.atomic()` without a savepoint poisons the transaction
+
+**Mistake**: Wrapping a per-item insert loop in one `transaction.atomic()` (for an atomic image-cap check) while keeping the existing `try/except` per item: a caught `IntegrityError` left the connection in a failed-transaction state, so the next insert raised `TransactionManagementError` (todo 113).
+**Fix**: Wrap each item's insert in a nested `with transaction.atomic():` (savepoint) so a failed item rolls back only its savepoint and the outer transaction stays usable — preserving partial-success semantics.
+**Rule**: If you catch exceptions from DB ops inside an outer `atomic()` and continue, each caught op must be in its own nested `atomic()` savepoint.
+**Agent**: django-drf-reviewer
+
+### [2026-05-29] Squash-merging a feature branch then continuing on it re-conflicts and resurrects completed todos
+
+**Mistake**: This branch's earlier work was squash-merged to main (#290), but the branch kept going without rebasing. Merging main back in conflicted on `api_views.py` (squashed vs evolved same code) and RE-INTRODUCED todos the branch had already completed — 099–103 reappeared as `pending` alongside their `archive/…-completed` versions. A teammate PR (#291) on the same branch overlapped the same files mid-rebase too.
+**Fix**: Verified the branch was a strict superset of the squash (only the squash commit was ahead on main), resolved `api_views.py` to the branch's evolved version, kept the branch's todo states, and removed the resurrected `pending` dupes.
+**Rule**: After a feature branch is squash-merged to main, rebase/reconcile before continuing — expect code conflicts (squashed vs evolved) AND resurrected completed-todo files. Before committing such a merge, grep for any `todos/<id>-pending-*` that also has a `todos/archive/<id>-*`.
+**Agent**: baseline

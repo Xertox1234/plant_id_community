@@ -34,6 +34,7 @@ Review only the files passed to you. Do not read the full repo.
 - [ ] Foreign key access (`obj.author`, `obj.category`) without `select_related` is an N+1 — add `select_related`
 - [ ] Reverse OneToOne accessor (e.g. `obj.rich_content`) accessed more than once across separate `SerializerMethodField` methods is an N+1 per extra access — add the relation to `select_related()` in the ViewSet queryset and consolidate all field reads into a single `to_representation()` local variable
 - [ ] Instance-level attribute cache set on a model instance inside a serializer (e.g. `obj._foo_cache = ...`) risks stale data when the same instance is mutated and re-serialized in the same request (e.g. after a related `.create()`); cache on the serializer instance keyed by pk, or eliminate caching entirely with `select_related()`
+- [ ] A new relation-reading field added to a SHARED serializer (or a base class like `PostSerializer`) is an N+1 in EVERY list view that uses it OR embeds it via a nested serializer (e.g. a feed's `first_post`, search results) — grep for all consumers of the serializer and verify the prefetch was added to ALL of their querysets, not just the one in the diff (todo 105: a feed + search N+1 slipped through because only the edited list view was prefetched)
 
 **Query Optimisation**
 

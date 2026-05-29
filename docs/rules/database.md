@@ -15,3 +15,10 @@ Compact checklist auto-injected before edits. Long-form:
 - After changing a migration, rebuild the test DB with `--noinput` — a stale test
   DB raises `FieldError`.
 - No magic numbers — domain constants live in each app's `constants.py`.
+- **A relation-reading field on a SHARED serializer N+1s EVERY list view that uses
+  it** (incl. nested-serializer parents, e.g. a feed's `first_post`). When you add
+  one, add `prefetch_related(...)` to ALL those querysets and a query-count test
+  per path — not just the endpoint you came to change.
+- **Model `save()` auto-assignment must be insert-only** (`if self.pk is None:`),
+  or it re-fires on every UPDATE and mutates the row. Never use `or` for a numeric
+  default where 0 is valid (`0 or -1` is `-1`) — use `is None`.

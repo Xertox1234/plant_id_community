@@ -27,6 +27,7 @@
 **Issue**: django-ratelimit's `Ratelimited` exception inherits from `PermissionDenied`, causing DRF's default exception handler to return 403 Forbidden instead of 429 Too Many Requests.
 
 **The Inheritance Problem**:
+
 ```python
 # django-ratelimit exception hierarchy
 from django.core.exceptions import PermissionDenied
@@ -37,6 +38,7 @@ class Ratelimited(PermissionDenied):
 ```
 
 **What Happens**:
+
 1. Request exceeds rate limit
 2. django-ratelimit raises `Ratelimited` exception
 3. DRF's `exception_handler()` sees `PermissionDenied` base class
@@ -46,6 +48,7 @@ class Ratelimited(PermissionDenied):
 ### Pattern: Intercept BEFORE DRF Processing
 
 **Anti-Pattern** ❌:
+
 ```python
 # BAD - DRF already converted exception to 403
 def custom_exception_handler(exc, context):
@@ -60,6 +63,7 @@ def custom_exception_handler(exc, context):
 **Why This Fails**: DRF already created a 403 response. Changing `status_code` after the fact doesn't update all response components.
 
 **Correct Pattern** ✅:
+
 ```python
 # apps/core/exceptions.py
 from django_ratelimit.exceptions import Ratelimited
@@ -122,6 +126,7 @@ def custom_exception_handler(exc: Exception, context: Dict[str, Any]) -> Optiona
 ```
 
 **Key Points**:
+
 - ✅ Order matters: Check `isinstance(exc, Ratelimited)` FIRST
 - ✅ Inheritance awareness: `Ratelimited` inherits from `PermissionDenied`
 - ✅ Defense in depth: Also add check in non-DRF exception path
@@ -136,11 +141,13 @@ def custom_exception_handler(exc: Exception, context: Dict[str, Any]) -> Optiona
 ### Semantic Difference
 
 **403 Forbidden**: Permission denied (user lacks rights)
+
 - User is authenticated but not authorized
 - Example: Non-admin trying to delete another user's post
 - Will NEVER succeed, even if retried
 
 **429 Too Many Requests**: Rate limit exceeded (temporary)
+
 - User has permission but exceeded quota
 - Example: Uploading 11th image within 1 hour
 - WILL succeed if retried after rate limit window
@@ -148,10 +155,12 @@ def custom_exception_handler(exc: Exception, context: Dict[str, Any]) -> Optiona
 ### Why This Matters
 
 **Client Behavior**:
+
 - **403 response**: Client should NOT retry (permanent failure)
 - **429 response**: Client SHOULD retry after `Retry-After` seconds
 
 **HTTP Semantics**:
+
 ```python
 # ❌ WRONG - Semantic mismatch
 if rate_limit_exceeded:
@@ -165,6 +174,7 @@ if rate_limit_exceeded:
 ```
 
 **User Experience**:
+
 - 403: "You don't have permission" (frustrating, unclear)
 - 429: "Too many requests, try again at 3:30 PM" (clear, actionable)
 
@@ -186,14 +196,17 @@ if rate_limit_exceeded:
 ### Retry-After Header Values
 
 **Option 1: Seconds (Preferred)**:
+
 ```python
 response['Retry-After'] = '3600'  # 1 hour = 3600 seconds
 ```
+
 ✅ Easy to parse
 ✅ Language-agnostic
 ✅ Simple arithmetic for countdown timers
 
 **Option 2: HTTP-date (Less Common)**:
+
 ```python
 from django.utils.http import http_date
 
@@ -201,6 +214,7 @@ retry_time = datetime.now() + timedelta(hours=1)
 response['Retry-After'] = http_date(retry_time.timestamp())
 # Example: 'Wed, 06 Nov 2025 13:00:00 GMT'
 ```
+
 ❌ More complex to parse
 ❌ Requires timezone handling
 ❌ Client needs to compare with current time
@@ -210,6 +224,7 @@ response['Retry-After'] = http_date(retry_time.timestamp())
 ### Client Implementation
 
 **TypeScript Example**:
+
 ```typescript
 async function uploadImage(postId: string, file: File) {
   try {
@@ -252,6 +267,7 @@ async function uploadImage(postId: string, file: File) {
 ```
 
 **Benefits**:
+
 - ✅ User sees exact retry time
 - ✅ Countdown timer prevents premature retries
 - ✅ Auto-enables button when limit resets
@@ -264,6 +280,7 @@ async function uploadImage(postId: string, file: File) {
 ### Problem: API Consumers Need Context
 
 **What Developers Need to Know**:
+
 - Trust level requirements
 - Rate limiting rules
 - Error response formats
@@ -421,17 +438,20 @@ def upload_image(self, request: Request, pk=None) -> Response:
 ### Problem: Cryptic Errors Hurt UX
 
 **Bad Error Message** ❌:
+
 ```json
 {
   "detail": "You do not have permission to perform this action."
 }
 ```
+
 ❌ Doesn't explain WHY permission is denied
 ❌ User doesn't know how to fix it
 ❌ No actionable information
 ❌ Frustrating user experience
 
 **Good Error Message** ✅:
+
 ```json
 {
   "error": true,
@@ -440,6 +460,7 @@ def upload_image(self, request: Request, pk=None) -> Response:
   "status_code": 403
 }
 ```
+
 ✅ Explains WHAT is required (BASIC trust level)
 ✅ Shows CURRENT level (NEW)
 ✅ Shows REQUIREMENTS (7 days + 5 posts)
@@ -540,6 +561,7 @@ if (response.status === 403) {
 ### Problem: Skipped Tests Need Transparency
 
 **Why Tests Get Skipped**:
+
 - Test design flaw that can't be easily fixed
 - Testing third-party library implementation details
 - Complex infrastructure requirements
@@ -548,6 +570,7 @@ if (response.status === 403) {
 ### Pattern: Three-Level Documentation
 
 **Level 1: @skip Decorator**
+
 ```python
 from unittest import skip
 
@@ -563,6 +586,7 @@ def test_rate_limit_resets_after_timeout(self):
 ```
 
 **Level 2: Test Docstring**
+
 ```python
 def test_rate_limit_resets_after_timeout(self):
     """
@@ -620,12 +644,14 @@ def test_rate_limit_resets_after_timeout(self):
 ### When to Skip Tests
 
 **Valid Reasons** ✅:
+
 - Test design flaw that can't be easily fixed
 - Testing third-party library implementation details
 - Complex infrastructure requirements (external services)
 - Alternative test coverage exists
 
 **Invalid Reasons** ❌:
+
 - Test is flaky (fix the flakiness instead)
 - Test is slow (use `@pytest.mark.slow` instead)
 - Test fails intermittently (debug and fix)
@@ -646,6 +672,7 @@ def test_rate_limit_resets_after_timeout(self):
 ### Strategy 1: What to Test
 
 **Test These** ✅:
+
 - Enforcement (11th request returns 429)
 - Per-user isolation (user A's limit doesn't affect user B)
 - Header presence (Retry-After header exists)
@@ -653,6 +680,7 @@ def test_rate_limit_resets_after_timeout(self):
 - Permission integration (rate limit + trust level checks)
 
 **Don't Test These** ❌:
+
 - Time-based expiration (django-ratelimit implementation detail)
 - Cache backend internals (third-party library concern)
 - Exact rate limit reset timing (too brittle)
@@ -660,12 +688,14 @@ def test_rate_limit_resets_after_timeout(self):
 ### Strategy 2: Integration Tests Over Unit Tests
 
 **Why Integration Tests?**
+
 - Test real behavior (not mocked)
 - Catch integration issues
 - Verify entire flow (permissions + rate limiting)
 - Ensure consistent error format
 
 **Example**:
+
 ```python
 def test_rate_limit_full_flow(self):
     """Integration test: Full rate limiting flow."""
@@ -721,6 +751,7 @@ When a test can't be written due to technical limitations, ensure alternative co
 **Example: test_rate_limit_resets_after_timeout (skipped)**
 
 **Alternative Coverage**:
+
 - ✅ `test_rate_limit_enforced_after_10_uploads` - Verifies enforcement works
 - ✅ `test_rate_limit_per_user_isolation` - Verifies per-user counters
 - ✅ `test_rate_limit_header_present_on_429` - Verifies headers present
@@ -735,6 +766,7 @@ When a test can't be written due to technical limitations, ensure alternative co
 ### Pitfall 1: Relying on DRF Default Handler
 
 **Problem**:
+
 ```python
 # ❌ BAD - DRF converts Ratelimited to 403
 def custom_exception_handler(exc, context):
@@ -755,6 +787,7 @@ def custom_exception_handler(exc, context):
 ### Pitfall 2: Missing Retry-After Header
 
 **Problem**:
+
 ```python
 # ❌ BAD - No Retry-After header
 if isinstance(exc, Ratelimited):
@@ -780,6 +813,7 @@ return response
 ### Pitfall 3: Cryptic Error Messages
 
 **Problem**:
+
 ```python
 # ❌ BAD - No context
 raise PermissionDenied("You do not have permission to perform this action.")
@@ -805,6 +839,7 @@ raise PermissionDenied(
 ### Pitfall 4: Incomplete OpenAPI Schema
 
 **Problem**:
+
 ```python
 # ❌ BAD - Only documents success case
 @extend_schema(
@@ -837,6 +872,7 @@ def upload_image(self, request, pk=None):
 ### Pitfall 5: Skipping Tests Without Documentation
 
 **Problem**:
+
 ```python
 # ❌ BAD - No explanation
 @skip("Broken test")
@@ -855,6 +891,7 @@ def test_rate_limit_reset(self):
 ### Pre-Deployment Verification
 
 **Code Quality**:
+
 - [ ] Rate limiting returns 429 (not 403)
 - [ ] Retry-After header present in 429 responses
 - [ ] Error messages include progress tracking
@@ -862,6 +899,7 @@ def test_rate_limit_reset(self):
 - [ ] Test skip documented in code AND docs
 
 **Testing**:
+
 - [ ] Integration tests passing (e.g., 17/17)
 - [ ] Rate limiting enforcement verified
 - [ ] Per-user isolation verified
@@ -869,6 +907,7 @@ def test_rate_limit_reset(self):
 - [ ] Alternative coverage for skipped tests
 
 **Documentation**:
+
 - [ ] API documentation complete (e.g., TRUST_LEVELS_API.md)
 - [ ] Client implementation examples provided
 - [ ] Troubleshooting section included
@@ -876,6 +915,7 @@ def test_rate_limit_reset(self):
 - [ ] OpenAPI schema accessible at `/api/docs/`
 
 **HTTP Standards**:
+
 - [ ] 429 status code used for rate limiting
 - [ ] Retry-After header follows RFC 6585
 - [ ] Header value matches rate limit window (seconds)
@@ -884,6 +924,7 @@ def test_rate_limit_reset(self):
 ### Post-Deployment Monitoring
 
 **Monitor 429 Responses**:
+
 ```sql
 -- Check rate limit hit rate
 SELECT
@@ -899,6 +940,7 @@ LIMIT 30;
 ```
 
 **Verify Retry-After Header**:
+
 ```bash
 # Manual verification
 curl -X POST http://api.example.com/posts/123/upload_image/ \
@@ -908,6 +950,7 @@ curl -X POST http://api.example.com/posts/123/upload_image/ \
 ```
 
 **Check Error Format**:
+
 ```python
 # Automated check
 response = requests.post(url, files=files, headers=headers)
@@ -946,3 +989,56 @@ These rate limiting patterns ensure:
 **Pattern Count**: 7 rate limiting patterns
 **Status**: ✅ Production-validated
 **HTTP Standards**: RFC 6585 (429 Too Many Requests)
+
+---
+
+## Retry-After Must Be Derived From the Rate Window (2026-05 update)
+
+> **Supersedes the hardcoded `response['Retry-After'] = '3600'` shown earlier in
+> this doc.** Hardcoding one hour is wrong for sub-hour limits — a `30/m` search
+> limit told RFC-compliant clients to back off 60× too long (todo 115).
+
+**Gotcha**: in `django-ratelimit` 4.1.0 you cannot read the rate from the
+exception. `Ratelimited` is bare (`class Ratelimited(PermissionDenied): pass`) and
+the `@ratelimit` decorator discards the usage dict — it sets only
+`request.limited`. So a downstream exception handler has no rate to derive a
+window from. Capture it at the decorator site instead, with a drop-in wrapper:
+
+```python
+# apps/core/ratelimit.py — import this `ratelimit` instead of django_ratelimit's
+class RatelimitedWithRate(Ratelimited):          # subclass: isinstance() still matches
+    def __init__(self, rate=None, *args):
+        super().__init__(*args)
+        self.rate = rate
+
+def ratelimit(group=None, key=None, rate=None, method=ALL, block=True):
+    inner = _ratelimit(group=group, key=key, rate=rate, method=method, block=block)
+    def decorator(fn):
+        wrapped = inner(fn)
+        @wraps(fn)
+        def _wrapped(request, *a, **kw):
+            try:
+                return wrapped(request, *a, **kw)
+            except Ratelimited as exc:               # request.limited already set
+                raise RatelimitedWithRate(rate) from exc
+        return _wrapped
+    return decorator
+```
+
+```python
+# apps/core/exceptions.py — in the 429 handler
+def _retry_after_seconds(rate):
+    if isinstance(rate, str):      # rate may be a callable; guard before .endswith
+        if rate.endswith("/s"): return 1
+        if rate.endswith("/m"): return 60
+        if rate.endswith("/h"): return 3600
+        if rate.endswith("/d"): return 86400
+    return 3600                     # safe fallback when the rate is unknown
+response["Retry-After"] = str(_retry_after_seconds(getattr(exc, "rate", None)))
+```
+
+Swapping the import (`from apps.core.ratelimit import ratelimit`) upgrades every
+decorator in the module at once; bare `Ratelimited` from other apps still falls
+back to 3600 (no regression). Test BOTH a `/m` window (→ 60, which proves the
+value is *derived*, not a new constant) and an `/h` window (→ 3600), and wrap the
+hammer loop in `freeze_time` so the window can't roll over mid-test.
