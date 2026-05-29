@@ -346,3 +346,24 @@ Re-tiered so a provable spine ships before the capture machinery:
 - **`/tmp/inject-<session_id>-<domain>` markers accumulate** unbounded across
   sessions. Minor; clean opportunistically (e.g. a SessionStart sweep) — noted, not
   blocking.
+
+## Implementation status — v1 spine (2026-05-29)
+
+Built and verified on branch `feat/jit-mistake-injection`:
+
+- `scripts/inject/match_triggers.py` — matcher (asymmetric matching, graceful
+  degradation). ✅
+- `scripts/inject/test_match_triggers.py` — 31 tests green, incl. the
+  absence-on-resulting-file false-positive guard and per-trigger fire/silent. ✅
+- `docs/rules/triggers.json` — 6 seed triggers, all `pattern_ref`s verified. ✅
+- `docs/rules/_discipline.md` — always-on floor. ✅
+- `.claude/hooks/inject-patterns.sh` — **blocked by the self-mod classifier
+  (confirmed live).** Full proposed replacement shipped as
+  `scripts/inject/inject-patterns.sh.proposed`. Apply with:
+  `cp scripts/inject/inject-patterns.sh.proposed .claude/hooks/inject-patterns.sh`.
+  Executed directly against crafted payloads — discipline + matched-mistake +
+  deduped domain rules, ratelimit suppression, kill switch, and malformed-input
+  degradation all verified. ⏳ awaiting user apply.
+
+Deferred to v1.1 / follow-ups (per Sequencing): `capture_trigger.py` + `/codify`
+capture, the `test-inject-patterns.sh` hook-test extension, and the LSP todo.
