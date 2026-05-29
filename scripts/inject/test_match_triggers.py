@@ -365,6 +365,12 @@ class TestRealIndexFiresOnKnownBugs(unittest.TestCase):
                        "if hasattr(instance, 'blogpostpage'):\n    pass\n")
         self.assertIn("wagtail-signal-hasattr-pagetype", self.fires(tn, ti))
 
+    def test_pagination_hasattr_page_silent(self):
+        # hasattr(paginator, 'page') is pagination, not a page-type check.
+        tn, ti = write("backend/apps/blog/signals.py",
+                       "if hasattr(paginator, 'page'):\n    pass\n")
+        self.assertNotIn("wagtail-signal-hasattr-pagetype", self.fires(tn, ti))
+
     def test_react_router_bare_import(self):
         tn, ti = write("web/src/pages/Home.tsx",
                        "import { useNavigate } from 'react-router'\n")
@@ -378,6 +384,17 @@ class TestRealIndexFiresOnKnownBugs(unittest.TestCase):
     def test_atomic_counter_with_F_silent(self):
         tn, ti = write("backend/apps/forum_integration/services.py",
                        "Topic.objects.filter(pk=pk).update(reply_count=F('reply_count') + 1)\n")
+        self.assertNotIn("drf-nonatomic-counter", self.fires(tn, ti))
+
+    def test_bare_local_counter_silent(self):
+        # A plain local-variable counter is NOT an ORM atomicity problem.
+        tn, ti = write("backend/apps/forum_integration/services.py",
+                       "    retry_count = 0\n    for x in items:\n        retry_count += 1\n")
+        self.assertNotIn("drf-nonatomic-counter", self.fires(tn, ti))
+
+    def test_bare_error_count_local_silent(self):
+        tn, ti = write("backend/apps/forum_integration/services.py",
+                       "    error_count += 1\n")
         self.assertNotIn("drf-nonatomic-counter", self.fires(tn, ti))
 
 
