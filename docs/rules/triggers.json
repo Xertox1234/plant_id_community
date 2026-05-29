@@ -1,0 +1,72 @@
+[
+  {
+    "id": "drf-action-no-ratelimit",
+    "domains": ["api", "security"],
+    "path_glob": ["backend/**/views.py", "backend/**/viewsets.py", "backend/**/*_views.py"],
+    "content_present": "@action\\b",
+    "content_absent": "ratelimit|is_ratelimited|Ratelimited",
+    "message": "New @action endpoint — confirm a rate limit applies. 5 forum actions shipped without one (todos 104-109).",
+    "pattern_ref": "backend/docs/patterns/architecture/rate-limiting.md",
+    "source": "todos/archive 104-109",
+    "added": "2026-05-29",
+    "severity": "warn"
+  },
+  {
+    "id": "migration-fstring-sql",
+    "domains": ["database", "security"],
+    "path_glob": ["backend/**/migrations/*.py"],
+    "content_present": "(RunSQL|cursor\\.execute|execute)\\(\\s*f[\"']",
+    "content_absent": "sql\\.Identifier|psycopg2\\.sql",
+    "message": "Raw SQL built with an f-string in a migration — f-strings concatenate table/column names with no escaping (injection). Use psycopg2.sql.Identifier() + a whitelist.",
+    "pattern_ref": "backend/docs/patterns/security/input-validation.md",
+    "source": "CLAUDE.md Critical Gotcha #3",
+    "added": "2026-05-29",
+    "severity": "warn"
+  },
+  {
+    "id": "viewset-get-permissions-no-super",
+    "domains": ["api", "security"],
+    "path_glob": ["backend/**/views.py", "backend/**/viewsets.py", "backend/**/*_views.py", "backend/**/permissions.py"],
+    "content_present": "def get_permissions\\b",
+    "content_absent": "super\\(\\)\\.get_permissions",
+    "message": "Custom get_permissions() must delegate custom @action names to super().get_permissions(), or action-level permission_classes are silently ignored (security hole).",
+    "pattern_ref": "backend/docs/patterns/architecture/viewsets.md",
+    "source": "CLAUDE.md Critical Gotcha #1",
+    "added": "2026-05-29",
+    "severity": "warn"
+  },
+  {
+    "id": "react-router-bare-import",
+    "domains": ["react", "typescript"],
+    "path_glob": ["web/**/*.tsx", "web/**/*.ts"],
+    "content_present": "from [\"']react-router[\"']",
+    "message": "Import router hooks from 'react-router-dom', not 'react-router' — the bare package silently crashes at runtime (Cannot read properties of undefined).",
+    "pattern_ref": "web/docs/patterns/react-typescript.md",
+    "source": "CLAUDE.md Critical Gotcha #2",
+    "added": "2026-05-29",
+    "severity": "warn"
+  },
+  {
+    "id": "wagtail-signal-hasattr-pagetype",
+    "domains": ["wagtail"],
+    "path_glob": ["backend/**/signals.py", "backend/apps/blog/*.py"],
+    "content_present": "hasattr\\([^)]*[\"'][a-z]+page[\"']",
+    "message": "Use isinstance(instance, BlogPostPage), not hasattr(...page...), for Wagtail page-type checks in signal handlers — multi-table inheritance makes hasattr unreliable.",
+    "pattern_ref": "backend/docs/patterns/domain/wagtail.md",
+    "source": "docs/LEARNINGS.md Wagtail",
+    "added": "2026-05-29",
+    "severity": "warn"
+  },
+  {
+    "id": "drf-nonatomic-counter",
+    "domains": ["api", "database"],
+    "path_glob": ["backend/**/services.py", "backend/**/models.py", "backend/**/views.py", "backend/**/*_views.py"],
+    "content_present": "\\.\\w+_count\\s*\\+=",
+    "content_absent": "F\\([\"']",
+    "message": "Non-atomic increment of a model-field counter (obj.x_count += 1) races under concurrency. Use an F() expression: .update(x_count=F('x_count') + 1).",
+    "pattern_ref": "backend/docs/patterns/performance/query-optimization.md",
+    "source": "todos/archive 113, 116",
+    "added": "2026-05-29",
+    "severity": "warn"
+  }
+]
