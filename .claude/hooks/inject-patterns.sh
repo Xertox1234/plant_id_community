@@ -4,8 +4,23 @@
 # Rules live in docs/rules/<domain>.md (short by design). Long-form detail stays
 # in the per-stack */docs/patterns/ libraries — this hook only surfaces the
 # compact checklists plus a discipline preamble.
+#
+# PROPOSED v1 (just-in-time mistake injection). Changes vs current:
+#   1. Kill switch: INJECT_PATTERNS_DISABLE=1 exits early (no commit needed).
+#   2. Discipline preamble is now read from docs/rules/_discipline.md (editable
+#      without touching .claude/), not an inline heredoc.
+#   3. Content-matched recurring-mistake warnings via scripts/inject/match_triggers.py
+#      — injected only when a trigger matches the code being written.
+#   4. Domain-rule checklists are deduped once per session (session_id) to kill
+#      banner blindness. Discipline + matched mistakes are NEVER deduped.
+#
+# This file is .claude self-mod-blocked, so it ships as a handoff artifact. Apply:
+#   cp scripts/inject/inject-patterns.sh.proposed .claude/hooks/inject-patterns.sh
 # Tests: .claude/hooks/test-inject-patterns.sh
 set -uo pipefail
+
+# (1) Kill switch: instant disable with no commit (mirrors SKIP_KIMI_REVIEW=1).
+[[ -n "${INJECT_PATTERNS_DISABLE:-}" ]] && exit 0
 
 INPUT=$(cat)
 
@@ -13,6 +28,10 @@ TOOL_NAME=$(printf '%s' "$INPUT" | jq -re '.tool_name' 2>/dev/null) || exit 0
 FILE_PATH=$(printf '%s' "$INPUT" | jq -re '.tool_input.file_path' 2>/dev/null) || exit 0
 
 [[ "$TOOL_NAME" == "Edit" || "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "MultiEdit" ]] || exit 0
+
+# session_id drives per-session dedup of the domain-rule tier (confirmed
+# PreToolUse stdin field). Empty on parse failure → dedup disabled (always inject).
+SESSION_ID=$(printf '%s' "$INPUT" | jq -re '.session_id' 2>/dev/null) || SESSION_ID=""
 
 # Resolve paths relative to project root (two levels up from .claude/hooks/)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,23 +104,38 @@ trap 'rm -f "$TMPFILE"' EXIT
 
 printf '=== Pre-write context for %s ===\n' "$FILE_PATH" >> "$TMPFILE"
 
-cat >> "$TMPFILE" <<'EOF'
+# (2) Always-on discipline floor, read from an editable data file. Never deduped.
+printf '\n' >> "$TMPFILE"
+cat "$RULES_DIR/_discipline.md" >> "$TMPFILE" 2>/dev/null
 
-[DISCIPLINE — applies before any edit]
-- Think before coding. State your assumptions out loud. If the request is ambiguous, ask. If a simpler approach exists, push back. Stop when you are confused, name what is unclear, do not just pick one interpretation and run.
-- Simplicity first. Write the minimum code that solves the problem. No speculative abstractions. No flexibility nobody asked for. The test: would a senior engineer call this overcomplicated.
-- Surgical changes. Touch only what the task requires. Do not improve neighboring code. Do not refactor what is not broken. Every changed line should trace back to the request.
-- Goal-driven execution. Turn vague instructions into verifiable targets before writing a line. "Add validation" becomes "write tests for invalid inputs, then make them pass."
-EOF
+# (3) Content-matched recurring-mistake warnings. Fires only on a real match;
+# can never break the hook's JSON (stderr discarded, non-zero exit absorbed,
+# final output escaped by jq --arg below).
+MATCH_OUT=""
+if command -v python3 >/dev/null 2>&1; then
+  MATCH_OUT=$(printf '%s' "$INPUT" \
+    | python3 "$PROJECT_ROOT/scripts/inject/match_triggers.py" 2>/dev/null) \
+    || MATCH_OUT=""
+fi
+if [ -n "$MATCH_OUT" ]; then
+  printf '\n[RECENT MISTAKES — matched this edit]\n%s\n' "$MATCH_OUT" >> "$TMPFILE"
+fi
 
+# (4) Domain-rule checklists, deduped once per session per domain.
 if [ -n "$DOMAINS" ]; then
   IFS=',' read -ra DOMAIN_LIST <<< "$DOMAINS"
   for DOMAIN in "${DOMAIN_LIST[@]}"; do
     RULES_FILE="$RULES_DIR/${DOMAIN}.md"
-    if [ -f "$RULES_FILE" ]; then
-      printf '\n[RULES — %s]\n' "$DOMAIN" >> "$TMPFILE"
-      cat "$RULES_FILE" >> "$TMPFILE"
+    [ -f "$RULES_FILE" ] || continue
+    MARKER=""
+    if [ -n "$SESSION_ID" ]; then
+      SAFE_ID=$(printf '%s' "$SESSION_ID" | tr -c 'A-Za-z0-9._-' '_')
+      MARKER="/tmp/inject-${SAFE_ID}-${DOMAIN}"
+      [ -f "$MARKER" ] && continue
     fi
+    printf '\n[RULES — %s]\n' "$DOMAIN" >> "$TMPFILE"
+    cat "$RULES_FILE" >> "$TMPFILE"
+    [ -n "$MARKER" ] && : > "$MARKER" 2>/dev/null || true
   done
 fi
 
