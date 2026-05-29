@@ -365,5 +365,22 @@ Built and verified on branch `feat/jit-mistake-injection`:
   deduped domain rules, ratelimit suppression, kill switch, and malformed-input
   degradation all verified. ⏳ awaiting user apply.
 
-Deferred to v1.1 / follow-ups (per Sequencing): `capture_trigger.py` + `/codify`
-capture, the `test-inject-patterns.sh` hook-test extension, and the LSP todo.
+## Implementation status — v1.1 capture (2026-05-29)
+
+Built and verified on branch `feat/jit-injection-capture` (spine merged to main
+via #298):
+
+- `scripts/inject/capture_trigger.py` — appends a trigger to `triggers.json`;
+  strict dedup-on-`id` (idempotent), canonical key order, validates required
+  fields + regex, drops a non-resolving `pattern_ref` with a warning. `--severity
+  warn` for `/codify` (human-curated), default `candidate` for review automation. ✅
+- `scripts/inject/test_capture_trigger.py` — 13 tests (build/validate, dedup,
+  update, captured-then-matches end-to-end, pattern_ref resolution, CLI). ✅
+- `scripts/inject/codify-capture-step.md` — handoff doc to add Step 5b + the
+  Step 6 `git add` change to the (self-mod-blocked) `/codify` skill. ⏳ awaiting
+  user apply.
+
+Remaining follow-ups: auto-*wire* `capture_trigger.py` into the review path
+(kimi-review / reviewers calling it with `--severity candidate` — the script
+already supports it); the `test-inject-patterns.sh` hook-test extension; and the
+LSP todo.
