@@ -156,7 +156,9 @@ Non-review agents (invoke directly for implementation tasks):
 
 - `wagtail-cms-orchestrator.md` — CMS content, API integration, data flow tracing
 - `frontend-developer.md` — React UI/UX implementation
-- `docs-researcher.md` — validates findings against current library docs (used by `/audit` Phase 2.5)
+- `docs-researcher.md` — validates findings against current library docs via
+  Context7 (committed `.mcp.json`; see Harness Automation → Documentation backend),
+  used by `/audit` Phase 2.5
 
 ## Harness Automation
 
@@ -190,6 +192,17 @@ Short, auto-injected "always/never" checklists, one file per domain (`security`,
 - **`/audit [scope]`** — structured 8-phase audit: specialist-agent discovery,
   doc-research validation, per-fix verification, manifest tracking in
   `docs/audits/`, code review, and codification.
+
+### Documentation backend — Context7 (`.mcp.json`)
+
+A committed project-root `.mcp.json` registers **Context7**
+(`@upstash/context7-mcp`) as the sanctioned, version-accurate documentation source.
+It is the #1 backend for the `docs-researcher` agent and `/audit` Phase 2.5 (ahead
+of WebFetch/WebSearch), so doc research and audit-finding validation no longer
+depend on a per-developer plugin install. Tools: `mcp__context7__resolve-library-id`
+and `mcp__context7__query-docs`. Claude Code asks once to trust the server on first
+use; no API key needed (set optional `CONTEXT7_API_KEY` for higher rate limits —
+never commit it).
 
 ## Environment Variables
 
