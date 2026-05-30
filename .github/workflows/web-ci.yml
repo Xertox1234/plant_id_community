@@ -1,0 +1,52 @@
+name: Web CI
+
+'on':
+  push:
+    branches: [main, develop]
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    # No path filter on pull_request: the web-checks job is a required status
+    # check, so it must report on every PR. A path-filtered required check never
+    # reports on PRs that miss the filter (e.g. backend-only changes), which
+    # permanently blocks the merge. Same rationale as backend-ci.yml.
+
+jobs:
+  web-checks:
+    name: Type-check, lint, and unit/component tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check (tsc --noEmit)
+        run: npm run type-check
+
+      - name: Lint (ESLint)
+        run: npm run lint
+
+      - name: Unit and component tests (Vitest)
+        # --run forces a single pass (Vitest defaults to watch mode interactively).
+        run: npm run test -- --run
+
+      # Playwright E2E is intentionally NOT run here. web/playwright.config.ts
+      # defines a webServer block that auto-starts the Vite dev server, and the
+      # specs exercise the live backend API (see web/CLAUDE.md). Wiring that into
+      # CI needs the Django backend + Postgres/Redis stood up alongside the web
+      # server — out of scope for this web-only gate. Track e2e-in-CI separately.
