@@ -282,9 +282,11 @@ export async function reorderPostImages(
 // ---------------------------------------------------------------------------
 
 export async function searchForum(options: SearchForumOptions): Promise<SearchForumResponse> {
-  const { q } = options;
+  const { q, page = 1, page_size = 20 } = options;
   if (!q || q.trim() === '') throw new Error('Search query is required');
   const params = new URLSearchParams({ q: q.trim() });
+  if (page > 1) params.set('page', String(page));
+  if (page_size !== 20) params.set('page_size', String(page_size));
   const data = await authenticatedFetch<{ topics: BackendTopic[]; posts: BackendPost[] }>(
     `${FORUM_BASE}/search/?${params}`
   );
@@ -298,9 +300,9 @@ export async function searchForum(options: SearchForumOptions): Promise<SearchFo
     posts,
     total_threads: threads.length,
     total_posts: posts.length,
-    has_next_threads: false,
-    has_next_posts: false,
-    page: 1,
-    page_size: threads.length + posts.length,
+    has_next_threads: threads.length >= page_size,
+    has_next_posts: posts.length >= page_size,
+    page,
+    page_size: page_size ?? threads.length + posts.length,
   } as SearchForumResponse;
 }
