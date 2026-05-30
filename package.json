@@ -2,5 +2,12 @@
   "dependencies": {
     "@playwright/test": "^1.56.1",
     "react-error-boundary": "^6.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.95.0"
+  },
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
   }
 }
