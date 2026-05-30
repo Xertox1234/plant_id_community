@@ -313,3 +313,10 @@ This file is append-only. New entries are added by main Claude after each code r
 **Fix**: Verified the branch was a strict superset of the squash (only the squash commit was ahead on main), resolved `api_views.py` to the branch's evolved version, kept the branch's todo states, and removed the resurrected `pending` dupes.
 **Rule**: After a feature branch is squash-merged to main, rebase/reconcile before continuing — expect code conflicts (squashed vs evolved) AND resurrected completed-todo files. Before committing such a merge, grep for any `todos/<id>-pending-*` that also has a `todos/archive/<id>-*`.
 **Agent**: baseline
+
+### [2026-05-29] Harness: `scripts/kimi-review` is drift-locked; recurring mistakes now flagged at write-time
+
+**Mistake/Context**: Building review-time trigger capture (#298–302) surfaced a harness trap: `scripts/kimi-review` is a *vendored* copy of a canonical engine, and `scripts/check-kimi-engine.sh` runs in pre-commit and blocks the commit if the vendored copy drifts — so editing `scripts/kimi-review` directly breaks the commit gate.
+**Fix/Pattern**: To change the review engine, edit the canonical copy and run `scripts/sync-kimi-engine.sh`; never edit the vendored `scripts/kimi-review`. Separately, recurring mistakes are now flagged at write-time from `docs/rules/triggers.json` (matcher `scripts/inject/match_triggers.py`, injected by `.claude/hooks/inject-patterns.sh`); add one via `scripts/inject/capture_trigger.py`, or auto-capture from review via the code-review orchestrator's Phase 2.5 → `scripts/inject/capture_from_review.py`. Design: `docs/superpowers/specs/2026-05-29-jit-mistake-injection-design.md`.
+**Rule**: Never edit `scripts/kimi-review` directly (drift-checked vendored engine) — sync via `scripts/sync-kimi-engine.sh`. A recurring, signature-able mistake belongs in `triggers.json`, not only in a prose rule.
+**Agent**: —
