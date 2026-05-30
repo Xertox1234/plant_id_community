@@ -100,8 +100,8 @@ If a checklist item does not apply to any file in the batch, do not emit a findi
 When invoked with a list of findings to repair in a single file:
 
 1. Read the affected file with the `Read` tool.
-2. Compute the minimal edits that fix all listed findings without changing unrelated code.
-3. Return ONLY this JSON structure (no surrounding prose):
+1. Compute the minimal edits that fix all listed findings without changing unrelated code.
+1. Return ONLY this JSON structure (no surrounding prose):
 
 ```json
 {
