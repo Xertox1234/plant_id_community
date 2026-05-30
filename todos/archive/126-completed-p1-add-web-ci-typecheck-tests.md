@@ -1,6 +1,6 @@
 ---
 name: add-web-ci-typecheck-tests
-status: in_progress
+status: completed
 priority: p1
 created: 2026-05-30
 tags: [harness, ci, web, typescript, testing]
@@ -77,3 +77,40 @@ YAML validated with `yaml.safe_load`: `name: Web CI`; triggers `push` +
 `pull_request`; `PR_HAS_PATHS_FILTER: False`. `web/package.json` confirmed to
 expose `type-check` (`tsc --noEmit`) and `test` (`vitest`) — nothing to add.
 All 4 acceptance criteria flipped with evidence above.
+
+### 2026-05-30 - Code review (Step 4)
+
+Note: the `code-review-orchestrator` agent type is not registered in this
+session, so review was performed by a `general-purpose` agent reviewing the only
+code artifact (`.github/workflows/web-ci.yml`) against the sibling workflows
+`backend-ci.yml` / `mobile-ci.yml` / `security-scan.yml`.
+
+Verdict: **0 critical, 0 high, 1 medium, several informational.** "Fundamentally
+correct, will run and gate properly."
+
+- **Medium — `setup-node@v4` drifts from repo convention. FIXED.** `security-scan.yml:93`
+  (the only other Node setup) pins `actions/setup-node@v6`. Bumped web-ci to
+  `@v6`. Re-validated YAML after the edit.
+- Informational (no action, all confirmed correct by the reviewer):
+  - `node-version-file: .nvmrc` (root, =24) + `cache-dependency-path:
+    web/package-lock.json` resolve from repo root — correct despite
+    `working-directory: web` (that only applies to `run:` steps, not `uses:`).
+  - `npm run test -- --run` forces a single Vitest pass; no watch/hang risk
+    (Vitest also auto-detects CI).
+  - Required-check pattern matches `backend-ci.yml`: `push` filtered on `web/**`,
+    `pull_request` unfiltered (`PR_HAS_PATHS_FILTER: False`).
+  - No errant `continue-on-error` → all four steps are blocking.
+  - Playwright deferral correctly documented (config has a `webServer` block that
+    boots the Django backend — out of scope for a web-only gate).
+
+Decision: did **not** add a `concurrency:` block. Only `kimi-review.yml` uses one;
+`backend-ci.yml` and `mobile-ci.yml` (the convention models cited above) do not —
+adding it would diverge from those models for no functional gain on a fast check.
+
+### 2026-05-30 - Completed by completing-todos skill (run 2026-05-30-1511)
+
+- Verification: all 4 acceptance criteria passed — type-check / lint / vitest all
+  exit 0 (26 files, 664 tests); YAML valid; required-check pattern confirmed
+  (`PR_HAS_PATHS_FILTER: False`); `web/package.json` already exposes both scripts.
+- Review: 1 medium (`setup-node@v4`→`@v6`) fixed; remaining notes informational,
+  no blocking findings.
