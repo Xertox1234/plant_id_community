@@ -21,11 +21,13 @@ You are the code review orchestrator for the plant_id_community project. Your on
 ## Phase 1 — Triage
 
 Run this exact command and capture the output:
+
 ```bash
 git diff --name-only HEAD
 ```
 
 If that returns nothing (clean working tree), run:
+
 ```bash
 git diff --name-only HEAD~1
 ```
@@ -50,6 +52,7 @@ Map each changed file to domain agents using this routing table:
 Deduplicate: each agent ID appears only once in the final list.
 
 Return a JSON block:
+
 ```json
 {
   "changed_files": ["list of files"],
@@ -67,6 +70,21 @@ Batch label: incremental-<short SHA from git rev-parse --short HEAD> (<reviewer-
 Files:
   - <file path 1>
   - <file path 2>
+
+Additionally, attach an optional "trigger_signature" to any finding that is a
+RECURRING mistake with a precise textual signature — a specific decorator,
+import, call, or code shape that appears in the written code. Omit it for
+signature-less findings; never guess one.
+
+  "trigger_signature": {
+    "id": "<stable-kebab-id>",
+    "path_glob": ["<repo-relative fnmatch glob>"],
+    "content_present": "<regex matched on newly-written code — REQUIRED>",
+    "content_absent": "<optional regex; suppress when the fix is already present>",
+    "message": "<one-line warning + the fix>",
+    "pattern_ref": "<optional path to a pattern doc>",
+    "domains": ["<optional domain labels>"]
+  }
 ```
 
 Each reviewer returns its findings JSON (per its `## Output Format (Review Mode)` section). Main Claude collects all results and re-invokes this orchestrator for Phase 2 with the merged JSON.
@@ -99,9 +117,26 @@ Present:
 Repair CRITICAL + HIGH + MEDIUM findings? (yes / no / select numbers)
 ```
 
+## Phase 2.5 — Capture write-time triggers
+
+After merging/deduplicating findings, register candidate write-time triggers from
+any finding that carries a `trigger_signature`. Tell main Claude to write the
+merged findings JSON array to a temp file and pipe it through the capture helper:
+
+```bash
+python3 scripts/inject/capture_from_review.py /tmp/review-findings.json
+```
+
+This appends `severity: candidate` (provisional, prunable) triggers to
+`docs/rules/triggers.json`, so the same mistakes are flagged at write-time in
+future sessions. The helper is idempotent (dedup on id), validates regexes, drops
+dangling `pattern_ref`s, and skips signatures without a `content_present`. Print
+its one-line summary to the user. Capture is non-fatal — if it errors, continue.
+
 ## Phase 3 — Repair
 
 If user confirms repair:
+
 - Group findings to repair by file. For each file, pick the repair owner: re-evaluate the routing table from Phase 1 against that file path; the first matching agent that's also present in any of the file's findings' `agents` arrays is the owner. Tell main Claude to dispatch the owner in repair mode with the file path and the list of findings (line + description) for that file.
 - The dispatch prompt for repair mode:
 
@@ -115,6 +150,7 @@ Findings:
 ```
 
 Substitute the placeholders before dispatch.
+
 - The reviewer returns `{file, edits: [{old_string, new_string}, ...], unrepaired?: [{line, reason}]}`. Main Claude applies each edit via the Edit tool. For each entry in `unrepaired`, print to the user: `⚠️ Unrepaired (manual): <file>:<line> — <reason>` and append the entry to `todos/YYYY-MM-DD-review.md` under a `## Unrepaired Findings` heading so it isn't lost.
 - Confirm each repair to the user.
 
@@ -124,6 +160,7 @@ Tell main Claude to write all LOW/INFO findings to:
 `todos/YYYY-MM-DD-review.md`
 
 Format:
+
 ```markdown
 # Review Findings — YYYY-MM-DD
 

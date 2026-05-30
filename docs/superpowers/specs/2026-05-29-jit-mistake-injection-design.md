@@ -380,7 +380,16 @@ via #298):
   Step 6 `git add` change to the (self-mod-blocked) `/codify` skill. ⏳ awaiting
   user apply.
 
-Remaining follow-ups: auto-*wire* `capture_trigger.py` into the review path
-(kimi-review / reviewers calling it with `--severity candidate` — the script
-already supports it); the `test-inject-patterns.sh` hook-test extension; and the
+## Implementation status — review-path auto-capture (2026-05-29)
+
+Done (branch `feat/review-trigger-capture`): reviewers may attach a
+`trigger_signature` to a finding (code-review-orchestrator dispatch prompt), and a
+new orchestrator **Phase 2.5** pipes merged findings to
+`scripts/inject/capture_from_review.py`, which appends `severity: candidate`
+triggers. Reuses `capture_trigger.py`; safe by construction (candidate + prunable,
+dedup-on-id, regex-validated, skips signatures without `content_present`, non-fatal
+on IO error). 15 tests. The kimi-review commit gate was deliberately *not* wired
+(every-commit volume = noise); on-demand orchestrator review only.
+
+Remaining follow-ups: the `test-inject-patterns.sh` hook-test extension; and the
 LSP todo.
