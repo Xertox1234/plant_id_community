@@ -63,4 +63,6 @@ links to the full audit manifest with detailed findings and resolutions.
   verification batches small + independent, prefer direct primary-source reads,
   route results through files. A correction built on another single unreliable
   read nearly buried real finding F2.
-- **Commit(s):** _pending — report-only, no fix commit; todos 126–132 filed._
+- **Commit(s):** `cbb028b` (audit artifacts + todos 126–133), `b20a065` (web-ci
+  workflow — F1 fix), `e32c390` (F1 checkoff + todo 126 archive); branch
+  `chore/harness-audit-2026-05-30` (PR #307).

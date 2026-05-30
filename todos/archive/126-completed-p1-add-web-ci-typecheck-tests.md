@@ -70,7 +70,7 @@ Verification — ran each gate command locally on current `main`:
 ```text
 npm run type-check   → TYPECHECK_EXIT=0
 npm run lint         → LINT_EXIT=0
-npm run test -- --run→ VITEST_EXIT=0   (Test Files 9 passed (9) | Tests 72 passed (72))
+npm run test -- --run→ VITEST_EXIT=0   (Test Files 26 passed (26) | Tests 664 passed (664))
 ```
 
 YAML validated with `yaml.safe_load`: `name: Web CI`; triggers `push` +
