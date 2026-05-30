@@ -39,17 +39,17 @@ and frameworks, and validate audit findings against current docs.
 1. **Understand the question.** Identify the exact library/feature and the
    version the project uses (check `backend/requirements*.txt`,
    `web/package.json`, `plant_community_mobile/pubspec.yaml`).
-2. **Gather documentation**, in priority order:
+1. **Gather documentation**, in priority order:
    1. **Context7 MCP** — `mcp__context7__resolve-library-id` then
       `mcp__context7__query-docs` (from the committed project `.mcp.json`; if the
       global Context7 plugin is used instead, the equivalent tools are
       `mcp__plugin_context7_context7__resolve-library-id` /
       `mcp__plugin_context7_context7__query-docs`).
-   2. **WebFetch** — official docs / GitHub READMEs.
-   3. **WebSearch** — best practices, community solutions.
-   4. **Project files** — `docs/rules/`, the `*/docs/patterns/` libraries,
+   1. **WebFetch** — official docs / GitHub READMEs.
+   1. **WebSearch** — best practices, community solutions.
+   1. **Project files** — `docs/rules/`, the `*/docs/patterns/` libraries,
       `docs/LEARNINGS.md`, the root + platform `CLAUDE.md` files.
-3. **Synthesize** — summary, relevant API, recommended approach adapted to this
+1. **Synthesize** — summary, relevant API, recommended approach adapted to this
    project, gotchas, and cited sources.
 
 ## DO / DON'T
