@@ -1,5 +1,14 @@
 name: Backend CI
 
+# Lint scope decision (todo 132): flake8/black/isort are intentionally NOT run
+# here — they stay pre-commit-enforced (.pre-commit-config.yaml pins black 24.1.1,
+# flake8 7.0.0, isort 5.13.2). A full-tree flake8 gate would be red: project code
+# (excluding venv/migrations) carries ~3,179 pre-existing violations, and that debt
+# is explicitly frozen (root setup.cfg: "do not widen these suppressions").
+# pre-commit lints incrementally on changed files; a faithful CI equivalent needs
+# diff-scoped linting. Residual risk: --no-verify bypasses pre-commit. Future path:
+# a diff-scoped lint job, or debt cleanup followed by a full-tree gate.
+
 'on':
   push:
     branches: [main, develop]
@@ -69,3 +78,104 @@ jobs:
         # pre-existing "unable to guess serializer" warnings on auth APIViews are
         # warnings, not errors, and must not fail the build.
         run: python manage.py spectacular --file /dev/null
+
+  backend-tests:
+    name: Run backend test suite (pytest, postgres + redis)
+    runs-on: ubuntu-latest
+
+    # Shares this workflow's `on:` triggers with backend-checks: push is
+    # path-filtered; pull_request is NOT (see the comment at the top of this
+    # file — a path-filtered REQUIRED check never reports on off-path PRs and
+    # permanently blocks the merge). For this job to actually block a merge it
+    # must also be added to the branch-protection required-status-checks list;
+    # the workflow only makes the check exist and report.
+
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        # settings.py uses DATABASE_URL for the test DB under pytest (the
+        # `"test" in sys.argv` Postgres branch at settings.py:303 only fires for
+        # `manage.py test`, NOT pytest). Django's test runner then creates
+        # `test_plant_community` from this service.
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres  # pragma: allowlist secret
+          POSTGRES_DB: plant_community
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DEBUG: 'True'
+      ENABLE_FILE_LOGGING: 'False'
+      # Forum stays OFF: ENABLE_FORUM=True would pull apps.forum_integration into
+      # INSTALLED_APPS and un-ignore the very tests pytest.ini deliberately skips
+      # (forum_integration tests + 2 plant_identification diagnosis files).
+      ENABLE_FORUM: 'False'
+      # MUST be set explicitly: under pytest, "test" is not in sys.argv, so the
+      # Postgres test branch never fires and pytest-django reads DATABASE_URL.
+      # TEST_DB_* would have no effect here.
+      DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/plant_community'  # pragma: allowlist secret
+      REDIS_URL: 'redis://localhost:6379/1'
+      SECRET_KEY: 'ci-django-key-for-backend-checks-abcdefghijklmnopqrstuvwxyz1234567890'
+      JWT_SECRET_KEY: 'ci-jwt-key-for-backend-checks-abcdefghijklmnopqrstuvwxyz1234567890-different'
+      # Placeholder third-party API keys. test_services.py constructs the
+      # PlantNet / Plant.id / Trefle service objects, which raise ValueError
+      # unless their key is set in settings (all default ""). The HTTP calls are
+      # mocked, so the value never goes on the wire — it only needs to be present
+      # and >=32 chars to clear settings.py's length validation. NOT real secrets.
+      # (Without these, 13 test_services.py tests fail in CI even though they pass
+      # locally, where the dev .env supplies the keys.)
+      PLANTNET_API_KEY: 'ci-placeholder-plantnet-key-000000000000'  # pragma: allowlist secret
+      PLANT_ID_API_KEY: 'ci-placeholder-plantid-key-0000000000000'  # pragma: allowlist secret
+      PLANT_HEALTH_API_KEY: 'ci-placeholder-planthealth-key-000000000'  # pragma: allowlist secret
+      TREFLE_API_KEY: 'ci-placeholder-trefle-key-00000000000000'  # pragma: allowlist secret
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Generate CI-only field encryption key
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          from cryptography.fernet import Fernet
+
+          print(f"FIELD_ENCRYPTION_KEY={Fernet.generate_key().decode()}")
+          PY
+
+      - name: Run backend test suite (pytest)
+        # Runner is pytest (config in backend/pytest.ini), which ignores
+        # apps/forum_integration tests and 2 plant_identification diagnosis test
+        # files by design. The trailing pytest summary line ("N passed, M
+        # skipped") is the recorded pass count for drift tracking. Baseline on
+        # main at wiring time: 609 passed, 8 skipped (617 collected). A failing
+        # test exits non-zero and fails this job.
+        run: python -m pytest
