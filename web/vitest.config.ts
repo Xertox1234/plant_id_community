@@ -27,7 +27,9 @@ export default defineConfig({
         '**/vite.config.{js,ts}',
         '**/vitest.config.{js,ts}',
       ],
-      // Thresholds for failing tests if coverage is too low
+      // Advisory thresholds — enforced locally when running `npm run test:coverage`
+      // but NOT checked in CI (web-ci.yml runs `vitest --run` without --coverage).
+      // Treat these as a local development signal, not a merge gate.
       thresholds: {
         lines: 80,
         functions: 80,
