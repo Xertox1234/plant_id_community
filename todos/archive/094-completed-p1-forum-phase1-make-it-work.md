@@ -1,5 +1,5 @@
 ---
-status: done
+status: completed
 priority: p1
 issue_id: "094"
 tags: [forum, web, frontend]
