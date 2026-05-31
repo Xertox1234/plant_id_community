@@ -22,6 +22,19 @@ npm run test:e2e:ui   # Playwright UI — best for debugging E2E failures
 - **TypeScript strictness** — `strict: false` for now. Avoid `any`; use `unknown` for truly unknown types. New types go in `src/types/`.
 - **User-generated HTML** — always sanitize with `DOMPurify` before rendering. Never set `dangerouslySetInnerHTML` with raw user input.
 - **CSRF** — include `X-CSRFToken` header and `credentials: 'include'` on all mutating requests to the backend.
+- **Auth is cookie-based** — the session cookie is set by Django on login; do not send an `Authorization: Bearer` header. `diagnosisService` and all other services authenticate via cookie only.
+
+## Deployment
+
+The React app is deployed to **Cloudflare Workers** as a static-assets site. Config is in `wrangler.jsonc` at the repo root.
+
+```bash
+# From repo root (not web/)
+npm run deploy    # wrangler deploy — push to Cloudflare
+npm run preview   # wrangler dev — local Workers emulation
+```
+
+The `assets.directory` points at the `web/` folder, so run `npm run build` inside `web/` first, then `npm run deploy` from root.
 
 ## CI
 
