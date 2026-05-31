@@ -19,7 +19,6 @@ class GrainOverlay extends StatelessWidget {
             child: Image.asset(
               'assets/images/grain.png',
               fit: BoxFit.cover,
-              repeat: ImageRepeat.repeat,
               color: Colors.black.withValues(alpha: 0.35),
               colorBlendMode: BlendMode.multiply,
             ),

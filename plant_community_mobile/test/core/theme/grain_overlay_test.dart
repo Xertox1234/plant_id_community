@@ -33,7 +33,7 @@ void main() {
     final ignorePointers = find.byWidgetPredicate(
       (widget) => widget is IgnorePointer && widget.ignoring,
     );
-    expect(ignorePointers, findsWidgets);
+    expect(ignorePointers, findsOneWidget);
   });
 
   testWidgets('returns child directly when showGrain is false', (tester) async {
