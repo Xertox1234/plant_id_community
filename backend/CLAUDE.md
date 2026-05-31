@@ -41,6 +41,15 @@ redis-cli ping   # should return PONG
 - **Escape search wildcards** — before any `icontains` filter, escape `%` and `_`: `query.replace('%', r'\%').replace('_', r'\_')`. See `docs/patterns/security/input-validation.md`.
 - **Wagtail admin** — at `/cms/`, not `/admin/`.
 
+## CI
+
+Two GitHub Actions workflows gate PRs:
+
+- **`backend-checks`** — Django system check + OpenAPI schema validation (`manage.py spectacular`). Uses SQLite, no external services.
+- **`backend-tests`** — Full pytest suite against **PostgreSQL 16** + **Redis 7** (spun up as GitHub services). Placeholder API keys are injected for length-validation tests; all external HTTP calls are mocked.
+
+Lint (flake8/black/isort) is **pre-commit only**, not enforced in CI (≈3k pre-existing violations make a full-tree gate impractical; pre-commit lints changed files incrementally).
+
 ## Gotcha: stale test DB after migration changes
 
 If a test raises `FieldError` after you changed a migration, the test DB predates the change. Fix:

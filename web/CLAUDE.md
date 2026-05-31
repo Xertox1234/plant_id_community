@@ -23,6 +23,14 @@ npm run test:e2e:ui   # Playwright UI — best for debugging E2E failures
 - **User-generated HTML** — always sanitize with `DOMPurify` before rendering. Never set `dangerouslySetInnerHTML` with raw user input.
 - **CSRF** — include `X-CSRFToken` header and `credentials: 'include'` on all mutating requests to the backend.
 
+## CI
+
+`web-ci.yml` gates every PR: TypeScript check (`tsc --noEmit`), ESLint, and Vitest unit tests (`vitest --run`). No external services required.
+
+Coverage thresholds in `vitest.config.ts` (80% statements/lines/branches/functions) are **advisory/local-only** — they are documented there as such. CI does not run `--coverage`, so the threshold is never enforced in the pipeline. Current measured coverage is ~79–81% depending on metric; enforce once the suite is above the floor.
+
+E2E (Playwright) is excluded from CI for now — run locally with `npm run test:e2e`.
+
 ## Gotcha: debounce timers
 
 Use `useRef` — not `useState` — for debounce/interval timer IDs. `useState` triggers a re-render on every update, causes the callback to be recreated, and leaks the timer on unmount:

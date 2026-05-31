@@ -1,6 +1,6 @@
 # Forum Patterns: Trust Levels & Spam Detection
 
-**Last Updated**: November 13, 2025
+**Last Updated**: 2026-05-31
 **Consolidated From**: `TRUST_LEVEL_PATTERNS_CODIFIED.md`, `SPAM_DETECTION_PATTERNS_CODIFIED.md`
 **Status**: ✅ Production-Tested (A+ grade, 99/100)
 **Test Coverage**: 54 passing tests (18 trust levels + 17 spam + 19 moderation)
@@ -25,7 +25,7 @@
 
 **Purpose**: Progressive permissions based on user activity and tenure, reducing spam while rewarding legitimate users.
 
-**Location**: `apps/forum/services/trust_level_service.py`, `apps/forum/constants.py`
+**Location**: `apps/forum_integration/services/trust_level_service.py`, `apps/forum_integration/constants.py`
 
 **Trust Levels**:
 | Level | Name | Requirements | Daily Limits | Permissions |
@@ -56,7 +56,7 @@
 
 ### Pattern: Static Methods Service Class
 
-**Location**: `apps/forum/services/trust_level_service.py`
+**Location**: `apps/forum_integration/services/trust_level_service.py`
 
 ```python
 class TrustLevelService:
@@ -254,7 +254,7 @@ def invalidate_user_trust_cache(sender, instance, created, **kwargs):
 
 **Purpose**: Detect spam using multiple weighted checks, blocking content if total score ≥50 points.
 
-**Location**: `apps/forum/services/spam_detection_service.py`
+**Location**: `apps/forum_integration/services/spam_detection_service.py`
 
 **Heuristics**:
 
@@ -416,7 +416,7 @@ cache.set(cache_key, result, CACHE_TIMEOUT_SPAM_CHECK)  # 5 minutes
 
 ### Pattern: Pre-Warmed Dashboard Cache
 
-**Location**: `apps/forum/management/commands/warm_moderation_cache.py`
+**Location**: `apps/forum_integration/management/commands/warm_moderation_cache.py`
 
 ```python
 class Command(BaseCommand):
@@ -478,7 +478,7 @@ python manage.py runserver
 
 ### Cache Invalidation Strategy
 
-**Location**: `apps/forum/signals.py`
+**Location**: `apps/forum_integration/signals.py`
 
 ```python
 @receiver(post_save, sender=ModerationAction)
@@ -508,7 +508,7 @@ def invalidate_moderation_cache(sender, instance, **kwargs):
 
 ### Pattern: Trust Level Changed Signal
 
-**Location**: `apps/forum/services/trust_level_service.py`
+**Location**: `apps/forum_integration/services/trust_level_service.py`
 
 ```python
 # Define signal
@@ -569,7 +569,7 @@ def send_promotion_email(sender, user, old_level, new_level, **kwargs):
 
 ### Pattern: Trust Level Service Tests
 
-**Location**: `apps/forum/tests/test_trust_level_service.py`
+**Location**: `apps/forum_integration/tests/test_trust_level_service.py`
 
 ```python
 class TrustLevelServiceTests(TestCase):
@@ -638,7 +638,7 @@ class TrustLevelServiceTests(TestCase):
 
 ### Pattern: Spam Detection Tests
 
-**Location**: `apps/forum/tests/test_spam_detection.py`
+**Location**: `apps/forum_integration/tests/test_spam_detection.py`
 
 ```python
 class SpamDetectionServiceTests(TestCase):
@@ -777,6 +777,71 @@ score = max(commercial_score, financial_score, phishing_score)
 
 ---
 
+### Pitfall 6: Using `or` as a Numeric Default Where 0 Is Valid
+
+**Problem**:
+
+```python
+# ❌ 0 is falsy — second image always gets order 0 and collides
+upload_order = (max_order or -1) + 1
+```
+
+When the current max is `0`, `0 or -1` evaluates to `-1`, so the next image also gets order 0 and hits the `unique_together` constraint. Also, placing this in `save()` without a guard re-fires on every UPDATE, silently relocating existing images.
+
+**Solution**:
+
+```python
+# ✅ Explicit None check; insert-only guard
+if self.pk is None:
+    upload_order = (max_order if max_order is not None else -1) + 1
+```
+
+---
+
+### Pitfall 7: Catching DB Errors Inside `atomic()` Without a Savepoint
+
+**Problem**:
+
+```python
+# ❌ Caught IntegrityError leaves transaction poisoned
+with transaction.atomic():
+    for item in items:
+        try:
+            ForumPostImage.objects.create(post=post, **item)
+        except IntegrityError:
+            pass  # next insert raises TransactionManagementError
+```
+
+**Solution**: Wrap each risky insert in a nested `atomic()` (savepoint) so a failure rolls back only that item and the outer transaction stays usable:
+
+```python
+with transaction.atomic():
+    for item in items:
+        try:
+            with transaction.atomic():   # savepoint per item
+                ForumPostImage.objects.create(post=post, **item)
+        except IntegrityError:
+            pass  # only this savepoint rolls back
+```
+
+---
+
+### Pitfall 8: Assuming `Ratelimited` Carries the Rate
+
+**Problem**:
+
+```python
+# ❌ Ratelimited has no .rate — hardcoded Retry-After is wrong
+except Ratelimited:
+    return Response(..., headers={"Retry-After": "3600"})
+```
+
+`django-ratelimit 4.x` raises `class Ratelimited(PermissionDenied): pass` — no `.rate` attribute.
+
+**Solution**: Use the `apps/core/ratelimit.py` wrapper decorator, which catches `Ratelimited` and re-raises `RatelimitedWithRate(rate)`. The exception handler can then derive `Retry-After` from `exc.rate` (`/m`→60, `/h`→3600). See `backend/docs/patterns/architecture/rate-limiting.md`.
+
+---
+
 ## Testing Startup Paths When `INSTALLED_APPS` Is Gated on a Feature Flag
 
 `ENABLE_FORUM` controls which apps appear in `INSTALLED_APPS` — but `INSTALLED_APPS` is
@@ -882,7 +947,7 @@ These forum patterns ensure:
 
 ---
 
-**Last Reviewed**: 2026-05-09
-**Pattern Count**: 8 forum patterns (trust levels + spam detection + startup-path testing)
-**Status**: ✅ Production-validated (54/54 tests passing)
+**Last Reviewed**: 2026-05-31
+**Pattern Count**: 11 forum patterns (trust levels + spam detection + startup-path testing + image upload + savepoints + ratelimit)
+**Status**: ✅ Production-validated
 **Performance**: 80-95% cache hit rates, 92% dashboard load reduction
