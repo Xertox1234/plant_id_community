@@ -1,6 +1,6 @@
 ---
 name: sync-stale-kimi-review-engine
-status: pending
+status: completed
 priority: p2
 issue_id: "135"
 created: 2026-05-30
@@ -61,13 +61,23 @@ canonical engine has moved ahead of the vendored copy.
 
 ## Acceptance Criteria
 
-- [ ] `bash scripts/sync-kimi-engine.sh` runs clean and updates `scripts/kimi-review`.
-- [ ] A commit with a real staged change passes the `kimi-review` hook **without**
+- [x] `bash scripts/sync-kimi-engine.sh` runs clean and updates `scripts/kimi-review`.
+- [x] A commit with a real staged change passes the `kimi-review` hook **without**
       `SKIP_KIMI_REVIEW=1` (the staleness check passes; the diff review runs).
-- [ ] `scripts/kimi-review` diff is an engine sync only — no change to
+- [x] `scripts/kimi-review` diff is an engine sync only — no change to
       `scripts/kimi-profiles.json` and no unexplained behavior change.
 
 ## Work Log
+
+### 2026-05-31 - Completed by completing-todos skill (run 2026-05-31-0145)
+
+- Picked up by automated workflow. Canonical engine confirmed present at `$HOME/.local/share/claude-coworker/tools/kimi-review`.
+- Verification: all 3 acceptance criteria passed. `bash scripts/check-kimi-engine.sh` → exit 0 ("vendored scripts/kimi-review matches canonical"); `kimi-profiles.json` diff clean.
+- Review: 3 findings (1 high, 1 medium, 1 low). High: `except Exception` path now returns `downgrade_unverified` (CRITICAL→WARNING) instead of `keep_unverified`. Intentional canonical engine change — accepted at completion. Medium: unknown verdict values now downgrade instead of keep (same rationale). Low: stale docstring.
+- Known issues — accepted at completion:
+  - [high] scripts/kimi-review:604 — `except Exception` handler now unblocks CRITICAL on engine bugs. Intentional canonical design; reverting would cause re-divergence on next sync.
+  - [medium] scripts/kimi-review:597 — unknown verdict values now `downgrade_unverified` instead of conservative keep.
+  - [low] scripts/kimi-review:267 — `_verdict_acceptable` docstring stale re: `keep_unverified`.
 
 ### 2026-05-30 - Filed
 
