@@ -28,9 +28,11 @@ class ClayButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final rawExt = Theme.of(context).extension<GreenThumbExtension>();
-    assert(rawExt != null,
-        'ClayButton requires GreenThumbExtension to be registered in the theme. '
-        'Ensure AppTheme.build() is used to create the ThemeData.');
+    assert(
+      rawExt != null,
+      'ClayButton requires GreenThumbExtension to be registered in the theme. '
+      'Ensure AppTheme.build() is used to create the ThemeData.',
+    );
     final ext = rawExt!;
     final isDisabled = onPressed == null;
 
