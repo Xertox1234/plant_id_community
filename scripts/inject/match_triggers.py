@@ -19,6 +19,7 @@ Env overrides (used by tests / the hook):
   INJECT_TRIGGERS_FILE  path to the trigger index (default:
                         <root>/docs/rules/triggers.json)
 """
+import datetime
 import fnmatch
 import json
 import os
@@ -168,6 +169,20 @@ def read_disk(file_path, project_root):
         return None
 
 
+def _log_fires(hits, rel_path):
+    """Append fired trigger IDs to INJECT_FIRES_LOG. Fail-open — never blocks."""
+    if not hits:
+        return
+    try:
+        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        log_path = os.environ.get("INJECT_FIRES_LOG", "/tmp/inject-fires.log")
+        with open(log_path, "a") as fh:
+            for t in hits:
+                fh.write("{}\t{}\t{}\n".format(ts, rel_path, t.get("id", "unknown")))
+    except Exception:
+        pass
+
+
 def main():
     try:
         payload = json.loads(sys.stdin.read())
@@ -188,6 +203,7 @@ def main():
         return 0
     disk = read_disk(tool_input["file_path"], project_root)
     hits = find_matches(tool_name, tool_input, triggers, disk, project_root)
+    _log_fires(hits, to_rel(tool_input["file_path"], project_root))
     out = format_hits(hits)
     if out:
         sys.stdout.write(out + "\n")

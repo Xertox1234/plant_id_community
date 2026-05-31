@@ -15,7 +15,7 @@ Multi-platform plant identification app. Backend (Django + Wagtail) at port 8000
 |-----------|------|
 | `backend/apps/plant_identification/` | Dual-provider plant ID API (Plant.id v3 + PlantNet) |
 | `backend/apps/blog/` | Wagtail CMS blog with AI content generation |
-| `backend/apps/forum/` | Community forum — trust levels, spam detection, moderation |
+| `backend/apps/forum_integration/` | Community forum — trust levels, spam detection, moderation |
 | `backend/apps/garden_calendar/` | Garden beds, plants, care tasks, harvests |
 | `backend/apps/users/` | JWT auth + Firebase token exchange |
 | `web/` | React 19 + TypeScript frontend (blog, forum, auth) |
