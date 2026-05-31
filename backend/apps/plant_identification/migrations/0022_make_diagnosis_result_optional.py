@@ -7,13 +7,20 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('plant_identification', '0021_add_diagnosis_card_validators_and_index'),
+        ("plant_identification", "0021_add_diagnosis_card_validators_and_index"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='diagnosiscard',
-            name='diagnosis_result',
-            field=models.ForeignKey(blank=True, help_text='Original diagnosis result (optional - may be created from API)', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='diagnosis_cards', to='plant_identification.plantdiseaseresult'),
+            model_name="diagnosiscard",
+            name="diagnosis_result",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Original diagnosis result (optional - may be created from API)",
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="diagnosis_cards",
+                to="plant_identification.plantdiseaseresult",
+            ),
         ),
     ]

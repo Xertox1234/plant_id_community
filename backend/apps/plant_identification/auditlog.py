@@ -8,15 +8,15 @@ Registers sensitive models for audit trail tracking to comply with:
 """
 
 from auditlog.registry import auditlog
-from .models import (
-    PlantIdentificationResult,
-    PlantIdentificationRequest,
-    PlantSpecies,
-    UserPlant,
-    SavedCareInstructions,
-    PlantDiseaseResult,
-)
 
+from .models import (
+    PlantDiseaseResult,
+    PlantIdentificationRequest,
+    PlantIdentificationResult,
+    PlantSpecies,
+    SavedCareInstructions,
+    UserPlant,
+)
 
 # Register PlantIdentificationResult for comprehensive audit tracking
 # Tracks: AI identification results, confidence scores, user acceptance
@@ -24,11 +24,16 @@ from .models import (
 auditlog.register(
     PlantIdentificationResult,
     include_fields=[
-        'confidence_score', 'identification_source', 'is_accepted',
-        'is_primary', 'upvotes', 'downvotes', 'suggested_scientific_name',
-        'suggested_common_name'
+        "confidence_score",
+        "identification_source",
+        "is_accepted",
+        "is_primary",
+        "upvotes",
+        "downvotes",
+        "suggested_scientific_name",
+        "suggested_common_name",
     ],
-    exclude_fields=['api_response_data'],  # Exclude large JSON blobs for performance
+    exclude_fields=["api_response_data"],  # Exclude large JSON blobs for performance
 )
 
 # Register PlantIdentificationRequest for data access tracking
@@ -36,8 +41,14 @@ auditlog.register(
 auditlog.register(
     PlantIdentificationRequest,
     include_fields=[
-        'status', 'location', 'latitude', 'longitude', 'description',
-        'plant_size', 'habitat', 'processed_by_ai'
+        "status",
+        "location",
+        "latitude",
+        "longitude",
+        "description",
+        "plant_size",
+        "habitat",
+        "processed_by_ai",
     ],
 )
 
@@ -46,9 +57,16 @@ auditlog.register(
 auditlog.register(
     PlantSpecies,
     include_fields=[
-        'scientific_name', 'common_names', 'family', 'genus', 'species',
-        'is_verified', 'auto_stored', 'confidence_score',
-        'identification_count', 'api_source'
+        "scientific_name",
+        "common_names",
+        "family",
+        "genus",
+        "species",
+        "is_verified",
+        "auto_stored",
+        "confidence_score",
+        "identification_count",
+        "api_source",
     ],
 )
 
@@ -57,8 +75,12 @@ auditlog.register(
 auditlog.register(
     UserPlant,
     include_fields=[
-        'nickname', 'acquisition_date', 'location_in_home', 'notes',
-        'is_alive', 'is_public'
+        "nickname",
+        "acquisition_date",
+        "location_in_home",
+        "notes",
+        "is_alive",
+        "is_public",
     ],
 )
 
@@ -67,11 +89,16 @@ auditlog.register(
 auditlog.register(
     SavedCareInstructions,
     include_fields=[
-        'plant_scientific_name', 'plant_common_name', 'custom_nickname',
-        'personal_notes', 'care_difficulty_experienced', 'current_status',
-        'share_with_community', 'is_favorite'
+        "plant_scientific_name",
+        "plant_common_name",
+        "custom_nickname",
+        "personal_notes",
+        "care_difficulty_experienced",
+        "current_status",
+        "share_with_community",
+        "is_favorite",
     ],
-    exclude_fields=['care_instructions_data'],  # Exclude large JSON for performance
+    exclude_fields=["care_instructions_data"],  # Exclude large JSON for performance
 )
 
 # Register PlantDiseaseResult for health diagnosis tracking
@@ -79,8 +106,12 @@ auditlog.register(
 auditlog.register(
     PlantDiseaseResult,
     include_fields=[
-        'confidence_score', 'diagnosis_source', 'severity_assessment',
-        'is_accepted', 'is_primary', 'stored_to_database'
+        "confidence_score",
+        "diagnosis_source",
+        "severity_assessment",
+        "is_accepted",
+        "is_primary",
+        "stored_to_database",
     ],
-    exclude_fields=['api_response_data'],  # Exclude large JSON blobs
+    exclude_fields=["api_response_data"],  # Exclude large JSON blobs
 )

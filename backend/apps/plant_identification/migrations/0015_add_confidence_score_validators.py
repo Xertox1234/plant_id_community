@@ -7,28 +7,57 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('plant_identification', '0014_remove_plantidentificationrequest_idx_request_user_created_and_more'),
+        (
+            "plant_identification",
+            "0014_remove_plantidentificationrequest_idx_request_user_created_and_more",
+        ),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='plantdiseasedatabase',
-            name='confidence_score',
-            field=models.FloatField(help_text='Minimum confidence score from diagnoses (≥0.5 required)', validators=[django.core.validators.MinValueValidator(0.0), django.core.validators.MaxValueValidator(1.0)]),
+            model_name="plantdiseasedatabase",
+            name="confidence_score",
+            field=models.FloatField(
+                help_text="Minimum confidence score from diagnoses (≥0.5 required)",
+                validators=[
+                    django.core.validators.MinValueValidator(0.0),
+                    django.core.validators.MaxValueValidator(1.0),
+                ],
+            ),
         ),
         migrations.AlterField(
-            model_name='plantdiseaseresult',
-            name='confidence_score',
-            field=models.FloatField(help_text='Confidence score (0.0 to 1.0)', validators=[django.core.validators.MinValueValidator(0.0), django.core.validators.MaxValueValidator(1.0)]),
+            model_name="plantdiseaseresult",
+            name="confidence_score",
+            field=models.FloatField(
+                help_text="Confidence score (0.0 to 1.0)",
+                validators=[
+                    django.core.validators.MinValueValidator(0.0),
+                    django.core.validators.MaxValueValidator(1.0),
+                ],
+            ),
         ),
         migrations.AlterField(
-            model_name='plantidentificationresult',
-            name='confidence_score',
-            field=models.FloatField(help_text='Confidence score (0.0 to 1.0)', validators=[django.core.validators.MinValueValidator(0.0), django.core.validators.MaxValueValidator(1.0)]),
+            model_name="plantidentificationresult",
+            name="confidence_score",
+            field=models.FloatField(
+                help_text="Confidence score (0.0 to 1.0)",
+                validators=[
+                    django.core.validators.MinValueValidator(0.0),
+                    django.core.validators.MaxValueValidator(1.0),
+                ],
+            ),
         ),
         migrations.AlterField(
-            model_name='plantspecies',
-            name='confidence_score',
-            field=models.FloatField(blank=True, help_text='Highest confidence score from identifications that created this species', null=True, validators=[django.core.validators.MinValueValidator(0.0), django.core.validators.MaxValueValidator(1.0)]),
+            model_name="plantspecies",
+            name="confidence_score",
+            field=models.FloatField(
+                blank=True,
+                help_text="Highest confidence score from identifications that created this species",
+                null=True,
+                validators=[
+                    django.core.validators.MinValueValidator(0.0),
+                    django.core.validators.MaxValueValidator(1.0),
+                ],
+            ),
         ),
     ]

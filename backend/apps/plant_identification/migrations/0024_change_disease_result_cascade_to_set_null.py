@@ -10,20 +10,20 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('plant_identification', '0023_remove_unique_together_and_add_indexes'),
+        ("plant_identification", "0023_remove_unique_together_and_add_indexes"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='plantdiseaseresult',
-            name='identified_disease',
+            model_name="plantdiseaseresult",
+            name="identified_disease",
             field=models.ForeignKey(
                 blank=True,
-                help_text='Disease identified from our local database. SET_NULL preserves historical data.',
+                help_text="Disease identified from our local database. SET_NULL preserves historical data.",
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
-                related_name='diagnosis_results',
-                to='plant_identification.plantdiseasedatabase'
+                related_name="diagnosis_results",
+                to="plant_identification.plantdiseasedatabase",
             ),
         ),
     ]

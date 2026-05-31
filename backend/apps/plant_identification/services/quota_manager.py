@@ -13,11 +13,12 @@ Features:
 """
 
 import logging
-from datetime import datetime, timedelta, time
-from typing import Optional, Dict, Any
+from datetime import datetime, time, timedelta
+from typing import Any, Dict, Optional
+
 from django.core.cache import cache
-from redis import Redis
 from django_redis import get_redis_connection
+from redis import Redis
 
 from ..constants import (
     PLANT_ID_DAILY_QUOTA,
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 class QuotaExceeded(Exception):
     """Raised when API quota has been exhausted."""
+
     pass
 
 
@@ -60,7 +62,7 @@ class QuotaManager:
             Redis client or None if Redis unavailable
         """
         try:
-            redis_client = get_redis_connection('default')
+            redis_client = get_redis_connection("default")
             # Verify connection
             redis_client.ping()
             return redis_client
@@ -107,7 +109,9 @@ class QuotaManager:
         """
         if not self.redis_client:
             # Redis unavailable - allow call (fail open)
-            logger.warning("[QUOTA] Redis unavailable, allowing Plant.id call (no quota tracking)")
+            logger.warning(
+                "[QUOTA] Redis unavailable, allowing Plant.id call (no quota tracking)"
+            )
             return True
 
         try:
@@ -168,7 +172,9 @@ class QuotaManager:
                 # First call today - set expiration to midnight
                 ttl = self._seconds_until_midnight()
                 self.redis_client.expire(QUOTA_KEY_PREFIX_PLANT_ID_DAILY, ttl)
-                logger.info(f"[QUOTA] Plant.id daily counter started (expires in {ttl}s)")
+                logger.info(
+                    f"[QUOTA] Plant.id daily counter started (expires in {ttl}s)"
+                )
 
             # Increment monthly counter
             monthly_count = self.redis_client.incr(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY)
@@ -176,30 +182,45 @@ class QuotaManager:
                 # First call this month - set expiration to end of month
                 ttl = self._seconds_until_month_end()
                 self.redis_client.expire(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, ttl)
-                logger.info(f"[QUOTA] Plant.id monthly counter started (expires in {ttl}s)")
+                logger.info(
+                    f"[QUOTA] Plant.id monthly counter started (expires in {ttl}s)"
+                )
 
             # Log current usage
-            logger.info(f"[QUOTA] Plant.id usage: {daily_count}/{PLANT_ID_DAILY_QUOTA} daily, "
-                       f"{monthly_count}/{PLANT_ID_MONTHLY_QUOTA} monthly")
+            logger.info(
+                f"[QUOTA] Plant.id usage: {daily_count}/{PLANT_ID_DAILY_QUOTA} daily, "
+                f"{monthly_count}/{PLANT_ID_MONTHLY_QUOTA} monthly"
+            )
 
             # Warn if approaching daily quota
             daily_threshold = PLANT_ID_DAILY_QUOTA * PLANT_ID_QUOTA_WARNING_THRESHOLD
             if daily_count >= daily_threshold and daily_count < PLANT_ID_DAILY_QUOTA:
                 remaining = PLANT_ID_DAILY_QUOTA - daily_count
-                logger.warning(f"[QUOTA] WARNING: Plant.id approaching daily quota! "
-                             f"{daily_count}/{PLANT_ID_DAILY_QUOTA} used ({remaining} remaining)")
+                logger.warning(
+                    f"[QUOTA] WARNING: Plant.id approaching daily quota! "
+                    f"{daily_count}/{PLANT_ID_DAILY_QUOTA} used ({remaining} remaining)"
+                )
 
             # Warn if approaching monthly quota
-            monthly_threshold = PLANT_ID_MONTHLY_QUOTA * PLANT_ID_QUOTA_WARNING_THRESHOLD
-            if monthly_count >= monthly_threshold and monthly_count < PLANT_ID_MONTHLY_QUOTA:
+            monthly_threshold = (
+                PLANT_ID_MONTHLY_QUOTA * PLANT_ID_QUOTA_WARNING_THRESHOLD
+            )
+            if (
+                monthly_count >= monthly_threshold
+                and monthly_count < PLANT_ID_MONTHLY_QUOTA
+            ):
                 remaining = PLANT_ID_MONTHLY_QUOTA - monthly_count
-                logger.warning(f"[QUOTA] WARNING: Plant.id approaching monthly quota! "
-                             f"{monthly_count}/{PLANT_ID_MONTHLY_QUOTA} used ({remaining} remaining)")
+                logger.warning(
+                    f"[QUOTA] WARNING: Plant.id approaching monthly quota! "
+                    f"{monthly_count}/{PLANT_ID_MONTHLY_QUOTA} used ({remaining} remaining)"
+                )
 
             # Error if quota exceeded
             if daily_count > PLANT_ID_DAILY_QUOTA:
-                logger.error(f"[QUOTA] ERROR: Plant.id daily quota EXCEEDED! "
-                           f"{daily_count}/{PLANT_ID_DAILY_QUOTA}")
+                logger.error(
+                    f"[QUOTA] ERROR: Plant.id daily quota EXCEEDED! "
+                    f"{daily_count}/{PLANT_ID_DAILY_QUOTA}"
+                )
 
         except Exception as e:
             logger.error(f"[QUOTA] Error incrementing Plant.id quota: {e}")
@@ -217,7 +238,9 @@ class QuotaManager:
         """
         if not self.redis_client:
             # Redis unavailable - allow call (fail open)
-            logger.warning("[QUOTA] Redis unavailable, allowing PlantNet call (no quota tracking)")
+            logger.warning(
+                "[QUOTA] Redis unavailable, allowing PlantNet call (no quota tracking)"
+            )
             return True
 
         try:
@@ -277,7 +300,9 @@ class QuotaManager:
             if hourly_count == 1:
                 # First call this hour - set expiration to 1 hour
                 self.redis_client.expire(QUOTA_KEY_PREFIX_PLANTNET_HOURLY, 3600)
-                logger.info("[QUOTA] PlantNet hourly counter started (expires in 3600s)")
+                logger.info(
+                    "[QUOTA] PlantNet hourly counter started (expires in 3600s)"
+                )
 
             # Increment daily counter
             daily_count = self.redis_client.incr(QUOTA_KEY_PREFIX_PLANTNET_DAILY)
@@ -285,30 +310,43 @@ class QuotaManager:
                 # First call today - set expiration to midnight
                 ttl = self._seconds_until_midnight()
                 self.redis_client.expire(QUOTA_KEY_PREFIX_PLANTNET_DAILY, ttl)
-                logger.info(f"[QUOTA] PlantNet daily counter started (expires in {ttl}s)")
+                logger.info(
+                    f"[QUOTA] PlantNet daily counter started (expires in {ttl}s)"
+                )
 
             # Log current usage
-            logger.info(f"[QUOTA] PlantNet usage: {hourly_count}/{PLANTNET_HOURLY_QUOTA} hourly, "
-                       f"{daily_count}/{PLANTNET_DAILY_QUOTA} daily")
+            logger.info(
+                f"[QUOTA] PlantNet usage: {hourly_count}/{PLANTNET_HOURLY_QUOTA} hourly, "
+                f"{daily_count}/{PLANTNET_DAILY_QUOTA} daily"
+            )
 
             # Warn if approaching hourly quota
             hourly_threshold = PLANTNET_HOURLY_QUOTA * PLANTNET_QUOTA_WARNING_THRESHOLD
-            if hourly_count >= hourly_threshold and hourly_count < PLANTNET_HOURLY_QUOTA:
+            if (
+                hourly_count >= hourly_threshold
+                and hourly_count < PLANTNET_HOURLY_QUOTA
+            ):
                 remaining = PLANTNET_HOURLY_QUOTA - hourly_count
-                logger.warning(f"[QUOTA] WARNING: PlantNet approaching hourly quota! "
-                             f"{hourly_count}/{PLANTNET_HOURLY_QUOTA} used ({remaining} remaining)")
+                logger.warning(
+                    f"[QUOTA] WARNING: PlantNet approaching hourly quota! "
+                    f"{hourly_count}/{PLANTNET_HOURLY_QUOTA} used ({remaining} remaining)"
+                )
 
             # Warn if approaching daily quota
             daily_threshold = PLANTNET_DAILY_QUOTA * PLANTNET_QUOTA_WARNING_THRESHOLD
             if daily_count >= daily_threshold and daily_count < PLANTNET_DAILY_QUOTA:
                 remaining = PLANTNET_DAILY_QUOTA - daily_count
-                logger.warning(f"[QUOTA] WARNING: PlantNet approaching daily quota! "
-                             f"{daily_count}/{PLANTNET_DAILY_QUOTA} used ({remaining} remaining)")
+                logger.warning(
+                    f"[QUOTA] WARNING: PlantNet approaching daily quota! "
+                    f"{daily_count}/{PLANTNET_DAILY_QUOTA} used ({remaining} remaining)"
+                )
 
             # Error if quota exceeded
             if hourly_count > PLANTNET_HOURLY_QUOTA:
-                logger.error(f"[QUOTA] ERROR: PlantNet hourly quota EXCEEDED! "
-                           f"{hourly_count}/{PLANTNET_HOURLY_QUOTA}")
+                logger.error(
+                    f"[QUOTA] ERROR: PlantNet hourly quota EXCEEDED! "
+                    f"{hourly_count}/{PLANTNET_HOURLY_QUOTA}"
+                )
 
         except Exception as e:
             logger.error(f"[QUOTA] Error incrementing PlantNet quota: {e}")
@@ -325,30 +363,38 @@ class QuotaManager:
             Dictionary with quota usage statistics
         """
         return {
-            'plant_id': {
-                'daily': {
-                    'used': self.get_plant_id_daily_usage(),
-                    'limit': PLANT_ID_DAILY_QUOTA,
-                    'remaining': max(0, PLANT_ID_DAILY_QUOTA - self.get_plant_id_daily_usage()),
-                    'available': self.can_call_plant_id(),
+            "plant_id": {
+                "daily": {
+                    "used": self.get_plant_id_daily_usage(),
+                    "limit": PLANT_ID_DAILY_QUOTA,
+                    "remaining": max(
+                        0, PLANT_ID_DAILY_QUOTA - self.get_plant_id_daily_usage()
+                    ),
+                    "available": self.can_call_plant_id(),
                 },
-                'monthly': {
-                    'used': self.get_plant_id_monthly_usage(),
-                    'limit': PLANT_ID_MONTHLY_QUOTA,
-                    'remaining': max(0, PLANT_ID_MONTHLY_QUOTA - self.get_plant_id_monthly_usage()),
+                "monthly": {
+                    "used": self.get_plant_id_monthly_usage(),
+                    "limit": PLANT_ID_MONTHLY_QUOTA,
+                    "remaining": max(
+                        0, PLANT_ID_MONTHLY_QUOTA - self.get_plant_id_monthly_usage()
+                    ),
                 },
             },
-            'plantnet': {
-                'hourly': {
-                    'used': self.get_plantnet_hourly_usage(),
-                    'limit': PLANTNET_HOURLY_QUOTA,
-                    'remaining': max(0, PLANTNET_HOURLY_QUOTA - self.get_plantnet_hourly_usage()),
-                    'available': self.can_call_plantnet(),
+            "plantnet": {
+                "hourly": {
+                    "used": self.get_plantnet_hourly_usage(),
+                    "limit": PLANTNET_HOURLY_QUOTA,
+                    "remaining": max(
+                        0, PLANTNET_HOURLY_QUOTA - self.get_plantnet_hourly_usage()
+                    ),
+                    "available": self.can_call_plantnet(),
                 },
-                'daily': {
-                    'used': self.get_plantnet_daily_usage(),
-                    'limit': PLANTNET_DAILY_QUOTA,
-                    'remaining': max(0, PLANTNET_DAILY_QUOTA - self.get_plantnet_daily_usage()),
+                "daily": {
+                    "used": self.get_plantnet_daily_usage(),
+                    "limit": PLANTNET_DAILY_QUOTA,
+                    "remaining": max(
+                        0, PLANTNET_DAILY_QUOTA - self.get_plantnet_daily_usage()
+                    ),
                 },
             },
         }

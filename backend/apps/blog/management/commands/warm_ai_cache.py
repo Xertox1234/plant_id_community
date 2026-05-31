@@ -9,10 +9,11 @@ Usage:
     python manage.py warm_ai_cache --force  # Force regeneration
 """
 
-from django.core.management.base import BaseCommand
+import logging
+
 from apps.blog.models import BlogPostPage
 from apps.blog.services.ai_cache_service import AICacheService
-import logging
+from django.core.management.base import BaseCommand
 
 logger = logging.getLogger(__name__)
 
@@ -22,25 +23,23 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--force',
-            action='store_true',
-            help='Force cache regeneration even if already cached',
+            "--force",
+            action="store_true",
+            help="Force cache regeneration even if already cached",
         )
         parser.add_argument(
-            '--limit',
+            "--limit",
             type=int,
             default=None,
-            help='Limit number of posts to process',
+            help="Limit number of posts to process",
         )
 
     def handle(self, *args, **options):
-        force = options['force']
-        limit = options['limit']
+        force = options["force"]
+        limit = options["limit"]
 
         self.stdout.write(
-            self.style.SUCCESS(
-                "Starting AI cache warming for blog posts..."
-            )
+            self.style.SUCCESS("Starting AI cache warming for blog posts...")
         )
 
         # Get all live, published blog posts
@@ -56,16 +55,14 @@ class Command(BaseCommand):
         skipped = 0
 
         for i, post in enumerate(posts, 1):
-            self.stdout.write(
-                f"[{i}/{total_posts}] Processing: {post.title[:50]}..."
-            )
+            self.stdout.write(f"[{i}/{total_posts}] Processing: {post.title[:50]}...")
 
             # Warm title cache
             if post.title:
-                if force or not AICacheService.get_cached_response('title', post.title):
+                if force or not AICacheService.get_cached_response("title", post.title):
                     # Note: Actual AI generation would happen here
                     # For now, we just mark the cache key for monitoring
-                    AICacheService.warm_cache('title', post.title)
+                    AICacheService.warm_cache("title", post.title)
                     warmed_titles += 1
                     self.stdout.write("  ✓ Title cache warmed")
                 else:
@@ -74,15 +71,17 @@ class Command(BaseCommand):
 
             # Warm description cache
             if post.search_description:
-                if force or not AICacheService.get_cached_response('description', post.search_description):
-                    AICacheService.warm_cache('description', post.search_description)
+                if force or not AICacheService.get_cached_response(
+                    "description", post.search_description
+                ):
+                    AICacheService.warm_cache("description", post.search_description)
                     warmed_descriptions += 1
                     self.stdout.write("  ✓ Description cache warmed")
                 else:
                     self.stdout.write("  ○ Description already cached")
 
         # Summary
-        self.stdout.write("\n" + "="*60)
+        self.stdout.write("\n" + "=" * 60)
         self.stdout.write(
             self.style.SUCCESS(
                 f"✅ Cache warming complete!\n\n"
@@ -95,7 +94,9 @@ class Command(BaseCommand):
 
         # Performance note
         if skipped > 0:
-            cache_hit_rate = (skipped / (total_posts * 2)) * 100  # *2 for title + description
+            cache_hit_rate = (
+                skipped / (total_posts * 2)
+            ) * 100  # *2 for title + description
             self.stdout.write(
                 self.style.WARNING(
                     f"\n📊 Current cache hit rate: ~{cache_hit_rate:.1f}%\n"
@@ -103,7 +104,7 @@ class Command(BaseCommand):
                 )
             )
 
-        self.stdout.write("\n" + "="*60)
+        self.stdout.write("\n" + "=" * 60)
         self.stdout.write(
             self.style.SUCCESS(
                 "\n💡 Tip: Run this command on every deployment to maintain cache"

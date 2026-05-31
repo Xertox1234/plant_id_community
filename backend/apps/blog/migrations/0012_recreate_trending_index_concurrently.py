@@ -37,7 +37,7 @@ References:
 - PostgreSQL docs: https://www.postgresql.org/docs/current/sql-createindex.html#SQL-CREATEINDEX-CONCURRENTLY
 """
 
-from django.db import migrations, connection
+from django.db import connection, migrations
 from psycopg2 import sql
 
 
@@ -49,25 +49,29 @@ def create_trending_index_concurrently(apps, schema_editor):
     SQLite (dev) will skip this operation gracefully.
     """
     # Only run on PostgreSQL (production)
-    if connection.vendor != 'postgresql':
+    if connection.vendor != "postgresql":
         print("⚠️  Skipping CONCURRENTLY index creation (not PostgreSQL)")
         return
 
     with connection.cursor() as cursor:
         # Step 1: Drop existing index from migration 0011 if it exists
         # Use IF EXISTS to avoid errors if already dropped
-        cursor.execute("""
+        cursor.execute(
+            """
             DROP INDEX IF EXISTS blog_view_trending_idx;
-        """)
+        """
+        )
         print("✅ Dropped existing blog_view_trending_idx index")
 
         # Step 2: Create index with CONCURRENTLY option
         # Note: CONCURRENTLY cannot run inside a transaction block
         # Django migrations auto-commit individual operations for PostgreSQL
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE INDEX CONCURRENTLY blog_view_trending_idx
             ON blog_blogpostview (viewed_at, post_id);
-        """)
+        """
+        )
         print("✅ Created blog_view_trending_idx with CONCURRENTLY (zero downtime)")
 
 
@@ -77,15 +81,17 @@ def drop_trending_index_concurrently(apps, schema_editor):
 
     Uses CONCURRENTLY for rollback safety.
     """
-    if connection.vendor != 'postgresql':
+    if connection.vendor != "postgresql":
         print("⚠️  Skipping CONCURRENTLY index drop (not PostgreSQL)")
         return
 
     with connection.cursor() as cursor:
         # Drop with CONCURRENTLY for zero-downtime rollback
-        cursor.execute("""
+        cursor.execute(
+            """
             DROP INDEX CONCURRENTLY IF EXISTS blog_view_trending_idx;
-        """)
+        """
+        )
         print("✅ Dropped blog_view_trending_idx with CONCURRENTLY")
 
 
@@ -96,7 +102,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ('blog', '0011_add_trending_index'),
+        ("blog", "0011_add_trending_index"),
     ]
 
     operations = [

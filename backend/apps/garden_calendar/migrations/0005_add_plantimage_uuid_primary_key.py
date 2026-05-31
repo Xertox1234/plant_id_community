@@ -29,13 +29,13 @@ Reversibility:
 - Restore from backup if rollback to the integer primary key is required.
 """
 
-from django.db import migrations, models
-from typing import Any
 import uuid
+from typing import Any
 
+from django.db import migrations, models
 
 # Whitelist of allowed tables (defense in depth - SQL injection prevention)
-ALLOWED_TABLES = {'garden_calendar_plantimage'}
+ALLOWED_TABLES = {"garden_calendar_plantimage"}
 
 
 def validate_table_name(table_name: str) -> str:
@@ -56,11 +56,11 @@ def generate_uuids_for_existing_images(apps: Any, schema_editor: Any) -> None:
     Generate UUIDs for any existing PlantImage records.
     This function will be called during migration if there are existing records.
     """
-    PlantImage = apps.get_model('garden_calendar', 'PlantImage')
+    PlantImage = apps.get_model("garden_calendar", "PlantImage")
     for image in PlantImage.objects.all():
         if not image.uuid:
             image.uuid = uuid.uuid4()
-            image.save(update_fields=['uuid'])
+            image.save(update_fields=["uuid"])
 
 
 def quote_identifier(identifier: str) -> str:
@@ -75,7 +75,7 @@ def quote_identifier(identifier: str) -> str:
     return f'"{validated_identifier}"'
 
 
-PLANTIMAGE_TABLE = quote_identifier('garden_calendar_plantimage')
+PLANTIMAGE_TABLE = quote_identifier("garden_calendar_plantimage")
 PLANTIMAGE_PK = '"garden_calendar_plantimage_pkey"'
 PLANTIMAGE_UUID_COLUMN = '"uuid"'
 PLANTIMAGE_ID_COLUMN = '"id"'
@@ -89,54 +89,52 @@ def swap_plantimage_primary_key(apps: Any, schema_editor: Any) -> None:
     databases, the Django migration state still moves the model primary key to
     uuid, but the physical table keeps the ignored legacy id column.
     """
-    if schema_editor.connection.vendor != 'postgresql':
+    if schema_editor.connection.vendor != "postgresql":
         return
 
     schema_editor.execute(
-        f'ALTER TABLE {PLANTIMAGE_TABLE} DROP CONSTRAINT IF EXISTS {PLANTIMAGE_PK} CASCADE;'
+        f"ALTER TABLE {PLANTIMAGE_TABLE} DROP CONSTRAINT IF EXISTS {PLANTIMAGE_PK} CASCADE;"
     )
     schema_editor.execute(
-        f'ALTER TABLE {PLANTIMAGE_TABLE} ADD PRIMARY KEY ({PLANTIMAGE_UUID_COLUMN});'
+        f"ALTER TABLE {PLANTIMAGE_TABLE} ADD PRIMARY KEY ({PLANTIMAGE_UUID_COLUMN});"
     )
-    schema_editor.execute(f'ALTER TABLE {PLANTIMAGE_TABLE} DROP COLUMN {PLANTIMAGE_ID_COLUMN};')
+    schema_editor.execute(
+        f"ALTER TABLE {PLANTIMAGE_TABLE} DROP COLUMN {PLANTIMAGE_ID_COLUMN};"
+    )
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('garden_calendar', '0004_add_carelog_uuid_and_fields'),
+        ("garden_calendar", "0004_add_carelog_uuid_and_fields"),
     ]
 
     operations = [
         # Step 1: Add UUID field as nullable and non-unique first (to handle existing data)
         migrations.AddField(
-            model_name='plantimage',
-            name='uuid',
+            model_name="plantimage",
+            name="uuid",
             field=models.UUIDField(
                 editable=False,
                 null=True,  # Temporarily nullable
-                help_text="Unique identifier for secure references"
+                help_text="Unique identifier for secure references",
             ),
         ),
-
         # Step 2: Populate UUIDs for any existing records
         migrations.RunPython(
-            generate_uuids_for_existing_images,
-            reverse_code=migrations.RunPython.noop
+            generate_uuids_for_existing_images, reverse_code=migrations.RunPython.noop
         ),
-
         # Step 3: Make UUID non-nullable
         migrations.AlterField(
-            model_name='plantimage',
-            name='uuid',
+            model_name="plantimage",
+            name="uuid",
             field=models.UUIDField(
                 default=uuid.uuid4,
                 editable=False,
                 unique=True,
-                help_text="Unique identifier for secure references"
+                help_text="Unique identifier for secure references",
             ),
         ),
-
         # Step 4-6: Swap database primary key and synchronize Django migration state.
         # Pattern: CLAUDE.md Migration SQL Injection Prevention (whitelist + static quoted identifiers)
         migrations.SeparateDatabaseAndState(
@@ -148,19 +146,19 @@ class Migration(migrations.Migration):
             ],
             state_operations=[
                 migrations.AlterField(
-                    model_name='plantimage',
-                    name='uuid',
+                    model_name="plantimage",
+                    name="uuid",
                     field=models.UUIDField(
                         default=uuid.uuid4,
                         editable=False,
                         unique=True,
                         primary_key=True,
-                        help_text="Unique identifier for secure references"
+                        help_text="Unique identifier for secure references",
                     ),
                 ),
                 migrations.RemoveField(
-                    model_name='plantimage',
-                    name='id',
+                    model_name="plantimage",
+                    name="id",
                 ),
             ],
         ),

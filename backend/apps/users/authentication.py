@@ -1,17 +1,19 @@
 """
 Secure authentication module with httpOnly cookie support for JWT tokens.
 """
+
+import logging
 from typing import Optional, Tuple
+
+from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.http import HttpRequest, HttpResponse
+from rest_framework import exceptions
+from rest_framework.authentication import CSRFCheck
 from rest_framework.request import Request
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken, Token
-from rest_framework.authentication import CSRFCheck
-from rest_framework import exceptions
-from apps.core.utils.pii_safe_logging import log_safe_user_context
-import logging
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -22,7 +24,7 @@ class CookieJWTAuthentication(JWTAuthentication):
     Custom JWT authentication using httpOnly cookies for enhanced security.
     Falls back to Authorization header if cookie is not present.
     """
-    
+
     def authenticate(self, request: Request) -> Optional[Tuple[User, Token]]:
         """
         Authenticate using httpOnly cookie or Authorization header.
@@ -70,7 +72,7 @@ class CookieJWTAuthentication(JWTAuthentication):
             logger.error(f"[SECURITY] CSRF validation failed for cookie auth: {str(e)}")
             # Re-raise the exception - CSRF failures must block the request
             raise
-    
+
     def get_raw_token_from_cookie(self, request: Request) -> Optional[str]:
         """
         Extract JWT token from httpOnly cookie.
@@ -81,7 +83,7 @@ class CookieJWTAuthentication(JWTAuthentication):
         Returns:
             JWT token string or None if not present
         """
-        return request.COOKIES.get('access_token')
+        return request.COOKIES.get("access_token")
 
     def enforce_csrf(self, request: Request) -> None:
         """
@@ -94,7 +96,7 @@ class CookieJWTAuthentication(JWTAuthentication):
             exceptions.PermissionDenied: If CSRF validation fails
         """
         # Skip CSRF for safe methods
-        if request.method in ('GET', 'HEAD', 'OPTIONS', 'TRACE'):
+        if request.method in ("GET", "HEAD", "OPTIONS", "TRACE"):
             return
 
         def dummy_view(request: HttpRequest) -> HttpResponse:
@@ -104,7 +106,7 @@ class CookieJWTAuthentication(JWTAuthentication):
         check.process_request(request)
         reason = check.process_view(request, None, (), {})
         if reason:
-            raise exceptions.PermissionDenied(f'CSRF Failed: {reason}')
+            raise exceptions.PermissionDenied(f"CSRF Failed: {reason}")
 
 
 def set_jwt_cookies(response: HttpResponse, user: User) -> HttpResponse:
@@ -120,36 +122,36 @@ def set_jwt_cookies(response: HttpResponse, user: User) -> HttpResponse:
     """
     refresh = RefreshToken.for_user(user)
     access_token = refresh.access_token
-    
+
     # Calculate max age in seconds
-    access_max_age = settings.SIMPLE_JWT['ACCESS_TOKEN_LIFETIME'].total_seconds()
-    refresh_max_age = settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()
-    
+    access_max_age = settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()
+    refresh_max_age = settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()
+
     # Set httpOnly cookies
     # IMPORTANT: domain=None allows cookies to be sent from different ports on localhost
     # This enables frontend (localhost:5174) to send cookies to backend (localhost:8000)
     response.set_cookie(
-        key='access_token',
+        key="access_token",
         value=str(access_token),
         max_age=access_max_age,
         httponly=True,
         secure=not settings.DEBUG,  # Use secure cookies in production
-        samesite='Strict' if not settings.DEBUG else 'Lax',
+        samesite="Strict" if not settings.DEBUG else "Lax",
         domain=None,  # Default domain (allows cross-port in localhost)
-        path='/'
+        path="/",
     )
 
     response.set_cookie(
-        key='refresh_token',
+        key="refresh_token",
         value=str(refresh),
         max_age=refresh_max_age,
         httponly=True,
         secure=not settings.DEBUG,
-        samesite='Strict' if not settings.DEBUG else 'Lax',
+        samesite="Strict" if not settings.DEBUG else "Lax",
         domain=None,  # Default domain (allows cross-port in localhost)
-        path='/api/auth/'  # Restrict refresh token to auth endpoints
+        path="/api/auth/",  # Restrict refresh token to auth endpoints
     )
-    
+
     logger.info(f"JWT cookies set for {log_safe_user_context(user)}")
     return response
 
@@ -164,8 +166,8 @@ def clear_jwt_cookies(response: HttpResponse) -> HttpResponse:
     Returns:
         Modified response with JWT cookies cleared
     """
-    response.delete_cookie('access_token', path='/')
-    response.delete_cookie('refresh_token', path='/api/auth/')
+    response.delete_cookie("access_token", path="/")
+    response.delete_cookie("refresh_token", path="/api/auth/")
     logger.info("JWT cookies cleared")
     return response
 
@@ -174,7 +176,7 @@ class RefreshTokenFromCookie:
     """
     Helper class to get refresh token from httpOnly cookie.
     """
-    
+
     @staticmethod
     def get_refresh_token(request: Request) -> Optional[str]:
         """
@@ -187,10 +189,10 @@ class RefreshTokenFromCookie:
             Refresh token string or None
         """
         # First try to get from cookie
-        refresh_token = request.COOKIES.get('refresh_token')
-        
+        refresh_token = request.COOKIES.get("refresh_token")
+
         # Fall back to request data (for backward compatibility)
         if not refresh_token:
-            refresh_token = request.data.get('refresh')
-        
+            refresh_token = request.data.get("refresh")
+
         return refresh_token

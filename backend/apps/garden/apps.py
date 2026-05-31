@@ -2,9 +2,9 @@ from django.apps import AppConfig
 
 
 class GardenConfig(AppConfig):
-    default_auto_field = 'django.db.models.BigAutoField'
-    name = 'apps.garden'
-    verbose_name = 'Garden Planner'
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "apps.garden"
+    verbose_name = "Garden Planner"
 
     def ready(self):
         """Import signal handlers when app is ready."""

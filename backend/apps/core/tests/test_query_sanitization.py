@@ -5,8 +5,11 @@ Tests the escape_search_query() function to ensure SQL wildcards are properly
 escaped before using in Django ORM icontains queries.
 """
 
+from apps.core.utils.query_sanitization import (
+    escape_search_query,
+    escape_search_query_optional,
+)
 from django.test import TestCase
-from apps.core.utils.query_sanitization import escape_search_query, escape_search_query_optional
 
 
 class EscapeSearchQueryTestCase(TestCase):
@@ -80,11 +83,11 @@ class EscapeSearchQueryTestCase(TestCase):
         # Input has: backslash + percent
         # Output has: backslash + escaped percent (\%)
         result = escape_search_query("test\\%value")  # Has: \ and %
-        self.assertEqual(result, "test\\\\%value")    # Has: \ and \%
+        self.assertEqual(result, "test\\\\%value")  # Has: \ and \%
 
         # Test 3: Backslash followed by underscore - both preserved, but _ gets escaped
         result = escape_search_query("test\\_name")  # Has: \ and _
-        self.assertEqual(result, "test\\\\_name")    # Has: \ and \_
+        self.assertEqual(result, "test\\\\_name")  # Has: \ and \_
 
         # Test 4: Simple backslash without wildcards - completely unchanged
         result = escape_search_query("test\\data")
@@ -168,7 +171,7 @@ class IntegrationTestCase(TestCase):
 
         # Verify escaping occurred
         self.assertEqual(escaped, r"test\%")
-        self.assertIn(r'\%', escaped)
+        self.assertIn(r"\%", escaped)
         self.assertNotEqual(escaped, input_query)
 
     def test_escaped_query_matches_literal_underscore(self):
@@ -183,7 +186,7 @@ class IntegrationTestCase(TestCase):
 
         # Verify escaping occurred
         self.assertEqual(escaped, r"test\_name")
-        self.assertIn(r'\_', escaped)
+        self.assertIn(r"\_", escaped)
 
     def test_typical_user_input_scenarios(self):
         """Test common real-world user input patterns."""

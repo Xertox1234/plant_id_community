@@ -11,12 +11,13 @@ Provides:
 """
 
 import logging
-from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+
 from django.contrib.auth import get_user_model
 
-from ..models import CareReminder
 from ..firebase_config import get_fcm_client, is_firebase_available
+from ..models import CareReminder
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +42,7 @@ class FirebaseNotificationService:
 
     @classmethod
     def send_reminder_notification(
-        cls,
-        reminder: CareReminder,
-        device_token: str
+        cls, reminder: CareReminder, device_token: str
     ) -> bool:
         """
         Send push notification for a care reminder.
@@ -78,36 +77,28 @@ class FirebaseNotificationService:
 
             # Create message
             message = fcm.Message(
-                notification=fcm.Notification(
-                    title=title,
-                    body=body
-                ),
+                notification=fcm.Notification(title=title, body=body),
                 data={
-                    'type': 'care_reminder',
-                    'reminder_id': str(reminder.id),
-                    'reminder_type': reminder.reminder_type,
-                    'plant_id': str(reminder.garden_plant.id),
-                    'plant_name': plant_name,
-                    'garden_id': str(reminder.garden_plant.garden.id),
-                    'scheduled_date': reminder.scheduled_date.isoformat()
+                    "type": "care_reminder",
+                    "reminder_id": str(reminder.id),
+                    "reminder_type": reminder.reminder_type,
+                    "plant_id": str(reminder.garden_plant.id),
+                    "plant_name": plant_name,
+                    "garden_id": str(reminder.garden_plant.garden.id),
+                    "scheduled_date": reminder.scheduled_date.isoformat(),
                 },
                 token=device_token,
                 android=fcm.AndroidConfig(
-                    priority='high',
+                    priority="high",
                     notification=fcm.AndroidNotification(
-                        icon='ic_notification',
-                        color='#4CAF50',  # Green for garden app
-                        sound='default'
-                    )
+                        icon="ic_notification",
+                        color="#4CAF50",  # Green for garden app
+                        sound="default",
+                    ),
                 ),
                 apns=fcm.APNSConfig(
-                    payload=fcm.APNSPayload(
-                        aps=fcm.Aps(
-                            sound='default',
-                            badge=1
-                        )
-                    )
-                )
+                    payload=fcm.APNSPayload(aps=fcm.Aps(sound="default", badge=1))
+                ),
             )
 
             # Send message
@@ -120,7 +111,7 @@ class FirebaseNotificationService:
 
             # Mark notification as sent
             reminder.notification_sent = True
-            reminder.save(update_fields=['notification_sent'])
+            reminder.save(update_fields=["notification_sent"])
 
             return True
 
@@ -130,11 +121,7 @@ class FirebaseNotificationService:
 
     @classmethod
     def send_weather_alert(
-        cls,
-        user: User,
-        device_token: str,
-        alert_type: str,
-        alert_data: Dict[str, Any]
+        cls, user: User, device_token: str, alert_type: str, alert_data: Dict[str, Any]
     ) -> bool:
         """
         Send weather alert notification.
@@ -157,16 +144,16 @@ class FirebaseNotificationService:
 
         try:
             # Build notification payload based on alert type
-            if alert_type == 'frost':
+            if alert_type == "frost":
                 title = "⚠️ Frost Warning"
-                date = alert_data.get('frost_date', 'soon')
-                temp = alert_data.get('temp_min', 'below freezing')
+                date = alert_data.get("frost_date", "soon")
+                temp = alert_data.get("temp_min", "below freezing")
                 body = f"Frost expected {date} ({temp}°F). Protect sensitive plants."
 
-            elif alert_type == 'heatwave':
+            elif alert_type == "heatwave":
                 title = "🔥 Heat Warning"
-                date = alert_data.get('heat_date', 'soon')
-                temp = alert_data.get('temp_max', 'very high')
+                date = alert_data.get("heat_date", "soon")
+                temp = alert_data.get("temp_max", "very high")
                 body = f"Extreme heat expected {date} ({temp}°F). Water frequently and provide shade."
 
             else:
@@ -175,38 +162,32 @@ class FirebaseNotificationService:
 
             # Create message
             message = fcm.Message(
-                notification=fcm.Notification(
-                    title=title,
-                    body=body
-                ),
+                notification=fcm.Notification(title=title, body=body),
                 data={
-                    'type': 'weather_alert',
-                    'alert_type': alert_type,
-                    **{k: str(v) for k, v in alert_data.items()}
+                    "type": "weather_alert",
+                    "alert_type": alert_type,
+                    **{k: str(v) for k, v in alert_data.items()},
                 },
                 token=device_token,
                 android=fcm.AndroidConfig(
-                    priority='high',
+                    priority="high",
                     notification=fcm.AndroidNotification(
-                        icon='ic_notification',
-                        color='#FF9800',  # Orange for warnings
-                        sound='default'
-                    )
+                        icon="ic_notification",
+                        color="#FF9800",  # Orange for warnings
+                        sound="default",
+                    ),
                 ),
                 apns=fcm.APNSConfig(
-                    payload=fcm.APNSPayload(
-                        aps=fcm.Aps(
-                            sound='default',
-                            badge=1
-                        )
-                    )
-                )
+                    payload=fcm.APNSPayload(aps=fcm.Aps(sound="default", badge=1))
+                ),
             )
 
             # Send message
             response = fcm.send(message)
 
-            logger.info(f"[FCM] Sent weather alert ({alert_type}) to user {user.id}: {response}")
+            logger.info(
+                f"[FCM] Sent weather alert ({alert_type}) to user {user.id}: {response}"
+            )
             return True
 
         except Exception as e:
@@ -215,9 +196,7 @@ class FirebaseNotificationService:
 
     @classmethod
     def send_batch_reminders(
-        cls,
-        reminders: List[CareReminder],
-        device_tokens: Dict[int, str]
+        cls, reminders: List[CareReminder], device_tokens: Dict[int, str]
     ) -> Dict[str, int]:
         """
         Send batch of reminder notifications.
@@ -232,7 +211,7 @@ class FirebaseNotificationService:
             - failed: int (number failed)
         """
         if not cls.is_available():
-            return {'sent': 0, 'failed': 0}
+            return {"sent": 0, "failed": 0}
 
         sent = 0
         failed = 0
@@ -253,13 +232,10 @@ class FirebaseNotificationService:
 
         logger.info(f"[FCM] Batch notification: {sent} sent, {failed} failed")
 
-        return {'sent': sent, 'failed': failed}
+        return {"sent": sent, "failed": failed}
 
     @classmethod
-    def send_upcoming_reminders(
-        cls,
-        hours_ahead: int = 1
-    ) -> Dict[str, int]:
+    def send_upcoming_reminders(cls, hours_ahead: int = 1) -> Dict[str, int]:
         """
         Send notifications for upcoming reminders (cron job).
 
@@ -282,8 +258,8 @@ class FirebaseNotificationService:
             scheduled_date__lte=window_end,
             completed=False,
             skipped=False,
-            notification_sent=False
-        ).select_related('user', 'garden_plant__garden')
+            notification_sent=False,
+        ).select_related("user", "garden_plant__garden")
 
         # Get device tokens (would come from UserProfile model)
         # For now, this is a placeholder - actual implementation would query UserProfile
@@ -329,7 +305,7 @@ class FirebaseNotificationService:
         cls,
         device_token: str,
         title: str = "Test Notification",
-        body: str = "This is a test notification from Garden Planner"
+        body: str = "This is a test notification from Garden Planner",
     ) -> bool:
         """
         Send test notification (for debugging/setup).
@@ -351,15 +327,9 @@ class FirebaseNotificationService:
 
         try:
             message = fcm.Message(
-                notification=fcm.Notification(
-                    title=title,
-                    body=body
-                ),
-                data={
-                    'type': 'test',
-                    'timestamp': datetime.now().isoformat()
-                },
-                token=device_token
+                notification=fcm.Notification(title=title, body=body),
+                data={"type": "test", "timestamp": datetime.now().isoformat()},
+                token=device_token,
             )
 
             response = fcm.send(message)
@@ -371,11 +341,7 @@ class FirebaseNotificationService:
             return False
 
     @classmethod
-    def subscribe_to_topic(
-        cls,
-        device_token: str,
-        topic: str
-    ) -> bool:
+    def subscribe_to_topic(cls, device_token: str, topic: str) -> bool:
         """
         Subscribe device to a topic (for broadcast notifications).
 
@@ -404,11 +370,7 @@ class FirebaseNotificationService:
 
     @classmethod
     def send_topic_notification(
-        cls,
-        topic: str,
-        title: str,
-        body: str,
-        data: Optional[Dict[str, str]] = None
+        cls, topic: str, title: str, body: str, data: Optional[Dict[str, str]] = None
     ) -> bool:
         """
         Send notification to all devices subscribed to a topic.
@@ -431,12 +393,9 @@ class FirebaseNotificationService:
 
         try:
             message = fcm.Message(
-                notification=fcm.Notification(
-                    title=title,
-                    body=body
-                ),
+                notification=fcm.Notification(title=title, body=body),
                 data=data or {},
-                topic=topic
+                topic=topic,
             )
 
             response = fcm.send(message)

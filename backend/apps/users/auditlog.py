@@ -8,8 +8,8 @@ Registers sensitive models for audit trail tracking to comply with:
 """
 
 from auditlog.registry import auditlog
-from .models import User, UserPlantCollection, ActivityLog
 
+from .models import ActivityLog, User, UserPlantCollection
 
 # Register User model for comprehensive audit tracking
 # Tracks: create, update, delete operations on user accounts
@@ -17,24 +17,34 @@ from .models import User, UserPlantCollection, ActivityLog
 auditlog.register(
     User,
     include_fields=[
-        'username', 'email', 'first_name', 'last_name', 'is_active',
-        'is_staff', 'is_superuser', 'bio', 'location', 'hardiness_zone',
-        'profile_visibility', 'show_email', 'trust_level'
+        "username",
+        "email",
+        "first_name",
+        "last_name",
+        "is_active",
+        "is_staff",
+        "is_superuser",
+        "bio",
+        "location",
+        "hardiness_zone",
+        "profile_visibility",
+        "show_email",
+        "trust_level",
     ],
-    exclude_fields=['password', 'last_login'],  # Never log passwords
-    m2m_fields=['groups', 'user_permissions', 'following'],  # Track permission changes
+    exclude_fields=["password", "last_login"],  # Never log passwords
+    m2m_fields=["groups", "user_permissions", "following"],  # Track permission changes
 )
 
 # Register UserPlantCollection for data access tracking
 # Tracks: collection creation, modification, deletion
 auditlog.register(
     UserPlantCollection,
-    include_fields=['name', 'description', 'is_public'],
+    include_fields=["name", "description", "is_public"],
 )
 
 # Register ActivityLog for meta-tracking (audit the audit)
 # Helps detect tampering or unauthorized modifications to activity logs
 auditlog.register(
     ActivityLog,
-    include_fields=['activity_type', 'description', 'is_public'],
+    include_fields=["activity_type", "description", "is_public"],
 )

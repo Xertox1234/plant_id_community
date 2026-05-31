@@ -54,10 +54,10 @@ def escape_search_query(query: str) -> str:
         return query
 
     # Escape % (matches any characters)
-    sanitized = query.replace('%', r'\%')
+    sanitized = query.replace("%", r"\%")
 
     # Escape _ (matches single character)
-    sanitized = sanitized.replace('_', r'\_')
+    sanitized = sanitized.replace("_", r"\_")
 
     return sanitized
 

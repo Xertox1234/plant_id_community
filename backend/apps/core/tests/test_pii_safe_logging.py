@@ -4,14 +4,14 @@ Tests for PII-Safe Logging Utilities
 Tests GDPR compliance and proper pseudonymization of PII data.
 """
 
-from django.test import TestCase
 from apps.core.utils.pii_safe_logging import (
-    log_safe_username,
     log_safe_email,
     log_safe_ip,
     log_safe_user_context,
+    log_safe_username,
 )
 from django.contrib.auth import get_user_model
+from django.test import TestCase
 
 User = get_user_model()
 
@@ -151,9 +151,7 @@ class LogSafeUserContextTests(TestCase):
     def setUp(self):
         """Create test user"""
         self.user = User.objects.create_user(
-            username='testuser',
-            email='test@example.com',
-            password='testpass123'
+            username="testuser", email="test@example.com", password="testpass123"
         )
 
     def test_user_context_without_email(self):
@@ -179,6 +177,7 @@ class LogSafeUserContextTests(TestCase):
 
     def test_user_without_username(self):
         """Test user object without username attribute"""
+
         class FakeUser:
             pass
 
@@ -240,19 +239,12 @@ class GDPRComplianceTests(TestCase):
     def test_different_pii_produces_different_hashes(self):
         """Ensure different PII values produce different hashes"""
         # Different usernames
-        self.assertNotEqual(
-            log_safe_username("user1"),
-            log_safe_username("user2")
-        )
+        self.assertNotEqual(log_safe_username("user1"), log_safe_username("user2"))
 
         # Different emails
         self.assertNotEqual(
-            log_safe_email("user1@test.com"),
-            log_safe_email("user2@test.com")
+            log_safe_email("user1@test.com"), log_safe_email("user2@test.com")
         )
 
         # Different IPs
-        self.assertNotEqual(
-            log_safe_ip("192.168.1.1"),
-            log_safe_ip("192.168.1.2")
-        )
+        self.assertNotEqual(log_safe_ip("192.168.1.1"), log_safe_ip("192.168.1.2"))

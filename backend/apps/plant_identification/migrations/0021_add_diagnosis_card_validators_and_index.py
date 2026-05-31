@@ -8,18 +8,26 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('plant_identification', '0020_add_diagnosis_card_and_reminder_models'),
+        ("plant_identification", "0020_add_diagnosis_card_and_reminder_models"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='diagnosiscard',
-            name='confidence_score',
-            field=models.FloatField(help_text='AI confidence score (0.0 to 1.0)', validators=[django.core.validators.MinValueValidator(0.0), django.core.validators.MaxValueValidator(1.0)]),
+            model_name="diagnosiscard",
+            name="confidence_score",
+            field=models.FloatField(
+                help_text="AI confidence score (0.0 to 1.0)",
+                validators=[
+                    django.core.validators.MinValueValidator(0.0),
+                    django.core.validators.MaxValueValidator(1.0),
+                ],
+            ),
         ),
         migrations.AddIndex(
-            model_name='diagnosiscard',
-            index=models.Index(fields=['user', 'is_favorite'], name='plant_ident_user_id_488ef0_idx'),
+            model_name="diagnosiscard",
+            index=models.Index(
+                fields=["user", "is_favorite"], name="plant_ident_user_id_488ef0_idx"
+            ),
         ),
     ]

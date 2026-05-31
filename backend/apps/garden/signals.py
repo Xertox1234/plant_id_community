@@ -10,12 +10,13 @@ Provides:
 """
 
 import logging
-from django.db.models.signals import post_save, post_delete
+
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
+from .firebase_config import is_firebase_available
 from .models import CareReminder
 from .services.firebase_sync_service import FirebaseSyncService
-from .firebase_config import is_firebase_available
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +45,7 @@ def sync_reminder_to_firebase(sender, instance, created, **kwargs):
             f"for user {instance.user.id}"
         )
     else:
-        logger.warning(
-            f"[SIGNAL] Failed to sync reminder {instance.id} to Firebase"
-        )
+        logger.warning(f"[SIGNAL] Failed to sync reminder {instance.id} to Firebase")
 
 
 @receiver(post_delete, sender=CareReminder)

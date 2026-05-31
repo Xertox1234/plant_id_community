@@ -1,9 +1,10 @@
 import json
+import logging
 from uuid import UUID
+
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.contrib.auth.models import AnonymousUser
 from django.shortcuts import get_object_or_404
-import logging
 
 from .models import PlantIdentificationRequest
 
@@ -60,11 +61,13 @@ class IdentificationConsumer(AsyncJsonWebsocketConsumer):
             self.group_name,
         )
         # Initial ping
-        await self.send_json({
-            "type": "init",
-            "request_id": self.request_id,
-            "message": "connected",
-        })
+        await self.send_json(
+            {
+                "type": "init",
+                "request_id": self.request_id,
+                "message": "connected",
+            }
+        )
 
     async def disconnect(self, close_code):
         logger.info(
@@ -78,6 +81,7 @@ class IdentificationConsumer(AsyncJsonWebsocketConsumer):
         # Use sync-to-async safe ORM call via database_sync_to_async? Channels 4
         # allows awaiting sync_to_async. Keep it simple using get in threadpool.
         from asgiref.sync import sync_to_async
+
         return await sync_to_async(PlantIdentificationRequest.objects.get)(
             request_id=self.request_id, user=user
         )
@@ -85,22 +89,28 @@ class IdentificationConsumer(AsyncJsonWebsocketConsumer):
     # Handlers for group messages
     async def progress(self, event):
         # event keys: {"type": "progress", "stage": str, "status": str, "data": dict}
-        await self.send_json({
-            "type": "progress",
-            "stage": event.get("stage"),
-            "status": event.get("status"),
-            "data": event.get("data", {}),
-        })
+        await self.send_json(
+            {
+                "type": "progress",
+                "stage": event.get("stage"),
+                "status": event.get("status"),
+                "data": event.get("data", {}),
+            }
+        )
 
     async def completed(self, event):
-        await self.send_json({
-            "type": "completed",
-            "status": event.get("status"),
-            "results_count": event.get("results_count", 0),
-        })
+        await self.send_json(
+            {
+                "type": "completed",
+                "status": event.get("status"),
+                "results_count": event.get("results_count", 0),
+            }
+        )
 
     async def error(self, event):
-        await self.send_json({
-            "type": "error",
-            "message": event.get("message", "Unknown error"),
-        })
+        await self.send_json(
+            {
+                "type": "error",
+                "message": event.get("message", "Unknown error"),
+            }
+        )

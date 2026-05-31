@@ -38,17 +38,23 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ('blog', '0005_blogpostpage_view_count_blogpostview'),
-        ('plant_identification', '0014_remove_plantidentificationrequest_idx_request_user_created_and_more'),
-        ('taggit', '0006_rename_taggeditem_content_type_object_id_taggit_tagg_content_8fc721_idx'),
-        ('wagtailcore', '0094_alter_page_locale'),
-        ('wagtailimages', '0027_image_description'),
+        ("blog", "0005_blogpostpage_view_count_blogpostview"),
+        (
+            "plant_identification",
+            "0014_remove_plantidentificationrequest_idx_request_user_created_and_more",
+        ),
+        (
+            "taggit",
+            "0006_rename_taggeditem_content_type_object_id_taggit_tagg_content_8fc721_idx",
+        ),
+        ("wagtailcore", "0094_alter_page_locale"),
+        ("wagtailimages", "0027_image_description"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.AddIndex(
-            model_name='blogpostpage',
-            index=models.Index(fields=['-view_count'], name='blog_post_view_count_idx'),
+            model_name="blogpostpage",
+            index=models.Index(fields=["-view_count"], name="blog_post_view_count_idx"),
         ),
     ]

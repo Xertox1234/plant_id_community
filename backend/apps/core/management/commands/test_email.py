@@ -7,47 +7,45 @@ Usage:
     python manage.py test_email recipient@example.com --type plant_care_reminder
 """
 
-from django.core.management.base import BaseCommand, CommandError
-from django.contrib.auth import get_user_model
-from django.conf import settings
 from apps.core.services.email_service import EmailService, EmailType
 from apps.core.services.notification_service import NotificationService
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand, CommandError
 
 User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = 'Test email functionality by sending a test email'
+    help = "Test email functionality by sending a test email"
 
     def add_arguments(self, parser):
         parser.add_argument(
-            'recipient',
-            type=str,
-            help='Email address to send test email to'
+            "recipient", type=str, help="Email address to send test email to"
         )
         parser.add_argument(
-            '--template',
+            "--template",
             type=str,
-            default='generic_notification',
-            help='Email template to use (default: generic_notification)'
+            default="generic_notification",
+            help="Email template to use (default: generic_notification)",
         )
         parser.add_argument(
-            '--type',
+            "--type",
             type=str,
-            default='system_test',
-            help='Email type for tracking (default: system_test)'
+            default="system_test",
+            help="Email type for tracking (default: system_test)",
         )
         parser.add_argument(
-            '--user',
+            "--user",
             type=str,
-            help='Username or email of user to use as context (optional)'
+            help="Username or email of user to use as context (optional)",
         )
 
     def handle(self, *args, **options):
-        recipient = options['recipient']
-        template = options['template']
-        email_type = options['type']
-        user_identifier = options.get('user')
+        recipient = options["recipient"]
+        template = options["template"]
+        email_type = options["type"]
+        user_identifier = options.get("user")
 
         self.stdout.write(f"Testing email functionality...")
         self.stdout.write(f"Recipient: {recipient}")
@@ -58,7 +56,7 @@ class Command(BaseCommand):
         user = None
         if user_identifier:
             try:
-                if '@' in user_identifier:
+                if "@" in user_identifier:
                     user = User.objects.get(email=user_identifier)
                 else:
                     user = User.objects.get(username=user_identifier)
@@ -70,17 +68,17 @@ class Command(BaseCommand):
 
         # Prepare test context
         context = {
-            'test_message': 'This is a test email from Plant Community!',
-            'user': user,
-            'site_name': 'Plant Community',
-            'plant_name': 'Monstera Deliciosa',
-            'care_type': 'Watering',
-            'care_instructions': 'Water when the top inch of soil feels dry.',
+            "test_message": "This is a test email from Plant Community!",
+            "user": user,
+            "site_name": "Plant Community",
+            "plant_name": "Monstera Deliciosa",
+            "care_type": "Watering",
+            "care_instructions": "Water when the top inch of soil feels dry.",
         }
 
         # Send email
         email_service = EmailService()
-        
+
         try:
             success = email_service.send_email(
                 email_type=email_type,
@@ -88,20 +86,22 @@ class Command(BaseCommand):
                 subject=f"🌱 Test Email from Plant Community",
                 template_name=template,
                 context=context,
-                priority='normal',
-                respect_preferences=False  # Always send test emails
+                priority="normal",
+                respect_preferences=False,  # Always send test emails
             )
 
             if success:
                 self.stdout.write(
-                    self.style.SUCCESS(f"✅ Test email sent successfully to {recipient}")
+                    self.style.SUCCESS(
+                        f"✅ Test email sent successfully to {recipient}"
+                    )
                 )
                 self.stdout.write(
                     f"Check the email inbox for {recipient} to verify delivery."
                 )
-                
+
                 # Also show console output if using console backend
-                if 'console' in settings.EMAIL_BACKEND:
+                if "console" in settings.EMAIL_BACKEND:
                     self.stdout.write(
                         self.style.WARNING(
                             "📧 Note: Using console email backend - check server logs for email content."
@@ -114,26 +114,24 @@ class Command(BaseCommand):
                 raise CommandError("Email sending failed")
 
         except Exception as e:
-            self.stdout.write(
-                self.style.ERROR(f"❌ Error sending test email: {e}")
-            )
+            self.stdout.write(self.style.ERROR(f"❌ Error sending test email: {e}"))
             raise CommandError(f"Email test failed: {e}")
 
     def print_available_templates(self):
         """Print available email templates."""
         self.stdout.write("\nAvailable email templates:")
         templates = [
-            'generic_notification',
-            'welcome_email', 
-            'plant_care_reminder',
-            'forum_reply',
-            'forum_mention',
-            'identification_result',
-            'newsletter',
+            "generic_notification",
+            "welcome_email",
+            "plant_care_reminder",
+            "forum_reply",
+            "forum_mention",
+            "identification_result",
+            "newsletter",
         ]
         for template in templates:
             self.stdout.write(f"  - {template}")
-        
+
         self.stdout.write("\nAvailable email types:")
         types = [
             EmailType.PLANT_CARE_REMINDER,

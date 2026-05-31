@@ -17,42 +17,40 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ('users', '0006_add_garden_calendar_location_fields'),
+        ("users", "0006_add_garden_calendar_location_fields"),
     ]
 
     operations = [
         # Add index on email field for faster lookups during authentication
         # This prevents sequential scans on the auth_user table
         migrations.AlterField(
-            model_name='user',
-            name='email',
+            model_name="user",
+            name="email",
             field=models.EmailField(
                 max_length=254,
                 blank=True,
                 db_index=True,  # Add index for fast email lookups
-                help_text='Email address for notifications and account recovery'
+                help_text="Email address for notifications and account recovery",
             ),
         ),
-
         # Add index on trust_level for filtering trusted users
         # Common query pattern: User.objects.filter(trust_level='trusted')
         migrations.AlterField(
-            model_name='user',
-            name='trust_level',
+            model_name="user",
+            name="trust_level",
             field=models.CharField(
                 max_length=20,
                 choices=[
-                    ('new', 'New User (0-10 interactions)'),
-                    ('basic', 'Basic User (10-50 interactions)'),
-                    ('trusted', 'Trusted Contributor (50-200 interactions)'),
-                    ('veteran', 'Veteran Member (200+ interactions)'),
+                    ("new", "New User (0-10 interactions)"),
+                    ("basic", "Basic User (10-50 interactions)"),
+                    ("trusted", "Trusted Contributor (50-200 interactions)"),
+                    ("veteran", "Veteran Member (200+ interactions)"),
                 ],
-                default='new',
+                default="new",
                 db_index=True,  # Add index for trust level filtering
-                help_text='Automatically calculated based on community participation'
+                help_text="Automatically calculated based on community participation",
             ),
         ),
-
         # NOTE: ActivityLog already has composite indexes defined in Meta.indexes
         # - models.Index(fields=['-created_at'])
         # - models.Index(fields=['user', '-created_at'])

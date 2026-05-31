@@ -5,9 +5,9 @@ Tests caching behavior, cache key generation, TTL, and invalidation
 to ensure 80-95% cost reduction target is achievable.
 """
 
-from django.test import TestCase
-from django.core.cache import cache
 from apps.blog.services.ai_cache_service import AICacheService
+from django.core.cache import cache
+from django.test import TestCase
 
 
 class AICacheServiceTestCase(TestCase):
@@ -28,21 +28,21 @@ class AICacheServiceTestCase(TestCase):
         cached_response = {
             "text": "How to Grow Monstera: Complete Care Guide for Beginners"
         }
-        AICacheService.set_cached_response('title', content, cached_response)
+        AICacheService.set_cached_response("title", content, cached_response)
 
         # Test: Retrieve cached response
-        result = AICacheService.get_cached_response('title', content)
+        result = AICacheService.get_cached_response("title", content)
 
         # Assert: Should return cached response
         self.assertIsNotNone(result)
         self.assertEqual(result, cached_response)
-        self.assertEqual(result['text'], cached_response['text'])
+        self.assertEqual(result["text"], cached_response["text"])
 
     def test_cache_miss_returns_none(self):
         """Test that cache miss returns None for uncached content."""
         content = "Uncached plant care content"
 
-        result = AICacheService.get_cached_response('title', content)
+        result = AICacheService.get_cached_response("title", content)
 
         self.assertIsNone(result)
 
@@ -54,12 +54,12 @@ class AICacheServiceTestCase(TestCase):
         response1 = {"text": "Title 1"}
         response2 = {"text": "Title 2"}
 
-        AICacheService.set_cached_response('title', content, response1)
+        AICacheService.set_cached_response("title", content, response1)
         # Second call should overwrite first
-        AICacheService.set_cached_response('title', content, response2)
+        AICacheService.set_cached_response("title", content, response2)
 
         # Should get most recent response
-        result = AICacheService.get_cached_response('title', content)
+        result = AICacheService.get_cached_response("title", content)
         self.assertEqual(result, response2)
 
     def test_different_features_use_different_keys(self):
@@ -70,12 +70,12 @@ class AICacheServiceTestCase(TestCase):
         description_response = {"text": "Complete Monstera care instructions"}
 
         # Cache both
-        AICacheService.set_cached_response('title', content, title_response)
-        AICacheService.set_cached_response('description', content, description_response)
+        AICacheService.set_cached_response("title", content, title_response)
+        AICacheService.set_cached_response("description", content, description_response)
 
         # Retrieve both
-        title_result = AICacheService.get_cached_response('title', content)
-        description_result = AICacheService.get_cached_response('description', content)
+        title_result = AICacheService.get_cached_response("title", content)
+        description_result = AICacheService.get_cached_response("description", content)
 
         # Should be different
         self.assertEqual(title_result, title_response)
@@ -90,11 +90,11 @@ class AICacheServiceTestCase(TestCase):
         response1 = {"text": "Monstera Title"}
         response2 = {"text": "Pothos Title"}
 
-        AICacheService.set_cached_response('title', content1, response1)
-        AICacheService.set_cached_response('title', content2, response2)
+        AICacheService.set_cached_response("title", content1, response1)
+        AICacheService.set_cached_response("title", content2, response2)
 
-        result1 = AICacheService.get_cached_response('title', content1)
-        result2 = AICacheService.get_cached_response('title', content2)
+        result1 = AICacheService.get_cached_response("title", content1)
+        result2 = AICacheService.get_cached_response("title", content2)
 
         self.assertEqual(result1, response1)
         self.assertEqual(result2, response2)
@@ -103,11 +103,11 @@ class AICacheServiceTestCase(TestCase):
     def test_empty_content_returns_none(self):
         """Test that empty content is handled gracefully."""
         # Empty string
-        result1 = AICacheService.get_cached_response('title', '')
+        result1 = AICacheService.get_cached_response("title", "")
         self.assertIsNone(result1)
 
         # Whitespace only
-        result2 = AICacheService.get_cached_response('title', '   ')
+        result2 = AICacheService.get_cached_response("title", "   ")
         self.assertIsNone(result2)
 
     def test_cache_invalidation_removes_entry(self):
@@ -116,16 +116,16 @@ class AICacheServiceTestCase(TestCase):
         response = {"text": "How to Care for Succulents"}
 
         # Set cache
-        AICacheService.set_cached_response('title', content, response)
+        AICacheService.set_cached_response("title", content, response)
 
         # Verify cached
-        self.assertIsNotNone(AICacheService.get_cached_response('title', content))
+        self.assertIsNotNone(AICacheService.get_cached_response("title", content))
 
         # Invalidate
-        AICacheService.invalidate_cache('title', content)
+        AICacheService.invalidate_cache("title", content)
 
         # Should be gone
-        self.assertIsNone(AICacheService.get_cached_response('title', content))
+        self.assertIsNone(AICacheService.get_cached_response("title", content))
 
     def test_cache_ttl_is_30_days(self):
         """Test that cache TTL is set to 30 days (2,592,000 seconds)."""
@@ -140,10 +140,10 @@ class AICacheServiceTestCase(TestCase):
         content = "Test content"
         response = {"text": "Test response"}
 
-        AICacheService.set_cached_response('title', content, response)
+        AICacheService.set_cached_response("title", content, response)
 
         # Should be retrievable
-        result = AICacheService.get_cached_response('title', content)
+        result = AICacheService.get_cached_response("title", content)
         self.assertEqual(result, response)
 
     def test_concurrent_cache_access(self):
@@ -152,11 +152,11 @@ class AICacheServiceTestCase(TestCase):
         response = {"text": "Popular Plant Care"}
 
         # Set cache
-        AICacheService.set_cached_response('title', content, response)
+        AICacheService.set_cached_response("title", content, response)
 
         # Multiple retrievals should all succeed
         for _ in range(10):
-            result = AICacheService.get_cached_response('title', content)
+            result = AICacheService.get_cached_response("title", content)
             self.assertEqual(result, response)
 
     def test_cache_stats_structure(self):
@@ -164,14 +164,14 @@ class AICacheServiceTestCase(TestCase):
         stats = AICacheService.get_cache_stats()
 
         # Should have required keys
-        self.assertIn('hits', stats)
-        self.assertIn('misses', stats)
-        self.assertIn('hit_rate', stats)
+        self.assertIn("hits", stats)
+        self.assertIn("misses", stats)
+        self.assertIn("hit_rate", stats)
 
         # Should be numeric
-        self.assertIsInstance(stats['hits'], int)
-        self.assertIsInstance(stats['misses'], int)
-        self.assertIsInstance(stats['hit_rate'], float)
+        self.assertIsInstance(stats["hits"], int)
+        self.assertIsInstance(stats["misses"], int)
+        self.assertIsInstance(stats["hit_rate"], float)
 
     def test_warm_cache_logs_warming(self):
         """Test that cache warming logs appropriately."""
@@ -181,16 +181,16 @@ class AICacheServiceTestCase(TestCase):
         # Capture logs
         log_stream = StringIO()
         handler = logging.StreamHandler(log_stream)
-        logger = logging.getLogger('apps.blog.services.ai_cache_service')
+        logger = logging.getLogger("apps.blog.services.ai_cache_service")
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
 
         content = "Cache warming test"
-        AICacheService.warm_cache('title', content)
+        AICacheService.warm_cache("title", content)
 
         # Should have logged
         log_output = log_stream.getvalue()
-        self.assertIn('[CACHE]', log_output)
+        self.assertIn("[CACHE]", log_output)
 
         # Cleanup
         logger.removeHandler(handler)

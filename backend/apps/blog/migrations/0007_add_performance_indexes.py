@@ -35,20 +35,18 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('blog', '0006_blogpostpage_blog_post_view_count_idx'),
+        ("blog", "0006_blogpostpage_blog_post_view_count_idx"),
     ]
 
     operations = [
         # Index 1: publish_date (descending) on BlogPostPage
         # Optimizes: BlogPostPage.objects.order_by('-publish_date')
         migrations.AddIndex(
-            model_name='blogpostpage',
+            model_name="blogpostpage",
             index=models.Index(
-                fields=['-publish_date'],
-                name='blog_post_publish_date_idx'
+                fields=["-publish_date"], name="blog_post_publish_date_idx"
             ),
         ),
-
         # Index 2: Optimized index on categories junction table
         # Optimizes: filter(categories=X).order_by('-publish_date')
         # The query planner will use this index on the junction table for the JOIN,

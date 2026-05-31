@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "087"
 tags: [tooling, ci, dev-experience]
@@ -48,9 +48,9 @@ Observed during the 2026-05-17 full audit (Phase 7 — see
 
 ## Acceptance Criteria
 
-- [ ] A self-recanted or mis-scoped kimi-review finding no longer blocks a commit.
-- [ ] kimi-review reviews only the staged diff, not unrelated `main` files.
-- [ ] `git commit` touching an older Python file no longer triggers whole-file
+- [x] A self-recanted or mis-scoped kimi-review finding no longer blocks a commit.
+- [x] kimi-review reviews only the staged diff, not unrelated `main` files.
+- [x] `git commit` touching an older Python file no longer triggers whole-file
       reformatting (repo is formatter-clean).
 
 ## Work Log
@@ -124,3 +124,47 @@ Observed during the 2026-05-17 full audit (Phase 7 — see
 
 p3 — pure dev-experience / tooling health; no functional or security impact. The
 two items are independent and can be done separately.
+
+### 2026-05-31 - Started by completing-todos skill (run 2026-05-31-1151)
+
+- Picked up by automated workflow.
+
+**Criterion 1 — verified ✅**
+
+Both gates now key on engine exit code 2 (verified CRITICAL survived), not
+a prose grep for the `[CRITICAL]` tag. Confirmed by reading both files:
+
+`.claude/hooks/kimi-review.sh` step 8:
+```
+if [ "$REVIEW_STATUS" -eq 2 ]; then
+  # block — verified CRITICAL finding present
+```
+`scripts/kimi-precommit.sh`:
+```
+if [ "$REVIEW_STATUS" -eq 2 ]; then
+  echo "Commit blocked: kimi-review reported a verified CRITICAL finding above."
+```
+A self-recanted finding is downgraded by the engine before the exit code is
+set, so the gate never sees it as blocking. Fixed 2026-05-29.
+
+**Criterion 2 — already satisfied ✅**
+
+`.claude/hooks/kimi-review.sh` step 5 and 7 both scope via
+`git diff --cached`. The mis-scoped audit invocation was a manual
+`kimi-review --base main` call, not the hook path. No code change needed.
+
+**Criterion 3 — verified ✅**
+
+Ran `pre-commit run black --all-files` + `pre-commit run isort --all-files`
+on `style/black-formatter-repo-wide` (branched from main). 244 backend Python
+files reformatted and committed as `6041c70` ("style: apply black + isort
+formatter repo-wide"). `.git-blame-ignore-revs` created with SHA `6041c70`.
+
+Verification: `pre-commit run black --all-files` → Passed (0 files reformatted).
+`pre-commit run isort --all-files` → Passed.
+
+### 2026-05-31 - Completed by completing-todos skill (run 2026-05-31-1151)
+
+- Verification: all 3 acceptance criteria passed.
+- Review: no code review dispatched — no logic changes (criteria 1 and 2 already
+  satisfied by prior hook refactor; criterion 3 is pure formatting).

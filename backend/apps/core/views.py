@@ -6,12 +6,13 @@ and CSP violation reporting endpoint (Issue #014).
 """
 
 import logging
+
+from django.conf import settings
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
-from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 from django.views.generic import TemplateView
-from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -41,7 +42,7 @@ def csrf_token_view(request):
     Returns:
         JsonResponse: {"csrfToken": "abc123..."}
     """
-    return JsonResponse({'csrfToken': get_token(request)})
+    return JsonResponse({"csrfToken": get_token(request)})
 
 
 class ReactAppView(TemplateView):
@@ -69,7 +70,8 @@ class ReactAppView(TemplateView):
     const token = meta ? meta.getAttribute('content') : null;
     ```
     """
-    template_name = 'react_app.html'
+
+    template_name = "react_app.html"
 
     def get_context_data(self, **kwargs):
         """
@@ -84,12 +86,12 @@ class ReactAppView(TemplateView):
         get_token(self.request)
 
         # Pass DEBUG flag for conditional asset loading (dev vs production)
-        context['debug'] = settings.DEBUG
+        context["debug"] = settings.DEBUG
 
         return context
 
 
-@api_view(['POST'])
+@api_view(["POST"])
 @permission_classes([AllowAny])
 @csrf_exempt  # CSP reports are POST from browser, no CSRF token
 def csp_report_view(request):
@@ -126,18 +128,18 @@ def csp_report_view(request):
     try:
         # CSP reports use Content-Type: application/csp-report
         # DRF's request.data handles both JSON and CSP report format
-        report = request.data.get('csp-report', {})
+        report = request.data.get("csp-report", {})
 
         if not report:
             logger.warning("[CSP] Empty violation report received")
             return Response(status=400)
 
         # Extract violation details
-        document_uri = report.get('document-uri', 'unknown')
-        violated_directive = report.get('violated-directive', 'unknown')
-        blocked_uri = report.get('blocked-uri', 'unknown')
-        source_file = report.get('source-file', '')
-        line_number = report.get('line-number', '')
+        document_uri = report.get("document-uri", "unknown")
+        violated_directive = report.get("violated-directive", "unknown")
+        blocked_uri = report.get("blocked-uri", "unknown")
+        source_file = report.get("source-file", "")
+        line_number = report.get("line-number", "")
 
         # Log the violation for monitoring and refinement
         logger.warning(

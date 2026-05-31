@@ -5,10 +5,11 @@ Implements Pattern 3 from WAGTAIL_AI_PATTERNS_CODIFIED.md
 Reduces AI API costs by 80-95% through intelligent caching.
 """
 
-from django.core.cache import cache
 import hashlib
 import logging
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
+from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +44,7 @@ class AICacheService:
 
     @classmethod
     def get_cached_response(
-        cls,
-        feature: str,  # 'title', 'description', 'alt_text'
-        content: str
+        cls, feature: str, content: str  # 'title', 'description', 'alt_text'
     ) -> Optional[Dict[str, Any]]:
         """
         Retrieve cached AI response if available.
@@ -87,10 +86,7 @@ class AICacheService:
 
     @classmethod
     def set_cached_response(
-        cls,
-        feature: str,
-        content: str,
-        response: Dict[str, Any]
+        cls, feature: str, content: str, response: Dict[str, Any]
     ) -> None:
         """
         Cache AI response for future identical requests.
@@ -141,9 +137,7 @@ class AICacheService:
 
         cache.delete(cache_key)
 
-        logger.info(
-            f"[CACHE] INVALIDATED for {feature} (key: {cache_key})"
-        )
+        logger.info(f"[CACHE] INVALIDATED for {feature} (key: {cache_key})")
 
     @classmethod
     def get_cache_stats(cls) -> Dict[str, int]:
@@ -161,9 +155,9 @@ class AICacheService:
         # or external monitoring (Redis INFO command)
         # For now, return placeholder
         return {
-            'hits': 0,
-            'misses': 0,
-            'hit_rate': 0.0,
+            "hits": 0,
+            "misses": 0,
+            "hit_rate": 0.0,
         }
 
     @classmethod
@@ -192,6 +186,5 @@ class AICacheService:
         # This will be implemented in management command
         # which has access to AI generation functions
         logger.info(
-            f"[CACHE] Warming cache for {feature} "
-            f"(content: {content[:30]}...)"
+            f"[CACHE] Warming cache for {feature} " f"(content: {content[:30]}...)"
         )

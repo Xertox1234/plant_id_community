@@ -12,25 +12,28 @@ import logging
 import os
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from io import BytesIO
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
-from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
+
 from django.conf import settings
+from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser
 
-from .plant_id_service import PlantIDAPIService
-from .plantnet_service import PlantNetAPIService
+from apps.core.exceptions import ExternalAPIError
+
 from ..constants import (
-    MAX_WORKER_THREADS,
     CPU_CORE_MULTIPLIER,
+    MAX_WORKER_THREADS,
     PLANT_ID_API_TIMEOUT,
     PLANTNET_API_TIMEOUT,
     TEMPERATURE_RANGE_CELSIUS,
 )
-from apps.core.exceptions import ExternalAPIError
+from .plant_id_service import PlantIDAPIService
+from .plantnet_service import PlantNetAPIService
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +71,13 @@ def get_executor() -> ThreadPoolExecutor:
             # Get max_workers from environment or calculate based on CPU cores
             # For I/O-bound tasks (API calls), use CPU_CORE_MULTIPLIER x CPU cores
             try:
-                max_workers_env = os.getenv('PLANT_ID_MAX_WORKERS')
+                max_workers_env = os.getenv("PLANT_ID_MAX_WORKERS")
                 if max_workers_env:
                     max_workers = int(max_workers_env)
                     if max_workers < 1:
-                        logger.warning(f"Invalid PLANT_ID_MAX_WORKERS={max_workers} (must be positive), using default")
+                        logger.warning(
+                            f"Invalid PLANT_ID_MAX_WORKERS={max_workers} (must be positive), using default"
+                        )
                         cpu_count = os.cpu_count() or 1
                         default_workers = cpu_count * CPU_CORE_MULTIPLIER
                         max_workers = default_workers
@@ -88,8 +93,7 @@ def get_executor() -> ThreadPoolExecutor:
             max_workers = max(1, min(max_workers, MAX_WORKER_THREADS))
 
             _EXECUTOR = ThreadPoolExecutor(
-                max_workers=max_workers,
-                thread_name_prefix='plant_api_'
+                max_workers=max_workers, thread_name_prefix="plant_api_"
             )
 
             # Register cleanup on process exit (only once)
@@ -97,7 +101,9 @@ def get_executor() -> ThreadPoolExecutor:
                 atexit.register(_cleanup_executor)
                 _CLEANUP_REGISTERED = True
 
-            logger.info(f"[INIT] ThreadPoolExecutor initialized with {max_workers} workers")
+            logger.info(
+                f"[INIT] ThreadPoolExecutor initialized with {max_workers} workers"
+            )
 
         return _EXECUTOR
 
@@ -115,13 +121,13 @@ def _cleanup_executor() -> None:
 class CombinedPlantIdentificationService:
     """
     Combines Plant.id and PlantNet APIs for comprehensive plant identification.
-    
+
     Strategy:
     1. Use Plant.id for primary identification + disease detection (best accuracy)
     2. Use PlantNet to supplement with care instructions (open source data)
     3. Merge results to provide comprehensive plant information
     """
-    
+
     def __init__(self) -> None:
         """Initialize both API services and thread executor for parallel processing."""
         self.plant_id = None
@@ -133,38 +139,38 @@ class CombinedPlantIdentificationService:
 
         # Initialize Plant.id (Kindwise) service
         try:
-            if getattr(settings, 'ENABLE_PLANT_ID', True):
+            if getattr(settings, "ENABLE_PLANT_ID", True):
                 self.plant_id = PlantIDAPIService()
                 logger.info("Plant.id service initialized")
         except (ImportError, AttributeError, KeyError) as e:
             # Configuration errors or missing dependencies
             logger.warning(
                 f"Plant.id service not available: {type(e).__name__}",
-                exc_info=settings.DEBUG
+                exc_info=settings.DEBUG,
             )
         except Exception as e:
             # Unexpected initialization errors
             logger.error(
                 f"Unexpected error initializing Plant.id service: {type(e).__name__}",
-                exc_info=True
+                exc_info=True,
             )
 
         # Initialize PlantNet service
         try:
-            if getattr(settings, 'ENABLE_PLANTNET', True):
+            if getattr(settings, "ENABLE_PLANTNET", True):
                 self.plantnet = PlantNetAPIService()
                 logger.info("PlantNet service initialized")
         except (ImportError, AttributeError, KeyError) as e:
             # Configuration errors or missing dependencies
             logger.warning(
                 f"PlantNet service not available: {type(e).__name__}",
-                exc_info=settings.DEBUG
+                exc_info=settings.DEBUG,
             )
         except Exception as e:
             # Unexpected initialization errors
             logger.error(
                 f"Unexpected error initializing PlantNet service: {type(e).__name__}",
-                exc_info=True
+                exc_info=True,
             )
 
         if not self.plant_id and not self.plantnet:
@@ -173,7 +179,7 @@ class CombinedPlantIdentificationService:
     def identify_plant(
         self,
         image_file: Union[BytesIO, InMemoryUploadedFile, TemporaryUploadedFile, bytes],
-        user: Optional["AbstractBaseUser"] = None
+        user: Optional["AbstractBaseUser"] = None,
     ) -> Dict[str, Any]:
         """
         Identify a plant using both APIs in parallel and combine results.
@@ -188,17 +194,17 @@ class CombinedPlantIdentificationService:
         start_time = time.time()
 
         results: Dict[str, Any] = {
-            'primary_identification': None,
-            'care_instructions': None,
-            'disease_detection': None,
-            'combined_suggestions': [],
-            'confidence_score': 0,
-            'source': None,
-            'timing': {},
+            "primary_identification": None,
+            "care_instructions": None,
+            "disease_detection": None,
+            "combined_suggestions": [],
+            "confidence_score": 0,
+            "source": None,
+            "timing": {},
         }
 
         # Read image data once to avoid file pointer issues in parallel execution
-        if hasattr(image_file, 'read'):
+        if hasattr(image_file, "read"):
             image_data = image_file.read()
         else:
             image_data = image_file
@@ -210,38 +216,43 @@ class CombinedPlantIdentificationService:
 
         # Process Plant.id results
         if plant_id_results:
-            results['primary_identification'] = plant_id_results
-            results['disease_detection'] = plant_id_results.get('health_assessment')
-            results['confidence_score'] = plant_id_results.get('confidence', 0)
-            results['source'] = 'plant_id'
+            results["primary_identification"] = plant_id_results
+            results["disease_detection"] = plant_id_results.get("health_assessment")
+            results["confidence_score"] = plant_id_results.get("confidence", 0)
+            results["source"] = "plant_id"
 
-            logger.info(f"[SUCCESS] Plant.id identified: {plant_id_results.get('top_suggestion', {}).get('plant_name', 'Unknown')} "
-                      f"(confidence: {results['confidence_score']:.2%})")
+            logger.info(
+                f"[SUCCESS] Plant.id identified: {plant_id_results.get('top_suggestion', {}).get('plant_name', 'Unknown')} "
+                f"(confidence: {results['confidence_score']:.2%})"
+            )
 
         # Process PlantNet results
         if plantnet_results:
-            results['care_instructions'] = self._extract_care_info(plantnet_results)
+            results["care_instructions"] = self._extract_care_info(plantnet_results)
             logger.info("[SUCCESS] PlantNet care instructions retrieved")
 
         # Combine suggestions from both APIs
-        results['combined_suggestions'] = self._merge_suggestions(
-            plant_id_results,
-            plantnet_results
+        results["combined_suggestions"] = self._merge_suggestions(
+            plant_id_results, plantnet_results
         )
 
         # If no results from either API, return error
-        if not results['combined_suggestions']:
+        if not results["combined_suggestions"]:
             logger.warning("[ERROR] No identification results from any API")
-            results['error'] = "Unable to identify plant. Please try a clearer image."
+            results["error"] = "Unable to identify plant. Please try a clearer image."
 
         # Record total timing
         total_time = time.time() - start_time
-        results['timing']['total'] = round(total_time, 2)
-        logger.info(f"[PERF] Total identification time: {total_time:.2f}s (parallel processing)")
+        results["timing"]["total"] = round(total_time, 2)
+        logger.info(
+            f"[PERF] Total identification time: {total_time:.2f}s (parallel processing)"
+        )
 
         return results
 
-    def _identify_parallel(self, image_data: bytes) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    def _identify_parallel(
+        self, image_data: bytes
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """
         Execute Plant.id and PlantNet API calls in parallel.
 
@@ -271,21 +282,21 @@ class CombinedPlantIdentificationService:
                 # This is expected in degraded scenarios - log as warning and continue
                 logger.warning(
                     f"[PARALLEL] Plant.id API unavailable: {type(e).__name__}",
-                    exc_info=settings.DEBUG
+                    exc_info=settings.DEBUG,
                 )
                 return None
             except (ValueError, KeyError, TypeError) as e:
                 # Data validation or parsing errors
                 logger.error(
                     f"[ERROR] Plant.id response parsing failed: {type(e).__name__}",
-                    exc_info=True
+                    exc_info=True,
                 )
                 return None
             except Exception as e:
                 # Unexpected errors (should be rare with proper error handling)
                 logger.error(
                     f"[ERROR] Unexpected Plant.id error: {type(e).__name__}",
-                    exc_info=True
+                    exc_info=True,
                 )
                 return None
 
@@ -299,7 +310,9 @@ class CombinedPlantIdentificationService:
                 image_file = BytesIO(image_data)
                 result = self.plantnet.identify_plant(
                     [image_file],  # PlantNet expects a list of images
-                    organs=['leaf']  # One organ per image - using 'leaf' as most common
+                    organs=[
+                        "leaf"
+                    ],  # One organ per image - using 'leaf' as most common
                     # Note: include_related_images removed - not supported by PlantNet API
                 )
 
@@ -311,21 +324,21 @@ class CombinedPlantIdentificationService:
                 # This is expected in degraded scenarios - log as warning and continue
                 logger.warning(
                     f"[PARALLEL] PlantNet API unavailable: {type(e).__name__}",
-                    exc_info=settings.DEBUG
+                    exc_info=settings.DEBUG,
                 )
                 return None
             except (ValueError, KeyError, TypeError) as e:
                 # Data validation or parsing errors
                 logger.error(
                     f"[ERROR] PlantNet response parsing failed: {type(e).__name__}",
-                    exc_info=True
+                    exc_info=True,
                 )
                 return None
             except Exception as e:
                 # Unexpected errors (should be rare with proper error handling)
                 logger.error(
                     f"[ERROR] Unexpected PlantNet error: {type(e).__name__}",
-                    exc_info=True
+                    exc_info=True,
                 )
                 return None
 
@@ -352,13 +365,13 @@ class CombinedPlantIdentificationService:
                 # Executor timeout - API took too long
                 logger.error(
                     f"[ERROR] Plant.id executor timeout after {PLANT_ID_API_TIMEOUT}s",
-                    exc_info=settings.DEBUG
+                    exc_info=settings.DEBUG,
                 )
             except Exception as e:
                 # Thread execution errors (should be caught inside call_plant_id)
                 logger.error(
                     f"[ERROR] Plant.id thread execution failed: {type(e).__name__}",
-                    exc_info=True
+                    exc_info=True,
                 )
 
         if future_plantnet:
@@ -369,161 +382,175 @@ class CombinedPlantIdentificationService:
                 # Executor timeout - API took too long
                 logger.error(
                     f"[ERROR] PlantNet executor timeout after {PLANTNET_API_TIMEOUT}s",
-                    exc_info=settings.DEBUG
+                    exc_info=settings.DEBUG,
                 )
             except Exception as e:
                 # Thread execution errors (should be caught inside call_plantnet)
                 logger.error(
                     f"[ERROR] PlantNet thread execution failed: {type(e).__name__}",
-                    exc_info=True
+                    exc_info=True,
                 )
 
         parallel_duration = time.time() - api_start_time
-        logger.info(f"[PERF] Parallel API execution completed in {parallel_duration:.2f}s")
+        logger.info(
+            f"[PERF] Parallel API execution completed in {parallel_duration:.2f}s"
+        )
 
         return plant_id_results, plantnet_results
-    
+
     def _extract_care_info(self, plantnet_results: Dict[str, Any]) -> Dict[str, Any]:
         """
         Extract care instructions from PlantNet results.
-        
+
         Args:
             plantnet_results: PlantNet API response
-            
+
         Returns:
             Care instructions dictionary
         """
         care_info = {
-            'watering': 'Moderate watering recommended',
-            'light': 'Bright indirect light',
-            'temperature': f'Room temperature ({TEMPERATURE_RANGE_CELSIUS})',
-            'humidity': 'Average humidity',
-            'fertilizing': 'Monthly during growing season',
-            'pruning': 'Prune as needed',
-            'common_issues': [],
+            "watering": "Moderate watering recommended",
+            "light": "Bright indirect light",
+            "temperature": f"Room temperature ({TEMPERATURE_RANGE_CELSIUS})",
+            "humidity": "Average humidity",
+            "fertilizing": "Monthly during growing season",
+            "pruning": "Prune as needed",
+            "common_issues": [],
         }
-        
+
         # PlantNet results structure
-        if plantnet_results and 'results' in plantnet_results:
-            results_list = plantnet_results.get('results', [])
+        if plantnet_results and "results" in plantnet_results:
+            results_list = plantnet_results.get("results", [])
             if results_list:
                 top_result = results_list[0]
-                species = top_result.get('species', {})
-                
+                species = top_result.get("species", {})
+
                 # Extract care data from species information
                 # Note: PlantNet API returns scientific data, care instructions
                 # would need to be enriched from other sources or databases
-                care_info['scientific_name'] = species.get('scientificNameWithoutAuthor')
-                care_info['family'] = species.get('family', {}).get('scientificName')
-                care_info['genus'] = species.get('genus', {}).get('scientificName')
-        
+                care_info["scientific_name"] = species.get(
+                    "scientificNameWithoutAuthor"
+                )
+                care_info["family"] = species.get("family", {}).get("scientificName")
+                care_info["genus"] = species.get("genus", {}).get("scientificName")
+
         return care_info
-    
+
     def _merge_suggestions(
         self,
         plant_id_results: Optional[Dict[str, Any]],
-        plantnet_results: Optional[Dict[str, Any]]
+        plantnet_results: Optional[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         """
         Combine suggestions from both APIs, prioritizing Plant.id.
-        
+
         Args:
             plant_id_results: Plant.id API results
             plantnet_results: PlantNet API results
-            
+
         Returns:
             Merged suggestions list
         """
         combined: List[Dict[str, Any]] = []
-        
+
         # Add Plant.id suggestions (primary, most accurate)
-        if plant_id_results and 'suggestions' in plant_id_results:
-            for suggestion in plant_id_results['suggestions'][:5]:  # Top 5
-                combined.append({
-                    'plant_name': suggestion.get('plant_name'),
-                    'scientific_name': suggestion.get('scientific_name'),
-                    'probability': suggestion.get('probability'),
-                    'common_names': suggestion.get('common_names', []),
-                    'description': suggestion.get('description'),
-                    'taxonomy': suggestion.get('taxonomy'),
-                    'edible_parts': suggestion.get('edible_parts'),
-                    'watering': suggestion.get('watering'),
-                    'propagation_methods': suggestion.get('propagation_methods'),
-                    'similar_images': suggestion.get('similar_images', []),
-                    'url': suggestion.get('url'),
-                    'source': 'plant_id',
-                    'rank': len(combined) + 1,
-                })
-        
+        if plant_id_results and "suggestions" in plant_id_results:
+            for suggestion in plant_id_results["suggestions"][:5]:  # Top 5
+                combined.append(
+                    {
+                        "plant_name": suggestion.get("plant_name"),
+                        "scientific_name": suggestion.get("scientific_name"),
+                        "probability": suggestion.get("probability"),
+                        "common_names": suggestion.get("common_names", []),
+                        "description": suggestion.get("description"),
+                        "taxonomy": suggestion.get("taxonomy"),
+                        "edible_parts": suggestion.get("edible_parts"),
+                        "watering": suggestion.get("watering"),
+                        "propagation_methods": suggestion.get("propagation_methods"),
+                        "similar_images": suggestion.get("similar_images", []),
+                        "url": suggestion.get("url"),
+                        "source": "plant_id",
+                        "rank": len(combined) + 1,
+                    }
+                )
+
         # Enrich with PlantNet data or add supplemental suggestions
-        if plantnet_results and 'results' in plantnet_results:
-            for idx, result in enumerate(plantnet_results['results'][:3]):  # Top 3
-                species = result.get('species', {})
-                scientific_name = species.get('scientificNameWithoutAuthor')
-                
+        if plantnet_results and "results" in plantnet_results:
+            for idx, result in enumerate(plantnet_results["results"][:3]):  # Top 3
+                species = result.get("species", {})
+                scientific_name = species.get("scientificNameWithoutAuthor")
+
                 # Check if this plant is already in our list (from Plant.id)
                 existing = next(
-                    (s for s in combined if s.get('scientific_name') == scientific_name),
-                    None
+                    (
+                        s
+                        for s in combined
+                        if s.get("scientific_name") == scientific_name
+                    ),
+                    None,
                 )
-                
+
                 if existing:
                     # Enrich existing entry with PlantNet data
-                    existing['plantnet_score'] = result.get('score')
-                    existing['plantnet_matched'] = True
-                    existing['family'] = species.get('family', {}).get('scientificName')
-                    existing['genus'] = species.get('genus', {}).get('scientificName')
+                    existing["plantnet_score"] = result.get("score")
+                    existing["plantnet_matched"] = True
+                    existing["family"] = species.get("family", {}).get("scientificName")
+                    existing["genus"] = species.get("genus", {}).get("scientificName")
                 else:
                     # Add as supplemental suggestion
-                    common_names = species.get('commonNames', [])
-                    combined.append({
-                        'plant_name': common_names[0] if common_names else scientific_name,
-                        'scientific_name': scientific_name,
-                        'probability': result.get('score', 0),
-                        'common_names': common_names,
-                        'family': species.get('family', {}).get('scientificName'),
-                        'genus': species.get('genus', {}).get('scientificName'),
-                        'source': 'plantnet',
-                        'rank': len(combined) + 1,
-                    })
-        
+                    common_names = species.get("commonNames", [])
+                    combined.append(
+                        {
+                            "plant_name": (
+                                common_names[0] if common_names else scientific_name
+                            ),
+                            "scientific_name": scientific_name,
+                            "probability": result.get("score", 0),
+                            "common_names": common_names,
+                            "family": species.get("family", {}).get("scientificName"),
+                            "genus": species.get("genus", {}).get("scientificName"),
+                            "source": "plantnet",
+                            "rank": len(combined) + 1,
+                        }
+                    )
+
         # Sort by probability/confidence
-        combined.sort(key=lambda x: x.get('probability', 0), reverse=True)
-        
+        combined.sort(key=lambda x: x.get("probability", 0), reverse=True)
+
         # Update ranks after sorting
         for idx, suggestion in enumerate(combined):
-            suggestion['rank'] = idx + 1
-        
+            suggestion["rank"] = idx + 1
+
         return combined
-    
+
     def get_identification_summary(self, results: Dict[str, Any]) -> str:
         """
         Generate a human-readable summary of identification results.
-        
+
         Args:
             results: Combined identification results
-            
+
         Returns:
             Summary string
         """
-        if not results.get('combined_suggestions'):
+        if not results.get("combined_suggestions"):
             return "Unable to identify plant from image."
-        
-        top = results['combined_suggestions'][0]
-        plant_name = top.get('plant_name', 'Unknown Plant')
-        scientific_name = top.get('scientific_name', '')
-        confidence = top.get('probability', 0)
-        
+
+        top = results["combined_suggestions"][0]
+        plant_name = top.get("plant_name", "Unknown Plant")
+        scientific_name = top.get("scientific_name", "")
+        confidence = top.get("probability", 0)
+
         summary = f"Identified as: {plant_name}"
         if scientific_name:
             summary += f" ({scientific_name})"
         summary += f" - Confidence: {confidence:.1%}"
-        
+
         # Add disease warning if detected
-        if results.get('disease_detection'):
-            disease = results['disease_detection']
-            if not disease.get('is_healthy'):
-                disease_name = disease.get('disease_name', 'Unknown disease')
+        if results.get("disease_detection"):
+            disease = results["disease_detection"]
+            if not disease.get("is_healthy"):
+                disease_name = disease.get("disease_name", "Unknown disease")
                 summary += f"\n⚠️ Health Issue Detected: {disease_name}"
-        
+
         return summary

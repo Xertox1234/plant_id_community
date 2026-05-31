@@ -5,7 +5,9 @@ Implements flexible permission strategy for plant identification:
 - Authenticated users: Full access with higher rate limits
 - Anonymous users: Limited access with strict rate limits
 """
+
 from typing import Any
+
 from rest_framework import permissions
 from rest_framework.request import Request
 from rest_framework.views import APIView
@@ -70,8 +72,8 @@ class IsAuthenticatedForIdentification(permissions.BasePermission):
         return request.user and request.user.is_authenticated
 
     message = (
-        'Authentication required for plant identification. '
-        'Please log in or create an account to identify plants.'
+        "Authentication required for plant identification. "
+        "Please log in or create an account to identify plants."
     )
 
 

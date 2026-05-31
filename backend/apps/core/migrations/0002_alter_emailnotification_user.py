@@ -8,14 +8,21 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0001_add_email_notification_models'),
+        ("core", "0001_add_email_notification_models"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='emailnotification',
-            name='user',
-            field=models.ForeignKey(blank=True, help_text='User who received the email (if registered)', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='email_notification_logs', to=settings.AUTH_USER_MODEL),
+            model_name="emailnotification",
+            name="user",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="User who received the email (if registered)",
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="email_notification_logs",
+                to=settings.AUTH_USER_MODEL,
+            ),
         ),
     ]

@@ -11,9 +11,9 @@ def migrate_null_emails_to_empty_string(apps, schema_editor):
     Although the field was already NOT NULL in the database schema,
     this migration provides safety for any edge cases or future schema changes.
     """
-    User = apps.get_model('users', 'User')
+    User = apps.get_model("users", "User")
     # Update any users with NULL email to empty string
-    updated_count = User.objects.filter(email__isnull=True).update(email='')
+    updated_count = User.objects.filter(email__isnull=True).update(email="")
     if updated_count > 0:
         print(f"Migrated {updated_count} NULL email(s) to empty string")
 
@@ -32,7 +32,7 @@ def reverse_migration(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('users', '0007_add_performance_indexes'),
+        ("users", "0007_add_performance_indexes"),
     ]
 
     operations = [
@@ -43,13 +43,25 @@ class Migration(migrations.Migration):
         ),
         # STEP 2: Schema migration - alter email field constraints
         migrations.AlterField(
-            model_name='user',
-            name='email',
-            field=models.EmailField(blank=True, max_length=254, verbose_name='email address'),
+            model_name="user",
+            name="email",
+            field=models.EmailField(
+                blank=True, max_length=254, verbose_name="email address"
+            ),
         ),
         migrations.AlterField(
-            model_name='user',
-            name='trust_level',
-            field=models.CharField(choices=[('new', 'New Member'), ('basic', 'Basic Member'), ('trusted', 'Trusted Member'), ('veteran', 'Veteran Member')], default='new', help_text='Trust level for forum permissions (affects image uploads, etc.)', max_length=10),
+            model_name="user",
+            name="trust_level",
+            field=models.CharField(
+                choices=[
+                    ("new", "New Member"),
+                    ("basic", "Basic Member"),
+                    ("trusted", "Trusted Member"),
+                    ("veteran", "Veteran Member"),
+                ],
+                default="new",
+                help_text="Trust level for forum permissions (affects image uploads, etc.)",
+                max_length=10,
+            ),
         ),
     ]

@@ -47,7 +47,7 @@ VALIDATION_FAILURE_WINDOW = 3600  # 1 hour
 # ============================================================================
 
 # Default value for unknown IP addresses
-UNKNOWN_IP_ADDRESS = 'unknown'
+UNKNOWN_IP_ADDRESS = "unknown"
 
 # ============================================================================
 # Cache Keys
@@ -70,10 +70,10 @@ SUSPICIOUS_ACTIVITY_KEY = "security:suspicious:{user_id}"
 # Security Alert Severities
 # ============================================================================
 
-ALERT_SEVERITY_CRITICAL = 'critical'
-ALERT_SEVERITY_HIGH = 'high'
-ALERT_SEVERITY_MEDIUM = 'medium'
-ALERT_SEVERITY_LOW = 'low'
+ALERT_SEVERITY_CRITICAL = "critical"
+ALERT_SEVERITY_HIGH = "high"
+ALERT_SEVERITY_MEDIUM = "medium"
+ALERT_SEVERITY_LOW = "low"
 
 # ============================================================================
 # Logging Prefixes
@@ -96,11 +96,11 @@ LOG_PREFIX_PARALLEL = "[PARALLEL]"
 # Log Levels
 # ============================================================================
 
-LOG_LEVEL_DEBUG = 'DEBUG'
-LOG_LEVEL_INFO = 'INFO'
-LOG_LEVEL_WARNING = 'WARNING'
-LOG_LEVEL_ERROR = 'ERROR'
-LOG_LEVEL_CRITICAL = 'CRITICAL'
+LOG_LEVEL_DEBUG = "DEBUG"
+LOG_LEVEL_INFO = "INFO"
+LOG_LEVEL_WARNING = "WARNING"
+LOG_LEVEL_ERROR = "ERROR"
+LOG_LEVEL_CRITICAL = "CRITICAL"
 
 # ============================================================================
 # Email Configuration
