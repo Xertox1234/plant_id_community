@@ -5,17 +5,8 @@
 # in the per-stack */docs/patterns/ libraries — this hook only surfaces the
 # compact checklists plus a discipline preamble.
 #
-# PROPOSED v1 (just-in-time mistake injection). Changes vs current:
-#   1. Kill switch: INJECT_PATTERNS_DISABLE=1 exits early (no commit needed).
-#   2. Discipline preamble is now read from docs/rules/_discipline.md (editable
-#      without touching .claude/), not an inline heredoc.
-#   3. Content-matched recurring-mistake warnings via scripts/inject/match_triggers.py
-#      — injected only when a trigger matches the code being written.
-#   4. Domain-rule checklists are deduped once per session (session_id) to kill
-#      banner blindness. Discipline + matched mistakes are NEVER deduped.
-#
-# This file is .claude self-mod-blocked, so it ships as a handoff artifact. Apply:
-#   cp scripts/inject/inject-patterns.sh.proposed .claude/hooks/inject-patterns.sh
+# Just-in-time mistake injection — injects domain rules + matched recurring-mistake
+# warnings before Edit/Write. Features: kill switch, deduped domain rules, triggers.
 # Tests: .claude/hooks/test-inject-patterns.sh
 set -uo pipefail
 
