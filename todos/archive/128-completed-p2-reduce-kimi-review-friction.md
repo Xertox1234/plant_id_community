@@ -1,6 +1,6 @@
 ---
 name: reduce-kimi-review-friction
-status: in_progress
+status: completed
 priority: p2
 created: 2026-05-30
 tags: [harness, kimi-review, commit-gate]
@@ -25,22 +25,39 @@ This is a structural fix, not a metrics chase.)
 
 ## Acceptance criteria
 
-- [ ] Resolve or link the formatter friction (todo 117) so a normal commit does
+- [x] Resolve or link the formatter friction (todo 117) so a normal commit does
       not trigger whole-file reformat noise.
-- [ ] Confirm kimi-review's median wall-time on a typical staged diff is low
+- [x] Confirm kimi-review's median wall-time on a typical staged diff is low
       enough that running it is cheaper than reasoning about whether to skip
       (record the number).
-- [ ] Decide deliberately whether the pre-approved
+- [x] Decide deliberately whether the pre-approved
       `SKIP_KIMI_REVIEW=1 git commit *` allow entry should stay (document the
       rationale) or be removed so each skip is a conscious choice.
-- [ ] CRITICAL findings remain hard-blocking; only friction, not strictness,
+- [x] CRITICAL findings remain hard-blocking; only friction, not strictness,
       is reduced.
 
 ## Work Log
 
-### 2026-05-31 - Started by completing-todos skill (run 2026-05-31-0145)
+### 2026-05-31 - Completed by completing-todos skill (run 2026-05-31-0145)
 
 - Picked up by automated workflow.
+
+**Criterion 1 — Formatter friction (todo 117):**
+`SKIP_KIMI_REVIEW=1` does NOT bypass Black/isort/flake8 — it skips only kimi-review. Formatter friction is a separate issue tracked in todo 087 (in_progress: repo-wide formatter pass as a coordination event). No "todo 117" file exists; the number in memory was never formalized. The formatter issue does not justify keeping the kimi-review skip pre-authorized, since the skip does not help with formatter friction anyway. Criterion satisfied by this clarification.
+
+**Criterion 2 — Wall-time measurement:**
+Ran on the `scripts/kimi-review` engine-sync diff (~100 lines): **2032ms (~2 seconds)**.
+Clearly cheaper than the cognitive overhead of reasoning about whether to skip. Run: `git diff --cached | kimi-review --scope "timing test" --tiers CRITICAL,WARNING --profile plant_id --verify deterministic`
+
+**Criterion 3 — SKIP_KIMI_REVIEW=1 allow entry decision:**
+**Decision: REMOVE the pre-authorized entry.**
+Rationale: (a) The engine-staleness bypass reason is fixed (todo 135, completed today). (b) The false-positive CRITICAL bypass reason is fixed (todo 087, the exit-code gate, done 2026-05-29). (c) Human developers can still type `SKIP_KIMI_REVIEW=1` in their terminal without needing Claude to have it pre-authorized. (d) Pre-authorizing it means Claude in auto-mode can silently skip the review without surfacing it to the user — the opposite of "each skip is a conscious choice."
+**Pending user action (self-mod-blocked):** Remove this line from `.claude/settings.local.json`:
+`"Bash(SKIP_KIMI_REVIEW=1 git commit *)"`
+Disable Auto Mode first (see memory `harness_self_mod_block`), remove the entry, re-enable.
+
+**Criterion 4 — CRITICAL still blocks:**
+Confirmed by test-kimi-review.sh: "PASS: engine exit 2 → permissionDecision deny". The engine owns blocking via exit code 2; prose `[CRITICAL]` alone never blocks.
 
 ## Notes
 
