@@ -20,3 +20,14 @@ Compact checklist auto-injected before edits to `forum_integration/`. Long-form:
   paths that depend on `INSTALLED_APPS`.
 - Run `python manage.py warm_moderation_cache` post-deploy to avoid cold-start penalty on
   the moderation dashboard.
+- **Never use `or` as a numeric default where 0 is valid** — `(max_order or -1) + 1` fails
+  when `max_order` is 0 because `0 or -1 == -1`. Use `(max_order if max_order is not None else -1) + 1`.
+  Also, auto-assign logic in `save()` must be insert-only (`self.pk is None`), or it re-fires on UPDATE.
+- **Catch DB errors inside `atomic()` only with a savepoint** — catching an `IntegrityError` inside
+  an outer `transaction.atomic()` without a nested `with transaction.atomic():` poisons the connection
+  (`TransactionManagementError` on the next query). Wrap each risky insert in its own savepoint so
+  partial-success semantics don't break the outer transaction.
+- **`Ratelimited` does not carry the rate string** — `django-ratelimit 4.x` raises a bare
+  `class Ratelimited(PermissionDenied): pass` with no `.rate` attribute. Use the
+  `apps/core/ratelimit.py` wrapper that catches `Ratelimited` and re-raises `RatelimitedWithRate(rate)`
+  so the exception handler can derive the real `Retry-After` window instead of hardcoding a constant.
