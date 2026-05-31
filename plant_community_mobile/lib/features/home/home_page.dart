@@ -180,7 +180,7 @@ class HomePage extends StatelessWidget {
               icon: feature.icon,
               title: feature.title,
               description: feature.description,
-              iconColor: FeatureCardColors.getIconColor(context, feature.type),
+              type: feature.type,
             ),
           );
         }).toList(),

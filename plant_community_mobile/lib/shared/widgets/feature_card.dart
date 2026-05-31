@@ -47,7 +47,13 @@ class FeatureCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final ext = Theme.of(context).extension<GreenThumbExtension>()!;
+    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
+    assert(
+      rawExt != null,
+      'FeatureCard requires GreenThumbExtension to be registered in the theme. '
+      'Ensure AppTheme.build() is used to create the ThemeData.',
+    );
+    final ext = rawExt!;
     final effectiveIconColor =
         iconColor ?? FeatureCardColors.getIconColor(context, type);
 
@@ -117,7 +123,12 @@ class FeatureCard extends StatelessWidget {
 class FeatureCardColors {
   static Color getIconColor(BuildContext context, FeatureType type) {
     final cs = Theme.of(context).colorScheme;
-    final ext = Theme.of(context).extension<GreenThumbExtension>()!;
+    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
+    assert(
+      rawExt != null,
+      'FeatureCardColors requires GreenThumbExtension to be registered in the theme.',
+    );
+    final ext = rawExt!;
 
     return switch (type) {
       FeatureType.camera => cs.primary,
