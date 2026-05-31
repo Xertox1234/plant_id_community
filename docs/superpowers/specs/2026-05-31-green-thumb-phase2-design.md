@@ -107,9 +107,9 @@ class ClayButton extends StatelessWidget {
 **Sizing:**
 | Size | Vertical padding | Horizontal padding | Font size |
 |------|-----------------|-------------------|-----------|
-| small | 10px | `AppSpacing.md` | 14px |
-| medium | 12px | `AppSpacing.lg` | 16px |
-| large | 14px | `AppSpacing.xl` | 16px |
+| small | `AppSpacing.sm` | `AppSpacing.md` | 14px |
+| medium | `AppSpacing.md` | `AppSpacing.lg` | 16px |
+| large | `AppSpacing.lg` | `AppSpacing.xl` | 16px |
 
 **Variant colours (from `GreenThumbExtension`):**
 
@@ -119,7 +119,7 @@ class ClayButton extends StatelessWidget {
 
 **Shape:** `BorderRadius.circular(AppSpacing.rPill)` on all variants.
 
-**Disabled state:** `Colors.grey.shade300` bg, `Colors.grey.shade500` fg, no shadow.
+**Disabled state:** `colorScheme.surfaceContainerHighest` bg, `colorScheme.onSurface.withValues(alpha: 0.38)` fg, no shadow.
 
 **Loading state:** replace icon/label with `SizedBox(20×20, CircularProgressIndicator(strokeWidth:2, color: fg))`.
 
@@ -336,7 +336,7 @@ No `AppColors` import currently — token-level changes only.
 
 **Section headings ("Profile Details", "Settings"):** eyebrow style matching above.
 
-**Error screen icon:** `color: colorScheme.error` (replaces hardcoded `Colors.red`).
+**Inline error state icon** (the `profileAsync.when(error:...)` branch inside `ProfileScreen`): `color: colorScheme.error` (replaces hardcoded `Colors.red`). This is not `ErrorScreen` — it is the error widget rendered within the profile body when the profile load fails.
 
 **Stat card spacing:** `const SizedBox(width: 12)` → `SizedBox(width: ext.gapY)`.
 
@@ -450,13 +450,16 @@ Card(  // rMd from theme, shadow1
 ```text
 Scaffold
   AppBar: title 'Community'
-  SafeArea > Column
-    Expanded > ListView(padding: ext.padScreen)
-      _ForumPost × 3 (sample data, hardcoded)
-    Padding(ext.padScreen)
+  SafeArea > Padding(horizontal: ext.padScreen)
+    Column
+      Expanded > ListView(
+          padding: EdgeInsets.only(top: ext.padScreen, bottom: ext.gapY))
+        _ForumPost × 3 (sample data, hardcoded)
+      SizedBox(height: ext.gapY)
       ClayButton('+ New Post', fullWidth: true, variant: primary)
-    Text('Live posting coming soon', style: bodySmall, color: ext.ink3, textAlign: center)
-    SizedBox(height: ext.gapY)
+      SizedBox(height: AppSpacing.xs)
+      Text('Live posting coming soon', style: bodySmall, color: ext.ink3, textAlign: center)
+      SizedBox(height: ext.padScreen)
 ```
 
 **`_ForumPost` item:**
@@ -524,9 +527,17 @@ Scaffold
       SliverToBoxAdapter
         eyebrow: '3 PLANTS IDENTIFIED'
         SizedBox(height: ext.gapY)
-      SliverGrid(crossAxisCount: 2, spacing: ext.gapY)
-        _PlantCard × 3 (sample data)
-        _AddCard (dashed border, + icon, 'Identify a plant')
+      SliverGrid(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: ext.gapY,
+            crossAxisSpacing: ext.gapY,
+            childAspectRatio: 0.8,
+          ),
+          delegate: SliverChildListDelegate([
+            _PlantCard × 3 (sample data),
+            _AddCard (outlined border, + icon, 'Identify a plant'),
+          ]))
     SliverToBoxAdapter
       Text('Sync & history coming soon', style: bodySmall, color: ext.ink3, textAlign: center)
       SizedBox(height: ext.gapY)
@@ -618,6 +629,8 @@ GoRoute(path: AppRoutes.collection, name: 'collection',
 **Replace** `ErrorScreen` inline class with import of `lib/core/routing/error_screen.dart`.
 
 **Replace** `_PlaceholderScreen` inline class with import of `lib/core/routing/placeholder_screen.dart`.
+
+> `PlaceholderScreen` is still used after Phase 2 by the `/login`, `/register`, and `/garden` routes, which remain unimplemented. Do not delete it.
 
 ---
 
