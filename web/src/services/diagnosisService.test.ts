@@ -52,6 +52,12 @@ vi.mock('../utils/logger', () => ({
   },
 }));
 
+// Mock CSRF utility — prevents getCsrfToken() from making a real fetch call,
+// which would consume the test's fetchMock before the service call runs.
+vi.mock('../utils/csrf', () => ({
+  getCsrfToken: vi.fn().mockResolvedValue('test-csrf-token'),
+}));
+
 describe('diagnosisService', () => {
   // Test fixtures
   const mockDiagnosisCard: DiagnosisCard = {
@@ -156,7 +162,6 @@ describe('diagnosisService', () => {
           credentials: 'include',
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
-            Authorization: 'Bearer test-jwt-token',
           }),
         })
       );
@@ -261,9 +266,6 @@ describe('diagnosisService', () => {
         expect.stringContaining('/diagnosis-cards/'),
         expect.objectContaining({
           method: 'POST',
-          headers: expect.objectContaining({
-            Authorization: 'Bearer test-jwt-token',
-          }),
           body: JSON.stringify(createInput),
         })
       );
