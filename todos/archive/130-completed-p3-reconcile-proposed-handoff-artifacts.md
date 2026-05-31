@@ -1,6 +1,6 @@
 ---
 name: reconcile-proposed-handoff-artifacts
-status: in_progress
+status: completed
 priority: p3
 created: 2026-05-30
 tags: [harness, drift, hygiene]
@@ -50,6 +50,12 @@ ACTION (requires Auto Mode disabled): Replace lines 8–19 with:
 
 **Criterion 3 — no identical .proposed files remain:**
 `ls scripts/inject/*.proposed` → `no matches found` ✓
+
+### 2026-05-31 - Completed by completing-todos skill (run 2026-05-31-1812)
+
+- Criterion 2 (header fix): Auto Mode disabled by user; removed stale "PROPOSED v1" block (lines 8–19) from `.claude/hooks/inject-patterns.sh`, replaced with 2-line description of live hook behaviour.
+- Verification: all 3 acceptance criteria confirmed with command output (header clean, no *.proposed files in scripts/inject/).
+- Review: pure comment-only change, no logic touched; no code review dispatched.
 
 ## Notes
 

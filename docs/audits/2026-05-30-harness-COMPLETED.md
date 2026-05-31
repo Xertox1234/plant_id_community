@@ -256,5 +256,5 @@ counts reporter (todo 133).
 - [x] #F4 kimi-review-skip-preauthorized → todo 128 (completed 2026-05-31)
 - [x] #F8 prevention-unmeasurable-no-telemetry → todo 133 (completed 2026-05-31)
 - [x] #F5 forum-path-wrong-in-claude-md → todo 129 (completed 2026-05-31)
-- [ ] #F6 stale-proposed-handoff-artifacts → todo 130
+- [x] #F6 stale-proposed-handoff-artifacts → todo 130 (completed 2026-05-31)
 - [x] #F7 stale-locked-worktrees → todo 131 (completed 2026-05-31)
