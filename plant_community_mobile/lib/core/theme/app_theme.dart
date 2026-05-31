@@ -165,10 +165,10 @@ class AppTheme {
         bodyLarge: AppTypography.body.copyWith(
           color: AppColors.lightForeground,
         ),
-        bodyMedium: AppTypography.bodySM.copyWith(
+        bodyMedium: AppTypography.bodySm.copyWith(
           color: AppColors.lightForeground,
         ),
-        bodySmall: AppTypography.bodyXS.copyWith(
+        bodySmall: AppTypography.bodyXs.copyWith(
           color: AppColors.lightForeground,
         ),
         labelLarge: AppTypography.label.copyWith(
@@ -341,10 +341,10 @@ class AppTheme {
           color: AppColors.darkForeground,
         ),
         bodyLarge: AppTypography.body.copyWith(color: AppColors.darkForeground),
-        bodyMedium: AppTypography.bodySM.copyWith(
+        bodyMedium: AppTypography.bodySm.copyWith(
           color: AppColors.darkForeground,
         ),
-        bodySmall: AppTypography.bodyXS.copyWith(
+        bodySmall: AppTypography.bodyXs.copyWith(
           color: AppColors.darkForeground,
         ),
         labelLarge: AppTypography.label.copyWith(

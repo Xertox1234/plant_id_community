@@ -38,8 +38,8 @@ class GreenThumbExtension extends ThemeExtension<GreenThumbExtension> {
   }) {
     final (padCard, padScreen, gapY) = switch (density) {
       AppDensity.comfortable => (18.0, 18.0, 14.0),
-      AppDensity.cozy        => (16.0, 16.0, 12.0),
-      AppDensity.compact     => (12.0, 14.0, 10.0),
+      AppDensity.cozy => (16.0, 16.0, 12.0),
+      AppDensity.compact => (12.0, 14.0, 10.0),
     };
 
     final shadowColor = brightness == Brightness.light
@@ -57,16 +57,40 @@ class GreenThumbExtension extends ThemeExtension<GreenThumbExtension> {
       statusOk: colors.ok,
       statusWarn: colors.warn,
       shadow1: [
-        BoxShadow(color: shadowColor.withValues(alpha: 0.04), offset: const Offset(0, 1), blurRadius: 0),
-        BoxShadow(color: shadowColor.withValues(alpha: 0.05), offset: const Offset(0, 2), blurRadius: 6),
+        BoxShadow(
+          color: shadowColor.withValues(alpha: 0.04),
+          offset: const Offset(0, 1),
+          blurRadius: 0,
+        ),
+        BoxShadow(
+          color: shadowColor.withValues(alpha: 0.05),
+          offset: const Offset(0, 2),
+          blurRadius: 6,
+        ),
       ],
       shadow2: [
-        BoxShadow(color: shadowColor.withValues(alpha: 0.05), offset: const Offset(0, 2), blurRadius: 0),
-        BoxShadow(color: shadowColor.withValues(alpha: 0.08), offset: const Offset(0, 8), blurRadius: 22),
+        BoxShadow(
+          color: shadowColor.withValues(alpha: 0.05),
+          offset: const Offset(0, 2),
+          blurRadius: 0,
+        ),
+        BoxShadow(
+          color: shadowColor.withValues(alpha: 0.08),
+          offset: const Offset(0, 8),
+          blurRadius: 22,
+        ),
       ],
       shadow3: [
-        BoxShadow(color: shadowColor.withValues(alpha: 0.06), offset: const Offset(0, 4), blurRadius: 0),
-        BoxShadow(color: shadowColor.withValues(alpha: 0.14), offset: const Offset(0, 18), blurRadius: 40),
+        BoxShadow(
+          color: shadowColor.withValues(alpha: 0.06),
+          offset: const Offset(0, 4),
+          blurRadius: 0,
+        ),
+        BoxShadow(
+          color: shadowColor.withValues(alpha: 0.14),
+          offset: const Offset(0, 18),
+          blurRadius: 40,
+        ),
       ],
       padCard: padCard,
       padScreen: padScreen,
@@ -77,10 +101,22 @@ class GreenThumbExtension extends ThemeExtension<GreenThumbExtension> {
 
   @override
   GreenThumbExtension copyWith({
-    Color? clay, Color? onClay, Color? berry, Color? sky, Color? leaf,
-    Color? ink2, Color? ink3, Color? statusOk, Color? statusWarn,
-    List<BoxShadow>? shadow1, List<BoxShadow>? shadow2, List<BoxShadow>? shadow3,
-    double? padCard, double? padScreen, double? gapY, bool? showGrain,
+    Color? clay,
+    Color? onClay,
+    Color? berry,
+    Color? sky,
+    Color? leaf,
+    Color? ink2,
+    Color? ink3,
+    Color? statusOk,
+    Color? statusWarn,
+    List<BoxShadow>? shadow1,
+    List<BoxShadow>? shadow2,
+    List<BoxShadow>? shadow3,
+    double? padCard,
+    double? padScreen,
+    double? gapY,
+    bool? showGrain,
   }) {
     return GreenThumbExtension(
       clay: clay ?? this.clay,
