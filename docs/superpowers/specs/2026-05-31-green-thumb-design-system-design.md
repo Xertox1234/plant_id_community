@@ -1,0 +1,212 @@
+# Green Thumb Design System — Phase 1: Mobile Design System
+
+**Date:** 2026-05-31
+**Scope:** Flutter mobile app (`plant_community_mobile/`) design system only — no screen changes
+**Source design:** Green Thumb Redesign (standalone).html (Claude Design export)
+**Next phase:** Screen-by-screen application (separate spec)
+
+## Context
+
+The Green Thumb app has a full visual redesign (7 mobile screens + web landing page). This spec covers Phase 1 only: extracting the new design system into Flutter infrastructure. All existing screen/widget files remain untouched. Phase 2 (screen application) is a separate spec and plan.
+
+The existing `AppTheme` already uses Material 3 with static light/dark getters and a `ThemeModeNotifier` Riverpod provider. This spec replaces the color, typography, and spacing values while preserving that overall structure.
+
+## Approach
+
+**M3 ColorScheme + ThemeExtensions.** Map the primary design tokens to Material 3 color roles so existing Material widgets (FilledButton, AppBar, Card, etc.) pick up the new palette automatically. Tokens without M3 equivalents go into a `GreenThumbExtension` ThemeExtension. Palette switching and density are managed by a new `PaletteNotifier` alongside the existing `ThemeModeNotifier`.
+
+## 1. Color System
+
+### M3 ColorScheme role mapping (Garden palette — all palettes follow same structure)
+
+| M3 Role | Design token | Light | Dark |
+|---|---|---|---|
+| primary | moss | #2F6B3A | #A8CC6E |
+| onPrimary | on-moss | #F4F1E4 | #14180F |
+| secondary | sage | #7FA66B | #9BBE82 |
+| onSecondary | bg | #F4F1E4 | #0E140F |
+| tertiary | honey | #E5B84B | #E8C76B |
+| onTertiary | bg | #F4F1E4 | #0E140F |
+| error | bad | #B5451C | #B5451C |
+| onError | on-clay | #FFF8EA | #FFF8EA |
+| surface | bg | #F4F1E4 | #0E140F |
+| onSurface | ink | #102015 | #EEF4E2 |
+| surfaceContainerLow | bg-2 | #ECE7D2 | #161E18 |
+| surfaceContainerHigh | bg-3 | #DFD9BD | #1F2A21 |
+| outline | line | #D2CCAE | #2A3628 |
+| outlineVariant | line-2 | #B8B391 | #3A4A37 |
+
+### Palettes
+
+Four palettes are supported. `app_palettes.dart` defines a `GreenThumbPalette` class holding all light and dark color values for each. The `AppTheme.build()` factory selects the right palette data.
+
+| Palette | Character | Default? |
+|---|---|---|
+| Loam | Warm earth tones — potting soil + bloom | ★ |
+| Garden | Fresh greens, soft cream | |
+| Forest | Deep greens, dramatic — botanical garden at dusk | |
+| Heritage | Parchment + plate-illustration greens | |
+
+Default palette: **Loam**. Default mode: **system** (existing `ThemeModeNotifier` behaviour unchanged).
+
+### GreenThumbExtension tokens (no M3 equivalent)
+
+These are accessed via `Theme.of(context).extension<GreenThumbExtension>()!`.
+
+| Field | Type | Purpose |
+|---|---|---|
+| clay | Color | CTA accent (warm orange) |
+| onClay | Color | Text on clay backgrounds |
+| berry | Color | Alert / notification badge |
+| sky | Color | Info / water care indicators |
+| leaf | Color | Confidence badge / highlight |
+| ink2 | Color | Secondary text |
+| ink3 | Color | Caption / muted text |
+| line2 | Color | Secondary border / divider |
+| statusOk | Color | Plant health / success |
+| statusWarn | Color | Needs attention |
+| shadow1 | List\<BoxShadow\> | Subtle (cards at rest) |
+| shadow2 | List\<BoxShadow\> | Elevated (active cards) |
+| shadow3 | List\<BoxShadow\> | Modal / sheet |
+| padCard | double | Card internal padding |
+| padScreen | double | Screen edge padding |
+| gapY | double | Vertical gap between list items |
+| showGrain | bool | Paper grain texture overlay enabled |
+
+## 2. Typography
+
+### Font delivery: bundled local assets
+
+Fonts are downloaded and committed to `assets/fonts/`. This guarantees rendering on first launch with no network dependency — critical for outdoor use.
+
+### Font files required
+
+```text
+assets/fonts/
+  BricolageGrotesque-SemiBoldItalic.ttf   — display + headings
+  BricolageGrotesque-SemiBold.ttf         — display + headings (non-italic fallback)
+  Geist-Regular.ttf                        — body
+  Geist-Medium.ttf                         — label, button
+  Geist-SemiBold.ttf                       — eyebrow, strong labels
+  GeistMono-Regular.ttf                    — mono / scientific names
+```
+
+### Type scale
+
+| Style | Font | Weight | Style | Notes |
+|---|---|---|---|---|
+| display | Bricolage Grotesque | 600 | italic | line-height 1.02, tracking −0.02em |
+| h1 | Bricolage Grotesque | 600 | italic | |
+| h2 | Bricolage Grotesque | 600 | italic | |
+| h3 | Bricolage Grotesque | 600 | italic | |
+| eyebrow | Geist | 600 | normal uppercase | 11px, tracking +0.06em, ink3 color |
+| body | Geist | 400 | normal | |
+| bodySm | Geist | 400 | normal | |
+| label | Geist | 500 | normal | |
+| button | Geist | 600 | normal | |
+| mono | Geist Mono | 400 | normal | tabular-nums |
+
+`AppTypography` is rewritten to use these families. All `TextStyle` constants become non-const (font family is a runtime string via the font asset name).
+
+## 3. Shape Tokens
+
+Defined as constants in `AppSpacing` (existing file, values updated).
+
+| Token | Value | Usage |
+|---|---|---|
+| rXs | 6 | Tags, chips, badges |
+| rSm | 10 | Input fields, small buttons |
+| rMd | 16 | Cards, sheets, dialogs |
+| rLg | 22 | Large cards, bottom sheets |
+| rXl | 28 | Hero cards, modals |
+| rPill | 999 | FABs, pill buttons, toggles |
+
+## 4. Density System
+
+Three density variants, default **Cozy**. Stored in `GreenThumbExtension` and persisted by `PaletteNotifier`.
+
+| Variant | padCard | padScreen | gapY | Default? |
+|---|---|---|---|---|
+| Comfortable | 18 | 18 | 14 | |
+| Cozy | 16 | 16 | 12 | ★ |
+| Compact | 12 | 14 | 10 | |
+
+## 5. Architecture
+
+### New files
+
+```text
+lib/core/theme/green_thumb_extension.dart
+lib/core/theme/app_palettes.dart
+lib/config/palette_notifier.dart
+lib/config/palette_notifier.g.dart          (build_runner generated)
+assets/fonts/<font files>
+```
+
+### Modified files
+
+| File | Change |
+|---|---|
+| `lib/core/theme/app_theme.dart` | Replace static `lightTheme`/`darkTheme` getters with `AppTheme.build(AppPaletteChoice, Brightness, AppDensity)` factory |
+| `lib/core/theme/app_typography.dart` | Replace CSS font stacks with Bricolage Grotesque + Geist; add eyebrow style; italic display |
+| `lib/core/theme/app_colors.dart` | Delete — absorbed into `app_palettes.dart` |
+| `lib/core/constants/app_spacing.dart` | Update radius constants to new token values |
+| `pubspec.yaml` | Add font asset declarations |
+| `lib/main.dart` | Wire `MaterialApp` to watch both `themeModeNotifier` and `paletteNotifier` |
+
+### Untouched
+
+- `lib/config/theme_provider.dart` — `ThemeModeNotifier` stays exactly as-is
+- All screen and widget files — zero changes in Phase 1
+
+### PaletteNotifier
+
+New `@riverpod` class alongside `ThemeModeNotifier`. Manages two pieces of state: `AppPaletteChoice` (enum: loam, garden, forest, heritage) and `AppDensity` (enum: comfortable, cozy, compact). Both persisted to `FlutterSecureStorage` under separate keys. Defaults: loam + cozy.
+
+### PaletteSettings (state class)
+
+```dart
+class PaletteSettings {
+  final AppPaletteChoice palette;   // enum: loam, garden, forest, heritage
+  final AppDensity density;         // enum: comfortable, cozy, compact
+}
+```
+
+`PaletteNotifier` state is a `PaletteSettings`. Both fields persisted to `FlutterSecureStorage`.
+
+### AppTheme.build()
+
+```dart
+static ThemeData build(AppPaletteChoice palette, Brightness brightness, AppDensity density)
+```
+
+Resolves palette color data internally from `app_palettes.dart`, then returns a complete `ThemeData` with:
+
+- `ColorScheme` built from palette × brightness
+- `GreenThumbExtension` attached via `extensions` (includes density vars)
+- All widget themes (AppBar, Card, Button, Input, BottomNav, Divider) updated to new tokens
+- `TextTheme` built from `AppTypography` with new font families
+
+### MaterialApp wiring
+
+```dart
+// lib/main.dart
+final themeMode = ref.watch(themeModeNotifierProvider);
+final settings = ref.watch(paletteNotifierProvider);
+
+MaterialApp(
+  themeMode: themeMode,
+  theme: AppTheme.build(settings.palette, Brightness.light, settings.density),
+  darkTheme: AppTheme.build(settings.palette, Brightness.dark, settings.density),
+)
+```
+
+## 6. Completion Criteria
+
+Phase 1 is complete when:
+
+1. `flutter analyze` passes with zero errors
+2. `AppTheme.build()` produces correct `ThemeData` for all 4 × 2 × 3 = 24 combinations (covered by widget tests)
+3. All four palettes render correctly in light and dark mode on the simulator — verified manually against the Claude Design reference
+4. `PaletteNotifier` persists and restores palette + density across app restarts
+5. No screen files were modified
