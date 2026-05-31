@@ -57,4 +57,14 @@ class AppSpacing {
   static const double elevationMD = 4.0;
   static const double elevationLG = 8.0;
   static const double elevationXL = 16.0;
+
+  // ============================================
+  // DESIGN SYSTEM RADIUS TOKENS (Green Thumb)
+  // ============================================
+  static const double rXs = 6.0;
+  static const double rSm = 10.0;
+  static const double rMd = 16.0;
+  static const double rLg = 22.0;
+  static const double rXl = 28.0;
+  static const double rPill = 999.0;
 }

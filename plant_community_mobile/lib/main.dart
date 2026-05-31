@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'core/theme/app_theme.dart';
 import 'config/theme_provider.dart';
+import 'config/palette_notifier.dart';
 import 'core/routing/app_router.dart';
 import 'services/auth_service.dart';
 
@@ -68,6 +69,7 @@ class MyApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
+    final settings = ref.watch(paletteProvider);
     final router = ref.watch(appRouterProvider);
     ref.watch(authServiceProvider);
     ref.listen<AuthState>(authServiceProvider, (previous, next) {
@@ -88,8 +90,16 @@ class MyApp extends ConsumerWidget {
       title: 'Plant Community',
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: _rootScaffoldMessengerKey,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
+      theme: AppTheme.build(
+        settings.palette,
+        Brightness.light,
+        settings.density,
+      ),
+      darkTheme: AppTheme.build(
+        settings.palette,
+        Brightness.dark,
+        settings.density,
+      ),
       themeMode: themeMode,
       routerConfig: router,
     );

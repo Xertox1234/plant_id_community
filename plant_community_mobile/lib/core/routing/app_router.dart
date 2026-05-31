@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../config/theme_provider.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/theme/theme_preview_screen.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/home/home_page.dart';
 import '../../features/camera/camera_screen.dart';
@@ -161,6 +162,11 @@ GoRouter appRouter(Ref ref) {
           child: const _PlaceholderScreen(title: 'Garden'),
         ),
       ),
+      if (kDebugMode)
+        GoRoute(
+          path: ThemePreviewScreen.routePath,
+          builder: (context, state) => const ThemePreviewScreen(),
+        ),
     ],
     errorBuilder: (context, state) => ErrorScreen(error: state.error),
   );
