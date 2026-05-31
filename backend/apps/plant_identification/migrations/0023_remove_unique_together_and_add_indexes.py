@@ -7,21 +7,27 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('plant_identification', '0022_make_diagnosis_result_optional'),
+        ("plant_identification", "0022_make_diagnosis_result_optional"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.AlterUniqueTogether(
-            name='diagnosiscard',
+            name="diagnosiscard",
             unique_together=set(),
         ),
         migrations.AddIndex(
-            model_name='diagnosiscard',
-            index=models.Index(fields=['user', '-last_viewed_at'], name='plant_ident_user_id_6a0de6_idx'),
+            model_name="diagnosiscard",
+            index=models.Index(
+                fields=["user", "-last_viewed_at"],
+                name="plant_ident_user_id_6a0de6_idx",
+            ),
         ),
         migrations.AddIndex(
-            model_name='diagnosiscard',
-            index=models.Index(fields=['user', 'diagnosis_result'], name='plant_ident_user_id_74c4ca_idx'),
+            model_name="diagnosiscard",
+            index=models.Index(
+                fields=["user", "diagnosis_result"],
+                name="plant_ident_user_id_74c4ca_idx",
+            ),
         ),
     ]

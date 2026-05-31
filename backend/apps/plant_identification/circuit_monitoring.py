@@ -17,6 +17,7 @@ Usage:
 import logging
 from datetime import datetime
 from typing import Optional
+
 from pybreaker import CircuitBreakerListener
 
 logger = logging.getLogger(__name__)
@@ -54,8 +55,8 @@ class CircuitMonitor(CircuitBreakerListener):
         self.last_state_change = datetime.now()
 
         # pybreaker passes state objects; extract name string for logging
-        old_name = old_state.name if hasattr(old_state, 'name') else str(old_state)
-        new_name = new_state.name if hasattr(new_state, 'name') else str(new_state)
+        old_name = old_state.name if hasattr(old_state, "name") else str(old_state)
+        new_name = new_state.name if hasattr(new_state, "name") else str(new_state)
 
         logger.warning(
             f"[CIRCUIT] {self.service_name} state transition: "
@@ -64,7 +65,7 @@ class CircuitMonitor(CircuitBreakerListener):
         )
 
         # Track when circuit opens for duration monitoring
-        if new_name == 'open':
+        if new_name == "open":
             self.circuit_open_time = datetime.now()
             logger.error(
                 f"[CIRCUIT] {self.service_name} circuit OPENED - "
@@ -73,7 +74,7 @@ class CircuitMonitor(CircuitBreakerListener):
             )
 
         # Log successful recovery
-        elif old_name == 'half_open' and new_name == 'closed':
+        elif old_name == "half_open" and new_name == "closed":
             if self.circuit_open_time:
                 duration = (datetime.now() - self.circuit_open_time).total_seconds()
                 logger.info(
@@ -83,7 +84,7 @@ class CircuitMonitor(CircuitBreakerListener):
                 self.circuit_open_time = None
 
         # Log half-open testing
-        elif new_name == 'half_open':
+        elif new_name == "half_open":
             logger.info(
                 f"[CIRCUIT] {self.service_name} entering HALF-OPEN state - "
                 f"Testing service recovery"
@@ -100,7 +101,7 @@ class CircuitMonitor(CircuitBreakerListener):
             kwargs: Function keyword arguments
         """
         # Only log in half-open state to avoid spam
-        if cb.current_state == 'half_open':
+        if cb.current_state == "half_open":
             logger.info(
                 f"[CIRCUIT] {self.service_name} testing recovery call "
                 f"(half-open state)"
@@ -117,7 +118,7 @@ class CircuitMonitor(CircuitBreakerListener):
         self.consecutive_failures = 0
 
         # Only log successes in half-open state (recovery progress)
-        if cb.current_state == 'half_open':
+        if cb.current_state == "half_open":
             logger.info(
                 f"[CIRCUIT] {self.service_name} recovery test SUCCESS "
                 f"({cb._state_storage.counter} / {cb.success_threshold} required)"
@@ -209,22 +210,22 @@ class CircuitStats:
         state = self.circuit.current_state
 
         status = {
-            'state': state,
-            'service_name': self.monitor.service_name,
-            'fail_count': self.circuit.fail_counter,
-            'fail_max': self.circuit.fail_max,
-            'reset_timeout': self.circuit.reset_timeout,
-            'success_threshold': self.circuit.success_threshold,
+            "state": state,
+            "service_name": self.monitor.service_name,
+            "fail_count": self.circuit.fail_counter,
+            "fail_max": self.circuit.fail_max,
+            "reset_timeout": self.circuit.reset_timeout,
+            "success_threshold": self.circuit.success_threshold,
         }
 
         # Add time-based metrics
         if self.monitor.last_state_change:
-            status['last_state_change'] = self.monitor.last_state_change.isoformat()
+            status["last_state_change"] = self.monitor.last_state_change.isoformat()
 
-        if state == 'open' and self.monitor.circuit_open_time:
+        if state == "open" and self.monitor.circuit_open_time:
             duration = (datetime.now() - self.monitor.circuit_open_time).total_seconds()
-            status['open_duration_seconds'] = int(duration)
-            status['retry_in_seconds'] = self.monitor._get_retry_time(self.circuit)
+            status["open_duration_seconds"] = int(duration)
+            status["retry_in_seconds"] = self.monitor._get_retry_time(self.circuit)
 
         return status
 
@@ -235,7 +236,7 @@ class CircuitStats:
         Returns:
             True if circuit is closed, False otherwise
         """
-        return self.circuit.current_state == 'closed'
+        return self.circuit.current_state == "closed"
 
     def is_degraded(self) -> bool:
         """
@@ -244,7 +245,7 @@ class CircuitStats:
         Returns:
             True if circuit is testing recovery, False otherwise
         """
-        return self.circuit.current_state == 'half_open'
+        return self.circuit.current_state == "half_open"
 
     def is_unavailable(self) -> bool:
         """
@@ -253,7 +254,7 @@ class CircuitStats:
         Returns:
             True if circuit is open, False otherwise
         """
-        return self.circuit.current_state == 'open'
+        return self.circuit.current_state == "open"
 
 
 # Convenience function for creating monitored circuit breakers
@@ -262,7 +263,9 @@ def create_monitored_circuit(
     fail_max: int,
     reset_timeout: int,
     success_threshold: int = 1,
-    timeout: Optional[int] = None,  # Note: timeout not supported by pybreaker - included for documentation
+    timeout: Optional[
+        int
+    ] = None,  # Note: timeout not supported by pybreaker - included for documentation
 ) -> tuple:
     """
     Factory function to create a circuit breaker with monitoring.
@@ -295,15 +298,15 @@ def create_monitored_circuit(
     monitor = CircuitMonitor(service_name)
 
     circuit_kwargs = {
-        'fail_max': fail_max,
-        'reset_timeout': reset_timeout,
-        'exclude': [KeyboardInterrupt],  # Never break on Ctrl+C
-        'listeners': [monitor],
+        "fail_max": fail_max,
+        "reset_timeout": reset_timeout,
+        "exclude": [KeyboardInterrupt],  # Never break on Ctrl+C
+        "listeners": [monitor],
     }
 
     # Add optional parameters
     if success_threshold > 1:
-        circuit_kwargs['success_threshold'] = success_threshold
+        circuit_kwargs["success_threshold"] = success_threshold
 
     # Note: timeout is NOT passed to CircuitBreaker
     # It should be handled in the service layer (e.g., requests.post(timeout=X))

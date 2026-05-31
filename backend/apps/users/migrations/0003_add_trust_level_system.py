@@ -6,28 +6,56 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('users', '0002_user_uuid_userplantcollection_uuid_alter_user_avatar'),
+        ("users", "0002_user_uuid_userplantcollection_uuid_alter_user_avatar"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='user',
-            name='posts_count_verified',
-            field=models.PositiveIntegerField(default=0, help_text='Number of approved/verified forum posts (cached for performance)'),
+            model_name="user",
+            name="posts_count_verified",
+            field=models.PositiveIntegerField(
+                default=0,
+                help_text="Number of approved/verified forum posts (cached for performance)",
+            ),
         ),
         migrations.AddField(
-            model_name='user',
-            name='trust_level',
-            field=models.CharField(choices=[('new', 'New Member'), ('basic', 'Basic Member'), ('trusted', 'Trusted Member'), ('veteran', 'Veteran Member')], default='new', help_text='Trust level for forum permissions (affects image uploads, etc.)', max_length=10),
+            model_name="user",
+            name="trust_level",
+            field=models.CharField(
+                choices=[
+                    ("new", "New Member"),
+                    ("basic", "Basic Member"),
+                    ("trusted", "Trusted Member"),
+                    ("veteran", "Veteran Member"),
+                ],
+                default="new",
+                help_text="Trust level for forum permissions (affects image uploads, etc.)",
+                max_length=10,
+            ),
         ),
         migrations.AddField(
-            model_name='user',
-            name='trust_level_updated',
-            field=models.DateTimeField(auto_now_add=True, help_text='Last time trust level was recalculated', null=True),
+            model_name="user",
+            name="trust_level_updated",
+            field=models.DateTimeField(
+                auto_now_add=True,
+                help_text="Last time trust level was recalculated",
+                null=True,
+            ),
         ),
         migrations.AlterField(
-            model_name='activitylog',
-            name='activity_type',
-            field=models.CharField(choices=[('plant_identified', 'Plant Identified'), ('plant_added', 'Plant Added to Collection'), ('user_followed', 'User Followed'), ('forum_post', 'Forum Post Created'), ('forum_reply', 'Forum Reply Created'), ('profile_updated', 'Profile Updated'), ('trust_level_upgrade', 'Trust Level Upgraded')], max_length=20),
+            model_name="activitylog",
+            name="activity_type",
+            field=models.CharField(
+                choices=[
+                    ("plant_identified", "Plant Identified"),
+                    ("plant_added", "Plant Added to Collection"),
+                    ("user_followed", "User Followed"),
+                    ("forum_post", "Forum Post Created"),
+                    ("forum_reply", "Forum Reply Created"),
+                    ("profile_updated", "Profile Updated"),
+                    ("trust_level_upgrade", "Trust Level Upgraded"),
+                ],
+                max_length=20,
+            ),
         ),
     ]

@@ -7,13 +7,23 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('plant_identification', '0004_plantcareguide_plantcategory_plantcategoryindexpage_and_more'),
+        (
+            "plant_identification",
+            "0004_plantcareguide_plantcategory_plantcategoryindexpage_and_more",
+        ),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='plantspeciespage',
-            name='plant_species',
-            field=models.OneToOneField(blank=True, help_text='Plant species this page represents', null=True, on_delete=django.db.models.deletion.PROTECT, related_name='species_page', to='plant_identification.plantspecies'),
+            model_name="plantspeciespage",
+            name="plant_species",
+            field=models.OneToOneField(
+                blank=True,
+                help_text="Plant species this page represents",
+                null=True,
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="species_page",
+                to="plant_identification.plantspecies",
+            ),
         ),
     ]

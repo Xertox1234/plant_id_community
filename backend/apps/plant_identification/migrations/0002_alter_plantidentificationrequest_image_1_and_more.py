@@ -8,23 +8,39 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('plant_identification', '0001_initial'),
+        ("plant_identification", "0001_initial"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='plantidentificationrequest',
-            name='image_1',
-            field=imagekit.models.fields.ProcessedImageField(help_text='Primary image of the plant', upload_to='plants/identifications/', validators=[apps.core.validators.validate_plant_identification_image]),
+            model_name="plantidentificationrequest",
+            name="image_1",
+            field=imagekit.models.fields.ProcessedImageField(
+                help_text="Primary image of the plant",
+                upload_to="plants/identifications/",
+                validators=[apps.core.validators.validate_plant_identification_image],
+            ),
         ),
         migrations.AlterField(
-            model_name='plantidentificationrequest',
-            name='image_2',
-            field=imagekit.models.fields.ProcessedImageField(blank=True, help_text='Optional second image', null=True, upload_to='plants/identifications/', validators=[apps.core.validators.validate_plant_identification_image]),
+            model_name="plantidentificationrequest",
+            name="image_2",
+            field=imagekit.models.fields.ProcessedImageField(
+                blank=True,
+                help_text="Optional second image",
+                null=True,
+                upload_to="plants/identifications/",
+                validators=[apps.core.validators.validate_plant_identification_image],
+            ),
         ),
         migrations.AlterField(
-            model_name='plantidentificationrequest',
-            name='image_3',
-            field=imagekit.models.fields.ProcessedImageField(blank=True, help_text='Optional third image', null=True, upload_to='plants/identifications/', validators=[apps.core.validators.validate_plant_identification_image]),
+            model_name="plantidentificationrequest",
+            name="image_3",
+            field=imagekit.models.fields.ProcessedImageField(
+                blank=True,
+                help_text="Optional third image",
+                null=True,
+                upload_to="plants/identifications/",
+                validators=[apps.core.validators.validate_plant_identification_image],
+            ),
         ),
     ]

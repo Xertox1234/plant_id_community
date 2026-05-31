@@ -9,7 +9,7 @@ This module provides centralized services for email, notifications, and template
 # from apps.core.services.email_service import EmailService
 
 __all__ = [
-    'EmailService',
-    'NotificationService', 
-    'TemplateService',
+    "EmailService",
+    "NotificationService",
+    "TemplateService",
 ]

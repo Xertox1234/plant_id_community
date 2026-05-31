@@ -5,18 +5,19 @@ Tests BlogPostPage, BlogIndexPage, BlogCategory, BlogSeries, and related models.
 """
 
 from datetime import date, timedelta
-from django.test import TestCase
+
+from apps.blog.models import (
+    BlogBasePage,
+    BlogCategory,
+    BlogIndexPage,
+    BlogPostPage,
+    BlogSeries,
+)
 from django.contrib.auth import get_user_model
+from django.test import TestCase
+from wagtail.fields import StreamValue
 from wagtail.models import Page, Site
 from wagtail.test.utils import WagtailPageTestCase
-from wagtail.fields import StreamValue
-from apps.blog.models import (
-    BlogPostPage,
-    BlogIndexPage,
-    BlogCategory,
-    BlogSeries,
-    BlogBasePage,
-)
 
 User = get_user_model()
 
@@ -161,7 +162,10 @@ class BlogPostPageTestCase(WagtailPageTestCase):
             introduction="<p>Learn the basics of indoor plant care.</p>",
             content_blocks=[
                 ("heading", "Why Indoor Plants?"),
-                ("paragraph", "<p>Indoor plants improve air quality and reduce stress.</p>"),
+                (
+                    "paragraph",
+                    "<p>Indoor plants improve air quality and reduce stress.</p>",
+                ),
             ],
             meta_description="Learn indoor plant basics",
         )

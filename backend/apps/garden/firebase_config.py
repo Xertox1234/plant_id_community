@@ -12,6 +12,7 @@ Provides:
 
 import logging
 from typing import Optional
+
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ _fcm_client = None
 
 def get_firebase_credentials_path() -> Optional[str]:
     """Get Firebase service account credentials path from settings."""
-    return getattr(settings, 'FIREBASE_CREDENTIALS_PATH', None)
+    return getattr(settings, "FIREBASE_CREDENTIALS_PATH", None)
 
 
 def initialize_firebase() -> bool:
@@ -142,6 +143,7 @@ def reset_firebase():
 
     try:
         import firebase_admin
+
         if firebase_admin._apps:
             for app in firebase_admin._apps.values():
                 firebase_admin.delete_app(app)

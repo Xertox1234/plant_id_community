@@ -16,13 +16,15 @@ Performance Considerations:
 
 import logging
 from datetime import timedelta
-from django.utils import timezone
+
 from django.core.cache import cache
-from django.db import transaction, models
+from django.db import models, transaction
+from django.utils import timezone
+
 from .constants import (
     VIEW_DEDUPLICATION_TIMEOUT,
-    VIEW_TRACKING_CACHE_PREFIX,
     VIEW_TRACKING_BOT_KEYWORDS,
+    VIEW_TRACKING_CACHE_PREFIX,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,11 +76,12 @@ class BlogViewTrackingMiddleware:
         Security:
         - Uses SecurityMonitor._get_client_ip() for IP spoofing protection
         """
-        from .models import BlogPostPage, BlogPostView
         from apps.core.security import SecurityMonitor
 
+        from .models import BlogPostPage, BlogPostView
+
         # Only track GET requests
-        if request.method != 'GET':
+        if request.method != "GET":
             return
 
         # Check if this is a blog post detail view
@@ -88,15 +91,15 @@ class BlogViewTrackingMiddleware:
             return
 
         # Check if viewing a Wagtail page (BlogPostPage)
-        page = getattr(request, '_wagtail_page', None)
+        page = getattr(request, "_wagtail_page", None)
         if not page or not isinstance(page, BlogPostPage):
             return
 
         # Get tracking data with secure IP extraction (BLOCKER 1 fix)
         user = request.user if request.user.is_authenticated else None
         ip_address = SecurityMonitor._get_client_ip(request)  # ✅ Uses secure method
-        user_agent = request.META.get('HTTP_USER_AGENT', '')[:255]
-        referrer = request.META.get('HTTP_REFERER', '')
+        user_agent = request.META.get("HTTP_USER_AGENT", "")[:255]
+        referrer = request.META.get("HTTP_REFERER", "")
 
         # Bot detection (simple check)
         if self._is_bot(user_agent):
@@ -104,9 +107,13 @@ class BlogViewTrackingMiddleware:
             return
 
         # Deduplication: Check if same user/IP viewed this post recently (BLOCKER 3 fix)
-        cache_key = f"{VIEW_TRACKING_CACHE_PREFIX}:{page.id}:{user.id if user else ip_address}"
+        cache_key = (
+            f"{VIEW_TRACKING_CACHE_PREFIX}:{page.id}:{user.id if user else ip_address}"
+        )
         if cache.get(cache_key):
-            logger.debug(f"[ANALYTICS] Duplicate view prevented: {page.title} ({cache_key})")
+            logger.debug(
+                f"[ANALYTICS] Duplicate view prevented: {page.title} ({cache_key})"
+            )
             return
 
         # Track the view
@@ -123,7 +130,7 @@ class BlogViewTrackingMiddleware:
 
                 # Increment post view_count (atomic)
                 BlogPostPage.objects.filter(id=page.id).update(
-                    view_count=models.F('view_count') + 1
+                    view_count=models.F("view_count") + 1
                 )
 
                 logger.info(
@@ -149,4 +156,6 @@ class BlogViewTrackingMiddleware:
         Uses comprehensive keyword list from constants.py.
         """
         user_agent_lower = user_agent.lower()
-        return any(keyword in user_agent_lower for keyword in VIEW_TRACKING_BOT_KEYWORDS)
+        return any(
+            keyword in user_agent_lower for keyword in VIEW_TRACKING_BOT_KEYWORDS
+        )

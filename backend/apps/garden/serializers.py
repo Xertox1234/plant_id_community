@@ -8,31 +8,32 @@ DRF serializers for garden planning API endpoints with:
 - User-scoped filtering
 """
 
-from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import (
-    Garden,
-    GardenPlant,
-    CareReminder,
-    Task,
-    PestIssue,
-    PestImage,
-    JournalEntry,
-    JournalImage,
-    PlantCareLibrary
-)
+from rest_framework import serializers
+
 from .constants import (
-    MAX_GARDEN_PLANT_IMAGE_SIZE,
-    MAX_PEST_IMAGE_SIZE,
-    MAX_JOURNAL_IMAGE_SIZE,
-    MAX_PEST_IMAGES_PER_ISSUE,
-    MAX_JOURNAL_IMAGES_PER_ENTRY,
     ALLOWED_IMAGE_EXTENSIONS,
     ALLOWED_IMAGE_MIME_TYPES,
-    MAX_GARDEN_WIDTH_FT,
     MAX_GARDEN_HEIGHT_FT,
+    MAX_GARDEN_HEIGHT_M,
+    MAX_GARDEN_PLANT_IMAGE_SIZE,
+    MAX_GARDEN_WIDTH_FT,
     MAX_GARDEN_WIDTH_M,
-    MAX_GARDEN_HEIGHT_M
+    MAX_JOURNAL_IMAGE_SIZE,
+    MAX_JOURNAL_IMAGES_PER_ENTRY,
+    MAX_PEST_IMAGE_SIZE,
+    MAX_PEST_IMAGES_PER_ISSUE,
+)
+from .models import (
+    CareReminder,
+    Garden,
+    GardenPlant,
+    JournalEntry,
+    JournalImage,
+    PestImage,
+    PestIssue,
+    PlantCareLibrary,
+    Task,
 )
 
 User = get_user_model()
@@ -49,27 +50,27 @@ class PlantCareLibrarySerializer(serializers.ModelSerializer):
     class Meta:
         model = PlantCareLibrary
         fields = [
-            'id',
-            'scientific_name',
-            'common_names',
-            'family',
-            'sunlight',
-            'water_needs',
-            'soil_type',
-            'hardiness_zones',
-            'care_instructions',
-            'watering_frequency_days',
-            'fertilizing_frequency_days',
-            'pruning_frequency_days',
-            'companion_plants',
-            'enemy_plants',
-            'common_pests',
-            'common_diseases',
-            'notes',
-            'created_at',
-            'updated_at'
+            "id",
+            "scientific_name",
+            "common_names",
+            "family",
+            "sunlight",
+            "water_needs",
+            "soil_type",
+            "hardiness_zones",
+            "care_instructions",
+            "watering_frequency_days",
+            "fertilizing_frequency_days",
+            "pruning_frequency_days",
+            "companion_plants",
+            "enemy_plants",
+            "common_pests",
+            "common_diseases",
+            "notes",
+            "created_at",
+            "updated_at",
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ["created_at", "updated_at"]
 
 
 def _verify_image_integrity(value):
@@ -97,8 +98,8 @@ class PestImageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PestImage
-        fields = ['id', 'image', 'uploaded_at']
-        read_only_fields = ['uploaded_at']
+        fields = ["id", "image", "uploaded_at"]
+        read_only_fields = ["uploaded_at"]
 
     def validate_image(self, value):
         """Validate image file size and type."""
@@ -109,7 +110,7 @@ class PestImageSerializer(serializers.ModelSerializer):
             )
 
         # Extension validation
-        file_extension = value.name.split('.')[-1].lower()
+        file_extension = value.name.split(".")[-1].lower()
         if file_extension not in ALLOWED_IMAGE_EXTENSIONS:
             raise serializers.ValidationError(
                 f"Invalid file extension. Allowed: {', '.join(ALLOWED_IMAGE_EXTENSIONS)}"
@@ -132,8 +133,8 @@ class JournalImageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = JournalImage
-        fields = ['id', 'image', 'caption', 'uploaded_at']
-        read_only_fields = ['uploaded_at']
+        fields = ["id", "image", "caption", "uploaded_at"]
+        read_only_fields = ["uploaded_at"]
 
     def validate_image(self, value):
         """Validate image file size and type."""
@@ -144,7 +145,7 @@ class JournalImageSerializer(serializers.ModelSerializer):
             )
 
         # Extension validation
-        file_extension = value.name.split('.')[-1].lower()
+        file_extension = value.name.split(".")[-1].lower()
         if file_extension not in ALLOWED_IMAGE_EXTENSIONS:
             raise serializers.ValidationError(
                 f"Invalid file extension. Allowed: {', '.join(ALLOWED_IMAGE_EXTENSIONS)}"
@@ -168,29 +169,30 @@ class PestIssueSerializer(serializers.ModelSerializer):
 
     Supports multiple images (max 6) for documentation.
     """
+
     images = PestImageSerializer(many=True, read_only=True)
     user = serializers.StringRelatedField(read_only=True)
 
     class Meta:
         model = PestIssue
         fields = [
-            'id',
-            'user',
-            'garden_plant',
-            'pest_type',
-            'description',
-            'identified_date',
-            'severity',
-            'treatment',
-            'treatment_date',
-            'resolved',
-            'resolved_date',
-            'notes',
-            'images',
-            'created_at',
-            'updated_at'
+            "id",
+            "user",
+            "garden_plant",
+            "pest_type",
+            "description",
+            "identified_date",
+            "severity",
+            "treatment",
+            "treatment_date",
+            "resolved",
+            "resolved_date",
+            "notes",
+            "images",
+            "created_at",
+            "updated_at",
         ]
-        read_only_fields = ['user', 'identified_date', 'created_at', 'updated_at']
+        read_only_fields = ["user", "identified_date", "created_at", "updated_at"]
 
 
 class JournalEntrySerializer(serializers.ModelSerializer):
@@ -199,26 +201,27 @@ class JournalEntrySerializer(serializers.ModelSerializer):
 
     Supports multiple images (max 10) and weather snapshot data.
     """
+
     images = JournalImageSerializer(many=True, read_only=True)
     user = serializers.StringRelatedField(read_only=True)
 
     class Meta:
         model = JournalEntry
         fields = [
-            'id',
-            'user',
-            'garden',
-            'garden_plant',
-            'title',
-            'content',
-            'date',
-            'weather_data',
-            'tags',
-            'images',
-            'created_at',
-            'updated_at'
+            "id",
+            "user",
+            "garden",
+            "garden_plant",
+            "title",
+            "content",
+            "date",
+            "weather_data",
+            "tags",
+            "images",
+            "created_at",
+            "updated_at",
         ]
-        read_only_fields = ['user', 'created_at', 'updated_at']
+        read_only_fields = ["user", "created_at", "updated_at"]
 
 
 class CareReminderSerializer(serializers.ModelSerializer):
@@ -227,50 +230,45 @@ class CareReminderSerializer(serializers.ModelSerializer):
 
     Weather-aware scheduling handled by service layer.
     """
+
     user = serializers.StringRelatedField(read_only=True)
     reminder_type_display = serializers.CharField(
-        source='get_reminder_type_display',
-        read_only=True
+        source="get_reminder_type_display", read_only=True
     )
 
     class Meta:
         model = CareReminder
         fields = [
-            'id',
-            'user',
-            'garden_plant',
-            'reminder_type',
-            'reminder_type_display',
-            'custom_type_name',
-            'scheduled_date',
-            'recurring',
-            'interval_days',
-            'completed',
-            'completed_at',
-            'skipped',
-            'skip_reason',
-            'notes',
-            'notification_sent',
-            'created_at'
+            "id",
+            "user",
+            "garden_plant",
+            "reminder_type",
+            "reminder_type_display",
+            "custom_type_name",
+            "scheduled_date",
+            "recurring",
+            "interval_days",
+            "completed",
+            "completed_at",
+            "skipped",
+            "skip_reason",
+            "notes",
+            "notification_sent",
+            "created_at",
         ]
-        read_only_fields = [
-            'user',
-            'completed_at',
-            'notification_sent',
-            'created_at'
-        ]
+        read_only_fields = ["user", "completed_at", "notification_sent", "created_at"]
 
     def validate(self, data):
         """Validate reminder type and interval consistency."""
-        if data.get('reminder_type') == 'custom' and not data.get('custom_type_name'):
-            raise serializers.ValidationError({
-                'custom_type_name': 'Required when reminder_type is "custom"'
-            })
+        if data.get("reminder_type") == "custom" and not data.get("custom_type_name"):
+            raise serializers.ValidationError(
+                {"custom_type_name": 'Required when reminder_type is "custom"'}
+            )
 
-        if data.get('recurring') and not data.get('interval_days'):
-            raise serializers.ValidationError({
-                'interval_days': 'Required for recurring reminders'
-            })
+        if data.get("recurring") and not data.get("interval_days"):
+            raise serializers.ValidationError(
+                {"interval_days": "Required for recurring reminders"}
+            )
 
         return data
 
@@ -281,35 +279,35 @@ class GardenPlantSerializer(serializers.ModelSerializer):
 
     Links to PlantSpecies for care data, tracks position and health.
     """
+
     reminders = CareReminderSerializer(many=True, read_only=True)
     pest_issues = PestIssueSerializer(many=True, read_only=True)
     journal_entries = JournalEntrySerializer(many=True, read_only=True)
     health_status_display = serializers.CharField(
-        source='get_health_status_display',
-        read_only=True
+        source="get_health_status_display", read_only=True
     )
 
     class Meta:
         model = GardenPlant
         fields = [
-            'id',
-            'garden',
-            'plant_species',
-            'common_name',
-            'scientific_name',
-            'planted_date',
-            'position',
-            'image',
-            'notes',
-            'health_status',
-            'health_status_display',
-            'reminders',
-            'pest_issues',
-            'journal_entries',
-            'created_at',
-            'updated_at'
+            "id",
+            "garden",
+            "plant_species",
+            "common_name",
+            "scientific_name",
+            "planted_date",
+            "position",
+            "image",
+            "notes",
+            "health_status",
+            "health_status_display",
+            "reminders",
+            "pest_issues",
+            "journal_entries",
+            "created_at",
+            "updated_at",
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ["created_at", "updated_at"]
 
     def validate_image(self, value):
         """Validate plant image file size and type."""
@@ -319,7 +317,7 @@ class GardenPlantSerializer(serializers.ModelSerializer):
             )
 
         if value:
-            file_extension = value.name.split('.')[-1].lower()
+            file_extension = value.name.split(".")[-1].lower()
             if file_extension not in ALLOWED_IMAGE_EXTENSIONS:
                 raise serializers.ValidationError(
                     f"Invalid file extension. Allowed: {', '.join(ALLOWED_IMAGE_EXTENSIONS)}"
@@ -337,15 +335,15 @@ class GardenPlantSerializer(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Position must be a JSON object")
 
-        if 'x' not in value or 'y' not in value:
+        if "x" not in value or "y" not in value:
             raise serializers.ValidationError(
                 "Position must include 'x' and 'y' coordinates"
             )
 
-        if not isinstance(value['x'], (int, float)) or not isinstance(value['y'], (int, float)):
-            raise serializers.ValidationError(
-                "Position coordinates must be numbers"
-            )
+        if not isinstance(value["x"], (int, float)) or not isinstance(
+            value["y"], (int, float)
+        ):
+            raise serializers.ValidationError("Position coordinates must be numbers")
 
         return value
 
@@ -356,40 +354,36 @@ class TaskSerializer(serializers.ModelSerializer):
 
     Can be garden-specific or general user tasks.
     """
+
     user = serializers.StringRelatedField(read_only=True)
     category_display = serializers.CharField(
-        source='get_category_display',
-        read_only=True
+        source="get_category_display", read_only=True
     )
-    season_display = serializers.CharField(
-        source='get_season_display',
-        read_only=True
-    )
+    season_display = serializers.CharField(source="get_season_display", read_only=True)
     priority_display = serializers.CharField(
-        source='get_priority_display',
-        read_only=True
+        source="get_priority_display", read_only=True
     )
 
     class Meta:
         model = Task
         fields = [
-            'id',
-            'user',
-            'garden',
-            'title',
-            'description',
-            'due_date',
-            'completed',
-            'completed_at',
-            'category',
-            'category_display',
-            'season',
-            'season_display',
-            'priority',
-            'priority_display',
-            'created_at'
+            "id",
+            "user",
+            "garden",
+            "title",
+            "description",
+            "due_date",
+            "completed",
+            "completed_at",
+            "category",
+            "category_display",
+            "season",
+            "season_display",
+            "priority",
+            "priority_display",
+            "created_at",
         ]
-        read_only_fields = ['user', 'completed_at', 'created_at']
+        read_only_fields = ["user", "completed_at", "created_at"]
 
 
 class GardenSerializer(serializers.ModelSerializer):
@@ -398,38 +392,38 @@ class GardenSerializer(serializers.ModelSerializer):
 
     Includes visual layout for drag-and-drop designer.
     """
+
     user = serializers.StringRelatedField(read_only=True)
     plants = GardenPlantSerializer(many=True, read_only=True)
     tasks = TaskSerializer(many=True, read_only=True)
     journal_entries = JournalEntrySerializer(many=True, read_only=True)
     visibility_display = serializers.CharField(
-        source='get_visibility_display',
-        read_only=True
+        source="get_visibility_display", read_only=True
     )
     plant_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Garden
         fields = [
-            'id',
-            'user',
-            'name',
-            'description',
-            'dimensions',
-            'layout_data',
-            'location',
-            'climate_zone',
-            'visibility',
-            'visibility_display',
-            'featured',
-            'plants',
-            'tasks',
-            'journal_entries',
-            'plant_count',
-            'created_at',
-            'updated_at'
+            "id",
+            "user",
+            "name",
+            "description",
+            "dimensions",
+            "layout_data",
+            "location",
+            "climate_zone",
+            "visibility",
+            "visibility_display",
+            "featured",
+            "plants",
+            "tasks",
+            "journal_entries",
+            "plant_count",
+            "created_at",
+            "updated_at",
         ]
-        read_only_fields = ['user', 'featured', 'created_at', 'updated_at']
+        read_only_fields = ["user", "featured", "created_at", "updated_at"]
 
     def get_plant_count(self, obj):
         """Return total number of plants in garden."""
@@ -441,34 +435,30 @@ class GardenSerializer(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Dimensions must be a JSON object")
 
-        required_fields = ['width', 'height', 'unit']
+        required_fields = ["width", "height", "unit"]
         for field in required_fields:
             if field not in value:
-                raise serializers.ValidationError(
-                    f"Dimensions must include '{field}'"
-                )
+                raise serializers.ValidationError(f"Dimensions must include '{field}'")
 
-        unit = value['unit']
-        if unit not in ['ft', 'm']:
+        unit = value["unit"]
+        if unit not in ["ft", "m"]:
             raise serializers.ValidationError(
                 "Unit must be 'ft' (feet) or 'm' (meters)"
             )
 
-        width = value['width']
-        height = value['height']
+        width = value["width"]
+        height = value["height"]
 
         if not isinstance(width, (int, float)) or not isinstance(height, (int, float)):
-            raise serializers.ValidationError(
-                "Width and height must be numbers"
-            )
+            raise serializers.ValidationError("Width and height must be numbers")
 
         # Validate maximum dimensions
-        if unit == 'ft':
+        if unit == "ft":
             if width > MAX_GARDEN_WIDTH_FT or height > MAX_GARDEN_HEIGHT_FT:
                 raise serializers.ValidationError(
                     f"Maximum dimensions: {MAX_GARDEN_WIDTH_FT}ft x {MAX_GARDEN_HEIGHT_FT}ft"
                 )
-        elif unit == 'm':
+        elif unit == "m":
             if width > MAX_GARDEN_WIDTH_M or height > MAX_GARDEN_HEIGHT_M:
                 raise serializers.ValidationError(
                     f"Maximum dimensions: {MAX_GARDEN_WIDTH_M}m x {MAX_GARDEN_HEIGHT_M}m"
@@ -489,9 +479,9 @@ class GardenSerializer(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Location must be a JSON object")
 
-        if 'lat' in value and 'lng' in value:
-            lat = value['lat']
-            lng = value['lng']
+        if "lat" in value and "lng" in value:
+            lat = value["lat"]
+            lng = value["lng"]
 
             if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
                 raise serializers.ValidationError(
@@ -499,9 +489,7 @@ class GardenSerializer(serializers.ModelSerializer):
                 )
 
             if not (-90 <= lat <= 90):
-                raise serializers.ValidationError(
-                    "Latitude must be between -90 and 90"
-                )
+                raise serializers.ValidationError("Latitude must be between -90 and 90")
 
             if not (-180 <= lng <= 180):
                 raise serializers.ValidationError(
@@ -524,30 +512,30 @@ class GardenListSerializer(serializers.ModelSerializer):
 
     Excludes nested relationships for performance.
     """
+
     user = serializers.StringRelatedField(read_only=True)
     visibility_display = serializers.CharField(
-        source='get_visibility_display',
-        read_only=True
+        source="get_visibility_display", read_only=True
     )
     plant_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Garden
         fields = [
-            'id',
-            'user',
-            'name',
-            'description',
-            'dimensions',
-            'climate_zone',
-            'visibility',
-            'visibility_display',
-            'featured',
-            'plant_count',
-            'created_at',
-            'updated_at'
+            "id",
+            "user",
+            "name",
+            "description",
+            "dimensions",
+            "climate_zone",
+            "visibility",
+            "visibility_display",
+            "featured",
+            "plant_count",
+            "created_at",
+            "updated_at",
         ]
-        read_only_fields = ['user', 'featured', 'created_at', 'updated_at']
+        read_only_fields = ["user", "featured", "created_at", "updated_at"]
 
     def get_plant_count(self, obj):
         """Return total number of plants in garden."""

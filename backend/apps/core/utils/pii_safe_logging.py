@@ -95,14 +95,14 @@ def log_safe_ip(ip_address: Optional[str]) -> str:
         hash_suffix = hashlib.sha256(ip_address.encode()).hexdigest()[:8]
 
         # IPv4: Show first 2 octets
-        if '.' in ip_address and ':' not in ip_address:
-            parts = ip_address.split('.')
+        if "." in ip_address and ":" not in ip_address:
+            parts = ip_address.split(".")
             if len(parts) >= 2:
                 prefix = f"{parts[0]}.{parts[1]}"
                 return f"{prefix}.***:{hash_suffix}"
 
         # IPv6: Show first 16 characters
-        elif ':' in ip_address:
+        elif ":" in ip_address:
             prefix = ip_address[:16] if len(ip_address) >= 16 else ip_address
             return f"{prefix}***:{hash_suffix}"
 
@@ -132,9 +132,9 @@ def log_safe_user_context(user, include_email: bool = False) -> str:
     if not user:
         return "user:anonymous"
 
-    safe_username = log_safe_username(getattr(user, 'username', None))
+    safe_username = log_safe_username(getattr(user, "username", None))
 
-    if include_email and hasattr(user, 'email'):
+    if include_email and hasattr(user, "email"):
         safe_email = log_safe_email(user.email)
         return f"user:{safe_username} ({safe_email})"
 

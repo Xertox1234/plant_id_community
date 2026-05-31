@@ -8,14 +8,8 @@ Registers user garden data models for audit trail tracking to comply with:
 """
 
 from auditlog.registry import auditlog
-from .models import (
-    GardenBed,
-    Plant,
-    CareTask,
-    CareLog,
-    Harvest,
-)
 
+from .models import CareLog, CareTask, GardenBed, Harvest, Plant
 
 # Register GardenBed for garden ownership and modification tracking
 # Tracks: User garden bed creation, layout changes, soil condition updates
@@ -23,11 +17,20 @@ from .models import (
 auditlog.register(
     GardenBed,
     include_fields=[
-        'name', 'bed_type', 'length_inches', 'width_inches', 'depth_inches',
-        'sun_exposure', 'soil_type', 'soil_ph', 'notes', 'is_active',
-        'last_fertilized', 'last_watered'
+        "name",
+        "bed_type",
+        "length_inches",
+        "width_inches",
+        "depth_inches",
+        "sun_exposure",
+        "soil_type",
+        "soil_ph",
+        "notes",
+        "is_active",
+        "last_fertilized",
+        "last_watered",
     ],
-    exclude_fields=['layout_data'],  # Exclude large JSON blobs for performance
+    exclude_fields=["layout_data"],  # Exclude large JSON blobs for performance
 )
 
 # Register Plant for plant lifecycle and health tracking
@@ -35,9 +38,16 @@ auditlog.register(
 auditlog.register(
     Plant,
     include_fields=[
-        'common_name', 'variety', 'health_status', 'growth_stage',
-        'planted_date', 'expected_harvest_date', 'position_x', 'position_y',
-        'notes', 'is_active'
+        "common_name",
+        "variety",
+        "health_status",
+        "growth_stage",
+        "planted_date",
+        "expected_harvest_date",
+        "position_x",
+        "position_y",
+        "notes",
+        "is_active",
     ],
 )
 
@@ -46,8 +56,15 @@ auditlog.register(
 auditlog.register(
     CareTask,
     include_fields=[
-        'task_type', 'priority', 'scheduled_date', 'completed', 'skipped',
-        'completed_at', 'notes', 'is_recurring', 'recurrence_interval_days'
+        "task_type",
+        "priority",
+        "scheduled_date",
+        "completed",
+        "skipped",
+        "completed_at",
+        "notes",
+        "is_recurring",
+        "recurrence_interval_days",
     ],
 )
 
@@ -56,8 +73,14 @@ auditlog.register(
 auditlog.register(
     CareLog,
     include_fields=[
-        'activity_type', 'notes', 'plant_health_before', 'plant_health_after',
-        'hours_spent', 'materials_used', 'cost', 'weather_conditions'
+        "activity_type",
+        "notes",
+        "plant_health_before",
+        "plant_health_after",
+        "hours_spent",
+        "materials_used",
+        "cost",
+        "weather_conditions",
     ],
 )
 
@@ -66,7 +89,12 @@ auditlog.register(
 auditlog.register(
     Harvest,
     include_fields=[
-        'harvest_date', 'quantity', 'unit', 'quality_rating',
-        'taste_rating', 'notes', 'shared_with_community'
+        "harvest_date",
+        "quantity",
+        "unit",
+        "quality_rating",
+        "taste_rating",
+        "notes",
+        "shared_with_community",
     ],
 )

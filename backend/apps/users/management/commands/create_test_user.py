@@ -15,44 +15,42 @@ If the user already exists, it will be deleted and recreated to ensure
 a clean state for testing.
 """
 
-from typing import Any
 from argparse import ArgumentParser
+from typing import Any
 
-from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand
 
 User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = 'Create or reset E2E test user for Playwright tests'
+    help = "Create or reset E2E test user for Playwright tests"
 
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument(
-            '--delete-only',
-            action='store_true',
-            help='Only delete the test user without creating a new one',
+            "--delete-only",
+            action="store_true",
+            help="Only delete the test user without creating a new one",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        username: str = 'e2e_test_user'
-        email: str = 'e2e@test.com'
-        password: str = 'E2ETestPassword123456'
-        first_name: str = 'E2E'
-        last_name: str = 'Test User'
+        username: str = "e2e_test_user"
+        email: str = "e2e@test.com"
+        password: str = "E2ETestPassword123456"
+        first_name: str = "E2E"
+        last_name: str = "Test User"
 
         # Delete existing test user if it exists
         deleted_count, _ = User.objects.filter(username=username).delete()
         if deleted_count > 0:
             self.stdout.write(
-                self.style.WARNING(f'Deleted existing test user: {username}')
+                self.style.WARNING(f"Deleted existing test user: {username}")
             )
 
         # If delete-only flag is set, stop here
-        if options['delete_only']:
-            self.stdout.write(
-                self.style.SUCCESS('Test user deleted successfully')
-            )
+        if options["delete_only"]:
+            self.stdout.write(self.style.SUCCESS("Test user deleted successfully"))
             return
 
         # Create new test user
@@ -66,10 +64,10 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f'\nTest user created successfully!\n'
-                f'Username: {user.username}\n'
-                f'Email: {user.email}\n'
-                f'Password: {password}\n'
-                f'Name: {user.first_name} {user.last_name}\n'
+                f"\nTest user created successfully!\n"
+                f"Username: {user.username}\n"
+                f"Email: {user.email}\n"
+                f"Password: {password}\n"
+                f"Name: {user.first_name} {user.last_name}\n"
             )
         )

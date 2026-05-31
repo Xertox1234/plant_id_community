@@ -1,0 +1,6 @@
+# Bulk formatter commits — excluded from git blame so blame stays on logical changes.
+# Usage: git blame --ignore-revs-file .git-blame-ignore-revs <file>
+# Or set permanently: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: apply black + isort formatter repo-wide (2026-05-31)
+# SHA added after commit

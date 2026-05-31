@@ -6,23 +6,23 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('garden_calendar', '0001_initial'),
+        ("garden_calendar", "0001_initial"),
     ]
 
     operations = [
         migrations.RenameIndex(
-            model_name='weatheralert',
-            new_name='garden_cale_zip_cod_1eb673_idx',
-            old_name='garden_cale_zip_cod_dbc1b9_idx',
+            model_name="weatheralert",
+            new_name="garden_cale_zip_cod_1eb673_idx",
+            old_name="garden_cale_zip_cod_dbc1b9_idx",
         ),
         migrations.RenameIndex(
-            model_name='weatheralert',
-            new_name='garden_cale_start_d_f217d0_idx',
-            old_name='garden_cale_start_d_5e7b21_idx',
+            model_name="weatheralert",
+            new_name="garden_cale_start_d_f217d0_idx",
+            old_name="garden_cale_start_d_5e7b21_idx",
         ),
         migrations.RenameIndex(
-            model_name='weatheralert',
-            new_name='garden_cale_alert_t_0d6328_idx',
-            old_name='garden_cale_alert_t_aefd24_idx',
+            model_name="weatheralert",
+            new_name="garden_cale_alert_t_0d6328_idx",
+            old_name="garden_cale_alert_t_aefd24_idx",
         ),
     ]

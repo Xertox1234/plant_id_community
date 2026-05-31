@@ -28,16 +28,16 @@ CPU_CORE_MULTIPLIER = 1
 # ============================================================================
 
 # Plant.id API timeouts
-PLANT_ID_API_TIMEOUT = 35              # With 5s buffer
-PLANT_ID_API_TIMEOUT_DEFAULT = 30      # Default timeout
+PLANT_ID_API_TIMEOUT = 35  # With 5s buffer
+PLANT_ID_API_TIMEOUT_DEFAULT = 30  # Default timeout
 
 # PlantNet API timeouts
-PLANTNET_API_TIMEOUT = 20              # With 5s buffer
-PLANTNET_API_REQUEST_TIMEOUT = 60      # Request timeout
+PLANTNET_API_TIMEOUT = 20  # With 5s buffer
+PLANTNET_API_REQUEST_TIMEOUT = 60  # Request timeout
 
 # Image service timeouts
-IMAGE_DOWNLOAD_TIMEOUT = 30            # Standard download
-IMAGE_DOWNLOAD_QUICK_TIMEOUT = 10      # Quick download
+IMAGE_DOWNLOAD_TIMEOUT = 30  # Standard download
+IMAGE_DOWNLOAD_QUICK_TIMEOUT = 10  # Quick download
 
 
 # ============================================================================
@@ -45,8 +45,8 @@ IMAGE_DOWNLOAD_QUICK_TIMEOUT = 10      # Quick download
 # ============================================================================
 
 # Base cache timeouts
-CACHE_TIMEOUT_24_HOURS = 86400         # 24 hours
-CACHE_TIMEOUT_30_MINUTES = 1800        # 30 minutes
+CACHE_TIMEOUT_24_HOURS = 86400  # 24 hours
+CACHE_TIMEOUT_30_MINUTES = 1800  # 30 minutes
 
 # Service-specific cache timeouts
 PLANT_ID_CACHE_TIMEOUT = CACHE_TIMEOUT_30_MINUTES
@@ -58,20 +58,20 @@ PLANTNET_CACHE_TIMEOUT = CACHE_TIMEOUT_24_HOURS
 # ============================================================================
 
 # Plant.id API Limits (Free Tier)
-PLANT_ID_MONTHLY_QUOTA = 100           # 100 identifications per month
-PLANT_ID_DAILY_QUOTA = 3               # ~3 per day (100/30)
-PLANT_ID_QUOTA_WARNING_THRESHOLD = 0.8 # Warn at 80% usage
+PLANT_ID_MONTHLY_QUOTA = 100  # 100 identifications per month
+PLANT_ID_DAILY_QUOTA = 3  # ~3 per day (100/30)
+PLANT_ID_QUOTA_WARNING_THRESHOLD = 0.8  # Warn at 80% usage
 
 # PlantNet API Limits (Free Tier)
-PLANTNET_DAILY_QUOTA = 500             # 500 requests per day
-PLANTNET_HOURLY_QUOTA = 20             # ~20 per hour (500/24)
-PLANTNET_QUOTA_WARNING_THRESHOLD = 0.8 # Warn at 80% usage
+PLANTNET_DAILY_QUOTA = 500  # 500 requests per day
+PLANTNET_HOURLY_QUOTA = 20  # ~20 per hour (500/24)
+PLANTNET_QUOTA_WARNING_THRESHOLD = 0.8  # Warn at 80% usage
 
 # Quota tracking Redis key prefixes
-QUOTA_KEY_PREFIX_PLANT_ID_DAILY = 'quota:plant_id:daily'
-QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY = 'quota:plant_id:monthly'
-QUOTA_KEY_PREFIX_PLANTNET_DAILY = 'quota:plantnet:daily'
-QUOTA_KEY_PREFIX_PLANTNET_HOURLY = 'quota:plantnet:hourly'
+QUOTA_KEY_PREFIX_PLANT_ID_DAILY = "quota:plant_id:daily"
+QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY = "quota:plant_id:monthly"
+QUOTA_KEY_PREFIX_PLANTNET_DAILY = "quota:plantnet:daily"
+QUOTA_KEY_PREFIX_PLANTNET_HOURLY = "quota:plantnet:hourly"
 
 
 # ============================================================================
@@ -87,15 +87,15 @@ TEMPERATURE_RANGE_CELSIUS = "18-24°C"
 # ============================================================================
 
 # Plant.id API Circuit Breaker (Paid Tier - Conservative)
-PLANT_ID_CIRCUIT_FAIL_MAX = 3            # Open circuit after 3 consecutive failures
-PLANT_ID_CIRCUIT_RESET_TIMEOUT = 60      # Wait 60s before testing recovery
-PLANT_ID_CIRCUIT_SUCCESS_THRESHOLD = 2   # Require 2 successes to close circuit
+PLANT_ID_CIRCUIT_FAIL_MAX = 3  # Open circuit after 3 consecutive failures
+PLANT_ID_CIRCUIT_RESET_TIMEOUT = 60  # Wait 60s before testing recovery
+PLANT_ID_CIRCUIT_SUCCESS_THRESHOLD = 2  # Require 2 successes to close circuit
 PLANT_ID_CIRCUIT_TIMEOUT = PLANT_ID_API_TIMEOUT
 
 # PlantNet API Circuit Breaker (Free Tier - More Tolerant)
-PLANTNET_CIRCUIT_FAIL_MAX = 5            # Open circuit after 5 consecutive failures
-PLANTNET_CIRCUIT_RESET_TIMEOUT = 30      # Wait 30s before testing recovery
-PLANTNET_CIRCUIT_SUCCESS_THRESHOLD = 2   # Require 2 successes to close circuit
+PLANTNET_CIRCUIT_FAIL_MAX = 5  # Open circuit after 5 consecutive failures
+PLANTNET_CIRCUIT_RESET_TIMEOUT = 30  # Wait 30s before testing recovery
+PLANTNET_CIRCUIT_SUCCESS_THRESHOLD = 2  # Require 2 successes to close circuit
 PLANTNET_CIRCUIT_TIMEOUT = PLANTNET_API_TIMEOUT
 
 
@@ -116,7 +116,7 @@ CACHE_LOCK_AUTO_RENEWAL = True  # Recommended for API calls with unpredictable d
 CACHE_LOCK_BLOCKING = True  # Wait for lock (better UX than immediate failure)
 
 # Lock ID Prefix
-CACHE_LOCK_ID_PREFIX = 'plant_id'  # Will be: "plant_id-{hostname}-{pid}-{thread_id}"
+CACHE_LOCK_ID_PREFIX = "plant_id"  # Will be: "plant_id-{hostname}-{pid}-{thread_id}"
 
 
 # ============================================================================
@@ -139,41 +139,37 @@ CACHE_LOCK_ID_PREFIX = 'plant_id'  # Will be: "plant_id-{hostname}-{pid}-{thread
 
 RATE_LIMITS = {
     # Anonymous User Limits (IP-based)
-    'anonymous': {
-        'plant_identification': '100/h',    # Increased for development testing (was 10/h)
-        'read_only': '100/h',               # General read operations
-        'search': '30/h',                   # Search endpoints
+    "anonymous": {
+        "plant_identification": "100/h",  # Increased for development testing (was 10/h)
+        "read_only": "100/h",  # General read operations
+        "search": "30/h",  # Search endpoints
     },
-
     # Authenticated User Limits (user-based)
-    'authenticated': {
-        'plant_identification': '100/h',    # Plant ID API calls
-        'write_operations': '50/h',         # Create/update operations
-        'read_only': '1000/h',              # General read operations
-        'search': '100/h',                  # Search endpoints
-        'care_instructions': '30/m',        # Care instruction lookups
-        'regenerate': '5/m',                # AI regeneration (expensive)
+    "authenticated": {
+        "plant_identification": "100/h",  # Plant ID API calls
+        "write_operations": "50/h",  # Create/update operations
+        "read_only": "1000/h",  # General read operations
+        "search": "100/h",  # Search endpoints
+        "care_instructions": "30/m",  # Care instruction lookups
+        "regenerate": "5/m",  # AI regeneration (expensive)
     },
-
     # Authentication Endpoints (IP-based, security-focused)
-    'auth_endpoints': {
-        'login': '5/15m',                   # Login attempts
-        'register': '3/h',                  # Registration
-        'token_refresh': '10/h',            # Token refresh
-        'password_reset': '3/h',            # Password reset (not implemented)
+    "auth_endpoints": {
+        "login": "5/15m",  # Login attempts
+        "register": "3/h",  # Registration
+        "token_refresh": "10/h",  # Token refresh
+        "password_reset": "3/h",  # Password reset (not implemented)
     },
-
     # User Feature Endpoints (user-based)
-    'user_features': {
-        'push_notifications': '10/h',       # Push notification subscriptions
-        'care_reminders': '20/h',           # Care reminder actions
-        'profile_updates': '10/h',          # Profile modifications
+    "user_features": {
+        "push_notifications": "10/h",  # Push notification subscriptions
+        "care_reminders": "20/h",  # Care reminder actions
+        "profile_updates": "10/h",  # Profile modifications
     },
-
     # Blog/Content Endpoints (user_or_ip-based)
-    'blog': {
-        'read': '100/h',                    # Blog post reads
-        'write': '10/h',                    # Blog post creation (authenticated)
-        'comment': '20/h',                  # Comments (when implemented)
+    "blog": {
+        "read": "100/h",  # Blog post reads
+        "write": "10/h",  # Blog post creation (authenticated)
+        "comment": "20/h",  # Comments (when implemented)
     },
 }

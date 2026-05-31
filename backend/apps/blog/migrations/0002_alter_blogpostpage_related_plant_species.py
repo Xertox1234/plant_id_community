@@ -7,14 +7,21 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('blog', '0001_initial'),
-        ('plant_identification', '0002_alter_plantidentificationrequest_image_1_and_more'),
+        ("blog", "0001_initial"),
+        (
+            "plant_identification",
+            "0002_alter_plantidentificationrequest_image_1_and_more",
+        ),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='blogpostpage',
-            name='related_plant_species',
-            field=modelcluster.fields.ParentalManyToManyField(blank=True, help_text='Plant species mentioned in this post', to='plant_identification.plantspecies'),
+            model_name="blogpostpage",
+            name="related_plant_species",
+            field=modelcluster.fields.ParentalManyToManyField(
+                blank=True,
+                help_text="Plant species mentioned in this post",
+                to="plant_identification.plantspecies",
+            ),
         ),
     ]

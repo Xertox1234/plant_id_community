@@ -14,6 +14,7 @@ Pattern: Transparent middleware for Wagtail AI
 
 import logging
 from typing import Any, Optional
+
 from django.contrib.auth.models import User
 from wagtail_ai import utils as wagtail_ai_utils
 
@@ -23,11 +24,7 @@ logger = logging.getLogger(__name__)
 _original_get_ai_text = None
 
 
-def cached_get_ai_text(
-    prompt: str,
-    backend_name: str = "default",
-    **kwargs
-) -> str:
+def cached_get_ai_text(prompt: str, backend_name: str = "default", **kwargs) -> str:
     """
     Wrapper for Wagtail AI's get_ai_text() with caching and rate limiting.
 
@@ -48,9 +45,9 @@ def cached_get_ai_text(
     from .services import AICacheService, AIRateLimiter
 
     # Extract user from kwargs for rate limiting
-    request = kwargs.get('request')
+    request = kwargs.get("request")
     user = None
-    if request and hasattr(request, 'user') and request.user.is_authenticated:
+    if request and hasattr(request, "user") and request.user.is_authenticated:
         user = request.user
 
     # 1. Check cache first (fastest path)
@@ -62,7 +59,7 @@ def cached_get_ai_text(
             f"[WAGTAIL AI] Cache HIT for {feature} "
             f"(user: {user.id if user else 'anonymous'})"
         )
-        return cached_response.get('text', '')
+        return cached_response.get("text", "")
 
     # 2. Check rate limit before expensive AI call
     if user:
@@ -71,7 +68,7 @@ def cached_get_ai_text(
 
         if not AIRateLimiter.check_user_limit(user_id, is_staff):
             remaining = AIRateLimiter.get_remaining_calls(user_id, is_staff)
-            limit = AIRateLimiter.USER_LIMITS['staff' if is_staff else 'authenticated']
+            limit = AIRateLimiter.USER_LIMITS["staff" if is_staff else "authenticated"]
 
             logger.warning(
                 f"[WAGTAIL AI] Rate limit EXCEEDED for user {user_id} "
@@ -89,12 +86,14 @@ def cached_get_ai_text(
 
     # 3. Generate content using original Wagtail AI function
     try:
-        logger.info(f"[WAGTAIL AI] Generating {feature} content (prompt length: {len(prompt)} chars)")
+        logger.info(
+            f"[WAGTAIL AI] Generating {feature} content (prompt length: {len(prompt)} chars)"
+        )
 
         response = _original_get_ai_text(prompt, backend_name, **kwargs)
 
         # 4. Cache successful response
-        AICacheService.set_cached_response(feature, prompt, {'text': response})
+        AICacheService.set_cached_response(feature, prompt, {"text": response})
 
         logger.info(
             f"[WAGTAIL AI] Generation SUCCESS for {feature} "
@@ -108,10 +107,10 @@ def cached_get_ai_text(
             f"[WAGTAIL AI] Generation FAILED for {feature}: {str(e)}",
             exc_info=True,
             extra={
-                'feature': feature,
-                'user_id': user.id if user else None,
-                'prompt_length': len(prompt),
-            }
+                "feature": feature,
+                "user_id": user.id if user else None,
+                "prompt_length": len(prompt),
+            },
         )
         raise
 
@@ -128,14 +127,20 @@ def _determine_feature_type(prompt: str) -> str:
     """
     prompt_lower = prompt.lower()
 
-    if 'title' in prompt_lower and ('blog post' in prompt_lower or 'seo-optimized' in prompt_lower):
-        return 'title'
-    elif 'meta description' in prompt_lower or ('description' in prompt_lower and 'seo' in prompt_lower):
-        return 'description'
-    elif 'introduction' in prompt_lower and ('paragraph' in prompt_lower or 'hook' in prompt_lower):
-        return 'introduction'
+    if "title" in prompt_lower and (
+        "blog post" in prompt_lower or "seo-optimized" in prompt_lower
+    ):
+        return "title"
+    elif "meta description" in prompt_lower or (
+        "description" in prompt_lower and "seo" in prompt_lower
+    ):
+        return "description"
+    elif "introduction" in prompt_lower and (
+        "paragraph" in prompt_lower or "hook" in prompt_lower
+    ):
+        return "introduction"
     else:
-        return 'content'
+        return "content"
 
 
 def install_wagtail_ai_integration():

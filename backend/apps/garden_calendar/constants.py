@@ -100,13 +100,8 @@ MAX_LOG_CONTENT_LENGTH = 5000
 # Rate limiting: backend/docs/patterns/architecture/rate-limiting.md
 
 # Allowed image formats (4-layer security validation)
-ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp']
-ALLOWED_IMAGE_MIME_TYPES = [
-    'image/jpeg',
-    'image/png',
-    'image/gif',
-    'image/webp'
-]
+ALLOWED_IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp"]
+ALLOWED_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
 
 # File size limits
 MAX_PLANT_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
@@ -128,28 +123,28 @@ MAX_IMAGE_HEIGHT = 5000  # Max height in pixels
 # =============================================================================
 
 HEALTH_STATUS_CHOICES = [
-    ('thriving', 'Thriving'),
-    ('healthy', 'Healthy'),
-    ('fair', 'Fair/OK'),
-    ('struggling', 'Struggling'),
-    ('diseased', 'Diseased'),
-    ('pest_damage', 'Pest Damage'),
-    ('dying', 'Dying'),
-    ('dead', 'Dead/Removed'),
+    ("thriving", "Thriving"),
+    ("healthy", "Healthy"),
+    ("fair", "Fair/OK"),
+    ("struggling", "Struggling"),
+    ("diseased", "Diseased"),
+    ("pest_damage", "Pest Damage"),
+    ("dying", "Dying"),
+    ("dead", "Dead/Removed"),
 ]
 
-HEALTH_STATUS_DEFAULT = 'healthy'
+HEALTH_STATUS_DEFAULT = "healthy"
 
 # Health status colors for UI (hex codes)
 HEALTH_STATUS_COLORS = {
-    'thriving': '#10B981',      # Green
-    'healthy': '#34D399',       # Light Green
-    'fair': '#FBBF24',          # Yellow
-    'struggling': '#F59E0B',    # Amber
-    'diseased': '#EF4444',      # Red
-    'pest_damage': '#DC2626',   # Dark Red
-    'dying': '#991B1B',         # Very Dark Red
-    'dead': '#6B7280',          # Gray
+    "thriving": "#10B981",  # Green
+    "healthy": "#34D399",  # Light Green
+    "fair": "#FBBF24",  # Yellow
+    "struggling": "#F59E0B",  # Amber
+    "diseased": "#EF4444",  # Red
+    "pest_damage": "#DC2626",  # Dark Red
+    "dying": "#991B1B",  # Very Dark Red
+    "dead": "#6B7280",  # Gray
 }
 
 # =============================================================================
@@ -157,27 +152,27 @@ HEALTH_STATUS_COLORS = {
 # =============================================================================
 
 CARE_TASK_TYPES = [
-    ('watering', 'Watering'),
-    ('fertilizing', 'Fertilizing'),
-    ('pruning', 'Pruning'),
-    ('deadheading', 'Deadheading'),
-    ('repotting', 'Repotting/Transplanting'),
-    ('pest_check', 'Pest Inspection'),
-    ('disease_check', 'Disease Check'),
-    ('soil_amendment', 'Soil Amendment'),
-    ('mulching', 'Mulching'),
-    ('staking', 'Staking/Support'),
-    ('harvesting', 'Harvesting'),
-    ('winterization', 'Winter Preparation'),
-    ('spring_cleanup', 'Spring Cleanup'),
-    ('custom', 'Custom Task'),
+    ("watering", "Watering"),
+    ("fertilizing", "Fertilizing"),
+    ("pruning", "Pruning"),
+    ("deadheading", "Deadheading"),
+    ("repotting", "Repotting/Transplanting"),
+    ("pest_check", "Pest Inspection"),
+    ("disease_check", "Disease Check"),
+    ("soil_amendment", "Soil Amendment"),
+    ("mulching", "Mulching"),
+    ("staking", "Staking/Support"),
+    ("harvesting", "Harvesting"),
+    ("winterization", "Winter Preparation"),
+    ("spring_cleanup", "Spring Cleanup"),
+    ("custom", "Custom Task"),
 ]
 
 CARE_TASK_PRIORITY = [
-    ('low', 'Low'),
-    ('medium', 'Medium'),
-    ('high', 'High'),
-    ('urgent', 'Urgent'),
+    ("low", "Low"),
+    ("medium", "Medium"),
+    ("high", "High"),
+    ("urgent", "Urgent"),
 ]
 
 # Default care intervals (in days)
@@ -193,26 +188,62 @@ DEFAULT_DISEASE_CHECK_INTERVAL_DAYS = 7
 
 # USDA Hardiness Zones (common ranges)
 USDA_HARDINESS_ZONES = [
-    '1a', '1b', '2a', '2b', '3a', '3b', '4a', '4b',
-    '5a', '5b', '6a', '6b', '7a', '7b', '8a', '8b',
-    '9a', '9b', '10a', '10b', '11a', '11b', '12a', '12b', '13a', '13b'
+    "1a",
+    "1b",
+    "2a",
+    "2b",
+    "3a",
+    "3b",
+    "4a",
+    "4b",
+    "5a",
+    "5b",
+    "6a",
+    "6b",
+    "7a",
+    "7b",
+    "8a",
+    "8b",
+    "9a",
+    "9b",
+    "10a",
+    "10b",
+    "11a",
+    "11b",
+    "12a",
+    "12b",
+    "13a",
+    "13b",
 ]
 
 # Temperature ranges for zones (Fahrenheit)
 ZONE_TEMP_RANGES = {
-    '1a': (-60, -55), '1b': (-55, -50),
-    '2a': (-50, -45), '2b': (-45, -40),
-    '3a': (-40, -35), '3b': (-35, -30),
-    '4a': (-30, -25), '4b': (-25, -20),
-    '5a': (-20, -15), '5b': (-15, -10),
-    '6a': (-10, -5), '6b': (-5, 0),
-    '7a': (0, 5), '7b': (5, 10),
-    '8a': (10, 15), '8b': (15, 20),
-    '9a': (20, 25), '9b': (25, 30),
-    '10a': (30, 35), '10b': (35, 40),
-    '11a': (40, 45), '11b': (45, 50),
-    '12a': (50, 55), '12b': (55, 60),
-    '13a': (60, 65), '13b': (65, 70),
+    "1a": (-60, -55),
+    "1b": (-55, -50),
+    "2a": (-50, -45),
+    "2b": (-45, -40),
+    "3a": (-40, -35),
+    "3b": (-35, -30),
+    "4a": (-30, -25),
+    "4b": (-25, -20),
+    "5a": (-20, -15),
+    "5b": (-15, -10),
+    "6a": (-10, -5),
+    "6b": (-5, 0),
+    "7a": (0, 5),
+    "7b": (5, 10),
+    "8a": (10, 15),
+    "8b": (15, 20),
+    "9a": (20, 25),
+    "9b": (25, 30),
+    "10a": (30, 35),
+    "10b": (35, 40),
+    "11a": (40, 45),
+    "11b": (45, 50),
+    "12a": (50, 55),
+    "12b": (55, 60),
+    "13a": (60, 65),
+    "13b": (65, 70),
 }
 
 # =============================================================================
@@ -240,11 +271,11 @@ SKIP_FERTILIZING_IF_RAIN_INCHES = 0.5  # Skip if heavy rain expected
 
 # Companion planting relationship types
 COMPANION_RELATIONSHIP = [
-    ('excellent', 'Excellent Companions'),
-    ('good', 'Good Companions'),
-    ('neutral', 'Neutral'),
-    ('avoid', 'Avoid Planting Together'),
-    ('harmful', 'Harmful/Allelopathic'),
+    ("excellent", "Excellent Companions"),
+    ("good", "Good Companions"),
+    ("neutral", "Neutral"),
+    ("avoid", "Avoid Planting Together"),
+    ("harmful", "Harmful/Allelopathic"),
 ]
 
 # =============================================================================
@@ -266,18 +297,18 @@ BED_UTILIZATION_FULL = 1.0  # >85% planted
 # =============================================================================
 
 SEASONS = [
-    ('spring', 'Spring'),
-    ('summer', 'Summer'),
-    ('fall', 'Fall/Autumn'),
-    ('winter', 'Winter'),
+    ("spring", "Spring"),
+    ("summer", "Summer"),
+    ("fall", "Fall/Autumn"),
+    ("winter", "Winter"),
 ]
 
 # Season month mappings (Northern Hemisphere)
 SEASON_MONTHS = {
-    'spring': [3, 4, 5],  # March, April, May
-    'summer': [6, 7, 8],  # June, July, August
-    'fall': [9, 10, 11],  # September, October, November
-    'winter': [12, 1, 2],  # December, January, February
+    "spring": [3, 4, 5],  # March, April, May
+    "summer": [6, 7, 8],  # June, July, August
+    "fall": [9, 10, 11],  # September, October, November
+    "winter": [12, 1, 2],  # December, January, February
 }
 
 # =============================================================================

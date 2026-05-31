@@ -9,9 +9,9 @@ Usage:
     python test_jwt_secret_key_validation.py
 """
 import os
+import subprocess
 import sys
 import tempfile
-import subprocess
 
 
 def test_missing_jwt_secret_key():
@@ -21,31 +21,34 @@ def test_missing_jwt_secret_key():
     print("=" * 70)
 
     # Create a temporary .env file without JWT_SECRET_KEY
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.env', delete=False) as f:
-        f.write('DEBUG=True\n')
-        f.write('SECRET_KEY=' + 'x' * 75 + '\n')  # Valid SECRET_KEY
-        f.write('DATABASE_URL=sqlite:///test.db\n')
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
+        f.write("DEBUG=True\n")
+        f.write("SECRET_KEY=" + "x" * 75 + "\n")  # Valid SECRET_KEY
+        f.write("DATABASE_URL=sqlite:///test.db\n")
         temp_env_path = f.name
 
     try:
         # Try to import settings
         env = os.environ.copy()
-        env['DJANGO_SETTINGS_MODULE'] = 'plant_community_backend.settings'
-        env.pop('JWT_SECRET_KEY', None)  # Remove any existing JWT_SECRET_KEY
+        env["DJANGO_SETTINGS_MODULE"] = "plant_community_backend.settings"
+        env.pop("JWT_SECRET_KEY", None)  # Remove any existing JWT_SECRET_KEY
 
         result = subprocess.run(
-            [sys.executable, '-c',
-             f'import os; '
-             f'os.environ["DEBUG"] = "True"; '
-             f'os.environ["SECRET_KEY"] = "{"x" * 75}"; '
-             f'os.environ.pop("JWT_SECRET_KEY", None); '
-             f'from plant_community_backend import settings'],
+            [
+                sys.executable,
+                "-c",
+                f"import os; "
+                f'os.environ["DEBUG"] = "True"; '
+                f'os.environ["SECRET_KEY"] = "{"x" * 75}"; '
+                f'os.environ.pop("JWT_SECRET_KEY", None); '
+                f"from plant_community_backend import settings",
+            ],
             capture_output=True,
             text=True,
-            cwd=os.path.dirname(os.path.abspath(__file__))
+            cwd=os.path.dirname(os.path.abspath(__file__)),
         )
 
-        if result.returncode != 0 and 'JWT_SECRET_KEY' in result.stderr:
+        if result.returncode != 0 and "JWT_SECRET_KEY" in result.stderr:
             print("✓ PASS: Settings correctly rejected missing JWT_SECRET_KEY")
             print("\nError message preview:")
             print(result.stderr[:400] + "...")
@@ -65,21 +68,24 @@ def test_same_keys():
     print("TEST 2: JWT_SECRET_KEY equals SECRET_KEY")
     print("=" * 70)
 
-    same_key = 'x' * 75  # Both keys the same
+    same_key = "x" * 75  # Both keys the same
 
     result = subprocess.run(
-        [sys.executable, '-c',
-         f'import os; '
-         f'os.environ["DEBUG"] = "True"; '
-         f'os.environ["SECRET_KEY"] = "{same_key}"; '
-         f'os.environ["JWT_SECRET_KEY"] = "{same_key}"; '
-         f'from plant_community_backend import settings'],
+        [
+            sys.executable,
+            "-c",
+            f"import os; "
+            f'os.environ["DEBUG"] = "True"; '
+            f'os.environ["SECRET_KEY"] = "{same_key}"; '
+            f'os.environ["JWT_SECRET_KEY"] = "{same_key}"; '
+            f"from plant_community_backend import settings",
+        ],
         capture_output=True,
         text=True,
-        cwd=os.path.dirname(os.path.abspath(__file__))
+        cwd=os.path.dirname(os.path.abspath(__file__)),
     )
 
-    if result.returncode != 0 and 'cannot be the same' in result.stderr:
+    if result.returncode != 0 and "cannot be the same" in result.stderr:
         print("✓ PASS: Settings correctly rejected identical keys")
         print("\nError message preview:")
         print(result.stderr[:400] + "...")
@@ -97,18 +103,21 @@ def test_short_jwt_key():
     print("=" * 70)
 
     result = subprocess.run(
-        [sys.executable, '-c',
-         f'import os; '
-         f'os.environ["DEBUG"] = "True"; '
-         f'os.environ["SECRET_KEY"] = "{"a" * 75}"; '
-         f'os.environ["JWT_SECRET_KEY"] = "short"; '  # Only 5 characters
-         f'from plant_community_backend import settings'],
+        [
+            sys.executable,
+            "-c",
+            f"import os; "
+            f'os.environ["DEBUG"] = "True"; '
+            f'os.environ["SECRET_KEY"] = "{"a" * 75}"; '
+            f'os.environ["JWT_SECRET_KEY"] = "short"; '  # Only 5 characters
+            f"from plant_community_backend import settings",
+        ],
         capture_output=True,
         text=True,
-        cwd=os.path.dirname(os.path.abspath(__file__))
+        cwd=os.path.dirname(os.path.abspath(__file__)),
     )
 
-    if result.returncode != 0 and 'too short' in result.stderr:
+    if result.returncode != 0 and "too short" in result.stderr:
         print("✓ PASS: Settings correctly rejected short JWT_SECRET_KEY")
         print("\nError message preview:")
         print(result.stderr[:400] + "...")
@@ -126,19 +135,22 @@ def test_valid_configuration():
     print("=" * 70)
 
     result = subprocess.run(
-        [sys.executable, '-c',
-         f'import os; '
-         f'os.environ["DEBUG"] = "True"; '
-         f'os.environ["SECRET_KEY"] = "{"a" * 75}"; '
-         f'os.environ["JWT_SECRET_KEY"] = "{"b" * 75}"; '  # Valid and different
-         f'from plant_community_backend import settings; '
-         f'print("SUCCESS: Settings loaded correctly")'],
+        [
+            sys.executable,
+            "-c",
+            f"import os; "
+            f'os.environ["DEBUG"] = "True"; '
+            f'os.environ["SECRET_KEY"] = "{"a" * 75}"; '
+            f'os.environ["JWT_SECRET_KEY"] = "{"b" * 75}"; '  # Valid and different
+            f"from plant_community_backend import settings; "
+            f'print("SUCCESS: Settings loaded correctly")',
+        ],
         capture_output=True,
         text=True,
-        cwd=os.path.dirname(os.path.abspath(__file__))
+        cwd=os.path.dirname(os.path.abspath(__file__)),
     )
 
-    if result.returncode == 0 and 'SUCCESS' in result.stdout:
+    if result.returncode == 0 and "SUCCESS" in result.stdout:
         print("✓ PASS: Settings loaded successfully with valid configuration")
         return True
     else:
@@ -195,5 +207,5 @@ def main():
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

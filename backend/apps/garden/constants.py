@@ -39,14 +39,10 @@ MAX_PEST_IMAGES_PER_ISSUE = 6
 MAX_JOURNAL_IMAGES_PER_ENTRY = 10
 
 # Allowed file extensions (validated before MIME type)
-ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp']
+ALLOWED_IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp"]
 
 # Allowed MIME types (defense in depth)
-ALLOWED_IMAGE_MIME_TYPES = [
-    'image/jpeg',
-    'image/png',
-    'image/webp'
-]
+ALLOWED_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"]
 
 
 # ========================================
@@ -106,11 +102,7 @@ DEFAULT_GRID_SIZE = 12
 MAX_ACTIVE_TASKS_PER_USER = 100
 
 # Task priority weights (for sorting)
-PRIORITY_WEIGHTS = {
-    'low': 1,
-    'medium': 2,
-    'high': 3
-}
+PRIORITY_WEIGHTS = {"low": 1, "medium": 2, "high": 3}
 
 
 # ========================================
@@ -120,11 +112,11 @@ PRIORITY_WEIGHTS = {
 # Pre-populated seasonal task templates by climate zone
 # This will be expanded in the services layer
 SEASONAL_TASK_CATEGORIES = [
-    'planting',
-    'maintenance',
-    'harvesting',
-    'preparation',
-    'other'
+    "planting",
+    "maintenance",
+    "harvesting",
+    "preparation",
+    "other",
 ]
 
 
@@ -134,16 +126,16 @@ SEASONAL_TASK_CATEGORIES = [
 
 # Water need frequency mappings (days)
 WATER_NEED_FREQUENCY = {
-    'low': 7,  # Once per week
-    'medium': 3,  # Every 3 days
-    'high': 1  # Daily
+    "low": 7,  # Once per week
+    "medium": 3,  # Every 3 days
+    "high": 1,  # Daily
 }
 
 # Sunlight hours per day requirements
 SUNLIGHT_HOURS = {
-    'full_sun': 6,  # 6+ hours direct sunlight
-    'partial_shade': 3,  # 3-6 hours
-    'full_shade': 0  # Less than 3 hours
+    "full_sun": 6,  # 6+ hours direct sunlight
+    "partial_shade": 3,  # 3-6 hours
+    "full_shade": 0,  # Less than 3 hours
 }
 
 

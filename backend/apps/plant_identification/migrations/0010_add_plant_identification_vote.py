@@ -8,24 +8,56 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('plant_identification', '0009_alter_plantspeciespage_content_blocks_plantcareguide'),
+        (
+            "plant_identification",
+            "0009_alter_plantspeciespage_content_blocks_plantcareguide",
+        ),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='PlantIdentificationVote',
+            name="PlantIdentificationVote",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('vote_type', models.CharField(choices=[('upvote', 'Upvote'), ('downvote', 'Downvote')], help_text='Type of vote cast by the user', max_length=10)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('result', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='user_votes', to='plant_identification.plantidentificationresult')),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='identification_votes', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "vote_type",
+                    models.CharField(
+                        choices=[("upvote", "Upvote"), ("downvote", "Downvote")],
+                        help_text="Type of vote cast by the user",
+                        max_length=10,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "result",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="user_votes",
+                        to="plant_identification.plantidentificationresult",
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="identification_votes",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'ordering': ['-created_at'],
-                'unique_together': {('user', 'result')},
+                "ordering": ["-created_at"],
+                "unique_together": {("user", "result")},
             },
         ),
     ]

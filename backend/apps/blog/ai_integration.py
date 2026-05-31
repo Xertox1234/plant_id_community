@@ -12,7 +12,8 @@ Integrates with:
 Pattern: Wagtail AI 3.0 Custom Content Panels (WAGTAIL_AI_PATTERNS_CODIFIED.md #6)
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 from .ai_prompts import PlantAIPrompts
 
 
@@ -39,15 +40,19 @@ class BlogAIPrompts:
         Returns:
             Formatted prompt for AI title generation
         """
-        introduction = context.get('introduction', '')
-        related_plants = context.get('related_plants', [])
-        difficulty_level = context.get('difficulty_level', '')
+        introduction = context.get("introduction", "")
+        related_plants = context.get("related_plants", [])
+        difficulty_level = context.get("difficulty_level", "")
 
         # Build plant context
         plant_context = ""
         if related_plants:
-            plant_names = ", ".join([p.get('common_name') or p.get('scientific_name', '')
-                                    for p in related_plants[:3]])
+            plant_names = ", ".join(
+                [
+                    p.get("common_name") or p.get("scientific_name", "")
+                    for p in related_plants[:3]
+                ]
+            )
             plant_context = f"This post is about: {plant_names}. "
 
         # Build difficulty context
@@ -94,25 +99,27 @@ Generate only the title, no additional text."""
         Returns:
             Formatted prompt for AI introduction generation
         """
-        title = context.get('title', '')
-        related_plants = context.get('related_plants', [])
-        difficulty_level = context.get('difficulty_level', 'beginner')
-        existing_intro = context.get('existing_intro', '')
+        title = context.get("title", "")
+        related_plants = context.get("related_plants", [])
+        difficulty_level = context.get("difficulty_level", "beginner")
+        existing_intro = context.get("existing_intro", "")
 
         # Build plant context with details
         plant_context = ""
         if related_plants:
             plant_details = []
             for plant in related_plants[:2]:
-                name = plant.get('common_name') or plant.get('scientific_name', '')
-                scientific = plant.get('scientific_name', '')
+                name = plant.get("common_name") or plant.get("scientific_name", "")
+                scientific = plant.get("scientific_name", "")
                 if scientific and name != scientific:
                     plant_details.append(f"{name} ({scientific})")
                 else:
                     plant_details.append(name)
             plant_context = f"Featured plants: {', '.join(plant_details)}. "
 
-        action_type = "improve the following" if existing_intro else "create a compelling"
+        action_type = (
+            "improve the following" if existing_intro else "create a compelling"
+        )
 
         prompt = f"""Generate an engaging introduction for a plant care blog post.
 
@@ -150,16 +157,18 @@ Generate only the introduction text, no meta commentary."""
         Returns:
             Formatted prompt for AI meta description generation
         """
-        title = context.get('title', '')
-        introduction = context.get('introduction', '')
-        related_plants = context.get('related_plants', [])
-        difficulty_level = context.get('difficulty_level', '')
+        title = context.get("title", "")
+        introduction = context.get("introduction", "")
+        related_plants = context.get("related_plants", [])
+        difficulty_level = context.get("difficulty_level", "")
 
         # Extract plant names
         plant_names = []
         if related_plants:
-            plant_names = [p.get('common_name') or p.get('scientific_name', '')
-                          for p in related_plants[:2]]
+            plant_names = [
+                p.get("common_name") or p.get("scientific_name", "")
+                for p in related_plants[:2]
+            ]
 
         prompt = f"""Generate an SEO-optimized meta description for a plant care blog post.
 
@@ -199,10 +208,10 @@ Generate only the meta description, no additional text."""
         Returns:
             Formatted prompt for AI content generation
         """
-        plant_name = context.get('plant_name', '')
-        difficulty_level = context.get('difficulty_level', 'beginner')
+        plant_name = context.get("plant_name", "")
+        difficulty_level = context.get("difficulty_level", "beginner")
 
-        if block_type == 'heading':
+        if block_type == "heading":
             return f"""Generate a clear, descriptive heading for a plant care article section.
 
 Plant: {plant_name or 'Various plants'}
@@ -221,8 +230,8 @@ Examples:
 
 Generate only the heading text."""
 
-        elif block_type == 'paragraph':
-            section_topic = context.get('section_topic', 'plant care')
+        elif block_type == "paragraph":
+            section_topic = context.get("section_topic", "plant care")
 
             return f"""Generate informative paragraph content for a plant care article.
 
@@ -240,11 +249,11 @@ Requirements:
 
 Generate only the paragraph content."""
 
-        elif block_type == 'care_instructions':
-            care_aspect = context.get('care_aspect', 'general')
+        elif block_type == "care_instructions":
+            care_aspect = context.get("care_aspect", "general")
 
             # Use PlantAIPrompts for plant-specific care instructions
-            if plant_name and care_aspect in ['watering', 'lighting', 'fertilizing']:
+            if plant_name and care_aspect in ["watering", "lighting", "fertilizing"]:
                 return PlantAIPrompts.get_care_instructions_prompt(
                     plant_name, care_aspect, context
                 )
@@ -280,10 +289,7 @@ class BlogAIIntegration:
 
     @classmethod
     def generate_content(
-        cls,
-        field_name: str,
-        context: Dict[str, Any],
-        user: Optional[Any] = None
+        cls, field_name: str, context: Dict[str, Any], user: Optional[Any] = None
     ) -> Dict[str, Any]:
         """
         Generate AI content for a blog field with caching and rate limiting.
@@ -305,35 +311,32 @@ class BlogAIIntegration:
 
         # Check rate limits
         if user:
-            user_id = user.id if hasattr(user, 'id') else 0
-            is_staff = user.is_staff if hasattr(user, 'is_staff') else False
+            user_id = user.id if hasattr(user, "id") else 0
+            is_staff = user.is_staff if hasattr(user, "is_staff") else False
 
             if not AIRateLimiter.check_user_limit(user_id, is_staff):
                 remaining = AIRateLimiter.get_remaining_calls(user_id, is_staff)
                 return {
-                    'success': False,
-                    'error': f'AI rate limit exceeded. You can make {AIRateLimiter.USER_LIMIT if not is_staff else AIRateLimiter.STAFF_LIMIT} requests per hour. Try again later.',
-                    'remaining_calls': remaining
+                    "success": False,
+                    "error": f"AI rate limit exceeded. You can make {AIRateLimiter.USER_LIMIT if not is_staff else AIRateLimiter.STAFF_LIMIT} requests per hour. Try again later.",
+                    "remaining_calls": remaining,
                 }
 
             if not AIRateLimiter.check_global_limit():
                 return {
-                    'success': False,
-                    'error': 'Global AI rate limit exceeded. Please try again in a few minutes.'
+                    "success": False,
+                    "error": "Global AI rate limit exceeded. Please try again in a few minutes.",
                 }
 
         # Generate appropriate prompt
         prompt_generators = {
-            'title': BlogAIPrompts.get_title_prompt,
-            'introduction': BlogAIPrompts.get_introduction_prompt,
-            'meta_description': BlogAIPrompts.get_meta_description_prompt,
+            "title": BlogAIPrompts.get_title_prompt,
+            "introduction": BlogAIPrompts.get_introduction_prompt,
+            "meta_description": BlogAIPrompts.get_meta_description_prompt,
         }
 
         if field_name not in prompt_generators:
-            return {
-                'success': False,
-                'error': f'Unsupported field: {field_name}'
-            }
+            return {"success": False, "error": f"Unsupported field: {field_name}"}
 
         prompt = prompt_generators[field_name](context)
 
@@ -341,20 +344,20 @@ class BlogAIIntegration:
         cached_response = AICacheService.get_cached_response(field_name, prompt)
         if cached_response:
             remaining = AIRateLimiter.get_remaining_calls(
-                user_id if user else 0,
-                is_staff if user else False
+                user_id if user else 0, is_staff if user else False
             )
             return {
-                'success': True,
-                'content': cached_response.get('text', ''),
-                'cached': True,
-                'remaining_calls': remaining
+                "success": True,
+                "content": cached_response.get("text", ""),
+                "cached": True,
+                "remaining_calls": remaining,
             }
 
         # Generate AI content
         try:
             import logging
             import time
+
             logger = logging.getLogger(__name__)
 
             # Log request start
@@ -378,12 +381,11 @@ class BlogAIIntegration:
             )
 
             # Cache the response
-            response = {'text': ai_content}
+            response = {"text": ai_content}
             AICacheService.set_cached_response(field_name, prompt, response)
 
             remaining = AIRateLimiter.get_remaining_calls(
-                user_id if user else 0,
-                is_staff if user else False
+                user_id if user else 0, is_staff if user else False
             )
 
             # Log success metrics
@@ -393,15 +395,16 @@ class BlogAIIntegration:
             )
 
             return {
-                'success': True,
-                'content': ai_content,
-                'cached': False,
-                'remaining_calls': remaining,
-                'generation_time': generation_time
+                "success": True,
+                "content": ai_content,
+                "cached": False,
+                "remaining_calls": remaining,
+                "generation_time": generation_time,
             }
 
         except Exception as e:
             import logging
+
             logger = logging.getLogger(__name__)
 
             # Log detailed error for debugging
@@ -409,15 +412,15 @@ class BlogAIIntegration:
                 f"[AI] Content generation failed for {field_name}: {str(e)}",
                 exc_info=True,  # Include stack trace
                 extra={
-                    'field_name': field_name,
-                    'user_id': user_id if user else 0,
-                    'is_staff': is_staff if user else False,
-                    'prompt_length': len(prompt),
-                    'error_type': type(e).__name__
-                }
+                    "field_name": field_name,
+                    "user_id": user_id if user else 0,
+                    "is_staff": is_staff if user else False,
+                    "prompt_length": len(prompt),
+                    "error_type": type(e).__name__,
+                },
             )
 
             return {
-                'success': False,
-                'error': f'AI content generation failed: {str(e)}'
+                "success": False,
+                "error": f"AI content generation failed: {str(e)}",
             }

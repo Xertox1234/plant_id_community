@@ -6,18 +6,18 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('plant_identification', '0024_change_disease_result_cascade_to_set_null'),
+        ("plant_identification", "0024_change_disease_result_cascade_to_set_null"),
     ]
 
     operations = [
         migrations.RemoveField(
-            model_name='diagnosisreminder',
-            name='diagnosis_card',
+            model_name="diagnosisreminder",
+            name="diagnosis_card",
         ),
         migrations.DeleteModel(
-            name='DiagnosisCard',
+            name="DiagnosisCard",
         ),
         migrations.DeleteModel(
-            name='DiagnosisReminder',
+            name="DiagnosisReminder",
         ),
     ]

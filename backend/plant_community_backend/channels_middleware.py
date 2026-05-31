@@ -1,11 +1,11 @@
+import logging
 import urllib.parse
 from typing import Optional
-import logging
 
 from channels.db import database_sync_to_async
 from channels.middleware import BaseMiddleware
-from django.contrib.auth.models import AnonymousUser
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from rest_framework_simplejwt.tokens import AccessToken
 
 User = get_user_model()
@@ -76,19 +76,21 @@ class JWTAuthMiddleware(BaseMiddleware):
             pass
         return None
 
-    def _extract_token_from_cookies(self, scope, name: str = 'access_token') -> Optional[str]:
+    def _extract_token_from_cookies(
+        self, scope, name: str = "access_token"
+    ) -> Optional[str]:
         """Extract a token from the Cookie header in the ASGI scope.
 
         The scope headers are a list of (name, value) byte pairs.
         """
         try:
-            headers = dict(scope.get('headers', []))
-            cookie_bytes = headers.get(b'cookie')
+            headers = dict(scope.get("headers", []))
+            cookie_bytes = headers.get(b"cookie")
             if not cookie_bytes:
                 return None
             cookie_str = cookie_bytes.decode()
-            for part in cookie_str.split(';'):
-                k, _, v = part.strip().partition('=')
+            for part in cookie_str.split(";"):
+                k, _, v = part.strip().partition("=")
                 if k == name:
                     return v
         except Exception:

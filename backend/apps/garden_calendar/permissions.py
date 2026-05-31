@@ -6,11 +6,13 @@ Implements ownership-based permissions for garden resources:
 - IsPlantOwner: User owns the plant (via garden bed)
 - IsCareTaskOwner: User owns the care task (via plant)
 """
+
 from typing import Any
+
+from django.db.models import Model
 from rest_framework import permissions
 from rest_framework.request import Request
 from rest_framework.views import APIView
-from django.db.models import Model
 
 
 class IsGardenOwner(permissions.BasePermission):
@@ -36,7 +38,9 @@ class IsGardenOwner(permissions.BasePermission):
         # Require authentication for all garden operations
         return request.user and request.user.is_authenticated
 
-    def has_object_permission(self, request: Request, view: APIView, obj: Model) -> bool:
+    def has_object_permission(
+        self, request: Request, view: APIView, obj: Model
+    ) -> bool:
         """
         Check object-level permission for garden bed.
 
@@ -52,7 +56,7 @@ class IsGardenOwner(permissions.BasePermission):
         # Write permissions are allowed to owner
         return obj.owner == request.user
 
-    message = 'You do not have permission to access this garden bed.'
+    message = "You do not have permission to access this garden bed."
 
 
 class IsPlantOwner(permissions.BasePermission):
@@ -78,7 +82,9 @@ class IsPlantOwner(permissions.BasePermission):
         # Require authentication for all plant operations
         return request.user and request.user.is_authenticated
 
-    def has_object_permission(self, request: Request, view: APIView, obj: Model) -> bool:
+    def has_object_permission(
+        self, request: Request, view: APIView, obj: Model
+    ) -> bool:
         """
         Check object-level permission for plant or related objects.
 
@@ -91,17 +97,17 @@ class IsPlantOwner(permissions.BasePermission):
             True if user owns the garden bed containing this plant
         """
         # Handle different object types that relate to plants
-        if hasattr(obj, 'garden_bed'):
+        if hasattr(obj, "garden_bed"):
             # Direct Plant object
             return obj.garden_bed.owner == request.user
-        elif hasattr(obj, 'plant'):
+        elif hasattr(obj, "plant"):
             # Harvest or other object related through plant
             return obj.plant.garden_bed.owner == request.user
 
         # Fallback: deny if no ownership path found
         return False
 
-    message = 'You do not have permission to access this plant.'
+    message = "You do not have permission to access this plant."
 
 
 class IsCareTaskOwner(permissions.BasePermission):
@@ -127,7 +133,9 @@ class IsCareTaskOwner(permissions.BasePermission):
         # Require authentication for all care task operations
         return request.user and request.user.is_authenticated
 
-    def has_object_permission(self, request: Request, view: APIView, obj: Model) -> bool:
+    def has_object_permission(
+        self, request: Request, view: APIView, obj: Model
+    ) -> bool:
         """
         Check object-level permission for care task.
 
@@ -142,7 +150,7 @@ class IsCareTaskOwner(permissions.BasePermission):
         # Check ownership via plant → garden bed
         return obj.plant.garden_bed.owner == request.user
 
-    message = 'You do not have permission to access this care task.'
+    message = "You do not have permission to access this care task."
 
 
 class IsOwnerOrReadOnly(permissions.BasePermission):
@@ -167,7 +175,9 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
         # All authenticated users can read
         return request.user and request.user.is_authenticated
 
-    def has_object_permission(self, request: Request, view: APIView, obj: Model) -> bool:
+    def has_object_permission(
+        self, request: Request, view: APIView, obj: Model
+    ) -> bool:
         """
         Check object-level permission.
 
@@ -185,14 +195,14 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
 
         # Write permissions only for owner
         # Handle different owner field names
-        if hasattr(obj, 'owner'):
+        if hasattr(obj, "owner"):
             return obj.owner == request.user
-        elif hasattr(obj, 'organizer'):
+        elif hasattr(obj, "organizer"):
             return obj.organizer == request.user
-        elif hasattr(obj, 'created_by'):
+        elif hasattr(obj, "created_by"):
             return obj.created_by == request.user
 
         # Fallback: deny if no owner field found
         return False
 
-    message = 'You do not have permission to modify this resource.'
+    message = "You do not have permission to modify this resource."

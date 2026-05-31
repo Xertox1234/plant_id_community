@@ -5,11 +5,11 @@ Tests rate limiting behavior, quota enforcement, and decorator functionality
 to ensure cost protection and fair usage.
 """
 
-from django.test import TestCase, RequestFactory
+from apps.blog.services.ai_rate_limiter import AIRateLimiter, ai_rate_limit
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.http import HttpResponse
-from apps.blog.services.ai_rate_limiter import AIRateLimiter, ai_rate_limit
+from django.test import RequestFactory, TestCase
 
 User = get_user_model()
 
@@ -21,13 +21,10 @@ class AIRateLimiterTestCase(TestCase):
         """Clear cache and create test user before each test."""
         cache.clear()
         self.user = User.objects.create_user(
-            username='testuser',
-            password='testpass123'
+            username="testuser", password="testpass123"
         )
         self.staff_user = User.objects.create_user(
-            username='staffuser',
-            password='testpass123',
-            is_staff=True
+            username="staffuser", password="testpass123", is_staff=True
         )
 
     def tearDown(self):
@@ -75,10 +72,7 @@ class AIRateLimiterTestCase(TestCase):
 
     def test_different_users_have_independent_limits(self):
         """Test that different users have independent rate limits."""
-        user2 = User.objects.create_user(
-            username='testuser2',
-            password='testpass123'
-        )
+        user2 = User.objects.create_user(username="testuser2", password="testpass123")
 
         # Exhaust user1's limit
         for _ in range(AIRateLimiter.USER_LIMIT):
@@ -142,7 +136,7 @@ class AIRateLimiterTestCase(TestCase):
         def test_view(request):
             return HttpResponse("Success")
 
-        request = factory.get('/')
+        request = factory.get("/")
         request.user = self.user
 
         response = test_view(request)
@@ -158,7 +152,7 @@ class AIRateLimiterTestCase(TestCase):
         def test_view(request):
             return HttpResponse("Success")
 
-        request = factory.get('/')
+        request = factory.get("/")
         request.user = self.user
 
         # Exhaust limit
@@ -179,7 +173,7 @@ class AIRateLimiterTestCase(TestCase):
         def test_view(request):
             return HttpResponse("Success")
 
-        request = factory.get('/')
+        request = factory.get("/")
         request.user = self.user
 
         # Exhaust limit
@@ -189,8 +183,8 @@ class AIRateLimiterTestCase(TestCase):
         # Next call should have Retry-After header
         response = test_view(request)
         self.assertEqual(response.status_code, 429)
-        self.assertIn('Retry-After', response.headers)
-        self.assertEqual(response.headers['Retry-After'], '3600')  # 1 hour
+        self.assertIn("Retry-After", response.headers)
+        self.assertEqual(response.headers["Retry-After"], "3600")  # 1 hour
 
     def test_anonymous_user_has_zero_id(self):
         """Test that anonymous users get user_id=0 for rate limiting."""
@@ -200,11 +194,10 @@ class AIRateLimiterTestCase(TestCase):
         def test_view(request):
             return HttpResponse("Success")
 
-        request = factory.get('/')
-        request.user = type('AnonymousUser', (), {
-            'is_authenticated': False,
-            'is_staff': False
-        })()
+        request = factory.get("/")
+        request.user = type(
+            "AnonymousUser", (), {"is_authenticated": False, "is_staff": False}
+        )()
 
         # Should still work for anonymous users
         response = test_view(request)

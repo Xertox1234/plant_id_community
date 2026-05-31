@@ -6,13 +6,25 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('search', '0003_simple_search_vectors'),
+        ("search", "0003_simple_search_vectors"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='searchquery',
-            name='content_type',
-            field=models.CharField(choices=[('all', 'All Content'), ('forum', 'Forum Posts'), ('plants', 'Plant Species'), ('blog', 'Blog Posts'), ('diseases', 'Plant Diseases'), ('care_guides', 'Care Guides')], default='all', help_text='Type of content being searched', max_length=100),
+            model_name="searchquery",
+            name="content_type",
+            field=models.CharField(
+                choices=[
+                    ("all", "All Content"),
+                    ("forum", "Forum Posts"),
+                    ("plants", "Plant Species"),
+                    ("blog", "Blog Posts"),
+                    ("diseases", "Plant Diseases"),
+                    ("care_guides", "Care Guides"),
+                ],
+                default="all",
+                help_text="Type of content being searched",
+                max_length=100,
+            ),
         ),
     ]

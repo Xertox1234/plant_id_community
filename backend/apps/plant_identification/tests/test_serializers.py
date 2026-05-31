@@ -61,5 +61,12 @@ class TreatmentAttemptSerializerTest(TestCase):
         # A representative concrete model field round-trips.
         self.assertEqual(data["effectiveness_rating"], 4)
         # None of the removed phantom fields leak into the output.
-        for phantom in ("uuid", "user", "start_date", "completed", "effectiveness", "notes"):
+        for phantom in (
+            "uuid",
+            "user",
+            "start_date",
+            "completed",
+            "effectiveness",
+            "notes",
+        ):
             self.assertNotIn(phantom, data)

@@ -31,10 +31,12 @@ def preprocess_exclude_wagtail(endpoints):
         # - /api/v1/* (our versioned DRF API)
         # - /api/schema/ (schema endpoint)
         # - /api/docs/ and /api/redoc/ (documentation endpoints)
-        if (path.startswith('/api/v1/') or
-            path.startswith('/api/schema/') or
-            path.startswith('/api/docs/') or
-            path.startswith('/api/redoc/')):
+        if (
+            path.startswith("/api/v1/")
+            or path.startswith("/api/schema/")
+            or path.startswith("/api/docs/")
+            or path.startswith("/api/redoc/")
+        ):
             filtered.append((path, path_regex, method, callback))
 
     return filtered

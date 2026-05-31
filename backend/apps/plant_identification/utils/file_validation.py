@@ -10,15 +10,18 @@ Security: Prevents malicious file upload attacks (CWE-434)
 """
 
 from PIL import Image
+
 try:
     import magic
+
     _HAS_MAGIC = True
 except ImportError:
     _HAS_MAGIC = False
 
-from rest_framework.exceptions import ValidationError
-from typing import BinaryIO
 import logging
+from typing import BinaryIO
+
+from rest_framework.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +57,8 @@ def validate_image_file(image_file: BinaryIO) -> bool:
         - Rejects corrupted or incomplete images
         - CWE-434: Unrestricted Upload of File with Dangerous Type
     """
-    allowed_content_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
-    allowed_magic_types = ['image/jpeg', 'image/png', 'image/webp']
+    allowed_content_types = ["image/jpeg", "image/jpg", "image/png", "image/webp"]
+    allowed_magic_types = ["image/jpeg", "image/png", "image/webp"]
 
     # Layer 1: Check Content-Type header (fast but spoofable)
     if image_file.content_type not in allowed_content_types:

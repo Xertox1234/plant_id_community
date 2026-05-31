@@ -18,20 +18,20 @@ Performance Targets:
 
 import hashlib
 import logging
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
-from django.core.cache import cache
 from django.conf import settings
+from django.core.cache import cache
 
 from ..constants import (
+    BLOG_CATEGORY_CACHE_TIMEOUT,
     BLOG_LIST_CACHE_TIMEOUT,
     BLOG_POST_CACHE_TIMEOUT,
-    BLOG_CATEGORY_CACHE_TIMEOUT,
-    POPULAR_POSTS_CACHE_TIMEOUT,
-    CACHE_PREFIX_BLOG_POST,
-    CACHE_PREFIX_BLOG_LIST,
     CACHE_PREFIX_BLOG_CATEGORY,
+    CACHE_PREFIX_BLOG_LIST,
+    CACHE_PREFIX_BLOG_POST,
     CACHE_PREFIX_POPULAR_POSTS,
+    POPULAR_POSTS_CACHE_TIMEOUT,
 )
 
 logger = logging.getLogger(__name__)
@@ -103,7 +103,9 @@ class BlogCacheService:
         logger.info(f"[CACHE] SET for blog post {slug} (24h TTL)")
 
     @staticmethod
-    def get_blog_list(page: int, limit: int, filters: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def get_blog_list(
+        page: int, limit: int, filters: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
         """
         Retrieve cached blog list with pagination and filters.
 
@@ -133,7 +135,9 @@ class BlogCacheService:
         return None
 
     @staticmethod
-    def set_blog_list(page: int, limit: int, filters: Dict[str, Any], data: Dict[str, Any]) -> None:
+    def set_blog_list(
+        page: int, limit: int, filters: Dict[str, Any], data: Dict[str, Any]
+    ) -> None:
         """
         Cache blog list data.
 
@@ -186,7 +190,9 @@ class BlogCacheService:
         cached = cache.get(cache_key)
 
         if cached:
-            logger.info(f"[CACHE] HIT for category {slug} page {page} (instant response)")
+            logger.info(
+                f"[CACHE] HIT for category {slug} page {page} (instant response)"
+            )
             return cached
 
         logger.info(f"[CACHE] MISS for category {slug} page {page}")
@@ -266,9 +272,13 @@ class BlogCacheService:
                         cache.delete(key)
                     # Delete the tracking set itself
                     cache.delete(cache_key_set)
-                    logger.info(f"[CACHE] INVALIDATE {len(tracked_keys)} blog list keys (tracked)")
+                    logger.info(
+                        f"[CACHE] INVALIDATE {len(tracked_keys)} blog list keys (tracked)"
+                    )
                 else:
-                    logger.warning("[CACHE] No tracked blog list keys to invalidate (will expire naturally in 24h)")
+                    logger.warning(
+                        "[CACHE] No tracked blog list keys to invalidate (will expire naturally in 24h)"
+                    )
             except Exception as e:
                 logger.error(f"[CACHE] Failed to invalidate blog lists: {e}")
 
@@ -292,7 +302,9 @@ class BlogCacheService:
         cached = cache.get(cache_key)
 
         if cached:
-            logger.info(f"[CACHE] HIT for popular posts (limit={limit}, days={days}) (instant response)")
+            logger.info(
+                f"[CACHE] HIT for popular posts (limit={limit}, days={days}) (instant response)"
+            )
             return cached
 
         logger.info(f"[CACHE] MISS for popular posts (limit={limit}, days={days})")
@@ -316,7 +328,9 @@ class BlogCacheService:
         """
         cache_key = f"{CACHE_PREFIX_POPULAR_POSTS}:{limit}:{days}"
         cache.set(cache_key, data, POPULAR_POSTS_CACHE_TIMEOUT)
-        logger.info(f"[CACHE] SET for popular posts (limit={limit}, days={days}) (30min TTL)")
+        logger.info(
+            f"[CACHE] SET for popular posts (limit={limit}, days={days}) (30min TTL)"
+        )
 
     @staticmethod
     def invalidate_popular_posts() -> None:
@@ -341,7 +355,9 @@ class BlogCacheService:
             logger.info("[CACHE] INVALIDATE all popular posts (pattern match)")
         except AttributeError:
             # Fallback: Let natural 30-minute expiration handle it
-            logger.warning("[CACHE] Cache backend doesn't support delete_pattern, popular posts will expire naturally in 30min")
+            logger.warning(
+                "[CACHE] Cache backend doesn't support delete_pattern, popular posts will expire naturally in 30min"
+            )
 
     @staticmethod
     def invalidate_blog_category(slug: str) -> None:
@@ -359,7 +375,9 @@ class BlogCacheService:
             cache.delete_pattern(f"{CACHE_PREFIX_BLOG_CATEGORY}:{slug}:*")
             logger.info(f"[CACHE] INVALIDATE all pages for category {slug}")
         except AttributeError:
-            logger.warning(f"[CACHE] Cache backend doesn't support delete_pattern, skipping category {slug} invalidation")
+            logger.warning(
+                f"[CACHE] Cache backend doesn't support delete_pattern, skipping category {slug} invalidation"
+            )
 
     @staticmethod
     def clear_all_blog_caches() -> None:
@@ -382,7 +400,9 @@ class BlogCacheService:
             cache.delete_pattern(f"{CACHE_PREFIX_POPULAR_POSTS}:*")
             logger.warning("[CACHE] CLEARED all blog caches (nuclear option)")
         except AttributeError:
-            logger.warning("[CACHE] Cache backend doesn't support delete_pattern, manual flush required")
+            logger.warning(
+                "[CACHE] Cache backend doesn't support delete_pattern, manual flush required"
+            )
 
     @staticmethod
     def get_cache_stats() -> Dict[str, Any]:
@@ -401,9 +421,9 @@ class BlogCacheService:
             This is a placeholder for future monitoring dashboard.
         """
         return {
-            'hit_rate': 0.0,  # Placeholder - requires instrumentation
-            'total_requests': 0,
-            'cache_hits': 0,
-            'cache_misses': 0,
-            'note': 'Statistics require instrumentation in ViewSets'
+            "hit_rate": 0.0,  # Placeholder - requires instrumentation
+            "total_requests": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "note": "Statistics require instrumentation in ViewSets",
         }

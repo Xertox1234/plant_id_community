@@ -2,8 +2,8 @@ from django.apps import AppConfig
 
 
 class BlogConfig(AppConfig):
-    default_auto_field = 'django.db.models.BigAutoField'
-    name = 'apps.blog'
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "apps.blog"
 
     def ready(self):
         """
@@ -31,6 +31,7 @@ class BlogConfig(AppConfig):
         # - 80-95% cost reduction on OpenAI API calls
         try:
             from . import wagtail_ai_v3_integration
+
             wagtail_ai_v3_integration.install_wagtail_ai_v3_integration()
         except ImportError:
             pass

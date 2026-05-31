@@ -11,12 +11,13 @@ Provides:
 """
 
 import logging
-from typing import Optional, Dict, Any, List
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 from django.contrib.auth import get_user_model
 
-from ..models import CareReminder, GardenPlant, Garden
 from ..firebase_config import get_firestore_client, is_firebase_available
+from ..models import CareReminder, Garden, GardenPlant
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,8 @@ class FirebaseSyncService:
     """
 
     # Firestore collection names
-    COLLECTION_REMINDERS = 'care_reminders'
-    COLLECTION_USER_REMINDERS = 'user_reminders'  # Subcollection per user
+    COLLECTION_REMINDERS = "care_reminders"
+    COLLECTION_USER_REMINDERS = "user_reminders"  # Subcollection per user
 
     @classmethod
     def is_available(cls) -> bool:
@@ -54,26 +55,28 @@ class FirebaseSyncService:
             Dict with Firestore-compatible data types
         """
         return {
-            'id': str(reminder.id),
-            'user_id': str(reminder.user.id),
-            'garden_plant_id': str(reminder.garden_plant.id),
-            'garden_plant_name': reminder.garden_plant.common_name,
-            'garden_id': str(reminder.garden_plant.garden.id),
-            'garden_name': reminder.garden_plant.garden.name,
-            'reminder_type': reminder.reminder_type,
-            'reminder_type_display': reminder.get_reminder_type_display(),
-            'custom_type_name': reminder.custom_type_name or '',
-            'scheduled_date': reminder.scheduled_date.isoformat(),
-            'recurring': reminder.recurring,
-            'interval_days': reminder.interval_days,
-            'completed': reminder.completed,
-            'completed_at': reminder.completed_at.isoformat() if reminder.completed_at else None,
-            'skipped': reminder.skipped,
-            'skip_reason': reminder.skip_reason or '',
-            'notes': reminder.notes or '',
-            'notification_sent': reminder.notification_sent,
-            'created_at': reminder.created_at.isoformat(),
-            'updated_at': datetime.now().isoformat()
+            "id": str(reminder.id),
+            "user_id": str(reminder.user.id),
+            "garden_plant_id": str(reminder.garden_plant.id),
+            "garden_plant_name": reminder.garden_plant.common_name,
+            "garden_id": str(reminder.garden_plant.garden.id),
+            "garden_name": reminder.garden_plant.garden.name,
+            "reminder_type": reminder.reminder_type,
+            "reminder_type_display": reminder.get_reminder_type_display(),
+            "custom_type_name": reminder.custom_type_name or "",
+            "scheduled_date": reminder.scheduled_date.isoformat(),
+            "recurring": reminder.recurring,
+            "interval_days": reminder.interval_days,
+            "completed": reminder.completed,
+            "completed_at": (
+                reminder.completed_at.isoformat() if reminder.completed_at else None
+            ),
+            "skipped": reminder.skipped,
+            "skip_reason": reminder.skip_reason or "",
+            "notes": reminder.notes or "",
+            "notification_sent": reminder.notification_sent,
+            "created_at": reminder.created_at.isoformat(),
+            "updated_at": datetime.now().isoformat(),
         }
 
     @classmethod
@@ -104,8 +107,12 @@ class FirebaseSyncService:
             user_id = str(reminder.user.id)
             reminder_id = str(reminder.id)
 
-            doc_ref = db.collection(cls.COLLECTION_USER_REMINDERS).document(user_id) \
-                        .collection('reminders').document(reminder_id)
+            doc_ref = (
+                db.collection(cls.COLLECTION_USER_REMINDERS)
+                .document(user_id)
+                .collection("reminders")
+                .document(reminder_id)
+            )
 
             doc_ref.set(data)
 
@@ -139,8 +146,12 @@ class FirebaseSyncService:
             return False
 
         try:
-            doc_ref = db.collection(cls.COLLECTION_USER_REMINDERS).document(str(user_id)) \
-                        .collection('reminders').document(str(reminder_id))
+            doc_ref = (
+                db.collection(cls.COLLECTION_USER_REMINDERS)
+                .document(str(user_id))
+                .collection("reminders")
+                .document(str(reminder_id))
+            )
 
             doc_ref.delete()
 
@@ -148,7 +159,9 @@ class FirebaseSyncService:
             return True
 
         except Exception as e:
-            logger.error(f"[FIREBASE] Failed to delete reminder {reminder_id}: {str(e)}")
+            logger.error(
+                f"[FIREBASE] Failed to delete reminder {reminder_id}: {str(e)}"
+            )
             return False
 
     @classmethod
@@ -165,10 +178,10 @@ class FirebaseSyncService:
             - failed: int (number failed)
         """
         if not cls.is_available():
-            return {'synced': 0, 'failed': 0}
+            return {"synced": 0, "failed": 0}
 
         reminders = CareReminder.objects.filter(user=user).select_related(
-            'garden_plant__garden'
+            "garden_plant__garden"
         )
 
         synced = 0
@@ -185,13 +198,11 @@ class FirebaseSyncService:
             f"{synced} synced, {failed} failed"
         )
 
-        return {'synced': synced, 'failed': failed}
+        return {"synced": synced, "failed": failed}
 
     @classmethod
     def get_upcoming_reminders_firestore(
-        cls,
-        user: User,
-        limit: int = 20
+        cls, user: User, limit: int = 20
     ) -> List[Dict[str, Any]]:
         """
         Get upcoming reminders from Firestore (for mobile app).
@@ -215,13 +226,16 @@ class FirebaseSyncService:
             now = datetime.now().isoformat()
 
             # Query upcoming incomplete reminders
-            docs = db.collection(cls.COLLECTION_USER_REMINDERS).document(user_id) \
-                     .collection('reminders') \
-                     .where('completed', '==', False) \
-                     .where('scheduled_date', '>=', now) \
-                     .order_by('scheduled_date') \
-                     .limit(limit) \
-                     .stream()
+            docs = (
+                db.collection(cls.COLLECTION_USER_REMINDERS)
+                .document(user_id)
+                .collection("reminders")
+                .where("completed", "==", False)
+                .where("scheduled_date", ">=", now)
+                .order_by("scheduled_date")
+                .limit(limit)
+                .stream()
+            )
 
             reminders = []
             for doc in docs:
@@ -258,15 +272,20 @@ class FirebaseSyncService:
             return False
 
         try:
-            doc_ref = db.collection(cls.COLLECTION_USER_REMINDERS).document(str(user_id)) \
-                        .collection('reminders').document(str(reminder_id))
+            doc_ref = (
+                db.collection(cls.COLLECTION_USER_REMINDERS)
+                .document(str(user_id))
+                .collection("reminders")
+                .document(str(reminder_id))
+            )
 
-            doc_ref.update({
-                'notification_sent': True,
-                'updated_at': datetime.now().isoformat()
-            })
+            doc_ref.update(
+                {"notification_sent": True, "updated_at": datetime.now().isoformat()}
+            )
 
-            logger.info(f"[FIREBASE] Marked notification sent for reminder {reminder_id}")
+            logger.info(
+                f"[FIREBASE] Marked notification sent for reminder {reminder_id}"
+            )
             return True
 
         except Exception as e:
@@ -299,11 +318,14 @@ class FirebaseSyncService:
             user_id = str(user.id)
 
             # Query old completed reminders
-            docs = db.collection(cls.COLLECTION_USER_REMINDERS).document(user_id) \
-                     .collection('reminders') \
-                     .where('completed', '==', True) \
-                     .where('completed_at', '<=', cutoff_date) \
-                     .stream()
+            docs = (
+                db.collection(cls.COLLECTION_USER_REMINDERS)
+                .document(user_id)
+                .collection("reminders")
+                .where("completed", "==", True)
+                .where("completed_at", "<=", cutoff_date)
+                .stream()
+            )
 
             deleted_count = 0
             for doc in docs:
@@ -334,11 +356,11 @@ class FirebaseSyncService:
             Dict with synced/failed counts
         """
         if not cls.is_available():
-            return {'synced': 0, 'failed': 0}
+            return {"synced": 0, "failed": 0}
 
         db = get_firestore_client()
         if not db:
-            return {'synced': 0, 'failed': 0}
+            return {"synced": 0, "failed": 0}
 
         synced = 0
         failed = 0
@@ -361,21 +383,29 @@ class FirebaseSyncService:
                     user_id = str(reminder.user.id)
                     reminder_id = str(reminder.id)
 
-                    doc_ref = db.collection(cls.COLLECTION_USER_REMINDERS).document(user_id) \
-                                .collection('reminders').document(reminder_id)
+                    doc_ref = (
+                        db.collection(cls.COLLECTION_USER_REMINDERS)
+                        .document(user_id)
+                        .collection("reminders")
+                        .document(reminder_id)
+                    )
 
                     batch.set(doc_ref, data)
                     operations += 1
                     synced += 1
 
                 except Exception as e:
-                    logger.error(f"[FIREBASE] Failed to prepare reminder {reminder.id}: {str(e)}")
+                    logger.error(
+                        f"[FIREBASE] Failed to prepare reminder {reminder.id}: {str(e)}"
+                    )
                     failed += 1
 
             # Commit final batch
             if operations > 0:
                 batch.commit()
-                logger.info(f"[FIREBASE] Committed final batch of {operations} reminders")
+                logger.info(
+                    f"[FIREBASE] Committed final batch of {operations} reminders"
+                )
 
             logger.info(
                 f"[FIREBASE] Batch sync complete: {synced} synced, {failed} failed"
@@ -385,4 +415,4 @@ class FirebaseSyncService:
             logger.error(f"[FIREBASE] Batch sync failed: {str(e)}")
             failed = len(reminders) - synced
 
-        return {'synced': synced, 'failed': failed}
+        return {"synced": synced, "failed": failed}

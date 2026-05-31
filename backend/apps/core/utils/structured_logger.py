@@ -34,11 +34,13 @@ import json
 import logging
 import threading
 from typing import Any, Dict, Optional
+
 from django.conf import settings
 
 # Try to import request_id for automatic context injection
 try:
     from request_id.middleware import local
+
     HAS_REQUEST_ID = True
 except ImportError:
     HAS_REQUEST_ID = False
@@ -79,15 +81,15 @@ class StructuredLogger:
             Use user_id for correlation instead.
         """
         context = {
-            'environment': getattr(settings, 'ENVIRONMENT', 'development'),
+            "environment": getattr(settings, "ENVIRONMENT", "development"),
         }
 
         # Add request ID if available (from django-request-id middleware)
         if HAS_REQUEST_ID:
             try:
-                request_id = getattr(local, 'request_id', None)
+                request_id = getattr(local, "request_id", None)
                 if request_id:
-                    context['request_id'] = request_id
+                    context["request_id"] = request_id
             except (AttributeError, RuntimeError):
                 # AttributeError: local doesn't exist
                 # RuntimeError: called outside request context
@@ -97,9 +99,10 @@ class StructuredLogger:
         # NOTE: Username is PII and NOT logged for GDPR/CCPA compliance
         try:
             from crum import get_current_user
+
             user = get_current_user()
-            if user and hasattr(user, 'id'):
-                context['user_id'] = str(user.id)
+            if user and hasattr(user, "id"):
+                context["user_id"] = str(user.id)
                 # Do NOT log username - it's PII
         except (ImportError, AttributeError, RuntimeError):
             # ImportError: crum not installed
@@ -150,7 +153,7 @@ class StructuredLogger:
         self,
         message: str,
         extra: Optional[Dict[str, Any]] = None,
-        exc_info: bool = False
+        exc_info: bool = False,
     ) -> None:
         """
         Log debug-level message (development only).
@@ -169,7 +172,7 @@ class StructuredLogger:
         self,
         message: str,
         extra: Optional[Dict[str, Any]] = None,
-        exc_info: bool = False
+        exc_info: bool = False,
     ) -> None:
         """
         Log info-level message (general operations).
@@ -188,7 +191,7 @@ class StructuredLogger:
         self,
         message: str,
         extra: Optional[Dict[str, Any]] = None,
-        exc_info: bool = False
+        exc_info: bool = False,
     ) -> None:
         """
         Log warning-level message (unexpected but recoverable).
@@ -207,7 +210,7 @@ class StructuredLogger:
         self,
         message: str,
         extra: Optional[Dict[str, Any]] = None,
-        exc_info: bool = True
+        exc_info: bool = True,
     ) -> None:
         """
         Log error-level message (serious problems).
@@ -226,7 +229,7 @@ class StructuredLogger:
         self,
         message: str,
         extra: Optional[Dict[str, Any]] = None,
-        exc_info: bool = True
+        exc_info: bool = True,
     ) -> None:
         """
         Log critical-level message (system failure).
@@ -241,11 +244,7 @@ class StructuredLogger:
         """
         self.logger.critical(message, extra=self._merge_extra(extra), exc_info=exc_info)
 
-    def exception(
-        self,
-        message: str,
-        extra: Optional[Dict[str, Any]] = None
-    ) -> None:
+    def exception(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
         """
         Log exception with full traceback (convenience method).
 

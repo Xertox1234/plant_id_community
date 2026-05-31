@@ -8,9 +8,9 @@ Verifies that:
 4. JavaScript cannot read CSRF cookie (HttpOnly)
 """
 
+from django.conf import settings
 from django.test import TestCase, override_settings
 from django.urls import reverse
-from django.conf import settings
 
 
 class CSRFMetaTagTests(TestCase):
@@ -25,17 +25,17 @@ class CSRFMetaTagTests(TestCase):
         """
         self.assertTrue(
             settings.CSRF_COOKIE_HTTPONLY,
-            "CSRF_COOKIE_HTTPONLY must be True to prevent XSS from stealing CSRF tokens"
+            "CSRF_COOKIE_HTTPONLY must be True to prevent XSS from stealing CSRF tokens",
         )
 
     def test_react_app_view_renders_template(self):
         """
         Verify ReactAppView serves the react_app.html template.
         """
-        response = self.client.get('/app/')
+        response = self.client.get("/app/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, 'react_app.html')
+        self.assertTemplateUsed(response, "react_app.html")
 
     def test_csrf_meta_tag_present_in_response(self):
         """
@@ -45,13 +45,13 @@ class CSRFMetaTagTests(TestCase):
         - name="csrf-token"
         - content="<token>" (non-empty)
         """
-        response = self.client.get('/app/')
+        response = self.client.get("/app/")
 
         # Check HTML contains meta tag
         self.assertContains(response, 'name="csrf-token"')
 
         # Extract and verify token is non-empty
-        html = response.content.decode('utf-8')
+        html = response.content.decode("utf-8")
         self.assertIn('content="', html)
         self.assertNotIn('content=""', html)  # Token should not be empty
 
@@ -59,7 +59,7 @@ class CSRFMetaTagTests(TestCase):
         """
         Verify CSRF token is passed to template context.
         """
-        response = self.client.get('/app/')
+        response = self.client.get("/app/")
 
         # Django automatically adds csrf_token to context when template uses {{ csrf_token }}
         self.assertIsNotNone(response.context)
@@ -72,10 +72,10 @@ class CSRFMetaTagTests(TestCase):
         1. A view calls get_token(request)
         2. A template uses {{ csrf_token }}
         """
-        response = self.client.get('/app/')
+        response = self.client.get("/app/")
 
         # Check CSRF cookie is set
-        csrf_cookie = response.cookies.get('csrftoken')
+        csrf_cookie = response.cookies.get("csrftoken")
         self.assertIsNotNone(csrf_cookie, "CSRF cookie should be set")
 
         # Verify HttpOnly flag (Django test client doesn't expose this directly,
@@ -90,12 +90,12 @@ class CSRFMetaTagTests(TestCase):
         handle client-side routing.
         """
         routes = [
-            '/app/',
-            '/app/blog/',
-            '/app/forum/',
-            '/app/identify/',
-            '/app/login/',
-            '/app/register/',
+            "/app/",
+            "/app/blog/",
+            "/app/forum/",
+            "/app/identify/",
+            "/app/login/",
+            "/app/register/",
         ]
 
         for route in routes:
@@ -103,7 +103,7 @@ class CSRFMetaTagTests(TestCase):
                 response = self.client.get(route)
 
                 self.assertEqual(response.status_code, 200)
-                self.assertTemplateUsed(response, 'react_app.html')
+                self.assertTemplateUsed(response, "react_app.html")
                 self.assertContains(response, 'name="csrf-token"')
 
     def test_debug_flag_in_context(self):
@@ -113,28 +113,25 @@ class CSRFMetaTagTests(TestCase):
         In development: Load from Vite dev server
         In production: Load from static files
         """
-        response = self.client.get('/app/')
+        response = self.client.get("/app/")
 
         # Check DEBUG flag is in context
-        self.assertIn('debug', response.context)
-        self.assertEqual(response.context['debug'], settings.DEBUG)
+        self.assertIn("debug", response.context)
+        self.assertEqual(response.context["debug"], settings.DEBUG)
 
     @override_settings(
         DEBUG=True,
-        MIDDLEWARE=[
-            m for m in settings.MIDDLEWARE
-            if 'debug_toolbar' not in m
-        ]
+        MIDDLEWARE=[m for m in settings.MIDDLEWARE if "debug_toolbar" not in m],
     )
     def test_development_mode_vite_script(self):
         """
         Verify development mode includes Vite dev server script tags.
         """
-        response = self.client.get('/app/')
+        response = self.client.get("/app/")
 
         # Development should include Vite dev server
-        self.assertContains(response, 'http://localhost:5174/@vite/client')
-        self.assertContains(response, 'http://localhost:5174/src/main.tsx')
+        self.assertContains(response, "http://localhost:5174/@vite/client")
+        self.assertContains(response, "http://localhost:5174/src/main.tsx")
 
     def test_csrf_api_endpoint_still_works(self):
         """
@@ -143,15 +140,15 @@ class CSRFMetaTagTests(TestCase):
         The /api/csrf/ endpoint is deprecated but kept for backward compatibility
         during migration to meta tag pattern.
         """
-        response = self.client.get('/api/csrf/')
+        response = self.client.get("/api/csrf/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response['Content-Type'], 'application/json')
+        self.assertEqual(response["Content-Type"], "application/json")
 
         data = response.json()
-        self.assertIn('csrfToken', data)
-        self.assertIsNotNone(data['csrfToken'])
-        self.assertNotEqual(data['csrfToken'], '')
+        self.assertIn("csrfToken", data)
+        self.assertIsNotNone(data["csrfToken"])
+        self.assertNotEqual(data["csrfToken"], "")
 
 
 class CSRFSecurityTests(TestCase):
@@ -166,8 +163,8 @@ class CSRFSecurityTests(TestCase):
         """
         self.assertEqual(
             settings.CSRF_COOKIE_SAMESITE,
-            'Lax',
-            "CSRF_COOKIE_SAMESITE should be 'Lax' for standard POST flows"
+            "Lax",
+            "CSRF_COOKIE_SAMESITE should be 'Lax' for standard POST flows",
         )
 
     def test_csrf_cookie_secure_in_production(self):
@@ -186,9 +183,7 @@ class CSRFSecurityTests(TestCase):
         #
         # This test just verifies the setting exists and is boolean
         self.assertIsInstance(
-            settings.CSRF_COOKIE_SECURE,
-            bool,
-            "CSRF_COOKIE_SECURE should be a boolean"
+            settings.CSRF_COOKIE_SECURE, bool, "CSRF_COOKIE_SECURE should be a boolean"
         )
 
     def test_session_cookie_httponly_is_true(self):
@@ -199,5 +194,5 @@ class CSRFSecurityTests(TestCase):
         """
         self.assertTrue(
             settings.SESSION_COOKIE_HTTPONLY,
-            "SESSION_COOKIE_HTTPONLY must be True to prevent XSS from stealing session tokens"
+            "SESSION_COOKIE_HTTPONLY must be True to prevent XSS from stealing session tokens",
         )

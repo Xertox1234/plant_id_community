@@ -5,10 +5,11 @@ Implements Pattern 4 from WAGTAIL_AI_PATTERNS_CODIFIED.md
 Prevents cost overruns through per-user and global rate limiting.
 """
 
+import logging
+from functools import wraps
+
 from django.core.cache import cache
 from django.http import HttpResponse
-from functools import wraps
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -72,9 +73,7 @@ class AIRateLimiter:
         # Increment counter
         cache.set(cache_key, calls + 1, cls.TTL)
 
-        logger.debug(
-            f"[RATE_LIMIT] User {user_id}: {calls + 1}/{limit} calls/hour"
-        )
+        logger.debug(f"[RATE_LIMIT] User {user_id}: {calls + 1}/{limit} calls/hour")
 
         return True
 
@@ -103,9 +102,7 @@ class AIRateLimiter:
         # Increment counter
         cache.set(cache_key, calls + 1, cls.TTL)
 
-        logger.debug(
-            f"[RATE_LIMIT] Global: {calls + 1}/{cls.GLOBAL_LIMIT} calls/hour"
-        )
+        logger.debug(f"[RATE_LIMIT] Global: {calls + 1}/{cls.GLOBAL_LIMIT} calls/hour")
 
         return True
 
@@ -177,6 +174,7 @@ def ai_rate_limit(func):
     Returns:
         HTTP 429 (Too Many Requests) if rate limit exceeded
     """
+
     @wraps(func)
     def wrapper(request, *args, **kwargs):
         user_id = request.user.id if request.user.is_authenticated else 0
@@ -189,7 +187,7 @@ def ai_rate_limit(func):
                 f"AI rate limit exceeded. You can make {limit} requests per hour. "
                 f"Please try again later.",
                 status=429,
-                headers={'Retry-After': '3600'}  # 1 hour
+                headers={"Retry-After": "3600"},  # 1 hour
             )
 
         # Check global limit
@@ -197,7 +195,7 @@ def ai_rate_limit(func):
             return HttpResponse(
                 "Server is experiencing high AI usage. Please try again in a few minutes.",
                 status=429,
-                headers={'Retry-After': '300'}  # 5 minutes
+                headers={"Retry-After": "300"},  # 5 minutes
             )
 
         return func(request, *args, **kwargs)
@@ -216,6 +214,7 @@ def ai_rate_limit_async(func):
             # Async AI generation logic here
             pass
     """
+
     @wraps(func)
     async def wrapper(request, *args, **kwargs):
         user_id = request.user.id if request.user.is_authenticated else 0
@@ -228,7 +227,7 @@ def ai_rate_limit_async(func):
                 f"AI rate limit exceeded. You can make {limit} requests per hour. "
                 f"Please try again later.",
                 status=429,
-                headers={'Retry-After': '3600'}
+                headers={"Retry-After": "3600"},
             )
 
         # Check global limit
@@ -236,7 +235,7 @@ def ai_rate_limit_async(func):
             return HttpResponse(
                 "Server is experiencing high AI usage. Please try again in a few minutes.",
                 status=429,
-                headers={'Retry-After': '300'}
+                headers={"Retry-After": "300"},
             )
 
         return await func(request, *args, **kwargs)
