@@ -1,19 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/routing/app_router.dart';
+import '../../core/theme/grain_overlay.dart';
+import '../../core/theme/green_thumb_extension.dart';
 
-/// Splash screen with animated logo and progress bar
-///
-/// Ported from design_reference/src/components/SplashScreen.tsx
-///
-/// Features:
-/// - Gradient background
-/// - Rotating leaf logo
-/// - Animated progress bar
-/// - Auto-navigates to home after 2 seconds
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -33,50 +25,38 @@ class _SplashScreenState extends State<SplashScreen>
   void initState() {
     super.initState();
 
-    // Logo rotation animation (infinite)
     _rotationController = AnimationController(
       duration: const Duration(seconds: 2),
       vsync: this,
     )..repeat();
 
-    // Logo scale animation (initial appearance)
     _scaleController = AnimationController(
       duration: const Duration(milliseconds: 500),
       vsync: this,
     );
 
-    // Fade animation for text
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 500),
       vsync: this,
     );
 
-    // Start animations
     _scaleController.forward();
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) _fadeController.forward();
     });
 
-    // Progress bar animation (0 to 100 over ~2 seconds)
     _progressTimer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
       }
-
       if (_progress >= 100) {
         timer.cancel();
-        // Navigate after completion. Kept out of setState because navigation is
-        // a side effect, not a state mutation.
         Future.delayed(const Duration(milliseconds: 300), () {
-          if (mounted) {
-            context.go(AppRoutes.home);
-          }
+          if (mounted) context.go(AppRoutes.home);
         });
       } else {
-        setState(() {
-          _progress += 2;
-        });
+        setState(() => _progress += 2);
       }
     });
   }
@@ -92,25 +72,12 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
+    final ext = Theme.of(context).extension<GreenThumbExtension>()!;
 
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: isDark
-                ? [
-                    AppColors.green950, // dark:from-green-950
-                    AppColors.emerald950, // dark:to-emerald-950
-                  ]
-                : [
-                    AppColors.green50, // from-green-50
-                    AppColors.emerald100, // to-emerald-100
-                  ],
-          ),
-        ),
+      backgroundColor: cs.surface,
+      body: GrainOverlay(
         child: Center(
           child: ScaleTransition(
             scale: CurvedAnimation(
@@ -120,7 +87,7 @@ class _SplashScreenState extends State<SplashScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Rotating Logo
+                // Rotating logo
                 RotationTransition(
                   turns: _rotationController,
                   child: Container(
@@ -128,29 +95,15 @@ class _SplashScreenState extends State<SplashScreen>
                     height: 96,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [AppColors.green500, AppColors.emerald600],
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.green500.withValues(alpha: 0.3),
-                          blurRadius: 20,
-                          spreadRadius: 2,
-                        ),
-                      ],
+                      color: cs.primary,
+                      boxShadow: ext.shadow2,
                     ),
-                    child: const Icon(
-                      Icons.eco, // Leaf icon
-                      size: 48,
-                      color: Colors.white,
-                    ),
+                    child: const Icon(Icons.eco, size: 48, color: Colors.white),
                   ),
                 ),
-                const SizedBox(height: AppSpacing.xl),
+                SizedBox(height: ext.gapY * 2),
 
-                // App Name
+                // App name + tagline
                 FadeTransition(
                   opacity: _fadeController,
                   child: SlideTransition(
@@ -166,56 +119,38 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                     child: Column(
                       children: [
-                        ShaderMask(
-                          shaderCallback: (bounds) => LinearGradient(
-                            colors: isDark
-                                ? [AppColors.green400, AppColors.emerald400]
-                                : [AppColors.green700, AppColors.emerald700],
-                          ).createShader(bounds),
-                          child: Text(
-                            'PlantID',
-                            style: Theme.of(context).textTheme.headlineLarge
-                                ?.copyWith(
-                                  fontSize: 48,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
                         Text(
-                          'Discover Nature\'s Secrets',
-                          style: TextStyle(
-                            color: isDark
-                                ? AppColors.green400
-                                : AppColors.green700,
-                            fontSize: 16,
-                          ),
+                          'PlantID',
+                          style: Theme.of(context).textTheme.displayLarge
+                              ?.copyWith(fontSize: 48, color: cs.onSurface),
+                        ),
+                        SizedBox(height: ext.gapY),
+                        Text(
+                          "DISCOVER NATURE'S SECRETS",
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
+                                letterSpacing: 0.06 * 11,
+                                color: ext.ink3,
+                              ),
                         ),
                       ],
                     ),
                   ),
                 ),
-                const SizedBox(height: AppSpacing.xl2),
+                SizedBox(height: ext.gapY * 2),
 
-                // Progress Bar
+                // Progress bar
                 FadeTransition(
                   opacity: _fadeController,
                   child: SizedBox(
                     width: 200,
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(
-                        AppSpacing.radiusFull,
-                      ),
+                      borderRadius: BorderRadius.circular(AppSpacing.rPill),
                       child: LinearProgressIndicator(
                         value: _progress / 100,
                         minHeight: 4,
-                        backgroundColor: isDark
-                            ? AppColors.green900.withValues(alpha: 0.3)
-                            : AppColors.green200,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          AppColors.green500,
-                        ),
+                        backgroundColor: cs.surfaceContainerLow,
+                        valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
                       ),
                     ),
                   ),
