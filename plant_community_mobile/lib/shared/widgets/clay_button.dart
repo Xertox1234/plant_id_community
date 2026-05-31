@@ -27,7 +27,11 @@ class ClayButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final ext = Theme.of(context).extension<GreenThumbExtension>()!;
+    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
+    assert(rawExt != null,
+        'ClayButton requires GreenThumbExtension to be registered in the theme. '
+        'Ensure AppTheme.build() is used to create the ThemeData.');
+    final ext = rawExt!;
     final isDisabled = onPressed == null;
 
     final Color bg;
@@ -40,6 +44,8 @@ class ClayButton extends StatelessWidget {
         fg = isDisabled ? cs.onSurface.withValues(alpha: 0.38) : ext.onClay;
         shadow = isDisabled ? const [] : ext.shadow1;
       case ClayButtonVariant.secondary:
+        // secondary intentionally uses the brand primary (moss) rather than clay —
+        // it is a tonal complement, not a clay-palette button.
         bg = isDisabled ? cs.surfaceContainerHighest : cs.primary;
         fg = isDisabled ? cs.onSurface.withValues(alpha: 0.38) : cs.onPrimary;
         shadow = isDisabled ? const [] : ext.shadow1;
