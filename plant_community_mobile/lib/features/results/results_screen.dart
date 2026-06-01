@@ -2,8 +2,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/theme/green_thumb_extension.dart';
 import '../../models/plant.dart';
 
 /// Results screen displaying plant identification
@@ -23,11 +23,15 @@ class ResultsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Plant Identified'), centerTitle: true),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSpacing.lg),
+          padding: EdgeInsets.all(ext.padScreen),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -54,6 +58,10 @@ class ResultsScreen extends StatelessWidget {
 
   /// Plant image with "Identified" badge
   Widget _buildPlantImage(BuildContext context) {
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
+    final cs = Theme.of(context).colorScheme;
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Stack(
@@ -76,18 +84,18 @@ class ResultsScreen extends StatelessWidget {
                 vertical: AppSpacing.xs,
               ),
               decoration: BoxDecoration(
-                color: AppColors.green600,
-                borderRadius: BorderRadius.circular(AppSpacing.radiusFull),
+                color: ext.leaf,
+                borderRadius: BorderRadius.circular(AppSpacing.rXs),
               ),
-              child: const Row(
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.check_circle, size: 16, color: Colors.white),
-                  SizedBox(width: 4),
+                  Icon(Icons.check_circle, size: 16, color: cs.onSurface),
+                  const SizedBox(width: 4),
                   Text(
                     'Identified',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: cs.onSurface,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -110,7 +118,7 @@ class ResultsScreen extends StatelessWidget {
             imageUrl: imagePath,
             fit: BoxFit.cover,
             placeholder: (context, url) => Container(
-              color: AppColors.green100,
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
               child: const Center(child: CircularProgressIndicator()),
             ),
             errorWidget: (context, url, error) =>
@@ -127,7 +135,7 @@ class ResultsScreen extends StatelessWidget {
   /// Placeholder for missing image
   Widget _buildImagePlaceholder(BuildContext context) {
     return Container(
-      color: AppColors.lightCard,
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
       child: const Center(child: Icon(Icons.image_not_supported, size: 64)),
     );
   }
@@ -175,6 +183,9 @@ class ResultsScreen extends StatelessWidget {
 
   /// Care instructions card
   Widget _buildCareInstructions(BuildContext context) {
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
@@ -184,11 +195,7 @@ class ResultsScreen extends StatelessWidget {
             // Header
             Row(
               children: [
-                const Icon(
-                  Icons.water_drop,
-                  size: 20,
-                  color: AppColors.blue600,
-                ),
+                Icon(Icons.water_drop, size: 20, color: ext.sky),
                 const SizedBox(width: AppSpacing.sm),
                 Text(
                   'Care Instructions',
@@ -219,7 +226,9 @@ class ResultsScreen extends StatelessWidget {
 
   /// Individual care instruction item
   Widget _buildCareItem(BuildContext context, String instruction, int index) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
 
     // Icons for different care aspects
     final IconData icon = switch (index % 4) {
@@ -240,15 +249,9 @@ class ResultsScreen extends StatelessWidget {
           height: 24,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: isDark
-                ? AppColors.green900.withValues(alpha: 0.3)
-                : AppColors.green100,
+            color: ext.statusOk.withValues(alpha: 0.12),
           ),
-          child: Icon(
-            icon,
-            size: 14,
-            color: isDark ? AppColors.green400 : AppColors.green700,
-          ),
+          child: Icon(icon, size: 14, color: ext.statusOk),
         ),
         const SizedBox(width: AppSpacing.md),
 

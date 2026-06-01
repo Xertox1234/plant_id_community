@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/routing/app_router.dart';
+import '../../core/theme/green_thumb_extension.dart';
 import '../../models/user_profile.dart';
 import '../../services/user_profile_service.dart';
 import '../../services/auth_service.dart';
@@ -21,6 +22,9 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(userProfileServiceProvider);
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
 
     return Scaffold(
       appBar: AppBar(
@@ -50,34 +54,34 @@ class ProfileScreen extends ConsumerWidget {
             },
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(ext.padScreen),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Profile Header
                   _ProfileHeader(profile: profile),
 
-                  const SizedBox(height: 24),
+                  SizedBox(height: ext.gapY * 2),
 
                   // Stats Cards
                   _StatsSection(profile: profile),
 
-                  const SizedBox(height: 24),
+                  SizedBox(height: ext.gapY * 2),
 
                   // Profile Details Section
                   _ProfileDetailsSection(profile: profile),
 
-                  const SizedBox(height: 24),
+                  SizedBox(height: ext.gapY * 2),
 
                   // Settings Section
                   _SettingsSection(profile: profile),
 
-                  const SizedBox(height: 24),
+                  SizedBox(height: ext.gapY * 2),
 
                   // Logout Button
                   _LogoutButton(),
 
-                  const SizedBox(height: 24),
+                  SizedBox(height: ext.gapY * 2),
                 ],
               ),
             ),
@@ -88,7 +92,11 @@ class ProfileScreen extends ConsumerWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.error_outline, size: 64, color: Colors.red),
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.error,
+              ),
               const SizedBox(height: 16),
               Text(
                 'Failed to load profile',
@@ -124,9 +132,12 @@ class _ProfileHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(ext.padCard),
         child: Column(
           children: [
             // Avatar
@@ -165,7 +176,7 @@ class _ProfileHeader extends StatelessWidget {
             // Display name
             Text(
               profile.fullName,
-              style: Theme.of(context).textTheme.headlineSmall,
+              style: Theme.of(context).textTheme.headlineMedium,
               textAlign: TextAlign.center,
             ),
 
@@ -174,8 +185,9 @@ class _ProfileHeader extends StatelessWidget {
             // Username
             Text(
               '@${profile.username}',
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Theme.of(context).colorScheme.secondary,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                letterSpacing: 0.06 * 11,
+                color: ext.ink3,
               ),
             ),
 
@@ -184,9 +196,9 @@ class _ProfileHeader extends StatelessWidget {
             // Email
             Text(
               profile.email,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: ext.ink2),
             ),
           ],
         ),
@@ -203,6 +215,9 @@ class _StatsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
     return Row(
       children: [
         Expanded(
@@ -212,7 +227,7 @@ class _StatsSection extends StatelessWidget {
             icon: Icons.eco,
           ),
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: ext.gapY),
         Expanded(
           child: _StatCard(
             label: 'Collections',
@@ -220,7 +235,7 @@ class _StatsSection extends StatelessWidget {
             icon: Icons.collections_bookmark,
           ),
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: ext.gapY),
         Expanded(
           child: _StatCard(
             label: 'Forum Posts',
@@ -247,9 +262,12 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(ext.padCard * 0.75),
         child: Column(
           children: [
             Icon(icon, size: 32, color: Theme.of(context).colorScheme.primary),
@@ -263,7 +281,9 @@ class _StatCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               label,
-              style: Theme.of(context).textTheme.bodySmall,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: ext.ink3),
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -283,15 +303,21 @@ class _ProfileDetailsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(ext.padCard),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Profile Details',
-              style: Theme.of(context).textTheme.titleLarge,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                letterSpacing: 0.06 * 11,
+                color: ext.ink3,
+              ),
             ),
             const Divider(),
 
@@ -436,13 +462,22 @@ class _SettingsSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(userProfileServiceProvider.notifier);
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(ext.padCard),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Settings', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'Settings',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                letterSpacing: 0.06 * 11,
+                color: ext.ink3,
+              ),
+            ),
             const Divider(),
 
             // Email Notifications

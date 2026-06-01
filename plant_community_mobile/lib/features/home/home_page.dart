@@ -141,6 +141,7 @@ class HomePage extends StatelessWidget {
         description:
             'Snap a photo and instantly identify any plant with AI-powered recognition',
         type: FeatureType.camera,
+        route: AppRoutes.camera,
       ),
       _FeatureData(
         icon: Icons.book,
@@ -148,6 +149,7 @@ class HomePage extends StatelessWidget {
         description:
             'Get personalized care tips for watering, sunlight, and maintenance',
         type: FeatureType.care,
+        route: AppRoutes.care,
       ),
       _FeatureData(
         icon: Icons.people,
@@ -155,6 +157,7 @@ class HomePage extends StatelessWidget {
         description:
             'Connect with plant lovers, share experiences, and get expert advice',
         type: FeatureType.community,
+        route: AppRoutes.forum,
       ),
       _FeatureData(
         icon: Icons.auto_awesome,
@@ -162,6 +165,7 @@ class HomePage extends StatelessWidget {
         description:
             'Build your personal plant library and track identification history',
         type: FeatureType.collection,
+        route: AppRoutes.collection,
       ),
     ];
 
@@ -176,6 +180,7 @@ class HomePage extends StatelessWidget {
               title: feature.title,
               description: feature.description,
               type: feature.type,
+              onTap: () => context.go(feature.route),
             ),
           );
         }).toList(),
@@ -203,11 +208,13 @@ class _FeatureData {
   final String title;
   final String description;
   final FeatureType type;
+  final String route;
 
   _FeatureData({
     required this.icon,
     required this.title,
     required this.description,
     required this.type,
+    required this.route,
   });
 }
