@@ -3,8 +3,8 @@ import 'package:go_router/go_router.dart';
 import '../../core/routing/app_router.dart';
 import '../../core/theme/grain_overlay.dart';
 import '../../core/theme/green_thumb_extension.dart';
-import '../../shared/widgets/feature_card.dart';
 import '../../shared/widgets/clay_button.dart';
+import '../../shared/widgets/feature_card.dart';
 
 /// Home page with hero section and feature cards
 ///
@@ -63,7 +63,7 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  /// Hero section with logo and title
+  /// Hero section with eyebrow label, logo, and title
   Widget _buildHeroSection(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final rawExt = Theme.of(context).extension<GreenThumbExtension>();
@@ -73,8 +73,10 @@ class HomePage extends StatelessWidget {
       'Ensure AppTheme.build() is used to create the ThemeData.',
     );
     final ext = rawExt!;
+
     return Column(
       children: [
+        // Eyebrow label
         Text(
           'PLANT IDENTIFICATION',
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
@@ -83,6 +85,8 @@ class HomePage extends StatelessWidget {
           ),
         ),
         SizedBox(height: ext.gapY),
+
+        // Logo with nested circles
         Container(
           width: 128,
           height: 128,
@@ -108,6 +112,8 @@ class HomePage extends StatelessWidget {
           ),
         ),
         SizedBox(height: ext.gapY),
+
+        // Title
         Text(
           'Welcome to PlantID',
           style: Theme.of(
@@ -116,6 +122,8 @@ class HomePage extends StatelessWidget {
           textAlign: TextAlign.center,
         ),
         SizedBox(height: ext.gapY),
+
+        // Description
         Text(
           'Your pocket botanist for identifying plants, learning care tips, and connecting with fellow plant enthusiasts',
           style: Theme.of(
