@@ -4,12 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/routing/app_router.dart';
+import '../../core/theme/green_thumb_extension.dart';
 import '../../services/plant_identification_service.dart';
 import '../../services/api_service.dart';
 import '../../models/plant.dart';
+import '../../shared/widgets/clay_button.dart';
 
 /// Camera screen for plant identification
 ///
@@ -74,13 +75,6 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
     }
   }
 
-  // ignore: unused_element -- reserved for sample image feature (not yet wired to UI)
-  void _useSampleImage(String imageUrl) {
-    setState(() {
-      _selectedImagePath = imageUrl;
-    });
-  }
-
   /// Identify the plant using real backend API
   Future<void> _identifyPlant() async {
     if (_selectedImagePath == null) return;
@@ -139,28 +133,36 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: AppColors.lightDestructive,
+        backgroundColor: Theme.of(context).colorScheme.error,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
+    assert(
+      rawExt != null,
+      'CameraScreen requires GreenThumbExtension to be registered in the theme. '
+      'Ensure AppTheme.build() is used to create the ThemeData.',
+    );
+    final ext = rawExt!;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Identify Plant'), centerTitle: true),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSpacing.lg),
+          padding: EdgeInsets.all(ext.padScreen),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Image Display Card
               _buildImageCard(),
-              const SizedBox(height: AppSpacing.xl),
+              SizedBox(height: ext.gapY * 2),
 
               // Action Buttons
               _buildActionButtons(),
-              const SizedBox(height: AppSpacing.xl),
+              SizedBox(height: ext.gapY * 2),
 
               // Sample Images (optional, can be removed for production)
               // Uncomment to enable test images from MockPlantService
@@ -205,9 +207,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
   Widget _buildPlaceholder() {
     return Container(
       decoration: BoxDecoration(
-        color: Theme.of(context).brightness == Brightness.dark
-            ? AppColors.darkCard
-            : AppColors.lightCard,
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
         border: Border.all(
           color: Theme.of(context).dividerColor.withValues(alpha: 0.25),
           width: 2,
@@ -263,24 +263,11 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
         // Identify button (shown only when image is selected)
         if (_selectedImagePath != null) ...[
           const SizedBox(height: AppSpacing.md),
-          ElevatedButton.icon(
+          ClayButton(
+            label: _isIdentifying ? 'Identifying...' : 'Identify Plant',
+            icon: _isIdentifying ? null : Icons.search,
+            fullWidth: true,
             onPressed: _isIdentifying ? null : _identifyPlant,
-            icon: _isIdentifying
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
-                : const Icon(Icons.search),
-            label: Text(_isIdentifying ? 'Identifying...' : 'Identify Plant'),
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size.fromHeight(50),
-              backgroundColor: AppColors.green600,
-              foregroundColor: Colors.white,
-            ),
           ),
         ],
       ],
@@ -336,13 +323,13 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
           imageUrl: imageUrl,
           fit: BoxFit.cover,
           placeholder: (context, url) => Container(
-            color: AppColors.green100,
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
             child: const Center(
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
           ),
           errorWidget: (context, url, error) => Container(
-            color: AppColors.lightCard,
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
             child: const Icon(Icons.error, size: 24),
           ),
         ),
