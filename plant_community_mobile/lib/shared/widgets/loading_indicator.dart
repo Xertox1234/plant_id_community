@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_spacing.dart';
 
 /// A customizable loading indicator with various styles
@@ -55,7 +54,7 @@ class LoadingIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveColor = color ?? AppColors.green600;
+    final effectiveColor = color ?? Theme.of(context).colorScheme.primary;
 
     if (type == LoadingIndicatorType.overlay) {
       return Container(

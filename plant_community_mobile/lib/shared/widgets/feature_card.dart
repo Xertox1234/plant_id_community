@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/green_thumb_extension.dart';
 import '../../core/constants/app_spacing.dart';
 
 /// A feature card displaying an icon, title, and description
@@ -12,7 +12,7 @@ import '../../core/constants/app_spacing.dart';
 ///   icon: Icons.camera_alt,
 ///   title: 'Instant Identification',
 ///   description: 'Snap a photo and instantly identify any plant',
-///   iconColor: AppColors.green600,
+///   type: FeatureType.camera,
 /// )
 /// ```
 class FeatureCard extends StatelessWidget {
@@ -25,8 +25,11 @@ class FeatureCard extends StatelessWidget {
   /// The feature description
   final String description;
 
-  /// Color for the icon (defaults to green)
+  /// Color for the icon (defaults to camera/green)
   final Color? iconColor;
+
+  /// The feature type (determines default icon color)
+  final FeatureType type;
 
   /// Optional callback when card is tapped
   final VoidCallback? onTap;
@@ -37,66 +40,78 @@ class FeatureCard extends StatelessWidget {
     required this.title,
     required this.description,
     this.iconColor,
+    this.type = FeatureType.camera,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
+    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
+    assert(
+      rawExt != null,
+      'FeatureCard requires GreenThumbExtension to be registered in the theme. '
+      'Ensure AppTheme.build() is used to create the ThemeData.',
+    );
+    final ext = rawExt!;
     final effectiveIconColor =
-        iconColor ?? (isDark ? AppColors.green500 : AppColors.green600);
+        iconColor ?? FeatureCardColors.getIconColor(context, type);
 
-    return Card(
-      elevation: AppSpacing.elevationSM,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppSpacing.radiusLG),
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(AppSpacing.rMd),
+        boxShadow: ext.shadow1,
       ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusLG),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Icon container (flex-shrink-0)
-              Container(
-                decoration: BoxDecoration(
-                  color: effectiveIconColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(AppSpacing.radiusMD),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(AppSpacing.rMd),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppSpacing.rMd),
+          child: Padding(
+            padding: EdgeInsets.all(ext.padCard),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Icon container (flex-shrink-0)
+                Container(
+                  decoration: BoxDecoration(
+                    color: effectiveIconColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusMD),
+                  ),
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  child: Icon(
+                    icon,
+                    color: effectiveIconColor,
+                    size: 24,
+                    semanticLabel: title,
+                  ),
                 ),
-                padding: const EdgeInsets.all(AppSpacing.sm),
-                child: Icon(
-                  icon,
-                  color: effectiveIconColor,
-                  size: 24,
-                  semanticLabel: title,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.lg),
-              // Text content
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
+                const SizedBox(width: AppSpacing.lg),
+                // Text content
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
                       ),
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      description,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).textTheme.bodySmall?.color,
-                        height: 1.5, // leading-relaxed
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        description,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).textTheme.bodySmall?.color,
+                          height: 1.5, // leading-relaxed
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -107,15 +122,19 @@ class FeatureCard extends StatelessWidget {
 /// Predefined feature card colors matching the design
 class FeatureCardColors {
   static Color getIconColor(BuildContext context, FeatureType type) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
+    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
+    assert(
+      rawExt != null,
+      'FeatureCardColors requires GreenThumbExtension to be registered in the theme.',
+    );
+    final ext = rawExt!;
 
     return switch (type) {
-      FeatureType.camera => isDark ? AppColors.green500 : AppColors.green600,
-      FeatureType.care => isDark ? AppColors.blue500 : AppColors.blue600,
-      FeatureType.community =>
-        isDark ? AppColors.purple500 : AppColors.purple600,
-      FeatureType.collection =>
-        isDark ? AppColors.amber500 : AppColors.amber600,
+      FeatureType.camera => cs.primary,
+      FeatureType.care => ext.sky,
+      FeatureType.community => ext.berry,
+      FeatureType.collection => cs.tertiary,
     };
   }
 }

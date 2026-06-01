@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../../core/theme/app_colors.dart';
-import '../../core/constants/app_spacing.dart';
 import '../../core/routing/app_router.dart';
+import '../../core/theme/grain_overlay.dart';
+import '../../core/theme/green_thumb_extension.dart';
+import '../../shared/widgets/clay_button.dart';
 import '../../shared/widgets/feature_card.dart';
-import '../../shared/widgets/gradient_button.dart';
 
 /// Home page with hero section and feature cards
 ///
@@ -19,7 +19,13 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
+    assert(
+      rawExt != null,
+      'HomePage requires GreenThumbExtension to be registered in the theme. '
+      'Ensure AppTheme.build() is used to create the ThemeData.',
+    );
+    final ext = rawExt!;
 
     return Scaffold(
       floatingActionButton: FloatingActionButton.small(
@@ -29,25 +35,27 @@ class HomePage extends StatelessWidget {
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.lg,
-              vertical: AppSpacing.xl2,
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Hero Section
-                _buildHeroSection(context, isDark),
-                const SizedBox(height: AppSpacing.xl2),
+          child: GrainOverlay(
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: ext.padScreen,
+                vertical: ext.padScreen * 2,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Hero Section
+                  _buildHeroSection(context),
+                  SizedBox(height: ext.gapY * 2),
 
-                // Features Grid
-                _buildFeaturesGrid(context),
-                const SizedBox(height: AppSpacing.xl2),
+                  // Features Grid
+                  _buildFeaturesGrid(context),
+                  SizedBox(height: ext.gapY * 2),
 
-                // CTA Button
-                _buildCTAButton(context),
-              ],
+                  // CTA Button
+                  _buildCTAButton(context),
+                ],
+              ),
             ),
           ),
         ),
@@ -55,26 +63,36 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  /// Hero section with logo and title
-  Widget _buildHeroSection(BuildContext context, bool isDark) {
+  /// Hero section with eyebrow label, logo, and title
+  Widget _buildHeroSection(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
+    assert(
+      rawExt != null,
+      'HomePage requires GreenThumbExtension to be registered in the theme. '
+      'Ensure AppTheme.build() is used to create the ThemeData.',
+    );
+    final ext = rawExt!;
+
     return Column(
       children: [
-        // Logo with nested gradient circles
+        // Eyebrow label
+        Text(
+          'PLANT IDENTIFICATION',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            letterSpacing: 0.06 * 11,
+            color: ext.ink3,
+          ),
+        ),
+        SizedBox(height: ext.gapY),
+
+        // Logo with nested circles
         Container(
           width: 128,
           height: 128,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: isDark
-                  ? [
-                      AppColors.green900.withValues(alpha: 0.3),
-                      AppColors.emerald900.withValues(alpha: 0.3),
-                    ]
-                  : [AppColors.green100, AppColors.emerald100],
-            ),
+            color: cs.surfaceContainerLow,
           ),
           child: Center(
             child: Container(
@@ -82,18 +100,8 @@ class HomePage extends StatelessWidget {
               height: 96,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [AppColors.green500, AppColors.emerald600],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.green500.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                    spreadRadius: 2,
-                  ),
-                ],
+                color: cs.primary,
+                boxShadow: ext.shadow2,
               ),
               child: const Icon(
                 Icons.camera_alt,
@@ -103,33 +111,24 @@ class HomePage extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: AppSpacing.xl),
+        SizedBox(height: ext.gapY),
 
-        // Title with gradient
-        ShaderMask(
-          shaderCallback: (bounds) => LinearGradient(
-            colors: isDark
-                ? [AppColors.green400, AppColors.emerald400]
-                : [AppColors.green700, AppColors.emerald700],
-          ).createShader(bounds),
-          child: Text(
-            'Welcome to PlantID',
-            style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-            textAlign: TextAlign.center,
-          ),
+        // Title
+        Text(
+          'Welcome to PlantID',
+          style: Theme.of(
+            context,
+          ).textTheme.displayLarge?.copyWith(color: cs.onSurface),
+          textAlign: TextAlign.center,
         ),
-        const SizedBox(height: AppSpacing.md),
+        SizedBox(height: ext.gapY),
 
         // Description
         Text(
           'Your pocket botanist for identifying plants, learning care tips, and connecting with fellow plant enthusiasts',
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: Theme.of(context).textTheme.bodySmall?.color,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: ext.ink2, height: 1.5),
           textAlign: TextAlign.center,
           maxLines: 3,
         ),
@@ -139,6 +138,14 @@ class HomePage extends StatelessWidget {
 
   /// Features grid with 4 cards
   Widget _buildFeaturesGrid(BuildContext context) {
+    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
+    assert(
+      rawExt != null,
+      'HomePage requires GreenThumbExtension to be registered in the theme. '
+      'Ensure AppTheme.build() is used to create the ThemeData.',
+    );
+    final ext = rawExt!;
+
     final features = [
       _FeatureData(
         icon: Icons.camera_alt,
@@ -175,12 +182,12 @@ class HomePage extends StatelessWidget {
       child: Column(
         children: features.map((feature) {
           return Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.md),
+            padding: EdgeInsets.only(bottom: ext.gapY),
             child: FeatureCard(
               icon: feature.icon,
               title: feature.title,
               description: feature.description,
-              iconColor: FeatureCardColors.getIconColor(context, feature.type),
+              type: feature.type,
             ),
           );
         }).toList(),
@@ -192,14 +199,11 @@ class HomePage extends StatelessWidget {
   Widget _buildCTAButton(BuildContext context) {
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 600),
-      child: GradientButton(
+      child: ClayButton(
         label: 'Get Started',
         icon: Icons.arrow_forward,
         fullWidth: true,
-        onPressed: () {
-          // Navigate to camera screen
-          context.go(AppRoutes.camera);
-        },
+        onPressed: () => context.go(AppRoutes.camera),
       ),
     );
   }
