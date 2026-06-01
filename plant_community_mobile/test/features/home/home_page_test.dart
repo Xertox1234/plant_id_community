@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/home/home_page.dart';
 import 'package:plant_community_mobile/shared/widgets/clay_button.dart';
+import 'package:plant_community_mobile/shared/widgets/feature_card.dart';
 import 'package:plant_community_mobile/core/theme/grain_overlay.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/core/theme/app_palettes.dart';
@@ -33,5 +34,15 @@ void main() {
   testWidgets('eyebrow label PLANT IDENTIFICATION present', (tester) async {
     await tester.pumpWidget(_wrap());
     expect(find.text('PLANT IDENTIFICATION'), findsOneWidget);
+  });
+
+  testWidgets('Care feature card has onTap wired', (tester) async {
+    await tester.pumpWidget(_wrap());
+    final careCard = tester.widget<FeatureCard>(
+      find.byWidgetPredicate(
+        (w) => w is FeatureCard && w.title == 'Care Instructions',
+      ),
+    );
+    expect(careCard.onTap, isNotNull);
   });
 }

@@ -10,6 +10,9 @@ import '../../features/camera/camera_screen.dart';
 import '../../features/results/results_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/settings/settings_screen.dart';
+import '../../features/care/care_screen.dart';
+import '../../features/forum/forum_screen.dart';
+import '../../features/collection/collection_screen.dart';
 import '../../models/plant.dart';
 import '../../services/auth_service.dart';
 import 'error_screen.dart';
@@ -30,6 +33,10 @@ abstract class AppRoutes {
   // Protected routes (screens not yet implemented)
   static const profile = '/profile';
   static const garden = '/garden';
+  // Phase 2 feature routes
+  static const care = '/care';
+  static const forum = '/forum';
+  static const collection = '/collection';
 }
 
 /// Router provider for the app
@@ -161,6 +168,33 @@ GoRouter appRouter(Ref ref) {
           context: context,
           state: state,
           child: const PlaceholderScreen(title: 'Garden'),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.care,
+        name: 'care',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: const CareScreen(),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.forum,
+        name: 'forum',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: const ForumScreen(),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.collection,
+        name: 'collection',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: const CollectionScreen(),
         ),
       ),
       if (kDebugMode)
