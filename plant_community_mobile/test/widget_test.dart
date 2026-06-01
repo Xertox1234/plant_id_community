@@ -13,13 +13,13 @@ import 'package:plant_community_mobile/main.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 
 void main() {
-  testWidgets('App launches and shows splash screen', (WidgetTester tester) async {
+  testWidgets('App launches and shows splash screen', (
+    WidgetTester tester,
+  ) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          authServiceProvider.overrideWithValue(const AuthState()),
-        ],
+        overrides: [authServiceProvider.overrideWithValue(const AuthState())],
         child: const MyApp(),
       ),
     );
@@ -29,7 +29,7 @@ void main() {
 
     // Verify that the splash screen is shown with PlantID branding.
     expect(find.text('PlantID'), findsOneWidget);
-    expect(find.text('Discover Nature\'s Secrets'), findsOneWidget);
+    expect(find.text("DISCOVER NATURE'S SECRETS"), findsOneWidget);
     expect(find.byIcon(Icons.eco), findsOneWidget);
 
     // Clean up timers

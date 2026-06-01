@@ -140,13 +140,9 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
-    assert(
-      rawExt != null,
-      'CameraScreen requires GreenThumbExtension to be registered in the theme. '
-      'Ensure AppTheme.build() is used to create the ThemeData.',
-    );
-    final ext = rawExt!;
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Identify Plant'), centerTitle: true),

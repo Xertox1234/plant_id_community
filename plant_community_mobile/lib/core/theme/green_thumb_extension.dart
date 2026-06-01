@@ -99,6 +99,60 @@ class GreenThumbExtension extends ThemeExtension<GreenThumbExtension> {
     );
   }
 
+  static GreenThumbExtension get fallback {
+    return const GreenThumbExtension(
+      clay: Color(0xFF5C6B58),
+      onClay: Color(0xFFE8F0E5),
+      berry: Color(0xFFB85C5C),
+      sky: Color(0xFF6B8FA8),
+      leaf: Color(0xFF7BA05B),
+      ink2: Color(0xFF6B7D6B),
+      ink3: Color(0xFF9EAA9E),
+      statusOk: Color(0xFF4A8C4A),
+      statusWarn: Color(0xFFCC8C3C),
+      shadow1: [
+        BoxShadow(
+          color: Color(0x0A1B2218),
+          offset: Offset(0, 1),
+          blurRadius: 0,
+        ),
+        BoxShadow(
+          color: Color(0x0D1B2218),
+          offset: Offset(0, 2),
+          blurRadius: 6,
+        ),
+      ],
+      shadow2: [
+        BoxShadow(
+          color: Color(0x0D1B2218),
+          offset: Offset(0, 2),
+          blurRadius: 0,
+        ),
+        BoxShadow(
+          color: Color(0x141B2218),
+          offset: Offset(0, 8),
+          blurRadius: 22,
+        ),
+      ],
+      shadow3: [
+        BoxShadow(
+          color: Color(0x0F1B2218),
+          offset: Offset(0, 4),
+          blurRadius: 0,
+        ),
+        BoxShadow(
+          color: Color(0x241B2218),
+          offset: Offset(0, 18),
+          blurRadius: 40,
+        ),
+      ],
+      padCard: 18,
+      padScreen: 18,
+      gapY: 14,
+      showGrain: false,
+    );
+  }
+
   @override
   GreenThumbExtension copyWith({
     Color? clay,

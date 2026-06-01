@@ -73,7 +73,9 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final ext = Theme.of(context).extension<GreenThumbExtension>()!;
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
 
     return Scaffold(
       backgroundColor: cs.surface,

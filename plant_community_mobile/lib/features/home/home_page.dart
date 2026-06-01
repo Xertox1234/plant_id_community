@@ -19,13 +19,9 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
-    assert(
-      rawExt != null,
-      'HomePage requires GreenThumbExtension to be registered in the theme. '
-      'Ensure AppTheme.build() is used to create the ThemeData.',
-    );
-    final ext = rawExt!;
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
 
     return Scaffold(
       floatingActionButton: FloatingActionButton.small(
@@ -66,13 +62,9 @@ class HomePage extends StatelessWidget {
   /// Hero section with eyebrow label, logo, and title
   Widget _buildHeroSection(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
-    assert(
-      rawExt != null,
-      'HomePage requires GreenThumbExtension to be registered in the theme. '
-      'Ensure AppTheme.build() is used to create the ThemeData.',
-    );
-    final ext = rawExt!;
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
 
     return Column(
       children: [
@@ -138,13 +130,9 @@ class HomePage extends StatelessWidget {
 
   /// Features grid with 4 cards
   Widget _buildFeaturesGrid(BuildContext context) {
-    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
-    assert(
-      rawExt != null,
-      'HomePage requires GreenThumbExtension to be registered in the theme. '
-      'Ensure AppTheme.build() is used to create the ThemeData.',
-    );
-    final ext = rawExt!;
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
 
     final features = [
       _FeatureData(
