@@ -23,13 +23,9 @@ class ResultsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rawExt = Theme.of(context).extension<GreenThumbExtension>();
-    assert(
-      rawExt != null,
-      'ResultsScreen requires GreenThumbExtension to be registered in the theme. '
-      'Ensure AppTheme.build() is used to create the ThemeData.',
-    );
-    final ext = rawExt!;
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Plant Identified'), centerTitle: true),
@@ -62,7 +58,9 @@ class ResultsScreen extends StatelessWidget {
 
   /// Plant image with "Identified" badge
   Widget _buildPlantImage(BuildContext context) {
-    final ext = Theme.of(context).extension<GreenThumbExtension>()!;
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
     final cs = Theme.of(context).colorScheme;
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -185,7 +183,9 @@ class ResultsScreen extends StatelessWidget {
 
   /// Care instructions card
   Widget _buildCareInstructions(BuildContext context) {
-    final ext = Theme.of(context).extension<GreenThumbExtension>()!;
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
@@ -226,7 +226,9 @@ class ResultsScreen extends StatelessWidget {
 
   /// Individual care instruction item
   Widget _buildCareItem(BuildContext context, String instruction, int index) {
-    final ext = Theme.of(context).extension<GreenThumbExtension>()!;
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
 
     // Icons for different care aspects
     final IconData icon = switch (index % 4) {
