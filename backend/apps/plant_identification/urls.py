@@ -3,6 +3,7 @@ URL configuration for plant identification API endpoints.
 """
 
 from django.urls import include, path
+from rest_framework import status as http_status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.routers import DefaultRouter
@@ -65,7 +66,10 @@ def service_status(request):
         status = service.get_service_status()
         return Response(status)
     except Exception as e:
-        return Response({"error": str(e), "status": "error"})
+        return Response(
+            {"error": str(e), "status": "error"},
+            status=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 
 # Create router for ViewSets

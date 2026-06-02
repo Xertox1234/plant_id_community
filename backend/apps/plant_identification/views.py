@@ -19,7 +19,9 @@ from rest_framework.response import Response
 
 # Rate limiting - make optional
 try:
-    from django_ratelimit.decorators import ratelimit
+    # rate-preserving wrapper (todo 115): attaches the rate to the raised
+    # Ratelimited so the exception handler emits a correct Retry-After window.
+    from apps.core.ratelimit import ratelimit
 except ImportError:
     # Fallback decorator that does nothing if django-ratelimit is not installed
     def ratelimit(**kwargs):

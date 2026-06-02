@@ -18,11 +18,11 @@ Pattern:
 
 import logging
 
-from django.db.models.signals import post_delete
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from wagtail.signals import page_published, page_unpublished
 
-from .models import BlogPostPage
+from .models import BlogCategory, BlogComment, BlogPostPage
 
 logger = logging.getLogger(__name__)
 
@@ -132,16 +132,49 @@ def invalidate_blog_cache_on_delete(sender, **kwargs):
         logger.error(f"[CACHE] Error invalidating cache on delete: {e}")
 
 
-# Category signal handlers (optional - for future enhancement)
-# Uncomment when category model is confirmed
+@receiver(post_save, sender=BlogComment)
+@receiver(post_delete, sender=BlogComment)
+def invalidate_blog_cache_on_comment_change(sender, instance, **kwargs):
+    """
+    Invalidate the parent post's caches when a comment changes.
 
-# @receiver(post_save, sender='blog.BlogCategory')
-# def invalidate_category_cache_on_save(sender, instance, **kwargs):
-#     """Invalidate category cache when category is updated."""
-#     try:
-#         BlogCacheService = get_blog_cache_service()
-#         BlogCacheService.invalidate_blog_category(instance.slug)
-#         BlogCacheService.invalidate_blog_lists()
-#         logger.info(f"[CACHE] Invalidated caches for category: {instance.slug}")
-#     except Exception as e:
-#         logger.error(f"[CACHE] Error invalidating category cache: {e}")
+    Called when a comment is created, edited, approved/unapproved, or deleted.
+
+    Cached post-detail and list responses embed ``comment_count`` (and popular
+    posts rank on it), so a comment write must clear those keys — otherwise the
+    count is stale until the 24h TTL expires (audit finding H4).
+    """
+    post = getattr(instance, "post", None)
+    if post is None:
+        return
+
+    try:
+        BlogCacheService = get_blog_cache_service()
+        BlogCacheService.invalidate_blog_post(post.slug)
+        BlogCacheService.invalidate_blog_lists()
+        BlogCacheService.invalidate_popular_posts()
+        logger.info(
+            f"[CACHE] Invalidated caches for comment change on post: {post.slug}"
+        )
+    except Exception as e:
+        logger.error(f"[CACHE] Error invalidating cache on comment change: {e}")
+
+
+@receiver(post_save, sender=BlogCategory)
+@receiver(post_delete, sender=BlogCategory)
+def invalidate_blog_cache_on_category_change(sender, instance, **kwargs):
+    """
+    Invalidate category + list caches when a category changes.
+
+    Called when a category is created, renamed, updated, or deleted. Cached blog
+    list/detail responses embed the category's name/slug/color via
+    ``BlogCategorySerializer``, so a category edit must clear those keys —
+    otherwise they are stale until the 24h TTL expires (audit finding M8).
+    """
+    try:
+        BlogCacheService = get_blog_cache_service()
+        BlogCacheService.invalidate_blog_category(instance.slug)
+        BlogCacheService.invalidate_blog_lists()
+        logger.info(f"[CACHE] Invalidated caches for category change: {instance.slug}")
+    except Exception as e:
+        logger.error(f"[CACHE] Error invalidating category cache: {e}")

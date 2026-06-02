@@ -87,7 +87,7 @@ class ForumTopicsListView(generics.ListAPIView):
         )
         return (
             Topic.objects.filter(forum_id=forum_id, approved=True)
-            .select_related("poster", "last_post", "last_post__poster")
+            .select_related("forum", "poster", "last_post", "last_post__poster")
             .order_by(safe_ordering)
         )
 
