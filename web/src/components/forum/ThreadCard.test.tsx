@@ -174,7 +174,7 @@ describe('ThreadCard', () => {
 
     const { container } = renderThreadCard(thread);
 
-    const card = container.querySelector('.bg-yellow-50');
+    const card = container.querySelector('[class*="bg-tertiary"]');
     expect(card).toBeInTheDocument();
   });
 

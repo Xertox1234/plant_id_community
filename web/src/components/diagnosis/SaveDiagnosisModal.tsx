@@ -100,17 +100,17 @@ export default function SaveDiagnosisModal({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black bg-opacity-50 transition-opacity" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={onClose} />
 
       {/* Modal */}
       <div className="flex min-h-full items-center justify-center p-4">
-        <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+        <div className="relative bg-surface-2 rounded-lg shadow-xl max-w-md w-full p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-semibold text-gray-900">Save as Diagnosis Card</h3>
+            <h3 className="text-xl font-semibold text-ink">Save as Diagnosis Card</h3>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
+              className="text-ink-3 hover:text-ink-2 transition-colors"
               aria-label="Close modal"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -125,11 +125,11 @@ export default function SaveDiagnosisModal({
           </div>
 
           {/* Disease Info Summary */}
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
-            <h4 className="font-semibold text-amber-900 mb-2">
+          <div className="bg-warn/10 border border-warn/30 rounded-lg p-4 mb-6">
+            <h4 className="font-semibold text-warn mb-2">
               {diseaseInfo?.disease_name || 'Unknown Disease'}
             </h4>
-            <div className="text-sm text-amber-800 space-y-1">
+            <div className="text-sm text-warn space-y-1">
               <p>
                 <span className="font-medium">Severity:</span> {diseaseInfo?.severity || 'Unknown'}
               </p>
@@ -144,7 +144,7 @@ export default function SaveDiagnosisModal({
           <form onSubmit={handleSave} className="space-y-4">
             {/* Custom Nickname */}
             <div>
-              <label htmlFor="nickname" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="nickname" className="block text-sm font-medium text-ink-2 mb-1">
                 Custom Nickname (optional)
               </label>
               <input
@@ -155,14 +155,14 @@ export default function SaveDiagnosisModal({
                   setFormData({ ...formData, custom_nickname: e.target.value })
                 }
                 placeholder="e.g., Kitchen Aloe, Balcony Tomato"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
               />
-              <p className="text-xs text-gray-500 mt-1">Give this plant a memorable name</p>
+              <p className="text-xs text-ink-3 mt-1">Give this plant a memorable name</p>
             </div>
 
             {/* Personal Notes */}
             <div>
-              <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="notes" className="block text-sm font-medium text-ink-2 mb-1">
                 Personal Notes (optional)
               </label>
               <textarea
@@ -173,14 +173,14 @@ export default function SaveDiagnosisModal({
                 }
                 placeholder="Add any observations or notes about the plant's condition..."
                 rows={4}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
               />
             </div>
 
             {/* Error Message */}
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-md p-3">
-                <p className="text-sm text-red-700">{error}</p>
+              <div className="bg-error/10 border border-error/30 rounded-md p-3">
+                <p className="text-sm text-error">{error}</p>
               </div>
             )}
 
@@ -189,7 +189,7 @@ export default function SaveDiagnosisModal({
               <button
                 type="submit"
                 disabled={isSaving}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                className="flex-1 px-4 py-2 bg-clay text-on-clay rounded-md hover:bg-clay/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
               >
                 {isSaving ? 'Saving...' : 'Save & Track Treatment'}
               </button>
@@ -197,14 +197,14 @@ export default function SaveDiagnosisModal({
                 type="button"
                 onClick={onClose}
                 disabled={isSaving}
-                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                className="px-4 py-2 border border-line-2 rounded-md text-ink-2 hover:bg-surface transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
             </div>
 
             {/* Info Text */}
-            <p className="text-xs text-gray-500 text-center">
+            <p className="text-xs text-ink-3 text-center">
               You'll be able to add care instructions and set reminders after saving
             </p>
           </form>

@@ -39,16 +39,16 @@ export default function Input({
 
   // Input styles - red border on error
   const inputStyles = error
-    ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-    : 'border-gray-300 focus:border-green-500 focus:ring-green-500';
+    ? 'border-error focus:border-error focus:ring-error'
+    : 'border-line-2 focus:border-primary focus:ring-primary';
 
   return (
     <div className={`w-full ${className}`}>
       {label && (
-        <label htmlFor={inputId} className="block text-sm font-medium text-gray-700 mb-1">
+        <label htmlFor={inputId} className="block text-sm font-medium text-ink-2 mb-1">
           {label}
           {required && (
-            <span className="text-red-500 ml-1" aria-label="required">
+            <span className="text-error ml-1" aria-label="required">
               *
             </span>
           )}
@@ -69,9 +69,9 @@ export default function Input({
         className={`
           block w-full px-3 py-2
           border rounded-lg
-          text-gray-900 placeholder-gray-400
+          text-ink placeholder-ink-3
           focus:outline-none focus:ring-2 focus:ring-offset-0
-          disabled:bg-gray-50 disabled:text-gray-500 disabled:cursor-not-allowed
+          disabled:bg-surface-2 disabled:text-ink-3 disabled:cursor-not-allowed
           transition-colors
           ${inputStyles}
         `}
@@ -79,7 +79,7 @@ export default function Input({
       />
 
       {error && (
-        <p id={`${inputId}-error`} className="mt-1 text-sm text-red-600" role="alert">
+        <p id={`${inputId}-error`} className="mt-1 text-sm text-error" role="alert">
           {error}
         </p>
       )}

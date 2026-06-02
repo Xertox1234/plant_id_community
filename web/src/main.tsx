@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { ErrorBoundary, FallbackProps } from 'react-error-boundary';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { RequestProvider } from './contexts/RequestContext';
 import { ErrorFallback } from './components/ErrorBoundary';
@@ -38,6 +39,7 @@ initLogger({
  *
  * Wraps the app with:
  * - StrictMode for development warnings
+ * - ThemeProvider for design-token theme state (outermost — wraps all providers)
  * - ErrorBoundary to catch and display errors gracefully
  * - BrowserRouter for routing
  * - RequestProvider for distributed tracing (Phase 2)
@@ -51,32 +53,34 @@ initLogger({
  */
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary
-      FallbackComponent={ErrorFallback}
-      onError={(error: Error, errorInfo: { componentStack: string }) => {
-        // Log errors using structured logger
-        logger.error('ErrorBoundary caught error', {
-          component: 'ErrorBoundary',
-          error,
-          errorInfo,
-        });
-        // Sentry automatically captures errors via its ErrorBoundary integration
-      }}
-      onReset={() => {
-        // ErrorBoundary automatically resets component tree
-        // Only add custom logic here if you need to clear specific app state
-        logger.info('ErrorBoundary reset', {
-          component: 'ErrorBoundary',
-        });
-      }}
-    >
-      <BrowserRouter>
-        <RequestProvider>
-          <AuthProvider>
-            <App />
-          </AuthProvider>
-        </RequestProvider>
-      </BrowserRouter>
-    </ErrorBoundary>
+    <ThemeProvider>
+      <ErrorBoundary
+        FallbackComponent={ErrorFallback}
+        onError={(error: Error, errorInfo: { componentStack: string }) => {
+          // Log errors using structured logger
+          logger.error('ErrorBoundary caught error', {
+            component: 'ErrorBoundary',
+            error,
+            errorInfo,
+          });
+          // Sentry automatically captures errors via its ErrorBoundary integration
+        }}
+        onReset={() => {
+          // ErrorBoundary automatically resets component tree
+          // Only add custom logic here if you need to clear specific app state
+          logger.info('ErrorBoundary reset', {
+            component: 'ErrorBoundary',
+          });
+        }}
+      >
+        <BrowserRouter>
+          <RequestProvider>
+            <AuthProvider>
+              <App />
+            </AuthProvider>
+          </RequestProvider>
+        </BrowserRouter>
+      </ErrorBoundary>
+    </ThemeProvider>
   </StrictMode>
 );

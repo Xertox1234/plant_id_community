@@ -49,7 +49,7 @@ export default function CategoryListPage() {
   if (error) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 px-4 py-3 rounded">
+        <div className="bg-error/10 border border-error/30 text-error px-4 py-3 rounded">
           <strong>Error loading categories:</strong> {error}
         </div>
       </div>
@@ -60,17 +60,15 @@ export default function CategoryListPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Page Header */}
       <div className="mb-8">
-        <h1 className="text-4xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-          Community Forums
-        </h1>
-        <p className="text-lg text-gray-600 dark:text-gray-400">
+        <h1 className="text-4xl font-bold text-ink mb-2">Community Forums</h1>
+        <p className="text-lg text-ink-2">
           Connect with fellow plant enthusiasts, share knowledge, and get help with your plants.
         </p>
       </div>
 
       {/* Categories List */}
       {categories.length === 0 ? (
-        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+        <div className="text-center py-12 text-ink-3">
           <p className="text-lg">No categories available yet.</p>
           <p className="text-sm mt-2">Check back soon!</p>
         </div>

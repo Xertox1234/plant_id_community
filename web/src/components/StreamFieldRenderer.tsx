@@ -103,12 +103,12 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
   switch (type) {
     case 'heading': {
       // Backend: CharBlock (simple string)
-      return <h2 className="text-3xl font-bold mt-8 mb-4 text-gray-900">{block.value}</h2>;
+      return <h2 className="text-3xl font-bold mt-8 mb-4 text-ink">{block.value}</h2>;
     }
 
     case 'paragraph':
       // Backend: RichTextBlock (HTML string)
-      return <SafeHTML html={block.value} className="mb-4 text-gray-700 leading-relaxed" />;
+      return <SafeHTML html={block.value} className="mb-4 text-ink-2 leading-relaxed" />;
 
     // Removed: image block (no backend definition, use paragraph with embedded images)
 
@@ -119,10 +119,10 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
       const attribution = typeof value === 'string' ? undefined : value.attribution;
 
       return (
-        <blockquote className="border-l-4 border-green-600 pl-6 py-4 my-8 italic text-gray-700 bg-gray-50 rounded-r-lg">
+        <blockquote className="border-l-4 border-primary pl-6 py-4 my-8 italic text-ink-2 bg-surface rounded-r-lg">
           {quoteText && renderTextOrSafeHtml(quoteText, 'text-xl mb-2')}
           {attribution && (
-            <footer className="text-sm text-gray-600 not-italic">— {attribution}</footer>
+            <footer className="text-sm text-ink-3 not-italic">— {attribution}</footer>
           )}
         </blockquote>
       );
@@ -132,7 +132,7 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
       // Backend: StructBlock with code (TextBlock) and language (ChoiceBlock)
       const { code, language } = block.value;
       return (
-        <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto my-6 shadow-inner">
+        <pre className="bg-ink text-surface p-4 rounded-lg overflow-x-auto my-6 shadow-inner">
           <code className={`language-${language || 'text'}`}>{code}</code>
         </pre>
       );
@@ -147,10 +147,10 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
       const careLabel = value.care_level ? 'Care Level' : 'Care Difficulty';
 
       return (
-        <div className="my-8 p-6 bg-green-50 border-2 border-green-200 rounded-lg shadow-sm">
-          <h3 className="text-2xl font-bold text-gray-900 mb-3">🌿 {plantName}</h3>
+        <div className="my-8 p-6 bg-primary/10 border-2 border-primary/20 rounded-lg shadow-sm">
+          <h3 className="text-2xl font-bold text-ink mb-3">🌿 {plantName}</h3>
           {value.scientific_name && (
-            <p className="text-sm italic text-gray-600 mb-3">{value.scientific_name}</p>
+            <p className="text-sm italic text-ink-3 mb-3">{value.scientific_name}</p>
           )}
           {value.image && (
             <img
@@ -159,9 +159,9 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
               className="w-full h-64 object-cover rounded-lg mb-4 shadow-md"
             />
           )}
-          {description && renderTextOrSafeHtml(description, 'text-gray-700 mb-4')}
+          {description && renderTextOrSafeHtml(description, 'text-ink-2 mb-4')}
           {careValue && (
-            <p className="mt-4 text-sm font-semibold text-green-700 flex items-center">
+            <p className="mt-4 text-sm font-semibold text-leaf flex items-center">
               <svg
                 className="w-5 h-5 mr-2"
                 aria-hidden="true"
@@ -189,15 +189,15 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
       // Map button style to Tailwind classes
       const buttonClasses =
         buttonStyle === 'secondary'
-          ? 'inline-block px-8 py-3 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors shadow-md'
+          ? 'inline-block px-8 py-3 bg-surface-2 text-ink-2 font-semibold rounded-lg hover:bg-surface-3 transition-colors shadow-md'
           : buttonStyle === 'outline'
-            ? 'inline-block px-8 py-3 bg-transparent border-2 border-white text-white font-semibold rounded-lg hover:bg-white hover:text-green-600 transition-colors shadow-md'
-            : 'inline-block px-8 py-3 bg-white text-green-600 font-semibold rounded-lg hover:bg-gray-100 transition-colors shadow-md';
+            ? 'inline-block px-8 py-3 bg-transparent border-2 border-on-primary text-on-primary font-semibold rounded-lg hover:bg-on-primary hover:text-primary transition-colors shadow-md'
+            : 'inline-block px-8 py-3 bg-surface-2 text-primary font-semibold rounded-lg hover:bg-surface-3 transition-colors shadow-md';
 
       return (
-        <div className="my-8 p-8 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg text-center shadow-lg">
+        <div className="my-8 p-8 bg-primary text-on-primary rounded-lg text-center shadow-lg">
           <h3 className="text-2xl font-bold mb-2">{title}</h3>
-          {description && renderTextOrSafeHtml(description, 'mb-6 text-green-50')}
+          {description && renderTextOrSafeHtml(description, 'mb-6 text-on-primary')}
           {buttonText && (
             <a href={buttonUrl} className={buttonClasses}>
               {buttonText}
@@ -211,8 +211,8 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
 
     default:
       return (
-        <div className="my-4 p-4 bg-yellow-50 border border-yellow-200 rounded text-sm text-gray-600">
-          <p className="font-semibold text-yellow-800 mb-1">Unsupported block type</p>
+        <div className="my-4 p-4 bg-warn/10 border border-warn/30 rounded text-sm text-ink-3">
+          <p className="font-semibold text-warn mb-1">Unsupported block type</p>
           <code className="text-xs">{type}</code>
         </div>
       );

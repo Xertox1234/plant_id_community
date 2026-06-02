@@ -36,12 +36,12 @@ interface ReminderResults {
  */
 function getSeverityColor(severity: SeverityAssessment): string {
   const colors: Record<SeverityAssessment, string> = {
-    mild: 'bg-green-50 text-green-700 ring-green-600/20',
-    moderate: 'bg-yellow-50 text-yellow-700 ring-yellow-600/20',
-    severe: 'bg-orange-50 text-orange-700 ring-orange-600/20',
-    critical: 'bg-red-50 text-red-700 ring-red-600/20',
+    mild: 'bg-leaf/10 text-leaf ring-leaf/20',
+    moderate: 'bg-warn/10 text-warn ring-warn/20',
+    severe: 'bg-tertiary/10 text-tertiary ring-tertiary/20',
+    critical: 'bg-error/10 text-error ring-error/20',
   };
-  return colors[severity] || 'bg-gray-50 text-gray-700 ring-gray-600/20';
+  return colors[severity] || 'bg-surface-2 text-ink-2 ring-line/20';
 }
 
 /**
@@ -62,18 +62,18 @@ function formatDate(dateString: string): string {
 function StreamFieldBlockComponent({ block }: { block: DiagnosisBlock }) {
   switch (block.type) {
     case 'heading':
-      return <h3 className="text-xl font-semibold text-gray-900 mt-6 mb-3">{block.value}</h3>;
+      return <h3 className="text-xl font-semibold text-ink mt-6 mb-3">{block.value}</h3>;
 
     case 'paragraph':
-      return <p className="text-gray-700 mb-4 leading-relaxed">{block.value}</p>;
+      return <p className="text-ink-2 mb-4 leading-relaxed">{block.value}</p>;
 
     case 'treatment_step': {
       const typedValue = block.value;
       return (
-        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-4">
+        <div className="bg-sky/10 border-l-4 border-sky p-4 mb-4">
           <div className="flex items-start">
             <svg
-              className="w-5 h-5 text-blue-500 mt-0.5 mr-3 flex-shrink-0"
+              className="w-5 h-5 text-sky mt-0.5 mr-3 flex-shrink-0"
               fill="currentColor"
               viewBox="0 0 20 20"
             >
@@ -84,10 +84,10 @@ function StreamFieldBlockComponent({ block }: { block: DiagnosisBlock }) {
               />
             </svg>
             <div className="flex-1">
-              <h4 className="font-semibold text-blue-900 mb-1">{typedValue.title}</h4>
-              <p className="text-blue-800">{typedValue.description}</p>
+              <h4 className="font-semibold text-sky mb-1">{typedValue.title}</h4>
+              <p className="text-sky">{typedValue.description}</p>
               {typedValue.frequency && (
-                <p className="text-sm text-blue-700 mt-2">Frequency: {typedValue.frequency}</p>
+                <p className="text-sm text-sky mt-2">Frequency: {typedValue.frequency}</p>
               )}
             </div>
           </div>
@@ -98,10 +98,10 @@ function StreamFieldBlockComponent({ block }: { block: DiagnosisBlock }) {
     case 'symptom_check': {
       const typedValue = block.value;
       return (
-        <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-4">
+        <div className="bg-warn/10 border-l-4 border-warn p-4 mb-4">
           <div className="flex items-start">
             <svg
-              className="w-5 h-5 text-yellow-500 mt-0.5 mr-3 flex-shrink-0"
+              className="w-5 h-5 text-warn mt-0.5 mr-3 flex-shrink-0"
               fill="currentColor"
               viewBox="0 0 20 20"
             >
@@ -112,10 +112,8 @@ function StreamFieldBlockComponent({ block }: { block: DiagnosisBlock }) {
               />
             </svg>
             <div className="flex-1">
-              <h4 className="font-semibold text-yellow-900 mb-1">
-                Symptom Check: {typedValue.symptom}
-              </h4>
-              <p className="text-yellow-800">{typedValue.what_to_look_for}</p>
+              <h4 className="font-semibold text-warn mb-1">Symptom Check: {typedValue.symptom}</h4>
+              <p className="text-warn">{typedValue.what_to_look_for}</p>
             </div>
           </div>
         </div>
@@ -124,10 +122,10 @@ function StreamFieldBlockComponent({ block }: { block: DiagnosisBlock }) {
 
     case 'prevention_tip':
       return (
-        <div className="bg-green-50 border-l-4 border-green-500 p-4 mb-4">
+        <div className="bg-leaf/10 border-l-4 border-leaf p-4 mb-4">
           <div className="flex items-start">
             <svg
-              className="w-5 h-5 text-green-500 mt-0.5 mr-3 flex-shrink-0"
+              className="w-5 h-5 text-leaf mt-0.5 mr-3 flex-shrink-0"
               fill="currentColor"
               viewBox="0 0 20 20"
             >
@@ -138,8 +136,8 @@ function StreamFieldBlockComponent({ block }: { block: DiagnosisBlock }) {
               />
             </svg>
             <div className="flex-1">
-              <h4 className="font-semibold text-green-900 mb-1">Prevention Tip</h4>
-              <p className="text-green-800">{block.value}</p>
+              <h4 className="font-semibold text-leaf mb-1">Prevention Tip</h4>
+              <p className="text-leaf">{block.value}</p>
             </div>
           </div>
         </div>
@@ -147,7 +145,7 @@ function StreamFieldBlockComponent({ block }: { block: DiagnosisBlock }) {
 
     case 'list_block':
       return (
-        <ul className="list-disc list-inside space-y-2 mb-4 text-gray-700">
+        <ul className="list-disc list-inside space-y-2 mb-4 text-ink-2">
           {block.value.items?.map((item, index) => (
             <li key={index} className="ml-4">
               {item}
@@ -166,7 +164,7 @@ function StreamFieldBlockComponent({ block }: { block: DiagnosisBlock }) {
             className="rounded-lg w-full max-w-2xl mx-auto"
           />
           {typedValue.caption && (
-            <p className="text-sm text-gray-600 text-center mt-2 italic">{typedValue.caption}</p>
+            <p className="text-sm text-ink-2 text-center mt-2 italic">{typedValue.caption}</p>
           )}
         </div>
       );
@@ -360,11 +358,11 @@ export default function DiagnosisDetailPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 py-8">
+      <div className="min-h-screen bg-surface py-8">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-green-500 border-t-transparent"></div>
-            <p className="mt-4 text-gray-600">Loading diagnosis details...</p>
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-primary border-t-transparent"></div>
+            <p className="mt-4 text-ink-2">Loading diagnosis details...</p>
           </div>
         </div>
       </div>
@@ -374,11 +372,11 @@ export default function DiagnosisDetailPage() {
   // Error state
   if (error || !card) {
     return (
-      <div className="min-h-screen bg-gray-50 py-8">
+      <div className="min-h-screen bg-surface py-8">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+          <div className="bg-error/10 border border-error/30 rounded-lg p-6 text-center">
             <svg
-              className="w-12 h-12 text-red-500 mx-auto mb-4"
+              className="w-12 h-12 text-error mx-auto mb-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -390,18 +388,18 @@ export default function DiagnosisDetailPage() {
                 d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            <h3 className="text-lg font-semibold text-red-900 mb-2">Failed to Load Diagnosis</h3>
-            <p className="text-red-700 mb-4">{error || 'Diagnosis card not found'}</p>
+            <h3 className="text-lg font-semibold text-error mb-2">Failed to Load Diagnosis</h3>
+            <p className="text-error mb-4">{error || 'Diagnosis card not found'}</p>
             <div className="flex items-center justify-center gap-4">
               <button
                 onClick={loadCard}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                className="px-4 py-2 bg-error text-white rounded-md hover:bg-error/90 transition-colors"
               >
                 Try Again
               </button>
               <Link
                 to="/diagnosis"
-                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 border border-line-2 rounded-md text-ink-2 hover:bg-surface transition-colors"
               >
                 Back to List
               </Link>
@@ -413,13 +411,13 @@ export default function DiagnosisDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-surface py-8">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Breadcrumb */}
         <nav className="mb-6 text-sm">
-          <ol className="flex items-center space-x-2 text-gray-600">
+          <ol className="flex items-center space-x-2 text-ink-2">
             <li>
-              <Link to="/diagnosis" className="hover:text-green-600">
+              <Link to="/diagnosis" className="hover:text-primary">
                 My Diagnoses
               </Link>
             </li>
@@ -431,23 +429,23 @@ export default function DiagnosisDetailPage() {
                   clipRule="evenodd"
                 />
               </svg>
-              <span className="text-gray-900">{card.display_name}</span>
+              <span className="text-ink">{card.display_name}</span>
             </li>
           </ol>
         </nav>
 
         {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <div className="bg-surface-2 rounded-lg shadow-sm border border-line p-6 mb-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">{card.display_name}</h1>
+              <h1 className="text-3xl font-bold text-ink mb-2">{card.display_name}</h1>
               {card.plant_scientific_name && card.plant_scientific_name !== card.display_name && (
-                <p className="text-lg text-gray-500 italic mb-4">{card.plant_scientific_name}</p>
+                <p className="text-lg text-ink-3 italic mb-4">{card.plant_scientific_name}</p>
               )}
 
               {/* Disease Information */}
               <div className="flex items-center gap-2 flex-wrap mb-4">
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/10">
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-error/10 text-error ring-1 ring-inset ring-error/30">
                   {card.disease_name}
                 </span>
                 <span
@@ -456,17 +454,17 @@ export default function DiagnosisDetailPage() {
                   {card.severity_display}
                 </span>
                 {card.disease_type_display && (
-                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700">
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-surface-3 text-ink-2">
                     {card.disease_type_display}
                   </span>
                 )}
-                <span className="text-sm text-gray-600">
+                <span className="text-sm text-ink-2">
                   {Math.round(card.confidence_score * 100)}% confidence
                 </span>
               </div>
 
               {/* Metadata */}
-              <div className="text-sm text-gray-600 space-y-1">
+              <div className="text-sm text-ink-2 space-y-1">
                 <p>Saved on {formatDate(card.saved_at)}</p>
               </div>
             </div>
@@ -475,11 +473,11 @@ export default function DiagnosisDetailPage() {
             <div className="flex items-start gap-2">
               <button
                 onClick={handleToggleFavorite}
-                className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                className="p-2 rounded-full hover:bg-surface-3 transition-colors"
                 aria-label={card.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
               >
                 <svg
-                  className={`w-6 h-6 ${card.is_favorite ? 'text-yellow-400 fill-current' : 'text-gray-400'}`}
+                  className={`w-6 h-6 ${card.is_favorite ? 'text-tertiary fill-current' : 'text-ink-3'}`}
                   fill={card.is_favorite ? 'currentColor' : 'none'}
                   stroke="currentColor"
                   strokeWidth="2"
@@ -494,7 +492,7 @@ export default function DiagnosisDetailPage() {
               </button>
               <button
                 onClick={handleDelete}
-                className="p-2 rounded-full text-red-600 hover:bg-red-50 transition-colors"
+                className="p-2 rounded-full text-error hover:bg-error/10 transition-colors"
                 aria-label="Delete diagnosis"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -511,20 +509,20 @@ export default function DiagnosisDetailPage() {
         </div>
 
         {/* Treatment Status */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Treatment Status</h2>
+        <div className="bg-surface-2 rounded-lg shadow-sm border border-line p-6 mb-6">
+          <h2 className="text-xl font-semibold text-ink mb-4">Treatment Status</h2>
 
           <div className="space-y-4">
             {/* Current Status */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Current Status</label>
+              <label className="block text-sm font-medium text-ink-2 mb-2">Current Status</label>
               <select
                 value={card.treatment_status}
                 onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                   handleStatusUpdate(e.target.value as TreatmentStatus)
                 }
                 disabled={isUpdatingStatus}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:opacity-50"
+                className="w-full px-4 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary disabled:opacity-50"
               >
                 <option value="not_started">Not Started</option>
                 <option value="in_progress">In Progress</option>
@@ -536,15 +534,15 @@ export default function DiagnosisDetailPage() {
 
             {/* Plant Recovery */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Plant Recovery</label>
+              <label className="block text-sm font-medium text-ink-2 mb-2">Plant Recovery</label>
               <button
                 onClick={handleRecoveryToggle}
                 className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
                   card.plant_recovered === true
-                    ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                    ? 'bg-primary/10 text-primary hover:bg-primary/20'
                     : card.plant_recovered === false
-                      ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      ? 'bg-surface-2 text-ink-2 hover:bg-surface-3'
+                      : 'bg-surface-2 text-ink-2 hover:bg-surface-3'
                 }`}
               >
                 {card.plant_recovered === true ? (
@@ -587,8 +585,8 @@ export default function DiagnosisDetailPage() {
 
             {/* Active Reminders Count */}
             {reminders.length > 0 && (
-              <div className="pt-4 border-t border-gray-200">
-                <p className="text-sm text-gray-600">
+              <div className="pt-4 border-t border-line">
+                <p className="text-sm text-ink-2">
                   {reminders.length} active {reminders.length === 1 ? 'reminder' : 'reminders'}
                 </p>
               </div>
@@ -597,8 +595,8 @@ export default function DiagnosisDetailPage() {
         </div>
 
         {/* Care Instructions */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6">Care Instructions</h2>
+        <div className="bg-surface-2 rounded-lg shadow-sm border border-line p-6 mb-6">
+          <h2 className="text-xl font-semibold text-ink mb-6">Care Instructions</h2>
 
           {card.care_instructions && card.care_instructions.length > 0 ? (
             <div className="prose prose-green max-w-none">
@@ -607,20 +605,18 @@ export default function DiagnosisDetailPage() {
               ))}
             </div>
           ) : (
-            <p className="text-gray-500 italic">
-              No care instructions available for this diagnosis.
-            </p>
+            <p className="text-ink-3 italic">No care instructions available for this diagnosis.</p>
           )}
         </div>
 
         {/* Personal Notes */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <div className="bg-surface-2 rounded-lg shadow-sm border border-line p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">Personal Notes</h2>
+            <h2 className="text-xl font-semibold text-ink">Personal Notes</h2>
             {!isEditingNotes && (
               <button
                 onClick={() => setIsEditingNotes(true)}
-                className="text-sm text-green-600 hover:text-green-700 font-medium"
+                className="text-sm text-primary hover:text-primary/80 font-medium"
               >
                 Edit
               </button>
@@ -634,13 +630,13 @@ export default function DiagnosisDetailPage() {
                 onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setEditedNotes(e.target.value)}
                 rows={6}
                 placeholder="Add your observations, progress notes, or reminders..."
-                className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+                className="w-full px-4 py-3 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
               />
               <div className="flex items-center gap-2 mt-4">
                 <button
                   onClick={handleSaveNotes}
                   disabled={isSavingNotes}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-clay text-on-clay rounded-md hover:bg-clay/90 transition-colors disabled:opacity-50"
                 >
                   {isSavingNotes ? 'Saving...' : 'Save Notes'}
                 </button>
@@ -649,7 +645,7 @@ export default function DiagnosisDetailPage() {
                     setIsEditingNotes(false);
                     setEditedNotes(card.personal_notes || '');
                   }}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors"
+                  className="px-4 py-2 border border-line-2 rounded-md text-ink-2 hover:bg-surface transition-colors"
                 >
                   Cancel
                 </button>
@@ -658,9 +654,9 @@ export default function DiagnosisDetailPage() {
           ) : (
             <div>
               {card.personal_notes ? (
-                <p className="text-gray-700 whitespace-pre-wrap">{card.personal_notes}</p>
+                <p className="text-ink-2 whitespace-pre-wrap">{card.personal_notes}</p>
               ) : (
-                <p className="text-gray-500 italic">
+                <p className="text-ink-3 italic">
                   No personal notes yet. Click "Edit" to add your observations.
                 </p>
               )}

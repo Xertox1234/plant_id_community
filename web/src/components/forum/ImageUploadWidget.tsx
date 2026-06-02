@@ -338,7 +338,7 @@ export default function ImageUploadWidget({
       <div
         className={`
           border-2 border-dashed rounded-lg p-6 text-center transition-colors
-          ${isDragging ? 'border-green-500 bg-green-50 dark:bg-green-900/20' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'}
+          ${isDragging ? 'border-primary bg-primary/10' : 'border-line-2 hover:border-line'}
           ${isUploadDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
         `}
         onDragOver={handleDragOver}
@@ -369,13 +369,13 @@ export default function ImageUploadWidget({
 
         {uploading ? (
           <div className="py-4">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-green-600" />
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">Uploading...</p>
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+            <p className="mt-2 text-sm text-ink-2">Uploading...</p>
           </div>
         ) : (
           <>
             <svg
-              className="mx-auto h-12 w-12 text-gray-400"
+              className="mx-auto h-12 w-12 text-ink-3"
               stroke="currentColor"
               fill="none"
               viewBox="0 0 48 48"
@@ -388,10 +388,10 @@ export default function ImageUploadWidget({
                 strokeLinejoin="round"
               />
             </svg>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-              <span className="font-semibold text-green-600">Click to upload</span> or drag and drop
+            <p className="mt-2 text-sm text-ink-2">
+              <span className="font-semibold text-primary">Click to upload</span> or drag and drop
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-xs text-ink-3 mt-1">
               PNG, JPG, GIF, WEBP up to {MAX_FILE_SIZE_MB}MB ({attachments.length}/{MAX_IMAGES}{' '}
               images)
             </p>
@@ -401,22 +401,22 @@ export default function ImageUploadWidget({
 
       {attachments.length >= MAX_IMAGES && !error && (
         <div
-          className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3"
+          className="bg-warn/10 border border-warn/30 rounded-lg p-3"
           role="status"
           aria-live="polite"
         >
-          <p className="text-sm text-amber-800 dark:text-amber-300">{MAX_IMAGES_ERROR}</p>
+          <p className="text-sm text-warn">{MAX_IMAGES_ERROR}</p>
         </div>
       )}
 
       {/* Error Message */}
       {error && (
         <div
-          className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3"
+          className="bg-error/10 border border-error/30 rounded-lg p-3"
           role="alert"
           aria-live="assertive"
         >
-          <p className="text-sm text-red-800 dark:text-red-300">{error}</p>
+          <p className="text-sm text-error">{error}</p>
         </div>
       )}
 
@@ -430,7 +430,7 @@ export default function ImageUploadWidget({
           {orderedAttachments.map((attachment, index) => (
             <div
               key={attachment.id}
-              className={`relative group rounded-lg overflow-hidden border ${dragOverAttachmentId === attachment.id ? 'border-green-500 ring-2 ring-green-200' : 'border-gray-200 dark:border-gray-700'}`}
+              className={`relative group rounded-lg overflow-hidden border ${dragOverAttachmentId === attachment.id ? 'border-primary ring-2 ring-primary/20' : 'border-line'}`}
               role="listitem"
               draggable={!reordering}
               onDragStart={(e) => {
@@ -467,7 +467,7 @@ export default function ImageUploadWidget({
                   <Button
                     onClick={() => moveAttachment(index, -1)}
                     variant="secondary"
-                    className="min-h-11 min-w-11 inline-flex items-center justify-center bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-50"
+                    className="min-h-11 min-w-11 inline-flex items-center justify-center bg-surface-2 text-ink hover:bg-surface-3 disabled:opacity-50"
                     aria-label="Move image left"
                     disabled={index === 0 || reordering}
                   >
@@ -476,7 +476,7 @@ export default function ImageUploadWidget({
                   <Button
                     onClick={() => moveAttachment(index, 1)}
                     variant="secondary"
-                    className="min-h-11 min-w-11 inline-flex items-center justify-center bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-50"
+                    className="min-h-11 min-w-11 inline-flex items-center justify-center bg-surface-2 text-ink hover:bg-surface-3 disabled:opacity-50"
                     aria-label="Move image right"
                     disabled={index === orderedAttachments.length - 1 || reordering}
                   >
@@ -485,7 +485,7 @@ export default function ImageUploadWidget({
                   <Button
                     onClick={() => handleDelete(attachment.id)}
                     variant="secondary"
-                    className="min-h-11 inline-flex items-center justify-center bg-red-600 hover:bg-red-700 text-white"
+                    className="min-h-11 inline-flex items-center justify-center bg-error hover:bg-error/80 text-white"
                     aria-label="Delete image"
                     disabled={reordering}
                   >
@@ -499,7 +499,7 @@ export default function ImageUploadWidget({
       )}
 
       {reordering && (
-        <p className="text-sm text-gray-600 dark:text-gray-400" role="status" aria-live="polite">
+        <p className="text-sm text-ink-2" role="status" aria-live="polite">
           Saving image order...
         </p>
       )}

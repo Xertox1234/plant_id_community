@@ -38,8 +38,8 @@ function ThreadCard({ thread, compact = false }: ThreadCardProps) {
   return (
     <div
       className={`
-      bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-shadow
-      ${thread.is_pinned ? 'border-l-4 border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20' : ''}
+      bg-surface-2 rounded-lg shadow-md hover:shadow-lg transition-shadow
+      ${thread.is_pinned ? 'border-l-4 border-tertiary bg-tertiary/10' : ''}
       ${thread.is_locked ? 'opacity-75' : ''}
       ${compact ? 'p-3' : 'p-6'}
     `}
@@ -48,12 +48,12 @@ function ThreadCard({ thread, compact = false }: ThreadCardProps) {
         {/* Badges */}
         <div className="flex gap-2 mb-2">
           {thread.is_pinned && (
-            <span className="px-2 py-1 bg-yellow-200 dark:bg-yellow-900/30 text-yellow-900 dark:text-yellow-300 text-xs font-semibold rounded">
+            <span className="px-2 py-1 bg-tertiary/20 text-tertiary text-xs font-semibold rounded">
               📌 Pinned
             </span>
           )}
           {thread.is_locked && (
-            <span className="px-2 py-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 text-xs font-semibold rounded">
+            <span className="px-2 py-1 bg-surface-3 text-ink-2 text-xs font-semibold rounded">
               🔒 Locked
             </span>
           )}
@@ -62,7 +62,7 @@ function ThreadCard({ thread, compact = false }: ThreadCardProps) {
         {/* Thread Title */}
         <h3
           className={`
-          font-bold text-gray-900 dark:text-gray-100 hover:text-green-600 transition-colors
+          font-bold text-ink hover:text-primary transition-colors
           ${compact ? 'text-lg mb-1' : 'text-xl mb-2'}
         `}
         >
@@ -71,13 +71,13 @@ function ThreadCard({ thread, compact = false }: ThreadCardProps) {
 
         {/* Excerpt (not in compact mode) */}
         {!compact && thread.excerpt && (
-          <p className="text-gray-600 dark:text-gray-400 mb-4 line-clamp-2">{thread.excerpt}</p>
+          <p className="text-ink-2 mb-4 line-clamp-2">{thread.excerpt}</p>
         )}
 
         {/* Metadata */}
-        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
+        <div className="flex items-center gap-2 text-sm text-ink-3 flex-wrap">
           {/* Author */}
-          <span className="font-medium text-gray-700 dark:text-gray-300">
+          <span className="font-medium text-ink-2">
             {thread.author.display_name || thread.author.username}
           </span>
 

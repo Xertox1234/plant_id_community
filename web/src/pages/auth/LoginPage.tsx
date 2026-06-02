@@ -137,21 +137,21 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-gray-50">
+    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-surface">
       <div className="w-full max-w-md min-w-[280px]">
         {/* Header */}
         <div className="text-center mb-8 space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Welcome back</h1>
-          <p className="text-sm sm:text-base text-gray-600">Sign in to your PlantID account</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-ink">Welcome back</h1>
+          <p className="text-sm sm:text-base text-ink-3">Sign in to your PlantID account</p>
         </div>
 
         {/* Login Form */}
-        <div className="bg-white shadow-sm border border-gray-200 rounded-lg p-8">
+        <div className="bg-surface-2 shadow-sm border border-line rounded-lg p-8">
           <form onSubmit={handleSubmit} className="space-y-6" noValidate>
             {/* Server Error */}
             {serverError && (
               <div
-                className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
+                className="p-4 bg-error/10 border border-error rounded-lg text-error text-sm"
                 role="alert"
               >
                 {serverError}
@@ -201,10 +201,10 @@ export default function LoginPage() {
 
           {/* Signup Link */}
           <div className="mt-6 text-center text-sm">
-            <span className="text-gray-600">Don't have an account? </span>
+            <span className="text-ink-3">Don't have an account? </span>
             <Link
               to="/signup"
-              className="font-medium text-green-600 hover:text-green-700 transition-colors"
+              className="font-medium text-primary hover:text-primary/80 transition-colors"
             >
               Sign up
             </Link>
@@ -215,7 +215,7 @@ export default function LoginPage() {
         <div className="mt-4 text-center">
           <button
             type="button"
-            className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+            className="text-sm text-ink-3 hover:text-ink transition-colors"
             disabled
             aria-disabled="true"
           >

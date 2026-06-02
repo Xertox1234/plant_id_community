@@ -1,70 +1,152 @@
 @import 'tailwindcss';
 
-/**
- * PlantID Design System
- *
- * Tailwind 4 custom theme tokens for consistent design across the application.
- * Uses @theme directive to define CSS custom properties.
- */
+@font-face { font-family:"Bricolage Grotesque"; src:url("/fonts/BricolageGrotesque-SemiBold.woff2") format("woff2"); font-weight:600; font-style:normal; font-display:swap; }
+@font-face { font-family:"Geist"; src:url("/fonts/Geist-Regular.woff2")  format("woff2"); font-weight:400; font-style:normal; font-display:swap; }
+@font-face { font-family:"Geist"; src:url("/fonts/Geist-Medium.woff2")   format("woff2"); font-weight:500; font-style:normal; font-display:swap; }
+@font-face { font-family:"Geist"; src:url("/fonts/Geist-SemiBold.woff2") format("woff2"); font-weight:600; font-style:normal; font-display:swap; }
+@font-face { font-family:"Geist Mono"; src:url("/fonts/GeistMono-Regular.woff2") format("woff2"); font-weight:400; font-style:normal; font-display:swap; }
 
+/* ───────── Green Thumb semantic vars · :root = loam · light · cozy ───────── */
+:root {
+  --gt-surface:#F6F0E2; --gt-surface-2:#ECE3CC; --gt-surface-3:#DDD0AE;
+  --gt-ink:#1F1A12; --gt-ink-2:#4A3F2C; --gt-ink-3:#7C6E55;
+  --gt-line:#D4C5A0; --gt-line-2:#BCA97E;
+  --gt-primary:#4A7034; --gt-on-primary:#F6F0E2;
+  --gt-secondary:#97B86A; --gt-tertiary:#E0B445;
+  --gt-clay:#C9542A; --gt-on-clay:#FFF8EA;
+  --gt-leaf:#C2D680; --gt-berry:#C45577; --gt-sky:#6FA0AA;
+  --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
+  --gt-pad-card:16px; --gt-pad-screen:16px; --gt-gap:12px;
+  --gt-shadow-1:0 1px 0 rgba(27,34,24,.04), 0 2px 6px rgba(27,34,24,.05);
+  --gt-shadow-2:0 2px 0 rgba(27,34,24,.05), 0 8px 22px rgba(27,34,24,.08);
+  --gt-shadow-3:0 4px 0 rgba(27,34,24,.06), 0 18px 40px rgba(27,34,24,.14);
+}
+
+/* ───────── palette LIGHT blocks (forest is dark-only: this is its only set) ───────── */
+[data-palette="garden"] {
+  --gt-surface:#F4F1E4; --gt-surface-2:#ECE7D2; --gt-surface-3:#DFD9BD;
+  --gt-ink:#102015; --gt-ink-2:#2E4233; --gt-ink-3:#5C6E5A;
+  --gt-line:#D2CCAE; --gt-line-2:#B8B391;
+  --gt-primary:#2F6B3A; --gt-on-primary:#F4F1E4;
+  --gt-secondary:#7FA66B; --gt-tertiary:#E5B84B;
+  --gt-clay:#D86B2C; --gt-on-clay:#FFF8EA;
+  --gt-leaf:#A8CC6E; --gt-berry:#B8466A; --gt-sky:#6FA0AA;
+  --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
+}
+[data-palette="forest"] {
+  --gt-surface:#0F1A12; --gt-surface-2:#16241A; --gt-surface-3:#1F3024;
+  --gt-ink:#E8F0D8; --gt-ink-2:#C2D2AC; --gt-ink-3:#87987C;
+  --gt-line:#2A3A2F; --gt-line-2:#3D5142;
+  --gt-primary:#B8DC7C; --gt-on-primary:#0F1A12;
+  --gt-secondary:#A8CC6E; --gt-tertiary:#F0CC68;
+  --gt-clay:#F0935A; --gt-on-clay:#0F1A12;
+  --gt-leaf:#C8E198; --gt-berry:#E090A8; --gt-sky:#94BFC8;
+  --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
+}
+[data-palette="heritage"] {
+  --gt-surface:#F0EBDB; --gt-surface-2:#E4DBC2; --gt-surface-3:#D3C9AC;
+  --gt-ink:#1A1F10; --gt-ink-2:#3A4128; --gt-ink-3:#756E50;
+  --gt-line:#CFC4A2; --gt-line-2:#B8AC85;
+  --gt-primary:#3D5A22; --gt-on-primary:#F0EBDB;
+  --gt-secondary:#768B4E; --gt-tertiary:#C99B3A;
+  --gt-clay:#B0481E; --gt-on-clay:#FFF8EA;
+  --gt-leaf:#A4B86E; --gt-berry:#B8466A; --gt-sky:#6FA0AA;
+  --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
+}
+
+/* ───────── dark COLOR blocks — palette-qualified (0,2,0) so they outrank the
+   palette base block. A BARE [data-mode="dark"] color block would tie with
+   [data-palette="forest"] and clobber it (cascade bug). Forest needs none. ───────── */
+[data-palette="loam"][data-mode="dark"] {
+  --gt-surface:#12100A; --gt-surface-2:#1C1810; --gt-surface-3:#272218;
+  --gt-ink:#F2EBD8; --gt-ink-2:#D4C8A4; --gt-ink-3:#8A7E60;
+  --gt-line:#2E2818; --gt-line-2:#423A26;
+  --gt-primary:#B8D680; --gt-on-primary:#12100A;
+  --gt-secondary:#A3C26C; --gt-tertiary:#E8C76B;
+  --gt-clay:#E58A52; --gt-on-clay:#12100A;
+  --gt-leaf:#CCE090; --gt-berry:#D286A2; --gt-sky:#9CC0CA;
+  --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
+}
+[data-palette="garden"][data-mode="dark"],
+[data-palette="heritage"][data-mode="dark"] {   /* heritage dark = garden dark (_gardenDark) */
+  --gt-surface:#0E140F; --gt-surface-2:#161E18; --gt-surface-3:#1F2A21;
+  --gt-ink:#EEF4E2; --gt-ink-2:#C8D5B8; --gt-ink-3:#8A9A7E;
+  --gt-line:#2A3628; --gt-line-2:#3A4A37;
+  --gt-primary:#A8CC6E; --gt-on-primary:#14180F;
+  --gt-secondary:#9BBE82; --gt-tertiary:#E8C76B;
+  --gt-clay:#E58A52; --gt-on-clay:#14180F;
+  --gt-leaf:#BEDC8C; --gt-berry:#D286A2; --gt-sky:#9CC0CA;
+  --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
+}
+
+/* dark SHADOWS — palette-independent → one bare block, ONLY shadow vars (no colors) */
+[data-mode="dark"] {
+  --gt-shadow-1:0 1px 0 rgba(0,0,0,.04), 0 2px 6px rgba(0,0,0,.05);
+  --gt-shadow-2:0 2px 0 rgba(0,0,0,.05), 0 8px 22px rgba(0,0,0,.08);
+  --gt-shadow-3:0 4px 0 rgba(0,0,0,.06), 0 18px 40px rgba(0,0,0,.14);
+}
+
+/* ───────── density blocks (cozy is the :root default) ───────── */
+[data-density="comfortable"] { --gt-pad-card:18px; --gt-pad-screen:18px; --gt-gap:14px; }
+[data-density="compact"]     { --gt-pad-card:12px; --gt-pad-screen:14px; --gt-gap:10px; }
+
+/* ───────── register tokens → utilities resolve the var AT THE ELEMENT ───────── */
+@theme inline {
+  --color-surface: var(--gt-surface);
+  --color-surface-2: var(--gt-surface-2);
+  --color-surface-3: var(--gt-surface-3);
+  --color-ink: var(--gt-ink);
+  --color-ink-2: var(--gt-ink-2);
+  --color-ink-3: var(--gt-ink-3);
+  --color-line: var(--gt-line);
+  --color-line-2: var(--gt-line-2);
+  --color-primary: var(--gt-primary);
+  --color-on-primary: var(--gt-on-primary);
+  --color-secondary: var(--gt-secondary);
+  --color-tertiary: var(--gt-tertiary);
+  --color-clay: var(--gt-clay);
+  --color-on-clay: var(--gt-on-clay);
+  --color-leaf: var(--gt-leaf);
+  --color-berry: var(--gt-berry);
+  --color-sky: var(--gt-sky);
+  --color-ok: var(--gt-ok);
+  --color-warn: var(--gt-warn);
+  --color-error: var(--gt-error);
+  --spacing-card: var(--gt-pad-card);
+  --spacing-screen: var(--gt-pad-screen);
+  --spacing-gapy: var(--gt-gap);
+  --shadow-1: var(--gt-shadow-1);
+  --shadow-2: var(--gt-shadow-2);
+  --shadow-3: var(--gt-shadow-3);
+  --font-display: "Bricolage Grotesque", Georgia, serif;
+  --font-sans: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+}
+
+/* ───────── radius scale (constant across palettes → static; overrides Tailwind defaults) ───────── */
 @theme {
-  /* Brand Colors */
-  --color-primary: #16a34a;
-  --color-primary-hover: #15803d;
-  --color-primary-light: #22c55e;
-  --color-secondary: #10b981;
-  --color-secondary-hover: #059669;
-
-  /* Semantic Colors */
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
-  --color-info: #3b82f6;
-
-  /* Spacing Scale */
-  --spacing-xs: 0.25rem; /* 4px */
-  --spacing-sm: 0.5rem; /* 8px */
-  --spacing-md: 1rem; /* 16px */
-  --spacing-lg: 1.5rem; /* 24px */
-  --spacing-xl: 2rem; /* 32px */
-  --spacing-2xl: 3rem; /* 48px */
-
-  /* Border Radius */
-  --radius-sm: 0.375rem; /* 6px */
-  --radius-md: 0.5rem; /* 8px */
-  --radius-lg: 0.75rem; /* 12px */
-  --radius-full: 9999px; /* Full rounded */
-
-  /* Typography Scale */
-  --font-xs: 0.75rem; /* 12px */
-  --font-sm: 0.875rem; /* 14px */
-  --font-base: 1rem; /* 16px */
-  --font-lg: 1.125rem; /* 18px */
-  --font-xl: 1.25rem; /* 20px */
-  --font-2xl: 1.5rem; /* 24px */
-  --font-3xl: 1.875rem; /* 30px */
+  --radius-xs:6px; --radius-sm:10px; --radius-md:16px;
+  --radius-lg:22px; --radius-xl:28px; --radius-pill:999px;
 }
 
-/**
- * Skip Navigation Link
- *
- * Accessibility feature for keyboard/screen reader users.
- * Hidden by default, visible when focused via keyboard.
- */
+/* ───────── dark variant keyed to OUR toggle, not OS prefers-color-scheme ───────── */
+@custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
+
+/* ───────── skip-nav (migrated off the hardcoded green) ───────── */
 .skip-nav {
-  position: absolute;
-  top: -40px;
-  left: 0;
-  background: #16a34a;
-  color: white;
-  padding: 8px 16px;
-  text-decoration: none;
-  font-weight: 600;
-  border-radius: 0 0 8px 0;
-  z-index: 100;
-  transition: top 0.2s;
+  position: absolute; top: -40px; left: 0;
+  background: var(--gt-primary); color: var(--gt-on-primary);
+  padding: 8px 16px; text-decoration: none; font-weight: 600;
+  border-radius: 0 0 8px 0; z-index: 100; transition: top 0.2s;
 }
+.skip-nav:focus { top: 0; }
 
-.skip-nav:focus {
-  top: 0;
+@layer base { body { font-family: var(--font-sans); } }
+
+@layer components {
+  /* Bricolage Grotesque ships no italic face; italic is synthesized intentionally (matches the mobile Green Thumb identity). */
+  .gt-display { font-family: var(--font-display); font-style: italic; font-weight: 600; font-size: 2rem;     line-height: 1.02; letter-spacing: -0.02em; }
+  .gt-h1      { font-family: var(--font-display); font-style: italic; font-weight: 600; font-size: 1.75rem;  line-height: 1.1;  letter-spacing: -0.02em; }
+  .gt-h2      { font-family: var(--font-display); font-style: italic; font-weight: 600; font-size: 1.375rem; line-height: 1.15; letter-spacing: -0.02em; }
+  .gt-h3      { font-family: var(--font-display); font-style: italic; font-weight: 600; font-size: 1.125rem; line-height: 1.2;  letter-spacing: -0.02em; }
 }

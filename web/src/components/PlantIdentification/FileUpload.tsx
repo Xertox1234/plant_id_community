@@ -142,12 +142,12 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 }:
         <div
           className={`relative border-2 border-dashed rounded-xl p-12 transition-colors ${
             dragActive
-              ? 'border-green-500 bg-green-50'
+              ? 'border-primary bg-primary/10'
               : error
-                ? 'border-red-300 bg-red-50'
+                ? 'border-error/30 bg-error/10'
                 : isCompressing
-                  ? 'border-blue-300 bg-blue-50'
-                  : 'border-gray-300 hover:border-green-400'
+                  ? 'border-sky/30 bg-sky/10'
+                  : 'border-line-2 hover:border-primary'
           }`}
           onDragEnter={handleDrag}
           onDragLeave={handleDrag}
@@ -169,22 +169,22 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 }:
           >
             {isCompressing ? (
               <>
-                <div className="w-16 h-16 mb-4 bg-blue-100 rounded-full flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+                <div className="w-16 h-16 mb-4 bg-sky/20 rounded-full flex items-center justify-center">
+                  <Loader2 className="w-8 h-8 text-sky animate-spin" />
                 </div>
-                <p className="text-lg font-medium text-gray-900 mb-2">Compressing image...</p>
-                <p className="text-sm text-gray-600">Optimizing for faster upload</p>
+                <p className="text-lg font-medium text-ink mb-2">Compressing image...</p>
+                <p className="text-sm text-ink-2">Optimizing for faster upload</p>
               </>
             ) : (
               <>
-                <div className="w-16 h-16 mb-4 bg-green-100 rounded-full flex items-center justify-center">
-                  <Upload className="w-8 h-8 text-green-600" />
+                <div className="w-16 h-16 mb-4 bg-primary/10 rounded-full flex items-center justify-center">
+                  <Upload className="w-8 h-8 text-primary" />
                 </div>
 
-                <p className="text-lg font-medium text-gray-900 mb-2">Drop your plant photo here</p>
-                <p className="text-sm text-gray-600 mb-4">or click to browse your files</p>
-                <p className="text-xs text-gray-500">PNG, JPG, WebP up to 10MB</p>
-                <p className="text-xs text-gray-400 mt-2">
+                <p className="text-lg font-medium text-ink mb-2">Drop your plant photo here</p>
+                <p className="text-sm text-ink-2 mb-4">or click to browse your files</p>
+                <p className="text-xs text-ink-3">PNG, JPG, WebP up to 10MB</p>
+                <p className="text-xs text-ink-3 mt-2">
                   Large files auto-compressed for faster upload
                 </p>
               </>
@@ -192,7 +192,7 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 }:
           </label>
 
           {error && (
-            <div className="mt-4 flex items-center justify-center gap-2 text-red-600">
+            <div className="mt-4 flex items-center justify-center gap-2 text-error">
               <AlertCircle className="w-4 h-4" />
               <span className="text-sm">{error}</span>
             </div>
@@ -211,21 +211,21 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 }:
           />
           <button
             onClick={clearPreview}
-            className="absolute top-4 right-4 p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
+            className="absolute top-4 right-4 p-2 bg-surface-2 rounded-full shadow-lg hover:bg-surface-3 transition-colors"
             aria-label="Remove image"
           >
-            <X className="w-5 h-5 text-gray-700" />
+            <X className="w-5 h-5 text-ink-2" />
           </button>
 
           {compressionStats && (
             <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-lg">
               <div className="flex items-center gap-2 text-sm">
-                <CheckCircle2 className="w-4 h-4 text-green-600" />
-                <span className="font-medium text-gray-900">
+                <CheckCircle2 className="w-4 h-4 text-leaf" />
+                <span className="font-medium text-ink">
                   Compressed {compressionStats.reduction}%
                 </span>
               </div>
-              <p className="text-xs text-gray-600 mt-1">
+              <p className="text-xs text-ink-2 mt-1">
                 {formatFileSize(compressionStats.originalSize)} →{' '}
                 {formatFileSize(compressionStats.compressedSize)}
               </p>
