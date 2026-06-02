@@ -104,17 +104,17 @@ export default function IdentifyPage() {
   };
 
   return (
-    <div className="bg-gradient-to-br from-green-50 to-emerald-50">
+    <div className="bg-gradient-to-br from-primary/5 to-secondary/5">
       {/* Page Header */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-surface-2 border-b border-line">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl flex items-center justify-center">
+            <div className="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center">
               <Sparkles className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">AI Plant Identification</h1>
-              <p className="text-gray-600 mt-1">Upload a photo to identify your plant instantly</p>
+              <h1 className="text-3xl font-bold text-ink">AI Plant Identification</h1>
+              <p className="text-ink-2 mt-1">Upload a photo to identify your plant instantly</p>
             </div>
           </div>
         </div>
@@ -122,10 +122,10 @@ export default function IdentifyPage() {
 
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+        <div className="bg-surface-2 rounded-2xl shadow-sm border border-line p-8">
           {/* Upload Section */}
           <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Upload Your Plant Photo</h2>
+            <h2 className="text-xl font-semibold text-ink mb-4">Upload Your Plant Photo</h2>
             <FileUpload onFileSelect={handleFileSelect} />
           </div>
 
@@ -135,7 +135,7 @@ export default function IdentifyPage() {
               <button
                 onClick={handleIdentify}
                 disabled={loading}
-                className="px-8 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                className="px-8 py-3 bg-clay text-on-clay rounded-lg font-medium hover:bg-clay/90 disabled:bg-surface-3 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
               >
                 {loading ? (
                   <>
@@ -154,7 +154,7 @@ export default function IdentifyPage() {
 
           {/* Results Section */}
           {(results || loading || error) && (
-            <div className="mt-8 pt-8 border-t border-gray-200">
+            <div className="mt-8 pt-8 border-t border-line">
               <IdentificationResults
                 results={results}
                 loading={loading}
@@ -165,8 +165,11 @@ export default function IdentifyPage() {
               />
 
               {saveError && (
-                <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4" role="alert">
-                  <p className="text-sm text-red-800">{saveError}</p>
+                <div
+                  className="mt-4 bg-error/10 border border-error/30 rounded-lg p-4"
+                  role="alert"
+                >
+                  <p className="text-sm text-error">{saveError}</p>
                 </div>
               )}
 
@@ -174,7 +177,7 @@ export default function IdentifyPage() {
                 <div className="mt-6 flex justify-center">
                   <button
                     onClick={handleReset}
-                    className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+                    className="px-6 py-2 bg-surface-3 text-ink-2 rounded-lg font-medium hover:bg-surface-3/80 transition-colors"
                   >
                     Identify Another Plant
                   </button>
@@ -209,12 +212,12 @@ export default function IdentifyPage() {
 
 function InfoCard({ title, description, step }: InfoCardProps) {
   return (
-    <div className="bg-white rounded-xl p-6 border border-gray-200">
-      <div className="w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-bold mb-3">
+    <div className="bg-surface-2 rounded-xl p-6 border border-line">
+      <div className="w-8 h-8 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold mb-3">
         {step}
       </div>
-      <h3 className="font-semibold text-gray-900 mb-2">{title}</h3>
-      <p className="text-sm text-gray-600">{description}</p>
+      <h3 className="font-semibold text-ink mb-2">{title}</h3>
+      <p className="text-sm text-ink-2">{description}</p>
     </div>
   );
 }

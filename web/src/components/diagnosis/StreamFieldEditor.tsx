@@ -58,13 +58,13 @@ function BlockEditor({
   switch (block.type) {
     case 'heading':
       return (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div className="bg-surface-2 border border-line rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-gray-100 text-gray-700 font-bold">
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-surface-3 text-ink-2 font-bold">
                 H
               </span>
-              <span className="font-medium text-gray-900">Heading</span>
+              <span className="font-medium text-ink">Heading</span>
             </div>
             <BlockControls
               onDelete={onDelete}
@@ -79,20 +79,20 @@ function BlockEditor({
             value={block.value || ''}
             onChange={(e) => handleValueChange(e.target.value)}
             placeholder="Enter heading text..."
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+            className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
           />
         </div>
       );
 
     case 'paragraph':
       return (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div className="bg-surface-2 border border-line rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-gray-100 text-gray-700 font-bold">
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-surface-3 text-ink-2 font-bold">
                 P
               </span>
-              <span className="font-medium text-gray-900">Paragraph</span>
+              <span className="font-medium text-ink">Paragraph</span>
             </div>
             <BlockControls
               onDelete={onDelete}
@@ -107,7 +107,7 @@ function BlockEditor({
             onChange={(e) => handleValueChange(e.target.value)}
             placeholder="Enter paragraph text..."
             rows={3}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+            className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
           />
         </div>
       );
@@ -115,13 +115,13 @@ function BlockEditor({
     case 'treatment_step': {
       const stepValue = block.value;
       return (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="bg-sky/10 border border-sky/30 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-blue-100 text-blue-700 font-bold">
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-sky/20 text-sky font-bold">
                 ✓
               </span>
-              <span className="font-medium text-blue-900">Treatment Step</span>
+              <span className="font-medium text-sky">Treatment Step</span>
             </div>
             <BlockControls
               onDelete={onDelete}
@@ -133,27 +133,27 @@ function BlockEditor({
           </div>
           <div className="space-y-3">
             <div>
-              <label className="block text-sm font-medium text-blue-900 mb-1">Step Title</label>
+              <label className="block text-sm font-medium text-sky mb-1">Step Title</label>
               <input
                 type="text"
                 value={stepValue?.title || ''}
                 onChange={(e) => handleValueChange({ ...stepValue, title: e.target.value })}
                 placeholder="e.g., Apply fungicide spray"
-                className="w-full px-3 py-2 border border-blue-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-sky/30 rounded-md bg-surface-2 text-ink focus:ring-sky focus:border-sky"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-blue-900 mb-1">Description</label>
+              <label className="block text-sm font-medium text-sky mb-1">Description</label>
               <textarea
                 value={stepValue?.description || ''}
                 onChange={(e) => handleValueChange({ ...stepValue, description: e.target.value })}
                 placeholder="Detailed instructions for this step..."
                 rows={3}
-                className="w-full px-3 py-2 border border-blue-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-sky/30 rounded-md bg-surface-2 text-ink focus:ring-sky focus:border-sky"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-blue-900 mb-1">
+              <label className="block text-sm font-medium text-sky mb-1">
                 Frequency (optional)
               </label>
               <input
@@ -161,7 +161,7 @@ function BlockEditor({
                 value={stepValue?.frequency || ''}
                 onChange={(e) => handleValueChange({ ...stepValue, frequency: e.target.value })}
                 placeholder="e.g., Every 7 days"
-                className="w-full px-3 py-2 border border-blue-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-sky/30 rounded-md bg-surface-2 text-ink focus:ring-sky focus:border-sky"
               />
             </div>
           </div>
@@ -172,13 +172,13 @@ function BlockEditor({
     case 'symptom_check': {
       const symptomValue = block.value;
       return (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <div className="bg-warn/10 border border-warn/30 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-yellow-100 text-yellow-700 font-bold">
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-warn/20 text-warn font-bold">
                 ⚠
               </span>
-              <span className="font-medium text-yellow-900">Symptom Check</span>
+              <span className="font-medium text-warn">Symptom Check</span>
             </div>
             <BlockControls
               onDelete={onDelete}
@@ -190,19 +190,17 @@ function BlockEditor({
           </div>
           <div className="space-y-3">
             <div>
-              <label className="block text-sm font-medium text-yellow-900 mb-1">Symptom Name</label>
+              <label className="block text-sm font-medium text-warn mb-1">Symptom Name</label>
               <input
                 type="text"
                 value={symptomValue?.symptom || ''}
                 onChange={(e) => handleValueChange({ ...symptomValue, symptom: e.target.value })}
                 placeholder="e.g., Leaf discoloration"
-                className="w-full px-3 py-2 border border-yellow-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500"
+                className="w-full px-3 py-2 border border-warn/30 rounded-md bg-surface-2 text-ink focus:ring-warn focus:border-warn"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-yellow-900 mb-1">
-                What to Look For
-              </label>
+              <label className="block text-sm font-medium text-warn mb-1">What to Look For</label>
               <textarea
                 value={symptomValue?.what_to_look_for || ''}
                 onChange={(e) =>
@@ -210,7 +208,7 @@ function BlockEditor({
                 }
                 placeholder="Description of what to monitor..."
                 rows={3}
-                className="w-full px-3 py-2 border border-yellow-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500"
+                className="w-full px-3 py-2 border border-warn/30 rounded-md bg-surface-2 text-ink focus:ring-warn focus:border-warn"
               />
             </div>
           </div>
@@ -220,13 +218,13 @@ function BlockEditor({
 
     case 'prevention_tip':
       return (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+        <div className="bg-leaf/10 border border-leaf/30 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-green-100 text-green-700 font-bold">
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-leaf/20 text-leaf font-bold">
                 ℹ
               </span>
-              <span className="font-medium text-green-900">Prevention Tip</span>
+              <span className="font-medium text-leaf">Prevention Tip</span>
             </div>
             <BlockControls
               onDelete={onDelete}
@@ -241,7 +239,7 @@ function BlockEditor({
             onChange={(e) => handleValueChange(e.target.value)}
             placeholder="Enter prevention tip..."
             rows={3}
-            className="w-full px-3 py-2 border border-green-300 rounded-md focus:ring-green-500 focus:border-green-500"
+            className="w-full px-3 py-2 border border-leaf/30 rounded-md bg-surface-2 text-ink focus:ring-leaf focus:border-leaf"
           />
         </div>
       );
@@ -249,13 +247,13 @@ function BlockEditor({
     case 'list_block': {
       const listValue = block.value;
       return (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div className="bg-surface-2 border border-line rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-gray-100 text-gray-700 font-bold">
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-surface-3 text-ink-2 font-bold">
                 •
               </span>
-              <span className="font-medium text-gray-900">List</span>
+              <span className="font-medium text-ink">List</span>
             </div>
             <BlockControls
               onDelete={onDelete}
@@ -275,8 +273,8 @@ function BlockEditor({
 
     default:
       return (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-700">Unknown block type: {type}</p>
+        <div className="bg-error/10 border border-error/30 rounded-lg p-4">
+          <p className="text-error">Unknown block type: {type}</p>
         </div>
       );
   }
@@ -314,11 +312,11 @@ function ListEditor({ items, onChange }: ListEditorProps) {
             value={item}
             onChange={(e) => updateItem(index, e.target.value)}
             placeholder={`Item ${index + 1}...`}
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+            className="flex-1 px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
           />
           <button
             onClick={() => deleteItem(index)}
-            className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors"
+            className="p-2 text-error hover:bg-error/10 rounded-md transition-colors"
             aria-label="Delete item"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -332,7 +330,7 @@ function ListEditor({ items, onChange }: ListEditorProps) {
           </button>
         </div>
       ))}
-      <button onClick={addItem} className="text-sm text-green-600 hover:text-green-700 font-medium">
+      <button onClick={addItem} className="text-sm text-primary hover:text-primary/80 font-medium">
         + Add Item
       </button>
     </div>
@@ -356,7 +354,7 @@ function BlockControls({ onDelete, onMoveUp, onMoveDown, isFirst, isLast }: Bloc
       <button
         onClick={onMoveUp}
         disabled={isFirst}
-        className="p-1 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        className="p-1 text-ink-2 hover:bg-surface-3 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         aria-label="Move up"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -366,7 +364,7 @@ function BlockControls({ onDelete, onMoveUp, onMoveDown, isFirst, isLast }: Bloc
       <button
         onClick={onMoveDown}
         disabled={isLast}
-        className="p-1 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        className="p-1 text-ink-2 hover:bg-surface-3 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         aria-label="Move down"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -375,7 +373,7 @@ function BlockControls({ onDelete, onMoveUp, onMoveDown, isFirst, isLast }: Bloc
       </button>
       <button
         onClick={onDelete}
-        className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors ml-1"
+        className="p-1 text-error hover:bg-error/10 rounded transition-colors ml-1"
         aria-label="Delete block"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -482,7 +480,7 @@ export default function StreamFieldEditor({
     return (
       <div className="space-y-4">
         {value.length === 0 ? (
-          <p className="text-gray-500 italic">No care instructions</p>
+          <p className="text-ink-3 italic">No care instructions</p>
         ) : (
           value.map((block, index) => (
             <BlockEditor
@@ -521,7 +519,7 @@ export default function StreamFieldEditor({
       {!showBlockMenu ? (
         <button
           onClick={() => setShowBlockMenu(true)}
-          className="w-full py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-green-500 hover:text-green-600 transition-colors flex items-center justify-center gap-2"
+          className="w-full py-3 border-2 border-dashed border-line-2 rounded-lg text-ink-2 hover:border-primary hover:text-primary transition-colors flex items-center justify-center gap-2"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
@@ -529,13 +527,10 @@ export default function StreamFieldEditor({
           Add Block
         </button>
       ) : (
-        <div className="bg-white border border-gray-300 rounded-lg p-4">
+        <div className="bg-surface-2 border border-line-2 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
-            <h4 className="font-medium text-gray-900">Choose block type</h4>
-            <button
-              onClick={() => setShowBlockMenu(false)}
-              className="text-gray-600 hover:text-gray-900"
-            >
+            <h4 className="font-medium text-ink">Choose block type</h4>
+            <button onClick={() => setShowBlockMenu(false)} className="text-ink-2 hover:text-ink">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
@@ -551,12 +546,12 @@ export default function StreamFieldEditor({
               <button
                 key={blockType.value}
                 onClick={() => addBlock(blockType.value)}
-                className="flex items-center gap-3 p-3 border border-gray-200 rounded-md hover:border-green-500 hover:bg-green-50 transition-colors text-left"
+                className="flex items-center gap-3 p-3 border border-line rounded-md hover:border-primary hover:bg-primary/10 transition-colors text-left"
               >
-                <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-gray-100 text-gray-700 font-bold">
+                <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-surface-3 text-ink-2 font-bold">
                   {blockType.icon}
                 </span>
-                <span className="text-sm font-medium text-gray-900">{blockType.label}</span>
+                <span className="text-sm font-medium text-ink">{blockType.label}</span>
               </button>
             ))}
           </div>
@@ -565,7 +560,7 @@ export default function StreamFieldEditor({
 
       {/* Help text */}
       {value.length === 0 && (
-        <p className="text-sm text-gray-500 text-center">
+        <p className="text-sm text-ink-3 text-center">
           Click "Add Block" to start creating care instructions
         </p>
       )}

@@ -14,14 +14,14 @@ export function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
 
   return (
     <div
-      className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-orange-50 px-4"
+      className="min-h-screen flex items-center justify-center bg-gradient-to-br from-error/10 to-warn/10 px-4"
       role="alert"
     >
-      <div className="max-w-md w-full bg-white rounded-lg shadow-xl p-8 text-center">
+      <div className="max-w-md w-full bg-surface-2 rounded-lg shadow-xl p-8 text-center">
         {/* Error Icon */}
         <div className="mb-6">
           <svg
-            className="mx-auto h-16 w-16 text-red-500"
+            className="mx-auto h-16 w-16 text-error"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -37,18 +37,18 @@ export function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
         </div>
 
         {/* Error Message */}
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Oops! Something went wrong</h1>
-        <p className="text-gray-600 mb-6">
+        <h1 className="text-2xl font-bold text-ink mb-2">Oops! Something went wrong</h1>
+        <p className="text-ink-2 mb-6">
           We encountered an unexpected error. Don't worry, your data is safe.
         </p>
 
         {/* Error Details (only in development) */}
         {import.meta.env.DEV && error && (
           <details className="mb-6 text-left">
-            <summary className="cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900 mb-2">
+            <summary className="cursor-pointer text-sm font-medium text-ink-2 hover:text-ink mb-2">
               Technical Details
             </summary>
-            <div className="bg-gray-100 rounded p-4 text-xs text-gray-800 font-mono overflow-auto max-h-40">
+            <div className="bg-surface-3 rounded p-4 text-xs text-ink-2 font-mono overflow-auto max-h-40">
               <p className="font-bold mb-2">{(error as Error).message}</p>
               {(error as Error).stack && (
                 <pre className="whitespace-pre-wrap break-words">{(error as Error).stack}</pre>
@@ -61,14 +61,14 @@ export function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <button
             onClick={resetErrorBoundary}
-            className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md hover:shadow-lg"
+            className="px-6 py-3 bg-clay text-on-clay rounded-lg hover:bg-clay/90 transition-colors font-medium shadow-md hover:shadow-lg"
             aria-label="Try again to recover from the error"
           >
             Try Again
           </button>
           <button
             onClick={handleReload}
-            className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+            className="px-6 py-3 bg-surface-3 text-ink rounded-lg hover:bg-surface-3/80 transition-colors font-medium"
             aria-label="Go to home page"
           >
             Go Home
@@ -76,11 +76,11 @@ export function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
         </div>
 
         {/* Help Text */}
-        <p className="mt-6 text-sm text-gray-500">
+        <p className="mt-6 text-sm text-ink-3">
           If this problem persists, please{' '}
           <a
             href="mailto:support@plantcommunity.com"
-            className="text-green-600 hover:text-green-700 underline"
+            className="text-primary hover:text-primary/80 underline"
           >
             contact support
           </a>

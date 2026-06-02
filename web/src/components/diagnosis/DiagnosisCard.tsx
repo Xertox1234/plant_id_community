@@ -9,13 +9,13 @@ import type { DiagnosisCard as DiagnosisCardType } from '@/types/diagnosis';
  */
 function getStatusColor(status: string): string {
   const colors: Record<string, string> = {
-    not_started: 'bg-gray-100 text-gray-800',
-    in_progress: 'bg-blue-100 text-blue-800',
-    successful: 'bg-green-100 text-green-800',
-    failed: 'bg-red-100 text-red-800',
-    monitoring: 'bg-yellow-100 text-yellow-800',
+    not_started: 'bg-surface-3 text-ink-2',
+    in_progress: 'bg-sky/10 text-sky',
+    successful: 'bg-leaf/10 text-leaf',
+    failed: 'bg-error/10 text-error',
+    monitoring: 'bg-warn/10 text-warn',
   };
-  return colors[status] || 'bg-gray-100 text-gray-800';
+  return colors[status] || 'bg-surface-3 text-ink-2';
 }
 
 /**
@@ -23,12 +23,12 @@ function getStatusColor(status: string): string {
  */
 function getSeverityColor(severity: string): string {
   const colors: Record<string, string> = {
-    mild: 'bg-green-50 text-green-700 ring-green-600/20',
-    moderate: 'bg-yellow-50 text-yellow-700 ring-yellow-600/20',
-    severe: 'bg-orange-50 text-orange-700 ring-orange-600/20',
-    critical: 'bg-red-50 text-red-700 ring-red-600/20',
+    mild: 'bg-leaf/10 text-leaf ring-leaf/20',
+    moderate: 'bg-warn/10 text-warn ring-warn/20',
+    severe: 'bg-tertiary/10 text-tertiary ring-tertiary/20',
+    critical: 'bg-error/10 text-error ring-error/20',
   };
-  return colors[severity] || 'bg-gray-50 text-gray-700 ring-gray-600/20';
+  return colors[severity] || 'bg-surface-2 text-ink-2 ring-line/20';
 }
 
 /**
@@ -112,16 +112,16 @@ export default function DiagnosisCard({
     return (
       <Link
         to={`/diagnosis/${card.uuid}`}
-        className="block p-3 rounded-lg border border-gray-200 hover:border-green-500 hover:shadow-sm transition-all"
+        className="block p-3 rounded-lg border border-line hover:border-primary hover:shadow-sm transition-all"
       >
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <h4 className="font-medium text-gray-900 truncate text-sm">{card.display_name}</h4>
-            <p className="text-xs text-gray-600 truncate mt-0.5">{card.disease_name}</p>
+            <h4 className="font-medium text-ink truncate text-sm">{card.display_name}</h4>
+            <p className="text-xs text-ink-2 truncate mt-0.5">{card.disease_name}</p>
           </div>
           {isFavorite && (
             <svg
-              className="w-4 h-4 text-yellow-400 flex-shrink-0"
+              className="w-4 h-4 text-tertiary flex-shrink-0"
               fill="currentColor"
               viewBox="0 0 20 20"
             >
@@ -142,15 +142,15 @@ export default function DiagnosisCard({
 
   // Full card view
   return (
-    <div className="bg-white rounded-lg border border-gray-200 hover:border-green-500 hover:shadow-md transition-all overflow-hidden">
+    <div className="bg-surface-2 rounded-lg border border-line hover:border-primary hover:shadow-md transition-all overflow-hidden">
       <Link to={`/diagnosis/${card.uuid}`} className="block">
         {/* Header */}
         <div className="p-5 pb-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-lg text-gray-900 truncate">{card.display_name}</h3>
+              <h3 className="font-semibold text-lg text-ink truncate">{card.display_name}</h3>
               {card.plant_scientific_name && card.plant_scientific_name !== card.display_name && (
-                <p className="text-sm text-gray-500 italic truncate mt-0.5">
+                <p className="text-sm text-ink-3 italic truncate mt-0.5">
                   {card.plant_scientific_name}
                 </p>
               )}
@@ -160,11 +160,11 @@ export default function DiagnosisCard({
             <button
               onClick={handleToggleFavorite}
               disabled={isTogglingFavorite}
-              className="flex-shrink-0 p-1.5 rounded-full hover:bg-gray-100 transition-colors disabled:opacity-50"
+              className="flex-shrink-0 p-1.5 rounded-full hover:bg-surface-3 transition-colors disabled:opacity-50"
               aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
             >
               <svg
-                className={`w-5 h-5 ${isFavorite ? 'text-yellow-400 fill-current' : 'text-gray-400'}`}
+                className={`w-5 h-5 ${isFavorite ? 'text-tertiary fill-current' : 'text-ink-3'}`}
                 fill={isFavorite ? 'currentColor' : 'none'}
                 stroke="currentColor"
                 strokeWidth="2"
@@ -182,7 +182,7 @@ export default function DiagnosisCard({
           {/* Disease information */}
           <div className="mt-3">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/10">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-error/10 text-error ring-1 ring-inset ring-error/30">
                 {card.disease_name}
               </span>
               <span
@@ -191,7 +191,7 @@ export default function DiagnosisCard({
                 {card.severity_display}
               </span>
               {card.disease_type_display && (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-surface-3 text-ink-2">
                   {card.disease_type_display}
                 </span>
               )}
@@ -200,7 +200,7 @@ export default function DiagnosisCard({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 bg-gray-50 border-t border-gray-100">
+        <div className="px-5 py-3 bg-surface border-t border-line">
           <div className="flex items-center justify-between gap-4 text-sm">
             <div className="flex items-center gap-4">
               {/* Treatment status */}
@@ -211,20 +211,20 @@ export default function DiagnosisCard({
               </span>
 
               {/* Confidence score */}
-              <span className="text-gray-600">
+              <span className="text-ink-2">
                 {Math.round(card.confidence_score * 100)}% confidence
               </span>
             </div>
 
             {/* Saved date */}
-            <span className="text-gray-500 text-xs">Saved {formatDate(card.saved_at)}</span>
+            <span className="text-ink-3 text-xs">Saved {formatDate(card.saved_at)}</span>
           </div>
 
           {/* Plant recovery indicator */}
           {card.plant_recovered !== null && (
-            <div className="mt-2 pt-2 border-t border-gray-200">
+            <div className="mt-2 pt-2 border-t border-line">
               {card.plant_recovered ? (
-                <span className="inline-flex items-center gap-1.5 text-xs text-green-700">
+                <span className="inline-flex items-center gap-1.5 text-xs text-leaf">
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                     <path
                       fillRule="evenodd"
@@ -235,7 +235,7 @@ export default function DiagnosisCard({
                   Plant recovered
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1.5 text-xs text-gray-600">
+                <span className="inline-flex items-center gap-1.5 text-xs text-ink-2">
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                     <path
                       fillRule="evenodd"
@@ -252,18 +252,18 @@ export default function DiagnosisCard({
       </Link>
 
       {/* Action buttons */}
-      <div className="px-5 py-3 bg-white border-t border-gray-100">
+      <div className="px-5 py-3 bg-surface-2 border-t border-line">
         <div className="flex items-center justify-between gap-2">
           <Link
             to={`/diagnosis/${card.uuid}`}
-            className="flex-1 inline-flex items-center justify-center px-4 py-2 border border-green-600 text-sm font-medium rounded-md text-green-600 bg-white hover:bg-green-50 transition-colors"
+            className="flex-1 inline-flex items-center justify-center px-4 py-2 border border-primary text-sm font-medium rounded-md text-primary bg-surface-2 hover:bg-primary/10 transition-colors"
           >
             View Details
           </Link>
           <button
             onClick={handleDelete}
             disabled={isDeleting}
-            className="px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-600 bg-white hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 border border-error/30 text-sm font-medium rounded-md text-error bg-surface-2 hover:bg-error/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isDeleting ? 'Deleting...' : 'Delete'}
           </button>

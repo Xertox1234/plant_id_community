@@ -117,19 +117,19 @@ function ReminderCard({ reminder, onUpdate, onDelete }: ReminderCardProps) {
     <div
       className={`border rounded-lg p-4 ${
         isOverdue
-          ? 'bg-red-50 border-red-200'
+          ? 'bg-error/10 border-error/30'
           : isSnoozed
-            ? 'bg-yellow-50 border-yellow-200'
-            : 'bg-white border-gray-200'
+            ? 'bg-warn/10 border-warn/30'
+            : 'bg-surface-2 border-line'
       }`}
     >
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex-1">
-          <h4 className="font-semibold text-gray-900 mb-1">{reminder.reminder_title}</h4>
+          <h4 className="font-semibold text-ink mb-1">{reminder.reminder_title}</h4>
           {reminder.reminder_message && (
-            <p className="text-sm text-gray-700 mb-2">{reminder.reminder_message}</p>
+            <p className="text-sm text-ink-2 mb-2">{reminder.reminder_message}</p>
           )}
-          <div className="flex items-center gap-3 text-sm text-gray-600">
+          <div className="flex items-center gap-3 text-sm text-ink-2">
             <span className="inline-flex items-center gap-1">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -141,7 +141,7 @@ function ReminderCard({ reminder, onUpdate, onDelete }: ReminderCardProps) {
               </svg>
               {formatDate(reminder.scheduled_date)}
             </span>
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-surface-3 text-ink-2">
               {reminder.reminder_type_display}
             </span>
           </div>
@@ -150,17 +150,17 @@ function ReminderCard({ reminder, onUpdate, onDelete }: ReminderCardProps) {
         {/* Status Indicators */}
         <div className="flex items-center gap-2">
           {isOverdue && (
-            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-700">
+            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-error/10 text-error">
               Overdue
             </span>
           )}
           {isSnoozed && (
-            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-yellow-100 text-yellow-700">
+            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-warn/10 text-warn">
               Snoozed
             </span>
           )}
           {reminder.sent && (
-            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700">
+            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-sky/10 text-sky">
               Sent
             </span>
           )}
@@ -169,20 +169,20 @@ function ReminderCard({ reminder, onUpdate, onDelete }: ReminderCardProps) {
 
       {/* Actions */}
       {reminder.is_active && !reminder.cancelled && (
-        <div className="flex items-center gap-2 pt-3 border-t border-gray-200">
+        <div className="flex items-center gap-2 pt-3 border-t border-line">
           <div className="flex-1 flex items-center gap-2">
             <button
               onClick={() => handleSnooze(24)}
               disabled={isSnoozing}
-              className="text-sm text-gray-700 hover:text-gray-900 disabled:opacity-50"
+              className="text-sm text-ink-2 hover:text-ink disabled:opacity-50"
             >
               Snooze 1 day
             </button>
-            <span className="text-gray-300">|</span>
+            <span className="text-line-2">|</span>
             <button
               onClick={() => handleSnooze(168)}
               disabled={isSnoozing}
-              className="text-sm text-gray-700 hover:text-gray-900 disabled:opacity-50"
+              className="text-sm text-ink-2 hover:text-ink disabled:opacity-50"
             >
               Snooze 1 week
             </button>
@@ -190,14 +190,14 @@ function ReminderCard({ reminder, onUpdate, onDelete }: ReminderCardProps) {
           <button
             onClick={handleCancel}
             disabled={isCancelling}
-            className="text-sm text-red-600 hover:text-red-700 disabled:opacity-50"
+            className="text-sm text-error hover:text-error/80 disabled:opacity-50"
           >
             {isCancelling ? 'Cancelling...' : 'Cancel'}
           </button>
           <button
             onClick={handleDelete}
             disabled={isDeleting}
-            className="text-sm text-red-600 hover:text-red-700 disabled:opacity-50"
+            className="text-sm text-error hover:text-error/80 disabled:opacity-50"
           >
             {isDeleting ? 'Deleting...' : 'Delete'}
           </button>
@@ -325,11 +325,11 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Reminders ({reminders.length})</h3>
+        <h3 className="text-lg font-semibold text-ink">Reminders ({reminders.length})</h3>
         {!showCreateForm && (
           <button
             onClick={() => setShowCreateForm(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm font-medium"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-clay text-on-clay rounded-md hover:bg-clay/90 transition-colors text-sm font-medium"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -348,14 +348,14 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
       {showCreateForm && (
         <form
           onSubmit={handleCreateReminder}
-          className="bg-white border border-gray-200 rounded-lg p-4 space-y-4"
+          className="bg-surface-2 border border-line rounded-lg p-4 space-y-4"
         >
           <div className="flex items-center justify-between mb-2">
-            <h4 className="font-medium text-gray-900">New Reminder</h4>
+            <h4 className="font-medium text-ink">New Reminder</h4>
             <button
               type="button"
               onClick={() => setShowCreateForm(false)}
-              className="text-gray-600 hover:text-gray-900"
+              className="text-ink-2 hover:text-ink"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -369,7 +369,7 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
           </div>
 
           <div>
-            <label htmlFor="reminder-type" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="reminder-type" className="block text-sm font-medium text-ink-2 mb-1">
               Reminder Type
             </label>
             <select
@@ -378,7 +378,7 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
               onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                 setFormData({ ...formData, reminder_type: e.target.value as ReminderType })
               }
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+              className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
             >
               {REMINDER_TYPES.map((type) => (
                 <option key={type.value} value={type.value}>
@@ -389,10 +389,7 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
           </div>
 
           <div>
-            <label
-              htmlFor="reminder-title"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
+            <label htmlFor="reminder-title" className="block text-sm font-medium text-ink-2 mb-1">
               Title *
             </label>
             <input
@@ -404,15 +401,12 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
               }
               placeholder="e.g., Check for new growth"
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+              className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
             />
           </div>
 
           <div>
-            <label
-              htmlFor="reminder-message"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
+            <label htmlFor="reminder-message" className="block text-sm font-medium text-ink-2 mb-1">
               Message (optional)
             </label>
             <textarea
@@ -423,15 +417,12 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
               }
               placeholder="Additional notes or instructions..."
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+              className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
             />
           </div>
 
           <div>
-            <label
-              htmlFor="scheduled-date"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
+            <label htmlFor="scheduled-date" className="block text-sm font-medium text-ink-2 mb-1">
               Scheduled Date *
             </label>
             <input
@@ -443,7 +434,7 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
               }
               min={getMinDate()}
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+              className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
             />
           </div>
 
@@ -451,14 +442,14 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
             <button
               type="submit"
               disabled={isCreating}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50"
+              className="px-4 py-2 bg-clay text-on-clay rounded-md hover:bg-clay/90 transition-colors disabled:opacity-50"
             >
               {isCreating ? 'Creating...' : 'Create Reminder'}
             </button>
             <button
               type="button"
               onClick={() => setShowCreateForm(false)}
-              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors"
+              className="px-4 py-2 border border-line-2 rounded-md text-ink-2 hover:bg-surface transition-colors"
             >
               Cancel
             </button>
@@ -469,18 +460,18 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
       {/* Loading State */}
       {loading && (
         <div className="text-center py-8">
-          <div className="inline-block animate-spin rounded-full h-6 w-6 border-4 border-green-500 border-t-transparent"></div>
-          <p className="mt-2 text-sm text-gray-600">Loading reminders...</p>
+          <div className="inline-block animate-spin rounded-full h-6 w-6 border-4 border-primary border-t-transparent"></div>
+          <p className="mt-2 text-sm text-ink-2">Loading reminders...</p>
         </div>
       )}
 
       {/* Error State */}
       {error && !loading && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
-          <p className="text-red-700">{error}</p>
+        <div className="bg-error/10 border border-error/30 rounded-lg p-4 text-center">
+          <p className="text-error">{error}</p>
           <button
             onClick={loadReminders}
-            className="mt-2 text-sm text-red-600 hover:text-red-700 font-medium"
+            className="mt-2 text-sm text-error hover:text-error/80 font-medium"
           >
             Try Again
           </button>
@@ -491,9 +482,9 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
       {!loading && !error && (
         <>
           {reminders.length === 0 ? (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
+            <div className="bg-surface border border-line rounded-lg p-8 text-center">
               <svg
-                className="w-12 h-12 text-gray-400 mx-auto mb-3"
+                className="w-12 h-12 text-ink-3 mx-auto mb-3"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -505,8 +496,8 @@ export default function ReminderManager({ diagnosisCardUuid }: ReminderManagerPr
                   d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
                 />
               </svg>
-              <p className="text-gray-600 mb-2">No active reminders</p>
-              <p className="text-sm text-gray-500">
+              <p className="text-ink-2 mb-2">No active reminders</p>
+              <p className="text-sm text-ink-3">
                 Set reminders to track treatment progress and follow-up steps
               </p>
             </div>

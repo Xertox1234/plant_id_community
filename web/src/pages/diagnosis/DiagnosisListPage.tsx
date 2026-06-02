@@ -117,22 +117,22 @@ export default function DiagnosisListPage() {
     sortOrder !== '-saved_at';
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-surface py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">My Diagnosis Cards</h1>
-          <p className="mt-2 text-gray-600">
+          <h1 className="text-3xl font-bold text-ink">My Diagnosis Cards</h1>
+          <p className="mt-2 text-ink-2">
             Manage your saved plant health diagnoses and track treatment progress
           </p>
         </div>
 
         {/* Filters */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <div className="bg-surface-2 rounded-lg shadow-sm border border-line p-6 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Search */}
             <div>
-              <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="search" className="block text-sm font-medium text-ink-2 mb-1">
                 Search
               </label>
               <input
@@ -141,7 +141,7 @@ export default function DiagnosisListPage() {
                 value={searchQuery}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
                 placeholder="Plant or disease name..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
               />
             </div>
 
@@ -149,7 +149,7 @@ export default function DiagnosisListPage() {
             <div>
               <label
                 htmlFor="treatment-status"
-                className="block text-sm font-medium text-gray-700 mb-1"
+                className="block text-sm font-medium text-ink-2 mb-1"
               >
                 Treatment Status
               </label>
@@ -159,7 +159,7 @@ export default function DiagnosisListPage() {
                 onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                   setTreatmentFilter(e.target.value as TreatmentStatus | '')
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
               >
                 <option value="">All Statuses</option>
                 <option value="not_started">Not Started</option>
@@ -172,10 +172,7 @@ export default function DiagnosisListPage() {
 
             {/* Disease Type */}
             <div>
-              <label
-                htmlFor="disease-type"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
+              <label htmlFor="disease-type" className="block text-sm font-medium text-ink-2 mb-1">
                 Disease Type
               </label>
               <select
@@ -184,7 +181,7 @@ export default function DiagnosisListPage() {
                 onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                   setDiseaseTypeFilter(e.target.value as DiseaseType | '')
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
               >
                 <option value="">All Types</option>
                 <option value="fungal">Fungal</option>
@@ -198,14 +195,14 @@ export default function DiagnosisListPage() {
 
             {/* Sort Order */}
             <div>
-              <label htmlFor="sort-order" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="sort-order" className="block text-sm font-medium text-ink-2 mb-1">
                 Sort By
               </label>
               <select
                 id="sort-order"
                 value={sortOrder}
                 onChange={(e: ChangeEvent<HTMLSelectElement>) => setSortOrder(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
+                className="w-full px-3 py-2 border border-line-2 rounded-md bg-surface-2 text-ink focus:ring-primary focus:border-primary"
               >
                 <option value="-saved_at">Newest First</option>
                 <option value="saved_at">Oldest First</option>
@@ -227,14 +224,14 @@ export default function DiagnosisListPage() {
                   onChange={(e: ChangeEvent<HTMLInputElement>) =>
                     setShowFavoritesOnly(e.target.checked)
                   }
-                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                  className="w-4 h-4 text-primary border-line-2 rounded focus:ring-primary"
                 />
-                <span className="text-sm text-gray-700">Favorites Only</span>
+                <span className="text-sm text-ink-2">Favorites Only</span>
               </label>
 
               {/* Active Filters Count */}
               {hasActiveFilters && (
-                <span className="text-sm text-gray-600">
+                <span className="text-sm text-ink-2">
                   {totalCount} {totalCount === 1 ? 'result' : 'results'}
                 </span>
               )}
@@ -244,7 +241,7 @@ export default function DiagnosisListPage() {
             {hasActiveFilters && (
               <button
                 onClick={clearFilters}
-                className="text-sm text-green-600 hover:text-green-700 font-medium"
+                className="text-sm text-primary hover:text-primary/80 font-medium"
               >
                 Clear Filters
               </button>
@@ -255,16 +252,16 @@ export default function DiagnosisListPage() {
         {/* Loading State */}
         {loading && (
           <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-green-500 border-t-transparent"></div>
-            <p className="mt-4 text-gray-600">Loading diagnosis cards...</p>
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-primary border-t-transparent"></div>
+            <p className="mt-4 text-ink-2">Loading diagnosis cards...</p>
           </div>
         )}
 
         {/* Error State */}
         {error && !loading && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+          <div className="bg-error/10 border border-error/30 rounded-lg p-6 text-center">
             <svg
-              className="w-12 h-12 text-red-500 mx-auto mb-4"
+              className="w-12 h-12 text-error mx-auto mb-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -276,13 +273,13 @@ export default function DiagnosisListPage() {
                 d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            <h3 className="text-lg font-semibold text-red-900 mb-2">
+            <h3 className="text-lg font-semibold text-error mb-2">
               Failed to Load Diagnosis Cards
             </h3>
-            <p className="text-red-700 mb-4">{error}</p>
+            <p className="text-error mb-4">{error}</p>
             <button
               onClick={loadCards}
-              className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+              className="inline-flex items-center px-4 py-2 bg-error text-white rounded-md hover:bg-error/90 transition-colors"
             >
               Try Again
             </button>
@@ -291,9 +288,9 @@ export default function DiagnosisListPage() {
 
         {/* Empty State */}
         {!loading && !error && cards.length === 0 && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+          <div className="bg-surface-2 rounded-lg shadow-sm border border-line p-12 text-center">
             <svg
-              className="w-16 h-16 text-gray-400 mx-auto mb-4"
+              className="w-16 h-16 text-ink-3 mx-auto mb-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -305,10 +302,10 @@ export default function DiagnosisListPage() {
                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
               />
             </svg>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            <h3 className="text-lg font-semibold text-ink mb-2">
               {hasActiveFilters ? 'No Matching Diagnosis Cards' : 'No Diagnosis Cards Yet'}
             </h3>
-            <p className="text-gray-600 mb-6">
+            <p className="text-ink-2 mb-6">
               {hasActiveFilters
                 ? 'Try adjusting your filters to see more results'
                 : 'Start diagnosing your plants to save care instructions and track treatment progress'}
@@ -316,14 +313,14 @@ export default function DiagnosisListPage() {
             {hasActiveFilters ? (
               <button
                 onClick={clearFilters}
-                className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                className="inline-flex items-center px-4 py-2 bg-clay text-on-clay rounded-md hover:bg-clay/90 transition-colors"
               >
                 Clear Filters
               </button>
             ) : (
               <Link
                 to="/identify"
-                className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                className="inline-flex items-center px-4 py-2 bg-clay text-on-clay rounded-md hover:bg-clay/90 transition-colors"
               >
                 Diagnose a Plant
               </Link>
@@ -347,8 +344,8 @@ export default function DiagnosisListPage() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between bg-white rounded-lg shadow-sm border border-gray-200 px-6 py-4">
-                <div className="text-sm text-gray-600">
+              <div className="flex items-center justify-between bg-surface-2 rounded-lg shadow-sm border border-line px-6 py-4">
+                <div className="text-sm text-ink-2">
                   Showing page {currentPage} of {totalPages} ({totalCount} total)
                 </div>
 
@@ -357,7 +354,7 @@ export default function DiagnosisListPage() {
                   <button
                     onClick={() => setCurrentPage(currentPage - 1)}
                     disabled={currentPage === 1}
-                    className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2 border border-line-2 rounded-md text-sm font-medium text-ink-2 bg-surface-2 hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     Previous
                   </button>
@@ -382,8 +379,8 @@ export default function DiagnosisListPage() {
                           onClick={() => setCurrentPage(pageNum)}
                           className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
                             currentPage === pageNum
-                              ? 'bg-green-600 text-white'
-                              : 'text-gray-700 hover:bg-gray-100'
+                              ? 'bg-primary text-on-primary'
+                              : 'text-ink-2 hover:bg-surface-3'
                           }`}
                         >
                           {pageNum}
@@ -396,7 +393,7 @@ export default function DiagnosisListPage() {
                   <button
                     onClick={() => setCurrentPage(currentPage + 1)}
                     disabled={currentPage === totalPages}
-                    className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2 border border-line-2 rounded-md text-sm font-medium text-ink-2 bg-surface-2 hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     Next
                   </button>
