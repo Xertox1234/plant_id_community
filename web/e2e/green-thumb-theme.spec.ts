@@ -1,8 +1,8 @@
 // web/e2e/green-thumb-theme.spec.ts
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 // Set theme data-attributes on <html> exactly as ThemeContext will (Task 3).
-async function setTheme(page, attrs: { palette?: string; mode?: string; density?: string }) {
+async function setTheme(page: Page, attrs: { palette?: string; mode?: string; density?: string }) {
   await page.evaluate((a) => {
     const el = document.documentElement;
     if (a.palette) el.dataset.palette = a.palette;
@@ -66,5 +66,12 @@ test.describe('Green Thumb runtime tokens', () => {
     // bg-clay/10 must compile to a partial color-mix of var(--gt-clay):
     expect(bg).not.toBe('rgba(0, 0, 0, 0)'); // modifier ignored → fully transparent
     expect(bg).not.toBe('rgb(201, 84, 42)'); // modifier dropped → solid clay #C9542A
+  });
+
+  test('display headings use Bricolage Grotesque', async ({ page }) => {
+    const family = await page
+      .getByTestId('probe-display')
+      .evaluate((el) => getComputedStyle(el).fontFamily);
+    expect(family).toContain('Bricolage Grotesque');
   });
 });

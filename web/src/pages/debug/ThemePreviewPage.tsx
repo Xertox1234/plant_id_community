@@ -51,6 +51,12 @@ export default function ThemePreviewPage() {
       <div data-testid="probe-alpha" className="bg-clay/10">
         alpha
       </div>
+      <h2 data-testid="probe-display" className="gt-display">
+        Green Thumb
+      </h2>
+      <span data-testid="probe-mono" className="font-mono italic">
+        Monstera deliciosa
+      </span>
     </div>
   );
 }
