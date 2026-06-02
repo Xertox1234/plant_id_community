@@ -45,6 +45,12 @@ exploitable today; batched for a low-priority sweep.
   serializer-keyed cache.
 - **L13 — `plant_data_stats` uncached** (`apps/blog/api_views.py:306-332`), 5
   COUNTs, staff-only/low-traffic. Collapse to one `aggregate()`.
+- **C3 (Phase-6 discovery) — harvest stats drop lb/bunch quantities.**
+  `apps/garden_calendar/api/views.py` `statistics` aggregates per-unit on keys
+  `"lbs"`/`"bunches"`, but the model's `HARVEST_UNITS` are `"lb"`/`"bunch"` — so
+  harvests in those units never appear in `total_quantity_by_unit`. Pre-existing
+  data bug (the M10 refactor preserved it). Fix the keys to match the constants
+  (or map), and extend `test_audit_aggregates.py` to assert an `lb` harvest shows up.
 - **M5-residual — `oauth_views.py` Retry-After.** `apps/users/oauth_views.py:25`
   still imports raw `django_ratelimit.decorators.ratelimit` (the M5 fix landed in
   `plant_identification/views.py` but this file was deferred). Swap to
