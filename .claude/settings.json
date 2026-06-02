@@ -6,13 +6,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/inject-patterns.sh",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && bash .claude/hooks/inject-patterns.sh",
             "timeout": 10,
             "statusMessage": "Loading binding rules for this file..."
           },
           {
             "type": "command",
-            "command": "bash .claude/hooks/guard-worktree-isolation.sh",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && bash .claude/hooks/guard-worktree-isolation.sh",
             "timeout": 10,
             "statusMessage": "Checking worktree isolation..."
           }
@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/kimi-review.sh",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && bash .claude/hooks/kimi-review.sh",
             "timeout": 180,
             "statusMessage": "Running kimi-review on staged changes..."
           }
