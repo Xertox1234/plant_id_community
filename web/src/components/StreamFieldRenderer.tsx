@@ -191,7 +191,7 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
         buttonStyle === 'secondary'
           ? 'inline-block px-8 py-3 bg-surface-2 text-ink-2 font-semibold rounded-lg hover:bg-surface-3 transition-colors shadow-md'
           : buttonStyle === 'outline'
-            ? 'inline-block px-8 py-3 bg-transparent border-2 border-white text-white font-semibold rounded-lg hover:bg-white hover:text-primary transition-colors shadow-md'
+            ? 'inline-block px-8 py-3 bg-transparent border-2 border-on-primary text-on-primary font-semibold rounded-lg hover:bg-on-primary hover:text-primary transition-colors shadow-md'
             : 'inline-block px-8 py-3 bg-surface-2 text-primary font-semibold rounded-lg hover:bg-surface-3 transition-colors shadow-md';
 
       return (

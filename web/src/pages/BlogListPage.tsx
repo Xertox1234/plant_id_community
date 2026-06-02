@@ -165,7 +165,7 @@ export default function BlogListPage() {
           {/* Main Content */}
           <div className="lg:col-span-3">
             {/* Search and Filters */}
-            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div className="bg-surface-2 rounded-lg shadow-md p-6 mb-6">
               {/* Search Bar */}
               <form onSubmit={handleSearch} className="mb-4">
                 <div className="flex gap-2">
@@ -253,7 +253,7 @@ export default function BlogListPage() {
             {!loading && !error && (
               <>
                 {posts.length === 0 ? (
-                  <div className="bg-white rounded-lg shadow-md p-12 text-center">
+                  <div className="bg-surface-2 rounded-lg shadow-md p-12 text-center">
                     <div className="text-6xl mb-4">🔍</div>
                     <h3 className="text-xl font-bold text-ink mb-2">No articles found</h3>
                     <p className="text-ink-3 mb-4">Try adjusting your search or filters</p>
@@ -337,7 +337,7 @@ export default function BlogListPage() {
           <div className="lg:col-span-1">
             {/* Categories */}
             {categories.length > 0 && (
-              <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+              <div className="bg-surface-2 rounded-lg shadow-md p-6 mb-6">
                 <h3 className="text-lg font-bold text-ink mb-4">Categories</h3>
                 <div className="space-y-2">
                   <button
@@ -369,7 +369,7 @@ export default function BlogListPage() {
 
             {/* Popular Posts */}
             {popularPosts.length > 0 && (
-              <div className="bg-white rounded-lg shadow-md p-6">
+              <div className="bg-surface-2 rounded-lg shadow-md p-6">
                 <h3 className="text-lg font-bold text-ink mb-4 flex items-center">
                   <svg
                     className="w-5 h-5 mr-2 text-tertiary"

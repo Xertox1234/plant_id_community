@@ -53,7 +53,7 @@ function BlogCard({ post, showImage = true, compact = false }: BlogCardProps) {
   return (
     <Link
       to={`/blog/${slug}`}
-      className="group block bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow duration-300 overflow-hidden"
+      className="group block bg-surface-2 rounded-lg shadow-md hover:shadow-xl transition-shadow duration-300 overflow-hidden"
     >
       {/* Featured Image */}
       {showImage && featured_image && (
