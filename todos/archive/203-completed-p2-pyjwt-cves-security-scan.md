@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "203"
 tags: [security, dependencies, ci, backend]
@@ -81,7 +81,7 @@ not merely a scan-hygiene nuisance.
 - [x] `pip-audit -r backend/requirements.txt` (with current suppression flags) exits 0 locally.
 - [x] No new `--ignore-vuln` entry was added for PYSEC-2026-175/177/178/179 (they are fixed, not suppressed).
 - [x] Backend test suite passes, including `apps.users` JWT token issue/refresh/verify.
-- [ ] `Backend Python Security Scan` + `Security Scan Summary` are green on the fix PR. *(pending PR push + CI)*
+- [x] `Backend Python Security Scan` + `Security Scan Summary` are green on the fix PR.
 
 ## Work Log
 
@@ -142,6 +142,17 @@ not merely a scan-hygiene nuisance.
   `requirements.txt`) — and that dev file is already broadly stale vs prod. Left
   for a separate dependency-hygiene follow-up; bumping only its PyJWT line would be
   an arbitrary touch on an already-divergent file.
+
+### 2026-06-02 - Completed by completing-todos skill (run 2026-06-02-1833)
+
+- PR #326 (`fix/pyjwt-2.13.0-security-cves`) opened against `main`.
+- Verification: all 5 acceptance criteria passed. Criterion 5 confirmed on the PR —
+  `Backend Python Security Scan` **pass** (1m2s), `Security Scan Summary` **pass**,
+  and `Run backend test suite (pytest, postgres + redis)` **pass** (5m43s, full
+  backend suite). Every PR check green.
+- Review: 2 findings, 0 blocking — 1 LOW fixed in-PR (stale workflow comment),
+  1 INFO left as out-of-scope dependency-hygiene follow-up (`requirements-dev.txt`
+  PyJWT==2.10.1).
 
 ## Notes
 
