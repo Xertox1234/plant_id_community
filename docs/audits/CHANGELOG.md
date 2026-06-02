@@ -66,3 +66,44 @@ links to the full audit manifest with detailed findings and resolutions.
 - **Commit(s):** `cbb028b` (audit artifacts + todos 126–133), `b20a065` (web-ci
   workflow — F1 fix), `e32c390` (F1 checkoff + todo 126 archive); branch
   `chore/harness-audit-2026-05-30` (PR #307).
+
+### 2026-06-02 — Full Codebase Audit
+
+- **Trigger:** User-invoked `/audit` (full scope) — first full audit since
+  2026-05-17. Largest change since: Green Thumb web migration (#323/#324).
+- **Manifest:** [2026-06-02-full.md](2026-06-02-full.md)
+- **Findings:** 0 critical, 7 high, 13 medium, 16 low (36 total). All
+  primary-source verified; 8 library-dependent ones additionally doc-validated
+  via Context7 (Phase 2.5) — all confirmed, 2 with cleaner doc-informed fixes.
+- **Resolved:** 10 fixed & verified, 26 deferred to todos 204–208, 0 open. Plus
+  2 Phase-6 code-review fixes outside the 36 count: C1 (a regression introduced by
+  the M9 fix) and C2 (a pre-existing `statistics` 500), both now test-covered.
+- **Verdict:** The Green Thumb web migration is, for the audited surfaces, a
+  clean mechanical Tailwind-token reskin — it weakened no XSS/CSRF/auth/upload
+  control and introduced only low-severity nits. The real new bugs are in
+  **backend behavior**, not the migration.
+- **Highlights (fixed):** H4 — blog comment writes never invalidated cached
+  `comment_count` (added a `BlogComment` signal); M8 — same for `BlogCategory`.
+  H6/H7 — N+1 on two public list endpoints (`select_related`). M9/M10 — garden
+  analytics/harvest collapsed Python loops + 6 queries into single aggregates
+  (now covered by endpoint tests with `assertNumQueries`). H5/M11 — Firestore
+  rules let an owner reassign a doc's `user_id` and exposed public docs to anon
+  reads (latent — collections unused by clients). M2 — `service_status` returned
+  HTTP 200 on error. M5 — Retry-After wrapper adopted in two more modules.
+- **Deferred:** H1/M12 Celery autoretry inert — the service swallows all
+  exceptions so the task-only fix was reverted; needs service re-raise + on_failure
+  → todo 208; H2/H3/L15 wagtail-ai 3.x migration (AI endpoint silently 503-ing,
+  rate-limit on no live path) → todo 204; M1/M3/M4/M6/M7/M13 backend medium
+  hardening → todo 205; backend + frontend lows → todos 206–207.
+- **Meta:** Phase 6 code review earned its keep — it caught a `Count("id")`
+  **regression my own M9 fix introduced** (500 on `analytics`, a `uuid`-PK model)
+  that the 687-test suite missed because the endpoint had zero coverage; fixed to
+  `Count("pk")` and locked with new endpoint tests, which also caught a
+  pre-existing `Count("uuid")` 500 in `statistics` (C2). It also showed the
+  Celery task-only fix was inert (service swallows exceptions) → reverted, not
+  shipped. kimi-review's lone "CRITICAL" (declared model field could
+  `AttributeError`) was a verified false positive — a Django field is always an
+  instance attribute, and the handler is `try/except`-wrapped. Two 2026-05-17
+  "fixed" items (M23 AI cache TTL, M25 Prefetch slice) found still present in
+  code — surfaced for reconciliation, not re-audited.
+- **Commit(s):** branch `chore/full-audit-2026-06-02` (PR pending).

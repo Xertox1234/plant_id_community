@@ -22,3 +22,9 @@ Compact checklist auto-injected before edits. Long-form:
 - **Model `save()` auto-assignment must be insert-only** (`if self.pk is None:`),
   or it re-fires on every UPDATE and mutates the row. Never use `or` for a numeric
   default where 0 is valid (`0 or -1` is `-1`) — use `is None`.
+- **Aggregate on `Count("pk")`, never `Count("id")`/`Count("uuid")`.** Several
+  models use a UUID primary key (`Plant`, `CareTask` → `pk == "uuid"`, no `id`
+  field), so `Count("id")` raises `FieldError` at query construction → 500;
+  `Harvest` is the reverse (`id` PK, no `uuid`). `pk` always resolves to the real
+  primary key. (2026-06-02 audit: shipped twice via endpoints with no test — pair
+  every aggregate rewrite with an endpoint test + `assertNumQueries`.)

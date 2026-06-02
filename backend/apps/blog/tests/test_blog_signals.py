@@ -8,7 +8,7 @@ Validates:
 """
 
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -17,8 +17,8 @@ from django.test import TestCase
 from wagtail.models import Page
 from wagtail.signals import page_published, page_unpublished
 
-from .. import signals  # Import to ensure signals are registered
-from ..models import BlogIndexPage, BlogPostPage
+from .. import signals  # noqa: F401  (import registers the signal receivers)
+from ..models import BlogCategory, BlogComment, BlogIndexPage, BlogPostPage
 from ..services.blog_cache_service import BlogCacheService
 
 User = get_user_model()
@@ -256,4 +256,58 @@ class BlogSignalTestCase(TestCase):
 
         # All should be invalidated
         self.assertIsNone(BlogCacheService.get_blog_post("test-post"))
+        self.assertIsNone(BlogCacheService.get_blog_list(page=1, limit=10, filters={}))
+
+    # ===== BlogComment / BlogCategory invalidation (audit H4 / M8) =====
+    # These exercise the NEW receivers via real model writes + the real cache —
+    # if a receiver fails to invalidate (its try/except swallows errors silently),
+    # the cached value survives and the test fails.
+
+    def test_comment_save_invalidates_parent_post_cache(self):
+        """Creating/approving a comment must invalidate the parent post cache (H4)."""
+        BlogCacheService.set_blog_post("test-post", {"title": "Test Post"})
+        self.assertIsNotNone(BlogCacheService.get_blog_post("test-post"))
+
+        BlogComment.objects.create(
+            post=self.blog_post, author=self.user, content="Nice post"
+        )
+
+        self.assertIsNone(BlogCacheService.get_blog_post("test-post"))
+
+    def test_comment_save_invalidates_list_caches(self):
+        """comment_count is embedded in list responses — a comment write must
+        invalidate list caches (H4)."""
+        BlogCacheService.set_blog_list(page=1, limit=10, filters={}, data={"items": []})
+        self.assertIsNotNone(
+            BlogCacheService.get_blog_list(page=1, limit=10, filters={})
+        )
+
+        BlogComment.objects.create(
+            post=self.blog_post, author=self.user, content="Another"
+        )
+
+        self.assertIsNone(BlogCacheService.get_blog_list(page=1, limit=10, filters={}))
+
+    def test_comment_delete_invalidates_parent_post_cache(self):
+        """Deleting a comment must invalidate the parent post cache (H4)."""
+        comment = BlogComment.objects.create(
+            post=self.blog_post, author=self.user, content="to delete"
+        )
+        BlogCacheService.set_blog_post("test-post", {"title": "Test Post"})
+        self.assertIsNotNone(BlogCacheService.get_blog_post("test-post"))
+
+        comment.delete()
+
+        self.assertIsNone(BlogCacheService.get_blog_post("test-post"))
+
+    def test_category_save_invalidates_list_caches(self):
+        """Category name/slug/color are embedded in blog responses — a category
+        write must invalidate list caches (M8)."""
+        BlogCacheService.set_blog_list(page=1, limit=10, filters={}, data={"items": []})
+        self.assertIsNotNone(
+            BlogCacheService.get_blog_list(page=1, limit=10, filters={})
+        )
+
+        BlogCategory.objects.create(name="Herbs", slug="herbs")
+
         self.assertIsNone(BlogCacheService.get_blog_list(page=1, limit=10, filters={}))

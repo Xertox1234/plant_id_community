@@ -362,7 +362,9 @@ class SeasonalTemplateViewSet(viewsets.ReadOnlyModelViewSet):
     ViewSet for seasonal templates (read-only for regular users).
     """
 
-    queryset = SeasonalTemplate.objects.filter(is_active=True)
+    queryset = SeasonalTemplate.objects.filter(is_active=True).select_related(
+        "created_by"
+    )
     serializer_class = SeasonalTemplateSerializer
     permission_classes = [permissions.AllowAny]
     filter_backends = [DjangoFilterBackend, OrderingFilter]
@@ -790,25 +792,31 @@ class GardenBedViewSet(viewsets.ModelViewSet):
         """
         garden_bed = self.get_object()
 
-        # Health status breakdown
-        health_stats = {}
-        for plant in garden_bed.plants.filter(is_active=True):
-            health_stats[plant.health_status] = (
-                health_stats.get(plant.health_status, 0) + 1
-            )
+        # Health status breakdown (single grouped query, not a Python loop).
+        # Count("pk") — Plant/CareTask use a `uuid` primary key, not `id`.
+        health_stats = {
+            row["health_status"]: row["count"]
+            for row in garden_bed.plants.filter(is_active=True)
+            .values("health_status")
+            .annotate(count=Count("pk"))
+        }
 
-        # Care task statistics
-        total_tasks = CareTask.objects.filter(
+        # Care task statistics — total and overdue in one aggregate
+        task_stats = CareTask.objects.filter(
             plant__garden_bed=garden_bed, plant__is_active=True
-        ).count()
-
-        overdue_tasks = CareTask.objects.filter(
-            plant__garden_bed=garden_bed,
-            plant__is_active=True,
-            completed=False,
-            skipped=False,
-            scheduled_date__lt=timezone.now(),
-        ).count()
+        ).aggregate(
+            total=Count("pk"),
+            overdue=Count(
+                "pk",
+                filter=Q(
+                    completed=False,
+                    skipped=False,
+                    scheduled_date__lt=timezone.now(),
+                ),
+            ),
+        )
+        total_tasks = task_stats["total"]
+        overdue_tasks = task_stats["overdue"]
 
         return Response(
             {
@@ -1735,32 +1743,30 @@ class HarvestViewSet(viewsets.ModelViewSet):
         """
         queryset = self.get_queryset()
 
-        # Total harvests
-        total_harvests = queryset.count()
+        # Totals, per-unit quantity, and average quality in a single aggregate
+        from django.db.models import Avg, Count, Sum
 
-        # Quantity by unit
-        from django.db.models import Sum
-
-        quantities = {}
-        for unit in ["lbs", "oz", "count", "bunches"]:
-            total = (
-                queryset.filter(unit=unit).aggregate(total=Sum("quantity"))["total"]
-                or 0
-            )
-            if total > 0:
-                quantities[unit] = total
-
-        # Average ratings
-        from django.db.models import Avg
-
-        avg_quality = queryset.aggregate(avg=Avg("quality_rating"))["avg"]
+        stats = queryset.aggregate(
+            total_harvests=Count("pk"),
+            avg_quality=Avg("quality_rating"),
+            **{
+                unit: Sum("quantity", filter=Q(unit=unit))
+                for unit in ["lbs", "oz", "count", "bunches"]
+            },
+        )
+        total_harvests = stats["total_harvests"]
+        avg_quality = stats["avg_quality"]
+        quantities = {
+            unit: stats[unit]
+            for unit in ["lbs", "oz", "count", "bunches"]
+            if stats[unit]
+        }
 
         # Harvests by plant
-        from django.db.models import Count
 
         by_plant = (
             queryset.values("plant__uuid", "plant__common_name")
-            .annotate(harvest_count=Count("uuid"), total_quantity=Sum("quantity"))
+            .annotate(harvest_count=Count("pk"), total_quantity=Sum("quantity"))
             .order_by("-harvest_count")[:10]
         )
 
