@@ -209,7 +209,7 @@ describe('PostCard', () => {
 
     const { container } = renderPostCard(post);
 
-    const card = container.querySelector('.border-green-500');
+    const card = container.querySelector('.border-primary');
     expect(card).toBeInTheDocument();
   });
 

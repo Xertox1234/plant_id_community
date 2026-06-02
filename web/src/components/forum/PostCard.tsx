@@ -55,40 +55,40 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
   return (
     <div
       className={`
-        group bg-white dark:bg-gray-800 rounded-lg shadow-md p-6
-        ${post.is_first_post ? 'border-l-4 border-green-500' : ''}
+        group bg-surface-2 rounded-lg shadow-md p-6
+        ${post.is_first_post ? 'border-l-4 border-primary' : ''}
       `}
     >
       {/* Post Header */}
       <div className="flex items-start justify-between flex-wrap gap-2 mb-4">
         {/* Author Info */}
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center">
-            <span className="text-xl font-bold text-green-700 dark:text-green-400">
+          <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+            <span className="text-xl font-bold text-leaf">
               {post.author.display_name?.[0] || post.author.username[0]}
             </span>
           </div>
 
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-gray-900 dark:text-gray-100">
+              <span className="font-semibold text-ink">
                 {post.author.display_name || post.author.username}
               </span>
 
               {post.author.trust_level && (
-                <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-xs rounded">
+                <span className="px-2 py-0.5 bg-sky/10 text-sky text-xs rounded">
                   {post.author.trust_level}
                 </span>
               )}
 
               {post.is_first_post && (
-                <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-400 text-xs rounded">
+                <span className="px-2 py-0.5 bg-primary/10 text-leaf text-xs rounded">
                   Original Post
                 </span>
               )}
             </div>
 
-            <div className="text-sm text-gray-500 dark:text-gray-400">
+            <div className="text-sm text-ink-3">
               <span title={new Date(post.created_at).toLocaleString()}>{formattedDate}</span>
 
               {post.edited_at && (
@@ -110,14 +110,14 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
           <div className="flex gap-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
             <button
               onClick={() => onEdit?.(post)}
-              className="min-h-11 px-3 py-1 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded inline-flex items-center"
+              className="min-h-11 px-3 py-1 text-sm text-sky hover:bg-sky/10 rounded inline-flex items-center"
               title="Edit post"
             >
               ✏️ Edit
             </button>
             <button
               onClick={() => onDelete?.(post)}
-              className="min-h-11 px-3 py-1 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded inline-flex items-center"
+              className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded inline-flex items-center"
               title="Delete post"
             >
               🗑️ Delete
@@ -134,13 +134,13 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
 
       {/* Reactions — always show the four reaction buttons so a user can add a
           first reaction; counts default to 0 when none exist yet. */}
-      <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+      <div className="flex gap-3 pt-4 border-t border-line">
         {REACTION_TYPES.map((type) => (
           <button
             key={type}
             type="button"
             onClick={() => onReact?.(post.id, type)}
-            className="inline-flex items-center gap-1 min-h-11 px-3 py-1 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-full text-sm transition-colors"
+            className="inline-flex items-center gap-1 min-h-11 px-3 py-1 bg-surface-2 hover:bg-surface-3 rounded-full text-sm transition-colors"
             aria-label={`React ${type}`}
             title={`React ${type}`}
           >

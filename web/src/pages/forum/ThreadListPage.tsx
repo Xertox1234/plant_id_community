@@ -143,7 +143,7 @@ export default function ThreadListPage() {
   if (error && !category) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 px-4 py-3 rounded">
+        <div className="bg-error/10 border border-error/30 text-error px-4 py-3 rounded">
           <strong>Error:</strong> {error}
         </div>
       </div>
@@ -153,15 +153,15 @@ export default function ThreadListPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Breadcrumb */}
-      <nav className="mb-6 text-sm text-gray-600 dark:text-gray-400" aria-label="Breadcrumb">
+      <nav className="mb-6 text-sm text-ink-2" aria-label="Breadcrumb">
         <ol className="flex items-center gap-2">
           <li>
-            <Link to="/forum" className="hover:text-green-600">
+            <Link to="/forum" className="hover:text-primary">
               Forums
             </Link>
           </li>
           <li aria-hidden="true">›</li>
-          <li aria-current="page" className="font-medium text-gray-900 dark:text-gray-100">
+          <li aria-current="page" className="font-medium text-ink">
             {category?.name}
           </li>
         </ol>
@@ -175,12 +175,10 @@ export default function ThreadListPage() {
               {category.icon}
             </span>
           )}
-          <h1 className="text-4xl font-bold text-gray-900 dark:text-gray-100">{category?.name}</h1>
+          <h1 className="text-4xl font-bold text-ink">{category?.name}</h1>
         </div>
 
-        {category?.description && (
-          <p className="text-lg text-gray-600 dark:text-gray-400">{category.description}</p>
-        )}
+        {category?.description && <p className="text-lg text-ink-2">{category.description}</p>}
       </div>
 
       {/* Toolbar */}
@@ -193,7 +191,7 @@ export default function ThreadListPage() {
               name="search"
               placeholder="Search threads..."
               defaultValue={search}
-              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-800 dark:text-gray-100"
+              className="flex-1 px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
             />
             <Button type="submit" variant="primary">
               Search
@@ -206,7 +204,7 @@ export default function ThreadListPage() {
           <select
             value={ordering}
             onChange={handleOrderChange}
-            className="min-h-11 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 dark:bg-gray-800 dark:text-gray-100"
+            className="min-h-11 px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary bg-surface-2 text-ink"
           >
             <option value="-last_activity_at">Recent Activity</option>
             <option value="-created_at">Newest First</option>
@@ -224,7 +222,7 @@ export default function ThreadListPage() {
       {/* Active Filters */}
       {search && (
         <div className="mb-4 flex items-center gap-2">
-          <span className="text-sm text-gray-600 dark:text-gray-400">
+          <span className="text-sm text-ink-2">
             Searching for: <strong>{search}</strong>
           </span>
           <button
@@ -236,7 +234,7 @@ export default function ThreadListPage() {
                 return newParams;
               });
             }}
-            className="text-sm text-red-600 hover:text-red-700 underline"
+            className="text-sm text-error hover:text-error/80 underline"
           >
             Clear
           </button>
@@ -247,7 +245,7 @@ export default function ThreadListPage() {
       {loading ? (
         <LoadingSpinner />
       ) : threads.length === 0 ? (
-        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+        <div className="text-center py-12 text-ink-3">
           <p className="text-lg">No threads found.</p>
           <p className="text-sm mt-2">
             {search ? 'Try a different search query.' : 'Be the first to start a discussion!'}
@@ -268,7 +266,7 @@ export default function ThreadListPage() {
             Previous
           </Button>
 
-          <span className="px-4 py-2 text-gray-700 dark:text-gray-300">
+          <span className="px-4 py-2 text-ink-2">
             Page {page} of {totalPages}
           </span>
 

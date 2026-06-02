@@ -224,7 +224,7 @@ export default function ThreadDetailPage() {
   if (error || !thread) {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 px-4 py-3 rounded">
+        <div className="bg-error/10 border border-error/30 text-error px-4 py-3 rounded">
           <strong>Error:</strong> {error || 'Thread not found'}
         </div>
       </div>
@@ -234,28 +234,28 @@ export default function ThreadDetailPage() {
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Breadcrumb */}
-      <nav className="mb-6 text-sm text-gray-600 dark:text-gray-400" aria-label="Breadcrumb">
+      <nav className="mb-6 text-sm text-ink-2" aria-label="Breadcrumb">
         <ol className="flex items-center gap-2">
           <li>
-            <Link to="/forum" className="hover:text-green-600">
+            <Link to="/forum" className="hover:text-primary">
               Forums
             </Link>
           </li>
           <li aria-hidden="true">›</li>
           <li>
-            <Link to={`/forum/${categorySlug}`} className="hover:text-green-600">
+            <Link to={`/forum/${categorySlug}`} className="hover:text-primary">
               {thread.category.name}
             </Link>
           </li>
           <li aria-hidden="true">›</li>
-          <li aria-current="page" className="font-medium text-gray-900 dark:text-gray-100">
+          <li aria-current="page" className="font-medium text-ink">
             {thread.title}
           </li>
         </ol>
       </nav>
 
       {/* Thread Header */}
-      <div className="mb-8 bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+      <div className="mb-8 bg-surface-2 rounded-lg shadow-md p-6">
         <div className="flex items-start flex-wrap gap-4 mb-4">
           {thread.category.icon && (
             <span className="text-4xl" aria-hidden="true">
@@ -264,14 +264,12 @@ export default function ThreadDetailPage() {
           )}
 
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-              {thread.title}
-            </h1>
+            <h1 className="text-xl sm:text-3xl font-bold text-ink mb-2">{thread.title}</h1>
 
-            <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-sm text-gray-500 dark:text-gray-400">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-sm text-ink-3">
               <span>
                 by{' '}
-                <strong className="text-gray-700 dark:text-gray-300">
+                <strong className="text-ink-2">
                   {thread.author.display_name || thread.author.username}
                 </strong>
               </span>
@@ -285,12 +283,12 @@ export default function ThreadDetailPage() {
           {/* Badges */}
           <div className="flex gap-2">
             {thread.is_pinned && (
-              <span className="px-3 py-1 bg-yellow-200 dark:bg-yellow-900/30 text-yellow-900 dark:text-yellow-300 text-sm font-semibold rounded">
+              <span className="px-3 py-1 bg-tertiary/20 text-tertiary text-sm font-semibold rounded">
                 📌 Pinned
               </span>
             )}
             {thread.is_locked && (
-              <span className="px-3 py-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded">
+              <span className="px-3 py-1 bg-surface-3 text-ink-2 text-sm font-semibold rounded">
                 🔒 Locked
               </span>
             )}
@@ -300,12 +298,12 @@ export default function ThreadDetailPage() {
 
       {/* Inline reaction error — never replaces the page */}
       {reactionError && (
-        <div className="mb-4 flex items-center justify-between bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 px-4 py-3 rounded">
+        <div className="mb-4 flex items-center justify-between bg-error/10 border border-error/30 text-error px-4 py-3 rounded">
           <span>{reactionError}</span>
           <button
             type="button"
             onClick={() => setReactionError(null)}
-            className="text-sm text-red-600 hover:text-red-700 underline"
+            className="text-sm text-error hover:text-error/80 underline"
           >
             Dismiss
           </button>
@@ -340,16 +338,12 @@ export default function ThreadDetailPage() {
 
       {/* Reply Form */}
       {!thread.is_locked && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-          <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-gray-100">
-            Post Your Reply
-          </h3>
+        <div className="bg-surface-2 rounded-lg shadow-md p-6">
+          <h3 className="text-xl font-bold mb-4 text-ink">Post Your Reply</h3>
 
           {!isAuthenticated ? (
             <div className="text-center py-8">
-              <p className="text-gray-600 dark:text-gray-400 mb-4">
-                You must be logged in to reply to this thread.
-              </p>
+              <p className="text-ink-2 mb-4">You must be logged in to reply to this thread.</p>
               <Link to="/login" state={{ from: window.location.pathname }}>
                 <Button variant="primary">Log In</Button>
               </Link>
@@ -364,9 +358,7 @@ export default function ThreadDetailPage() {
               />
 
               {replyError && (
-                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded">
-                  {replyError}
-                </div>
+                <div className="mb-4 p-3 bg-error/10 text-error rounded">{replyError}</div>
               )}
 
               <div className="flex gap-2">
@@ -394,7 +386,7 @@ export default function ThreadDetailPage() {
       )}
 
       {thread.is_locked && (
-        <div className="bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-6 py-4 rounded-lg text-center">
+        <div className="bg-surface-2 border border-line-2 text-ink-2 px-6 py-4 rounded-lg text-center">
           🔒 This thread is locked. No new replies can be posted.
         </div>
       )}

@@ -21,7 +21,7 @@ function highlightText(text: string | undefined, query: string) {
   const regex = new RegExp(`(${terms.join('|')})`, 'gi');
   return text.split(regex).map((part, index) =>
     new RegExp(`^(${terms.join('|')})$`, 'i').test(part) ? (
-      <mark key={`${part}-${index}`} className="bg-yellow-200 dark:bg-yellow-900/30 rounded px-0.5">
+      <mark key={`${part}-${index}`} className="bg-tertiary/30 rounded px-0.5">
         {part}
       </mark>
     ) : (
@@ -270,8 +270,8 @@ export default function SearchPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">Forum Search</h1>
-        <p className="text-gray-600 dark:text-gray-400">Search across threads and posts</p>
+        <h1 className="text-3xl font-bold text-ink mb-2">Forum Search</h1>
+        <p className="text-ink-2">Search across threads and posts</p>
       </div>
 
       {/* Search Bar */}
@@ -282,11 +282,11 @@ export default function SearchPage() {
             value={searchInput}
             onChange={handleSearchInput}
             placeholder="Search forum..."
-            className="w-full px-4 py-3 pl-12 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-800 dark:text-gray-100"
+            className="w-full px-4 py-3 pl-12 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
             aria-label="Search query"
           />
           <svg
-            className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400"
+            className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-ink-3"
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
             viewBox="0 0 24 24"
@@ -304,13 +304,13 @@ export default function SearchPage() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
+      <div className="bg-surface-2 rounded-lg shadow-sm p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Filters</h2>
+          <h2 className="text-lg font-semibold text-ink">Filters</h2>
           {hasActiveFilters && (
             <button
               onClick={handleClearFilters}
-              className="text-sm text-green-600 hover:text-green-700"
+              className="text-sm text-primary hover:text-primary/80"
             >
               Clear filters
             </button>
@@ -320,17 +320,14 @@ export default function SearchPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Category Filter */}
           <div>
-            <label
-              htmlFor="category-filter"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-            >
+            <label htmlFor="category-filter" className="block text-sm font-medium text-ink-2 mb-2">
               Category
             </label>
             <select
               id="category-filter"
               value={category}
               onChange={handleCategoryFilter}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
+              className="w-full px-3 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
             >
               <option value="">All Categories</option>
               {categories.map((cat) => (
@@ -343,10 +340,7 @@ export default function SearchPage() {
 
           {/* Author Filter */}
           <div>
-            <label
-              htmlFor="author-filter"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-            >
+            <label htmlFor="author-filter" className="block text-sm font-medium text-ink-2 mb-2">
               Author
             </label>
             <input
@@ -355,16 +349,13 @@ export default function SearchPage() {
               value={author}
               onChange={handleAuthorFilter}
               placeholder="Username"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
+              className="w-full px-3 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
             />
           </div>
 
           {/* Date From Filter */}
           <div>
-            <label
-              htmlFor="date-from-filter"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-            >
+            <label htmlFor="date-from-filter" className="block text-sm font-medium text-ink-2 mb-2">
               From
             </label>
             <input
@@ -372,16 +363,13 @@ export default function SearchPage() {
               type="date"
               value={dateFrom}
               onChange={(e) => handleDateFilter('date_from', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
+              className="w-full px-3 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
             />
           </div>
 
           {/* Date To Filter */}
           <div>
-            <label
-              htmlFor="date-to-filter"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-            >
+            <label htmlFor="date-to-filter" className="block text-sm font-medium text-ink-2 mb-2">
               To
             </label>
             <input
@@ -389,7 +377,7 @@ export default function SearchPage() {
               type="date"
               value={dateTo}
               onChange={(e) => handleDateFilter('date_to', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100"
+              className="w-full px-3 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
             />
           </div>
         </div>
@@ -403,15 +391,15 @@ export default function SearchPage() {
       )}
 
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
-          <p className="text-red-800 dark:text-red-300">{error}</p>
+        <div className="bg-error/10 border border-error/30 rounded-lg p-4 mb-6">
+          <p className="text-error">{error}</p>
         </div>
       )}
 
       {!loading && !error && !query && (
         <div className="text-center py-12">
           <svg
-            className="mx-auto h-12 w-12 text-gray-400 mb-4"
+            className="mx-auto h-12 w-12 text-ink-3 mb-4"
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
             viewBox="0 0 24 24"
@@ -424,7 +412,7 @@ export default function SearchPage() {
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
             />
           </svg>
-          <p className="text-gray-600 dark:text-gray-400">Enter a search query to begin</p>
+          <p className="text-ink-2">Enter a search query to begin</p>
         </div>
       )}
 
@@ -432,7 +420,7 @@ export default function SearchPage() {
         <div>
           {/* Results Summary */}
           <div className="mb-6">
-            <p className="text-gray-700 dark:text-gray-300">
+            <p className="text-ink-2">
               Found <span className="font-semibold">{searchResults.total_threads}</span> thread(s)
               and <span className="font-semibold">{searchResults.total_posts}</span> post(s) for{' '}
               <span className="font-semibold">"{query}"</span>
@@ -442,7 +430,7 @@ export default function SearchPage() {
           {/* Thread Results */}
           {searchResults.threads && searchResults.threads.length > 0 && (
             <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
+              <h2 className="text-xl font-semibold text-ink mb-4">
                 Threads ({searchResults.total_threads})
               </h2>
               <div className="space-y-4">
@@ -452,7 +440,7 @@ export default function SearchPage() {
                     {(hasSearchMatch(thread.title, query) ||
                       hasSearchMatch(thread.excerpt, query)) && (
                       <p
-                        className="mt-2 text-sm text-gray-700 dark:text-gray-300 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-800 rounded-lg p-3"
+                        className="mt-2 text-sm text-ink-2 bg-tertiary/10 border border-tertiary/20 rounded-lg p-3"
                         aria-label="Highlighted thread match"
                       >
                         {highlightText(thread.title, query)}
@@ -468,7 +456,7 @@ export default function SearchPage() {
           {/* Post Results */}
           {searchResults.posts && searchResults.posts.length > 0 && (
             <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
+              <h2 className="text-xl font-semibold text-ink mb-4">
                 Posts ({searchResults.total_posts})
               </h2>
               <div className="space-y-4">
@@ -477,7 +465,7 @@ export default function SearchPage() {
                     <PostCard post={post} />
                     {hasSearchMatch(post.content_raw, query) && (
                       <p
-                        className="mt-2 text-sm text-gray-700 dark:text-gray-300 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-800 rounded-lg p-3"
+                        className="mt-2 text-sm text-ink-2 bg-tertiary/10 border border-tertiary/20 rounded-lg p-3"
                         aria-label="Highlighted post match"
                       >
                         {highlightText(post.content_raw, query)}
@@ -493,7 +481,7 @@ export default function SearchPage() {
           {searchResults.total_threads === 0 && searchResults.total_posts === 0 && (
             <div className="text-center py-12">
               <svg
-                className="mx-auto h-12 w-12 text-gray-400 mb-4"
+                className="mx-auto h-12 w-12 text-ink-3 mb-4"
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
                 viewBox="0 0 24 24"
@@ -506,12 +494,8 @@ export default function SearchPage() {
                   d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                 />
               </svg>
-              <p className="text-gray-600 dark:text-gray-400 mb-2">
-                No results found for "{query}"
-              </p>
-              <p className="text-gray-500 dark:text-gray-400 text-sm">
-                Try different keywords or remove some filters
-              </p>
+              <p className="text-ink-2 mb-2">No results found for "{query}"</p>
+              <p className="text-ink-3 text-sm">Try different keywords or remove some filters</p>
             </div>
           )}
 
@@ -525,7 +509,7 @@ export default function SearchPage() {
               >
                 Previous
               </Button>
-              <span className="px-4 py-2 text-gray-700 dark:text-gray-300">Page {page}</span>
+              <span className="px-4 py-2 text-ink-2">Page {page}</span>
               <Button
                 onClick={() => handlePageChange(page + 1)}
                 disabled={!searchResults.has_next_threads && !searchResults.has_next_posts}
