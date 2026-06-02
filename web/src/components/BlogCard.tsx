@@ -57,14 +57,14 @@ function BlogCard({ post, showImage = true, compact = false }: BlogCardProps) {
     >
       {/* Featured Image */}
       {showImage && featured_image && (
-        <div className="relative h-48 overflow-hidden bg-gray-200">
+        <div className="relative h-48 overflow-hidden bg-surface-3">
           <img
             src={featured_image.thumbnail?.url || featured_image.url}
             alt={featured_image.title || title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
           {primaryCategory && (
-            <span className="absolute top-4 left-4 px-3 py-1 bg-green-600 text-white text-sm font-medium rounded-full shadow">
+            <span className="absolute top-4 left-4 px-3 py-1 bg-clay text-on-clay text-sm font-medium rounded-full shadow">
               {primaryCategory.name}
             </span>
           )}
@@ -77,16 +77,16 @@ function BlogCard({ post, showImage = true, compact = false }: BlogCardProps) {
         <h3
           className={`${
             compact ? 'text-lg' : 'text-2xl'
-          } font-bold text-gray-900 mb-2 group-hover:text-green-600 transition-colors line-clamp-2`}
+          } font-bold text-ink mb-2 group-hover:text-primary transition-colors line-clamp-2`}
         >
           {title}
         </h3>
 
         {/* Excerpt */}
-        {!compact && excerpt && <p className="text-gray-600 mb-4 line-clamp-3">{excerpt}</p>}
+        {!compact && excerpt && <p className="text-ink-3 mb-4 line-clamp-3">{excerpt}</p>}
 
         {/* Metadata */}
-        <div className="flex items-center justify-between text-sm text-gray-500">
+        <div className="flex items-center justify-between text-sm text-ink-3">
           <div className="flex items-center gap-4">
             {/* Author */}
             {author && (
@@ -119,7 +119,7 @@ function BlogCard({ post, showImage = true, compact = false }: BlogCardProps) {
 
           {/* View Count */}
           {view_count > 0 && (
-            <span className="flex items-center text-gray-400">
+            <span className="flex items-center text-ink-3">
               <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
                 <path
@@ -139,7 +139,7 @@ function BlogCard({ post, showImage = true, compact = false }: BlogCardProps) {
             {post.tags.slice(0, 3).map((tag, index) => (
               <span
                 key={index}
-                className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded"
+                className="inline-block px-2 py-1 text-xs bg-surface-2 text-ink-3 rounded"
               >
                 #{tag}
               </span>

@@ -149,12 +149,12 @@ export default function BlogListPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface">
       {/* Header */}
-      <div className="bg-gradient-to-r from-green-600 to-green-700 text-white py-12">
+      <div className="bg-primary text-on-primary py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h1 className="text-4xl md:text-5xl font-bold mb-4">Plant Blog</h1>
-          <p className="text-xl text-green-100">
+          <p className="text-xl text-on-primary">
             Expert guides, tips, and stories from the plant community
           </p>
         </div>
@@ -174,11 +174,11 @@ export default function BlogListPage() {
                     name="search"
                     defaultValue={search}
                     placeholder="Search articles..."
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    className="flex-1 px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                   <button
                     type="submit"
-                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                    className="px-6 py-2 bg-clay text-on-clay rounded-lg hover:bg-clay/90 transition-colors font-medium"
                   >
                     Search
                   </button>
@@ -189,11 +189,11 @@ export default function BlogListPage() {
               <div className="flex flex-wrap items-center gap-4">
                 {/* Sort Order */}
                 <div className="flex items-center gap-2">
-                  <label className="text-sm font-medium text-gray-700">Sort:</label>
+                  <label className="text-sm font-medium text-ink-2">Sort:</label>
                   <select
                     value={order}
                     onChange={(e) => handleOrderChange(e.target.value)}
-                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
+                    className="px-3 py-1.5 border border-line-2 rounded-lg text-sm focus:ring-2 focus:ring-primary"
                   >
                     <option value="latest">Latest</option>
                     <option value="popular">Most Popular</option>
@@ -205,18 +205,18 @@ export default function BlogListPage() {
                 {hasFilters && (
                   <div className="flex items-center gap-2 flex-1">
                     {search && (
-                      <span className="inline-flex items-center px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full">
+                      <span className="inline-flex items-center px-3 py-1 bg-primary/10 text-leaf text-sm rounded-full">
                         Search: "{search}"
                       </span>
                     )}
                     {category && (
-                      <span className="inline-flex items-center px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full">
+                      <span className="inline-flex items-center px-3 py-1 bg-primary/10 text-leaf text-sm rounded-full">
                         Category: {category}
                       </span>
                     )}
                     <button
                       onClick={clearFilters}
-                      className="text-sm text-gray-600 hover:text-gray-800 underline"
+                      className="text-sm text-ink-3 hover:text-ink underline"
                     >
                       Clear filters
                     </button>
@@ -227,7 +227,7 @@ export default function BlogListPage() {
 
             {/* Results Count */}
             <div className="mb-6">
-              <p className="text-gray-600">
+              <p className="text-ink-3">
                 {loading
                   ? 'Loading...'
                   : `${totalCount} ${totalCount === 1 ? 'article' : 'articles'} found`}
@@ -237,15 +237,15 @@ export default function BlogListPage() {
             {/* Loading State */}
             {loading && (
               <div className="flex justify-center items-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
               </div>
             )}
 
             {/* Error State */}
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-                <p className="text-red-800 font-medium">Error loading blog posts</p>
-                <p className="text-red-600 text-sm mt-1">{error}</p>
+              <div className="bg-error/10 border border-error/30 rounded-lg p-6 text-center">
+                <p className="text-error font-medium">Error loading blog posts</p>
+                <p className="text-error text-sm mt-1">{error}</p>
               </div>
             )}
 
@@ -255,12 +255,12 @@ export default function BlogListPage() {
                 {posts.length === 0 ? (
                   <div className="bg-white rounded-lg shadow-md p-12 text-center">
                     <div className="text-6xl mb-4">🔍</div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">No articles found</h3>
-                    <p className="text-gray-600 mb-4">Try adjusting your search or filters</p>
+                    <h3 className="text-xl font-bold text-ink mb-2">No articles found</h3>
+                    <p className="text-ink-3 mb-4">Try adjusting your search or filters</p>
                     {hasFilters && (
                       <button
                         onClick={clearFilters}
-                        className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                        className="px-6 py-2 bg-clay text-on-clay rounded-lg hover:bg-clay/90 transition-colors"
                       >
                         Clear filters
                       </button>
@@ -280,7 +280,7 @@ export default function BlogListPage() {
                         <button
                           onClick={() => handlePageChange(page - 1)}
                           disabled={page === 1}
-                          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-4 py-2 border border-line-2 rounded-lg hover:bg-surface disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Previous
                         </button>
@@ -300,8 +300,8 @@ export default function BlogListPage() {
                                   onClick={() => handlePageChange(pageNum)}
                                   className={`px-3 py-2 rounded-lg ${
                                     pageNum === page
-                                      ? 'bg-green-600 text-white'
-                                      : 'border border-gray-300 hover:bg-gray-50'
+                                      ? 'bg-clay text-on-clay'
+                                      : 'border border-line-2 hover:bg-surface'
                                   }`}
                                 >
                                   {pageNum}
@@ -321,7 +321,7 @@ export default function BlogListPage() {
                         <button
                           onClick={() => handlePageChange(page + 1)}
                           disabled={page === totalPages}
-                          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-4 py-2 border border-line-2 rounded-lg hover:bg-surface disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Next
                         </button>
@@ -338,14 +338,14 @@ export default function BlogListPage() {
             {/* Categories */}
             {categories.length > 0 && (
               <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-                <h3 className="text-lg font-bold text-gray-900 mb-4">Categories</h3>
+                <h3 className="text-lg font-bold text-ink mb-4">Categories</h3>
                 <div className="space-y-2">
                   <button
                     onClick={() => handleCategoryFilter('')}
                     className={`block w-full text-left px-3 py-2 rounded-lg transition-colors ${
                       !category
-                        ? 'bg-green-100 text-green-800 font-medium'
-                        : 'hover:bg-gray-100 text-gray-700'
+                        ? 'bg-primary/10 text-leaf font-medium'
+                        : 'hover:bg-surface-2 text-ink-2'
                     }`}
                   >
                     All Categories
@@ -356,8 +356,8 @@ export default function BlogListPage() {
                       onClick={() => handleCategoryFilter(cat.slug)}
                       className={`block w-full text-left px-3 py-2 rounded-lg transition-colors ${
                         category === cat.slug
-                          ? 'bg-green-100 text-green-800 font-medium'
-                          : 'hover:bg-gray-100 text-gray-700'
+                          ? 'bg-primary/10 text-leaf font-medium'
+                          : 'hover:bg-surface-2 text-ink-2'
                       }`}
                     >
                       {cat.name}
@@ -370,9 +370,9 @@ export default function BlogListPage() {
             {/* Popular Posts */}
             {popularPosts.length > 0 && (
               <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
+                <h3 className="text-lg font-bold text-ink mb-4 flex items-center">
                   <svg
-                    className="w-5 h-5 mr-2 text-yellow-500"
+                    className="w-5 h-5 mr-2 text-tertiary"
                     fill="currentColor"
                     viewBox="0 0 20 20"
                   >
