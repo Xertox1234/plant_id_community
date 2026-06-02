@@ -368,9 +368,9 @@ class BlogAIIntegration:
                 f"prompt_length: {len(prompt)} chars)"
             )
 
-            from wagtail_ai.utils import get_ai_text
+            from .wagtail_ai_v3_integration import generate_ai_text
 
-            ai_content = get_ai_text(prompt)
+            ai_content = generate_ai_text(prompt)
 
             # Calculate generation time
             generation_time = time.time() - start_time

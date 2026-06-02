@@ -19,6 +19,7 @@ from django.views import View
 from django.views.decorators.http import require_http_methods
 
 from .services import BlockAutoPopulationService
+from .services.ai_rate_limiter import ai_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -195,12 +196,17 @@ class PlantSuggestionsView(View):
 
 @require_http_methods(["POST"])
 @staff_member_required
+@ai_rate_limit
 def generate_ai_content(request):
     """
     Generate AI content for plant-related blocks using Wagtail AI.
 
     This endpoint integrates with the existing Wagtail AI system
     to generate plant-specific content when database lookup fails.
+
+    Rate limiting is enforced at the view layer via ``@ai_rate_limit``
+    (wagtail-ai 3.x exposes no user-aware hook); staff exceeding the
+    per-hour quota receive HTTP 429 with a ``Retry-After`` header.
     """
     try:
         data = json.loads(request.body)
@@ -211,14 +217,6 @@ def generate_ai_content(request):
         if not plant_name:
             return JsonResponse(
                 {"success": False, "error": "Plant name is required"}, status=400
-            )
-
-        # Check if Wagtail AI is available
-        try:
-            from wagtail_ai.utils import get_ai_text
-        except ImportError:
-            return JsonResponse(
-                {"success": False, "error": "Wagtail AI not available"}, status=503
             )
 
         # Import AI prompts
@@ -271,7 +269,9 @@ def generate_ai_content(request):
 
         # Generate AI content
         try:
-            ai_content = get_ai_text(prompt)
+            from .wagtail_ai_v3_integration import generate_ai_text
+
+            ai_content = generate_ai_text(prompt)
 
             return JsonResponse(
                 {
@@ -359,4 +359,4 @@ def plant_data_stats(request):
 # This custom API endpoint has been replaced with Wagtail AI's native panel system.
 # AI content generation now happens through PlantAITitleFieldPanel,
 # PlantAIDescriptionFieldPanel, and PlantAIIntroductionFieldPanel.
-# See: apps/blog/panels.py and apps/blog/wagtail_ai_integration.py
+# See: apps/blog/panels.py and apps/blog/wagtail_ai_v3_integration.py
