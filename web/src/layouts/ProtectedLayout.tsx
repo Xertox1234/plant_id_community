@@ -25,13 +25,13 @@ export default function ProtectedLayout() {
   // Show loading spinner while checking authentication
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-surface">
         <div className="text-center" role="status" aria-live="polite">
           <div
-            className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"
+            className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-primary"
             aria-hidden="true"
           />
-          <p className="mt-4 text-gray-600">Loading authentication...</p>
+          <p className="mt-4 text-ink-3">Loading authentication...</p>
         </div>
       </div>
     );

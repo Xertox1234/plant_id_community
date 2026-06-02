@@ -29,17 +29,17 @@ export default function Header() {
   };
 
   return (
-    <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <nav className="bg-surface-2 border-b border-line sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2" aria-label="PlantID Home">
             <div
-              className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-500 rounded-lg"
+              className="w-8 h-8 bg-gradient-to-br from-primary to-secondary rounded-lg"
               role="img"
               aria-hidden="true"
             />
-            <span className="text-xl font-bold text-gray-900">PlantID</span>
+            <span className="text-xl font-bold text-ink">PlantID</span>
           </Link>
 
           {/* Desktop Navigation */}
@@ -48,7 +48,7 @@ export default function Header() {
               to="/identify"
               className={({ isActive }) =>
                 `font-medium transition-colors ${
-                  isActive ? 'text-green-600' : 'text-gray-700 hover:text-green-600'
+                  isActive ? 'text-primary' : 'text-ink-2 hover:text-primary'
                 }`
               }
             >
@@ -58,7 +58,7 @@ export default function Header() {
               to="/blog"
               className={({ isActive }) =>
                 `font-medium transition-colors ${
-                  isActive ? 'text-green-600' : 'text-gray-700 hover:text-green-600'
+                  isActive ? 'text-primary' : 'text-ink-2 hover:text-primary'
                 }`
               }
             >
@@ -68,7 +68,7 @@ export default function Header() {
               to="/forum"
               className={({ isActive }) =>
                 `font-medium transition-colors ${
-                  isActive ? 'text-green-600' : 'text-gray-700 hover:text-green-600'
+                  isActive ? 'text-primary' : 'text-ink-2 hover:text-primary'
                 }`
               }
             >
@@ -84,13 +84,13 @@ export default function Header() {
               <>
                 <Link
                   to="/login"
-                  className="text-gray-700 hover:text-green-600 font-medium transition-colors"
+                  className="text-ink-2 hover:text-primary font-medium transition-colors"
                 >
                   Log in
                 </Link>
                 <Link
                   to="/signup"
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
+                  className="px-4 py-2 bg-clay text-on-clay rounded-lg font-medium hover:bg-clay/90 transition-colors"
                 >
                   Sign up
                 </Link>
@@ -101,7 +101,7 @@ export default function Header() {
           {/* Mobile menu button */}
           <button
             onClick={toggleMenu}
-            className="md:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+            className="md:hidden p-2 rounded-lg text-ink-3 hover:bg-surface transition-colors"
             aria-label="Toggle menu"
             aria-expanded={isMenuOpen}
           >
@@ -112,14 +112,14 @@ export default function Header() {
 
       {/* Mobile menu */}
       {isMenuOpen && (
-        <div className="md:hidden border-t border-gray-200 bg-white">
+        <div className="md:hidden border-t border-line bg-surface-2">
           <div className="px-4 py-4 space-y-3">
             <NavLink
               to="/identify"
               onClick={closeMenu}
               className={({ isActive }) =>
                 `block px-3 py-2 rounded-lg font-medium transition-colors ${
-                  isActive ? 'bg-green-50 text-green-600' : 'text-gray-700 hover:bg-gray-50'
+                  isActive ? 'bg-primary/10 text-primary' : 'text-ink-2 hover:bg-surface'
                 }`
               }
             >
@@ -130,7 +130,7 @@ export default function Header() {
               onClick={closeMenu}
               className={({ isActive }) =>
                 `block px-3 py-2 rounded-lg font-medium transition-colors ${
-                  isActive ? 'bg-green-50 text-green-600' : 'text-gray-700 hover:bg-gray-50'
+                  isActive ? 'bg-primary/10 text-primary' : 'text-ink-2 hover:bg-surface'
                 }`
               }
             >
@@ -141,7 +141,7 @@ export default function Header() {
               onClick={closeMenu}
               className={({ isActive }) =>
                 `block px-3 py-2 rounded-lg font-medium transition-colors ${
-                  isActive ? 'bg-green-50 text-green-600' : 'text-gray-700 hover:bg-gray-50'
+                  isActive ? 'bg-primary/10 text-primary' : 'text-ink-2 hover:bg-surface'
                 }`
               }
             >
@@ -149,17 +149,17 @@ export default function Header() {
             </NavLink>
 
             {/* Mobile Auth Actions */}
-            <div className="pt-4 border-t border-gray-200">
+            <div className="pt-4 border-t border-line">
               {isAuthenticated ? (
                 <>
-                  <div className="flex items-center gap-2 px-3 py-2 text-gray-700 mb-2">
-                    <User className="w-5 h-5 text-green-600" />
+                  <div className="flex items-center gap-2 px-3 py-2 text-ink-2 mb-2">
+                    <User className="w-5 h-5 text-primary" />
                     <span className="font-medium">{user?.username || user?.email}</span>
                   </div>
                   <Link
                     to="/profile"
                     onClick={closeMenu}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-ink-2 hover:bg-surface font-medium transition-colors"
                   >
                     <User className="w-4 h-4" />
                     Profile
@@ -167,14 +167,14 @@ export default function Header() {
                   <Link
                     to="/settings"
                     onClick={closeMenu}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-ink-2 hover:bg-surface font-medium transition-colors"
                   >
                     <SettingsIcon className="w-4 h-4" />
                     Settings
                   </Link>
                   <button
                     onClick={handleLogout}
-                    className="w-full text-left px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+                    className="w-full text-left px-3 py-2 rounded-lg text-error hover:bg-error/10 font-medium transition-colors"
                   >
                     Log out
                   </button>
@@ -184,14 +184,14 @@ export default function Header() {
                   <Link
                     to="/login"
                     onClick={closeMenu}
-                    className="block px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+                    className="block px-3 py-2 rounded-lg text-ink-2 hover:bg-surface font-medium transition-colors"
                   >
                     Log in
                   </Link>
                   <Link
                     to="/signup"
                     onClick={closeMenu}
-                    className="block px-3 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 text-center font-medium mt-2 transition-colors"
+                    className="block px-3 py-2 rounded-lg bg-clay text-on-clay hover:bg-clay/90 text-center font-medium mt-2 transition-colors"
                   >
                     Sign up
                   </Link>

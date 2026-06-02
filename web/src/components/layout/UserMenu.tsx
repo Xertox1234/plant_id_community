@@ -81,12 +81,12 @@ export default function UserMenu() {
       {/* User Avatar Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
+        className="flex items-center gap-2 px-3 py-2 rounded-lg text-ink-2 hover:bg-surface transition-colors"
         aria-expanded={isOpen}
         aria-haspopup="true"
       >
         {/* Avatar Circle */}
-        <div className="w-8 h-8 rounded-full bg-green-600 text-white flex items-center justify-center font-medium text-sm">
+        <div className="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center font-medium text-sm">
           {getInitials()}
         </div>
 
@@ -102,12 +102,12 @@ export default function UserMenu() {
         <div
           role="menu"
           aria-label="User menu"
-          className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50"
+          className="absolute right-0 mt-2 w-56 bg-surface-2 rounded-lg shadow-lg border border-line py-2 z-50"
         >
           {/* User Info Header */}
-          <div className="px-4 py-3 border-b border-gray-200">
-            <p className="text-sm font-medium text-gray-900">{user?.username || 'User'}</p>
-            <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+          <div className="px-4 py-3 border-b border-line">
+            <p className="text-sm font-medium text-ink">{user?.username || 'User'}</p>
+            <p className="text-xs text-ink-3 truncate">{user?.email}</p>
           </div>
 
           {/* Menu Items */}
@@ -116,7 +116,7 @@ export default function UserMenu() {
               to="/profile"
               role="menuitem"
               onClick={() => setIsOpen(false)}
-              className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-3 px-4 py-2 text-sm text-ink-2 hover:bg-surface transition-colors"
             >
               <User className="w-4 h-4" />
               <span>Profile</span>
@@ -126,7 +126,7 @@ export default function UserMenu() {
               to="/settings"
               role="menuitem"
               onClick={() => setIsOpen(false)}
-              className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-3 px-4 py-2 text-sm text-ink-2 hover:bg-surface transition-colors"
             >
               <Settings className="w-4 h-4" />
               <span>Settings</span>
@@ -134,11 +134,11 @@ export default function UserMenu() {
           </div>
 
           {/* Logout Button */}
-          <div className="border-t border-gray-200 pt-2">
+          <div className="border-t border-line pt-2">
             <button
               onClick={handleLogout}
               role="menuitem"
-              className="flex items-center gap-3 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+              className="flex items-center gap-3 w-full px-4 py-2 text-sm text-error hover:bg-error/10 transition-colors"
             >
               <LogOut className="w-4 h-4" />
               <span>Log out</span>
