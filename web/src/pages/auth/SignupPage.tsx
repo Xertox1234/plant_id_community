@@ -161,23 +161,23 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-gray-50">
+    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-surface">
       <div className="w-full max-w-md min-w-[280px]">
         {/* Header */}
         <div className="text-center mb-8 space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Create an account</h1>
-          <p className="text-sm sm:text-base text-gray-600">
+          <h1 className="text-2xl sm:text-3xl font-bold text-ink">Create an account</h1>
+          <p className="text-sm sm:text-base text-ink-3">
             Join PlantID to identify plants and track your garden
           </p>
         </div>
 
         {/* Signup Form */}
-        <div className="bg-white shadow-sm border border-gray-200 rounded-lg p-8">
+        <div className="bg-surface-2 shadow-sm border border-line rounded-lg p-8">
           <form onSubmit={handleSubmit} className="space-y-6" noValidate>
             {/* Server Error */}
             {serverError && (
               <div
-                className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
+                className="p-4 bg-error/10 border border-error rounded-lg text-error text-sm"
                 role="alert"
               >
                 {serverError}
@@ -281,10 +281,10 @@ export default function SignupPage() {
 
           {/* Login Link */}
           <div className="mt-6 text-center text-sm">
-            <span className="text-gray-600">Already have an account? </span>
+            <span className="text-ink-3">Already have an account? </span>
             <Link
               to="/login"
-              className="font-medium text-green-600 hover:text-green-700 transition-colors"
+              className="font-medium text-primary hover:text-primary/80 transition-colors"
             >
               Sign in
             </Link>
@@ -292,10 +292,10 @@ export default function SignupPage() {
         </div>
 
         {/* Terms Notice */}
-        <p className="mt-6 text-xs text-center text-gray-500">
+        <p className="mt-6 text-xs text-center text-ink-3">
           By creating an account, you agree to our{' '}
-          <span className="text-gray-700">Terms of Service</span> and{' '}
-          <span className="text-gray-700">Privacy Policy</span>
+          <span className="text-ink-2">Terms of Service</span> and{' '}
+          <span className="text-ink-2">Privacy Policy</span>
         </p>
       </div>
     </div>
