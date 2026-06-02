@@ -26,8 +26,8 @@
 | Legacy class | → Green Thumb | Boundary note |
 |---|---|---|
 | `text-gray-900` | `text-ink` | |
-| `text-gray-700` / `-800` | `text-ink-2` | |
-| `text-gray-400` / `-500` / `-600` | `text-ink-3` | |
+| `text-gray-600` / `-700` / `-800` | `text-ink-2` | `-600` is mid-emphasis body, not muted — keep at ink-2 (shipped convention, Tasks 9–12) |
+| `text-gray-400` / `-500` | `text-ink-3` | |
 | `bg-white` | `bg-surface-2` | cards (mobile cards = bg2) |
 | `bg-gray-50` / `-100` | `bg-surface` / `bg-surface-2` | page vs subtle fill — context |
 | `bg-gray-700` / `-800` / `-900` (dark fills) | `bg-surface` / `bg-surface-2` | usually on `dark:` → remove the variant |
