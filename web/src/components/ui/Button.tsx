@@ -44,10 +44,10 @@ export default function Button({
 
   // Variant styles
   const variants: Record<ButtonVariant, string> = {
-    primary: 'bg-green-600 text-white hover:bg-green-700 focus:ring-green-500',
-    secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200 focus:ring-gray-500',
-    outline: 'border-2 border-green-600 text-green-600 hover:bg-green-50 focus:ring-green-500',
-    ghost: 'text-gray-700 hover:bg-gray-100 focus:ring-gray-500',
+    primary: 'bg-clay text-on-clay hover:bg-clay/90 focus:ring-primary',
+    secondary: 'bg-surface-2 text-ink hover:bg-surface-3 focus:ring-primary',
+    outline: 'border-2 border-primary text-primary hover:bg-primary/10 focus:ring-primary',
+    ghost: 'text-ink-2 hover:bg-surface-2 focus:ring-primary',
   };
 
   // Size styles
