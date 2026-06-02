@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "203"
 tags: [security, dependencies, ci, backend]
@@ -77,11 +77,11 @@ not merely a scan-hygiene nuisance.
 
 ## Acceptance Criteria
 
-- [ ] `backend/requirements.txt` pins `PyJWT==2.13.0` (or newer).
-- [ ] `pip-audit -r backend/requirements.txt` (with current suppression flags) exits 0 locally.
-- [ ] No new `--ignore-vuln` entry was added for PYSEC-2026-175/177/178/179 (they are fixed, not suppressed).
-- [ ] Backend test suite passes, including `apps.users` JWT token issue/refresh/verify.
-- [ ] `Backend Python Security Scan` + `Security Scan Summary` are green on the fix PR.
+- [x] `backend/requirements.txt` pins `PyJWT==2.13.0` (or newer).
+- [x] `pip-audit -r backend/requirements.txt` (with current suppression flags) exits 0 locally.
+- [x] No new `--ignore-vuln` entry was added for PYSEC-2026-175/177/178/179 (they are fixed, not suppressed).
+- [x] Backend test suite passes, including `apps.users` JWT token issue/refresh/verify.
+- [x] `Backend Python Security Scan` + `Security Scan Summary` are green on the fix PR.
 
 ## Work Log
 
@@ -91,6 +91,68 @@ not merely a scan-hygiene nuisance.
   check was this backend dependency scan, unrelated to the frontend change.
   Diagnosed the 4 new fixable pyjwt advisories and confirmed the prior-day green
   `main` run. Created as a backend follow-up.
+
+### 2026-06-02 - Started by completing-todos skill (run 2026-06-02-1833)
+
+- Picked up by automated workflow on branch `fix/pyjwt-2.13.0-security-cves`.
+- Orientation confirmed: `backend/requirements.txt:160` pins `PyJWT==2.12.1`;
+  `djangorestframework_simplejwt==5.5.1` requires only `pyjwt>=1.7.1` (no upper
+  bound) so 2.13.0 is compatible; the `CVE-2026-31236` suppression already landed
+  on `main` (`security-scan.yml:54,61`) so no rebase/coordination conflict; the
+  4 PYSEC-2026-17x advisories are NOT in the workflow `--ignore-vuln` list.
+
+### 2026-06-02 - Local verification (criteria 1–4 passed)
+
+- **Criterion 1 (pin):** `grep "^PyJWT==" backend/requirements.txt` → `160:PyJWT==2.13.0`.
+- **Criterion 2 (pip-audit clean):** ran with the exact six CI `--ignore-vuln`
+  flags from `security-scan.yml:56-61` against `backend/requirements.txt` →
+  `No known vulnerabilities found, 2 ignored` / `PIP_AUDIT_EXIT=0`. The four
+  PYSEC-2026-175/177/178/179 advisories no longer appear — fixed by 2.13.0.
+- **Criterion 3 (no over-suppression):** `grep -E "PYSEC-2026-17[5789]"
+  .github/workflows/security-scan.yml` → none present. The fixed advisories were
+  cleared by the bump, not papered over with new ignore flags.
+- **Criterion 4 (JWT tests):** `python manage.py test apps.users --noinput` →
+  `Ran 99 tests in 15.107s / OK`. Run explicitly exercised token issue/refresh
+  (valid, invalid, rotation, last_login, CSRF, missing-token), JWT cookie
+  set/verify, and the Firebase→Django auth suite. PyJWT is used only by
+  SIMPLE_JWT sign/verify, so `apps.users` is the comprehensive coverage for this
+  bump; the full backend suite runs via CI `backend-tests` on the PR.
+- **Criterion 5** remains open pending PR push + `Backend Python Security Scan` /
+  `Security Scan Summary` reporting green on the PR.
+
+### 2026-06-02 - Code review (security/dependency lens)
+
+- Verdict: **APPROVE, nothing blocking.** Independent review confirmed (primary
+  source): no direct PyJWT API usage anywhere in `backend/` app code (only
+  `simplejwt`'s `TokenError` wrapper) — the new CVEs concern `PyJWKClient`/JWK/URI
+  paths the app (HS256 + string `SIGNING_KEY`) never exercises; the PYSEC-2025-183
+  `JWT_SECRET_KEY` >=50-char fail-fast guard (`settings.py`) is intact and untouched.
+
+#### Known issues (non-blocking)
+
+- **LOW — FIXED in this PR:** `security-scan.yml:53` suppression comment said
+  `(PyJWT 2.12.1)`, made stale by this bump → updated to `(PyJWT 2.13.0)`.
+  Did **not** remove the `--ignore-vuln PYSEC-2025-183` flag (reviewer's optional
+  "cleaner" suggestion): it is currently vestigial on 2.13.0 but keeping it is the
+  advisory-DB-resilient choice — suppressed-vs-fixed status shifts over time (this
+  todo is itself proof), and the flag is harmless while matched-to-nothing.
+- **INFO — out of scope:** `requirements-dev.txt:124` still pins `PyJWT==2.10.1`
+  (inside the affected range of the 4 CVEs). Not gated — CI installs only
+  `requirements.txt` (`backend-ci.yml:56,164`; `security-scan.yml` audits only
+  `requirements.txt`) — and that dev file is already broadly stale vs prod. Left
+  for a separate dependency-hygiene follow-up; bumping only its PyJWT line would be
+  an arbitrary touch on an already-divergent file.
+
+### 2026-06-02 - Completed by completing-todos skill (run 2026-06-02-1833)
+
+- PR #326 (`fix/pyjwt-2.13.0-security-cves`) opened against `main`.
+- Verification: all 5 acceptance criteria passed. Criterion 5 confirmed on the PR —
+  `Backend Python Security Scan` **pass** (1m2s), `Security Scan Summary` **pass**,
+  and `Run backend test suite (pytest, postgres + redis)` **pass** (5m43s, full
+  backend suite). Every PR check green.
+- Review: 2 findings, 0 blocking — 1 LOW fixed in-PR (stale workflow comment),
+  1 INFO left as out-of-scope dependency-hygiene follow-up (`requirements-dev.txt`
+  PyJWT==2.10.1).
 
 ## Notes
 
