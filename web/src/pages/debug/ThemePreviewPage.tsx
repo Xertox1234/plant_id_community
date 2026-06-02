@@ -1,6 +1,11 @@
 // Dev-only probe: exercises the core token utilities so Tailwind generates
 // them, and gives Playwright stable testids to assert resolution against.
-export default function ThemePreviewPage() {
+
+const PALETTES = ['loam', 'garden', 'forest', 'heritage'] as const;
+const DENSITIES = ['comfortable', 'cozy', 'compact'] as const;
+const MODES = ['light', 'dark'] as const;
+
+function HtmlProbe() {
   return (
     <div className="bg-surface text-ink p-screen min-h-screen">
       <div data-testid="probe-surface" className="bg-surface p-card rounded-md shadow-2">
@@ -57,6 +62,56 @@ export default function ThemePreviewPage() {
       <span data-testid="probe-mono" className="font-mono italic">
         Monstera deliciosa
       </span>
+    </div>
+  );
+}
+
+function Swatches() {
+  return (
+    <div className="space-y-1">
+      <h3 className="gt-h3">Aa Bricolage</h3>
+      <div className="flex gap-1">
+        <span className="rounded-sm bg-clay px-2 text-on-clay">clay</span>
+        <span className="rounded-sm bg-primary px-2 text-on-primary">moss</span>
+        <span className="rounded-sm bg-tertiary px-2">honey</span>
+      </div>
+      <div className="flex gap-1 text-xs">
+        <span className="text-leaf">leaf</span>
+        <span className="text-berry">berry</span>
+        <span className="text-sky">sky</span>
+        <span className="text-error">error</span>
+      </div>
+      <p className="font-mono italic text-ink-2">Monstera deliciosa</p>
+      <p className="text-ink-3">muted ink-3</p>
+    </div>
+  );
+}
+
+export default function ThemePreviewPage() {
+  return (
+    <div className="min-h-screen bg-neutral-100 p-4">
+      <HtmlProbe />
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+        {PALETTES.flatMap((palette) =>
+          DENSITIES.flatMap((density) =>
+            MODES.map((mode) => (
+              <div
+                key={`${palette}-${density}-${mode}`}
+                data-testid="combo-card"
+                data-palette={palette}
+                data-density={density}
+                data-mode={mode}
+                className="bg-surface text-ink p-card rounded-md shadow-2 border border-line"
+              >
+                <p className="text-[10px] uppercase tracking-wide text-ink-3">
+                  {palette}/{density}/{mode}
+                </p>
+                <Swatches />
+              </div>
+            ))
+          )
+        )}
+      </div>
     </div>
   );
 }
