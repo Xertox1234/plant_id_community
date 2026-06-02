@@ -50,21 +50,19 @@ With caching (95% hit rate):
 
 See Also:
 --------
-- wagtail_ai_integration.py - v2.x implementation (deprecated)
 - services/ai_cache_service.py - Cache storage layer
-- services/ai_rate_limiter.py - Rate limiting by user tier
+- services/ai_rate_limiter.py - Rate limiting by user tier (enforced at view layer)
 - WAGTAIL_AI_V3_MIGRATION_PATTERNS.md - Pattern 8 (Caching & Rate Limiting)
 """
 
 import hashlib
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
-from django.contrib.auth.models import AnonymousUser
 from django_ai_core.llm import LLMService
 
-from .services import AICacheService, AIRateLimiter
+from .services import AICacheService
 
 logger = logging.getLogger(__name__)
 
@@ -72,28 +70,53 @@ logger = logging.getLogger(__name__)
 _original_get_llm_service = None
 
 
+def generate_ai_text(prompt: str, *, alias: str = "default") -> str:
+    """
+    Generate text from a single prompt via the wagtail-ai 3.x LLM service.
+
+    Replaces the removed ``wagtail_ai.utils.get_ai_text`` (2.x API). Resolves
+    ``get_llm_service`` off the module at call time so the installed
+    ``CachedLLMService`` wrapper (Redis caching) is applied, and so tests can
+    patch this call site.
+
+    Args:
+        prompt: The user prompt to send to the LLM.
+        alias: Provider alias from ``WAGTAIL_AI['PROVIDERS']`` (default ``"default"``).
+
+    Returns:
+        The generated text (``choices[0].message.content``).
+    """
+    from wagtail_ai.agents import base as wagtail_ai_base
+
+    service = wagtail_ai_base.get_llm_service(alias)
+    result = service.completion(messages=[{"role": "user", "content": prompt}])
+    return result.choices[0].message.content
+
+
 class CachedLLMService:
     """
-    Wrapper around django-ai-core's LLMService that adds caching and rate limiting.
+    Wrapper around django-ai-core's LLMService that adds caching.
 
     This wrapper intercepts LLMService.completion() calls and:
     1. Checks cache for existing response
-    2. Checks rate limits for the user
-    3. Calls original LLM service if cache miss
-    4. Caches successful responses
-    5. Logs performance metrics
+    2. Calls original LLM service if cache miss
+    3. Caches successful responses
+    4. Logs performance metrics
 
     Attributes:
         service: The wrapped LLMService instance
-        feature: Feature identifier for cache/rate limit keys ('blog_ai_title', etc.)
-        user: The Django user making the request (for rate limiting)
+        feature: Feature identifier for cache keys ('blog_ai_title', etc.)
+
+    Note:
+        Rate limiting is enforced at the view layer (see ``@ai_rate_limit`` on
+        ``apps.blog.api_views.generate_ai_content``). wagtail-ai 3.x exposes no
+        user-aware hook here, so this wrapper only handles caching.
     """
 
     def __init__(
         self,
         service: LLMService,
         feature: str = "wagtail_ai",
-        user: Optional[Any] = None,
     ):
         """
         Initialize cached LLM service wrapper.
@@ -101,11 +124,9 @@ class CachedLLMService:
         Args:
             service: The LLMService instance to wrap
             feature: Feature identifier (e.g., 'blog_ai_title', 'blog_ai_description')
-            user: Django user for rate limiting (None = no rate limiting)
         """
         self.service = service
         self.feature = feature
-        self.user = user
 
         # Expose underlying service properties
         self.client = service.client
@@ -159,17 +180,16 @@ class CachedLLMService:
 
     def completion(self, messages: list[dict], **kwargs) -> Any:
         """
-        Cached completion with rate limiting.
+        Cached completion.
 
         Flow:
         1. Generate cache key from messages
         2. Check cache for existing response
         3. If cache hit: Return cached response (< 100ms)
         4. If cache miss:
-           a. Check rate limits for user
-           b. Call original LLM service
-           c. Cache successful response
-           d. Return response
+           a. Call original LLM service
+           b. Cache successful response
+           c. Return response
 
         Args:
             messages: The messages to send to the LLM
@@ -177,51 +197,12 @@ class CachedLLMService:
 
         Returns:
             Completion response from LLM or cache
-
-        Raises:
-            RateLimitExceeded: If user exceeds rate limit
         """
         # Generate cache key
         cache_key = self._generate_cache_key(messages)
         prompt_preview = self._extract_prompt_from_messages(messages)
 
-        # Enforce the rate limit BEFORE serving from cache. A cached prompt must
-        # still count against the user's quota, otherwise the quota can be bypassed
-        # indefinitely by replaying a previously cached request.
-        if self.user and not isinstance(self.user, AnonymousUser):
-            is_staff = getattr(self.user, "is_staff", False)
-            if not AIRateLimiter.check_user_limit(self.user.id, is_staff):
-                logger.warning(
-                    f"[RATE_LIMIT] User {self.user.id} exceeded rate limit "
-                    f"for {self.feature}"
-                )
-                # Return rate limit error as a mock completion response
-                return type(
-                    "CompletionResponse",
-                    (),
-                    {
-                        "choices": [
-                            type(
-                                "Choice",
-                                (),
-                                {
-                                    "message": type(
-                                        "Message",
-                                        (),
-                                        {
-                                            "content": (
-                                                "Rate limit exceeded. Please try again later or "
-                                                "upgrade your subscription for higher limits."
-                                            )
-                                        },
-                                    )()
-                                },
-                            )()
-                        ]
-                    },
-                )()
-
-        # Check cache (after the rate limit has been enforced above)
+        # Check cache
         cached_response = AICacheService.get_cached_response(self.feature, cache_key)
         if cached_response:
             logger.info(
@@ -348,13 +329,11 @@ def install_wagtail_ai_v3_integration():
             # Get original service
             original_service = _original_get_llm_service(alias)
 
-            # Wrap with caching
-            # Note: We don't have access to the user here, so rate limiting
-            # must be implemented at the agent level if needed
+            # Wrap with caching only. Rate limiting is enforced at the view layer
+            # (wagtail-ai 3.x exposes no user-aware hook here).
             cached_service = CachedLLMService(
                 service=original_service,
                 feature=f"wagtail_ai_{alias}",
-                user=None,  # Could be passed via context in the future
             )
 
             logger.debug(

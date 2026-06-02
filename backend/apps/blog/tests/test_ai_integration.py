@@ -212,6 +212,22 @@ class BlogAIIntegrationTestCase(TestCase):
         self.assertFalse(result["success"])
         self.assertIn("Unsupported field", result["error"])
 
+    @patch("apps.blog.wagtail_ai_v3_integration.generate_ai_text")
+    def test_generate_content_success(self, mock_generate_ai_text):
+        """A successful generation returns the LLM text via the v3 helper."""
+        mock_generate_ai_text.return_value = "An Engaging Monstera Care Title"
+        context = {
+            "introduction": "Learn about Monstera care",
+            "difficulty_level": "beginner",
+        }
+
+        result = BlogAIIntegration.generate_content("title", context, self.user)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["content"], "An Engaging Monstera Care Title")
+        self.assertFalse(result["cached"])
+        mock_generate_ai_text.assert_called_once()
+
 
 @unittest.skip(
     "Endpoint removed in security audit - replaced by Wagtail AI native panel system"
@@ -410,3 +426,103 @@ class GenerateBlogFieldContentAPITestCase(TestCase):
 
         # Should be called twice (once for each request)
         self.assertEqual(mock_generate.call_count, 2)
+
+
+def _make_completion_response(text):
+    """
+    Build a minimal OpenAI-style completion response.
+
+    Mirrors the ``response.choices[0].message.content`` shape that
+    ``django_ai_core``'s ``LLMService.completion`` returns, so helper tests can
+    exercise the real extraction path without a live LLM.
+    """
+    message = type("Message", (), {"content": text})()
+    choice = type("Choice", (), {"message": message})()
+    return type("CompletionResponse", (), {"choices": [choice]})()
+
+
+class GenerateAiTextHelperTestCase(TestCase):
+    """The wagtail-ai 3.x helper that replaces the removed get_ai_text()."""
+
+    @patch("wagtail_ai.agents.base.get_llm_service")
+    def test_returns_completion_content(self, mock_get_llm_service):
+        """Helper sends the v3 messages payload and returns the LLM text."""
+        from apps.blog.wagtail_ai_v3_integration import generate_ai_text
+
+        mock_service = mock_get_llm_service.return_value
+        mock_service.completion.return_value = _make_completion_response(
+            "Monstera deliciosa thrives in bright, indirect light."
+        )
+
+        result = generate_ai_text("Describe Monstera care")
+
+        self.assertEqual(
+            result, "Monstera deliciosa thrives in bright, indirect light."
+        )
+        mock_service.completion.assert_called_once_with(
+            messages=[{"role": "user", "content": "Describe Monstera care"}]
+        )
+
+
+class GenerateAiContentViewTestCase(TestCase):
+    """The /blog-api/ai-content/ endpoint (H2 migration + H3 rate limiting)."""
+
+    URL = "/api/v1/blog-api/ai-content/"
+
+    def setUp(self):
+        cache.clear()
+        self.client = Client()
+        self.staff_user = User.objects.create_user(
+            username="staffuser", password="testpass123", is_staff=True
+        )
+
+    def tearDown(self):
+        cache.clear()
+
+    def _post(self, payload):
+        return self.client.post(
+            self.URL, data=json.dumps(payload), content_type="application/json"
+        )
+
+    @patch("apps.blog.wagtail_ai_v3_integration.generate_ai_text")
+    def test_returns_200_with_generated_content(self, mock_generate_ai_text):
+        """A staff request returns 200 with generated content (was always 503)."""
+        mock_generate_ai_text.return_value = "Monstera loves bright, indirect light."
+        self.client.force_login(self.staff_user)
+
+        response = self._post({"plant_name": "Monstera", "content_type": "description"})
+
+        self.assertEqual(response.status_code, 200)
+        result = json.loads(response.content)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["content"], "Monstera loves bright, indirect light.")
+        self.assertEqual(result["content_type"], "description")
+        self.assertEqual(result["plant_name"], "Monstera")
+
+    @patch("apps.blog.wagtail_ai_v3_integration.generate_ai_text")
+    def test_rate_limited_returns_429_past_threshold(self, mock_generate_ai_text):
+        """Past the per-hour staff quota the view returns 429 at the view layer."""
+        mock_generate_ai_text.return_value = "Generated content."
+        self.client.force_login(self.staff_user)
+        payload = {"plant_name": "Monstera", "content_type": "description"}
+
+        # The staff quota allows STAFF_LIMIT calls; the next one is rejected.
+        for _ in range(AIRateLimiter.STAFF_LIMIT):
+            self.assertEqual(self._post(payload).status_code, 200)
+
+        throttled = self._post(payload)
+        self.assertEqual(throttled.status_code, 429)
+        self.assertEqual(throttled["Retry-After"], "3600")
+
+    @patch("apps.blog.wagtail_ai_v3_integration.generate_ai_text")
+    def test_non_staff_redirected_without_consuming_quota(self, mock_generate_ai_text):
+        """@staff_member_required runs before @ai_rate_limit: non-staff get 302
+        and never increment the AI quota counter (validates decorator order)."""
+        non_staff = User.objects.create_user(username="member", password="testpass123")
+        self.client.force_login(non_staff)
+
+        response = self._post({"plant_name": "Monstera", "content_type": "description"})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(cache.get(f"ai_rate_limit:user:{non_staff.id}"))
+        mock_generate_ai_text.assert_not_called()

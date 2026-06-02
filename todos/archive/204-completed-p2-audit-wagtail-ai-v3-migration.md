@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "204"
 tags: [wagtail, blog, ai, audit]
@@ -71,13 +71,13 @@ Source: audit 2026-06-02 (Phase 2.5 doc-research confirmed via Context7).
 
 ## Acceptance Criteria
 
-- [ ] `python -c "from wagtail_ai.agents import get_llm_service"` works and the
+- [x] `python -c "from wagtail_ai.agents import get_llm_service"` works and the
       `get_ai_text` import is gone from the codebase.
-- [ ] `api/ai-content/` returns 200 with generated content (mocked LLM) instead
+- [x] `api/ai-content/` returns 200 with generated content (mocked LLM) instead
       of 503.
-- [ ] AI generation is rate-limited at the view layer; a test asserts 429 past
+- [x] AI generation is rate-limited at the view layer; a test asserts 429 past
       the threshold.
-- [ ] Dead module `wagtail_ai_integration.py` removed; full blog suite green.
+- [x] Dead module `wagtail_ai_integration.py` removed; full blog suite green.
 
 ## Work Log
 
@@ -86,6 +86,36 @@ Source: audit 2026-06-02 (Phase 2.5 doc-research confirmed via Context7).
 - Filed from audit `docs/audits/2026-06-02-full.md` (findings H2, H3, L15).
   Deferred per user triage (AI v3 migration is larger scope than the audit's
   fix-now set).
+
+### 2026-06-02 - Completed
+
+- **H2:** Added `generate_ai_text(prompt)` helper in
+  `wagtail_ai_v3_integration.py` wrapping the wagtail-ai 3.x service
+  (`get_llm_service(alias).completion(messages=[…]).choices[0].message.content`).
+  Verified the audit's recommended API against the installed 3.1.0 source — it
+  matches what wagtail-ai's own `BasicPromptAgent` uses. Replaced both
+  `get_ai_text` call sites (`api_views.py`, `ai_integration.py`); dropped the
+  vestigial `try/except ImportError → 503` block (import now always succeeds —
+  genuine LLM/config errors map to the existing 500 path). Helper resolves
+  `get_llm_service` off the module at call time so the installed caching wrapper
+  applies and tests can patch it.
+- **H3:** Applied the existing `@ai_rate_limit` decorator (view layer, innermost
+  — after staff/method checks so only real staff POSTs consume quota → 429 +
+  `Retry-After`) to `generate_ai_content`. Removed the unreachable `user=None`
+  limiter branch (plus `user` param / `AnonymousUser` / `AIRateLimiter` imports)
+  from `CachedLLMService`; the wrapper now does caching only. Note:
+  `BlogAIIntegration.generate_content` is referenced only from tests (no live
+  path) — its existing service-layer limiter is unchanged.
+- **L15:** Deleted dead v2 module `wagtail_ai_integration.py` (`install_*` never
+  called) and fixed the stale comment in `api_views.py` that referenced it.
+- Bonus hygiene: bumped `requirements-dev.txt` `wagtail-ai` 3.0.0 → 3.1.0 to
+  match `requirements.txt` (CI installs `requirements.txt`, so this was untested
+  drift, not a CI gate).
+- Tests: added helper unit test (mocks `get_llm_service`, asserts the v3
+  messages payload + extraction), view 200 test (mocks helper), view 429
+  rate-limit test (50× 200 then 429 + `Retry-After: 3600`), and a
+  `BlogAIIntegration` success test. Full blog suite green: **186 passed,
+  7 pre-existing skips**.
 
 ## Notes
 
