@@ -42,7 +42,6 @@ from .models import (
     PlantDiseaseRequest,
     PlantDiseaseResult,
     PlantDiseaseVote,
-    PlantIdentificationRequest,
     PlantIdentificationResult,
     PlantSpecies,
     SavedCareInstructions,
@@ -57,7 +56,6 @@ from .serializers import (
     PlantDiseaseRequestSerializer,
     PlantDiseaseRequestWithResultsSerializer,
     PlantDiseaseResultSerializer,
-    PlantIdentificationRequestSerializer,
     PlantIdentificationResultSerializer,
     PlantSpeciesSerializer,
     SavedCareInstructionsSerializer,
@@ -66,10 +64,8 @@ from .serializers import (
     UserPlantSerializer,
 )
 from .services.disease_diagnosis_service import PlantDiseaseService
-from .services.identification_service import PlantIdentificationService
 from .services.plantnet_service import PlantNetAPIService
 from .services.trefle_service import TrefleAPIService
-from .tasks import run_identification
 
 logger = logging.getLogger(__name__)
 
@@ -122,174 +118,6 @@ class PlantSpeciesViewSet(viewsets.ReadOnlyModelViewSet):
             logger.error(f"External plant search failed: {str(e)}")
             return Response(
                 {"error": "External search service temporarily unavailable"}, status=503
-            )
-
-
-class PlantIdentificationRequestViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for plant identification requests.
-    This is the main proxy endpoint for plant identification.
-    """
-
-    serializer_class = PlantIdentificationRequestSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
-
-    def get_queryset(self):
-        # `_results_count` annotation feeds the serializer's results_count field
-        # without a COUNT query per identification request.
-        return (
-            PlantIdentificationRequest.objects.filter(user=self.request.user)
-            .annotate(_results_count=Count("identification_results"))
-            .order_by("-created_at")
-        )
-
-    @method_decorator(
-        ratelimit(
-            key="user",
-            rate=constants.RATE_LIMITS["authenticated"]["plant_identification"],
-            method="POST",
-            block=True,
-        )
-    )
-    def create(self, request, *args, **kwargs):
-        """Create plant identification request with rate limiting."""
-        try:
-            return super().create(request, *args, **kwargs)
-        except Exception as e:
-            logger.error(
-                f"Error creating plant identification request: {e}", exc_info=True
-            )
-            raise
-
-    def perform_create(self, serializer):
-        """Create identification request and trigger async AI processing (Celery)."""
-        # Save the request
-        request_obj = serializer.save(user=self.request.user)
-
-        # Decide whether to use Celery based on settings; default to synchronous
-        use_celery = getattr(settings, "CELERY_ENABLED", False)
-
-        if use_celery:
-            try:
-                # Enqueue task only after the creating transaction commits, so the
-                # worker cannot fetch the request before its row is visible.
-                request_id = str(request_obj.request_id)
-                transaction.on_commit(lambda: run_identification.delay(request_id))
-                logger.info(
-                    "Enqueued identification task for %s", request_obj.request_id
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Celery enqueue failed, processing synchronously: {str(e)}"
-                )
-                from .services.identification_service import PlantIdentificationService
-
-                identification_service = PlantIdentificationService()
-                identification_service.identify_plant_from_request(request_obj)
-        else:
-            # Process synchronously when Celery is disabled/not used
-            from .services.identification_service import PlantIdentificationService
-
-            identification_service = PlantIdentificationService()
-            identification_service.identify_plant_from_request(request_obj)
-
-    def retrieve(self, request, pk=None):
-        """Get identification request by UUID."""
-        try:
-            request_obj = get_object_or_404(
-                PlantIdentificationRequest, request_id=pk, user=request.user
-            )
-            serializer = self.get_serializer(request_obj)
-            return Response(serializer.data)
-        except ValueError:
-            return Response({"error": "Invalid request ID format"}, status=400)
-
-    @action(detail=True, methods=["get"], url_path="status")
-    def status(self, request, pk=None):
-        """
-        Get processing status for an identification request.
-        Returns only lightweight status fields for polling.
-        """
-        try:
-            request_obj = get_object_or_404(
-                PlantIdentificationRequest, request_id=pk, user=request.user
-            )
-            return Response(
-                {
-                    "request_id": str(request_obj.request_id),
-                    "status": request_obj.status,
-                    "processed_by_ai": request_obj.processed_by_ai,
-                    "updated_at": request_obj.updated_at,
-                }
-            )
-        except ValueError:
-            return Response({"error": "Invalid request ID format"}, status=400)
-
-    @action(detail=True, methods=["get"])
-    def results(self, request, pk=None):
-        """
-        Get identification results for a request.
-        """
-        try:
-            request_obj = get_object_or_404(
-                PlantIdentificationRequest, request_id=pk, user=request.user
-            )
-
-            results = request_obj.identification_results.all().order_by(
-                "-confidence_score", "-created_at"
-            )
-
-            serializer = PlantIdentificationResultSerializer(results, many=True)
-
-            return Response(
-                {
-                    "request_id": str(request_obj.request_id),
-                    "status": request_obj.status,
-                    "results": serializer.data,
-                }
-            )
-
-        except ValueError:
-            return Response({"error": "Invalid request ID format"}, status=400)
-
-    @action(detail=True, methods=["post"])
-    def process_now(self, request, pk=None):
-        """
-        Manually trigger processing for a request (for testing).
-        """
-        try:
-            request_obj = get_object_or_404(
-                PlantIdentificationRequest, request_id=pk, user=request.user
-            )
-
-            if request_obj.status != "pending":
-                return Response(
-                    {"error": "Request has already been processed"}, status=400
-                )
-
-            # Process immediately (for testing)
-            identification_service = PlantIdentificationService()
-            results = identification_service.identify_plant_from_request(request_obj)
-
-            # Refresh from database
-            request_obj.refresh_from_db()
-            serializer = self.get_serializer(request_obj)
-
-            return Response(
-                {
-                    "message": "Processing completed",
-                    "request": serializer.data,
-                    "results_count": len(results),
-                }
-            )
-
-        except ValueError:
-            return Response({"error": "Invalid request ID format"}, status=400)
-        except Exception as e:
-            logger.error(f"Manual processing failed: {str(e)}")
-            return Response(
-                {"error": "Processing failed. Please try again."}, status=500
             )
 
 

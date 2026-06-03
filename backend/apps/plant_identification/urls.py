@@ -75,9 +75,6 @@ def service_status(request):
 # Create router for ViewSets
 router = DefaultRouter()
 router.register(r"species", views.PlantSpeciesViewSet, basename="species")
-router.register(
-    r"requests", views.PlantIdentificationRequestViewSet, basename="requests"
-)
 router.register(r"results", views.PlantIdentificationResultViewSet, basename="results")
 router.register(r"plants", views.UserPlantViewSet, basename="plants")
 
