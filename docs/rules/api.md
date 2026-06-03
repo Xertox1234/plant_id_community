@@ -14,6 +14,12 @@ Compact checklist auto-injected before edits. Long-form:
   — so logs are greppable by subsystem.
 - Serializer field changes are API-contract changes — version or document them.
 - Validate at the boundary (request data); trust internal calls.
+- **Adding `choices=` to an existing WRITABLE field is a breaking change.** DRF
+  maps a model field with `choices` to a `ChoiceField`, so writes carrying any
+  value outside the enum start returning 400. Before adding it, enumerate every
+  value existing clients send (grep mobile, web, AND tests) and make the new enum
+  a superset (+ an `other` escape hatch). A field with `choices` is also what
+  makes `get_FOO_display()` exist and drf-spectacular emit an enum.
 - **`Retry-After` must reflect the actual rate window, not a constant.**
   `django-ratelimit`'s `Ratelimited` carries no rate (the decorator discards it),
   so capture the rate at the decorator site (`apps/core/ratelimit.py` wraps it and

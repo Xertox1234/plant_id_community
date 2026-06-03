@@ -120,5 +120,20 @@
     "source": "codify: chore/codify-harness-learnings",
     "added": "2026-05-29",
     "severity": "warn"
+  },
+  {
+    "id": "celery-task-prefixed-decorator-option",
+    "domains": [
+      "celery"
+    ],
+    "path_glob": [
+      "backend/apps/**/tasks.py"
+    ],
+    "content_present": "task_(acks_late|reject_on_worker_lost)\\s*=",
+    "message": "Celery: `task_*` names are GLOBAL config settings and are INERT as @shared_task/@app.task decorator kwargs. Use the unprefixed per-task options: acks_late= / reject_on_worker_lost=.",
+    "pattern_ref": "docs/rules/celery.md",
+    "source": "codify: main",
+    "added": "2026-06-02",
+    "severity": "warn"
   }
 ]

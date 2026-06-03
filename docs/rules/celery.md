@@ -11,3 +11,7 @@ Compact checklist auto-injected before edits. Long-form:
 - **No secrets in task args** — they are logged by the broker.
 - Beat schedules live in config, not scattered across modules.
 - Bracketed log prefix per task domain so worker logs stay greppable.
+- **Per-task options are UNPREFIXED in the decorator** — `acks_late=True`,
+  `reject_on_worker_lost=True`. The `task_`-prefixed names (`task_acks_late`,
+  `task_reject_on_worker_lost`) are the *global* config settings; passed to
+  `@shared_task(...)` they are silently accepted as inert kwargs and do nothing.
