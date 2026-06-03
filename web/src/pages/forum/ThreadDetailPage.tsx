@@ -224,7 +224,7 @@ export default function ThreadDetailPage() {
   if (error || !thread) {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-error/10 border border-error/30 text-error px-4 py-3 rounded">
+        <div className="bg-error/10 border border-error/30 text-ink px-4 py-3 rounded">
           <strong>Error:</strong> {error || 'Thread not found'}
         </div>
       </div>
@@ -283,7 +283,7 @@ export default function ThreadDetailPage() {
           {/* Badges */}
           <div className="flex gap-2">
             {thread.is_pinned && (
-              <span className="px-3 py-1 bg-tertiary/20 text-tertiary text-sm font-semibold rounded">
+              <span className="px-3 py-1 bg-tertiary/20 text-ink text-sm font-semibold rounded">
                 📌 Pinned
               </span>
             )}
@@ -298,7 +298,7 @@ export default function ThreadDetailPage() {
 
       {/* Inline reaction error — never replaces the page */}
       {reactionError && (
-        <div className="mb-4 flex items-center justify-between bg-error/10 border border-error/30 text-error px-4 py-3 rounded">
+        <div className="mb-4 flex items-center justify-between bg-error/10 border border-error/30 text-ink px-4 py-3 rounded">
           <span>{reactionError}</span>
           <button
             type="button"
@@ -358,7 +358,7 @@ export default function ThreadDetailPage() {
               />
 
               {replyError && (
-                <div className="mb-4 p-3 bg-error/10 text-error rounded">{replyError}</div>
+                <div className="mb-4 p-3 bg-error/10 text-ink rounded">{replyError}</div>
               )}
 
               <div className="flex gap-2">

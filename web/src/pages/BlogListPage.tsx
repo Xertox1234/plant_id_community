@@ -205,12 +205,12 @@ export default function BlogListPage() {
                 {hasFilters && (
                   <div className="flex items-center gap-2 flex-1">
                     {search && (
-                      <span className="inline-flex items-center px-3 py-1 bg-primary/10 text-leaf text-sm rounded-full">
+                      <span className="inline-flex items-center px-3 py-1 bg-primary/10 text-ink text-sm rounded-full">
                         Search: "{search}"
                       </span>
                     )}
                     {category && (
-                      <span className="inline-flex items-center px-3 py-1 bg-primary/10 text-leaf text-sm rounded-full">
+                      <span className="inline-flex items-center px-3 py-1 bg-primary/10 text-ink text-sm rounded-full">
                         Category: {category}
                       </span>
                     )}

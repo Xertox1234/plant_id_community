@@ -10,10 +10,10 @@ import type { DiagnosisCard as DiagnosisCardType } from '@/types/diagnosis';
 function getStatusColor(status: string): string {
   const colors: Record<string, string> = {
     not_started: 'bg-surface-3 text-ink-2',
-    in_progress: 'bg-sky/10 text-sky',
-    successful: 'bg-leaf/10 text-leaf',
-    failed: 'bg-error/10 text-error',
-    monitoring: 'bg-warn/10 text-warn',
+    in_progress: 'bg-sky/10 text-ink',
+    successful: 'bg-leaf/10 text-ink',
+    failed: 'bg-error/10 text-ink',
+    monitoring: 'bg-warn/10 text-ink',
   };
   return colors[status] || 'bg-surface-3 text-ink-2';
 }
@@ -23,10 +23,10 @@ function getStatusColor(status: string): string {
  */
 function getSeverityColor(severity: string): string {
   const colors: Record<string, string> = {
-    mild: 'bg-leaf/10 text-leaf ring-leaf/20',
-    moderate: 'bg-warn/10 text-warn ring-warn/20',
-    severe: 'bg-tertiary/10 text-tertiary ring-tertiary/20',
-    critical: 'bg-error/10 text-error ring-error/20',
+    mild: 'bg-leaf/10 text-ink ring-leaf/20',
+    moderate: 'bg-warn/10 text-ink ring-warn/20',
+    severe: 'bg-tertiary/10 text-ink ring-tertiary/20',
+    critical: 'bg-error/10 text-ink ring-error/20',
   };
   return colors[severity] || 'bg-surface-2 text-ink-2 ring-line/20';
 }
@@ -182,7 +182,7 @@ export default function DiagnosisCard({
           {/* Disease information */}
           <div className="mt-3">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-error/10 text-error ring-1 ring-inset ring-error/30">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-error/10 text-ink ring-1 ring-inset ring-error/30">
                 {card.disease_name}
               </span>
               <span

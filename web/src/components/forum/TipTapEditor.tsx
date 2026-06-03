@@ -209,7 +209,7 @@ function ToolbarButton({ onClick, isActive, title, children }: ToolbarButtonProp
       title={title}
       className={`
         px-3 py-1.5 rounded text-sm font-medium transition-colors
-        ${isActive ? 'bg-primary/20 text-leaf' : 'bg-surface-2 text-ink-2 hover:bg-surface-3'}
+        ${isActive ? 'bg-primary/20 text-ink' : 'bg-surface-2 text-ink-2 hover:bg-surface-3'}
       `}
     >
       {children}

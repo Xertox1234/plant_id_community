@@ -63,7 +63,7 @@ export default function IdentificationResults({
                   )}
                 </div>
                 <div className="ml-4">
-                  <div className="px-3 py-1 bg-leaf/10 text-leaf rounded-full text-sm font-medium">
+                  <div className="px-3 py-1 bg-leaf/10 text-ink rounded-full text-sm font-medium">
                     {Math.round(suggestion.probability * 100)}%
                   </div>
                 </div>

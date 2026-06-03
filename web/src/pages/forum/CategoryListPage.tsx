@@ -49,7 +49,7 @@ export default function CategoryListPage() {
   if (error) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-error/10 border border-error/30 text-error px-4 py-3 rounded">
+        <div className="bg-error/10 border border-error/30 text-ink px-4 py-3 rounded">
           <strong>Error loading categories:</strong> {error}
         </div>
       </div>
