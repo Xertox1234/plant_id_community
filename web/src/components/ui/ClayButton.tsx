@@ -13,9 +13,11 @@ export interface ClayButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>
 }
 
 const VARIANT: Record<ClayVariant, string> = {
-  primary: 'bg-clay text-on-clay shadow-2',
-  secondary: 'bg-primary text-on-primary shadow-2',
-  outline: 'bg-transparent border border-primary text-primary',
+  primary: 'bg-clay text-on-clay shadow-2 hover:bg-clay/90 hover:shadow-3 active:translate-y-px',
+  secondary:
+    'bg-primary text-on-primary shadow-2 hover:bg-primary/90 hover:shadow-3 active:translate-y-px',
+  outline:
+    'bg-transparent border border-primary text-primary hover:bg-primary/10 active:translate-y-px',
 };
 const SIZE: Record<ClaySize, string> = {
   sm: 'px-4 py-2 text-sm',
@@ -38,7 +40,7 @@ export default function ClayButton({
   const isDisabled = disabled || loading;
   const classes = [
     'inline-flex items-center justify-center gap-2 rounded-pill font-semibold tracking-[0.25px]',
-    'min-h-[44px] transition-colors',
+    'min-h-[44px] transition duration-150',
     fullWidth && 'w-full',
     isDisabled ? 'bg-surface-3 text-ink-3/40 cursor-not-allowed' : VARIANT[variant],
     SIZE[size],

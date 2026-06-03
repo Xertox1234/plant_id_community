@@ -9,12 +9,12 @@
 /* ───────── Green Thumb semantic vars · :root = loam · light · cozy ───────── */
 :root {
   --gt-surface:#F6F0E2; --gt-surface-2:#ECE3CC; --gt-surface-3:#DDD0AE;
-  --gt-ink:#1F1A12; --gt-ink-2:#4A3F2C; --gt-ink-3:#7C6E55;
+  --gt-ink:#1F1A12; --gt-ink-2:#4A3F2C; --gt-ink-3:#6E624C;
   --gt-line:#D4C5A0; --gt-line-2:#BCA97E;
   --gt-primary:#4A7034; --gt-on-primary:#F6F0E2;
   --gt-secondary:#97B86A; --gt-tertiary:#E0B445;
   --gt-clay:#C9542A; --gt-on-clay:#FFF8EA;
-  --gt-leaf:#C2D680; --gt-berry:#C45577; --gt-sky:#6FA0AA;
+  --gt-leaf:#5E683E; --gt-berry:#A14662; --gt-sky:#456369;
   --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
   --gt-pad-card:16px; --gt-pad-screen:16px; --gt-gap:12px;
   --gt-shadow-1:0 1px 0 rgba(27,34,24,.04), 0 2px 6px rgba(27,34,24,.05);
@@ -25,12 +25,12 @@
 /* ───────── palette LIGHT blocks (forest is dark-only: this is its only set) ───────── */
 [data-palette="garden"] {
   --gt-surface:#F4F1E4; --gt-surface-2:#ECE7D2; --gt-surface-3:#DFD9BD;
-  --gt-ink:#102015; --gt-ink-2:#2E4233; --gt-ink-3:#5C6E5A;
+  --gt-ink:#102015; --gt-ink-2:#2E4233; --gt-ink-3:#596B57;
   --gt-line:#D2CCAE; --gt-line-2:#B8B391;
   --gt-primary:#2F6B3A; --gt-on-primary:#F4F1E4;
   --gt-secondary:#7FA66B; --gt-tertiary:#E5B84B;
   --gt-clay:#D86B2C; --gt-on-clay:#FFF8EA;
-  --gt-leaf:#A8CC6E; --gt-berry:#B8466A; --gt-sky:#6FA0AA;
+  --gt-leaf:#596C3A; --gt-berry:#AB4163; --gt-sky:#456369;
   --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
 }
 [data-palette="forest"] {
@@ -45,12 +45,12 @@
 }
 [data-palette="heritage"] {
   --gt-surface:#F0EBDB; --gt-surface-2:#E4DBC2; --gt-surface-3:#D3C9AC;
-  --gt-ink:#1A1F10; --gt-ink-2:#3A4128; --gt-ink-3:#756E50;
+  --gt-ink:#1A1F10; --gt-ink-2:#3A4128; --gt-ink-3:#655F45;
   --gt-line:#CFC4A2; --gt-line-2:#B8AC85;
   --gt-primary:#3D5A22; --gt-on-primary:#F0EBDB;
   --gt-secondary:#768B4E; --gt-tertiary:#C99B3A;
   --gt-clay:#B0481E; --gt-on-clay:#FFF8EA;
-  --gt-leaf:#A4B86E; --gt-berry:#B8466A; --gt-sky:#6FA0AA;
+  --gt-leaf:#59633B; --gt-berry:#9E3C5B; --gt-sky:#456369;
   --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
 }
 
@@ -59,7 +59,7 @@
    [data-palette="forest"] and clobber it (cascade bug). Forest needs none. ───────── */
 [data-palette="loam"][data-mode="dark"] {
   --gt-surface:#12100A; --gt-surface-2:#1C1810; --gt-surface-3:#272218;
-  --gt-ink:#F2EBD8; --gt-ink-2:#D4C8A4; --gt-ink-3:#8A7E60;
+  --gt-ink:#F2EBD8; --gt-ink-2:#D4C8A4; --gt-ink-3:#8E8265;
   --gt-line:#2E2818; --gt-line-2:#423A26;
   --gt-primary:#B8D680; --gt-on-primary:#12100A;
   --gt-secondary:#A3C26C; --gt-tertiary:#E8C76B;
@@ -141,7 +141,7 @@
 }
 .skip-nav:focus { top: 0; }
 
-@layer base { body { font-family: var(--font-sans); } }
+@layer base { body { font-family: var(--font-sans); background: var(--gt-surface); color: var(--gt-ink); } }
 
 @layer components {
   /* Bricolage Grotesque ships no italic face; italic is synthesized intentionally (matches the mobile Green Thumb identity). */

@@ -26,6 +26,7 @@ vi.mock('../../utils/logger', () => ({
 describe('Header', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear(); // reset persisted theme mode so each test starts at the light default
     vi.mocked(authService.getStoredUser).mockReturnValue(null);
     vi.mocked(authService.getCurrentUser).mockResolvedValue(null);
   });
@@ -402,6 +403,24 @@ describe('Header', () => {
 
       const nav = container.querySelector('nav');
       expect(nav).toHaveClass('sticky', 'top-0', 'z-50');
+    });
+  });
+
+  describe('Theme Toggle', () => {
+    it('renders a dark-mode toggle that offers dark mode at the light default', () => {
+      renderWithRouter(<Header />);
+
+      // Desktop + mobile toggles share the action label.
+      expect(screen.getAllByLabelText('Switch to dark mode').length).toBeGreaterThan(0);
+    });
+
+    it('flips the toggle label after clicking', () => {
+      renderWithRouter(<Header />);
+
+      const toggle = screen.getAllByLabelText('Switch to dark mode')[0];
+      fireEvent.click(toggle);
+
+      expect(screen.getAllByLabelText('Switch to light mode').length).toBeGreaterThan(0);
     });
   });
 });

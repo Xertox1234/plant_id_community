@@ -10,6 +10,7 @@ import type { ReactElement } from 'react';
 import type { RenderOptions } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from '../contexts/AuthContext';
+import { ThemeProvider } from '../contexts/ThemeContext';
 import type { BlogPost, StreamFieldBlock } from '@/types/blog';
 
 /**
@@ -18,9 +19,11 @@ import type { BlogPost, StreamFieldBlock } from '@/types/blog';
  */
 export function renderWithRouter(ui: ReactElement, options: Omit<RenderOptions, 'wrapper'> = {}) {
   return render(
-    <BrowserRouter>
-      <AuthProvider>{ui}</AuthProvider>
-    </BrowserRouter>,
+    <ThemeProvider>
+      <BrowserRouter>
+        <AuthProvider>{ui}</AuthProvider>
+      </BrowserRouter>
+    </ThemeProvider>,
     options
   );
 }
