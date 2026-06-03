@@ -50,4 +50,16 @@ describe('ClayButton', () => {
     rerender(<ClayButton label="A" type="submit" />);
     expect(screen.getByRole('button')).toHaveAttribute('type', 'submit');
   });
+  it('primary variant exposes hover and active feedback', () => {
+    render(<ClayButton label="X" />);
+    const btn = screen.getByRole('button');
+    expect(btn).toHaveClass('hover:bg-clay/90');
+    expect(btn).toHaveClass('active:translate-y-px');
+  });
+  it('disabled state drops the interactive affordances', () => {
+    render(<ClayButton label="X" disabled />);
+    const btn = screen.getByRole('button');
+    expect(btn).not.toHaveClass('hover:bg-clay/90');
+    expect(btn).not.toHaveClass('active:translate-y-px');
+  });
 });

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
-import { Menu, X, User, Settings as SettingsIcon } from 'lucide-react';
+import { Menu, X, User, Settings as SettingsIcon, Sun, Moon } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import UserMenu from './UserMenu';
 
 /**
@@ -19,6 +20,8 @@ import UserMenu from './UserMenu';
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { user, isAuthenticated, logout } = useAuth();
+  const { mode, toggleMode } = useTheme();
+  const themeLabel = mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
 
   const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
   const closeMenu = () => setIsMenuOpen(false);
@@ -78,6 +81,16 @@ export default function Header() {
 
           {/* Desktop Auth Actions */}
           <div className="hidden md:flex items-center gap-4">
+            <button
+              type="button"
+              onClick={toggleMode}
+              aria-label={themeLabel}
+              aria-pressed={mode === 'dark'}
+              title={themeLabel}
+              className="p-2 rounded-lg text-ink-2 hover:text-primary hover:bg-surface transition-colors"
+            >
+              {mode === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
             {isAuthenticated ? (
               <UserMenu />
             ) : (
@@ -147,6 +160,18 @@ export default function Header() {
             >
               Community
             </NavLink>
+
+            {/* Theme toggle */}
+            <button
+              type="button"
+              onClick={toggleMode}
+              aria-label={themeLabel}
+              aria-pressed={mode === 'dark'}
+              className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-ink-2 hover:bg-surface font-medium transition-colors"
+            >
+              {mode === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {mode === 'dark' ? 'Light mode' : 'Dark mode'}
+            </button>
 
             {/* Mobile Auth Actions */}
             <div className="pt-4 border-t border-line">
