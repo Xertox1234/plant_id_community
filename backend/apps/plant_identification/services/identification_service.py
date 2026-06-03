@@ -11,7 +11,6 @@ were removed on 2026-06-03 when that stack was retired.
 import logging
 from typing import Dict
 
-from .ai_care_service import AIPlantCareService
 from .plantnet_service import PlantNetAPIService
 from .trefle_service import TrefleAPIService
 
@@ -36,13 +35,6 @@ class PlantIdentificationService:
         except ValueError:
             logger.warning("PlantNet API not available - continuing without it")
             self.plantnet = None
-
-        # Initialize AI care service
-        try:
-            self.ai_care_service = AIPlantCareService()
-        except Exception as e:
-            logger.warning(f"AI Care Service not available: {e}")
-            self.ai_care_service = None
 
         if not self.trefle and not self.plantnet:
             logger.error("No plant identification APIs available")

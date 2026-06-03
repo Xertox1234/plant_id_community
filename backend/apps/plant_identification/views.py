@@ -5,7 +5,6 @@ These views act as a proxy between the frontend and external APIs (Trefle, Plant
 solving CORS issues and providing a unified API interface.
 """
 
-from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Count, F
 from django.shortcuts import get_object_or_404
