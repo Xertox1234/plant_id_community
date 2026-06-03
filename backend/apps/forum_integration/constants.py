@@ -50,3 +50,9 @@ FORUM_IMAGE_ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
 # PIL format names corresponding to the allowed types
 FORUM_IMAGE_ALLOWED_PIL_FORMATS = ["JPEG", "PNG", "GIF", "WEBP"]
 FORUM_IMAGE_MAX_PER_POST = 6
+
+# --- Caching ---
+# forum_stats runs 3 COUNT queries on every anonymous request. The numbers
+# tolerate brief staleness, so cache them under a short TTL.
+FORUM_STATS_CACHE_KEY = "forum:stats"
+FORUM_STATS_CACHE_TTL = 60  # seconds

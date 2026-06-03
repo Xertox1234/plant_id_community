@@ -8,8 +8,10 @@ and exchanges them for Django JWT tokens.
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
+from freezegun import freeze_time
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -23,6 +25,9 @@ class FirebaseTokenExchangeTestCase(TestCase):
         """Set up test fixtures."""
         self.client = APIClient()
         self.url = reverse("v1:users:firebase_token_exchange")
+        # Reset the per-IP rate-limit counter so one method's POST doesn't
+        # bleed into the next (the endpoint is throttled at 10/m per IP).
+        cache.clear()
 
         # Sample Firebase token (fake, for testing only)
         self.firebase_token = "eyJhbGciOiJSUzI1NiIsImtpZCI6InRlc3QifQ.eyJ1aWQiOiJ0ZXN0dWlkMTIzIiwiZW1haWwiOiJ0ZXN0QGV4YW1wbGUuY29tIn0.test"  # noqa: E501
@@ -514,3 +519,77 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
         self.assertNotEqual(user1.id, user2.id)
         self.assertNotEqual(user1.username, user2.username)
         self.assertEqual(User.objects.filter(email__contains="john@").count(), 2)
+
+
+class FirebaseTokenExchangeRateLimitTestCase(TestCase):
+    """M6: the Firebase token-exchange endpoint is rate limited per IP (10/m).
+
+    It is an AllowAny endpoint that runs Firebase token crypto + DB user
+    creation on every call — an unauthenticated abuse surface. Every sibling
+    auth entry point (register/login/OAuth) already carries @ratelimit; this
+    one did not until the 2026-06-02 audit (finding M6).
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.url = reverse("v1:users:firebase_token_exchange")
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_rate_limited_after_threshold_with_retry_after(self, mock_verify):
+        """The 11th call in a 1-minute window is throttled with a 429 + a
+        window-accurate Retry-After (proves the apps.core.ratelimit wrapper
+        carries the rate through the @api_view stack)."""
+        mock_verify.return_value = {
+            "uid": "rate-limit-uid",
+            "email": "ratelimit@example.com",
+            "email_verified": True,
+            "name": "Rate Limited",
+        }
+        payload = {"firebase_token": "fake-but-mocked-token"}
+
+        # Freeze time so all 11 requests share one rate-limit window (django-
+        # ratelimit's jittered window can otherwise roll over mid-hammer).
+        with freeze_time("2026-06-02 12:00:00"):
+            for i in range(10):
+                resp = self.client.post(self.url, payload, format="json")
+                self.assertEqual(
+                    resp.status_code,
+                    status.HTTP_200_OK,
+                    f"call {i + 1} of 10 should be within the limit",
+                )
+
+            throttled = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(throttled.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        # 10/m -> a 60-second window; the wrapper attaches `.rate` so the
+        # handler emits 60 rather than the bare-Ratelimited 1h fallback.
+        self.assertEqual(throttled["Retry-After"], "60")
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_rate_limit_is_per_ip(self, mock_verify):
+        """A second IP has its own counter — the limit is keyed by IP."""
+        mock_verify.return_value = {
+            "uid": "per-ip-uid",
+            "email": "perip@example.com",
+            "email_verified": True,
+            "name": "Per IP",
+        }
+        payload = {"firebase_token": "fake-but-mocked-token"}
+
+        with freeze_time("2026-06-02 12:00:00"):
+            # Exhaust the first IP's window.
+            for _ in range(11):
+                self.client.post(
+                    self.url, payload, format="json", REMOTE_ADDR="10.0.0.1"
+                )
+
+            # A different IP is unaffected.
+            resp = self.client.post(
+                self.url, payload, format="json", REMOTE_ADDR="10.0.0.2"
+            )
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)

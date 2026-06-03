@@ -93,3 +93,23 @@ class RunIdentificationIdempotencyTest(TestCase):
             self.assertEqual(
                 instance.identify_plant_from_request.call_count, call_count_after_first
             )
+
+
+class RunIdentificationDurabilityTest(TestCase):
+    """M13: a worker killed mid-identification must not silently drop the message.
+
+    `acks_late` defers the broker ack until the task returns, and
+    `reject_on_worker_lost` requeues the message if the worker dies — together
+    they survive a SIGKILL during the up-to-120s external I/O. Safe because the
+    task is idempotent (the status guard above prevents duplicate processing).
+    """
+
+    def test_task_declares_late_ack_and_reject_on_worker_lost(self):
+        self.assertTrue(
+            run_identification.acks_late,
+            "run_identification must ack late so a lost message is redelivered",
+        )
+        self.assertTrue(
+            run_identification.reject_on_worker_lost,
+            "run_identification must requeue when the worker is lost",
+        )

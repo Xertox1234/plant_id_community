@@ -28,6 +28,14 @@ logger = logging.getLogger(__name__)
     retry_kwargs={"max_retries": 5},
     retry_jitter=True,
     rate_limit="100/h",  # Limit task execution rate
+    # Durability: a worker killed mid-identification (up to 120s of external I/O)
+    # must not silently drop the message. ack the message only after the task
+    # returns, and requeue it if the worker is lost. Safe because the task is
+    # idempotent — it short-circuits on any non-"pending" status (Celery FAQ).
+    # NB: the per-task decorator option is `reject_on_worker_lost` (the `task_`
+    # prefix names the *global* setting, not the task attribute).
+    acks_late=True,
+    reject_on_worker_lost=True,
 )
 def run_identification(self, request_uuid: str) -> Dict:
     """

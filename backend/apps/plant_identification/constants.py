@@ -159,6 +159,7 @@ RATE_LIMITS = {
         "register": "3/h",  # Registration
         "token_refresh": "10/h",  # Token refresh
         "password_reset": "3/h",  # Password reset (not implemented)
+        "firebase_token_exchange": "10/m",  # Firebase token -> JWT exchange (mobile)
     },
     # User Feature Endpoints (user-based)
     "user_features": {

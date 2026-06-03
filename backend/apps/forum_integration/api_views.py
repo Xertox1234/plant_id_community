@@ -7,6 +7,7 @@ import os
 
 from apps.core.ratelimit import ratelimit  # rate-preserving wrapper (todo 115)
 from apps.core.utils.query_sanitization import escape_search_query
+from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Case, Count, F, IntegerField, When
@@ -32,6 +33,8 @@ from .constants import (
     FORUM_IMAGE_MAX_PER_POST,
     FORUM_MAX_PAGE_SIZE,
     FORUM_RATE_LIMITS,
+    FORUM_STATS_CACHE_KEY,
+    FORUM_STATS_CACHE_TTL,
     FORUM_TOPIC_DEFAULT_ORDERING,
     FORUM_TOPIC_ORDERING_MAP,
     FORUM_TOPIC_POSTS_PER_PAGE,
@@ -300,14 +303,19 @@ def forum_search(request):
 @api_view(["GET"])
 @permission_classes([permissions.AllowAny])
 def forum_stats(request):
-    """Get forum statistics."""
+    """Get forum statistics (cached for FORUM_STATS_CACHE_TTL seconds)."""
+    cached = cache.get(FORUM_STATS_CACHE_KEY)
+    if cached is not None:
+        logger.info("[CACHE] HIT forum_stats")
+        return Response({"data": cached})
+
+    logger.info("[CACHE] MISS forum_stats")
+
     total_topics = Topic.objects.filter(approved=True).count()
     total_posts = Post.objects.filter(approved=True).count()
 
     # Get active users (users who posted in last 30 days)
     from datetime import timedelta
-
-    from django.utils import timezone
 
     thirty_days_ago = timezone.now() - timedelta(days=30)
     active_users = (
@@ -320,16 +328,14 @@ def forum_stats(request):
     # Mock online users for now (would need real session tracking)
     online_users = max(1, active_users // 20)  # Rough estimate
 
-    return Response(
-        {
-            "data": {
-                "total_topics": total_topics,
-                "total_posts": total_posts,
-                "total_members": active_users,
-                "online_members": online_users,
-            }
-        }
-    )
+    data = {
+        "total_topics": total_topics,
+        "total_posts": total_posts,
+        "total_members": active_users,
+        "online_members": online_users,
+    }
+    cache.set(FORUM_STATS_CACHE_KEY, data, FORUM_STATS_CACHE_TTL)
+    return Response({"data": data})
 
 
 @api_view(["POST"])
