@@ -358,7 +358,9 @@ export default function ThreadDetailPage() {
               />
 
               {replyError && (
-                <div className="mb-4 p-3 bg-error/10 text-ink rounded">{replyError}</div>
+                <div className="mb-4 p-3 bg-error/10 border border-error/30 text-ink rounded">
+                  {replyError}
+                </div>
               )}
 
               <div className="flex gap-2">
