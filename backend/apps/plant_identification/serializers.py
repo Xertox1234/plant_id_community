@@ -209,9 +209,14 @@ class PlantDiseaseRequestSerializer(serializers.ModelSerializer):
 class PlantDiseaseRequestCreateSerializer(serializers.ModelSerializer):
     """Specialized serializer for creating disease diagnosis requests."""
 
+    request_id = serializers.UUIDField(read_only=True)
+    status = serializers.CharField(read_only=True)
+
     class Meta:
         model = PlantDiseaseRequest
         fields = [
+            "request_id",
+            "status",
             "plant_identification_request",
             "plant_species",
             "image_1",
