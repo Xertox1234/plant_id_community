@@ -356,8 +356,8 @@ export default function BlogListPage() {
                       onClick={() => handleCategoryFilter(cat.slug)}
                       className={`block w-full text-left px-3 py-2 rounded-lg transition-colors ${
                         category === cat.slug
-                          ? 'bg-primary/10 text-leaf font-medium'
-                          : 'hover:bg-surface-2 text-ink-2'
+                          ? 'bg-primary text-on-primary font-medium'
+                          : 'hover:bg-surface-3 text-ink-2'
                       }`}
                     >
                       {cat.name}
