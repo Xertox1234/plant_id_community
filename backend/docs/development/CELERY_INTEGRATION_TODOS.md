@@ -4,6 +4,15 @@
 **Status**: Future Enhancement Planning
 **Priority**: P3 (Performance Optimization)
 
+> **2026-06-03 update — plant-ID async stack retired.** The dormant plant
+> identification async path (`run_identification` Celery task, the `/requests/`
+> DRF viewset, and `PlantIdentificationService.identify_plant_from_request`) was
+> **removed**, not enabled. `CELERY_ENABLED` was never defined in settings, so the
+> create endpoint always ran synchronously and the task never fired; the live
+> apps use the synchronous `/identify/` → `CombinedPlantIdentificationService`
+> path instead. The disease-diagnosis and scheduled-notification TODOs below are
+> unaffected — they remain valid future enhancements if Celery is ever stood up.
+
 ## Overview
 
 This document summarizes the 3 remaining TODO comments in the production codebase, all related to future Celery integration for async task processing. These TODOs were identified during the comprehensive code audit (TODO 005).
@@ -11,6 +20,7 @@ This document summarizes the 3 remaining TODO comments in the production codebas
 ## Key Finding
 
 Out of 37 files containing "TODO" strings in grep results:
+
 - **34+ files**: Documentation/historical markers (not code issues)
 - **3 files**: Real TODO comments in production code (all Celery-related)
 - **0 files**: Urgent technical debt or security issues
@@ -31,17 +41,20 @@ Out of 37 files containing "TODO" strings in grep results:
 ```
 
 **Context**:
+
 - Function: `PlantDiseaseViewSet.create()`
 - Current implementation: Synchronous processing of disease diagnosis requests
 - Fallback behavior: Works correctly, just processes synchronously
 
 **Enhancement Details**:
+
 - **Purpose**: Offload disease diagnosis to background workers
 - **Benefit**: Faster API response times (return request_id immediately, process in background)
 - **User experience**: Poll for results instead of waiting for synchronous response
 - **Pattern**: Standard async task pattern used by modern APIs
 
 **Implementation Plan** (when Celery is integrated):
+
 ```python
 # Enqueue Celery task
 from apps.plant_identification.tasks import process_disease_diagnosis
@@ -67,17 +80,20 @@ return Response({
 ```
 
 **Context**:
+
 - Function: `PlantDiseaseResultViewSet.vote()`
 - Current implementation: Allows unlimited votes (no duplicate prevention)
 - Fallback behavior: Uses atomic F() expressions to prevent race conditions (good)
 
 **Enhancement Details**:
+
 - **Purpose**: Prevent users from voting multiple times on the same result
 - **Current state**: Atomic vote counting works, but no duplicate prevention
 - **Required**: User-result voting history table
 - **Pattern**: Standard many-to-many through model with vote type tracking
 
 **Implementation Plan** (when ready):
+
 ```python
 # Create VoteHistory model
 class PlantDiseaseVote(models.Model):
@@ -118,17 +134,20 @@ logger.warning(f"Scheduled notifications not yet implemented. Sending immediatel
 ```
 
 **Context**:
+
 - Function: `NotificationService.schedule_notification()`
 - Current implementation: Sends notifications immediately instead of scheduling
 - Fallback behavior: Works correctly, just ignores schedule_time parameter
 
 **Enhancement Details**:
+
 - **Purpose**: Schedule notifications for future delivery (e.g., "Remind me in 3 days")
 - **Current state**: API accepts schedule_time but ignores it (logs warning)
 - **User experience**: Receives notification immediately instead of at scheduled time
 - **Pattern**: Standard Celery beat or django-celery-beat for scheduled tasks
 
 **Implementation Plan** (when Celery is integrated):
+
 ```python
 from celery import current_app
 
@@ -164,12 +183,14 @@ def schedule_notification(self, schedule_time: datetime, ...) -> Dict[str, bool]
 **Trigger Event**: When Celery is integrated into the project
 
 **Prerequisites**:
+
 - Celery installed and configured
 - Redis/RabbitMQ message broker running
 - Celery workers deployed
 - Celery beat scheduler (for TODO #3)
 
 **Estimated Effort**:
+
 - TODO #1 (Async diagnosis): 2-3 hours (create task, update API, add polling endpoint)
 - TODO #2 (Vote tracking): 3-4 hours (create model, migration, update logic, add tests)
 - TODO #3 (Scheduled notifications): 2-3 hours (create task, configure beat, update service)
@@ -183,6 +204,7 @@ def schedule_notification(self, schedule_time: datetime, ...) -> Dict[str, bool]
 When ready to implement, follow this sequence:
 
 ### Phase 1: Infrastructure Setup (4-6 hours)
+
 1. Install Celery: `pip install celery redis`
 2. Configure Celery in `settings.py`
 3. Create `celery.py` app configuration
@@ -192,11 +214,13 @@ When ready to implement, follow this sequence:
 7. Add monitoring: Flower or similar
 
 ### Phase 2: Implement TODOs (8-10 hours)
+
 1. Implement TODO #1 (Async diagnosis) - Highest impact
 2. Implement TODO #2 (Vote tracking) - User-facing feature
 3. Implement TODO #3 (Scheduled notifications) - Requires beat scheduler
 
 ### Phase 3: Testing and Monitoring (4-6 hours)
+
 1. Add integration tests for async tasks
 2. Test failure scenarios (task retry, worker crash, etc.)
 3. Add task monitoring and alerting
