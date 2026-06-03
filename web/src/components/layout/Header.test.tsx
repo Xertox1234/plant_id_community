@@ -414,13 +414,16 @@ describe('Header', () => {
       expect(screen.getAllByLabelText('Switch to dark mode').length).toBeGreaterThan(0);
     });
 
-    it('flips the toggle label after clicking', () => {
+    it('flips the toggle label and aria-pressed after clicking', () => {
       renderWithRouter(<Header />);
 
       const toggle = screen.getAllByLabelText('Switch to dark mode')[0];
+      expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
       fireEvent.click(toggle);
 
       expect(screen.getAllByLabelText('Switch to light mode').length).toBeGreaterThan(0);
+      expect(toggle).toHaveAttribute('aria-pressed', 'true');
     });
   });
 });

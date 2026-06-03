@@ -85,6 +85,7 @@ export default function Header() {
               type="button"
               onClick={toggleMode}
               aria-label={themeLabel}
+              aria-pressed={mode === 'dark'}
               title={themeLabel}
               className="p-2 rounded-lg text-ink-2 hover:text-primary hover:bg-surface transition-colors"
             >
@@ -165,6 +166,7 @@ export default function Header() {
               type="button"
               onClick={toggleMode}
               aria-label={themeLabel}
+              aria-pressed={mode === 'dark'}
               className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-ink-2 hover:bg-surface font-medium transition-colors"
             >
               {mode === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
