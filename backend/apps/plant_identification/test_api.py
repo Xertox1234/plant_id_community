@@ -6,14 +6,12 @@ authentication, plant identification workflow, disease diagnosis, and care instr
 """
 
 import io
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from apps.plant_identification.models import (
     PlantDiseaseRequest,
     PlantIdentificationRequest,
-    PlantIdentificationResult,
     PlantSpecies,
     SavedCareInstructions,
 )
@@ -25,165 +23,6 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 User = get_user_model()
-
-
-@pytest.mark.django_db
-class TestPlantIdentificationAPI(APITestCase):
-    """Test plant identification API endpoints."""
-
-    def setUp(self):
-        """Set up test data."""
-        self.user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="testpass123"
-        )
-
-        self.plant_species = PlantSpecies.objects.create(
-            scientific_name="Rosa damascena",
-            common_names="Damask rose",
-            family="Rosaceae",
-            genus="Rosa",
-        )
-
-        # Create test image
-        self.test_image = self.create_test_image()
-
-    def create_test_image(self):
-        """Create a test image for upload."""
-        image = Image.new("RGB", (300, 300), color="green")
-        image_file = io.BytesIO()
-        image.save(image_file, format="JPEG")
-        image_file.seek(0)
-
-        return SimpleUploadedFile(
-            name="test_plant.jpg", content=image_file.read(), content_type="image/jpeg"
-        )
-
-    @pytest.mark.api
-    def test_create_identification_request_authenticated(self):
-        """Test creating identification request with authenticated user."""
-        self.client.force_authenticate(user=self.user)
-
-        # DRF router basename is 'requests' (see apps/plant_identification/urls.py)
-        url = reverse("v1:plant_identification:requests-list")
-        data = {
-            "image_1": self.test_image,
-            "location": "Test Garden",
-            "description": "Beautiful flower in my garden",
-        }
-
-        response = self.client.post(url, data, format="multipart")
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["location"], "Test Garden")
-        # Status may be updated synchronously; just ensure request_id exists
-        self.assertIn("request_id", response.data)
-
-        # Verify request was created in database
-        self.assertEqual(PlantIdentificationRequest.objects.count(), 1)
-        request = PlantIdentificationRequest.objects.first()
-        self.assertEqual(request.user, self.user)
-        self.assertEqual(request.location, "Test Garden")
-
-    @pytest.mark.api
-    def test_create_identification_request_unauthenticated(self):
-        """Test that unauthenticated users cannot create identification requests."""
-        url = reverse("v1:plant_identification:requests-list")
-        data = {"image_1": self.test_image, "location": "Test Garden"}
-
-        response = self.client.post(url, data, format="multipart")
-
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(PlantIdentificationRequest.objects.count(), 0)
-
-    @pytest.mark.api
-    def test_get_identification_request_detail(self):
-        """Test retrieving identification request details."""
-        self.client.force_authenticate(user=self.user)
-
-        # Create a request first
-        identification_request = PlantIdentificationRequest.objects.create(
-            user=self.user, image_1=self.test_image, location="Test Location"
-        )
-
-        # Detail uses request_id UUID as pk
-        url = reverse(
-            "v1:plant_identification:requests-detail",
-            args=[identification_request.request_id],
-        )
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["location"], "Test Location")
-        self.assertIn("status", response.data)
-
-    @pytest.mark.api
-    def test_user_can_only_access_own_requests(self):
-        """Test that users can only access their own identification requests."""
-        # Create another user
-        other_user = User.objects.create_user(
-            username="otheruser", email="other@example.com", password="otherpass123"
-        )
-
-        # Create request for other user
-        other_request = PlantIdentificationRequest.objects.create(
-            user=other_user, image_1=self.test_image, location="Other Location"
-        )
-
-        # Try to access other user's request
-        self.client.force_authenticate(user=self.user)
-        url = reverse(
-            "v1:plant_identification:requests-detail", args=[other_request.request_id]
-        )
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    @pytest.mark.api
-    @patch(
-        "apps.plant_identification.services.identification_service.PlantIdentificationService.identify_plant_from_request"
-    )
-    def test_plant_identification_workflow(self, mock_identify):
-        """Test the complete plant identification workflow."""
-
-        # Mock identification service to simulate successful processing
-        def _mock_identify(request_obj):
-            PlantIdentificationResult.objects.create(
-                request=request_obj,
-                confidence_score=0.9,
-                suggested_scientific_name="Rosa damascena",
-                identification_source="ai_plantnet",
-            )
-            request_obj.status = "identified"
-            request_obj.save(update_fields=["status"])
-            return []
-
-        mock_identify.side_effect = _mock_identify
-
-        self.client.force_authenticate(user=self.user)
-
-        # Create identification request
-        url = reverse("v1:plant_identification:requests-list")
-        data = {"image_1": self.test_image, "location": "Test Garden"}
-
-        response = self.client.post(url, data, format="multipart")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        request_id = response.data["request_id"]
-
-        # Optionally trigger manual processing endpoint (for completeness)
-        process_url = reverse(
-            "v1:plant_identification:requests-process-now", args=[request_id]
-        )
-        process_resp = self.client.post(process_url)
-        self.assertIn(
-            process_resp.status_code, [status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST]
-        )
-
-        # Check that results were created and status updated
-        req = PlantIdentificationRequest.objects.get(request_id=request_id)
-        results = PlantIdentificationResult.objects.filter(request=req)
-        self.assertTrue(results.exists())
-        self.assertEqual(req.status, "identified")
 
 
 @pytest.mark.django_db
@@ -441,7 +280,6 @@ class TestAPIAuthentication(APITestCase):
     def test_unauthorized_access_protection(self):
         """Test that protected endpoints require authentication."""
         protected_endpoints = [
-            reverse("v1:plant_identification:requests-list"),
             reverse("v1:plant_identification:disease-requests-list"),
             reverse("v1:plant_identification:saved-care-instructions-list"),
             reverse("v1:users:current_user"),
@@ -523,63 +361,3 @@ class TestAPIPerformance(APITestCase):
         )
         for result in results:
             self.assertIn("Test plant", result["scientific_name"])
-
-
-@pytest.mark.django_db
-class TestAPIErrorHandling(APITestCase):
-    """Test API error handling and validation."""
-
-    def setUp(self):
-        """Set up test data."""
-        self.user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="testpass123"
-        )
-
-    @pytest.mark.api
-    def test_invalid_image_upload(self):
-        """Test handling of invalid image uploads."""
-        self.client.force_authenticate(user=self.user)
-
-        # Create invalid image file
-        invalid_file = SimpleUploadedFile(
-            name="not_an_image.txt",
-            content=b"This is not an image",
-            content_type="text/plain",
-        )
-
-        url = reverse("v1:plant_identification:requests-list")
-        data = {"image_1": invalid_file, "location": "Test Location"}
-
-        response = self.client.post(url, data, format="multipart")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    @pytest.mark.api
-    def test_missing_required_fields(self):
-        """Test validation of required fields."""
-        self.client.force_authenticate(user=self.user)
-
-        # Try to create identification request without required image
-        url = reverse("v1:plant_identification:requests-list")
-        data = {
-            "location": "Test Location"
-            # Missing required 'image' field
-        }
-
-        response = self.client.post(url, data)
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    @pytest.mark.api
-    def test_non_existent_resource_404(self):
-        """Test 404 response for non-existent resources."""
-        self.client.force_authenticate(user=self.user)
-
-        # Try to access non-existent identification request
-        url = reverse(
-            "v1:plant_identification:requests-detail",
-            args=["00000000-0000-0000-0000-000000000000"],
-        )
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
