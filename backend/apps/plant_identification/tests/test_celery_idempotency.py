@@ -1,8 +1,9 @@
 """
 Tests for run_identification Celery task idempotency guard.
 
-Verifies that calling the task on an already-non-pending request returns
-early without re-running identification.
+Verifies that calling the task on an already-finalized (terminal-status) request
+returns early without re-running identification, while a "processing" request --
+an autoretry or worker-lost requeue -- is allowed to re-run (audit H1).
 """
 
 from unittest.mock import MagicMock, patch
@@ -25,7 +26,7 @@ class RunIdentificationIdempotencyTest(TestCase):
         )
         self.request_obj = PlantIdentificationRequest.objects.create(
             user=self.user,
-            status="completed",
+            status="identified",
         )
 
     def _call_task(self):
@@ -36,8 +37,8 @@ class RunIdentificationIdempotencyTest(TestCase):
         ):
             return run_identification(str(self.request_obj.request_id))
 
-    def test_skips_completed_request(self):
-        self.request_obj.status = "completed"
+    def test_skips_identified_request(self):
+        self.request_obj.status = "identified"
         self.request_obj.save()
 
         with patch(
@@ -69,14 +70,30 @@ class RunIdentificationIdempotencyTest(TestCase):
 
         instance.identify_plant_from_request.assert_called_once()
 
+    def test_processes_processing_request(self):
+        """H1 lock-in: a "processing" request is an autoretry (or worker-lost
+        requeue), NOT a finalized one -- the guard must let it re-run. Guarding
+        on `!= "pending"` here would make every autoretry a silent no-op."""
+        self.request_obj.status = "processing"
+        self.request_obj.save()
+
+        with patch(
+            "apps.plant_identification.tasks.PlantIdentificationService"
+        ) as MockService:
+            instance = MockService.return_value
+            instance.identify_plant_from_request.return_value = []
+            self._call_task()
+
+        instance.identify_plant_from_request.assert_called_once()
+
     def test_guard_fires_on_second_call_after_status_changes(self):
         """Guard must prevent re-execution when status advances between calls."""
         self.request_obj.status = "pending"
         self.request_obj.save()
 
-        # First call: task runs, service marks request completed
+        # First call: task runs, service marks request finalized
         def advance_status(req, **kwargs):
-            req.status = "completed"
+            req.status = "identified"
             req.save()
             return []
 

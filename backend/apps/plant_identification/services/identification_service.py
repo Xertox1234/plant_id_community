@@ -6,10 +6,11 @@ image-based AI identification (PlantNet) and species data lookup (Trefle).
 """
 
 import logging
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional
 
+import requests
+from apps.core.exceptions import ExternalAPIError
 from django.conf import settings
-from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from ..exceptions import APIUnavailable, RateLimitExceeded
@@ -24,6 +25,22 @@ from .plantnet_service import PlantNetAPIService
 from .trefle_service import TrefleAPIService
 
 logger = logging.getLogger(__name__)
+
+
+# Transient external-API failures must bubble up to the Celery task instead of
+# being swallowed into fallback results / a terminal "failed"; permanent errors
+# are still swallowed and marked "failed". This is a SUPERSET of
+# run_identification's autoretry_for: RateLimitExceeded is intentionally NOT in
+# autoretry_for (the task body handles it via an explicit `except` with a
+# retry_after-aware countdown) and is normally caught upstream by the Trefle
+# enrichment paths — it is listed here only so that, should it ever escape, it
+# reaches that handler rather than the permanent-error path.
+RETRYABLE_EXCEPTIONS = (
+    ExternalAPIError,
+    APIUnavailable,
+    RateLimitExceeded,
+    requests.exceptions.RequestException,
+)
 
 
 ProgressCallback = Optional[Callable[[str, str, Dict], None]]
@@ -59,13 +76,22 @@ class PlantIdentificationService:
             logger.error("No plant identification APIs available")
 
     def identify_plant_from_request(
-        self, request: PlantIdentificationRequest, progress_cb: ProgressCallback = None
+        self,
+        request: PlantIdentificationRequest,
+        progress_cb: ProgressCallback = None,
+        reraise_transient: bool = False,
     ) -> List[PlantIdentificationResult]:
         """
         Process a plant identification request and create result records.
 
         Args:
             request: PlantIdentificationRequest instance
+            progress_cb: optional callback for granular progress events
+            reraise_transient: when True, transient external-API failures
+                (RETRYABLE_EXCEPTIONS) propagate to the caller instead of being
+                swallowed into fallback results. The Celery task passes True so
+                its autoretry_for can fire; synchronous callers (the view path)
+                leave it False to preserve graceful fallback + a 201 response.
 
         Returns:
             List of PlantIdentificationResult instances created
@@ -112,9 +138,21 @@ class PlantIdentificationService:
                     if plantnet_results:
                         results.extend(plantnet_results)
                     else:
-                        # No results from PlantNet, use fallback
+                        # No results from PlantNet (not an error — empty match),
+                        # use fallback
                         logger.info("PlantNet returned no results, using fallback")
                         results.extend(self._create_fallback_results(request))
+                except RETRYABLE_EXCEPTIONS:
+                    # Transient external-API failure. The Celery task opts in
+                    # (reraise_transient=True) so the error reaches the outer
+                    # handler and on to autoretry. Synchronous callers degrade to
+                    # fallback results (preserving pre-todo behavior + a 201).
+                    if reraise_transient:
+                        raise
+                    logger.warning(
+                        "PlantNet transient failure, using fallback (sync mode)"
+                    )
+                    results.extend(self._create_fallback_results(request))
                 except Exception as e:
                     logger.error(f"PlantNet API failed with exception: {e}")
                     # Create fallback results for testing
@@ -223,6 +261,27 @@ class PlantIdentificationService:
             if progress_cb:
                 progress_cb("final_status", request.status, {"results": len(results)})
 
+        except RETRYABLE_EXCEPTIONS as e:
+            if reraise_transient:
+                # Task path: re-raise WITHOUT writing a terminal "failed" status.
+                # The Celery task autoretries; only on exhaustion does its
+                # on_failure mark the request failed. Writing "failed" here would
+                # both pre-empt the retry and clobber a terminal-success status on
+                # a retried run (audit H1).
+                logger.warning(
+                    "[PLANT_ID] Transient API failure for request %s, will retry: %s",
+                    request.request_id,
+                    str(e),
+                )
+                raise
+            # Sync path: no retry available — finalize as failed (pre-todo behavior).
+            logger.error(
+                f"Error processing identification request {request.request_id}: {str(e)}"
+            )
+            request.status = "failed"
+            request.save()
+            if progress_cb:
+                progress_cb("final_status", "failed", {"error": str(e)})
         except Exception as e:
             logger.error(
                 f"Error processing identification request {request.request_id}: {str(e)}"
@@ -365,6 +424,12 @@ class PlantIdentificationService:
 
                 results.append(result)
 
+        except RETRYABLE_EXCEPTIONS:
+            # Transient external-API failure — propagate to the caller
+            # (identify_plant_from_request), which decides per reraise_transient
+            # whether to autoretry (task) or fall back (sync). Swallowing here is
+            # what made autoretry inert (audit H1).
+            raise
         except Exception as e:
             logger.error(
                 f"PlantNet identification failed for request {request.request_id}: {str(e)}"
@@ -566,7 +631,8 @@ class PlantIdentificationService:
             # Log auto-storage
             if species.auto_stored:
                 logger.info(
-                    f"Auto-stored plant species '{scientific_name}' with {confidence_score:.1%} confidence from {source}"
+                    f"Auto-stored plant species '{scientific_name}' with "
+                    f"{confidence_score:.1%} confidence from {source}"
                 )
 
             return species
@@ -635,7 +701,8 @@ class PlantIdentificationService:
             # Log auto-storage
             if species.auto_stored:
                 logger.info(
-                    f"Auto-stored plant species '{scientific_name}' with {confidence_score:.1%} confidence from API data"
+                    f"Auto-stored plant species '{scientific_name}' with "
+                    f"{confidence_score:.1%} confidence from API data"
                 )
 
             return species
