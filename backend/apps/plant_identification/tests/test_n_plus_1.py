@@ -57,8 +57,6 @@ from ..models import (
     PlantDiseaseDatabase,
     PlantDiseaseRequest,
     PlantDiseaseResult,
-    PlantIdentificationRequest,
-    PlantIdentificationResult,
     PlantSpecies,
 )
 
@@ -120,57 +118,6 @@ class PlantIdN1TestMixin:
             f"into the main SELECT, not from a per-row COUNT query. "
             f"See docs/patterns/performance/query-optimization.md.",
         )
-
-
-class PlantIdentificationRequestListN1Test(PlantIdN1TestMixin, TestCase):
-    """requests-list — PlantIdentificationRequestSerializer.get_results_count().
-
-    PlantIdentificationRequestViewSet.get_queryset() filters to the
-    authenticated user and annotates ``_results_count``. Each request is given
-    one identification result so the count code path is non-trivial per row.
-    """
-
-    def setUp(self):
-        cache.clear()
-        self.user = User.objects.create_user(
-            username="idrequser",
-            email="idrequser@example.com",
-            password="pass12345",  # pragma: allowlist secret
-        )
-        self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
-        self.url = reverse("v1:plant_identification:requests-list")
-        self._seq = 0
-
-    def _make_request_with_result(self):
-        """Create one identification request (owned by user) plus one result."""
-        self._seq += 1
-        i = self._seq
-        request = PlantIdentificationRequest.objects.create(
-            user=self.user,
-            image_1=_make_test_image(f"idreq-{i}.jpg"),
-            location=f"Location {i}",
-        )
-        PlantIdentificationResult.objects.create(
-            request=request,
-            confidence_score=0.9,
-            suggested_scientific_name=f"Plantus testus {i}",
-            identification_source="ai_plantnet",
-        )
-        return request
-
-    def test_no_n_plus_1_scaling(self):
-        # Small fixture: 2 requests.
-        self._make_request_with_result()
-        self._make_request_with_result()
-        small = self._measure(self.client, self.url)
-
-        # Large fixture: 6 requests total (still page 1).
-        for _ in range(4):
-            self._make_request_with_result()
-        large = self._measure(self.client, self.url)
-
-        self._assert_no_n_plus_1(self.url, small, large)
 
 
 class PlantDiseaseRequestListN1Test(PlantIdN1TestMixin, TestCase):

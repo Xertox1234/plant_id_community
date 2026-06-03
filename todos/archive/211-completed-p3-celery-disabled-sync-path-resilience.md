@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "211"
 tags: [celery, plant-identification, backend, resilience, tech-debt]
@@ -93,13 +93,19 @@ request/response cycle**, and the Celery task `run_identification` is **dormant*
 
 ## Acceptance Criteria
 
-- [ ] A documented decision (async-via-Celery vs hardened-sync) is recorded and
-      implemented.
-- [ ] If Celery is enabled: a transient `ExternalAPIError` on a queued request
-      triggers a real retry and the request finalizes `failed` after exhaustion
-      (not stuck `processing`), verified by a test against the live enqueue path.
-- [ ] On the chosen live path, a transient external-API failure no longer returns
-      fabricated `Rosa/Monstera/Ficus` fallback species.
+- [x] A documented decision (async-via-Celery vs hardened-sync) is recorded and
+      implemented. **Decision: retire the legacy async stack** — neither enable
+      Celery nor harden it. Investigation showed the live apps use `/identify/` →
+      `CombinedPlantIdentificationService` (already honest on failure), so the
+      whole `/requests/` + `run_identification` + `identify_plant_from_request`
+      path was deleted.
+- [x] ~~If Celery is enabled~~ — N/A: the decision was to remove the dormant
+      Celery path, not enable it. `run_identification` (and its autoretry from
+      #333) was deleted, so there is no queued-retry path to test.
+- [x] On the chosen live path, a transient external-API failure no longer returns
+      fabricated `Rosa/Monstera/Ficus` fallback species — `_create_fallback_results`
+      was deleted with the stack, and the live `/identify/` path never produced
+      them.
 
 ## Work Log
 
@@ -109,6 +115,17 @@ request/response cycle**, and the Celery task `run_identification` is **dormant*
   task-side autoretry/`on_failure` but found the task is dormant
   (`CELERY_ENABLED` unset) and intentionally preserved the synchronous
   fake-fallback behavior to avoid a live regression.
+
+### 2026-06-03 - Completed (stack retired)
+
+- Resolved by removing the legacy `/requests/` plant-ID processing stack rather
+  than enabling Celery or hardening the sync path. Investigation found the live
+  web + mobile apps use only `/identify/` → `CombinedPlantIdentificationService`
+  (which already fails honestly), and nothing uses the `requests` viewset /
+  `run_identification` / `identify_plant_from_request` chain that produced the
+  fake fallback. Removed in PR "Remove legacy /requests/ plant-ID processing
+  stack" (spec + plan under `docs/superpowers/`). Supersedes the autoretry work
+  from #208/#333.
 
 ## Notes
 

@@ -6,15 +6,11 @@ Trefle API integration, and disease diagnosis services.
 """
 
 import io
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 import requests
 from apps.core.exceptions import ExternalAPIError
-from apps.plant_identification.models import PlantIdentificationRequest, PlantSpecies
-from apps.plant_identification.services.identification_service import (
-    PlantIdentificationService,
-)
 from apps.plant_identification.services.plant_health_service import (
     PlantHealthAPIService,
 )
@@ -430,119 +426,6 @@ class TestPlantHealthAPIService(TestCase):
 
 
 @pytest.mark.django_db
-class TestPlantIdentificationService(TestCase):
-    """Test the orchestration service for plant identification."""
-
-    def setUp(self):
-        """Set up test data."""
-        self.user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="testpass123"
-        )
-
-        self.service = PlantIdentificationService()
-        self.test_image = self.create_test_image()
-
-    def create_test_image(self):
-        """Create a test image."""
-        image = Image.new("RGB", (300, 300), color="green")
-        image_file = io.BytesIO()
-        image.save(image_file, format="JPEG")
-        image_file.seek(0)
-
-        return SimpleUploadedFile(
-            name="test_plant.jpg", content=image_file.read(), content_type="image/jpeg"
-        )
-
-    @pytest.mark.services
-    @patch(
-        "apps.plant_identification.services.plantnet_service.PlantNetAPIService.identify_with_location"
-    )
-    def test_complete_identification_workflow(self, mock_plantnet):
-        """Test the complete plant identification workflow."""
-        # Mock PlantNet raw API-like response
-        mock_plantnet.return_value = {
-            "results": [
-                {
-                    "species": {
-                        "scientificNameWithoutAuthor": "Rosa damascena",
-                        "genus": {"scientificNameWithoutAuthor": "Rosa"},
-                        "family": {"scientificNameWithoutAuthor": "Rosaceae"},
-                    },
-                    "score": 0.95,
-                }
-            ]
-        }
-
-        # Create identification request
-        identification_request = PlantIdentificationRequest.objects.create(
-            user=self.user, image_1=self.test_image, location="Test Garden"
-        )
-
-        # Process identification
-        results = self.service.identify_plant_from_request(identification_request)
-
-        # Verify workflow completed successfully
-        self.assertTrue(len(results) > 0)
-
-        # Verify database was updated
-        identification_request.refresh_from_db()
-        self.assertEqual(identification_request.status, "identified")
-
-        # Verify plant species was created/updated
-        plant_species = PlantSpecies.objects.filter(scientific_name="Rosa damascena")
-        self.assertTrue(plant_species.exists())
-
-    @pytest.mark.services
-    @patch(
-        "apps.plant_identification.services.plantnet_service.PlantNetAPIService.identify_with_location"
-    )
-    def test_identification_failure_handling(self, mock_plantnet):
-        """Test handling of identification failures."""
-        # Mock PlantNet failure (no results)
-        mock_plantnet.return_value = None
-
-        identification_request = PlantIdentificationRequest.objects.create(
-            user=self.user, image_1=self.test_image, location="Test Garden"
-        )
-
-        results = self.service.identify_plant_from_request(identification_request)
-
-        # Verify graceful handling: fallback results created and status not 'processing'
-        identification_request.refresh_from_db()
-        self.assertIn(identification_request.status, ["identified", "needs_help"])
-
-    @pytest.mark.services
-    @patch(
-        "apps.plant_identification.services.plantnet_service.PlantNetAPIService.identify_with_location"
-    )
-    def test_low_confidence_handling(self, mock_plantnet):
-        """Test handling of low confidence identifications."""
-        # Mock low confidence response
-        mock_plantnet.return_value = {
-            "results": [
-                {
-                    "species": {
-                        "scientificNameWithoutAuthor": "Unknown species",
-                        "genus": {"scientificNameWithoutAuthor": "Unknown"},
-                        "family": {"scientificNameWithoutAuthor": "Unknown"},
-                    },
-                    "score": 0.25,
-                }
-            ]
-        }
-
-        identification_request = PlantIdentificationRequest.objects.create(
-            user=self.user, image_1=self.test_image, location="Test Garden"
-        )
-
-        results = self.service.identify_plant_from_request(identification_request)
-
-        # Verify status reflects low confidence path in current implementation
-        identification_request.refresh_from_db()
-        self.assertIn(identification_request.status, ["needs_help", "identified"])
-
-
-@pytest.mark.django_db
 class TestServiceIntegration(TestCase):
     """Test integration between services."""
 
@@ -551,82 +434,6 @@ class TestServiceIntegration(TestCase):
         self.user = User.objects.create_user(
             username="testuser", email="test@example.com", password="testpass123"
         )
-
-    @pytest.mark.integration
-    @patch(
-        "apps.plant_identification.services.plantnet_service.PlantNetAPIService.identify_with_location"
-    )
-    @patch(
-        "apps.plant_identification.services.trefle_service.TrefleAPIService.search_plants"
-    )
-    @patch(
-        "apps.plant_identification.services.trefle_service.TrefleAPIService.get_plant_details"
-    )
-    def test_data_enrichment_workflow(self, mock_details, mock_search, mock_identify):
-        """Test data enrichment workflow between PlantNet and Trefle."""
-        # Mock PlantNet identification
-        mock_identify.return_value = {
-            "results": [
-                {
-                    "species": {
-                        "scientificNameWithoutAuthor": "Rosa damascena",
-                        "family": {"scientificNameWithoutAuthor": "Rosaceae"},
-                    },
-                    "score": 0.95,
-                }
-            ]
-        }
-
-        # Mock Trefle search
-        mock_search.return_value = [
-            {
-                "id": 123456,
-                "scientific_name": "Rosa damascena",
-                "common_name": "Damask rose",
-            }
-        ]
-
-        # Mock Trefle details
-        mock_details.return_value = {
-            "status": "success",
-            "plant": {
-                "scientific_name": "Rosa damascena",
-                "care_requirements": {
-                    "watering": "Weekly deep watering",
-                    "light": "Full sun to partial shade",
-                    "temperature": "15-25°C",
-                    "humidity": "40-60%",
-                },
-                "growth_info": {
-                    "mature_height": "1-2 meters",
-                    "blooming_season": "Spring to Fall",
-                },
-            },
-        }
-
-        # Test the enrichment process
-        service = PlantIdentificationService()
-
-        # Create a small test image to ensure images are present in the request
-        image = Image.new("RGB", (100, 100), color="red")
-        image_file = io.BytesIO()
-        image.save(image_file, format="JPEG")
-        image_file.seek(0)
-        uploaded = SimpleUploadedFile(
-            name="integr_test.jpg", content=image_file.read(), content_type="image/jpeg"
-        )
-
-        identification_request = PlantIdentificationRequest.objects.create(
-            user=self.user, image_1=uploaded, location="Test Garden"
-        )
-
-        results = service.identify_plant_from_request(identification_request)
-
-        # Verify PlantNet was called
-        mock_identify.assert_called_once()
-        # Trefle enrichment is done via get_species_by_scientific_name + get_species_details in service;
-        # this test now focuses on ensuring the pipeline runs without errors.
-        self.assertTrue(isinstance(results, list))
 
     @pytest.mark.integration
     def test_service_fallback_mechanisms(self):
