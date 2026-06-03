@@ -73,22 +73,28 @@ this serializer for `create`, so the response picks the new fields up automatica
 All net-new except the reused `FileUpload`. Follow existing conventions
 (`web/docs/patterns/react-typescript.md`, `tailwind.md`; cookie auth; `react-router-dom`).
 
+**Single image in Phase A.** The backend accepts `image_1`/`image_2`/`image_3`, but the
+existing `FileUpload` component is single-file (so is `/identify`). Phase A sends only
+`image_1`; multi-image is a deferred enhancement, not Phase A scope.
+
 | File | Responsibility |
 |------|----------------|
-| `web/src/services/diseaseService.ts` | `submitDiagnosis(input): Promise<{request_id, status}>` and `getDiagnosisResults(requestId): Promise<DiseaseDiagnosisResults>`. Versioned `/api/v1/` URLs, CSRF + credentials, mirrors `plantIdService` structure. |
-| `web/src/pages/diagnosis/DiseaseDiagnosePage.tsx` | The form (reuses `FileUpload`) + submit/loading/results/error states. Renders the results list. |
+| `web/src/services/diseaseService.ts` | `submitDiagnosis(input): Promise<{request_id, status}>` and `getDiagnosisResults(requestId): Promise<DiseaseDiagnosisResults>`. Versioned `/api/v1/` URLs. **Both** include `X-CSRFToken` + `credentials: 'include'` — even the `getDiagnosisResults` GET, matching `plantIdService.getHistory` (which sends CSRF on a GET for consistency). Mirrors `plantIdService` structure. |
+| `web/src/pages/diagnosis/DiseaseDiagnosePage.tsx` | The form — reuses `FileUpload` (imported from `web/src/components/PlantIdentification/FileUpload.tsx`; **not** moved to a shared dir in Phase A) — single image + required symptoms textarea + optional `plant_condition`/`location`. Submit/loading/results/error states; renders the results list. |
 | `web/src/components/diagnosis/DiseaseDiagnosisResults.tsx` | Presentational list of `PlantDiseaseResult`s: disease name, `confidence_percentage`, `severity_assessment`, `symptoms_identified`, `recommended_treatments`, `immediate_actions`, primary flag. |
-| `web/src/types/diagnosis.ts` (edit) | Add/align a `PlantDiseaseResult` type + a `DiseaseDiagnosisResults` (`{request_id, status, results}`) type to match `PlantDiseaseResultSerializer`. Fix or remove the existing unused `DiagnosisRequest`/`DiagnosisResponse`/`Disease` types if they don't match. |
-| `web/src/App.tsx` (edit) | Add a **protected** `/diagnose` route. |
-| nav (RootLayout / wherever `/identify` is linked) (edit) | Add a **"Diagnose"** link next to "Identify". |
+| `web/src/types/diagnosis.ts` (edit) | Add a `PlantDiseaseResult` type matching `PlantDiseaseResultSerializer` + a `DiseaseDiagnosisResults` (`{request_id, status, results}`) type. **`status` must use the backend enum** `'pending' \| 'processing' \| 'diagnosed' \| 'needs_help' \| 'failed'` (`models.py:876-881`) — NOT the stale `'completed'` value in the existing unused `DiagnosisResponse` interface. Fix/remove the stale `DiagnosisRequest`/`DiagnosisResponse`/`Disease` types so the enum mismatch can't be reintroduced. |
+| `web/src/App.tsx` (edit) | Add a **lazy-loaded** `/diagnose` route. **Place it inside the `ProtectedLayout` → `RootLayout` chain (App.tsx:60-64), beside `/profile` and `/settings`** — NOT in the public `RootLayout` block. Lazy-load like the other non-critical routes. |
+| `web/src/components/layout/Header.tsx` (edit) | Add a **"Diagnose"** link next to "Identify" in **both** the desktop nav (~line 50) **and** the mobile menu (~line 131). |
 
 ## Error handling
 
 - Form validation: missing image / empty symptoms → inline field errors (mirror the
   backend's two `ValidationError`s).
 - Unauthenticated → redirect to `/login` with return-to `/diagnose`.
-- `status === "failed"` or empty `results` → an honest "Diagnosis unavailable — please
-  try again" message. **No fabricated results.**
+- Status handling uses the real enum (`models.py:876-881`): `diagnosed` → render results;
+  `needs_help` → render results with a "needs community help" note; `failed` (or empty
+  `results`) → an honest "Diagnosis unavailable — please try again" message. **No
+  fabricated results.**
 - Slow synchronous POST: a loading state during the request (accepted latency, same
   pattern as `IdentifyPage`; Phase C async would remove the wait).
 
@@ -106,9 +112,11 @@ follow-up, don't silently ship fake data behind an honest-looking UI.
   `request_id` + `status` (the new fields), and that `results/` returns the diagnosis —
   mocking the **plant.health API client** (`PlantHealthAPIService`), not the whole
   service (same discipline as the autoretry tests). No DB mocks; strict assertions.
-- **Web** (Vitest): `diseaseService` (mock `fetch`: submit returns `request_id`, results
-  shape) and `DiseaseDiagnosePage` (submit → renders results; failed-status → error
-  message; validation). Playwright e2e optional (excluded from CI).
+- **Web** (Vitest, matching the `plantIdService.test.ts` convention):
+  `web/src/services/diseaseService.test.ts` (mock `fetch`: submit returns `request_id`,
+  results shape, CSRF header present) and
+  `web/src/pages/diagnosis/DiseaseDiagnosePage.test.tsx` (submit → renders results;
+  `failed` status → error message; validation). Playwright e2e optional (excluded from CI).
 
 ## Out of scope (deferred to later phases)
 
