@@ -175,6 +175,32 @@ CARE_TASK_PRIORITY = [
     ("urgent", "Urgent"),
 ]
 
+# =============================================================================
+# Care Log Configuration
+# =============================================================================
+
+# Controlled vocabulary for CareLog.activity_type — the action a gardener logs
+# as completed. Defining `choices` makes get_activity_type_display() exist (so
+# the API's activity_type_display field renders) and lets drf-spectacular emit an
+# enum. This list is a SUPERSET of every value existing clients already send
+# (watering/fertilizing/pruning/treatment in tests; web sends watering/
+# fertilizing); `other` is the escape hatch for anything outside the canon.
+ACTIVITY_TYPE_CHOICES = [
+    ("watering", "Watering"),
+    ("fertilizing", "Fertilizing"),
+    ("pruning", "Pruning"),
+    ("harvesting", "Harvesting"),
+    ("planting", "Planting"),
+    ("transplanting", "Transplanting"),
+    ("repotting", "Repotting"),
+    ("mulching", "Mulching"),
+    ("weeding", "Weeding"),
+    ("treatment", "Treatment"),
+    ("pest_control", "Pest Control"),
+    ("observation", "Observation"),
+    ("other", "Other"),
+]
+
 # Default care intervals (in days)
 DEFAULT_WATERING_INTERVAL_DAYS = 3
 DEFAULT_FERTILIZING_INTERVAL_DAYS = 14

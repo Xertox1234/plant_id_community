@@ -13,6 +13,7 @@ from django.db import models
 from django.utils import timezone
 
 from .constants import (
+    ACTIVITY_TYPE_CHOICES,
     CARE_TASK_PRIORITY,
     CARE_TASK_TYPES,
     HEALTH_STATUS_CHOICES,
@@ -1215,6 +1216,7 @@ class CareLog(models.Model):
     activity_type = models.CharField(
         max_length=50,
         blank=True,
+        choices=ACTIVITY_TYPE_CHOICES,
         help_text="Type of activity (watering, fertilizing, etc.)",
     )
 

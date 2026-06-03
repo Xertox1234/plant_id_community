@@ -12,6 +12,8 @@ import uuid
 from typing import Optional, Tuple
 
 import firebase_admin
+from apps.core.ratelimit import ratelimit  # rate-preserving wrapper (Retry-After)
+from apps.plant_identification.constants import RATE_LIMITS
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from firebase_admin import auth as firebase_auth
@@ -88,6 +90,12 @@ def _ensure_firebase_initialized() -> None:
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@ratelimit(
+    key="ip",
+    rate=RATE_LIMITS["auth_endpoints"]["firebase_token_exchange"],
+    method="POST",
+    block=True,
+)
 def firebase_token_exchange(request: Request) -> Response:
     """
     Exchange Firebase ID token for Django JWT tokens.

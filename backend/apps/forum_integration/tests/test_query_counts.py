@@ -391,3 +391,29 @@ class FeedAndSearchReactionCountsNoNPlus1Tests(TestCase):
         self._assert_constant_query_count(
             "/api/v1/forum/search/?q=zzqsearchterm", "<p>zzqsearchterm body</p>"
         )
+
+
+@override_settings(ENABLE_FORUM=True)
+class ForumStatsCacheTests(TestCase):
+    """M7: forum_stats runs 3 COUNT queries on every anonymous request — cache
+    them under a short TTL so the second hit issues zero DB queries."""
+
+    def setUp(self):
+        self.client = APIClient()
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_second_hit_served_from_cache(self):
+        url = "/api/v1/forum/stats/"
+
+        # First hit computes and primes the cache (issues the COUNT queries).
+        first = self.client.get(url)
+        self.assertEqual(first.status_code, 200)
+
+        # Second hit must not touch the DB at all.
+        with self.assertNumQueries(0):
+            second = self.client.get(url)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.data["data"], second.data["data"])

@@ -13,15 +13,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from ..models import (
-    CareLog,
-    CareTask,
-    GardenBed,
-    GrowingZone,
-    Harvest,
-    Plant,
-    PlantImage,
-)
+from ..models import CareLog, CareTask, GardenBed, Harvest, Plant
 
 User = get_user_model()
 
@@ -646,6 +638,27 @@ class CareLogViewSetTest(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["activity_type"], "pruning")
         self.assertEqual(response.data["notes"], "Removed dead leaves")
+
+    def test_care_log_activity_type_display(self):
+        """M1: activity_type_display is now present and renders the human label.
+
+        Before adding choices to CareLog.activity_type, get_activity_type_display
+        did not exist, so DRF raised SkipField and silently omitted the key.
+        """
+        self.client.force_authenticate(user=self.user)
+
+        care_log = CareLog.objects.create(
+            plant=self.plant,
+            user=self.user,
+            activity_type="watering",
+            notes="Morning watering",
+        )
+
+        response = self.client.get(f"/api/v1/calendar/api/care-logs/{care_log.uuid}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("activity_type_display", response.data)
+        self.assertEqual(response.data["activity_type_display"], "Watering")
 
     def test_retrieve_care_log_non_owner_denied(self):
         """Test that non-owners cannot retrieve other users' care logs."""

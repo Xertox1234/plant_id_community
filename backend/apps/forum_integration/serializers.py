@@ -4,6 +4,7 @@ DRF Serializers for Forum API endpoints.
 
 from apps.plant_identification.models import PlantSpeciesPage
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from machina.apps.forum.models import Forum
 from machina.apps.forum_conversation.models import Post, Topic
 from rest_framework import serializers
@@ -396,44 +397,48 @@ class CreateTopicSerializer(RichContentMixin, serializers.ModelSerializer):
         # Extract subject before creating topic
         subject = validated_data.get("subject", "")
 
-        # Create topic
-        topic = Topic.objects.create(
-            forum=forum,
-            poster=user,
-            subject=subject,
-            type=Topic.TOPIC_POST,
-            status=Topic.TOPIC_UNLOCKED,
-            approved=True,
-        )
-
-        # Create first post
-        post = Post.objects.create(
-            topic=topic, poster=user, content=content, approved=True
-        )
-
-        # WORKAROUND: Django Machina has a bug where creating a Post
-        # clears the topic's subject. We need to restore it.
-        topic.subject = subject
-
-        # Normalize plant mentions within rich_content, if any
-        if rich_content is not None:
-            rich_content = self._normalize_rich_content(rich_content)
-
-        # Create rich content if provided
-        if rich_content or content_format != "plain":
-            RichPost.objects.create(
-                post=post,
-                rich_content=rich_content,
-                content_format=content_format,
-                ai_assisted=ai_assisted,
-                ai_prompts_used=ai_prompts_used,
+        # All related writes (topic + first post + optional rich content) must
+        # commit together — a mid-write failure must not leave a half-formed
+        # topic. ATOMIC_REQUESTS is off, so wrap explicitly.
+        with transaction.atomic():
+            # Create topic
+            topic = Topic.objects.create(
+                forum=forum,
+                poster=user,
+                subject=subject,
+                type=Topic.TOPIC_POST,
+                status=Topic.TOPIC_UNLOCKED,
+                approved=True,
             )
 
-        # Update topic references
-        topic.first_post = post
-        topic.last_post = post
-        topic.posts_count = 1
-        topic.save()
+            # Create first post
+            post = Post.objects.create(
+                topic=topic, poster=user, content=content, approved=True
+            )
+
+            # WORKAROUND: Django Machina has a bug where creating a Post
+            # clears the topic's subject. We need to restore it.
+            topic.subject = subject
+
+            # Normalize plant mentions within rich_content, if any
+            if rich_content is not None:
+                rich_content = self._normalize_rich_content(rich_content)
+
+            # Create rich content if provided
+            if rich_content or content_format != "plain":
+                RichPost.objects.create(
+                    post=post,
+                    rich_content=rich_content,
+                    content_format=content_format,
+                    ai_assisted=ai_assisted,
+                    ai_prompts_used=ai_prompts_used,
+                )
+
+            # Update topic references
+            topic.first_post = post
+            topic.last_post = post
+            topic.posts_count = 1
+            topic.save()
 
         return topic
 
@@ -480,28 +485,37 @@ class CreatePostSerializer(RichContentMixin, serializers.ModelSerializer):
         topic = self.context["topic"]
         user = self.context["request"].user
 
-        post = Post.objects.create(
-            topic=topic, poster=user, approved=True, **validated_data
-        )
+        # Post + optional rich content + topic counters must commit together —
+        # a mid-write failure must not leave an orphan post or stale counters.
+        with transaction.atomic():
+            # Lock the topic row before touching its counters: posts_count is a
+            # recompute-then-save (read-modify-write), so two concurrent post
+            # creations on the same topic would otherwise race and lose a count
+            # update. select_for_update serializes them on the row.
+            topic = Topic.objects.select_for_update().get(pk=topic.pk)
 
-        # Normalize plant mentions within rich_content, if any
-        if rich_content is not None:
-            rich_content = self._normalize_rich_content(rich_content)
-
-        # Create rich content if provided
-        if rich_content or content_format != "plain":
-            RichPost.objects.create(
-                post=post,
-                rich_content=rich_content,
-                content_format=content_format,
-                ai_assisted=ai_assisted,
-                ai_prompts_used=ai_prompts_used,
+            post = Post.objects.create(
+                topic=topic, poster=user, approved=True, **validated_data
             )
 
-        # Update topic
-        topic.last_post = post
-        topic.posts_count = Post.objects.filter(topic=topic, approved=True).count()
-        topic.save()
+            # Normalize plant mentions within rich_content, if any
+            if rich_content is not None:
+                rich_content = self._normalize_rich_content(rich_content)
+
+            # Create rich content if provided
+            if rich_content or content_format != "plain":
+                RichPost.objects.create(
+                    post=post,
+                    rich_content=rich_content,
+                    content_format=content_format,
+                    ai_assisted=ai_assisted,
+                    ai_prompts_used=ai_prompts_used,
+                )
+
+            # Update topic
+            topic.last_post = post
+            topic.posts_count = Post.objects.filter(topic=topic, approved=True).count()
+            topic.save()
 
         return post
 
