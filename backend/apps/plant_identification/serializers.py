@@ -397,32 +397,6 @@ class UserPlantSerializer(serializers.ModelSerializer):
         return None
 
 
-class PlantIdentificationRequestCreateSerializer(serializers.ModelSerializer):
-    """Specialized serializer for creating identification requests."""
-
-    class Meta:
-        model = PlantIdentificationRequest
-        fields = [
-            "image_1",
-            "image_2",
-            "image_3",
-            "location",
-            "latitude",
-            "longitude",
-            "description",
-            "plant_size",
-            "habitat",
-        ]
-
-    def validate(self, data):
-        """Validate that at least one image is provided."""
-        if not data.get("image_1"):
-            raise serializers.ValidationError(
-                "At least one image is required for plant identification."
-            )
-        return data
-
-
 class PlantIdentificationRequestWithResultsSerializer(serializers.ModelSerializer):
     """Serializer for PlantIdentificationRequest with full identification results."""
 
