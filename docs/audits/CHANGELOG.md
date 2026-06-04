@@ -107,3 +107,20 @@ links to the full audit manifest with detailed findings and resolutions.
   "fixed" items (M23 AI cache TTL, M25 Prefetch slice) found still present in
   code — surfaced for reconciliation, not re-audited.
 - **Commit(s):** branch `chore/full-audit-2026-06-02` (PR pending).
+
+### 2026-06-03 — Harness Effectiveness Audit (Follow-up)
+
+- **Trigger:** User-invoked `/audit development harness` — follow-up to 2026-05-30
+  harness audit; all 8 prior todos (126–133) confirmed archived/completed.
+- **Manifest:** [2026-06-03-harness.md](2026-06-03-harness.md)
+- **Findings:** 0 critical, 1 high, 1 medium, 1 low (3 total). All primary-source
+  verified via direct reads and `gh api` call.
+- **Resolved:** 0 fixed (report+todos mode — Auto Mode blocks `.claude/` edits),
+  3 deferred to todos 211–213, 0 false-positive, 0 open.
+- **Verdict:** The prior harness audit's CI gap is half-closed — 3 workflows were
+  added but only `backend-checks` is a required status check (H1). Telemetry writer
+  IS wired correctly in `match_triggers.py`; empty log = ephemeral `/tmp` (L1).
+  Auto-capture loop machinery exists but has never run end-to-end in production —
+  all 8 triggers remain hand-seeded `warn` (M1). LSP integration and cd-to-root
+  fix are well-executed additions with no findings.
+- **Commit(s):** (report+todos; no fix commit)

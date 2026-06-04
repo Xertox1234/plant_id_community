@@ -135,5 +135,26 @@
     "source": "codify: main",
     "added": "2026-06-02",
     "severity": "warn"
+  },
+  {
+    "id": "django-count-id-not-pk",
+    "domains": [
+      "database",
+      "performance"
+    ],
+    "path_glob": [
+      "backend/**/views.py",
+      "backend/**/*_views.py",
+      "backend/**/services.py",
+      "backend/**/*service*.py",
+      "backend/**/models.py",
+      "backend/**/serializers.py"
+    ],
+    "content_present": "Count\\([\"'](id|uuid)[\"']",
+    "message": "Count(\"id\") or Count(\"uuid\") 500s on models with a non-standard PK (UUID, custom). Use Count(\"pk\") — it resolves to the real primary key on every model. Caught by Phase-6 code review after the analytics endpoint regressed (2026-06-02 audit).",
+    "pattern_ref": "backend/docs/patterns/performance/query-optimization.md",
+    "source": "docs/LEARNINGS.md [2026-06-02] Count(\"id\") on UUID-PK model 500s",
+    "added": "2026-06-04",
+    "severity": "candidate"
   }
 ]
