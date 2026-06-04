@@ -58,6 +58,16 @@ export default function Header() {
               Identify
             </NavLink>
             <NavLink
+              to="/diagnose"
+              className={({ isActive }) =>
+                `font-medium transition-colors ${
+                  isActive ? 'text-primary' : 'text-ink-2 hover:text-primary'
+                }`
+              }
+            >
+              Diagnose
+            </NavLink>
+            <NavLink
               to="/blog"
               className={({ isActive }) =>
                 `font-medium transition-colors ${
@@ -137,6 +147,17 @@ export default function Header() {
               }
             >
               Identify
+            </NavLink>
+            <NavLink
+              to="/diagnose"
+              onClick={closeMenu}
+              className={({ isActive }) =>
+                `block px-3 py-2 rounded-lg font-medium transition-colors ${
+                  isActive ? 'bg-primary/10 text-primary' : 'text-ink-2 hover:bg-surface'
+                }`
+              }
+            >
+              Diagnose
             </NavLink>
             <NavLink
               to="/blog"

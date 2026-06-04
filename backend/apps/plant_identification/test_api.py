@@ -81,6 +81,31 @@ class TestDiseasesDiagnosisAPI(APITestCase):
     @patch(
         "apps.plant_identification.services.disease_diagnosis_service.PlantDiseaseService.diagnose_disease_from_request"
     )
+    def test_create_response_returns_request_id_and_status(self, mock_diagnose):
+        """POST create must return request_id + status so the client can fetch results."""
+        mock_diagnose.return_value = []
+        self.client.force_authenticate(user=self.user)
+        url = reverse("v1:plant_identification:disease-requests-list")
+        data = {
+            "symptoms_description": "Yellow leaves with black spots",
+            "image_1": self.create_diseased_image(),
+        }
+
+        response = self.client.post(url, data, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("request_id", response.data)
+        self.assertTrue(response.data["request_id"])  # non-empty UUID
+        self.assertIn("status", response.data)
+        self.assertIn(
+            response.data["status"],
+            ["pending", "processing", "diagnosed", "needs_help", "failed"],
+        )
+
+    @pytest.mark.api
+    @patch(
+        "apps.plant_identification.services.disease_diagnosis_service.PlantDiseaseService.diagnose_disease_from_request"
+    )
     def test_disease_diagnosis_with_api(self, mock_diagnose):
         """Test disease diagnosis using external API."""
 

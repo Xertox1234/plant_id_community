@@ -20,6 +20,7 @@ const ThreadDetailPage = lazy(() => import('./pages/forum/ThreadDetailPage'));
 const SearchPage = lazy(() => import('./pages/forum/SearchPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const DiseaseDiagnosePage = lazy(() => import('./pages/diagnosis/DiseaseDiagnosePage'));
 const ThemePreviewPage = lazy(() => import('./pages/debug/ThemePreviewPage'));
 
 /**
@@ -59,6 +60,7 @@ function App() {
         {/* Protected routes - requires authentication */}
         <Route element={<ProtectedLayout />}>
           <Route element={<RootLayout />}>
+            <Route path="/diagnose" element={<DiseaseDiagnosePage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
