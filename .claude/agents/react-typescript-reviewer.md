@@ -13,7 +13,7 @@ Dispatched automatically by orchestrator for web frontend changes.
 
 model: sonnet
 color: cyan
-tools: Read, Glob, Grep, Bash
+tools: Read, Glob, Grep, Bash, LSP
 ---
 
 # React/TypeScript Reviewer
@@ -30,6 +30,24 @@ Review only the files passed to you. Do not read the full repo.
 - Test runner: Vitest (492 tests), E2E: Playwright (107 tests)
 - Dev server: port 5174 (NOT 5173)
 - Backend CORS configured for port 5174
+
+## LSP Workflow (run before the checklist)
+
+For each changed file:
+
+**Step A — enumerate symbols:**
+
+Call `documentSymbol` on the file to get all symbols with their positions. Use this list to find line/character values for the LSP calls below. If LSP returns an error or empty/inconclusive result, fall back to Grep for that file.
+
+**Step B — targeted LSP calls:**
+
+| Checklist item | LSP call |
+|---|---|
+| Changed prop/interface: all consumers updated | `findReferences` on the interface definition → verify each reference site handles the change |
+| Hook return type matches consumption | `hover` at the hook call site → compare resolved return type to how it is used |
+| Import resolves (no phantom types) | `goToDefinition` on each import → confirms it lands on a real definition |
+
+Use Grep as fallback for any LSP call that returns an error or empty/inconclusive result.
 
 ## Review Mode — Checklist
 
