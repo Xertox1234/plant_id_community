@@ -173,12 +173,13 @@ class CommunityEventDetailSerializer(CommunityEventListSerializer):
 
         # Check if event is at capacity
         if obj.max_attendees and obj.spots_remaining == 0:
-            # Unless user is already RSVPed
-            try:
-                existing_rsvp = obj.attendees.get(user=request.user)
-                return existing_rsvp.status != "going"
-            except EventAttendee.DoesNotExist:
-                return False
+            # Unless user is already RSVPed. Iterate the prefetched `attendees`
+            # (see CommunityEventViewSet.get_queryset) instead of `.get()` so the
+            # lookup reuses the prefetch cache rather than firing a per-event query.
+            for attendee in obj.attendees.all():
+                if attendee.user_id == request.user.id:
+                    return attendee.status != "going"
+            return False
 
         return True
 

@@ -166,13 +166,19 @@ class PostSerializer(serializers.ModelSerializer):
         ]
 
     def _get_rich_post(self, obj):
-        # Single DB hit per Post instance; subsequent calls read from instance cache.
-        if not hasattr(obj, "_rich_post_cache"):
+        # Cache on the serializer instance (dict keyed by pk), never on the model
+        # instance — an `obj._rich_post_cache` attribute returns a stale None if the
+        # same Post is re-serialized after a RichPost.create() in one request
+        # (LEARNINGS 2026-05-08, query-optimization Pattern 27). With many=True the
+        # single reused child serializer shares this dict across all rows.
+        if not hasattr(self, "_rich_post_cache"):
+            self._rich_post_cache = {}
+        if obj.pk not in self._rich_post_cache:
             try:
-                obj._rich_post_cache = obj.rich_content
+                self._rich_post_cache[obj.pk] = obj.rich_content
             except RichPost.DoesNotExist:
-                obj._rich_post_cache = None
-        return obj._rich_post_cache
+                self._rich_post_cache[obj.pk] = None
+        return self._rich_post_cache[obj.pk]
 
     def get_rich_content(self, obj):
         rich_post = self._get_rich_post(obj)

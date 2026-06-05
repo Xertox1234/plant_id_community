@@ -119,21 +119,21 @@ are `[x]`).
 - [x] #M6 firebase_token_exchange no rate-limit → todo 205 (completed 2026-06-02)
 - [x] #M7 forum_stats uncached → todo 205 (completed 2026-06-02)
 - [x] #M13 celery acks_late missing → todo 205 (completed 2026-06-02)
-- [ ] #L1 pyjwt dev-pin drift → todo 206
-- [ ] #L4 get_can_rsvp bypasses prefetch → todo 206
-- [ ] #L5 _retry_after_seconds window parse → todo 206
-- [ ] #L6 forum pagination shape diverges → todo 206
-- [ ] #L9 raw email in log → todo 206
-- [ ] #L10 stale docstring re-advertises identity fields → todo 206
-- [ ] #L11 email not DB-unique → todo 206
-- [ ] #L12 model-instance cache attr in serializer → todo 206
-- [ ] #L13 plant_data_stats uncached → todo 206
-- [ ] #L2 inline prop type literals → todo 207
-- [ ] #L3 double cast through unknown → todo 207
-- [ ] #L7 dark-mode badge contrast → todo 207
-- [ ] #L8 invisible disabled ClayButton → todo 207
-- [ ] #L14 HomePage test under-asserts → todo 207
-- [ ] #L16 open avatar storage read → todo 207
+- [x] #L1 pyjwt dev-pin drift → todo 206 (completed 2026-06-05)
+- [x] #L4 get_can_rsvp bypasses prefetch → todo 206 (completed 2026-06-05)
+- [x] #L5 _retry_after_seconds window parse → todo 206 (completed 2026-06-05)
+- [x] #L6 forum pagination shape diverges → todo 206 (completed 2026-06-05, accepted with rationale)
+- [x] #L9 raw email in log → todo 206 (completed 2026-06-05)
+- [x] #L10 stale docstring re-advertises identity fields → todo 206 (completed 2026-06-05)
+- [x] #L11 email not DB-unique → todo 206 (completed 2026-06-05)
+- [x] #L12 model-instance cache attr in serializer → todo 206 (completed 2026-06-05)
+- [x] #L13 plant_data_stats uncached → todo 206 (completed 2026-06-05)
+- [x] #L2 inline prop type literals → todo 207 (completed 2026-06-05)
+- [x] #L3 double cast through unknown → todo 207 (completed 2026-06-05)
+- [x] #L7 dark-mode badge contrast → todo 207 (completed 2026-06-05, on-device visual confirmation deferred to reviewer)
+- [x] #L8 invisible disabled ClayButton → todo 207 (completed 2026-06-05, on-device visual confirmation deferred to reviewer)
+- [x] #L14 HomePage test under-asserts → todo 207 (completed 2026-06-05)
+- [x] #L16 open avatar storage read → todo 207 (completed 2026-06-05)
 
 ## Summary
 

@@ -21,5 +21,6 @@ describe('HomePage', () => {
     // the primary CTA button — match by its label text
     const cta = screen.getByRole('button', { name: /get started|identify/i });
     expect(cta).toHaveClass('rounded-pill');
+    expect(cta).toHaveClass('bg-clay');
   });
 });

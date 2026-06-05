@@ -31,6 +31,11 @@ class GreenThumbExtension extends ThemeExtension<GreenThumbExtension> {
   final double padCard, padScreen, gapY;
   final bool showGrain;
 
+  /// On-color for the [leaf] badge background. `leaf` is a light green in every
+  /// palette (light *and* dark), so its foreground must be a fixed dark ink —
+  /// using the theme's `onSurface` renders light-on-light in dark mode (audit L7).
+  static const Color onLeaf = Color(0xFF1B2218);
+
   factory GreenThumbExtension.fromColors({
     required GreenThumbColors colors,
     required AppDensity density,

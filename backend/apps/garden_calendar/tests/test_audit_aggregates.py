@@ -14,7 +14,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from ..models import CareTask, GardenBed, Harvest, Plant
+from ..models import CareTask, CommunityEvent, EventAttendee, GardenBed, Harvest, Plant
 
 User = get_user_model()
 
@@ -135,4 +135,67 @@ class HarvestStatisticsAggregateTest(TestCase):
             )
         # 1 combined aggregate + 1 by_plant; constant, no per-unit loop
         with self.assertNumQueries(2):
+            self.client.get(self.url)
+
+    def test_statistics_includes_lb_unit(self):
+        # Audit C3 regression: the per-unit keys were "lbs"/"bunches" but the
+        # model's HARVEST_UNITS codes are "lb"/"bunch", so lb/bunch harvests never
+        # appeared in total_quantity_by_unit. Now derived from the model constant.
+        Harvest.objects.create(
+            plant=self.plant,
+            harvest_date=timezone.now().date(),
+            quantity=7,
+            unit="lb",
+            quality_rating=5,
+        )
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        by_unit = response.json()["total_quantity_by_unit"]
+        self.assertIn("lb", by_unit)
+        self.assertEqual(float(by_unit["lb"]), 7.0)
+
+
+class CommunityEventDetailRSVPQueryTest(TestCase):
+    """Detail `can_rsvp` reuses the prefetched `attendees` instead of a per-event
+    `obj.attendees.get(user=...)` (audit L4)."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.viewer = User.objects.create_user(
+            username="rsvp_viewer",
+            email="v@test.com",
+            password="testpass123",  # pragma: allowlist secret
+        )
+        self.organizer = User.objects.create_user(
+            username="rsvp_organizer",
+            email="o@test.com",
+            password="testpass123",  # pragma: allowlist secret
+        )
+        self.client.force_authenticate(user=self.viewer)
+        self.event = CommunityEvent.objects.create(
+            organizer=self.organizer,
+            title="Full event",
+            description="At capacity",
+            start_datetime=timezone.now() + timedelta(days=1),
+            privacy_level="public",
+            max_attendees=1,
+        )
+        # Viewer has RSVP'd and the event is now at capacity (spots_remaining == 0)
+        # — exactly the branch that previously issued obj.attendees.get(user=...).
+        EventAttendee.objects.create(event=self.event, user=self.viewer, status="going")
+        self.url = f"/api/v1/calendar/api/events/{self.event.pk}/"
+
+    def test_detail_can_rsvp_resolves_from_prefetch(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        # Viewer already RSVP'd "going" → can_rsvp is False.
+        self.assertIs(response.json()["can_rsvp"], False)
+
+    def test_detail_can_rsvp_does_not_issue_extra_query(self):
+        # Pin the exact count for the fixed at-capacity + viewer-RSVP'd scenario:
+        # can_rsvp reads the prefetched attendees (0 extra queries). A revert to
+        # obj.attendees.get(user=...) adds one query and trips this. (Attendee
+        # count is fixed at 1; the detail view's attendee→user serialization is a
+        # separate pre-existing concern, out of this finding's scope.)
+        with self.assertNumQueries(3):
             self.client.get(self.url)

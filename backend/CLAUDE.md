@@ -48,7 +48,7 @@ Two GitHub Actions workflows gate PRs:
 - **`backend-checks`** — Django system check + OpenAPI schema validation (`manage.py spectacular`). Uses SQLite, no external services.
 - **`backend-tests`** — Full pytest suite against **PostgreSQL 16** + **Redis 7** (spun up as GitHub services). Placeholder API keys are injected for length-validation tests; all external HTTP calls are mocked.
 
-Lint (flake8/black/isort) is **pre-commit only**, not enforced in CI (≈3k pre-existing violations make a full-tree gate impractical; pre-commit lints changed files incrementally).
+Lint (flake8/black/isort) is **pre-commit only**, not enforced in CI (≈3k pre-existing violations make a full-tree gate impractical). Note: pre-commit lints each **whole file** that appears in the staged diff (`files: ^backend/.*\.py$`), not just the changed *lines* — so touching one line in a file with pre-existing violations surfaces all of that file's violations and can block the commit. Either clean the file's violations or bypass with `SKIP=flake8 git commit …` (last resort).
 
 ## Gotcha: stale test DB after migration changes
 

@@ -27,22 +27,25 @@ def get_request_id(request) -> Optional[str]:
 
 
 def _retry_after_seconds(rate: Optional[str]) -> int:
-    """Window length in seconds for a django-ratelimit rate string ('30/m' -> 60).
+    """Window length in seconds for a django-ratelimit rate string.
 
-    Falls back to one hour when the rate is unknown (e.g. a bare Ratelimited from a
-    decorator that did not attach its rate — see apps.core.ratelimit).
+    Handles bare-unit windows ('30/m' -> 60) and multi-unit windows
+    ('5/15m' -> 900). Falls back to one hour when the rate is unknown (e.g. a bare
+    Ratelimited from a decorator that did not attach its rate — see
+    apps.core.ratelimit).
     """
-    # isinstance guard: django-ratelimit also accepts callable rates; calling
-    # .endswith on a non-str would raise inside the exception handler (a 429 -> 500).
-    if isinstance(rate, str):
-        if rate.endswith("/s"):
-            return 1
-        if rate.endswith("/m"):
-            return 60
-        if rate.endswith("/h"):
-            return 3600
-        if rate.endswith("/d"):
-            return 86400
+    # isinstance guard: django-ratelimit also accepts callable rates; parsing a
+    # non-str would raise inside the exception handler (a 429 -> 500).
+    if isinstance(rate, str) and "/" in rate:
+        period = rate.rsplit("/", 1)[1]  # e.g. "m", "15m", "30s"
+        unit_seconds = {"s": 1, "m": 60, "h": 3600, "d": 86400}.get(period[-1:])
+        if unit_seconds is not None:
+            multiplier = period[:-1]
+            try:
+                count = int(multiplier) if multiplier else 1
+            except ValueError:
+                return 3600
+            return count * unit_seconds
     return 3600
 
 
