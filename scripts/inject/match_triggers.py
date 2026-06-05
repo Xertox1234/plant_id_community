@@ -175,7 +175,9 @@ def _log_fires(hits, rel_path):
         return
     try:
         ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        log_path = os.environ.get("INJECT_FIRES_LOG", "/tmp/inject-fires.log")
+        _default_log = os.path.join(os.path.expanduser("~"), ".claude", "inject-fires.log")
+        log_path = os.environ.get("INJECT_FIRES_LOG", _default_log)
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
         with open(log_path, "a") as fh:
             for t in hits:
                 fh.write("{}\t{}\t{}\n".format(ts, rel_path, t.get("id", "unknown")))

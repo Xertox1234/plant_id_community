@@ -158,4 +158,4 @@ machinery exists; per M1, it has not yet fired in a live session.
 
 - [x] #H1 ci-non-required-status-checks → todo 211 (completed 2026-06-04)
 - [x] #M1 auto-capture-never-ran-end-to-end → todo 212 (completed 2026-06-04)
-- [ ] #L1 fire-telemetry-ephemeral-default → todo 213
+- [x] #L1 fire-telemetry-ephemeral-default → todo 213 (completed 2026-06-04)
