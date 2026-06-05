@@ -29,6 +29,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"Run /codify if you discovered patterns worth preserving this session.\"}'",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
