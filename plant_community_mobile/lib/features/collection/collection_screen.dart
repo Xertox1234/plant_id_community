@@ -145,7 +145,7 @@ class _PlantCard extends StatelessWidget {
                   child: Text(
                     '✓ ID\'d',
                     style: TextStyle(
-                      color: cs.onSurface,
+                      color: GreenThumbExtension.onLeaf,
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
                     ),

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "210"
 tags: [database, migrations, garden_calendar, tech-debt]
@@ -72,9 +72,9 @@ like they forgot to commit a migration.
 
 ## Acceptance Criteria
 
-- [ ] `python manage.py makemigrations garden_calendar --check --dry-run` reports
+- [x] `python manage.py makemigrations garden_calendar --check --dry-run` reports
       "No changes detected".
-- [ ] `apps.garden_calendar` test suite passes with `--noinput`.
+- [x] `apps.garden_calendar` test suite passes with `--noinput`.
 
 ## Work Log
 
@@ -82,6 +82,34 @@ like they forgot to commit a migration.
 
 - Split out of todo 205 (M1) per user request, to leave a breadcrumb for the
   phantom `0007` migration so the next `makemigrations` run isn't a surprise.
+
+### 2026-06-05 - Resolved by completing-todos skill (run 2026-06-05-0228)
+
+- Generated the reconciling migration
+  `apps/garden_calendar/migrations/0007_alter_plantimage_uuid.py` — a state-only
+  `AlterField` setting `primary_key=True, serialize=False` on `PlantImage.uuid` to
+  match the model. The DB already has `uuid` as the real PK (0005's
+  `SeparateDatabaseAndState` swap), so this only reconciles Django's recorded
+  state — no column change, no data risk.
+- Did NOT take the optional `unique=True` drop (`primary_key=True` already implies
+  unique): kept the migration surgical and matching the model as-is, avoiding a
+  second reconciling round. Not required by the AC.
+- Verification:
+  - `makemigrations garden_calendar --check --dry-run` → "No changes detected in
+    app 'garden_calendar'" (exit 0). Drift gone.
+  - `python manage.py test apps.garden_calendar --noinput` → **158 passed**
+    (1 pre-existing skip). The `--noinput` fresh rebuild applies 0007 from
+    scratch, confirming it migrates cleanly (no Operational/ProgrammingError).
+
+### 2026-06-05 - Code review + completed by completing-todos skill (run 2026-06-05-0228)
+
+- Review: code-review-orchestrator, **0 findings, 0 blocking**. Reviewer ran
+  `sqlmigrate garden_calendar 0007` (forward and `--backwards`) → both
+  `-- (no-op)` with zero DDL; the sole state delta is `serialize=False`
+  (serialization-only, no schema impact). Safe, reversible, no downtime on an
+  existing prod DB.
+- Verification: both acceptance criteria passed (no-changes-detected + 158 tests
+  on a fresh `--noinput` DB).
 
 ## Notes
 

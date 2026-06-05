@@ -117,10 +117,6 @@ Generate only the title, no additional text."""
                     plant_details.append(name)
             plant_context = f"Featured plants: {', '.join(plant_details)}. "
 
-        action_type = (
-            "improve the following" if existing_intro else "create a compelling"
-        )
-
         prompt = f"""Generate an engaging introduction for a plant care blog post.
 
 Title: {title or 'Blog Post About Plant Care'}
@@ -170,6 +166,17 @@ Generate only the introduction text, no meta commentary."""
                 for p in related_plants[:2]
             ]
 
+        # Example descriptions kept as locals so the long literals don't trip the
+        # line-length linter inside the triple-quoted prompt below (output unchanged).
+        example_1 = (
+            "Learn how to care for Monstera Deliciosa with our complete guide. "
+            "Master watering, light, and propagation for healthy, thriving plants."
+        )
+        example_2 = (
+            "Discover 5 essential Snake Plant care tips. Perfect for beginners! "
+            "Get expert advice on water, light, soil, and common problems."
+        )
+
         prompt = f"""Generate an SEO-optimized meta description for a plant care blog post.
 
 Title: {title or 'Plant Care Guide'}
@@ -189,8 +196,8 @@ Requirements:
 - No ellipsis or incomplete sentences
 
 Examples of good meta descriptions:
-- "Learn how to care for Monstera Deliciosa with our complete guide. Master watering, light, and propagation for healthy, thriving plants."
-- "Discover 5 essential Snake Plant care tips. Perfect for beginners! Get expert advice on water, light, soil, and common problems."
+- "{example_1}"
+- "{example_2}"
 
 Generate only the meta description, no additional text."""
 
@@ -316,9 +323,15 @@ class BlogAIIntegration:
 
             if not AIRateLimiter.check_user_limit(user_id, is_staff):
                 remaining = AIRateLimiter.get_remaining_calls(user_id, is_staff)
+                limit = (
+                    AIRateLimiter.STAFF_LIMIT if is_staff else AIRateLimiter.USER_LIMIT
+                )
                 return {
                     "success": False,
-                    "error": f"AI rate limit exceeded. You can make {AIRateLimiter.USER_LIMIT if not is_staff else AIRateLimiter.STAFF_LIMIT} requests per hour. Try again later.",
+                    "error": (
+                        f"AI rate limit exceeded. You can make {limit} requests "
+                        "per hour. Try again later."
+                    ),
                     "remaining_calls": remaining,
                 }
 

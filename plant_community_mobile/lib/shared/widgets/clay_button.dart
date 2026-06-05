@@ -36,15 +36,18 @@ class ClayButton extends StatelessWidget {
     final Color fg;
     final List<BoxShadow> shadow;
 
+    // Disabled fill uses surfaceContainerHigh (= palette bg3, which the scheme
+    // sets) rather than surfaceContainerHighest, which is unset and falls back to
+    // surface (the scaffold bg) — making a disabled button invisible (audit L8).
     switch (variant) {
       case ClayButtonVariant.primary:
-        bg = isDisabled ? cs.surfaceContainerHighest : ext.clay;
+        bg = isDisabled ? cs.surfaceContainerHigh : ext.clay;
         fg = isDisabled ? cs.onSurface.withValues(alpha: 0.38) : ext.onClay;
         shadow = isDisabled ? const [] : ext.shadow1;
       case ClayButtonVariant.secondary:
         // secondary intentionally uses the brand primary (moss) rather than clay —
         // it is a tonal complement, not a clay-palette button.
-        bg = isDisabled ? cs.surfaceContainerHighest : cs.primary;
+        bg = isDisabled ? cs.surfaceContainerHigh : cs.primary;
         fg = isDisabled ? cs.onSurface.withValues(alpha: 0.38) : cs.onPrimary;
         shadow = isDisabled ? const [] : ext.shadow1;
       case ClayButtonVariant.outline:

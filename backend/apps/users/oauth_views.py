@@ -2,34 +2,20 @@
 Custom OAuth views for handling social authentication with JWT token generation.
 """
 
-import json
 import logging
 import secrets
 
-from allauth.socialaccount.helpers import complete_social_login
-from allauth.socialaccount.models import SocialAccount, SocialLogin
-from allauth.socialaccount.providers.github.views import GitHubOAuth2Adapter
-from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
-from allauth.socialaccount.providers.oauth2.client import OAuth2Client
-from apps.core.utils.pii_safe_logging import (
-    log_safe_email,
-    log_safe_user_context,
-    log_safe_username,
-)
+from apps.core.ratelimit import ratelimit
+from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.conf import settings
 from django.contrib.auth import login as django_login
-from django.http import HttpResponseRedirect, JsonResponse
-from django.urls import reverse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
-from django_ratelimit.decorators import ratelimit
+from django.http import HttpResponseRedirect
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .authentication import set_jwt_cookies
-from .serializers import UserSerializer
 
 logger = logging.getLogger(__name__)
 

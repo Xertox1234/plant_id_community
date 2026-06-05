@@ -314,18 +314,23 @@ def plant_data_stats(request):
             PlantIdentificationRequest,
             PlantSpecies,
         )
+        from django.db.models import Count, Q
 
+        # Collapse the four PlantSpecies counts into a single conditional aggregate
+        # (one query instead of four). `species_with_care_data` mirrors the old
+        # exclude(light="", water="") — i.e. NOT(both blank). The identification
+        # count is on a different model, so it stays a second query.
+        species_stats = PlantSpecies.objects.aggregate(
+            local_species_count=Count("pk"),
+            verified_species_count=Count("pk", filter=Q(is_verified=True)),
+            species_with_care_data=Count(
+                "pk",
+                filter=~(Q(light_requirements="") & Q(water_requirements="")),
+            ),
+            species_with_images=Count("pk", filter=~Q(primary_image="")),
+        )
         stats = {
-            "local_species_count": PlantSpecies.objects.count(),
-            "verified_species_count": PlantSpecies.objects.filter(
-                is_verified=True
-            ).count(),
-            "species_with_care_data": PlantSpecies.objects.exclude(
-                light_requirements="", water_requirements=""
-            ).count(),
-            "species_with_images": PlantSpecies.objects.exclude(
-                primary_image=""
-            ).count(),
+            **species_stats,
             "user_identifications_count": PlantIdentificationRequest.objects.filter(
                 status="identified"
             ).count(),

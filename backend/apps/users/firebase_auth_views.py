@@ -106,10 +106,12 @@ def firebase_token_exchange(request: Request) -> Response:
 
     Request Body:
         {
-            "firebase_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6...",
-            "email": "user@example.com",  # Optional, for validation
-            "display_name": "John Doe"     # Optional, for user creation
+            "firebase_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6..."
         }
+
+    Note: only the Firebase ID token is trusted. Any client-supplied identity
+    fields (email, display_name) are ignored — identity is read from the verified
+    token claims to prevent the account-takeover vector (audit C8).
 
     Response (200 OK):
         {
@@ -281,7 +283,8 @@ def get_or_create_user_from_firebase(
             UID, or unverified when linking to an existing account.
     """
     if not firebase_email or "@" not in firebase_email:
-        raise ValueError(f"Invalid Firebase email: {firebase_email}")
+        # Redact: this message is surfaced via str(e) into a warning log upstream.
+        raise ValueError(f"Invalid Firebase email: {redact_email(firebase_email)}")
 
     # Prefer the stable Firebase UID. Linking by email alone is a takeover risk
     # if an email is ever reassigned at the identity provider.
@@ -340,6 +343,15 @@ def get_or_create_user_from_firebase(
 
     except User.DoesNotExist:
         pass
+    except User.MultipleObjectsReturned:
+        # `email` is not DB-unique; app-layer registration enforces uniqueness,
+        # but defend against a duplicate slipping in rather than 500-ing on the
+        # ambiguous .get(). Fail closed as a linking conflict (→ 409 upstream).
+        logger.error(
+            f"[FIREBASE AUTH] Multiple accounts share email "
+            f"{redact_email(firebase_email)} — refusing ambiguous login"
+        )
+        raise ValueError("Multiple accounts exist for this email")
 
     # User doesn't exist - create new user with collision-safe username
     base_username = firebase_email.split("@")[0]
