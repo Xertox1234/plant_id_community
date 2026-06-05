@@ -155,6 +155,6 @@
     "pattern_ref": "backend/docs/patterns/performance/query-optimization.md",
     "source": "docs/LEARNINGS.md [2026-06-02] Count(\"id\") on UUID-PK model 500s",
     "added": "2026-06-04",
-    "severity": "candidate"
+    "severity": "warn"
   }
 ]
