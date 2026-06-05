@@ -1,7 +1,13 @@
 name: Harness CI
 
-# Run the harness's own test suite on every PR or push that touches the harness
-# itself (.claude/hooks/, scripts/inject/, or docs/rules/).
+# Runs the harness's own test suite.
+#   - pull_request to main/develop: ALWAYS (no path filter). This job is a
+#     REQUIRED status check; a path-filtered required check deadlocks every PR
+#     that doesn't touch the harness — GitHub waits forever for a check that
+#     never reports. The tests are fast and exercise repo-resident harness code,
+#     so running them on every PR is cheap and keeps the required check honest.
+#   - push to main/develop: only when the harness itself changes (.claude/hooks/,
+#     scripts/inject/, docs/rules/, or this workflow).
 #
 # Local equivalent (run from repo root):
 #   bash .claude/hooks/test-inject-patterns.sh && \
@@ -21,11 +27,6 @@ name: Harness CI
       - '.github/workflows/harness-ci.yml'
   pull_request:
     branches: [main, develop]
-    paths:
-      - '.claude/hooks/**'
-      - 'scripts/inject/**'
-      - 'docs/rules/**'
-      - '.github/workflows/harness-ci.yml'
 
 jobs:
   harness-tests:
