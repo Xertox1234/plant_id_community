@@ -4,7 +4,7 @@
 Usage:
   python3 scripts/inject/report_fires.py
 
-Log path defaults to /tmp/inject-fires.log; override with INJECT_FIRES_LOG.
+Log path defaults to ~/.claude/inject-fires.log; override with INJECT_FIRES_LOG.
 Each line in the log: <ISO-timestamp>\t<rel-file>\t<trigger-id>
 """
 import os
@@ -13,7 +13,8 @@ from collections import Counter
 
 
 def main():
-    log_path = os.environ.get("INJECT_FIRES_LOG", "/tmp/inject-fires.log")
+    _default_log = os.path.join(os.path.expanduser("~"), ".claude", "inject-fires.log")
+    log_path = os.environ.get("INJECT_FIRES_LOG", _default_log)
 
     if not os.path.exists(log_path):
         print("No fire log at {} — no triggers have fired yet.".format(log_path))

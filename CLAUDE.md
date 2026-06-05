@@ -195,7 +195,10 @@ reach only **new** worktrees; existing worktrees keep their setup until rebased.
 ### Hooks (`.claude/settings.json` → `.claude/hooks/`)
 
 - **`inject-patterns.sh`** — before every Edit/Write, injects the discipline
-  preamble plus the matching `docs/rules/<domain>.md` checklists.
+  preamble plus the matching `docs/rules/<domain>.md` checklists. Matched
+  recurring-mistake triggers are logged to `~/.claude/inject-fires.log` (override
+  with `INJECT_FIRES_LOG`). Run `python3 scripts/inject/report_fires.py` to see
+  per-trigger fire counts.
 - **`kimi-review.sh`** — before a `git commit` Bash call, runs `kimi-review` on
   the staged diff. A `[CRITICAL]` finding blocks the commit; `WARNING` is
   surfaced as context. Bypass with `SKIP_KIMI_REVIEW=1`.
