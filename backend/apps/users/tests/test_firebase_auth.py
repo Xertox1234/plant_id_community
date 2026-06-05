@@ -73,6 +73,41 @@ class FirebaseTokenExchangeTestCase(TestCase):
         self.assertTrue(response.data["user"]["is_active"])
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_duplicate_email_returns_409_not_500(self, mock_verify):
+        """Audit L11: `email` is not DB-unique. When two accounts share an email
+        and the token UID matches neither, the email-fallback `.get()` raises
+        MultipleObjectsReturned — this must fail closed as 409, not 500."""
+        # Two users with the SAME email and UIDs that won't match the token.
+        User.objects.create_user(
+            username="dup_one",
+            email="dup@example.com",
+            firebase_uid="existing-uid-1",
+        )
+        User.objects.create_user(
+            username="dup_two",
+            email="dup@example.com",
+            firebase_uid="existing-uid-2",
+        )
+        # Token carries a NEW uid (matches neither) → falls to the email lookup,
+        # which then hits MultipleObjectsReturned.
+        mock_verify.return_value = {
+            "uid": "brand-new-uid-999",
+            "email": "dup@example.com",
+            "email_verified": True,
+        }
+
+        response = self.client.post(
+            self.url,
+            {"firebase_token": self.firebase_token},
+            format="json",
+        )
+
+        # Fails closed as a conflict, not a 500.
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        # Generic message to the client; the specific reason stays in logs only.
+        self.assertEqual(response.data["error"], "Account linking conflict")
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_successful_token_exchange_existing_user(self, mock_verify):
         """Test successful token exchange for an existing user."""
         # Create existing user
