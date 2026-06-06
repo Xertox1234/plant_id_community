@@ -1319,7 +1319,9 @@ def validate_environment():
     # ========================================
     api_key_checks = [
         ("PLANT_ID_API_KEY", PLANT_ID_API_KEY, 32, "Plant.id API"),
-        ("PLANTNET_API_KEY", PLANTNET_API_KEY, 32, "PlantNet API (fallback provider)"),
+        # PlantNet keys are ~26 chars (e.g. "2b10…"), so 32 wrongly rejects a
+        # valid key. Keep a low floor that still catches obviously-truncated keys.
+        ("PLANTNET_API_KEY", PLANTNET_API_KEY, 20, "PlantNet API (fallback provider)"),
     ]
 
     for key_name, key_value, min_length, description in api_key_checks:
