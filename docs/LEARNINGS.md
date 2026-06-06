@@ -362,3 +362,19 @@ This file is append-only. New entries are added by main Claude after each code r
 **Fix**: Added `propagate=False` to the `django` logger, matching its siblings. Regression test in `apps/blog/tests/` (a CI-collected, always-installed location — `apps/forum_integration/tests` is `--ignore`d by pytest) asserts all three project loggers set `propagate=False`.
 **Rule**: A logger that defines its own `handlers` must also set `propagate=False` when `root` carries the same handlers, or every record double-emits. Don't diagnose double logging as "two console handlers" when those handlers have mutually-exclusive `require_debug_true/false` filters.
 **Agent**: django-drf-reviewer
+
+---
+
+## Tooling / Agents (2026-06-06 additions)
+
+### [2026-06-06] A path-filtered workflow cannot be a required status check — it deadlocks unrelated PRs
+
+**Mistake**: `mobile-ci.yml` (the Flutter `analyze`/`test`/build job) is path-filtered to `plant_community_mobile/**`, and is NOT in `main`'s required status checks — so a Flutter-only PR can merge with a failing `flutter test` (it's gated only by backend/web/harness checks). The obvious fix — "just add it to required checks" — is itself a trap: GitHub treats a required check with **no reported status** as pending forever, and a path-filtered workflow reports nothing on PRs whose diff doesn't match its `paths:`. So requiring it would permanently BLOCK every non-mobile PR (docs, backend, web). `harness-ci.yml:4-8` documents this exact trap and deliberately runs its required job on every PR (justified there because the harness tests are fast; Flutter's ~6.5 min run is not).
+**Fix**: Tracked in todo 219. Recommended pattern: a lightweight **always-run gate job** (no path filter) that detects whether mobile files changed, conditionally runs/awaits the heavy Flutter job, and **always reports a status** — make the gate the required check. Avoids both the deadlock and paying Flutter CI cost on every PR.
+**Rule**: A required status check MUST report a status on 100% of PRs to `main`. Never mark a path-filtered (`on.pull_request.paths:`) workflow as required — gate via an always-run job that emits success for out-of-scope PRs instead.
+
+### [2026-06-06] Squash-merged branches are invisible to `git branch -d` and pile up; detect via PR state, not diffs
+
+**Mistake**: A local branch list had grown to 37, ~92% of which were dead. Squash-merging a PR collapses the branch's commits into one new commit on `main` with a different SHA, so `git branch -d` (and `git branch --merged`) never recognize the original branch as merged — it lingers indefinitely. Worse, `git diff main..<branch>` is actively misleading for a branch that's many commits behind `main`: the diff is dominated by `main`'s *newer* work appearing as "deletions," which reads as huge unmerged value when the branch is actually superseded (one branch showed −1722 lines but its PR was already merged).
+**Fix**: Detect superseded branches by **PR state + landed artifacts**, not by diffing: `gh pr list --state all --head <branch>` (merged/closed?), and confirm the deliverables (e.g. archived todos, the squash commit) are in `main`. For squash detection without a PR, collapse the branch to a single tree-commit on its merge-base and `git cherry main <commit>` (a `-` means patch-present in `main`). Pruned 37 → relevant branches this way.
+**Rule**: Don't trust `git branch -d`/`--merged` or 2-dot diffs to decide if a branch is safe to delete in a squash-merge repo. Confirm the PR merged/closed and its content landed in `main`, then `git branch -D`. Periodically prune, or enable auto-delete-on-merge, so squash debris doesn't accumulate.

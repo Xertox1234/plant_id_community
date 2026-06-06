@@ -34,7 +34,7 @@ npm run deploy    # wrangler deploy — push to Cloudflare
 npm run preview   # wrangler dev — local Workers emulation
 ```
 
-The `assets.directory` points at the `web/` folder, so run `npm run build` inside `web/` first, then `npm run deploy` from root.
+The `assets.directory` points at `web/dist` (the Vite build output — **not** the `web/` source dir, whose dev-only `index.html` loads `/src/main.jsx` and 404s/blanks in prod). So run `npm run build` inside `web/` first to produce `web/dist/`, then `npm run deploy` from root.
 
 ## CI
 

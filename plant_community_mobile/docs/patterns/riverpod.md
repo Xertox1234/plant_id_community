@@ -21,6 +21,48 @@ ref.listen(authProvider, (prev, next) {
 
 ---
 
+## Testable Dependency Injection (plain `Provider`)
+
+Not every provider needs `@riverpod` codegen. For a simple injectable dependency
+(a UUID generator, a clock, a random source), expose it as a plain `Provider<T>`
+and read it via `ref` inside the consumer. This is the idiomatic way to make a
+`Notifier` testable: a `Notifier` is built via the no-arg `.new` tear-off, so it
+**cannot** take constructor params — inject through a provider instead, never a
+field or constructor arg.
+
+```dart
+// lib/services/plant_identification_service.dart
+/// Injectable UUID generator. Override in tests for deterministic IDs.
+final uuidProvider = Provider<Uuid>((ref) => const Uuid());
+
+class PlantIdentificationService extends Notifier<void> {
+  // No `final Uuid _uuid` field — read it through ref instead.
+  @override
+  void build() {}
+
+  Plant _toPlant(Map<String, dynamic> json) => Plant(
+    id: _stringValue(json, ['id']) ?? ref.read(uuidProvider).v4(), // fallback ID
+    // ...
+  );
+}
+```
+
+Override it in tests with `overrideWithValue` (works on plain `Provider`):
+
+```dart
+final container = ProviderContainer(
+  overrides: [uuidProvider.overrideWithValue(const _MockUuid())], // deterministic
+);
+addTearDown(container.dispose);
+```
+
+Reserve `@riverpod` codegen for `Notifier`/`AsyncNotifier` state and async data
+providers (see below). A trivial value provider as a generated part-file is
+overkill — `apiServiceProvider` in `api_service.dart` follows this same plain-
+`Provider` convention.
+
+---
+
 ## Code Generation Workflow
 
 1. Annotate the provider class with `@riverpod`
