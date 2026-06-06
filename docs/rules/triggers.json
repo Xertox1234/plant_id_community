@@ -156,5 +156,21 @@
     "source": "docs/LEARNINGS.md [2026-06-02] Count(\"id\") on UUID-PK model 500s",
     "added": "2026-06-04",
     "severity": "warn"
+  },
+  {
+    "id": "format-html-no-args",
+    "domains": [
+      "wagtail",
+      "api"
+    ],
+    "path_glob": [
+      "backend/apps/**/*.py"
+    ],
+    "content_present": "format_html\\(\\s*f?[\"\\x27][^,)]*[\"\\x27]\\s*\\)",
+    "message": "Bare format_html() with no interpolation args raises TypeError on Django 6.0 (silent on 5.x). Use mark_safe() for trusted static HTML, or pass a format arg like format_html with {} plus a value (e.g. static()).",
+    "pattern_ref": "docs/rules/wagtail.md",
+    "source": "codify: docs/codify-session-and-todo216",
+    "added": "2026-06-06",
+    "severity": "warn"
   }
 ]

@@ -66,6 +66,7 @@ Use Grep as fallback for any LSP call that returns an error or an empty/inconclu
 - [ ] All service methods must have type hints on parameters and return types
 - [ ] No magic numbers — all configuration values imported from app-specific `constants.py`
 - [ ] Logging must use bracketed prefixes: `[CACHE]`, `[PERF]`, `[ERROR]`, `[CIRCUIT]`, `[SERVICE_NAME]`
+- [ ] `format_html()` calls must pass interpolation args — a bare `format_html('<x>')` raises `TypeError` on Django 6.0 (silent on 5.x); use `mark_safe()` for trusted static HTML or pass a format arg (`format_html('{}', static(...))`). BLOCKER in `insert_global_admin_*` hooks — it 500s every `/cms/` page
 - [ ] Cache keys must follow format: `app:feature:scope:identifier` (never bare strings)
 - [ ] New apps must register models in `auditlog.py` for GDPR compliance
 
