@@ -58,6 +58,7 @@
 - [x] #49 blog-viewsets-listing-view-int-cast → todo 072 (completed 2026-05-09)
 - [x] #44 blog-viewsets-by-category-loop-n1 → todo 073 (completed 2026-05-09)
 - [x] #45 blog-viewsets-by-category-per-query → todo 073 (completed 2026-05-09)
+- [x] #332 plant-identification-service-uuid-constructor-dead-code (repaired — replaced hardcoded Uuid with ref-based uuidProvider and added unit test, 2026-06-03)
 
 ---
 
@@ -2247,11 +2248,11 @@
 - **Rule:** Riverpod 3.x — new providers must use Notifier class with @riverpod annotation
 - **Suggested fix:** Convert PlantIdentificationService to use @riverpod with a generated *.g.dart part file.
 
-**#332** Line 17: PlantIdentificationService extends Notifier but takes a Uuid via constructor; the manual NotifierProvider uses the no-arg `.new` tear-off, so the injected Uuid is always the default and the parameter is dead code outside direct instantiation.
+**#332** ~~Line 17: PlantIdentificationService extends Notifier but takes a Uuid via constructor; the manual NotifierProvider uses the no-arg `.new` tear-off, so the injected Uuid is always the default and the parameter is dead code outside direct instantiation.~~ **REPAIRED 2026-06-03**
 
 - **Reviewer:** flutter-dart-reviewer
 - **Rule:** Riverpod 3.x — Notifier subclasses must rely on ref-based DI, not constructor args
-- **Suggested fix:** Drop the constructor parameter and read a `uuidProvider` (override-able in tests) inside the methods that need it.
+- **Fix applied:** Removed hardcoded `final Uuid _uuid = const Uuid()` field, added top-level `uuidProvider = Provider<Uuid>((ref) => const Uuid())`, and updated `identifyPlant` to read `ref.read(uuidProvider).v4()` for fallback ID generation. Added `test/services/plant_identification_service_test.dart` verifying override works.
 
 ### `web/src/components/diagnosis/StreamFieldEditor.tsx`
 

@@ -6,6 +6,9 @@ import '../models/plant.dart';
 import 'api_service.dart';
 import 'firebase_storage_service.dart';
 
+/// Injectable UUID generator. Override in tests for deterministic IDs.
+final uuidProvider = Provider<Uuid>((ref) => const Uuid());
+
 /// Provider for plant identification orchestration.
 final plantIdentificationServiceProvider =
     NotifierProvider<PlantIdentificationService, void>(
@@ -13,13 +16,7 @@ final plantIdentificationServiceProvider =
     );
 
 /// Coordinates image upload and backend plant identification.
-///
-/// A Riverpod [Notifier] is always built via the no-arg `.new` tear-off, so it
-/// must not declare constructor parameters. Override the provider with a mock
-/// subclass in tests instead.
 class PlantIdentificationService extends Notifier<void> {
-  final Uuid _uuid = const Uuid();
-
   @override
   void build() {
     // Stateless orchestration service.
@@ -71,7 +68,7 @@ class PlantIdentificationService extends Notifier<void> {
       }
 
       return Plant(
-        id: _stringValue(responseData, ['id']) ?? _uuid.v4(),
+        id: _stringValue(responseData, ['id']) ?? ref.read(uuidProvider).v4(),
         name: name,
         scientificName: scientificName,
         description:
