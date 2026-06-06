@@ -937,6 +937,10 @@ LOGGING = {
             "handlers": ["console", "console_prod"]
             + (["file"] if ENABLE_FILE_LOGGING else []),
             "level": "INFO",
+            # Without this, django.* records emit once here AND again via root
+            # (which has the same handlers) — double logging. Match the sibling
+            # loggers below, which already set propagate=False.
+            "propagate": False,
         },
         "plant_community_backend": {
             "handlers": ["console", "console_prod"]
