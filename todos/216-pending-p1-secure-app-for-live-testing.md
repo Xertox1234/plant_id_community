@@ -93,15 +93,42 @@ Work top-down; the first item is the only true p1, the rest are "before testers.
 - [ ] Superuser exists with a strong password; admin 2FA decision recorded.
 - [ ] Rate limiting returns 429 (+`Retry-After`) and account lockout triggers,
       verified against the live backend.
-- [ ] `ENABLE_FILE_LOGGING=False` in prod; logging emits each line once; a prod
-      log sample shows no unredacted PII.
+- [x] `ENABLE_FILE_LOGGING=False` in prod; logging emits each line once; a prod
+      log sample shows no unredacted PII. (done 2026-06-06 — dedup via PR #352
+      `django` logger `propagate=False`; `ENABLE_FILE_LOGGING=False` set in
+      Railway; code-level PII audit clean (redaction layer used in auth/email
+      paths, no raw email/token/password/IP/request-body logging); the
+      console-backend email→logs PII vector closed by configuring SMTP.)
 - [ ] `ALLOWED_HOSTS` is explicit (no wildcard) once a domain is chosen.
+      (`houseplant-md.com` now registered on Cloudflare DNS — domain available
+      whenever the app is pointed at it.)
 - [x] Railway Postgres automated backups confirmed enabled. (done 2026-06-06 —
       Daily schedule, 6-day retention; required upgrading the Railway workspace to
       the Pro plan, as native backups are Pro-gated.)
 - [ ] Optional integrations are either configured or explicitly disabled.
+      (SMTP **configured** 2026-06-06 — Resend via `houseplant-md.com`, test email
+      delivered. Trefle / PlantHealth / OpenAI / OAuth still unset — deliberate
+      decision pending.)
 
 ## Work Log
+
+### 2026-06-06 - Item 4 done + SMTP configured (item 8 partial)
+
+- **Item 4 — logging hygiene.** Fixed the real double-log (the `django` logger
+  lacked `propagate=False` while `root` carried the same handlers — PR #352); the
+  todo's "duplicate console/console_prod handlers" framing was a misdiagnosis
+  (those are mutually exclusive via `require_debug_true/false`). Set
+  `ENABLE_FILE_LOGGING=False` in Railway. PII audit (code-level) came back clean:
+  auth/email paths use `log_safe_email`/`redact_email`/`log_safe_user_context`;
+  no raw email/token/password/IP or request-body logging; JSON formatter emits
+  only message+path+request_id.
+- **Item 8 (SMTP).** Configured Resend transactional email over the new
+  `houseplant-md.com` domain (verified on Cloudflare DNS): set `EMAIL_BACKEND` +
+  Resend SMTP vars in Railway; test email delivered (first send delayed a few min
+  — brand-new domain reputation). This also closes the latent PII vector where
+  the console email backend dumped full emails (raw recipient + body) to stdout
+  logs. Remaining item-8 integrations (Trefle/PlantHealth/OpenAI/OAuth) still
+  unset by choice.
 
 ### 2026-06-06 - Items 1 & 7 done (secrets rotated, backups enabled)
 
