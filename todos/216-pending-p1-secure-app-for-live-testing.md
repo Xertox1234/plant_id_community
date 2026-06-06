@@ -92,7 +92,13 @@ Work top-down; the first item is the only true p1, the rest are "before testers.
       and differ from each other and from `backend/.env`. (done 2026-06-06)
 - [ ] Superuser exists with a strong password; admin 2FA decision recorded.
 - [ ] Rate limiting returns 429 (+`Retry-After`) and account lockout triggers,
-      verified against the live backend.
+      verified against the live backend. (verified live 2026-06-06: **account
+      lockout WORKS** — `429 ACCOUNT_LOCKED` at 10 failures/username, Redis-backed.
+      But **per-IP rate limiting is NOT enforced in prod** — 13 attempts from a
+      stable IP never tripped login's `5/15m` `key="ip"` limit; root cause is the
+      IP key resolving Railway's proxy, not the real client IP. Filed as **todo
+      218** (p1). The 429+Retry-After handler is correct in code; it just never
+      fires because the IP limit doesn't trigger.)
 - [x] `ENABLE_FILE_LOGGING=False` in prod; logging emits each line once; a prod
       log sample shows no unredacted PII. (done 2026-06-06 — dedup via PR #352
       `django` logger `propagate=False`; `ENABLE_FILE_LOGGING=False` set in
@@ -111,6 +117,18 @@ Work top-down; the first item is the only true p1, the rest are "before testers.
       decision pending.)
 
 ## Work Log
+
+### 2026-06-06 - Item 3 verified live (lockout works; per-IP rate-limit does NOT)
+
+- Probed the live login endpoint (throwaway username, valid CSRF, stable egress
+  IP). **Account lockout works**: `429 ACCOUNT_LOCKED` at the 10th failure for a
+  username and stays locked (Redis-backed counting confirmed). **Per-IP rate
+  limiting does NOT enforce**: 13 attempts from one stable IP never tripped
+  login's `5/15m` `key="ip"` limit. Cache is fine (lockout proves it) → root
+  cause is `django-ratelimit key="ip"` keying on Railway's proxy address instead
+  of the real client IP (`X-Forwarded-For`). Affects all `key="ip"` limits
+  (login/register/token_refresh/firebase). Filed as **todo 218** (p1). Item 3
+  stays open until 218 is fixed and re-verified.
 
 ### 2026-06-06 - Item 4 done + SMTP configured (item 8 partial)
 
