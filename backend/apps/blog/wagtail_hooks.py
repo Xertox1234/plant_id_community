@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Count, Q
 from django.urls import path, reverse
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 from wagtail import hooks
 from wagtail.admin import widgets as wagtailadmin_widgets
 from wagtail.admin.menu import AdminOnlyMenuItem, MenuItem
@@ -126,7 +127,7 @@ def add_blog_stats_panel(request, panels):
                 else ""
             ),
             moderate_html=(
-                format_html(
+                mark_safe(
                     '<a href="/blog-admin/comments/" class="button warning">Moderate Comments</a>'
                 )
                 if pending_comments > 0
@@ -314,28 +315,6 @@ def register_blog_settings_menu_item():
     """
     return MenuItem(
         "Blog Settings", "/blog-admin/settings/", icon_name="cog", order=400
-    )
-
-
-@hooks.register("insert_global_admin_css")
-def global_blog_admin_css():
-    """
-    Add custom CSS for blog admin interface.
-    """
-    return format_html(
-        '<link rel="stylesheet" href="/static/blog/css/admin.css">'
-        '<link rel="stylesheet" href="/static/blog/css/plant_block_autopop.css">'
-    )
-
-
-@hooks.register("insert_global_admin_js")
-def global_blog_admin_js():
-    """
-    Add custom JavaScript for blog admin interface.
-    """
-    return format_html(
-        '<script src="/static/blog/js/admin.js"></script>'
-        '<script src="/static/blog/js/plant_block_autopop.js"></script>'
     )
 
 

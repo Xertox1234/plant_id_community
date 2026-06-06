@@ -7,6 +7,7 @@ and other Wagtail-specific integrations for the forum system.
 
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
+from django.templatetags.static import static
 from django.utils.html import format_html
 from machina.core.db.models import get_model
 from wagtail import hooks
@@ -245,7 +246,8 @@ def global_admin_css():
     Add custom CSS for forum admin interface.
     """
     return format_html(
-        '<link rel="stylesheet" href="/static/forum_integration/css/admin.css">'
+        '<link rel="stylesheet" href="{}">',
+        static("forum_integration/css/admin.css"),
     )
 
 
@@ -254,7 +256,10 @@ def global_admin_js():
     """
     Add custom JavaScript for forum admin interface.
     """
-    return format_html('<script src="/static/forum_integration/js/admin.js"></script>')
+    return format_html(
+        '<script src="{}"></script>',
+        static("forum_integration/js/admin.js"),
+    )
 
 
 @hooks.register("construct_page_chooser_queryset")
