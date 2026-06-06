@@ -76,13 +76,13 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
               </span>
 
               {post.author.trust_level && (
-                <span className="px-2 py-0.5 bg-sky/10 text-sky text-xs rounded">
+                <span className="px-2 py-0.5 bg-sky/10 text-ink text-xs rounded">
                   {post.author.trust_level}
                 </span>
               )}
 
               {post.is_first_post && (
-                <span className="px-2 py-0.5 bg-primary/10 text-leaf text-xs rounded">
+                <span className="px-2 py-0.5 bg-primary/10 text-ink text-xs rounded">
                   Original Post
                 </span>
               )}

@@ -151,7 +151,7 @@ export default function LoginPage() {
             {/* Server Error */}
             {serverError && (
               <div
-                className="p-4 bg-error/10 border border-error rounded-lg text-error text-sm"
+                className="p-4 bg-error/10 border border-error rounded-lg text-ink text-sm"
                 role="alert"
               >
                 {serverError}

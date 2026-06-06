@@ -36,10 +36,10 @@ interface ReminderResults {
  */
 function getSeverityColor(severity: SeverityAssessment): string {
   const colors: Record<SeverityAssessment, string> = {
-    mild: 'bg-leaf/10 text-leaf ring-leaf/20',
-    moderate: 'bg-warn/10 text-warn ring-warn/20',
-    severe: 'bg-tertiary/10 text-tertiary ring-tertiary/20',
-    critical: 'bg-error/10 text-error ring-error/20',
+    mild: 'bg-leaf/10 text-ink ring-leaf/20',
+    moderate: 'bg-warn/10 text-ink ring-warn/20',
+    severe: 'bg-tertiary/10 text-ink ring-tertiary/20',
+    critical: 'bg-error/10 text-ink ring-error/20',
   };
   return colors[severity] || 'bg-surface-2 text-ink-2 ring-line/20';
 }
@@ -445,7 +445,7 @@ export default function DiagnosisDetailPage() {
 
               {/* Disease Information */}
               <div className="flex items-center gap-2 flex-wrap mb-4">
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-error/10 text-error ring-1 ring-inset ring-error/30">
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-error/10 text-ink ring-1 ring-inset ring-error/30">
                   {card.disease_name}
                 </span>
                 <span

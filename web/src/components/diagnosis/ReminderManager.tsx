@@ -150,17 +150,17 @@ function ReminderCard({ reminder, onUpdate, onDelete }: ReminderCardProps) {
         {/* Status Indicators */}
         <div className="flex items-center gap-2">
           {isOverdue && (
-            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-error/10 text-error">
+            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-error/10 text-ink">
               Overdue
             </span>
           )}
           {isSnoozed && (
-            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-warn/10 text-warn">
+            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-warn/10 text-ink">
               Snoozed
             </span>
           )}
           {reminder.sent && (
-            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-sky/10 text-sky">
+            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-sky/10 text-ink">
               Sent
             </span>
           )}

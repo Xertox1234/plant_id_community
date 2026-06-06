@@ -48,7 +48,7 @@ function ThreadCard({ thread, compact = false }: ThreadCardProps) {
         {/* Badges */}
         <div className="flex gap-2 mb-2">
           {thread.is_pinned && (
-            <span className="px-2 py-1 bg-tertiary/20 text-tertiary text-xs font-semibold rounded">
+            <span className="px-2 py-1 bg-tertiary/20 text-ink text-xs font-semibold rounded">
               📌 Pinned
             </span>
           )}

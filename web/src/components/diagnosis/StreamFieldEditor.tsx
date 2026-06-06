@@ -118,7 +118,7 @@ function BlockEditor({
         <div className="bg-sky/10 border border-sky/30 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-sky/20 text-sky font-bold">
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-sky/20 text-ink font-bold">
                 ✓
               </span>
               <span className="font-medium text-sky">Treatment Step</span>
@@ -175,7 +175,7 @@ function BlockEditor({
         <div className="bg-warn/10 border border-warn/30 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-warn/20 text-warn font-bold">
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-warn/20 text-ink font-bold">
                 ⚠
               </span>
               <span className="font-medium text-warn">Symptom Check</span>
@@ -221,7 +221,7 @@ function BlockEditor({
         <div className="bg-leaf/10 border border-leaf/30 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-leaf/20 text-leaf font-bold">
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-leaf/20 text-ink font-bold">
                 ℹ
               </span>
               <span className="font-medium text-leaf">Prevention Tip</span>
