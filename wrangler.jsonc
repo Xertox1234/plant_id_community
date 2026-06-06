@@ -10,7 +10,11 @@
     // index.html that loads /src/main.jsx (404 in prod -> blank screen).
     // The Workers Builds trigger runs `cd web && npm ci && npm run build`
     // first, which produces web/dist/.
-    "directory": "web/dist"
+    "directory": "web/dist",
+    // React Router SPA: serve index.html (200) for non-asset paths so deep
+    // links / refresh on client-side routes (/forum, /blog/...) work instead
+    // of 404ing.
+    "not_found_handling": "single-page-application"
   },
   "compatibility_flags": [
     "nodejs_compat"
