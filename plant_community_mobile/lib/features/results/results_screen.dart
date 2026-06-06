@@ -61,7 +61,6 @@ class ResultsScreen extends StatelessWidget {
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
         GreenThumbExtension.fallback;
-    final cs = Theme.of(context).colorScheme;
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Stack(
@@ -90,12 +89,16 @@ class ResultsScreen extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.check_circle, size: 16, color: cs.onSurface),
+                  Icon(
+                    Icons.check_circle,
+                    size: 16,
+                    color: GreenThumbExtension.onLeaf,
+                  ),
                   const SizedBox(width: 4),
                   Text(
                     'Identified',
                     style: TextStyle(
-                      color: cs.onSurface,
+                      color: GreenThumbExtension.onLeaf,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),

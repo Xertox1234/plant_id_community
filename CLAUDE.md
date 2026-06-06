@@ -25,9 +25,28 @@ Multi-platform plant identification app. Backend (Django + Wagtail) at port 8000
 
 See platform-specific `CLAUDE.md` files in `backend/`, `web/`, and `plant_community_mobile/` for commands and conventions.
 
+## Code Intelligence (LSP)
+
+pyright-lsp (Python) and typescript-language-server (TypeScript/JS) are active.
+Use them for symbol-level intelligence instead of grep wherever possible.
+
+**Three rules:**
+
+1. **Reach for LSP before grep for symbol lookups.** `documentSymbol` to enumerate
+   a file's API, `findReferences` to find call sites, `hover` for resolved types.
+   Use grep for text patterns, strings, comments, and dynamic names.
+
+2. **Compose, don't choose.** Standard pattern: `documentSymbol` → get position →
+   targeted LSP call. LSP needs a position; grep finds it cheaply.
+
+3. **Graceful fallback.** If LSP returns an error or empty/inconclusive result,
+   fall back to grep. Don't stall on LSP availability.
+
+See the `lsp-intelligence` skill for the full operation catalogue.
+
 ## Critical Gotchas
 
-Six non-obvious bugs that have already caused real failures:
+Seven non-obvious bugs that have already caused real failures:
 
 **1. ViewSet `get_permissions()` must call `super()` for `@action` endpoints**
 If you override `get_permissions()` without calling `super().get_permissions()` for custom actions, action-level `permission_classes` are silently ignored — a security hole. See `backend/docs/patterns/architecture/viewsets.md`.
@@ -46,6 +65,13 @@ Use `psycopg2.sql.Identifier()` + a whitelist. F-strings concatenate directly in
 
 **6. Test DB stale after migration changes**
 If the test DB predates a migration change, Django raises `FieldError`. Fix: pass `--noinput` to force a fresh rebuild: `python manage.py test apps.foo --noinput`.
+
+**7. LSP requires file position, not symbol name**
+You cannot call `findReferences("get_permissions")` — you need the file path and
+the exact line/character where the symbol is defined. Always get position from
+`documentSymbol` first, or from a prior `Read` (the line number column is `line`;
+count characters from the start of the line for `character`, or pass `documentSymbol`
+results through directly).
 
 ## Pattern Library
 
@@ -169,7 +195,10 @@ reach only **new** worktrees; existing worktrees keep their setup until rebased.
 ### Hooks (`.claude/settings.json` → `.claude/hooks/`)
 
 - **`inject-patterns.sh`** — before every Edit/Write, injects the discipline
-  preamble plus the matching `docs/rules/<domain>.md` checklists.
+  preamble plus the matching `docs/rules/<domain>.md` checklists. Matched
+  recurring-mistake triggers are logged to `~/.claude/inject-fires.log` (override
+  with `INJECT_FIRES_LOG`). Run `python3 scripts/inject/report_fires.py` to see
+  per-trigger fire counts.
 - **`kimi-review.sh`** — before a `git commit` Bash call, runs `kimi-review` on
   the staged diff. A `[CRITICAL]` finding blocks the commit; `WARNING` is
   surfaced as context. Bypass with `SKIP_KIMI_REVIEW=1`.

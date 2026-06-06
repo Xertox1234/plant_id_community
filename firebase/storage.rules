@@ -46,9 +46,12 @@ service firebase.storage {
       allow delete: if isOwner(userId);
     }
 
-    // User avatars
+    // User avatars — deliberately world-readable. Avatars are non-sensitive
+    // public profile images rendered across the app (forum, comments) to
+    // unauthenticated visitors; only writes/deletes are owner-gated. Reviewed
+    // 2026-06-05 (audit L16): the open read is intentional, not an oversight.
     match /avatars/{userId}/{imageId} {
-      allow read: if true; // Public avatars
+      allow read: if true; // intentional public read — see note above (audit L16)
       allow write: if isOwner(userId)
                    && isImage()
                    && isValidSize();

@@ -135,5 +135,42 @@
     "source": "codify: main",
     "added": "2026-06-02",
     "severity": "warn"
+  },
+  {
+    "id": "django-count-id-not-pk",
+    "domains": [
+      "database",
+      "performance"
+    ],
+    "path_glob": [
+      "backend/**/views.py",
+      "backend/**/*_views.py",
+      "backend/**/services.py",
+      "backend/**/*service*.py",
+      "backend/**/models.py",
+      "backend/**/serializers.py"
+    ],
+    "content_present": "Count\\([\"'](id|uuid)[\"']",
+    "message": "Count(\"id\") or Count(\"uuid\") 500s on models with a non-standard PK (UUID, custom). Use Count(\"pk\") — it resolves to the real primary key on every model. Caught by Phase-6 code review after the analytics endpoint regressed (2026-06-02 audit).",
+    "pattern_ref": "backend/docs/patterns/performance/query-optimization.md",
+    "source": "docs/LEARNINGS.md [2026-06-02] Count(\"id\") on UUID-PK model 500s",
+    "added": "2026-06-04",
+    "severity": "warn"
+  },
+  {
+    "id": "format-html-no-args",
+    "domains": [
+      "wagtail",
+      "api"
+    ],
+    "path_glob": [
+      "backend/apps/**/*.py"
+    ],
+    "content_present": "format_html\\(\\s*f?[\"\\x27][^,)]*[\"\\x27]\\s*\\)",
+    "message": "Bare format_html() with no interpolation args raises TypeError on Django 6.0 (silent on 5.x). Use mark_safe() for trusted static HTML, or pass a format arg like format_html with {} plus a value (e.g. static()).",
+    "pattern_ref": "docs/rules/wagtail.md",
+    "source": "codify: docs/codify-session-and-todo216",
+    "added": "2026-06-06",
+    "severity": "warn"
   }
 ]

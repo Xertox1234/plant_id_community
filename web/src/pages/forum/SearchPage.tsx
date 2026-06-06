@@ -40,12 +40,6 @@ function hasSearchMatch(text: string | undefined, query: string): boolean {
     .some((term) => text.toLowerCase().includes(term.toLowerCase()));
 }
 
-type CategoriesResponse =
-  | Category[]
-  | {
-      results: Category[];
-    };
-
 /**
  * SearchPage Component
  *
@@ -92,11 +86,10 @@ export default function SearchPage() {
   useEffect(() => {
     const loadCategories = async () => {
       try {
+        // fetchCategories already unwraps pagination to a flat Category[]; guard
+        // with Array.isArray rather than the prior `as unknown as` double cast.
         const data = await fetchCategories();
-        const categoriesResponse = data as unknown as CategoriesResponse;
-        setCategories(
-          Array.isArray(categoriesResponse) ? categoriesResponse : categoriesResponse.results || []
-        );
+        setCategories(Array.isArray(data) ? data : []);
       } catch (err) {
         logger.error('Error loading categories', {
           component: 'SearchPage',

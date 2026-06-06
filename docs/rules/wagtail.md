@@ -12,3 +12,7 @@ Compact checklist auto-injected before edits. Long-form:
   N+1 and empty results.
 - Cache-invalidation signals must cover `page_published` AND `page_unpublished`.
 - Verify the Wagtail API v2 serializes new fields before wiring the frontend.
+- **`format_html()` needs interpolation args** — a bare `format_html('<x>')` with
+  no `{}`/args raises `TypeError` on Django 6.0 (only a warning on 5.x) and 500s
+  every admin page when it's in an `insert_global_admin_*` hook. Use `mark_safe()`
+  for trusted static HTML, or pass a format arg: `format_html('{}', static(...))`.

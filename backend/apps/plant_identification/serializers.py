@@ -209,9 +209,14 @@ class PlantDiseaseRequestSerializer(serializers.ModelSerializer):
 class PlantDiseaseRequestCreateSerializer(serializers.ModelSerializer):
     """Specialized serializer for creating disease diagnosis requests."""
 
+    request_id = serializers.UUIDField(read_only=True)
+    status = serializers.CharField(read_only=True)
+
     class Meta:
         model = PlantDiseaseRequest
         fields = [
+            "request_id",
+            "status",
             "plant_identification_request",
             "plant_species",
             "image_1",
@@ -395,32 +400,6 @@ class UserPlantSerializer(serializers.ModelSerializer):
             if request and hasattr(obj, "image_thumbnail"):
                 return request.build_absolute_uri(obj.image_thumbnail.url)
         return None
-
-
-class PlantIdentificationRequestCreateSerializer(serializers.ModelSerializer):
-    """Specialized serializer for creating identification requests."""
-
-    class Meta:
-        model = PlantIdentificationRequest
-        fields = [
-            "image_1",
-            "image_2",
-            "image_3",
-            "location",
-            "latitude",
-            "longitude",
-            "description",
-            "plant_size",
-            "habitat",
-        ]
-
-    def validate(self, data):
-        """Validate that at least one image is provided."""
-        if not data.get("image_1"):
-            raise serializers.ValidationError(
-                "At least one image is required for plant identification."
-            )
-        return data
 
 
 class PlantIdentificationRequestWithResultsSerializer(serializers.ModelSerializer):

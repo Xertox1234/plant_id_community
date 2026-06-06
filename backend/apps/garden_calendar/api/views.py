@@ -1746,21 +1746,18 @@ class HarvestViewSet(viewsets.ModelViewSet):
         # Totals, per-unit quantity, and average quality in a single aggregate
         from django.db.models import Avg, Count, Sum
 
+        # Use the model's actual unit codes so every HARVEST_UNITS entry is counted
+        # — the old hardcoded ["lbs", ..., "bunches"] list never matched the real
+        # "lb"/"bunch" codes (audit C3) and silently dropped kg/g/basket too.
+        unit_codes = [code for code, _label in Harvest.HARVEST_UNITS]
         stats = queryset.aggregate(
             total_harvests=Count("pk"),
             avg_quality=Avg("quality_rating"),
-            **{
-                unit: Sum("quantity", filter=Q(unit=unit))
-                for unit in ["lbs", "oz", "count", "bunches"]
-            },
+            **{unit: Sum("quantity", filter=Q(unit=unit)) for unit in unit_codes},
         )
         total_harvests = stats["total_harvests"]
         avg_quality = stats["avg_quality"]
-        quantities = {
-            unit: stats[unit]
-            for unit in ["lbs", "oz", "count", "bunches"]
-            if stats[unit]
-        }
+        quantities = {unit: stats[unit] for unit in unit_codes if stats[unit]}
 
         # Harvests by plant
 

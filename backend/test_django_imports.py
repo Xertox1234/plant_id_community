@@ -59,11 +59,6 @@ def test_django_imports():
 
         print("✅ Identification service imported")
 
-        # Test importing tasks
-        from apps.plant_identification.tasks import run_identification
-
-        print("✅ Celery tasks imported")
-
         return True
 
     except ImportError as e:

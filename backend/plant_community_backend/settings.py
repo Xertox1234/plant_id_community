@@ -937,6 +937,10 @@ LOGGING = {
             "handlers": ["console", "console_prod"]
             + (["file"] if ENABLE_FILE_LOGGING else []),
             "level": "INFO",
+            # Without this, django.* records emit once here AND again via root
+            # (which has the same handlers) — double logging. Match the sibling
+            # loggers below, which already set propagate=False.
+            "propagate": False,
         },
         "plant_community_backend": {
             "handlers": ["console", "console_prod"]
@@ -1028,13 +1032,30 @@ SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
 SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
 SECURE_HSTS_PRELOAD = not DEBUG
 SECURE_SSL_REDIRECT = not DEBUG
+# Behind a TLS-terminating proxy (Railway, Render, Heroku, etc.) the app receives
+# plain HTTP with the original scheme in X-Forwarded-Proto. Trusting that header
+# makes request.is_secure() correct — otherwise SECURE_SSL_REDIRECT above causes
+# an infinite http->https redirect loop. Only enable this where a trusted proxy
+# always sets the header; on a directly-reachable host a client could spoof it.
+# Railway routes solely through its proxy, so set TRUST_PROXY_SSL_HEADER=True there.
+if config("TRUST_PROXY_SSL_HEADER", default=False, cast=bool):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = True  # ✅ Secure - prevents XSS attacks from stealing CSRF tokens (JavaScript reads from meta tag instead)
-# SameSite policy - stricter in production if workflows allow
-SESSION_COOKIE_SAMESITE = "Strict" if not DEBUG else "Lax"
-CSRF_COOKIE_SAMESITE = "Lax"  # Keep Lax for CSRF to handle standard POST flows
+# SameSite policy - stricter in production if workflows allow.
+# Cross-site cookie auth (SPA frontend on a different registrable domain than
+# this API — e.g. a Cloudflare-hosted frontend calling a Railway-hosted backend)
+# requires "None", which the browser only honors alongside Secure=True (set
+# above). Same-origin deploys keep the strict defaults; split-domain deploys set
+# SESSION_COOKIE_SAMESITE=None and CSRF_COOKIE_SAMESITE=None in the environment.
+SESSION_COOKIE_SAMESITE = config(
+    "SESSION_COOKIE_SAMESITE", default="Strict" if not DEBUG else "Lax"
+)
+CSRF_COOKIE_SAMESITE = config(
+    "CSRF_COOKIE_SAMESITE", default="Lax"
+)  # Lax handles standard POST flows; set None for cross-site SPA
 
 # Content Security Policy using django-csp 4.0+ format (Issue #014)
 # CSP provides defense-in-depth against XSS by restricting resource origins
@@ -1302,7 +1323,9 @@ def validate_environment():
     # ========================================
     api_key_checks = [
         ("PLANT_ID_API_KEY", PLANT_ID_API_KEY, 32, "Plant.id API"),
-        ("PLANTNET_API_KEY", PLANTNET_API_KEY, 32, "PlantNet API (fallback provider)"),
+        # PlantNet keys are ~26 chars (e.g. "2b10…"), so 32 wrongly rejects a
+        # valid key. Keep a low floor that still catches obviously-truncated keys.
+        ("PLANTNET_API_KEY", PLANTNET_API_KEY, 20, "PlantNet API (fallback provider)"),
     ]
 
     for key_name, key_value, min_length, description in api_key_checks:

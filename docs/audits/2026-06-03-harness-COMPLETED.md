@@ -1,0 +1,161 @@
+# Code Audit — 2026-06-03 — Harness Effectiveness (Follow-up)
+
+> **Date:** 2026-06-03
+> **Trigger:** User-invoked `/audit development harness` — focused follow-up to the
+> 2026-05-30 harness audit; all 8 prior todos (126–133) now archived. Scope: changes
+> to the harness since 2026-05-30, CI gate completeness, telemetry/auto-capture loop
+> closure, code-quality effect assessment.
+> **Branch:** `main`
+> **Auditor:** Claude Sonnet 4.6 (via /audit skill), report+todos mode (Auto Mode
+> active — `.claude/` edits blocked per `feedback_harness_self_mod_block`).
+> **Baseline (primary-source, direct reads):**
+>
+> - 6 CI workflows: `backend-ci.yml` (checks + pytest), `web-ci.yml`, `mobile-ci.yml`,
+>   `harness-ci.yml`, `kimi-review.yml`, `security-scan.yml`
+> - 8 triggers in `docs/rules/triggers.json` (7 from 05-30, +1 from 06-02 codify)
+> - Harness self-tests passing locally (last confirmed in 2026-05-30 audit)
+> - Branch protection: 1 required check (`backend-checks` only)
+
+---
+
+## ⚠ Audit discipline notes
+
+- All findings primary-source verified (direct `Read`/`grep`, not subagent summaries)
+- Batches kept small and independent (per meta-lesson from 05-30 harness audit)
+- No fixes applied — report+todos only
+
+---
+
+## Headline verdict
+
+**The prior harness audit's CI gap is only half-closed: the workflows exist and
+report, but only `backend-checks` is a required status check. `backend-tests`,
+`web-checks`, and `harness-tests` are non-blocking. A broken test, TypeScript error,
+or hook regression merges green.**
+
+The telemetry loop IS closed (writer wired in `match_triggers.py`). The auto-capture
+path exists but has never run end-to-end in production. The cd-to-root bug fix and
+LSP integration are well-executed additions.
+
+---
+
+## Changes since 2026-05-30 (harness-relevant)
+
+| Commit | Change |
+|--------|--------|
+| `2940b28` | fix: cd to repo root before running hooks (resolves hook path-resolution failures from subdirs/worktrees) |
+| `660a821` | feat: auto-capture candidate triggers from code review (`capture_from_review.py`) |
+| `b527bb3` | backend-ci: add pytest job with postgres+redis (todo 132) |
+| `c7ca6b4` + `b20a065` | web-ci.yml added (todo 126), harness-ci.yml added (todo 127) |
+| `ee68174` | harness session cleanup: todos 127–135 archived |
+| `979001e` | docs: codify harness learnings from JIT-injection session |
+| `88b3b64` | harness hygiene: inject-patterns header cleaned, audit closure, todo housekeeping |
+| `c82a205` | codify: trigger #8 added (`celery-task-prefixed-decorator-option`) |
+| `ac54945` | feat: LSP integration — reviewer agents, skill shadow, CLAUDE.md gotcha #7 |
+
+---
+
+## Summary
+
+| Severity | Count | Open | Deferred | False-positive |
+|----------|-------|------|----------|----------------|
+| Critical | 0     | 0    | 0        | 0              |
+| High     | 1     | 0    | 1        | 0              |
+| Medium   | 1     | 0    | 1        | 0              |
+| Low      | 1     | 0    | 1        | 0              |
+| **Total**| **3** | **0**| **3**    | **0**          |
+
+---
+
+## Findings
+
+### High
+
+| ID | Severity | Status | Finding | Location | Verification |
+|----|----------|--------|---------|----------|--------------|
+| H1 | High | deferred → todo 211 | Three CI workflows are non-required: `backend-tests`, `web-checks`, `harness-tests` all run and report but are NOT required status checks. Only `backend-checks` (light Django system checks + spectacular) blocks a merge. A broken test, TypeScript error, or hook regression merges green. | `.github/workflows/` × 3; `gh api branches/main/protection` → one check | Direct `gh api` call: `required_status_checks.checks` = `[{"context":"Install dependencies and run Django checks","app_id":15368}]`. `backend-ci.yml:` comment explicitly warns: "For this job to actually block a merge it must also be added to the branch-protection required-status-checks list; the workflow only makes the check exist and report." |
+
+### Medium
+
+| ID | Severity | Status | Finding | Location | Verification |
+|----|----------|--------|---------|----------|--------------|
+| M1 | Medium | deferred → todo 212 | Auto-capture loop never ran end-to-end in production. All 8 triggers are hand-seeded `warn`; zero `candidate` triggers exist. Trigger #8 (`celery-task-prefixed-decorator-option`, added 2026-06-02) was hand-written in commit `c82a205` during a codify session — `capture_trigger.py` was not invoked. F8 from 05-30 audit said "automated codify→capture→trigger path has never completed end-to-end in the wild"; that remains true. | `docs/rules/triggers.json` (8 entries, all `warn`); `git log -- docs/rules/triggers.json` (no commit from `capture_trigger.py` runner); commit `c82a205` | `git show c82a205 -- docs/rules/triggers.json`: diff shows hand-edited JSON; commit message says "triggers.json: JIT write-time trigger for the task_*-prefixed Celery option"; `capture_trigger.py` has `--severity candidate` for auto-capture; no `candidate`-severity trigger exists in the file |
+
+### Low
+
+| ID | Severity | Status | Finding | Location | Verification |
+|----|----------|--------|---------|----------|--------------|
+| L1 | Low | deferred → todo 213 | Fire telemetry defaults to ephemeral `/tmp/inject-fires.log` — cleared on reboot. Cross-session trend analysis is impossible without setting `INJECT_FIRES_LOG` to a persistent path. `report_fires.py` defaults to the same ephemeral path. The mechanism is correct; the default precludes historical analysis. | `scripts/inject/match_triggers.py:178`; `scripts/inject/report_fires.py:18` | Direct read: both files default to `/tmp/inject-fires.log`; env-var override exists but is not documented in CLAUDE.md or the script's usage string beyond a code comment |
+
+---
+
+## Deferred Items
+
+| ID | Todo | Rationale |
+|----|------|-----------|
+| H1 | todos/211-pending-p1-add-ci-checks-to-branch-protection.md | Without required checks, the CI gates that were the primary deliverable of the 05-30 audit don't actually block bad merges. |
+| M1 | todos/212-pending-p2-run-capture-trigger-end-to-end.md | The auto-capture loop is the mechanism that would make the harness self-improving; until it runs in the wild, it's unproven. |
+| L1 | todos/213-pending-p3-persist-fire-telemetry-log.md | Ephemeral default means the "how often do triggers fire?" question is unanswerable historically; a persistent log path would enable trend analysis. |
+
+---
+
+## Code Quality Effect Assessment
+
+This section answers the second half of the audit brief: *what effect have recent
+changes had on code quality?*
+
+### What the harness measurably does
+
+- **JIT mistake injection is wired and working.** `inject-patterns.sh` fires on
+  every Edit/Write, routes domain rules via file-path matching, and calls
+  `match_triggers.py` which both injects warnings AND writes `inject-fires.log`
+  on match. The log is ephemeral but the mechanism is sound.
+- **kimi-review blocks on `[CRITICAL]`** and surfaces `WARNING`. The pre-commit
+  hook and CI `kimi-review.yml` both enforce it; the skip path
+  (`SKIP_KIMI_REVIEW=1`) exists but leaves a commit trace via `--allow-empty`.
+- **6 CI workflows gate the stacks.** All run on PR. Only `backend-checks` is
+  required; the others are informational (see H1).
+
+### Audit finding trajectory (with honest caveats)
+
+| Audit | Date | C | H | M | L | Total |
+|-------|------|---|---|---|---|-------|
+| Full | 2026-05-17 | 9 | 38 | 46 | 31 | 124 |
+| Harness | 2026-05-30 | 0 | 2 | 3 | 3 | 8 |
+| Full | 2026-06-02 | 0 | 7 | 13 | 16 | 36 |
+| Harness | 2026-06-03 | 0 | 1 | 1 | 1 | 3 |
+
+The 124 → 36 drop between the two full audits is significant, but the 06-02
+audit verdict itself noted the primary new work (Green Thumb migration) was "a
+clean mechanical Tailwind-token reskin" — i.e., low-risk input. **Causation
+cannot be assigned to the harness** without fire telemetry showing what JIT
+warnings were suppressed. Preserve the discipline: the harness is working
+mechanically, but its prevention effectiveness is still unmeasured (see M1, L1).
+
+### New additions assessed
+
+**LSP integration (`ac54945`):** Adds a high-signal workflow to the two heaviest
+domain reviewers (django-drf, react-typescript): `documentSymbol` → position →
+`findReferences`/`hover`/`outgoingCalls`. The skill shadow for systematic-debugging
+extends the official skill with LSP evidence-gathering in Phase 1 + 3. CLAUDE.md
+Gotcha #7 captures the non-obvious position-not-name constraint. Assessment:
+well-integrated; the ORM limitation note (pyright cannot resolve objects manager)
+is correctly documented.
+
+**cd-to-root fix (`2940b28`):** Before this fix, hook invocations from
+subdirectories or worktrees silently failed (relative `.claude/hooks/*.sh` path
+resolved from wrong CWD). Fix adds `cd "$(git rev-parse --show-toplevel)"` to each
+hook in `settings.json`. Confirms the harness was unreliable in worktrees before
+2026-06-02.
+
+**Auto-capture from review (`660a821`):** `capture_from_review.py` wires the
+code-review output into `capture_trigger.py`, closing the proposed loop. The
+machinery exists; per M1, it has not yet fired in a live session.
+
+---
+
+## Finding Status
+
+- [x] #H1 ci-non-required-status-checks → todo 211 (completed 2026-06-04)
+- [x] #M1 auto-capture-never-ran-end-to-end → todo 212 (completed 2026-06-04)
+- [x] #L1 fire-telemetry-ephemeral-default → todo 213 (completed 2026-06-04)

@@ -46,9 +46,10 @@ export type {
 export type {
   DiagnosisBlock,
   PlantIdentification,
-  DiagnosisRequest,
-  DiagnosisResponse,
-  HealthAssessment,
+  DiseaseRequestStatus,
+  PlantDiseaseResult,
+  DiseaseDiagnosisResults,
+  DiseaseDiagnosisCreated,
   Disease,
   TreatmentStatus,
   DiseaseType,

@@ -13,7 +13,7 @@ Dispatched automatically by orchestrator — not called directly by user.
 
 model: sonnet
 color: blue
-tools: Read, Glob, Grep, Bash
+tools: Read, Glob, Grep, Bash, LSP
 ---
 
 # Django/DRF Reviewer
@@ -28,7 +28,29 @@ You do NOT review: Wagtail page models or blog app files (those go to wagtail-re
 
 ## Review Mode — Checklist
 
-Work through each item for every changed file. Find the exact line number for each issue (Grep can help). Emit findings in the structured format defined in "## Output Format (Review Mode)" below — do not write prose.
+Work through each item for every changed file. Emit findings in the structured format defined in "## Output Format (Review Mode)" below — do not write prose.
+
+### LSP Workflow (run before the checklist)
+
+For each changed file:
+
+**Step A — enumerate symbols:**
+
+Call `documentSymbol` on the file to get all symbols with their positions. Use this list to find line/character values for the LSP calls below. If LSP returns an error or empty/inconclusive result, fall back to Grep for that file.
+
+**Step B — targeted LSP calls:**
+
+| Checklist item | LSP call |
+|---|---|
+| `get_permissions()` calls `super()` | `outgoingCalls` from `get_permissions` → look for the DRF base `get_permissions` in the resolved call targets (the resolved parent method, not the token "super") |
+| New constant actually used (dead code check) | `findReferences` on the constant → reference count > 0 confirms it is not orphaned |
+
+**Django ORM note:** pyright cannot statically resolve Django's `objects` manager
+(it is metaclass-injected). `outgoingCalls` returns empty for `.objects.filter()`,
+`.objects.get()`, etc. For all queryset optimization checks (`select_related`,
+`prefetch_related`, N+1 via `SerializerMethodField`), use Grep — not LSP.
+
+Use Grep as fallback for any LSP call that returns an error or an empty/inconclusive result.
 
 **Permissions & Security**
 
@@ -44,6 +66,7 @@ Work through each item for every changed file. Find the exact line number for ea
 - [ ] All service methods must have type hints on parameters and return types
 - [ ] No magic numbers — all configuration values imported from app-specific `constants.py`
 - [ ] Logging must use bracketed prefixes: `[CACHE]`, `[PERF]`, `[ERROR]`, `[CIRCUIT]`, `[SERVICE_NAME]`
+- [ ] `format_html()` calls must pass interpolation args — a bare `format_html('<x>')` raises `TypeError` on Django 6.0 (silent on 5.x); use `mark_safe()` for trusted static HTML or pass a format arg (`format_html('{}', static(...))`). BLOCKER in `insert_global_admin_*` hooks — it 500s every `/cms/` page
 - [ ] Cache keys must follow format: `app:feature:scope:identifier` (never bare strings)
 - [ ] New apps must register models in `auditlog.py` for GDPR compliance
 

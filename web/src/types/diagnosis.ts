@@ -92,33 +92,47 @@ export interface PlantIdentification {
 }
 
 /**
- * Plant diagnosis request
+ * Disease diagnosis request status — mirrors the backend PlantDiseaseRequest.status
+ * choices (apps/plant_identification/models.py).
  */
-export interface DiagnosisRequest {
-  image: File | string;
-  latitude?: number;
-  longitude?: number;
+export type DiseaseRequestStatus = 'pending' | 'processing' | 'diagnosed' | 'needs_help' | 'failed';
+
+/**
+ * One AI disease diagnosis result — mirrors PlantDiseaseResultSerializer.
+ */
+export interface PlantDiseaseResult {
+  id: number;
+  uuid: string;
+  request_id: string;
+  suggested_disease_name: string;
+  suggested_disease_type: string;
+  confidence_score: number;
+  confidence_percentage: number;
+  diagnosis_source: string; // "api_plant_health" | "system_message" | ...
+  severity_assessment: string;
+  symptoms_identified: string;
+  recommended_treatments: string;
+  immediate_actions: string;
+  notes: string;
+  is_primary: boolean;
+  display_name: string;
 }
 
 /**
- * Plant diagnosis response
+ * Response of GET /disease-requests/{uuid}/results/.
  */
-export interface DiagnosisResponse {
-  id: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  identifications: PlantIdentification[];
-  health_assessment?: HealthAssessment;
-  created_at: string;
-  completed_at?: string;
+export interface DiseaseDiagnosisResults {
+  request_id: string;
+  status: DiseaseRequestStatus;
+  results: PlantDiseaseResult[];
 }
 
 /**
- * Plant health assessment
+ * Response of POST /disease-requests/ (create).
  */
-export interface HealthAssessment {
-  is_healthy: boolean;
-  diseases: Disease[];
-  overall_health: number;
+export interface DiseaseDiagnosisCreated {
+  request_id: string;
+  status: DiseaseRequestStatus;
 }
 
 /**
