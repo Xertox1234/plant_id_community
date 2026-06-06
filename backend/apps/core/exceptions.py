@@ -45,6 +45,11 @@ def _retry_after_seconds(rate: Optional[str]) -> int:
                 count = int(multiplier) if multiplier else 1
             except ValueError:
                 return 3600
+            # A zero/negative multiplier (e.g. "5/0m") would yield Retry-After: 0,
+            # telling the client to retry immediately and defeating the limit.
+            # Treat it as invalid and use the same safe 1-hour fallback.
+            if count <= 0:
+                return 3600
             return count * unit_seconds
     return 3600
 

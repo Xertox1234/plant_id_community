@@ -28,3 +28,9 @@ class RetryAfterSecondsTest(SimpleTestCase):
         self.assertEqual(_retry_after_seconds("5/xyz"), 3600)
         # Callable rates (django-ratelimit allows them) must not raise.
         self.assertEqual(_retry_after_seconds(lambda g, r: "5/m"), 3600)
+
+    def test_non_positive_multiplier_falls_back_to_one_hour(self):
+        # A zero/negative multiplier would yield Retry-After: 0 (retry now),
+        # defeating the limit; it must use the safe 1-hour fallback instead.
+        self.assertEqual(_retry_after_seconds("5/0m"), 3600)
+        self.assertEqual(_retry_after_seconds("5/-1m"), 3600)

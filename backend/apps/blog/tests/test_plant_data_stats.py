@@ -5,9 +5,11 @@ conditional `aggregate()`; pin the query count so the per-count expansion cannot
 silently return.
 """
 
-from apps.plant_identification.models import PlantSpecies
+from apps.plant_identification.models import PlantIdentificationRequest, PlantSpecies
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 User = get_user_model()
@@ -45,9 +47,37 @@ class PlantDataStatsQueryTest(TestCase):
         self.assertEqual(stats["species_with_images"], 1)
 
     def test_query_count_does_not_scale_with_species(self):
-        # Add more species; the count must stay constant — one PlantSpecies
-        # aggregate + one PlantIdentificationRequest count, no per-metric query.
+        # Add more species; the data-query count must stay constant — one
+        # PlantSpecies conditional aggregate (audit L13) + one
+        # PlantIdentificationRequest count, no per-metric query. We pin only the
+        # queries against these two tables, not the total, so auth/session/
+        # savepoint overhead (a Django/middleware upgrade) can't break a test
+        # that guards the aggregate. A regression to four separate `.count()`
+        # calls would add 3 species queries and fail this assertion.
         for i in range(5):
             PlantSpecies.objects.create(scientific_name=f"Filler species {i}")
-        with self.assertNumQueries(7):
+
+        data_tables = (
+            PlantSpecies._meta.db_table,
+            PlantIdentificationRequest._meta.db_table,
+        )
+        with CaptureQueriesContext(connection) as ctx:
             self.client.get(self.url)
+
+        # Match the quoted identifier Django emits (`FROM "..._plantspecies"`),
+        # not a bare substring: `plant_identification_plantspecies` is a prefix
+        # of the Wagtail `plant_identification_plantspeciespage` table, so an
+        # unquoted match could miscount a future PlantSpeciesPage query as a data
+        # query and mask a regression. Both Postgres (CI) and SQLite double-quote
+        # identifiers, so the trailing quote stops the over-match.
+        data_queries = [
+            q["sql"]
+            for q in ctx.captured_queries
+            if any(f'"{table}"' in q["sql"] for table in data_tables)
+        ]
+        self.assertEqual(
+            len(data_queries),
+            2,
+            "plant_data_stats must hit each data table exactly once; per-metric "
+            "expansion would add queries. Captured:\n" + "\n".join(data_queries),
+        )
