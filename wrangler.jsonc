@@ -6,7 +6,11 @@
     "enabled": true
   },
   "assets": {
-    "directory": "web"
+    // Vite build output, NOT the source dir. `web/` source has a dev-only
+    // index.html that loads /src/main.jsx (404 in prod -> blank screen).
+    // The Workers Builds trigger runs `cd web && npm ci && npm run build`
+    // first, which produces web/dist/.
+    "directory": "web/dist"
   },
   "compatibility_flags": [
     "nodejs_compat"
