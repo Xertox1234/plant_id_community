@@ -88,18 +88,36 @@ Work top-down; the first item is the only true p1, the rest are "before testers.
 
 ## Acceptance Criteria
 
-- [ ] `SECRET_KEY` and `JWT_SECRET_KEY` in Railway are freshly generated, unique,
-      and differ from each other and from `backend/.env`.
+- [x] `SECRET_KEY` and `JWT_SECRET_KEY` in Railway are freshly generated, unique,
+      and differ from each other and from `backend/.env`. (done 2026-06-06)
 - [ ] Superuser exists with a strong password; admin 2FA decision recorded.
 - [ ] Rate limiting returns 429 (+`Retry-After`) and account lockout triggers,
       verified against the live backend.
 - [ ] `ENABLE_FILE_LOGGING=False` in prod; logging emits each line once; a prod
       log sample shows no unredacted PII.
 - [ ] `ALLOWED_HOSTS` is explicit (no wildcard) once a domain is chosen.
-- [ ] Railway Postgres automated backups confirmed enabled.
+- [x] Railway Postgres automated backups confirmed enabled. (done 2026-06-06 —
+      Daily schedule, 6-day retention; required upgrading the Railway workspace to
+      the Pro plan, as native backups are Pro-gated.)
 - [ ] Optional integrations are either configured or explicitly disabled.
 
 ## Work Log
+
+### 2026-06-06 - Items 1 & 7 done (secrets rotated, backups enabled)
+
+- **Item 1 — secrets rotated.** Generated fresh, distinct `SECRET_KEY` /
+  `JWT_SECRET_KEY` (`secrets.token_urlsafe(64)`, ~86 chars each) and set them in
+  Railway only; local `backend/.env` left untouched so prod no longer shares dev
+  secrets. Verified: Railway deploy came back **Active** (so both keys passed the
+  settings-import validation — ≥50 chars, differ, no `django-insecure`, else the
+  container fail-fasts) and the existing admin session was invalidated (logged out
+  → re-login required), confirming the new `SECRET_KEY` is live.
+- **Item 7 — backups enabled.** Railway native backups are **Pro-plan-gated**;
+  upgraded the workspace to Pro and enabled a **Daily** schedule (6-day retention)
+  on the Postgres service. Snapshots are restorable by date from the Backups tab.
+- Remaining: items 2 (admin 2FA decision), 3 (rate-limit/lockout live check),
+  4 (logging hygiene), 5 (`ALLOWED_HOSTS` — needs a stable domain), 6 (build-layer
+  secrets), 8 (optional integrations).
 
 ### 2026-06-06 - Filed
 
