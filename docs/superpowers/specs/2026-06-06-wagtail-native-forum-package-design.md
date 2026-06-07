@@ -212,6 +212,30 @@ grant per-board moderator rights. **v1 ships a single global moderator group**
 new-account velocity, repeated content, banned words); swap via
 `WAGTAILFORUM_SPAM_BACKEND`. Trust-promotion thresholds are settings-driven.
 
+### Design rationale: why every `Post` (incl. replies) carries the workflow mixins
+
+A reasonable concern is that putting `WorkflowMixin`/`DraftStateMixin`/
+`RevisionMixin` on *every* post — not just opening posts — adds overhead to
+simple replies. It was considered and accepted, for four reasons:
+
+1. **The workflow does not run on every reply.** The expensive part (task
+   execution, approval queue, moderator notification) is conditionally invoked by
+   the trust router in `workflow.py`. Trust 2+ replies **skip the workflow** and
+   publish immediately; only new/untrusted posts pay for it.
+2. **Draft state on replies is feature-required, not gratuitous.** A *new user's
+   reply* must be representable as "awaiting approval," which needs
+   `DraftStateMixin` on replies. The verified dependency chain (`WorkflowMixin` →
+   `DraftStateMixin` → `RevisionMixin`) means the stack necessarily comes along
+   under the uniform-`Post` model.
+3. **The cost is bounded and on the write path only.** Reads use denormalized
+   counters and never join `_revisions`/`workflow_states`. Per-reply cost is ~one
+   `Revision` row + a `publish()` call — and revisions double as the edit-history
+   feature forums want on replies anyway. Revisions are prunable.
+4. **The alternative is worse.** Splitting `Post`/`Reply` into two models to give
+   replies a leaner path would break the uniform-object choice and double the
+   edit/moderation/render code paths — a poor trade for a write-path
+   micro-optimization.
+
 ## Mobile-first DRF API
 
 Prefix configurable; defaults to `/api/v1/forum/`.
