@@ -1,7 +1,8 @@
 # Deploying the backend to Railway
 
 The Django backend runs on [Railway](https://railway.app); the React frontend is on
-Cloudflare Workers (`wrangler.jsonc` at repo root). They live on different domains,
+Cloudflare Workers (`wrangler.jsonc` at repo root), served at
+[houseplant-md.com](https://houseplant-md.com). They live on different domains,
 so cross-site cookie auth must be configured (see env vars below).
 
 ## One-time setup
@@ -24,8 +25,8 @@ so cross-site cookie auth must be configured (see env vars below).
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (Railway reference) |
 | `REDIS_URL` | `${{Redis.REDIS_URL}}` (Railway reference) |
 | `ALLOWED_HOSTS` | your Railway domain, e.g. `plantidcommunity-backend.up.railway.app` |
-| `CORS_ALLOWED_ORIGINS` | the Cloudflare frontend URL, e.g. `https://plantidcommunity.william-tower.workers.dev` |
-| `CSRF_TRUSTED_ORIGINS` | same Cloudflare frontend URL |
+| `CORS_ALLOWED_ORIGINS` | the frontend URL(s), comma-separated, e.g. `https://houseplant-md.com,https://www.houseplant-md.com,https://plantidcommunity.william-tower.workers.dev` |
+| `CSRF_TRUSTED_ORIGINS` | same frontend URL(s) |
 | `SESSION_COOKIE_SAMESITE` | `None` (required for cross-domain login) |
 | `CSRF_COOKIE_SAMESITE` | `None` (required for cross-domain CSRF) |
 | `TRUST_PROXY_SSL_HEADER` | `True` — **required**, or `SECURE_SSL_REDIRECT` infinite-loops behind Railway's TLS proxy |

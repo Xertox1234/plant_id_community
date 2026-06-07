@@ -2,6 +2,8 @@
 
 A multi-platform plant identification system featuring AI-powered plant recognition, mobile-first architecture, and web companion interface.
 
+**🌐 Live site:** [houseplant-md.com](https://houseplant-md.com)
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -256,9 +258,13 @@ git push origin feature/your-feature
 
 ## 🚀 Deployment
 
+### Production (live)
+- **Web**: [https://houseplant-md.com](https://houseplant-md.com) — React frontend on Cloudflare Workers (`www.houseplant-md.com` 301-redirects to the apex)
+- **Backend / API**: Django on Railway — see [backend/docs/deployment/railway.md](backend/docs/deployment/railway.md)
+
 ### Web Frontend
 - Build: `npm run build`
-- Deploy to: Vercel, Netlify, or Firebase Hosting
+- Deploy to: Cloudflare Workers (production: [houseplant-md.com](https://houseplant-md.com))
 - Set production `VITE_API_URL`
 
 ### Backend
