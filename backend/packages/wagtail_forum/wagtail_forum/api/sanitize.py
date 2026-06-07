@@ -1,63 +1,79 @@
-import html
-from html.parser import HTMLParser
-from urllib.parse import urlparse
+"""Server-side sanitization of forum post bodies for the DRF API.
 
+Direct API POSTs bypass the Wagtail editor's HTML filtering, so rich-text block
+content is sanitized on write with an nh3 allowlist: it strips ``<script>``,
+event-handler attributes (``onerror``/``onclick``/...), disallowed tags, and
+non-allowlisted URL schemes (``javascript:``/``data:``/...). Plain-text blocks
+(heading/quote/code) are text by contract and are left untouched — the consumer
+must HTML-escape them at render time.
+
+The body is also bounded (block count + total size) to keep validation/parse
+cost and storage in check.
+"""
+
+import json
+
+import nh3
 from rest_framework import serializers
+from wagtail.blocks import RichTextBlock
 
 from ..blocks import ForumBodyBlock
 
-# Schemes permitted in rich-text <a href>. Everything else (javascript:, data:,
-# vbscript:, file:, ...) is rejected. Relative/anchor hrefs (no scheme) are allowed.
-ALLOWED_HREF_SCHEMES = {"http", "https", "mailto"}
+# Allowlist scoped to ForumBodyBlock's RichTextBlock features (bold, italic, link,
+# ol, ul, code) plus the structural tags Wagtail emits. nh3 drops everything else,
+# including all event-handler attributes and <script>/<svg>/<img> etc.
+ALLOWED_TAGS = {"p", "br", "strong", "b", "em", "i", "u", "ul", "ol", "li", "a", "code"}
+ALLOWED_ATTRIBUTES = {"a": {"href", "title"}}
+ALLOWED_URL_SCHEMES = {"http", "https", "mailto"}
+
+# Bound a single post body. Generous for a forum post; caps parse cost + storage.
+MAX_BODY_BLOCKS = 100
+MAX_BODY_CHARS = 100_000
 
 
-class _HrefCollector(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.hrefs = []
-
-    def handle_starttag(self, tag, attrs):
-        if tag == "a":
-            for name, value in attrs:
-                if name == "href" and value is not None:
-                    self.hrefs.append(value)
-
-
-def _href_is_safe(href):
-    # HTMLParser already decodes HTML entities in attribute values; unescape again
-    # defensively, then drop ASCII control/whitespace chars that browsers strip
-    # before parsing the scheme (defeats "java\tscript:" / "java&#115;cript:").
-    value = html.unescape(href)
-    value = "".join(ch for ch in value if ord(ch) > 0x20).strip()
-    if value == "" or value.startswith("/") or value.startswith("#"):
-        return True  # empty, relative path, or in-page anchor
-    scheme = urlparse(value).scheme.lower()
-    if scheme == "":
-        return True  # relative reference (no scheme)
-    return scheme in ALLOWED_HREF_SCHEMES
+def sanitize_rich_text(html):
+    """Return an XSS-safe subset of *html* (nh3 allowlist)."""
+    return nh3.clean(
+        html,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRIBUTES,
+        url_schemes=ALLOWED_URL_SCHEMES,
+        link_rel="noopener noreferrer nofollow",
+    )
 
 
 def validate_forum_body(value):
-    """Validate a forum post body (raw StreamField list-of-dicts).
+    """Validate + sanitize a forum post body (raw StreamField list-of-dicts).
 
-    1. Dry-run to_python so a malformed body is a 400, not a 500.
-    2. Reject any rich-text <a href> whose scheme is not allowlisted (stored XSS):
-       direct API POSTs bypass the Wagtail editor's href filtering.
-    Returns the original value on success; raises serializers.ValidationError otherwise.
+    1. Reject an oversized body (block count / total size) — bounds parse cost.
+    2. Reject a structurally malformed body (``to_python`` dry-run) — 400, not 500.
+    3. Sanitize each rich-text ("paragraph") block's HTML, stripping scripts,
+       event-handler attributes, and disallowed tags/schemes.
+
+    Returns the cleaned value so the caller stores the safe version.
     """
+    if not isinstance(value, list):
+        raise serializers.ValidationError({"body": "Invalid post body."})
+    if len(value) > MAX_BODY_BLOCKS:
+        raise serializers.ValidationError({"body": "Post body has too many blocks."})
+    if len(json.dumps(value)) > MAX_BODY_CHARS:
+        raise serializers.ValidationError({"body": "Post body is too large."})
+    body_block = ForumBodyBlock()
     try:
-        stream_value = ForumBodyBlock().to_python(value)
+        body_block.to_python(value)
     except Exception as exc:  # malformed StreamField payload
         raise serializers.ValidationError({"body": "Invalid post body."}) from exc
-    for child in stream_value:
-        source = getattr(child.value, "source", None)  # RichText blocks expose .source
-        if not source:
-            continue
-        collector = _HrefCollector()
-        collector.feed(source)
-        for href in collector.hrefs:
-            if not _href_is_safe(href):
-                raise serializers.ValidationError(
-                    {"body": "Unsafe link scheme in rich text."}
-                )
-    return value
+
+    # Sanitize every rich-text block type, not a hardcoded name — a future
+    # RichTextBlock added to ForumBodyBlock must not silently bypass sanitization.
+    rich_text_types = {
+        name
+        for name, block in body_block.child_blocks.items()
+        if isinstance(block, RichTextBlock)
+    }
+    cleaned = []
+    for block in value:
+        if isinstance(block, dict) and block.get("type") in rich_text_types:
+            block = {**block, "value": sanitize_rich_text(block.get("value") or "")}
+        cleaned.append(block)
+    return cleaned

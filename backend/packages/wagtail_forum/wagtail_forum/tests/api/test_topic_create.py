@@ -132,23 +132,53 @@ def test_spam_backend_exception_leaves_pending_not_500():
 
 
 @pytest.mark.django_db
-def test_javascript_href_in_body_is_rejected():
+def test_dangerous_body_is_sanitized_on_write():
+    # A javascript: href, an onerror handler, and a <script> tag are all stripped
+    # by the nh3 allowlist before storage; benign text survives. The post is
+    # accepted (201) with clean content, not rejected.
     ensure_default_workflow()
     board = _board()
     user = User.objects.create_user(username="x", password="x")
+    ForumProfile.for_user(user)
     client = APIClient()
     client.force_authenticate(user)
-    bad = {
+    payload = {
         "title": "T",
         "slug": "t",
         "body": [
-            {"type": "paragraph", "value": '<p><a href="javascript:alert(1)">x</a></p>'}
+            {
+                "type": "paragraph",
+                "value": (
+                    '<p><a href="javascript:alert(1)">x</a>'
+                    '<img src=x onerror="alert(1)">'
+                    "<script>alert(1)</script>ok</p>"
+                ),
+            }
         ],
     }
-    resp = client.post(f"/forum/boards/{board.slug}/topics/create/", bad, format="json")
-    assert resp.status_code == 400
+    resp = client.post(
+        f"/forum/boards/{board.slug}/topics/create/", payload, format="json"
+    )
+    assert resp.status_code == 201
+    source = (
+        Post.objects.get(topic__slug="t", is_opening_post=True).body[0].value.source
+    )
+    assert "javascript:" not in source
+    assert "onerror" not in source
+    assert "<script" not in source
+    assert "<img" not in source
+    assert "ok" in source  # benign text preserved
 
-    ok = {
+
+@pytest.mark.django_db
+def test_safe_link_is_preserved():
+    ensure_default_workflow()
+    board = _board()
+    user = User.objects.create_user(username="x", password="x")
+    ForumProfile.for_user(user)
+    client = APIClient()
+    client.force_authenticate(user)
+    payload = {
         "title": "T2",
         "slug": "t2",
         "body": [
@@ -158,6 +188,32 @@ def test_javascript_href_in_body_is_rejected():
             }
         ],
     }
-    resp2 = client.post(f"/forum/boards/{board.slug}/topics/create/", ok, format="json")
-    assert resp2.status_code in (201, 200)
-    assert Topic.objects.filter(slug="t").count() == 0  # the bad one never persisted
+    resp = client.post(
+        f"/forum/boards/{board.slug}/topics/create/", payload, format="json"
+    )
+    assert resp.status_code == 201
+    source = (
+        Post.objects.get(topic__slug="t2", is_opening_post=True).body[0].value.source
+    )
+    assert 'href="https://example.com"' in source
+
+
+@pytest.mark.django_db
+def test_oversized_body_is_rejected():
+    # DoS guard: a body exceeding MAX_BODY_BLOCKS is a 400, not a parse storm.
+    ensure_default_workflow()
+    board = _board()
+    user = User.objects.create_user(username="x", password="x")
+    ForumProfile.for_user(user)
+    client = APIClient()
+    client.force_authenticate(user)
+    payload = {
+        "title": "T",
+        "slug": "t",
+        "body": [{"type": "paragraph", "value": "<p>x</p>"}] * 101,
+    }
+    resp = client.post(
+        f"/forum/boards/{board.slug}/topics/create/", payload, format="json"
+    )
+    assert resp.status_code == 400
+    assert Topic.objects.filter(slug="t").count() == 0

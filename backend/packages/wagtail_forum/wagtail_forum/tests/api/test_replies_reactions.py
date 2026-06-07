@@ -64,7 +64,9 @@ def test_reply_to_non_live_topic_returns_404():
 
 
 @pytest.mark.django_db
-def test_reply_with_javascript_href_is_rejected():
+def test_reply_dangerous_body_is_sanitized():
+    # A reply's rich-text body is sanitized on write (javascript: href + onerror
+    # stripped); the reply is accepted with clean content, not rejected.
     ensure_default_workflow()
     topic, _ = _live_topic()
     user = User.objects.create_user(username="r", password="x")
@@ -76,13 +78,19 @@ def test_reply_with_javascript_href_is_rejected():
             "body": [
                 {
                     "type": "paragraph",
-                    "value": '<p><a href="javascript:alert(1)">x</a></p>',
+                    "value": '<p><a href="javascript:alert(1)">x</a>'
+                    '<img src=x onerror="alert(1)">ok</p>',
                 }
             ]
         },
         format="json",
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 201
+    reply = Post.objects.get(id=resp.data["id"])
+    source = reply.body[0].value.source
+    assert "javascript:" not in source
+    assert "onerror" not in source
+    assert "ok" in source
 
 
 @pytest.mark.django_db

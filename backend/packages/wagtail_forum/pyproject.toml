@@ -11,7 +11,9 @@ requires-python = ">=3.11"
 dependencies = ["Django>=4.2", "Wagtail>=7.0"]
 
 [project.optional-dependencies]
-api = ["djangorestframework>=3.14"]
+# nh3: server-side HTML sanitization of rich-text post bodies on write (the API
+# accepts raw HTML that bypasses the Wagtail editor's filtering).
+api = ["djangorestframework>=3.14", "nh3>=0.2"]
 
 [tool.setuptools.packages.find]
 include = ["wagtail_forum*"]

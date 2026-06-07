@@ -214,13 +214,17 @@ class MeProfileView(generics.RetrieveUpdateAPIView):
 
 class SearchView(APIView):
     versioning_class = None
+    MAX_RESULTS = (
+        50  # bound the result set; a high-cardinality query won't blow up memory
+    )
 
     def get(self, request):
         query = request.query_params.get("q", "").strip()
         results = []
         if query:
             backend = get_search_backend()
-            for topic in backend.search(query, Topic.objects.filter(live=True)):
+            hits = backend.search(query, Topic.objects.filter(live=True))
+            for topic in hits[: self.MAX_RESULTS]:
                 results.append(
                     {"id": topic.id, "slug": topic.slug, "title": topic.title}
                 )
