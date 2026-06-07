@@ -195,6 +195,7 @@ LOCAL_APPS = [
     # 'apps.search',  # Temporarily disabled (depends on Machina)
     "apps.garden_calendar",
     "apps.garden",  # Garden planner feature (Phase 1 - Backend)
+    "wagtail_forum",
 ]
 if ENABLE_FORUM:
     # Machina forum integration shim

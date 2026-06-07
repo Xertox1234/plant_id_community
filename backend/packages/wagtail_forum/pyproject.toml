@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wagtail-forum"
+version = "0.1.0"
+description = "A reusable, Wagtail-native community forum."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["Django>=4.2", "Wagtail>=7.0"]
+
+[project.optional-dependencies]
+api = ["djangorestframework>=3.14"]
+
+[tool.setuptools.packages.find]
+include = ["wagtail_forum*"]
