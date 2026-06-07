@@ -196,6 +196,10 @@ LOCAL_APPS = [
     "apps.garden_calendar",
     "apps.garden",  # Garden planner feature (Phase 1 - Backend)
     "wagtail_forum",
+    # MUST stay after "wagtail_forum": its post_migrate bootstrap filters
+    # wagtail_forum permissions, which only exist once wagtail_forum's own
+    # post_migrate (create_permissions) has run — registry order decides that.
+    "apps.forum_host",
 ]
 if ENABLE_FORUM:
     # Machina forum integration shim
