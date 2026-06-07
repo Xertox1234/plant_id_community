@@ -6,3 +6,6 @@ class WagtailForumAppConfig(AppConfig):
     name = "wagtail_forum"
     label = "wagtail_forum"
     verbose_name = "Wagtail Forum"
+
+    def ready(self):
+        from . import signals  # noqa: F401  (registers receivers)

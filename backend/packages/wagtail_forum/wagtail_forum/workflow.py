@@ -16,6 +16,9 @@ def ensure_default_workflow():
         workflow=workflow, task=task, defaults={"sort_order": 0}
     )
     for model in (Topic, Post):
+        # Note: get_or_create keys on content_type, so this does NOT override a
+        # workflow a host has already assigned to Topic/Post — it only fills it
+        # in when absent. Idempotent and host-assignment-preserving.
         WorkflowContentType.objects.get_or_create(
             content_type=ContentType.objects.get_for_model(model),
             defaults={"workflow": workflow},
@@ -71,4 +74,9 @@ def submit_for_moderation(obj, user):
     ):
         obj.topic.save_revision(user=user).publish(user=None)
 
-    return "published" if obj.live else "pending"
+    # Notify hosts of the moderation outcome (e.g. to push-notify the author).
+    from .signals import moderation_decided, notify
+
+    status = "published" if obj.live else "pending"
+    notify(moderation_decided, sender=type(obj), obj=obj, status=status)
+    return status
