@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
+from django.db.models import Q
 from wagtail.admin.panels import FieldPanel
 from wagtail.fields import StreamField
 from wagtail.models import DraftStateMixin, LockableMixin, RevisionMixin, WorkflowMixin
@@ -65,6 +66,14 @@ class Post(
 
     class Meta:
         ordering = ["created_at"]
+        indexes = [models.Index(fields=["topic", "created_at"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["topic"],
+                condition=Q(is_opening_post=True),
+                name="uniq_opening_post_per_topic",
+            )
+        ]
 
     def __str__(self):
         return f"Post #{self.pk} in {self.topic_id}"

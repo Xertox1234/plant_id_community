@@ -77,6 +77,7 @@ class Topic(
 
     class Meta:
         ordering = ["-is_pinned", "-last_post_at"]
+        indexes = [models.Index(fields=["board", "-last_post_at"])]
         constraints = [
             models.UniqueConstraint(
                 fields=["board", "slug"], name="uniq_topic_slug_per_board"
