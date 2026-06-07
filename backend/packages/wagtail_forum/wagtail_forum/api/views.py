@@ -163,7 +163,14 @@ class ReactionToggleView(APIView):
     versioning_class = None
 
     def post(self, request, post_id):
-        post = get_object_or_404(Post, id=post_id)
+        post = get_object_or_404(Post.objects.select_related("topic"), id=post_id)
+        # SECURITY: hide non-live posts / posts on non-live topics (404) — mirrors
+        # the reply non-live guard. Reacting to draft/pending content would leak its
+        # existence and let reactions accumulate on unpublished content.
+        if not post.live or not post.topic.live:
+            return Response(
+                {"detail": "Not found."}, status=http_status.HTTP_404_NOT_FOUND
+            )
         rtype = request.data.get("type")
         if rtype not in dict(Reaction.REACTION_CHOICES):
             return Response(
@@ -176,6 +183,15 @@ class ReactionToggleView(APIView):
         if existing:
             existing.delete()
         else:
-            Reaction.objects.create(post=post, user=request.user, reaction_type=rtype)
+            # A concurrent double-tap can race two INSERTs past the SELECT; the
+            # unique constraint (post, user, reaction_type) protects integrity —
+            # treat the loser as "already reacted" instead of surfacing a 500.
+            try:
+                with transaction.atomic():
+                    Reaction.objects.create(
+                        post=post, user=request.user, reaction_type=rtype
+                    )
+            except IntegrityError:
+                pass
         counts = Reaction.recount(post)
         return Response({"reaction_counts": counts}, status=http_status.HTTP_200_OK)

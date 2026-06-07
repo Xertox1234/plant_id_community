@@ -117,3 +117,26 @@ def test_reaction_rejects_invalid_type():
         f"/forum/posts/{opening.id}/reactions/", {"type": "bogus"}, format="json"
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_reaction_on_non_live_topic_post_returns_404():
+    # SECURITY: a post on a draft/hidden topic must not be reactable, and must not
+    # reveal its existence — 404, mirroring the reply non-live guard.
+    ensure_default_workflow()
+    board = _board()
+    author = User.objects.create_user(username="op", password="x")
+    draft = Topic.objects.create(
+        board=board, title="H", slug="h", author=author, live=False
+    )
+    hidden_post = Post.objects.create(
+        topic=draft, author=author, is_opening_post=True, live=False
+    )
+    user = User.objects.create_user(username="r", password="x")
+    client = APIClient()
+    client.force_authenticate(user)
+    resp = client.post(
+        f"/forum/posts/{hidden_post.id}/reactions/", {"type": "like"}, format="json"
+    )
+    assert resp.status_code == 404
+    assert Reaction.objects.filter(post=hidden_post).count() == 0
