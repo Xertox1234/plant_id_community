@@ -39,3 +39,10 @@ class TopicCreateSerializer(serializers.Serializer):
 
     def validate_body(self, value):
         return validate_forum_body(value)
+
+
+class ReplyCreateSerializer(serializers.Serializer):
+    body = serializers.JSONField()
+
+    def validate_body(self, value):
+        return validate_forum_body(value)

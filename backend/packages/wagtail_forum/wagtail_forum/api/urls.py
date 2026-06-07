@@ -1,6 +1,12 @@
 from django.urls import path
 
-from .views import BoardListView, TopicCreateView, TopicListView
+from .views import (
+    BoardListView,
+    ReactionToggleView,
+    ReplyCreateView,
+    TopicCreateView,
+    TopicListView,
+)
 
 app_name = "wagtail_forum_api"
 
@@ -11,5 +17,15 @@ urlpatterns = [
         "boards/<slug:slug>/topics/create/",
         TopicCreateView.as_view(),
         name="topic-create",
+    ),
+    path(
+        "topics/<int:topic_id>/posts/create/",
+        ReplyCreateView.as_view(),
+        name="reply-create",
+    ),
+    path(
+        "posts/<int:post_id>/reactions/",
+        ReactionToggleView.as_view(),
+        name="reaction-toggle",
     ),
 ]
