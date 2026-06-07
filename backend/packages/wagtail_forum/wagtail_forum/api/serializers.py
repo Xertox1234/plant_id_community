@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from ..models import ForumBoard, Topic
+from .sanitize import validate_forum_body
 
 
 class BoardSerializer(serializers.ModelSerializer):
@@ -29,3 +30,12 @@ class TopicListSerializer(serializers.ModelSerializer):
             "last_post_at",
             "last_post_author",
         ]
+
+
+class TopicCreateSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=255)
+    slug = serializers.SlugField(max_length=255)
+    body = serializers.JSONField()
+
+    def validate_body(self, value):
+        return validate_forum_body(value)
