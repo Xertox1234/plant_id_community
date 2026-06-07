@@ -65,6 +65,7 @@ class Topic(
     search_fields = [
         index.SearchField("title"),
         index.AutocompleteField("title"),
+        index.FilterField("live"),
     ]
 
     panels = [

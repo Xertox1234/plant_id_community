@@ -2,11 +2,13 @@ import logging
 
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
+from django.utils.dateparse import parse_datetime
 from rest_framework import generics
 from rest_framework import status as http_status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from wagtail.search.backends import get_search_backend
 
 from ..blocks import ForumBodyBlock
 from ..models import ForumBoard, Post, Reaction, Topic
@@ -208,3 +210,38 @@ class MeProfileView(generics.RetrieveUpdateAPIView):
         from ..models import ForumProfile
 
         return ForumProfile.for_user(self.request.user)
+
+
+class SearchView(APIView):
+    versioning_class = None
+
+    def get(self, request):
+        query = request.query_params.get("q", "").strip()
+        results = []
+        if query:
+            backend = get_search_backend()
+            for topic in backend.search(query, Topic.objects.filter(live=True)):
+                results.append(
+                    {"id": topic.id, "slug": topic.slug, "title": topic.title}
+                )
+        return Response({"results": results})
+
+
+class SyncView(APIView):
+    versioning_class = None
+
+    def get(self, request):
+        since = parse_datetime(request.query_params.get("since", "") or "")
+        qs = Topic.objects.filter(live=True)
+        board_slug = request.query_params.get("board")
+        if board_slug:
+            qs = qs.filter(board__slug=board_slug)
+        if since:
+            qs = qs.filter(updated_at__gt=since)
+        topics = [
+            {"id": t.id, "slug": t.slug, "title": t.title, "updated_at": t.updated_at}
+            for t in qs.order_by("updated_at")[:200]
+        ]
+        # Tombstones (ids deleted since `since`) require a soft-delete log added in
+        # a later plan; return an empty list for now.
+        return Response({"topics": topics, "deleted": []})

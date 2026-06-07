@@ -5,6 +5,8 @@ from .views import (
     MeProfileView,
     ReactionToggleView,
     ReplyCreateView,
+    SearchView,
+    SyncView,
     TopicCreateView,
     TopicListView,
 )
@@ -30,4 +32,6 @@ urlpatterns = [
         name="reaction-toggle",
     ),
     path("me/profile/", MeProfileView.as_view(), name="me-profile"),
+    path("search/", SearchView.as_view(), name="search"),
+    path("sync/", SyncView.as_view(), name="sync"),
 ]
