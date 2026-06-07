@@ -196,8 +196,11 @@ def _board():
 def test_topics_list_is_cursor_paginated_with_bounded_queries():
     board = _board()
     author = User.objects.create_user(username="ada", password="x")
+    # live=True: these represent already-published topics (the list filters live).
     for i in range(25):
-        Topic.objects.create(board=board, title=f"T{i}", slug=f"t{i}", author=author)
+        Topic.objects.create(
+            board=board, title=f"T{i}", slug=f"t{i}", author=author, live=True
+        )
 
     client = APIClient()
     with CaptureQueriesContext(connection) as ctx:
@@ -360,117 +363,91 @@ Expected: FAIL — 404 (no create route).
 
 - [ ] **Step 3: Write idempotency mixin + create view + serializer**
 
-`backend/packages/wagtail_forum/wagtail_forum/api/idempotency.py`:
+`backend/packages/wagtail_forum/wagtail_forum/api/idempotency.py` (reusable helpers — used by topic AND reply create):
 
 ```python
 from django.core.cache import cache
-from rest_framework.response import Response
 
 IDEMPOTENCY_TTL = 60 * 60 * 24  # 24h
 
 
-class IdempotentCreateMixin:
-    """Replay a prior 201 response for a repeated (user, Idempotency-Key)."""
+def idempotency_cache_key(request):
+    """Return a per-(user, Idempotency-Key) cache key, or None if absent."""
+    key = request.headers.get("Idempotency-Key")
+    if key and request.user.is_authenticated:
+        return f"forum:idem:{request.user.pk}:{key}"
+    return None
 
-    def create(self, request, *args, **kwargs):
-        key = request.headers.get("Idempotency-Key")
-        cache_key = None
-        if key and request.user.is_authenticated:
-            cache_key = f"forum:idem:{request.user.pk}:{key}"
-            cached = cache.get(cache_key)
-            if cached is not None:
-                return Response(cached, status=200)
-        response = super().create(request, *args, **kwargs)
-        if cache_key and response.status_code == 201:
-            cache.set(cache_key, response.data, IDEMPOTENCY_TTL)
-        return response
+
+def replay(cache_key):
+    return cache.get(cache_key) if cache_key else None
+
+
+def remember(cache_key, data):
+    if cache_key:
+        cache.set(cache_key, data, IDEMPOTENCY_TTL)
 ```
 
 Append to `api/serializers.py`:
 
 ```python
-class TopicCreateSerializer(serializers.ModelSerializer):
-    body = serializers.JSONField(write_only=True)
-
-    class Meta:
-        model = Topic
-        fields = ["title", "slug", "body"]
+class TopicCreateSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=255)
+    slug = serializers.SlugField(max_length=255)
+    body = serializers.JSONField()
 ```
 
-Append to `api/views.py`:
+Append to `api/views.py` (one self-contained view — note `live=False`, the
+liveness policy from Plan 1A, and StreamField assignment via the block's
+`to_python`, the form confirmed in Plan 1A Task 0):
 
 ```python
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
+from ..blocks import ForumBodyBlock
 from ..models import Post
 from ..workflow import submit_for_moderation
-from .idempotency import IdempotentCreateMixin
+from .idempotency import idempotency_cache_key, remember, replay
 from .serializers import TopicCreateSerializer
 
 
-class TopicCreateView(IdempotentCreateMixin, generics.CreateAPIView):
-    serializer_class = TopicCreateSerializer
+class TopicCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def create(self, request, *args, **kwargs):
-        return super().create(request, *args, **kwargs)
+    def post(self, request, slug):
+        cache_key = idempotency_cache_key(request)
+        cached = replay(cache_key)
+        if cached is not None:
+            return Response(cached, status=200)
 
-    def perform_create(self, serializer):
-        board = get_object_or_404(
-            ForumBoard.objects.live(), slug=self.kwargs["slug"]
-        )
+        serializer = TopicCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        board = get_object_or_404(ForumBoard.objects.live(), slug=slug)
+
         topic = Topic(
             board=board,
             title=serializer.validated_data["title"],
             slug=serializer.validated_data["slug"],
-            author=self.request.user,
+            author=request.user,
+            live=False,  # born as a draft; published by moderation
         )
         topic.save()
         opening = Post(
             topic=topic,
-            author=self.request.user,
+            author=request.user,
             is_opening_post=True,
-            body=serializer.validated_data["body"],
+            body=ForumBodyBlock().to_python(serializer.validated_data["body"]),
+            live=False,
         )
         opening.save()
-        status = submit_for_moderation(opening, self.request.user)
-        self._result = {"id": topic.id, "slug": topic.slug, "status": status}
 
-    def get_success_headers(self, data):
-        return {}
-
-    def post(self, request, *args, **kwargs):
-        # Override to return our composed result instead of the serializer data.
-        self.create(request, *args, **kwargs)
-        return Response(self._result, status=201)
+        status = submit_for_moderation(opening, request.user)  # also publishes topic
+        result = {"id": topic.id, "slug": topic.slug, "status": status}
+        remember(cache_key, result)
+        return Response(result, status=201)
 ```
-
-> **Note:** the `IdempotentCreateMixin.create` wraps `generics.CreateAPIView.create`,
-> which calls `perform_create`. To return `self._result` on the first call, the
-> mixin must return it. Simplify by having `create` build the response from
-> `self._result`. Final `TopicCreateView.create`:
-
-```python
-    def create(self, request, *args, **kwargs):
-        key = request.headers.get("Idempotency-Key")
-        cache_key = None
-        if key and request.user.is_authenticated:
-            from django.core.cache import cache
-            cache_key = f"forum:idem:{request.user.pk}:{key}"
-            cached = cache.get(cache_key)
-            if cached is not None:
-                return Response(cached, status=200)
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        if cache_key:
-            from django.core.cache import cache
-            cache.set(cache_key, self._result, 60 * 60 * 24)
-        return Response(self._result, status=201)
-```
-
-Remove the now-unused `IdempotentCreateMixin` from this view's bases and the duplicate `post`/`get_success_headers` (the explicit `create` above is self-contained). Final class header: `class TopicCreateView(generics.CreateAPIView):`.
 
 Update `api/urls.py`:
 
@@ -614,7 +591,8 @@ class ReplyCreateView(APIView):
             topic=topic,
             author=request.user,
             is_opening_post=False,
-            body=serializer.validated_data["body"],
+            body=ForumBodyBlock().to_python(serializer.validated_data["body"]),
+            live=False,  # born as a draft; published by moderation
         )
         post.save()
         moderation_status = submit_for_moderation(post, request.user)
@@ -745,6 +723,8 @@ class MeProfileSerializer(serializers.ModelSerializer):
 
     def get_capabilities(self, obj):
         return {
+            # v1: static. Trust/lock-aware gating (e.g. can_react only at trust>=1)
+            # is a documented follow-up — see self-review note.
             "can_react": True,
             "can_reply": True,
             "can_create_topic": True,
@@ -921,7 +901,7 @@ git commit -m "chore(wagtail_forum): finalize Plan 1C (DRF API)" || echo "nothin
 
 ## Plan self-review
 
-- **Spec coverage (1C):** cursor pagination ✅ (T2); idempotent writes ✅ (T3); moderation-routed create ✅ (T3–T4); closed/locked reply guard ✅ (T4); reactions toggle w/ counts ✅ (T4); profile view/edit + system-field protection ✅ (T5); capability map ✅ (T5); search ✅ (T6); delta-sync ✅ (T6); strict `assertNumQueries`-style budget on the list endpoint ✅ (T2, via `CaptureQueriesContext`). **Deferred/documented:** tombstones for `/sync` need a soft-delete log (noted in T6); ETag/Cache-Control + django-ratelimit→429 throttling are wired in Plan 1D against the host's middleware/throttle config (the package leaves auth/throttle to the host); image-rendition serialization arrives with post-detail (add when the Flutter renderer contract is finalized in Spec 2).
+- **Spec coverage (1C):** cursor pagination ✅ (T2); idempotent writes ✅ (T3); moderation-routed create ✅ (T3–T4); closed/locked reply guard ✅ (T4); reactions toggle w/ counts ✅ (T4); profile view/edit + system-field protection ✅ (T5); capability map present but **static in v1** (T5 — all-`True`; trust/lock-aware gating is a documented follow-up, not yet wired); search ✅ (T6); delta-sync ✅ (T6); strict `assertNumQueries`-style budget on the list endpoint ✅ (T2, via `CaptureQueriesContext`). **Deferred/documented:** tombstones for `/sync` need a soft-delete log (noted in T6); ETag/Cache-Control + django-ratelimit→429 throttling are wired in Plan 1D against the host's middleware/throttle config (the package leaves auth/throttle to the host); image-rendition serialization arrives with post-detail (add when the Flutter renderer contract is finalized in Spec 2).
 - **Placeholder scan:** none. The one explicit refactor (T3 idempotency/create consolidation) is shown in full, not deferred.
 - **Type/name consistency:** view names (`BoardListView`, `TopicListView`, `TopicCreateView`, `ReplyCreateView`, `ReactionToggleView`, `MeProfileView`, `SearchView`, `SyncView`) match across `views.py`/`urls.py`; serializer names consistent; `submit_for_moderation`, `Reaction.recount`, `ForumProfile.for_user` reused from Plans 1A/1B with matching signatures.
 - **Mobile-first checks:** cursor pagination, idempotency-key replay, compact list serializer + query budget, capability flags, delta-sync — all present.

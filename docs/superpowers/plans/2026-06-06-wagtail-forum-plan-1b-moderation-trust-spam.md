@@ -176,6 +176,18 @@ git commit -m "feat(wagtail_forum): pluggable spam backend + settings resolution
 
 ## Task 2: `SpamCheckTask` (automated moderation Task)
 
+> **Spike first (riskiest mechanism in the backend).** Self-approving *during*
+> `Workflow.start()` — `SpamCheckTask.start()` calling `task_state.approve()`
+> synchronously — is novel; everything in 1B/1C depends on it leaving a clean,
+> finished `WorkflowState` (and publishing via `WAGTAIL_FINISH_WORKFLOW_ACTION`).
+> Before writing the model, confirm in a shell against a throwaway record: create
+> a `SpamCheckTask`-only workflow, assign it to `Post`, `save_revision()`, call
+> `workflow.start(post, user)`, and assert `post.refresh_from_db(); post.live is
+> True`. Also confirm the exact `TaskState.approve()/reject()` kwargs in 7.4. If
+> self-approval inside `start()` leaves a half-open state, switch to the
+> documented alternative: listen for the `workflow_submitted` signal (or resolve
+> in `on_action`) instead of overriding `start()`. Apply the confirmed shape below.
+
 **Files:**
 
 - Create: `backend/packages/wagtail_forum/wagtail_forum/models/moderation.py`
@@ -421,25 +433,35 @@ def ensure_default_workflow():
 
 
 def submit_for_moderation(obj, user):
-    """Route by trust. Returns 'published' or 'pending'.
+    """Route a Post by trust. Returns 'published' or 'pending'.
 
-    Trusted users (trust >= TRUST_AUTOPUBLISH_LEVEL) publish immediately.
-    Others run the workflow: clean content auto-publishes; flagged content is
-    rejected and stays a draft (status 'pending') for manual moderation.
+    Liveness policy (see Plan 1A): content is born as a draft (live=False); it
+    only goes live by publishing here. Trusted users (trust >=
+    TRUST_AUTOPUBLISH_LEVEL) publish immediately. Others run the workflow: clean
+    content auto-approves -> the single-task workflow finishes -> publish; flagged
+    content is rejected and stays a draft (status 'pending') for manual moderation.
+
+    When an *opening* post goes live, its Topic is published too so the thread is
+    listed; rejected spam leaves both the post and the topic as drafts (hidden).
     """
+    obj.live = False
+    obj.save(update_fields=["live"])
     profile = ForumProfile.for_user(user)
     revision = obj.save_revision(user=user)
+
     if profile.trust_level >= get_setting("TRUST_AUTOPUBLISH_LEVEL"):
         revision.publish(user=user)
-        return "published"
-
-    workflow = obj.get_workflow()
-    if workflow is None:
-        revision.publish(user=user)
-        return "published"
-
-    workflow.start(obj, user)
+    else:
+        workflow = obj.get_workflow()
+        if workflow is None:
+            revision.publish(user=user)
+        else:
+            workflow.start(obj, user)
     obj.refresh_from_db()
+
+    if obj.live and obj.is_opening_post and not obj.topic.live:
+        obj.topic.save_revision(user=user).publish(user=user)
+
     return "published" if obj.live else "pending"
 ```
 

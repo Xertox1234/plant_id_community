@@ -15,6 +15,66 @@
 - Run every command from `backend/` unless stated otherwise.
 - This plan adds `wagtail_forum` to `INSTALLED_APPS` unconditionally; machina/`forum_integration` remain gated behind `ENABLE_FORUM` (default `False`) and are untouched until Plan 1D.
 
+**Liveness & moderation policy (load-bearing across Plans 1A–1D):**
+
+- `DraftStateMixin.live` defaults to **`True`**, so a plain `Model.objects.create()`
+  / `.save()` produces a **live** object. The forum treats content as **born as a
+  draft**: every Topic/Post created through the moderation path is set `live=False`
+  before saving, and only `revision.publish()` (trusted user) or workflow approval
+  flips it to `True` (see Plan 1B `submit_for_moderation`).
+- **Consequence for tests:** a test that needs a Topic/Post to appear in a `live`
+  query must either publish it (`obj.save_revision().publish()`) or pass
+  `live=True` explicitly. Tests in this plan that only check tree/relationships
+  don't care about `live` and create objects directly.
+- The exact `live` default and the StreamField assignment form are **confirmed in
+  Task 0** before any model code is written, so the policy rests on observed
+  behavior, not memory.
+
+---
+
+## Task 0: Pre-flight spike (verify load-bearing Wagtail behaviors)
+
+This spike resolves three facts the rest of Spec 1 depends on. It writes no
+package code; it confirms behavior in a shell so later tasks use the right form.
+Do it **after** Task 1 installs the package and the first models exist — i.e.
+run it right after Task 6 (Post exists), then apply any corrections to Tasks 5–6
+and Plan 1C before proceeding. (Listed first for visibility; executed after T6.)
+
+- [ ] **Step 1: Confirm the `live` default and StreamField assignment form**
+
+Run (from `backend/`): `python manage.py shell` and execute:
+
+```python
+from wagtail.models import Page
+from wagtail_forum.models import ForumBoard, ForumIndex, Topic, Post
+from wagtail_forum.blocks import ForumBodyBlock
+
+root = Page.objects.get(id=1)
+idx = root.add_child(instance=ForumIndex(title="F", slug="f"))
+board = idx.add_child(instance=ForumBoard(title="B", slug="b"))
+t = Topic.objects.create(board=board, title="T", slug="t")
+print("Topic born live =", t.live)   # EXPECT: True (confirms born-live default)
+
+# StreamField assignment: confirm which form is accepted.
+val = ForumBodyBlock().to_python([{"type": "paragraph", "value": "<p>hi</p>"}])
+p = Post.objects.create(topic=t, body=val, is_opening_post=True)
+p.refresh_from_db()
+print("body block type =", p.body[0].block_type)  # EXPECT: paragraph
+```
+
+- [ ] **Step 2: Record findings**
+
+If `t.live` is not `True`, or `ForumBodyBlock().to_python([...])` is not the
+accepted assignment form (e.g. the raw list-of-dicts works directly, or only the
+tuple form `[("paragraph", RichText("hi"))]` works), note the actual behavior and
+**update Plan 1A Task 6 and Plan 1C Tasks 3–4** to the confirmed form. The plans
+assume `live` defaults `True` and `ForumBodyBlock().to_python(<list-of-dicts>)` is
+the assignment form for API-supplied JSON; this step makes that real.
+
+> The Wagtail-workflow self-approval mechanism (`SpamCheckTask.start()` calling
+> `task_state.approve()` synchronously) is the matching spike for **Plan 1B Task 2**
+> — verify it there before building the rest of 1B.
+
 ---
 
 ## Task 1: Package scaffold + editable install + test discovery

@@ -55,26 +55,7 @@ Expected: FAIL — 404 (not mounted).
 
 `backend/apps/forum_host/__init__.py`: (empty file)
 
-`backend/apps/forum_host/apps.py`:
-
-```python
-from django.apps import AppConfig
-
-
-class ForumHostAppConfig(AppConfig):
-    default_auto_field = "django.db.models.BigAutoField"
-    name = "apps.forum_host"
-    label = "forum_host"
-    verbose_name = "Forum Host Integration"
-
-    def ready(self):
-        from . import signals  # noqa: F401  (wired in Task 3)
-```
-
-> Defer the `ready()` import of `signals` until Task 3 creates it. For this task,
-> use a `ready()` with `pass` (no import), then add the import in Task 3.
-
-`backend/apps/forum_host/apps.py` (Task 1 version):
+`backend/apps/forum_host/apps.py` (no `ready()` yet — bootstrap is wired in Task 2, signals in Task 3):
 
 ```python
 from django.apps import AppConfig
@@ -114,11 +95,20 @@ git commit -m "feat(forum_host): integration app + mount wagtail_forum API at /a
 
 ---
 
-## Task 2: Data migration — moderation workflow + moderator group
+## Task 2: Bootstrap moderation workflow + moderator group (`post_migrate`)
+
+> **Why `post_migrate`, not a data migration.** A data migration can't reliably
+> create a permission-bearing group: Django creates model `Permission` rows in
+> *its own* `post_migrate` handler, which may run after a data migration — so
+> `Permission.objects.filter(...)` can return empty. The migration dependencies
+> as first drafted were also invalid (`("forum_host","__first__")` is
+> self-referential; `"__latest__"` is not a real sentinel). A `post_migrate`
+> receiver runs after permissions exist and needs no dependency gymnastics.
 
 **Files:**
 
-- Create: `backend/apps/forum_host/migrations/0001_forum_bootstrap.py`
+- Create: `backend/apps/forum_host/bootstrap.py`
+- Modify: `backend/apps/forum_host/apps.py` (connect the receiver in `ready()`)
 - Create: `backend/apps/forum_host/tests/test_bootstrap.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -128,25 +118,21 @@ git commit -m "feat(forum_host): integration app + mount wagtail_forum API at /a
 ```python
 import pytest
 from django.contrib.auth.models import Group
-from wagtail.models import Workflow
+from wagtail.models import Page, Workflow
 
-from wagtail_forum.models import Post
+from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
 from wagtail_forum.workflow import DEFAULT_WORKFLOW_NAME
 
 
 @pytest.mark.django_db
 def test_bootstrap_created_workflow_and_group():
-    # Migrations have run; the bootstrap data migration should have created both.
+    # post_migrate ran during test-DB setup; both should exist.
     assert Workflow.objects.filter(name=DEFAULT_WORKFLOW_NAME).exists()
     assert Group.objects.filter(name="Forum Moderators").exists()
 
 
 @pytest.mark.django_db
 def test_post_resolves_the_default_workflow():
-    # A workflow is assigned to the Post content type.
-    from wagtail_forum.models import ForumBoard, ForumIndex, Topic
-    from wagtail.models import Page
-
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
     board = index.add_child(instance=ForumBoard(title="General", slug="general"))
@@ -159,26 +145,33 @@ def test_post_resolves_the_default_workflow():
 - [ ] **Step 2: Run test — verify it fails**
 
 Run: `pytest apps/forum_host/tests/test_bootstrap.py -v`
-Expected: FAIL — workflow/group don't exist.
+Expected: FAIL — workflow/group don't exist (receiver not connected).
 
-- [ ] **Step 3: Write the data migration**
+- [ ] **Step 3: Write the bootstrap receiver + connect it**
 
-`backend/apps/forum_host/migrations/0001_forum_bootstrap.py`:
+`backend/apps/forum_host/bootstrap.py`:
 
 ```python
-from django.db import migrations
+from django.db.models.signals import post_migrate
 
 
-def bootstrap(apps, schema_editor):
-    # Import the real (non-historical) helpers — safe here because this migration
-    # depends on wagtail_forum's schema migrations being applied.
+def ensure_forum_bootstrap(sender, **kwargs):
+    """Idempotently create the moderation workflow + Forum Moderators group.
+
+    Connected to post_migrate (after Django has created Permission rows). Guarded
+    to run once — when forum_host's own post_migrate fires — by which point
+    wagtail_forum is fully migrated.
+    """
+    if getattr(sender, "label", None) != "forum_host":
+        return
+
     from django.contrib.auth.models import Group, Permission
     from wagtail_forum.workflow import ensure_default_workflow
 
     ensure_default_workflow()
 
     group, _ = Group.objects.get_or_create(name="Forum Moderators")
-    wanted = Permission.objects.filter(
+    perms = Permission.objects.filter(
         content_type__app_label="wagtail_forum",
         content_type__model__in=["topic", "post"],
         codename__in=[
@@ -186,39 +179,35 @@ def bootstrap(apps, schema_editor):
             "publish_topic", "publish_post",
         ],
     )
-    group.permissions.add(*wanted)
+    group.permissions.set(perms)
 
 
-def unbootstrap(apps, schema_editor):
-    from django.contrib.auth.models import Group
-
-    Group.objects.filter(name="Forum Moderators").delete()
-
-
-class Migration(migrations.Migration):
-    dependencies = [
-        ("forum_host", "__first__"),
-        # Ensure wagtail_forum tables + the workflow models exist first.
-        ("wagtail_forum", "__latest__"),
-        ("wagtailcore", "__latest__"),
-    ]
-
-    operations = [migrations.RunPython(bootstrap, unbootstrap)]
+def connect():
+    post_migrate.connect(
+        ensure_forum_bootstrap, dispatch_uid="forum_host.ensure_forum_bootstrap"
+    )
 ```
 
-> If `("wagtail_forum", "__latest__")` is rejected by Django's dependency
-> resolver, replace it with the concrete latest migration name from
-> `packages/wagtail_forum/wagtail_forum/migrations/` (e.g. `("wagtail_forum",
-> "0006_…")`). The `publish_topic`/`publish_post` permissions exist because the
-> models use `DraftStateMixin`; if a codename is absent in your Wagtail version,
-> drop it from the list — the test only asserts the group exists.
+Set `backend/apps/forum_host/apps.py` `ready()` to connect it:
 
-- [ ] **Step 4: Run migrations + test**
+```python
+    def ready(self):
+        from .bootstrap import connect
+
+        connect()
+```
+
+> The `publish_topic`/`publish_post` permissions exist because the models use
+> `DraftStateMixin`; if a codename is absent in your Wagtail version, drop it from
+> the list — `set()` simply assigns whatever matched, and the test only asserts
+> the group exists.
+
+- [ ] **Step 4: Run migrate + test**
 
 Run:
 
 ```bash
-python manage.py migrate forum_host
+python manage.py migrate
 pytest apps/forum_host/tests/test_bootstrap.py -v
 ```
 
@@ -227,8 +216,8 @@ Expected: PASS (both).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/apps/forum_host/migrations/0001_forum_bootstrap.py backend/apps/forum_host/tests/test_bootstrap.py
-git commit -m "feat(forum_host): bootstrap moderation workflow + Forum Moderators group"
+git add backend/apps/forum_host/bootstrap.py backend/apps/forum_host/apps.py backend/apps/forum_host/tests/test_bootstrap.py
+git commit -m "feat(forum_host): post_migrate bootstrap of workflow + Forum Moderators group"
 ```
 
 ---
@@ -329,11 +318,15 @@ def _on_moderation_decided(sender, **kwargs):
     notifications.dispatch("moderation_decided", **kwargs)
 ```
 
-Update `backend/apps/forum_host/apps.py` `ready()`:
+Update `backend/apps/forum_host/apps.py` `ready()` to keep the Task 2 bootstrap
+connect **and** register the signal receivers:
 
 ```python
     def ready(self):
-        from . import signals  # noqa: F401
+        from .bootstrap import connect
+
+        connect()
+        from . import signals  # noqa: F401  (registers receivers)
 ```
 
 - [ ] **Step 4: Run the test — verify it passes**
