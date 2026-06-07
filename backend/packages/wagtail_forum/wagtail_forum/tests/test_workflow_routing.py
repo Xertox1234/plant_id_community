@@ -81,7 +81,13 @@ def test_untrusted_no_workflow_fails_closed():
     # content must NOT publish unscreened — it stays a draft (fail closed).
     user = User.objects.create_user(username="nowf", password="x")
     ForumProfile.for_user(user)  # trust NEW
-    # Deliberately do NOT call ensure_default_workflow().
+    # Deliberately do NOT call ensure_default_workflow(). A host (apps.forum_host)
+    # may bootstrap one into the shared test DB on post_migrate, so clear any
+    # workflow state to genuinely test the no-workflow fail-closed path.
+    from wagtail.models import Workflow, WorkflowContentType
+
+    WorkflowContentType.objects.all().delete()
+    Workflow.objects.all().delete()
 
     post = _post(user, "a friendly normal hello")
     post.save()

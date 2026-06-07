@@ -32,6 +32,11 @@ def _draft_post(author, body_text):
 
 
 def _assign_workflow():
+    # A host (e.g. apps.forum_host) may bootstrap the default workflow on
+    # post_migrate, which lands in the shared test DB during setup. Clear any
+    # pre-existing workflow state so this test owns what it asserts on.
+    WorkflowContentType.objects.all().delete()
+    Workflow.objects.all().delete()
     workflow = Workflow.objects.create(name="Forum moderation")
     task = SpamCheckTask.objects.create(name="Spam check")
     WorkflowTask.objects.create(workflow=workflow, task=task, sort_order=0)
