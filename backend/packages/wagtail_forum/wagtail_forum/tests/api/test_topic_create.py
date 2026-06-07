@@ -131,6 +131,44 @@ def test_spam_backend_exception_leaves_pending_not_500():
     assert post.live is False  # nothing published despite the backend crash
 
 
+@override_settings(
+    WAGTAILFORUM_SPAM_BACKEND="wagtail_forum.tests.api.test_topic_create.RaisingSpamBackend"
+)
+@pytest.mark.django_db
+def test_spam_backend_crash_replays_pending_on_retry():
+    # The draft topic commits before moderation runs, so a retry with the same
+    # idempotency key must replay the cached "pending" (200), not hit the slug
+    # uniqueness constraint and 409.
+    ensure_default_workflow()
+    board = _board()
+    user = User.objects.create_user(username="new", password="x")
+    ForumProfile.for_user(user)
+    client = APIClient()
+    client.force_authenticate(user)
+    payload = {
+        "title": "Hi",
+        "slug": "hi",
+        "body": [{"type": "paragraph", "value": "<p>hello there friend</p>"}],
+    }
+
+    r1 = client.post(
+        f"/forum/boards/{board.slug}/topics/create/",
+        payload,
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="key1",
+    )
+    r2 = client.post(
+        f"/forum/boards/{board.slug}/topics/create/",
+        payload,
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="key1",
+    )
+    assert r1.status_code == 201
+    assert r1.data["status"] == "pending"
+    assert r2.status_code == 200  # clean replay, not a 409
+    assert Topic.objects.filter(board=board).count() == 1
+
+
 @pytest.mark.django_db
 def test_dangerous_body_is_sanitized_on_write():
     # A javascript: href, an onerror handler, and a <script> tag are all stripped

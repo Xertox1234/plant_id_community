@@ -95,7 +95,6 @@ class TopicCreateView(APIView):
         # 2) Route through moderation OUTSIDE the creation transaction. A pluggable
         # spam backend can raise; the draft is already live=False, so never 500 —
         # leave it as a pending draft for a moderator.
-        moderation_failed = False
         try:
             status = submit_for_moderation(opening, request.user)
         except Exception:
@@ -104,13 +103,13 @@ class TopicCreateView(APIView):
                 opening.pk,
             )
             status = "pending"
-            moderation_failed = True
 
         result = {"id": topic.id, "slug": topic.slug, "status": status}
-        # Don't cache a backend-crash outcome, so a client retry can re-attempt.
-        # A legitimate spam-"pending" IS cached (idempotent — no duplicate draft).
-        if not moderation_failed:
-            remember(cache_key, result)
+        # Cache the outcome — including a backend-crash "pending". The draft topic
+        # is already committed above, so a retry with the same key would otherwise
+        # hit the (board, slug) uniqueness constraint and 409 instead of cleanly
+        # replaying the pending result.
+        remember(cache_key, result)
         return Response(result, status=http_status.HTTP_201_CREATED)
 
 
