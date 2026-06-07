@@ -11,3 +11,4 @@ class ForumHostAppConfig(AppConfig):
         from .bootstrap import connect
 
         connect()
+        from . import signals  # noqa: F401  (registers signal receivers)
