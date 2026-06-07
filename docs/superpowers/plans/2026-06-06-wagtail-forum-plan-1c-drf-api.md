@@ -10,6 +10,125 @@
 
 **Depends on:** Plans 1A + 1B. **Run every command from `backend/`.** The API is mounted into the host URLconf in Plan 1D; these tests use a local test urlconf override so 1C is independently testable.
 
+> **⚠️ EXECUTION ADDENDA (binding — added 2026-06-07 from the 1A/1B reviews + an advisor pass; carry-forwards recorded in project memory).** The plan text below predates the 1A/1B build. Where a task has a **🔒 1C hardening addendum** block, that block is binding and the reviewer MUST verify it in addition to the original steps. Summary of what changed: (a) **Task 0** added (opening-post uniqueness constraint, perf indexes, admin `select_related`, migration `0007`); (b) the board topic list orders by **activity** (`-last_post_at, -id`), not `-id`, so the new index is used; (c) create/reply views **catch spam-backend exceptions** → safe "pending" (content stays `live=False`), never a 500; (d) reply views **forbid non-live topics with a 404 checked before** the closed/locked 409; (e) `validate_body` also **allowlists `<a href>` schemes** (reject `javascript:`/`data:` etc.) after HTML-entity-unescaping; (f) duplicate `(board, slug)` on topic create → **409**, not a 500.
+
+---
+
+## Task 0: Model + admin hardening (migration 0007)
+
+> **Added during execution.** These integrity/perf changes belong in 1C because they guard the create flow (opening-post uniqueness), the per-topic post-list query (`topic, created_at`), the activity-ordered board topic list (`board, -last_post_at`), and the admin lists (N+1). Tables are empty pre-launch, so adding constraints/indexes now is free.
+
+**Files:**
+
+- Modify: `backend/packages/wagtail_forum/wagtail_forum/models/posts.py`
+- Modify: `backend/packages/wagtail_forum/wagtail_forum/models/topics.py`
+- Modify: `backend/packages/wagtail_forum/wagtail_forum/wagtail_hooks.py`
+- Create: `backend/packages/wagtail_forum/wagtail_forum/migrations/0007_*.py` (via `makemigrations`)
+- Create: `backend/packages/wagtail_forum/wagtail_forum/tests/test_constraints.py`
+
+- [ ] **Step 1: Write the failing test — one opening post per topic**
+
+`backend/packages/wagtail_forum/wagtail_forum/tests/test_constraints.py`:
+
+```python
+import pytest
+from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
+from wagtail.models import Page
+
+from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+
+User = get_user_model()
+
+
+def _topic():
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
+    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    author = User.objects.create_user(username="op", password="x")
+    return Topic.objects.create(board=board, title="T", slug="t", author=author)
+
+
+@pytest.mark.django_db
+def test_only_one_opening_post_per_topic():
+    topic = _topic()
+    Post.objects.create(topic=topic, author=topic.author, is_opening_post=True)
+    # A second opening post on the same topic violates the partial unique constraint.
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            Post.objects.create(topic=topic, author=topic.author, is_opening_post=True)
+    # Non-opening replies are unconstrained.
+    Post.objects.create(topic=topic, author=topic.author, is_opening_post=False)
+    Post.objects.create(topic=topic, author=topic.author, is_opening_post=False)
+```
+
+- [ ] **Step 2: Run test — verify it fails**
+
+Run: `pytest packages/wagtail_forum/wagtail_forum/tests/test_constraints.py -v`
+Expected: FAIL — the second opening post is created without error (no constraint yet).
+
+- [ ] **Step 3: Add the `Post` partial unique constraint + composite index**
+
+In `models/posts.py`, add `from django.db.models import Q` and replace the `Meta`:
+
+```python
+class Meta:
+    ordering = ["created_at"]
+    indexes = [models.Index(fields=["topic", "created_at"])]
+    constraints = [
+        models.UniqueConstraint(
+            fields=["topic"],
+            condition=Q(is_opening_post=True),
+            name="uniq_opening_post_per_topic",
+        )
+    ]
+```
+
+- [ ] **Step 4: Add the `Topic` activity index**
+
+In `models/topics.py`, extend the existing `Meta` (keep `ordering` and `constraints`) with:
+
+```python
+    indexes = [models.Index(fields=["board", "-last_post_at"])]
+```
+
+- [ ] **Step 5: Admin `select_related` (kill the admin-list N+1)**
+
+In `wagtail_hooks.py`, add a `get_queryset` to `TopicViewSet` and `PostViewSet`. **Verify the override signature against the installed Wagtail (`venv`) first** — `SnippetViewSet.get_queryset` may be `(self, request)` or `(self)` in 7.4; if neither fits, override the index view's queryset instead. Whatever the form, the resulting list queryset must `select_related`:
+
+```python
+class TopicViewSet(SnippetViewSet):
+    ...
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            "board", "author", "last_post_author"
+        )
+
+
+class PostViewSet(SnippetViewSet):
+    ...
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("topic", "author")
+```
+
+If `super().get_queryset(...)` returns `None` (Wagtail falls back to `model._default_manager` in that case), use `self.model.objects.all().select_related(...)` instead. Confirm empirically.
+
+- [ ] **Step 6: Make the migration + run the FULL package suite**
+
+```bash
+python manage.py makemigrations wagtail_forum
+pytest packages/wagtail_forum -q
+```
+
+Expected: `0007_*` migration created; the new constraint test passes; **ALL existing package tests still pass.** A new unique constraint can trip a fixture that makes two opening posts on one topic or otherwise violates it — if so, fix the *fixture*, not the constraint.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add backend/packages/wagtail_forum
+git commit -m "feat(wagtail_forum): opening-post uniqueness, perf indexes, admin select_related"
+```
+
 ---
 
 ## Task 1: API package scaffold + cursor pagination + test urlconf
@@ -161,6 +280,41 @@ git commit -m "feat(wagtail_forum): API scaffold, cursor pagination, boards list
 
 ## Task 2: Topic list (cursor) + strict query-count budget
 
+> **🔒 1C hardening addendum (binding).** Order the list by **activity, not insertion order**, so the `Task 0` `(board, -last_post_at)` index earns its keep and bumped topics surface (the whole point of the denormalized `last_post_at`). Two concrete changes to the steps below:
+>
+> 1. **Pagination ordering.** Do NOT reuse `ForumCursorPagination` (which orders `-id`). Add a subclass in `api/pagination.py` and use it on `TopicListView`:
+>
+>    ```python
+>    class TopicCursorPagination(ForumCursorPagination):
+>        # Activity-first; `-id` is the unique tiebreak that keeps the cursor
+>        # deterministic when last_post_at ties. Live topics always have a
+>        # non-null last_post_at (the 1B publish signal stamps it), and the list
+>        # filters live=True, so the cursor never sees a NULL ordering value.
+>        ordering = ("-last_post_at", "-id")
+>    ```
+>
+>    `TopicListView.get_queryset` must `.order_by("-last_post_at", "-id")` to match.
+>    `is_pinned`-surfacing in list order is a documented v1 follow-up (cursor pagination across a boolean partition is fiddly; keep the cursor on the `(timestamp, id)` tuple). `Meta.ordering` on the model stays as-is for admin.
+>
+> 2. **Test fixture.** The Step-1 test creates live topics with **no posts**, so `last_post_at` is NULL for all of them — which makes an activity-ordered cursor non-deterministic. Stamp distinct timestamps. Replace the creation loop + the `next`/ordering assertions with:
+>
+>    ```python
+>    import datetime
+>    from django.utils import timezone
+>    ...
+>    base = timezone.now()
+>    for i in range(25):
+>        Topic.objects.create(
+>            board=board, title=f"T{i}", slug=f"t{i}", author=author, live=True,
+>            last_post_at=base - datetime.timedelta(minutes=i),
+>        )
+>    ...
+>    assert len(resp.data["results"]) == 20  # page_size
+>    assert resp.data["next"] is not None  # cursor link
+>    assert resp.data["results"][0]["slug"] == "t0"  # most-recent activity first
+>    assert len(ctx.captured_queries) <= 6
+>    ```
+
 **Files:**
 
 - Modify: `backend/packages/wagtail_forum/wagtail_forum/api/serializers.py`
@@ -297,6 +451,14 @@ git commit -m "feat(wagtail_forum): cursor-paginated topic list with query budge
 ---
 
 ## Task 3: Idempotent topic creation routed through moderation
+
+> **🔒 1C hardening addendum (binding).** Three changes layered onto the steps below. Add a failing test for each before implementing.
+>
+> **(a) Spam-backend exception → safe "pending", never a 500.** A host-pluggable spam backend (or `submit_for_moderation` itself) can raise on a well-formed body. The content is born `live=False`, so it is safe regardless — but the request must not 500. **Structure:** create the draft topic+opening-post in their OWN `transaction.atomic()` block (so they commit), then call `submit_for_moderation` *outside* that block wrapped in `try/except Exception`; on exception, log `[ERROR]` and set `status = "pending"`. Do NOT catch a DB error *inside* an atomic block you then try to commit — that raises "transaction is aborted". Do NOT return 4xx (a backend crash is not a client error). Return 201 with `status="pending"`. (Only `remember()` the idempotency result on the non-exception path, so a client retry after a transient backend outage can re-attempt.) Add a test using a spam backend whose `check()` raises (point `WAGTAILFORUM_SPAM_BACKEND` at a throwaway raising backend via `override_settings`, then `ensure_default_workflow()` and a NEW-trust user): assert no exception leaks, nothing publishes (`post.live is False`), and the response is 201 `status="pending"`.
+>
+> **(b) Duplicate `(board, slug)` → 409, not 500.** The client supplies `slug`, guarded by `uniq_topic_slug_per_board`. A duplicate (or a concurrent dup-submit that races past the check-then-act idempotency cache) raises `IntegrityError`. Catch it around the draft-creation atomic block and return `409` `{"detail": "A topic with this slug already exists in this board."}`. Add a test: two creates, same board+slug, distinct idempotency keys → second is 409.
+>
+> **(c) `validate_body` must allowlist `<a href>` schemes (XSS).** Direct API POSTs bypass the Wagtail editor's href filtering, so a crafted `javascript:`/`data:` href in the rich-text body would be stored and later rendered to a moderator (Wagtail queue) or clients. In `TopicCreateSerializer.validate_body` (and the reply serializer in T4), after the `to_python` dry-run, walk every RichTextBlock's source HTML, parse it (use `wagtail.rich_text` / an HTML parser — **not** a substring scan, since `javascript:` obfuscates as `JAVASCRIPT:`, `java&#115;cript:`, `java\tscript:`), HTML-entity-unescape each `<a href>` value, and reject (raise `serializers.ValidationError`) any scheme not in `{http, https, mailto}` or a relative/anchor href (`/…`, `#…`, no scheme). Put this in a shared helper (e.g. `api/sanitize.py: assert_safe_body(stream_value)`) reused by both serializers. Add a test: a body with `<a href="javascript:alert(1)">x</a>` → 400; a body with `<a href="https://ok.com">x</a>` → accepted. (Serializing the body OUT via `expand_db_html()` is deferred until a body-returning endpoint exists — there is none in 1C.)
 
 **Files:**
 
@@ -493,6 +655,16 @@ git commit -m "feat(wagtail_forum): idempotent topic creation routed through mod
 ---
 
 ## Task 4: Reply create (with closed/locked guard) + reactions toggle
+
+> **🔒 1C hardening addendum (binding).** Two changes to `ReplyCreateView`, plus reuse of T3's helpers.
+>
+> **(a) Forbid replies to a non-live (draft/hidden) topic — 404, checked BEFORE the closed/locked 409.** `get_object_or_404(Topic, id=...)` finds draft topics too (no `live` filter), so without this guard a reply publishes `live=True` onto a hidden thread. A 403/409 on a draft topic leaks its existence; return **404** to hide it. Order of guards: `if not topic.live: 404` → then `if topic.is_closed or topic.locked: 409` → then proceed. Add a test: a NEW-trust user replying to a `live=False` topic → 404.
+>
+> **(b) Same spam-backend-exception safety as T3(a).** Wrap the `submit_for_moderation` call in `try/except Exception` → log `[ERROR]`, `status="pending"`, return 201; the reply is born `live=False` so nothing leaks. (No idempotency on replies in v1, so no cache caveat.)
+>
+> **(c)** Reuse the shared `assert_safe_body` helper from T3(c) in `ReplyCreateSerializer.validate_body` — a malformed or `javascript:`-bearing reply body → 400. Add a test for the `javascript:` case.
+>
+> Note: the existing `test_reaction_toggle_returns_counts` asserts `reaction_counts == {}` after toggling off — `Reaction.recount` omits zero-count types, so an empty dict is correct.
 
 **Files:**
 
