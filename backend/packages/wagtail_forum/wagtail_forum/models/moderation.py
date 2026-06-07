@@ -24,7 +24,13 @@ class SpamCheckTask(Task):
 
     def start(self, workflow_state, user=None):
         task_state = super().start(workflow_state, user=user)
-        result = get_spam_backend().check(workflow_state.content_object)
+        # Check the content that will actually be PUBLISHED (the latest revision),
+        # not the live DB row. The finish action publishes get_latest_revision();
+        # if we checked content_object (the saved row) instead, a clean-saved post
+        # whose latest revision was edited to spam would pass the check and then
+        # publish the spam (a time-of-check/time-of-use bypass).
+        obj = workflow_state.content_object.get_latest_revision_as_object()
+        result = get_spam_backend().check(obj)
         if result.is_clean:
             task_state.approve(user=user, update=False)
         else:

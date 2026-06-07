@@ -67,3 +67,21 @@ def test_spammy_post_is_not_published():
     post.refresh_from_db()
 
     assert post.live is False
+
+
+@pytest.mark.django_db
+def test_spam_in_latest_revision_is_caught_not_db_row():
+    # TOCTOU guard: the finish action publishes the LATEST REVISION, so the spam
+    # check must inspect that revision, not the saved DB row. A post saved clean
+    # whose latest revision was edited to spam must NOT publish.
+    user = User.objects.create_user(username="sneak", password="x")
+    post = _draft_post(user, "a totally clean saved body")  # DB row stays clean
+
+    spam = "http://a.com http://b.com http://c.com http://d.com http://e.com"
+    post.body = [{"type": "paragraph", "value": f"<p>{spam}</p>"}]
+    post.save_revision()  # latest revision is now spam; DB row body still clean
+
+    _assign_workflow().start(post, None)
+    post.refresh_from_db()
+
+    assert post.live is False
