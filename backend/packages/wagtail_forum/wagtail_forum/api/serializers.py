@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from ..models import ForumBoard, Topic
+from ..models import ForumBoard, ForumProfile, Topic
 from .sanitize import validate_forum_body
 
 
@@ -46,3 +46,29 @@ class ReplyCreateSerializer(serializers.Serializer):
 
     def validate_body(self, value):
         return validate_forum_body(value)
+
+
+class MeProfileSerializer(serializers.ModelSerializer):
+    capabilities = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ForumProfile
+        fields = [
+            "display_name",
+            "bio",
+            "signature",
+            "trust_level",
+            "post_count",
+            "flags_received",
+            "capabilities",
+        ]
+        read_only_fields = ["trust_level", "post_count", "flags_received"]
+
+    def get_capabilities(self, obj):
+        # v1: static all-True. Trust/lock-aware gating (e.g. can_react only at
+        # trust>=1) is a documented follow-up.
+        return {
+            "can_react": True,
+            "can_reply": True,
+            "can_create_topic": True,
+        }

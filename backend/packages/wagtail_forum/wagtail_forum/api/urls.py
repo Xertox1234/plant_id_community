@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     BoardListView,
+    MeProfileView,
     ReactionToggleView,
     ReplyCreateView,
     TopicCreateView,
@@ -28,4 +29,5 @@ urlpatterns = [
         ReactionToggleView.as_view(),
         name="reaction-toggle",
     ),
+    path("me/profile/", MeProfileView.as_view(), name="me-profile"),
 ]

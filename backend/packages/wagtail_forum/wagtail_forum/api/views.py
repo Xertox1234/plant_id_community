@@ -15,6 +15,7 @@ from .idempotency import idempotency_cache_key, remember, replay
 from .pagination import TopicCursorPagination
 from .serializers import (
     BoardSerializer,
+    MeProfileSerializer,
     ReplyCreateSerializer,
     TopicCreateSerializer,
     TopicListSerializer,
@@ -195,3 +196,15 @@ class ReactionToggleView(APIView):
                 pass
         counts = Reaction.recount(post)
         return Response({"reaction_counts": counts}, status=http_status.HTTP_200_OK)
+
+
+class MeProfileView(generics.RetrieveUpdateAPIView):
+    serializer_class = MeProfileSerializer
+    permission_classes = [IsAuthenticated]
+    versioning_class = None
+    http_method_names = ["get", "patch", "head", "options"]
+
+    def get_object(self):
+        from ..models import ForumProfile
+
+        return ForumProfile.for_user(self.request.user)
