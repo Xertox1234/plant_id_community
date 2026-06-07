@@ -459,7 +459,14 @@ def submit_for_moderation(obj, user):
             workflow.start(obj, user)
     obj.refresh_from_db()
 
-    if obj.live and obj.is_opening_post and not obj.topic.live:
+    # Publish the topic only when its own author's opening post goes live.
+    # The author check prevents forcing someone else's draft topic live (IDOR).
+    if (
+        obj.live
+        and obj.is_opening_post
+        and not obj.topic.live
+        and obj.topic.author_id == obj.author_id
+    ):
         obj.topic.save_revision(user=user).publish(user=user)
 
     return "published" if obj.live else "pending"

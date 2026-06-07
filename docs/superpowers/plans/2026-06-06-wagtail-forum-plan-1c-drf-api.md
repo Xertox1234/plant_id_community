@@ -402,6 +402,7 @@ liveness policy from Plan 1A, and StreamField assignment via the block's
 `to_python`, the form confirmed in Plan 1A Task 0):
 
 ```python
+from django.db import transaction
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -426,28 +427,40 @@ class TopicCreateView(APIView):
         serializer.is_valid(raise_exception=True)
         board = get_object_or_404(ForumBoard.objects.live(), slug=slug)
 
-        topic = Topic(
-            board=board,
-            title=serializer.validated_data["title"],
-            slug=serializer.validated_data["slug"],
-            author=request.user,
-            live=False,  # born as a draft; published by moderation
-        )
-        topic.save()
-        opening = Post(
-            topic=topic,
-            author=request.user,
-            is_opening_post=True,
-            body=ForumBodyBlock().to_python(serializer.validated_data["body"]),
-            live=False,
-        )
-        opening.save()
+        # Atomic: a failure in submit_for_moderation must not leave an orphan draft.
+        with transaction.atomic():
+            topic = Topic(
+                board=board,
+                title=serializer.validated_data["title"],
+                slug=serializer.validated_data["slug"],
+                author=request.user,
+                live=False,  # born as a draft; published by moderation
+            )
+            topic.save()
+            opening = Post(
+                topic=topic,
+                author=request.user,
+                is_opening_post=True,
+                body=ForumBodyBlock().to_python(serializer.validated_data["body"]),
+                live=False,
+            )
+            opening.save()
+            status = submit_for_moderation(opening, request.user)  # also publishes topic
 
-        status = submit_for_moderation(opening, request.user)  # also publishes topic
         result = {"id": topic.id, "slug": topic.slug, "status": status}
         remember(cache_key, result)
         return Response(result, status=201)
 ```
+
+> **Body validation (do this in the serializer, not the view):** add a
+> `validate_body` to `TopicCreateSerializer` (and `ReplyCreateSerializer`) that
+> dry-runs `ForumBodyBlock().to_python(value)` inside a try/except and raises
+> `serializers.ValidationError` on failure — so a malformed body is a 400, not a
+> 500. **Idempotency caveat:** the cached create response stores the moderation
+> `status` (e.g. `pending`); a replay within the 24h TTL returns that original
+> status even if the item was since published. Acceptable for v1 (the client
+> re-fetches the topic); if it matters, shorten the TTL to minutes for these
+> status-bearing endpoints.
 
 Update `api/urls.py`:
 
