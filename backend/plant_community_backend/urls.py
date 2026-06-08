@@ -122,11 +122,7 @@ urlpatterns = [
                     ),
                     path("blog/", include("apps.blog.urls")),
                     path("blog-api/", include("apps.blog.api_urls")),
-                    *(
-                        [path("forum/", include("apps.forum_integration.api_urls"))]
-                        if settings.ENABLE_FORUM
-                        else []
-                    ),
+                    path("forum/", include("wagtail_forum.api.urls")),
                     # path('search/', include('apps.search.urls')),  # Temporarily disabled (depends on Machina)
                     path("calendar/", include("apps.garden_calendar.urls")),
                     path("garden/", include("apps.garden.urls")),  # Garden Planner API
@@ -150,11 +146,6 @@ urlpatterns = [
                 # path('search/', include('apps.search.urls')),  # Temporarily disabled (depends on Machina)
                 path("calendar/", include("apps.garden_calendar.urls")),
                 path("garden/", include("apps.garden.urls")),  # Garden Planner API
-                *(
-                    [path("forum/", include("apps.forum_integration.api_urls"))]
-                    if settings.ENABLE_FORUM
-                    else []
-                ),
             ]
         ),
     ),

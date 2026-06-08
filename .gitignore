@@ -223,3 +223,6 @@ docs/cowork/
 !.dev.vars.example
 !.env.example
 .superpowers/
+
+# Python editable-install build artifacts (e.g. backend/packages/*/...egg-info)
+*.egg-info/
