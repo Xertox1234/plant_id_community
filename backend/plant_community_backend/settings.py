@@ -152,7 +152,6 @@ THIRD_PARTY_APPS = [
     "corsheaders",
     "django_filters",
     "imagekit",
-    "mptt",
     "widget_tweaks",
     "csp",  # Content Security Policy
     "django_celery_beat",
