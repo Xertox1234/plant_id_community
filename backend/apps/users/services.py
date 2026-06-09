@@ -11,14 +11,11 @@ from apps.core.utils.pii_safe_logging import (
     log_safe_user_context,
     log_safe_username,
 )
-from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils import timezone
-from machina.apps.forum.models import Forum
-from machina.core.loading import get_class
 
 # External dependency for Web Push (requires: pip install pywebpush)
 try:
@@ -30,12 +27,6 @@ except ImportError:
     WebPushException = Exception
 
 logger = logging.getLogger(__name__)
-
-# Import Django Machina models
-ForumPermission = apps.get_model("forum_permission", "ForumPermission")
-GroupForumPermission = apps.get_model("forum_permission", "GroupForumPermission")
-UserForumPermission = apps.get_model("forum_permission", "UserForumPermission")
-PermissionHandler = get_class("forum_permission.handler", "PermissionHandler")
 
 
 class TrustLevelService:
@@ -60,49 +51,6 @@ class TrustLevelService:
                 print(f"Group already exists: {group_name}")
 
         return created_groups
-
-    @staticmethod
-    def setup_forum_permissions():
-        """Set up forum permissions for trust level groups."""
-        # Get or create trust level groups
-        groups = TrustLevelService.create_trust_level_groups()
-
-        # Get all forums
-        forums = Forum.objects.filter(type=Forum.FORUM_POST)
-
-        # Get permissions
-        try:
-            attach_file_perm = ForumPermission.objects.get(codename="can_attach_file")
-            download_file_perm = ForumPermission.objects.get(
-                codename="can_download_file"
-            )
-        except ForumPermission.DoesNotExist:
-            print("Forum permissions not found. Run forum setup first.")
-            return
-
-        # Grant file attachment permissions to basic+ trust levels
-        for forum in forums:
-            # Basic members and above can attach and download files
-            for group_name in ["basic_members", "trusted_members", "veteran_members"]:
-                group = groups[group_name]
-
-                # Grant attach file permission
-                GroupForumPermission.objects.get_or_create(
-                    permission=attach_file_perm,
-                    forum=forum,
-                    group=group,
-                    defaults={"has_perm": True},
-                )
-
-                # Grant download file permission
-                GroupForumPermission.objects.get_or_create(
-                    permission=download_file_perm,
-                    forum=forum,
-                    group=group,
-                    defaults={"has_perm": True},
-                )
-
-        print(f"Set up file permissions for {len(forums)} forums")
 
     @staticmethod
     def assign_user_to_trust_group(user):
@@ -151,43 +99,6 @@ class TrustLevelService:
 
         print(f"Updated trust levels for {updated_count} users")
         return updated_count
-
-    @staticmethod
-    def check_user_can_attach_files(user, forum):
-        """Check if user can attach files to a specific forum."""
-        # Staff can always attach files
-        if user.is_staff or user.is_superuser:
-            return True
-
-        # Use Django Machina permission system
-        perm_handler = PermissionHandler()
-        return perm_handler.can_attach_files(forum, user)
-
-
-class ForumPostService:
-    """Service for managing forum posts and trust level integration."""
-
-    @staticmethod
-    def update_user_post_count(user):
-        """Update user's verified post count from actual forum posts."""
-        from machina.apps.forum_conversation.models import Post
-
-        # Count approved posts by this user
-        verified_count = Post.objects.filter(poster=user, approved=True).count()
-
-        # Update user's cached count
-        user.posts_count_verified = verified_count
-        user.save(update_fields=["posts_count_verified"])
-
-        # Check if trust level should be updated
-        old_level = user.trust_level
-        user.update_trust_level()
-
-        # If trust level changed, update group membership
-        if user.trust_level != old_level:
-            TrustLevelService.assign_user_to_trust_group(user)
-
-        return verified_count
 
 
 class NotificationService:
@@ -699,11 +610,6 @@ class DemoDataService:
             identifications = self._create_demo_identifications()
             created_items["identifications_count"] = len(identifications)
 
-            # Create demo forum posts (if forum is enabled)
-            if self._is_forum_enabled():
-                forum_posts = self._create_demo_forum_posts()
-                created_items["forum_posts_count"] = len(forum_posts)
-
             # Create demo care reminders (if requested)
             if include_care_reminders and identifications:
                 care_reminders = self._create_demo_care_reminders(identifications[:3])
@@ -815,90 +721,6 @@ class DemoDataService:
 
         return created_identifications
 
-    def _create_demo_forum_posts(self):
-        """Create sample forum topics and posts."""
-        if not self._is_forum_enabled():
-            return []
-
-        try:
-            from machina.apps.forum.models import Forum
-            from machina.apps.forum_conversation.models import Post, Topic
-
-            # Get or create a demo forum category
-            plant_id_forum, _ = Forum.objects.get_or_create(
-                name="Plant Identification Help",
-                defaults={
-                    "description": "Get help identifying your plants from the community",
-                    "type": Forum.FORUM_POST,
-                    "is_demo_data": True,
-                },
-            )
-
-            # Sample forum topics
-            demo_topics = [
-                {
-                    "subject": "Help! What is this trailing plant?",
-                    "content": "I found this beautiful trailing plant at the nursery but forgot to ask what it was. The leaves are heart-shaped and have golden variegation. Any ideas?",
-                    "replies": [
-                        "That looks like a Golden Pothos (Epipremnum aureum)! Super easy to care for and great for beginners.",
-                        "Definitely a Pothos! They're amazing for low-light conditions and very forgiving with watering.",
-                    ],
-                },
-                {
-                    "subject": "My peace lily leaves are turning yellow - help!",
-                    "content": "I've had my peace lily for 6 months and recently the leaves started turning yellow. I water it once a week and keep it by a bright window. What am I doing wrong?",
-                    "replies": [
-                        "Yellow leaves on peace lilies can indicate overwatering or too much direct sunlight. Try moving it away from the window and reducing watering frequency.",
-                        "Check the soil moisture before watering. Peace lilies prefer to dry out slightly between waterings.",
-                    ],
-                },
-                {
-                    "subject": "Brown spots on my fiddle leaf fig leaves",
-                    "content": "I've noticed brown spots appearing on my fiddle leaf fig's lower leaves. The plant otherwise seems healthy. Should I be concerned?",
-                    "replies": [
-                        "Brown spots can be caused by overwatering, bacterial infection, or inconsistent watering. Make sure you're not watering too frequently.",
-                        "I had the same issue! Turned out I was watering too often. Let the top inch of soil dry out before watering again.",
-                    ],
-                },
-            ]
-
-            created_posts = []
-
-            for topic_data in demo_topics:
-                # Create topic
-                topic = Topic.objects.create(
-                    forum=plant_id_forum,
-                    subject=topic_data["subject"],
-                    poster=self.user,
-                    is_demo_data=True,
-                )
-
-                # Create initial post
-                initial_post = Post.objects.create(
-                    topic=topic,
-                    poster=self.user,
-                    content=topic_data["content"],
-                    is_demo_data=True,
-                )
-
-                # Create reply posts (using system user for variety)
-                for reply_content in topic_data["replies"]:
-                    reply_post = Post.objects.create(
-                        topic=topic,
-                        poster=self.user,  # In real implementation, could use different demo users
-                        content=reply_content,
-                        is_demo_data=True,
-                    )
-                    created_posts.append(reply_post)
-
-                created_posts.append(initial_post)
-
-            return created_posts
-
-        except Exception as e:
-            logger.warning(f"Could not create demo forum posts: {e}")
-            return []
-
     def _create_demo_care_reminders(self, demo_identifications):
         """Create sample care reminders for demo plants."""
         from datetime import timedelta
@@ -976,16 +798,6 @@ class DemoDataService:
                 user=self.user, is_demo_data=True
             ).delete()
 
-            # Delete demo forum posts (if forum enabled)
-            if self._is_forum_enabled():
-                try:
-                    from machina.apps.forum_conversation.models import Post, Topic
-
-                    Topic.objects.filter(poster=self.user, is_demo_data=True).delete()
-                    Post.objects.filter(poster=self.user, is_demo_data=True).delete()
-                except Exception as e:
-                    logger.warning(f"Could not delete demo forum posts: {e}")
-
             # Delete demo care reminders
             from .models import CareReminder
 
@@ -995,7 +807,3 @@ class DemoDataService:
             demo_data.delete()
 
             logger.info(f"Cleaned up demo data for user {self.user.id}")
-
-    def _is_forum_enabled(self):
-        """Check if forum functionality is enabled."""
-        return getattr(settings, "ENABLE_FORUM", False)
