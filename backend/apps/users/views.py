@@ -649,9 +649,9 @@ def dashboard_stats(request: Request) -> Response:
         PlantIdentificationRequest,
         SavedCareInstructions,
     )
-    from django.db.models import Case, Count, IntegerField, Q, When
+    from django.db.models import Count, Q
     from django.utils import timezone
-    from machina.apps.forum_conversation.models import Post, Topic
+    from wagtail_forum.models import Post, Topic
 
     # Date ranges
     thirty_days_ago = timezone.now() - timedelta(days=30)
@@ -676,20 +676,14 @@ def dashboard_stats(request: Request) -> Response:
         "saved_care_cards": saved_care_count,
     }
 
-    # OPTIMIZATION: Single aggregation query for all forum stats (1 query instead of 4)
-    forum_aggregation = Topic.objects.filter(
-        poster=request.user, approved=True
-    ).aggregate(
-        total_topics=Count("id"),
-        topics_this_month=Count("id", filter=Q(created__gte=thirty_days_ago)),
+    # OPTIMIZATION: Single aggregation query per model for forum stats
+    forum_aggregation = Topic.objects.filter(author=request.user, live=True).aggregate(
+        total_topics=Count("pk"),
+        topics_this_month=Count("pk", filter=Q(created_at__gte=thirty_days_ago)),
     )
-
-    # Posts count (separate query since it's a different model)
-    post_aggregation = Post.objects.filter(
-        poster=request.user, approved=True
-    ).aggregate(
-        total_posts=Count("id"),
-        posts_this_month=Count("id", filter=Q(created__gte=thirty_days_ago)),
+    post_aggregation = Post.objects.filter(author=request.user, live=True).aggregate(
+        total_posts=Count("pk"),
+        posts_this_month=Count("pk", filter=Q(created_at__gte=thirty_days_ago)),
     )
 
     forum_stats = {
@@ -723,48 +717,44 @@ def dashboard_stats(request: Request) -> Response:
             }
         )
 
+    def _forum_topic_url(topic):
+        board = topic.board
+        return f"/forum/{board.id}-{board.slug}/{topic.id}-{topic.slug}"
+
     # OPTIMIZATION: Use select_related to prevent N+1 on forum foreign key access
     recent_topics = (
-        Topic.objects.filter(poster=request.user, approved=True)
-        .select_related("forum")
-        .only("id", "subject", "created", "forum__name")
-        .order_by("-created")[:2]
+        Topic.objects.filter(author=request.user, live=True)
+        .select_related("board")
+        .order_by("-created_at")[:2]
     )
 
     for topic in recent_topics:
         recent_activity.append(
             {
                 "type": "forum_topic",
-                "title": f"Created topic: {topic.subject}",
-                "description": f"in {topic.forum.name}",
-                "timestamp": topic.created,
-                "url": f"/forum/topic/{topic.id}",
+                "title": f"Created topic: {topic.title}",
+                "description": f"in {topic.board.title}",
+                "timestamp": topic.created_at,
+                "url": _forum_topic_url(topic),
                 "icon": "message-circle",
             }
         )
 
-    # OPTIMIZATION: Use select_related to prevent N+1 on topic/forum foreign key access
-    # Get first_post_ids efficiently with values_list
-    first_post_ids = Topic.objects.filter(poster=request.user).values_list(
-        "first_post_id", flat=True
-    )
-
+    # OPTIMIZATION: Use select_related to prevent N+1 on topic/board foreign key access
     recent_posts = (
-        Post.objects.filter(poster=request.user, approved=True)
-        .exclude(id__in=list(first_post_ids))
-        .select_related("topic", "topic__forum")
-        .only("id", "created", "topic__id", "topic__subject", "topic__forum__name")
-        .order_by("-created")[:2]
+        Post.objects.filter(author=request.user, live=True, is_opening_post=False)
+        .select_related("topic", "topic__board")
+        .order_by("-created_at")[:2]
     )
 
     for post in recent_posts:
         recent_activity.append(
             {
                 "type": "forum_post",
-                "title": f"Replied to: {post.topic.subject}",
-                "description": f"in {post.topic.forum.name}",
-                "timestamp": post.created,
-                "url": f"/forum/topic/{post.topic.id}",
+                "title": f"Replied to: {post.topic.title}",
+                "description": f"in {post.topic.board.title}",
+                "timestamp": post.created_at,
+                "url": _forum_topic_url(post.topic),
                 "icon": "message-square",
             }
         )
