@@ -70,3 +70,47 @@ class DashboardStatsForumTests(TestCase):
             f"/{live_topic.id}-{live_topic.slug}"
         )
         self.assertTrue(all(item["url"] == expected for item in forum_items))
+
+    def test_forum_stats_and_activity_exclude_other_users_content(self):
+        # ada's own live thread: opening post + a reply (both live).
+        ada_topic = self._topic("ada-topic", live=True)
+        Post.objects.create(
+            topic=ada_topic, author=self.user, is_opening_post=True, live=True
+        )
+        Post.objects.create(
+            topic=ada_topic, author=self.user, is_opening_post=False, live=True
+        )
+
+        # bob's live thread in the SAME board: must never count toward ada's
+        # dashboard or appear in ada's recent activity.
+        bob = User.objects.create_user(username="bob", password="TestPass123!")
+        bob_topic = Topic.objects.create(
+            board=self.board, title="Bob", slug="bob-topic", author=bob, live=True
+        )
+        Post.objects.create(
+            topic=bob_topic, author=bob, is_opening_post=True, live=True
+        )
+        Post.objects.create(
+            topic=bob_topic, author=bob, is_opening_post=False, live=True
+        )
+
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get(DASHBOARD_URL)
+
+        self.assertEqual(resp.status_code, 200)
+        forum = resp.data["forum_stats"]
+        self.assertEqual(forum["total_topics"], 1)  # ada's topic only
+        self.assertEqual(forum["total_posts"], 2)  # ada's 2 posts only; bob's excluded
+
+        forum_items = [
+            a for a in resp.data["recent_activity"] if a["type"].startswith("forum")
+        ]
+        # ada's activity spans both a topic and a (non-opening) post entry.
+        self.assertEqual(
+            {item["type"] for item in forum_items}, {"forum_topic", "forum_post"}
+        )
+        # Every forum activity item points at ada's thread, never bob's.
+        ada_fragment = f"{ada_topic.id}-{ada_topic.slug}"
+        bob_fragment = f"{bob_topic.id}-{bob_topic.slug}"
+        self.assertTrue(all(ada_fragment in item["url"] for item in forum_items))
+        self.assertFalse(any(bob_fragment in item["url"] for item in forum_items))
