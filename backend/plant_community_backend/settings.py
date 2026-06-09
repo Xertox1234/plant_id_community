@@ -152,7 +152,6 @@ THIRD_PARTY_APPS = [
     "corsheaders",
     "django_filters",
     "imagekit",
-    "mptt",
     "widget_tweaks",
     "csp",  # Content Security Policy
     "django_celery_beat",
@@ -168,31 +167,12 @@ THIRD_PARTY_APPS = [
 # Feature flags
 ENABLE_FORUM = config("ENABLE_FORUM", default=False, cast=bool)
 
-# Django Machina Apps (optional)
-MACHINA_APPS = []
-if ENABLE_FORUM:
-    MACHINA_APPS = [
-        "machina",
-        "machina.apps.forum",
-        "machina.apps.forum_conversation",
-        "machina.apps.forum_conversation.forum_attachments",
-        "machina.apps.forum_conversation.forum_polls",
-        "machina.apps.forum_feeds",
-        "machina.apps.forum_moderation",
-        "machina.apps.forum_search",
-        "machina.apps.forum_tracking",
-        "machina.apps.forum_member",
-        "machina.apps.forum_permission",
-        "haystack",
-    ]
-
 # Local Apps
 LOCAL_APPS = [
     "apps.users",
     "apps.plant_identification",
     "apps.blog",
     "apps.core",
-    # 'apps.search',  # Temporarily disabled (depends on Machina)
     "apps.garden_calendar",
     "apps.garden",  # Garden planner feature (Phase 1 - Backend)
     "wagtail_forum",
@@ -201,14 +181,7 @@ LOCAL_APPS = [
     # post_migrate (create_permissions) has run — registry order decides that.
     "apps.forum_host",
 ]
-if ENABLE_FORUM:
-    # Machina forum integration shim
-    LOCAL_APPS.insert(2, "apps.forum_integration")
-
 INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS
-if ENABLE_FORUM:
-    # MACHINA_APPS will be removed once the new headless forum is production-ready
-    INSTALLED_APPS += MACHINA_APPS
 
 # WebSockets via Django Channels
 INSTALLED_APPS += [
@@ -255,11 +228,6 @@ if _HAS_REQUEST_ID:
 if DEBUG:
     MIDDLEWARE += ["debug_toolbar.middleware.DebugToolbarMiddleware"]
 
-# Include forum permission middleware only when forum is enabled
-# Temporarily disabled (depends on Machina)
-# if ENABLE_FORUM:
-#     MIDDLEWARE.append('machina.apps.forum_permission.middleware.ForumPermissionMiddleware')
-
 ROOT_URLCONF = "plant_community_backend.urls"
 
 _base_context_processors = [
@@ -268,15 +236,7 @@ _base_context_processors = [
     "django.contrib.auth.context_processors.auth",
     "django.contrib.messages.context_processors.messages",
 ]
-if ENABLE_FORUM:
-    _base_context_processors += [
-        "machina.core.context_processors.metadata",
-        "apps.forum_integration.context_processors.forum_globals",
-    ]
-
 _template_dirs = [BASE_DIR / "templates"]
-if ENABLE_FORUM:
-    _template_dirs.append(BASE_DIR / "apps" / "forum_integration" / "templates")
 
 TEMPLATES = [
     {
@@ -346,15 +306,6 @@ try:
             "KEY_PREFIX": "plant_community",
             "TIMEOUT": 300,
         },
-        "machina_attachments": {
-            "BACKEND": "django_redis.cache.RedisCache",
-            "LOCATION": config("REDIS_URL", default="redis://127.0.0.1:6379/2"),
-            "OPTIONS": {
-                "CLIENT_CLASS": "django_redis.client.DefaultClient",
-                "IGNORE_EXCEPTIONS": True,
-            },
-            "KEY_PREFIX": "machina_attachments",
-        },
         "renditions": {
             # Phase 2.5: Wagtail image rendition cache
             # Long TTL (1 year) because renditions are immutable
@@ -378,14 +329,6 @@ except (ImportError, redis.ConnectionError, redis.TimeoutError):
             "TIMEOUT": 300,
             "OPTIONS": {
                 "MAX_ENTRIES": 1000,
-            },
-        },
-        "machina_attachments": {
-            "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
-            "LOCATION": BASE_DIR / "machina_attachments_cache",
-            "TIMEOUT": 3600,
-            "OPTIONS": {
-                "MAX_ENTRIES": 500,
             },
         },
         "renditions": {
@@ -751,29 +694,6 @@ else:
         default="",
         cast=lambda v: [s.strip() for s in v.split(",") if s.strip()],
     )
-
-# Django Machina settings
-MACHINA_DEFAULT_AUTHENTICATED_USER_FORUM_PERMISSIONS = [
-    "can_see_forum",
-    "can_read_forum",
-    "can_start_new_topics",
-    "can_reply_to_topics",
-    "can_edit_own_posts",
-    "can_post_without_approval",
-    "can_create_polls",
-    "can_vote_in_polls",
-    "can_download_file",
-]
-
-MACHINA_PROFILE_AVATARS_PATH = "machina/avatars"
-MACHINA_USER_DISPLAY = lambda u: u.get_full_name() if u.get_full_name() else u.username
-
-# Search configuration
-HAYSTACK_CONNECTIONS = {
-    "default": {
-        "ENGINE": "haystack.backends.simple_backend.SimpleEngine",
-    },
-}
 
 # Ensure 'file' handler is not configured when disabled
 if not ENABLE_FILE_LOGGING:

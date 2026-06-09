@@ -41,11 +41,8 @@ urlpatterns = [
     # User previous searches endpoints
     path("me/searches/", views.previous_searches, name="previous_searches"),
     path("me/searches/<uuid:request_id>/", views.search_detail, name="search_detail"),
-    # User forum activity and dashboard stats
-    path("me/forum-activity/", views.forum_activity, name="forum_activity"),
+    # User dashboard stats
     path("me/dashboard-stats/", views.dashboard_stats, name="dashboard_stats"),
-    # Forum permissions
-    path("forum-permissions/", views.forum_permissions, name="forum_permissions"),
     # Token refresh endpoint
     path("token/refresh/", views.token_refresh, name="token_refresh"),
     # Push notification endpoints
