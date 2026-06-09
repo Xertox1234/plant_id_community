@@ -1,18 +1,26 @@
 # Retire django-machina Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. **Execute tasks in the numbered order — the order is load-bearing (see "Ordering" below).**
 
 **Goal:** Remove django-machina, django-mptt, django-haystack, `apps.forum_integration`, and `apps.search` from the backend without breaking core account/dashboard code, repointing the `dashboard_stats` endpoint to the live `wagtail_forum` models.
 
-**Architecture:** Decouple-first, then delete, then uninstall — in that order, with the full test suite green after every task. Machina stays pip-installed until the final task, so every intermediate commit is runnable and bisectable. All removed machina-coupled code is provably dead (verified caller-traces, see spec §2), so deletions are behavior-preserving; the one piece of new behavior is the `dashboard_stats` repoint, which is built test-first.
+**Architecture:** Decouple account code, then strip the `settings.py` machina footprint, then delete the now-unreferenced app directories, then uninstall the packages — with the full test suite green after every task. All removed machina-coupled code is provably dead (verified caller-traces, spec §2), so deletions are behavior-preserving; the one piece of new behavior is the `dashboard_stats` repoint, built test-first.
 
 **Tech Stack:** Django 5 / DRF, Wagtail (the new `wagtail_forum` package), pytest (CI runner) over Django `TestCase` style tests, PostgreSQL + Redis.
 
 **Spec:** `docs/superpowers/specs/2026-06-08-retire-django-machina-design.md`
 
-**Branch:** `refactor/retire-machina` (already created and checked out; the spec is already committed on it).
+**Branch:** `refactor/retire-machina` (already created and checked out; spec + this plan are already committed on it).
 
-**Environment note:** The system `git` requires `DEVELOPER_DIR=/Library/Developer/CommandLineTools` prefixed on this machine (Xcode license). All `git` commands below assume that env var is exported. The `markdownlint` pre-commit hook reformats `.md` files and aborts the first commit — if a commit aborts with "files were modified by this hook", `git add` the file again and re-run the commit. The `kimi-review` hook gates on `[CRITICAL]` findings only. The `flake8` pre-commit hook lints each **whole** changed `.py` file (not just changed lines); `services.py` and `views.py` are large and may carry pre-existing violations. If a commit is blocked by flake8 on lines you did **not** touch, prefer fixing them if trivial, else `SKIP=flake8 git commit …` (last resort) — never silence violations you introduced.
+## Ordering (why settings.py is stripped before the directories are deleted)
+
+`settings.py` only adds machina + `apps.forum_integration` to `INSTALLED_APPS` **when `ENABLE_FORUM` is true**. Local `backend/.env` sets `ENABLE_FORUM=True`, so locally those apps **are** installed (CI sets `ENABLE_FORUM=False`, so they aren't — that's why CI is green despite `services.py`'s import-time `get_model`). Because **you run the test gates locally (`ENABLE_FORUM=True`)**, deleting `apps/forum_integration/` or `apps/search/` while `settings.py` still lists them in `INSTALLED_APPS` makes `django.setup()` raise `ModuleNotFoundError` — a total collapse, not a clean test failure. So: **Task 4 strips `settings.py` first; Tasks 5-6 delete the directories after.**
+
+**Environment notes:**
+
+- The system `git` requires `DEVELOPER_DIR=/Library/Developer/CommandLineTools` prefixed (Xcode license). All `git` commands assume it is exported.
+- The `markdownlint` pre-commit hook reformats `.md` files and aborts the first commit — on "files were modified by this hook", `git add` the file again and **re-run the same commit** (do **not** `--amend`, or you fold it into the previous commit).
+- The `kimi-review` hook gates on `[CRITICAL]` only. The `flake8` hook lints each **whole** changed `.py` file; `services.py`/`views.py` are large and may carry pre-existing violations. If blocked on lines you did **not** touch, fix if trivial else `SKIP=flake8 git commit …` (last resort) — never silence violations you introduced.
 
 **Test command (used throughout):** `cd backend && source venv/bin/activate && python -m pytest apps packages -q` (full suite). Per-test: `python -m pytest <path>::<Class>::<method> -v`.
 
@@ -26,12 +34,33 @@
 | `backend/apps/users/views.py` | Modify | `dashboard_stats` repointed; `forum_activity` + `forum_permissions` deleted |
 | `backend/apps/users/urls.py` | Modify | Routes for `forum_activity` + `forum_permissions` removed |
 | `backend/apps/users/services.py` | Modify | No machina imports/methods; trust + notification + demo (non-forum) logic only |
+| `backend/plant_community_backend/settings.py` | Modify | No machina/haystack footprint; `ENABLE_FORUM` + `wagtail.search` retained |
 | `backend/apps/forum_integration/` | **Delete** | (gone) |
 | `backend/apps/search/` | **Delete** | (gone) |
 | `backend/pytest.ini` | Modify | Drop the two `forum_integration` `--ignore` lines |
-| `backend/plant_community_backend/settings.py` | Modify | No machina/haystack footprint; `ENABLE_FORUM` + `wagtail.search` retained |
 | `backend/plant_community_backend/urls.py` | Modify | Commented `apps.search` includes removed; confirmed no machina refs |
 | `backend/requirements.txt` | Modify | `django-machina`, `django-mptt`, `django-haystack` removed |
+
+---
+
+## Task 0: Establish the green baseline
+
+**Files:** none (no changes).
+
+- [ ] **Step 1: Confirm the suite + system check pass at HEAD**
+
+Run: `cd backend && source venv/bin/activate && python manage.py check`
+Expected: `System check identified no issues`.
+
+Run: `python -m pytest apps packages -q`
+Expected: all pass (this is the safety net every later task relies on). If anything fails here, stop — it is a pre-existing failure unrelated to this work; report it before proceeding.
+
+- [ ] **Step 2: Confirm the local forum env (the sequencing depends on it)**
+
+Run: `python -c "import django,os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','plant_community_backend.settings'); django.setup(); from django.conf import settings; print('ENABLE_FORUM', settings.ENABLE_FORUM)"`
+Expected: `ENABLE_FORUM True`. (If it prints `False`, machina is not in `INSTALLED_APPS` locally; the directory-deletion ordering risk does not apply, but the rest of the plan is unchanged.)
+
+No commit (no changes).
 
 ---
 
@@ -111,21 +140,21 @@ class DashboardStatsForumTests(TestCase):
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd backend && source venv/bin/activate && python -m pytest apps/users/tests/test_dashboard_stats.py -v`
+Run: `python -m pytest apps/users/tests/test_dashboard_stats.py -v`
 Expected: FAIL — `dashboard_stats` currently queries machina `Topic`/`Post`, so `total_topics`/`total_posts` come back `0` (and there are no forum `recent_activity` items), tripping the assertions.
 
 - [ ] **Step 3: Repoint `dashboard_stats` in `backend/apps/users/views.py`**
 
-Replace the machina import and the forum-stats / recent-forum-activity blocks. **Change the import line** inside `dashboard_stats`:
+**Change the model import line** inside `dashboard_stats`:
 
 ```python
     # was: from machina.apps.forum_conversation.models import Post, Topic
     from wagtail_forum.models import Post, Topic
 ```
 
-Also reduce the `django.db.models` import inside this function from `from django.db.models import Case, Count, IntegerField, Q, When` to **`from django.db.models import Count, Q`** — `Case`, `IntegerField`, and `When` are pre-existing dead imports (never referenced in the function body) and the rewritten function uses only `Count` and `Q`; trimming them keeps the flake8 whole-file lint clean on commit.
+**Reduce the `django.db.models` import** inside this function from `from django.db.models import Case, Count, IntegerField, Q, When` to **`from django.db.models import Count, Q`** — `Case`, `IntegerField`, `When` are pre-existing dead imports (never used in the body); the rewritten function uses only `Count`/`Q`, and trimming keeps flake8's whole-file lint clean.
 
-Replace the **forum aggregation** block:
+**Replace the forum aggregation block:**
 
 ```python
     # OPTIMIZATION: Single aggregation query per model for forum stats
@@ -150,7 +179,7 @@ Replace the **forum aggregation** block:
     }
 ```
 
-Add a URL helper just above the `recent_activity` assembly (mirrors `web/src/utils/forumUrls.ts`):
+**Add a URL helper** just above the `recent_activity` assembly (mirrors `web/src/utils/forumUrls.ts` — `/forum/{boardId}-{boardSlug}/{topicId}-{topicSlug}`):
 
 ```python
     def _forum_topic_url(topic):
@@ -158,13 +187,12 @@ Add a URL helper just above the `recent_activity` assembly (mirrors `web/src/uti
         return f"/forum/{board.id}-{board.slug}/{topic.id}-{topic.slug}"
 ```
 
-Replace the **recent forum topics** block:
+**Replace the recent forum topics block** (no `.only()` — `board.title`/`board.slug` reach the `ForumBoard`→`Page` MTI parent table; `select_related` is enough and avoids a `FieldError` risk):
 
 ```python
     recent_topics = (
         Topic.objects.filter(author=request.user, live=True)
         .select_related("board")
-        .only("id", "title", "slug", "created_at", "board__id", "board__slug", "board__title")
         .order_by("-created_at")[:2]
     )
 
@@ -181,17 +209,12 @@ Replace the **recent forum topics** block:
         )
 ```
 
-Replace the **recent forum posts** block (note: opening posts excluded via `is_opening_post=False`, replacing the old `first_post_id` exclusion):
+**Replace the recent forum posts block** (opening posts excluded via `is_opening_post=False`, replacing the old `first_post_id` exclusion; delete the now-unused `first_post_ids = …` lines):
 
 ```python
     recent_posts = (
         Post.objects.filter(author=request.user, live=True, is_opening_post=False)
         .select_related("topic", "topic__board")
-        .only(
-            "id", "created_at",
-            "topic__id", "topic__title", "topic__slug",
-            "topic__board__id", "topic__board__slug", "topic__board__title",
-        )
         .order_by("-created_at")[:2]
     )
 
@@ -208,17 +231,17 @@ Replace the **recent forum posts** block (note: opening posts excluded via `is_o
         )
 ```
 
-Delete the now-unused `first_post_ids = Topic.objects.filter(...).values_list("first_post_id", ...)` lines. Leave `plant_stats`, `recent_identifications`, the `recent_activity.sort(...)`, and `total_activity_score` blocks unchanged (the score still reads `forum_stats["total_topics"]` / `["total_posts"]`).
+Leave `plant_stats`, `recent_identifications`, `recent_activity.sort(...)`, and `total_activity_score` unchanged (the score still reads `forum_stats["total_topics"]` / `["total_posts"]`).
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `python -m pytest apps/users/tests/test_dashboard_stats.py -v`
 Expected: PASS (both tests).
 
-- [ ] **Step 5: Run the users suite to confirm no regression**
+- [ ] **Step 5: Run the users suite**
 
 Run: `python -m pytest apps/users -q`
-Expected: all pass. (`dashboard_stats` had no prior test; nothing else references the changed blocks.)
+Expected: all pass.
 
 - [ ] **Step 6: Commit**
 
@@ -233,30 +256,28 @@ git commit -m "refactor(users): repoint dashboard_stats forum stats to wagtail_f
 
 **Files:**
 
-- Modify: `backend/apps/users/views.py` (delete the two functions, currently ~L579-635 and ~L791-848)
+- Modify: `backend/apps/users/views.py` (delete the two functions, ~L579-635 and ~L791-848)
 - Modify: `backend/apps/users/urls.py` (delete routes L45 and L48)
 
 - [ ] **Step 1: Delete the two view functions**
 
-In `backend/apps/users/views.py`, delete the entire `forum_activity` function (its `@api_view(["GET"])` + `@permission_classes([...])` decorators through its `return Response(...)`) and the entire `forum_permissions` function likewise. `forum_activity` is the one importing `from apps.forum_integration.serializers import PostSerializer, TopicSerializer` and `from machina.apps.forum_conversation.models import Post, Topic`; `forum_permissions` is the one importing `from machina.apps.forum.models import Forum`. After deletion, `views.py` must contain **zero** `machina` references.
+In `backend/apps/users/views.py`, delete the entire `forum_activity` function (decorators through its `return Response(...)`) and the entire `forum_permissions` function. `forum_activity` carries the function-local `from apps.forum_integration.serializers import PostSerializer, TopicSerializer` + `from machina.apps.forum_conversation.models import Post, Topic`; `forum_permissions` carries `from machina.apps.forum.models import Forum`. After deletion, `views.py` must contain **zero** `machina` and zero `forum_integration` references.
 
 - [ ] **Step 2: Delete the routes in `backend/apps/users/urls.py`**
 
-Remove these two lines (and the now-orphaned `# User forum activity and dashboard stats` comment is fine to keep or trim — keep `dashboard-stats`):
+Remove these two lines (keep `dashboard-stats`):
 
 ```python
     path("me/forum-activity/", views.forum_activity, name="forum_activity"),
     path("forum-permissions/", views.forum_permissions, name="forum_permissions"),
 ```
 
-Keep `path("me/dashboard-stats/", views.dashboard_stats, name="dashboard_stats"),`.
-
 - [ ] **Step 3: Verify no dangling references**
 
 Run: `cd backend && grep -rn "forum_activity\|forum_permissions" apps/users`
-Expected: no matches (function defs and routes both gone).
+Expected: no matches.
 
-Run: `grep -rn "machina" apps/users/views.py`
+Run: `grep -rn "machina\|forum_integration" apps/users/views.py`
 Expected: no matches.
 
 - [ ] **Step 4: Run the users suite**
@@ -279,18 +300,18 @@ git commit -m "refactor(users): delete unused machina-coupled forum_activity + f
 
 - Modify: `backend/apps/users/services.py`
 
-All of the following are provably dead (spec §2): zero callers, or the only caller (`forum_permissions`) was deleted in Task 2.
+All targets are provably dead (spec §2): zero callers, or the only caller (`forum_permissions`) was deleted in Task 2.
 
 - [ ] **Step 1: Remove the module-level machina imports and lookups**
 
-Delete these lines near the top of `services.py`:
+Delete:
 
 ```python
 from machina.apps.forum.models import Forum
 from machina.core.loading import get_class
 ```
 
-and the block:
+and:
 
 ```python
 # Import Django Machina models
@@ -300,15 +321,15 @@ UserForumPermission = apps.get_model("forum_permission", "UserForumPermission")
 PermissionHandler = get_class("forum_permission.handler", "PermissionHandler")
 ```
 
-Also remove `from django.apps import apps` (top of file) — verified its only uses are the three `apps.get_model(...)` lines just deleted, so it is now unused. (This is the `django.apps` registry import; leave the unrelated `from apps.core.utils...` project imports alone.)
+Also remove `from django.apps import apps` (top of file) — its only uses are the three `apps.get_model(...)` lines just deleted, so it is now unused. (That is the `django.apps` registry import; leave the unrelated `from apps.core.utils...` project imports alone.)
 
 - [ ] **Step 2: Delete the dead machina methods**
 
-In `class TrustLevelService`, delete the `setup_forum_permissions` static method (uses `Forum`, `ForumPermission`, `GroupForumPermission`) and the `check_user_can_attach_files` static method (uses `PermissionHandler`). Delete the entire `class ForumPostService:` (its only method, `update_user_post_count`, imports `from machina.apps.forum_conversation.models import Post`).
+In `class TrustLevelService`, delete `setup_forum_permissions` (uses `Forum`/`ForumPermission`/`GroupForumPermission`) and `check_user_can_attach_files` (uses `PermissionHandler`). Delete the entire `class ForumPostService:` (its only method `update_user_post_count` imports `from machina.apps.forum_conversation.models import Post`).
 
 - [ ] **Step 3: Remove the demo-forum machina code**
 
-In `create_demo_data` (the method that builds the `created_items` dict), delete the block:
+In `create_demo_data`, delete:
 
 ```python
             # Create demo forum posts (if forum is enabled)
@@ -317,11 +338,11 @@ In `create_demo_data` (the method that builds the `created_items` dict), delete 
                 created_items["forum_posts_count"] = len(forum_posts)
 ```
 
-Keep `created_items["forum_posts_count"] = 0` in the initial dict (response shape preserved).
+(Keep `created_items["forum_posts_count"] = 0` in the initial dict — response shape preserved.)
 
-Delete the entire `_create_demo_forum_posts` method (imports machina `Forum`/`Post`/`Topic`).
+Delete the entire `_create_demo_forum_posts` method.
 
-In `cleanup_demo_data`, delete the block:
+In `cleanup_demo_data`, delete:
 
 ```python
             # Delete demo forum posts (if forum enabled)
@@ -343,13 +364,13 @@ Delete the now-unused `_is_forum_enabled` method:
         return getattr(settings, "ENABLE_FORUM", False)
 ```
 
-- [ ] **Step 4: Verify the file is machina-free and imports cleanly**
+- [ ] **Step 4: Verify the file is machina-free**
 
-Run: `cd backend && grep -n "machina\|_is_forum_enabled\|ForumPostService\|setup_forum_permissions\|check_user_can_attach_files\|_create_demo_forum_posts" apps/users/services.py`
+Run: `cd backend && grep -n "machina\|_is_forum_enabled\|ForumPostService\|setup_forum_permissions\|check_user_can_attach_files\|_create_demo_forum_posts\|from django.apps import apps" apps/users/services.py`
 Expected: no matches.
 
-Run: `python -c "import django; django.setup(); import apps.users.services" 2>&1 | tail -5` (with `DJANGO_SETTINGS_MODULE=plant_community_backend.settings` set, or use `python manage.py shell -c "import apps.users.services"`).
-Expected: no ImportError. (Machina is still installed here, so this only proves the module no longer *references* machina symbols; the uninstalled-import proof is Task 7.)
+Run: `python manage.py check`
+Expected: `System check identified no issues` (machina still installed/wired here, so this only proves the module no longer references machina symbols; the uninstalled-import proof is Task 7).
 
 - [ ] **Step 5: Run the full suite (account code is now machina-free)**
 
@@ -365,108 +386,17 @@ git commit -m "refactor(users): remove module-level machina imports + dead forum
 
 ---
 
-## Task 4: Delete `apps/forum_integration`
-
-**Files:**
-
-- Delete: `backend/apps/forum_integration/` (entire directory)
-- Modify: `backend/pytest.ini`
-
-- [ ] **Step 1: Delete the app directory**
-
-```bash
-cd backend && git rm -r apps/forum_integration
-```
-
-- [ ] **Step 2: Drop the `pytest.ini` ignore lines**
-
-In `backend/pytest.ini`, delete these two lines (currently L20-21):
-
-```ini
-    --ignore=apps/forum_integration/tests.py
-    --ignore=apps/forum_integration/tests
-```
-
-- [ ] **Step 3: Verify no dangling imports of forum_integration outside the (already-disabled) machina-gated settings block**
-
-Run: `grep -rn "forum_integration" apps plant_community_backend --include=*.py`
-Expected: only matches inside `plant_community_backend/settings.py`'s `if ENABLE_FORUM:` blocks (removed in Task 6) — i.e. `LOCAL_APPS.insert(2, "apps.forum_integration")` and the context-processor / template-dir lines. No matches in any `apps/*` runtime code.
-
-- [ ] **Step 4: Run the full suite + system check**
-
-Run: `python -m pytest apps packages -q`
-Expected: all pass. (Pytest count unchanged — those tests were already ignored.)
-
-Run: `python manage.py check`
-Expected: `System check identified no issues`.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add backend/pytest.ini
-git commit -m "refactor: delete apps.forum_integration + its pytest ignore lines (todo 220)"
-```
-
----
-
-## Task 5: Delete `apps/search`
-
-**Files:**
-
-- Delete: `backend/apps/search/` (entire directory)
-- Modify: `backend/plant_community_backend/urls.py` (commented includes)
-
-- [ ] **Step 1: Delete the app directory**
-
-```bash
-cd backend && git rm -r apps/search
-```
-
-- [ ] **Step 2: Remove the commented urlconf includes**
-
-In `backend/plant_community_backend/urls.py`, delete these commented lines (currently ~L126 and ~L146):
-
-```python
-                    # path('search/', include('apps.search.urls')),  # Temporarily disabled (depends on Machina)
-```
-
-```python
-                # path('search/', include('apps.search.urls')),  # Temporarily disabled (depends on Machina)
-```
-
-(The commented `LOCAL_APPS` line `# 'apps.search', ...` in `settings.py` L195 is removed in Task 6.)
-
-- [ ] **Step 3: Verify**
-
-Run: `grep -rn "apps.search\|apps/search" apps plant_community_backend --include=*.py`
-Expected: at most the single commented `# 'apps.search',` line in `settings.py` (removed next task). No runtime references. (`settings.py` OpenAPI tag literally named `"search"` is unrelated — leave it.)
-
-- [ ] **Step 4: Run the full suite + system check + migration check**
-
-Run: `python -m pytest apps packages -q`
-Expected: all pass.
-
-Run: `python manage.py check && python manage.py makemigrations --check --dry-run`
-Expected: check passes; `makemigrations --check` reports **no changes** (confirms no orphaned migration state from the two deleted apps slipped in).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add backend/plant_community_backend/urls.py
-git commit -m "refactor: delete disabled apps.search (machina/haystack-dependent) (todo 220)"
-```
-
----
-
-## Task 6: Strip the machina footprint from `settings.py`
+## Task 4: Strip the machina footprint from `settings.py` (BEFORE deleting directories)
 
 **Files:**
 
 - Modify: `backend/plant_community_backend/settings.py`
 
+> After this task, nothing in `INSTALLED_APPS` references machina or `forum_integration`, regardless of `ENABLE_FORUM`. This is what makes the directory deletions in Tasks 5-6 safe to run locally.
+
 - [ ] **Step 1: Remove the apps wiring**
 
-Delete the `MACHINA_APPS` definition block:
+Delete the `MACHINA_APPS` block:
 
 ```python
 # Django Machina Apps (optional)
@@ -498,7 +428,7 @@ if ENABLE_FORUM:
     LOCAL_APPS.insert(2, "apps.forum_integration")
 ```
 
-Delete the MACHINA_APPS append (leave the plain `INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS` line):
+Delete the MACHINA_APPS append (leave the plain `INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS`):
 
 ```python
 if ENABLE_FORUM:
@@ -536,7 +466,7 @@ if ENABLE_FORUM:
 
 - [ ] **Step 3: Remove the `machina_attachments` cache entries**
 
-Delete the `"machina_attachments": { ... }` entry from **both** the Redis `CACHES` dict and the locmem-fallback `CACHES` dict (the `django_redis` one with `KEY_PREFIX: "machina_attachments"`, and the `FileBasedCache` one with `LOCATION: BASE_DIR / "machina_attachments_cache"`).
+Delete the `"machina_attachments": { ... }` entry from **both** `CACHES` dicts: the `django_redis` one (`KEY_PREFIX: "machina_attachments"`) and the locmem-fallback `FileBasedCache` one (`LOCATION: BASE_DIR / "machina_attachments_cache"`).
 
 - [ ] **Step 4: Remove the machina + haystack config blocks**
 
@@ -571,15 +501,15 @@ HAYSTACK_CONNECTIONS = {
 }
 ```
 
-**Retain** `ENABLE_FORUM = config(...)` (L169) and `"wagtail.search"` in `WAGTAIL_APPS` (L137) — neither is machina. `ENABLE_FORUM` is now defined-but-unused in settings; that is intentional per the spec (kept as a feature flag).
+**Retain** `ENABLE_FORUM = config(...)` and `"wagtail.search"` in `WAGTAIL_APPS` — neither is machina. `ENABLE_FORUM` is now defined-but-unused; intentional per the spec (kept as a feature flag).
 
-- [ ] **Step 5: Verify settings is machina-free**
+- [ ] **Step 5: Verify settings is machina-free and still loads**
 
 Run: `cd backend && grep -n "machina\|haystack\|MACHINA\|HAYSTACK\|forum_integration" plant_community_backend/settings.py`
 Expected: no matches.
 
 Run: `python manage.py check`
-Expected: `System check identified no issues` (machina is still pip-installed, so import resolution is unaffected; this proves settings no longer wires it).
+Expected: `System check identified no issues`. (`forum_integration`/machina now gone from `INSTALLED_APPS`; the directories still exist but are no longer loaded.)
 
 - [ ] **Step 6: Run the full suite**
 
@@ -591,6 +521,101 @@ Expected: all pass.
 ```bash
 git add backend/plant_community_backend/settings.py
 git commit -m "refactor(settings): remove django-machina + haystack footprint (todo 220)"
+```
+
+---
+
+## Task 5: Delete `apps/forum_integration`
+
+**Files:**
+
+- Delete: `backend/apps/forum_integration/` (entire directory)
+- Modify: `backend/pytest.ini`
+
+> Safe now: Task 4 removed `forum_integration` from `INSTALLED_APPS`, so it is no longer loaded.
+
+- [ ] **Step 1: Delete the app directory**
+
+```bash
+cd backend && git rm -r apps/forum_integration
+```
+
+- [ ] **Step 2: Drop the `pytest.ini` ignore lines**
+
+In `backend/pytest.ini`, delete these two lines (currently L20-21):
+
+```ini
+    --ignore=apps/forum_integration/tests.py
+    --ignore=apps/forum_integration/tests
+```
+
+- [ ] **Step 3: Verify**
+
+Run: `grep -rn "forum_integration" apps plant_community_backend --include="*.py"`
+Expected: no matches (settings insert already removed in Task 4; runtime code clean).
+
+- [ ] **Step 4: Run the full suite + checks**
+
+Run: `python -m pytest apps packages -q`
+Expected: all pass (pytest count unchanged — those tests were already ignored).
+
+Run: `python manage.py check && python manage.py makemigrations --check --dry-run`
+Expected: check passes; `makemigrations --check` reports **no changes** (no orphaned migration state from the deleted app).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/pytest.ini
+git commit -m "refactor: delete apps.forum_integration + its pytest ignore lines (todo 220)"
+```
+
+---
+
+## Task 6: Delete `apps/search`
+
+**Files:**
+
+- Delete: `backend/apps/search/` (entire directory)
+- Modify: `backend/plant_community_backend/urls.py` (commented includes)
+
+> Safe now: `apps/search` was already disabled (never in `INSTALLED_APPS`); its machina-importing `signals.py`/`views.py`/`services/`/migration go with the directory.
+
+- [ ] **Step 1: Delete the app directory**
+
+```bash
+cd backend && git rm -r apps/search
+```
+
+- [ ] **Step 2: Remove the commented urlconf includes**
+
+In `backend/plant_community_backend/urls.py`, delete the two commented lines (currently ~L126 and ~L146):
+
+```python
+                    # path('search/', include('apps.search.urls')),  # Temporarily disabled (depends on Machina)
+```
+
+```python
+                # path('search/', include('apps.search.urls')),  # Temporarily disabled (depends on Machina)
+```
+
+- [ ] **Step 3: Verify**
+
+Run: `grep -rn "apps.search\|apps/search" apps plant_community_backend --include="*.py"`
+Expected: no matches. (`settings.py`'s OpenAPI tag literally named `"search"` is unrelated — leave it.)
+
+- [ ] **Step 4: Run the full suite + checks**
+
+Run: `python -m pytest apps packages -q`
+Expected: all pass.
+
+Run: `python manage.py check && python manage.py makemigrations --check --dry-run`
+Expected: check passes; no migration changes.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/plant_community_backend/urls.py
+git commit -m "refactor: delete disabled apps.search (machina/haystack-dependent) (todo 220)"
 ```
 
 ---
@@ -614,12 +639,12 @@ django-mptt==0.18.0
 - [ ] **Step 2: Uninstall from the venv**
 
 Run: `cd backend && source venv/bin/activate && pip uninstall -y django-machina django-mptt django-haystack`
-Expected: all three uninstalled. (If `pip check` flags an unrelated package that depended on mptt/haystack, stop and report — none is expected.)
+Expected: all three uninstalled. (If `pip check` flags an unrelated package depending on mptt/haystack, stop and report — none is expected.)
 
 - [ ] **Step 3: The critical proof — account code imports with machina GONE**
 
 Run: `python manage.py check`
-Expected: `System check identified no issues` — proves no remaining module imports machina at import time (this is the original "whole backend down" blocker; it must pass with machina uninstalled).
+Expected: `System check identified no issues` — proves no remaining module imports machina at import time (the original "whole backend down" blocker; must pass with machina uninstalled).
 
 Run: `python -c "import django, os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','plant_community_backend.settings'); django.setup(); import apps.users.services, apps.users.views; print('OK')"`
 Expected: `OK`.
@@ -627,7 +652,7 @@ Expected: `OK`.
 - [ ] **Step 4: Confirm `urls.py` has no machina/forum_integration refs**
 
 Run: `grep -rn "machina\|forum_integration" plant_community_backend/urls.py`
-Expected: no matches (legacy include already removed in Plan 1D-T1; the commented search includes removed in Task 5).
+Expected: no matches.
 
 - [ ] **Step 5: Run every acceptance gate**
 
@@ -638,7 +663,7 @@ Run: `python manage.py makemigrations --check --dry-run`
 Expected: no changes.
 
 Run: `python manage.py spectacular --file /tmp/schema.yml --validate`
-Expected: schema generates and validates; `dashboard_stats` still present (`grep dashboard-stats /tmp/schema.yml`), `forum-activity`/`forum-permissions` absent.
+Expected: schema generates + validates; `dashboard_stats` present (`grep dashboard-stats /tmp/schema.yml`), `forum-activity`/`forum-permissions` absent.
 
 Run: `python -m pytest apps packages -q`
 Expected: all pass.
@@ -663,5 +688,5 @@ git commit -m "build: drop django-machina, django-mptt, django-haystack (todo 22
 ## Notes for the executor
 
 - **Do not push to `main`.** Work stays on `refactor/retire-machina`; open a PR at the end (the repo has branch protection).
-- Machina must remain pip-installed through Tasks 1-6. Only Task 7 uninstalls it — that ordering is what keeps every intermediate commit runnable.
+- **Order is load-bearing:** decouple (1-3) → strip settings (4) → delete dirs (5-6) → uninstall (7). Do not delete `apps/forum_integration`/`apps/search` before Task 4, or `django.setup()` crashes locally (`ENABLE_FORUM=True`).
 - Out of scope (do **not** do here): re-wiring `User.trust_level`/`posts_count_verified` to new-forum activity (the new forum owns its own `ForumProfile.trust_level`); React/Flutter client changes (nothing consumes the removed endpoints today).

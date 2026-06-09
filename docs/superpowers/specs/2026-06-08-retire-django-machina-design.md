@@ -31,6 +31,15 @@ The three machina-coupled endpoints in `apps/users/views.py` — `forum_activity
 
 The new forum already owns trust levels **independently**: `wagtail_forum` ships its own `ForumProfile.trust_level` + `post_count` + signals + workflow autopublish. The old `User.trust_level` → machina bridge is vestigial. (`User.trust_level` the model field stays — it has live consumers in `apps/users/signals.py` and `apps/users/auditlog.py`. Only the machina bridge is removed.)
 
+### `ENABLE_FORUM` gates machina at runtime — local and CI differ (verified 2026-06-08)
+
+`settings.py` only adds machina + `apps.forum_integration` to `INSTALLED_APPS` *when `ENABLE_FORUM` is true*. The two environments differ:
+
+- **Local dev:** `backend/.env` sets `ENABLE_FORUM=True` → machina + `forum_integration` **are** installed. `services.py`'s module-level `apps.get_model("forum_permission", …)` resolves only because of this.
+- **CI** (`.github/workflows/backend-ci.yml`): sets `ENABLE_FORUM='False'` → they are **absent**. `manage.py check` still passes because nothing imports `services.py` at app-load (`users/apps.py` → `signals.py`, which has no module-level `services` import); the import-time `get_model` only fires when something imports `services.py`, which CI's paths don't.
+
+**Consequence for sequencing:** because the executor runs the test gates **locally** (`ENABLE_FORUM=True`), the `settings.py` machina/`forum_integration` inserts must be removed **before** the `forum_integration/` and `search/` directories are deleted — otherwise `django.setup()` raises `ModuleNotFoundError` locally the moment a still-`INSTALLED_APPS` directory disappears. See §7.
+
 ## 3. Goals
 
 1. `apps/users/services.py` imports cleanly with machina **uninstalled**.
@@ -118,17 +127,19 @@ Confirm no residual machina / `forum_integration` route references (legacy inclu
 
 ### 6.8 Data
 
-Greenfield — no real forum data, so no data migration. `migrate forum_integration zero` / `forum_conversation zero` are no-ops on a fresh DB. For a developer cleaning an existing dev DB, run those `zero` migrations **while the apps are still in `INSTALLED_APPS`** (before commit 2/3). Not required for CI (fresh test DB each run).
+Greenfield — no real forum data, so no data migration. `migrate forum_integration zero` / `forum_conversation zero` are no-ops on a fresh DB. For a developer cleaning an existing dev DB, run those `zero` migrations **while the apps are still in `INSTALLED_APPS`** (before the §6.5 settings strip / Commit 2). Not required for CI (fresh test DB each run).
 
 ## 7. Sequencing
 
-Branch off `main` (e.g. `refactor/retire-machina`). One PR, ordered commits:
+Branch off `main` (e.g. `refactor/retire-machina`). One PR, ordered commits. **Order is load-bearing:** the `settings.py` cleanup (§6.5) must come *before* the directory deletions (§6.3/§6.4), because the executor runs gates locally with `ENABLE_FORUM=True` (see §2) — deleting a directory still referenced in `INSTALLED_APPS` would crash `django.setup()`.
 
-- **Commit 1 — decouple account code.** §6.1 + §6.2 (`services.py`, `views.py`, `urls.py`) + the new `dashboard_stats` test. Machina still installed. Run full `pytest apps packages`.
-- **Commit 2 — delete dead apps.** §6.3 + §6.4 (`forum_integration`, `search`, `pytest.ini` ignore lines, commented refs). Run full suite + `manage.py check` **+ `makemigrations --check`** — the latter immediately after the deletions, to catch any cross-app migration dependency that slipped in between the 2026-06-08 verification and the branch cut.
-- **Commit 3 — uninstall machina.** §6.5 + §6.6 + §6.7. `pip uninstall django-machina django-mptt django-haystack`. Run `manage.py check`, `makemigrations --check`, `spectacular --validate`, full `pytest apps packages`.
+- **Commit 0 — baseline.** No changes. Run full `pytest apps packages` + `manage.py check` at HEAD to confirm green before touching anything (and to surface the `ENABLE_FORUM=True` local env the sequencing depends on).
+- **Commit 1 — decouple account code.** §6.1 + §6.2 (`services.py`, `views.py`, `urls.py`) + the new `dashboard_stats` test. Machina still installed and `INSTALLED_APPS`-wired. Run full `pytest apps packages`.
+- **Commit 2 — strip the machina footprint from `settings.py`.** §6.5. After this, nothing in `INSTALLED_APPS` points at machina or `forum_integration` (regardless of `ENABLE_FORUM`). Run full suite + `manage.py check`.
+- **Commit 3 — delete the now-unreferenced apps.** §6.3 + §6.4 (`forum_integration`, `search`, `pytest.ini` ignore lines, commented refs). Safe because Commit 2 removed them from `INSTALLED_APPS`. Run full suite + `manage.py check` **+ `makemigrations --check`** (the latter immediately after the deletions, to catch any cross-app migration dependency that slipped in since the 2026-06-08 verification).
+- **Commit 4 — uninstall machina.** §6.6 + §6.7. `pip uninstall django-machina django-mptt django-haystack`. Run `manage.py check`, `makemigrations --check`, `spectacular --validate`, full `pytest apps packages`.
 
-After commit 3: run the §3 acceptance greps and confirm clean.
+After commit 4: run the §3 acceptance greps and confirm clean.
 
 ## 8. Testing strategy
 
@@ -142,7 +153,9 @@ After commit 3: run the §3 acceptance greps and confirm clean.
 
 | Risk | Mitigation |
 |---|---|
+| Deleting a directory still in `INSTALLED_APPS` crashes `django.setup()` locally (`ENABLE_FORUM=True`) | **Ordering fix (§7):** strip the `settings.py` machina/`forum_integration` inserts (Commit 2) before deleting the directories (Commit 3). Baseline Commit 0 surfaces the local env. |
 | Cross-app migration depends on `forum_integration`/`search` migrations | **Verified none** (2026-06-08). Re-check during plan if migrations change. |
+| Repointed `.only(...)` reaches `ForumBoard`→`Page` MTI parent fields and raises `FieldError`/adds queries | Drop `.only()` from the forum queries — keep `select_related`. The test asserts values, not query counts, so there is no perf regression to guard. |
 | Hidden machina import via app-config side effects | `forum_host` verified machina-free; full suite + `manage.py check` after each commit catches import-time regressions. |
 | `dashboard_stats` repoint changes forum-stat semantics (now counts `wagtail_forum` live content) | Acceptable — endpoint is unused by clients and the new semantics are more correct. Covered by the new test. |
 | Stale `recent_activity` `url` values point at legacy `/forum/topic/{id}` (no matching route) | Resolved in commit 1: repoint to the live web scheme `/forum/{board.id}-{board.slug}/{topic.id}-{topic.slug}` (§6.2). No client consumes it today, so no client coordination needed. |
