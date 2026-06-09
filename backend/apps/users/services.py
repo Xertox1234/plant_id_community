@@ -1,5 +1,5 @@
 """
-User services for trust level management, forum permissions, and notifications.
+User services for trust level management, notifications, and demo data.
 """
 
 import json
