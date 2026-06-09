@@ -578,65 +578,6 @@ def search_detail(request: Request, request_id: int) -> Response:
 
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
-def forum_activity(request: Request) -> Response:
-    """
-    Get user's recent forum activity (topics and posts).
-    """
-    from datetime import timedelta
-
-    from apps.forum_integration.serializers import PostSerializer, TopicSerializer
-    from django.utils import timezone
-    from machina.apps.forum_conversation.models import Post, Topic
-
-    # Get recent topics created by user
-    recent_topics = (
-        Topic.objects.filter(poster=request.user, approved=True)
-        .select_related("forum", "last_post")
-        .order_by("-created")[:5]
-    )
-
-    # Get recent posts by user (excluding first posts of topics)
-    recent_posts = (
-        Post.objects.filter(poster=request.user, approved=True)
-        .exclude(
-            id__in=Topic.objects.filter(poster=request.user).values_list(
-                "first_post_id", flat=True
-            )
-        )
-        .select_related("topic", "topic__forum")
-        .order_by("-created")[:10]
-    )
-
-    # Calculate activity stats — one aggregate() per model instead of 4 COUNTs
-    from django.db.models import Count, Q
-
-    thirty_days_ago = timezone.now() - timedelta(days=30)
-    topic_stats = Topic.objects.filter(poster=request.user, approved=True).aggregate(
-        total=Count("id"),
-        this_month=Count("id", filter=Q(created__gte=thirty_days_ago)),
-    )
-    post_stats = Post.objects.filter(poster=request.user, approved=True).aggregate(
-        total=Count("id"),
-        this_month=Count("id", filter=Q(created__gte=thirty_days_ago)),
-    )
-    stats = {
-        "total_topics": topic_stats["total"],
-        "total_posts": post_stats["total"],
-        "topics_this_month": topic_stats["this_month"],
-        "posts_this_month": post_stats["this_month"],
-    }
-
-    return Response(
-        {
-            "recent_topics": TopicSerializer(recent_topics, many=True).data,
-            "recent_posts": PostSerializer(recent_posts, many=True).data,
-            "stats": stats,
-        }
-    )
-
-
-@api_view(["GET"])
-@permission_classes([permissions.IsAuthenticated])
 def dashboard_stats(request: Request) -> Response:
     """
     Get comprehensive dashboard statistics for the user.
@@ -776,66 +717,6 @@ def dashboard_stats(request: Request) -> Response:
             ),
         }
     )
-
-
-@api_view(["GET"])
-@permission_classes([permissions.IsAuthenticated])
-def forum_permissions(request: Request) -> Response:
-    """
-    Get forum permissions for the current user, including image upload permissions.
-    """
-    from machina.apps.forum.models import Forum
-
-    from .services import TrustLevelService
-
-    # Get a sample forum to test permissions (most restrictive)
-    forum = Forum.objects.filter(type=Forum.FORUM_POST).first()
-
-    # Get trust level information
-    trust_info = request.user.get_trust_level_display_info()
-
-    # Check image upload permissions
-    can_upload_images = request.user.can_upload_images()
-    can_attach_files_forum = False
-
-    if forum:
-        can_attach_files_forum = TrustLevelService.check_user_can_attach_files(
-            request.user, forum
-        )
-
-    permissions_data = {
-        "can_upload_images": can_upload_images,
-        "can_attach_files": can_attach_files_forum,
-        "trust_level": trust_info,
-        "user_groups": [group.name for group in request.user.groups.all()],
-        "is_staff": request.user.is_staff,
-        "is_superuser": request.user.is_superuser,
-    }
-
-    # Add helpful messaging for users who can't upload images
-    if not can_upload_images:
-        permissions_data["message"] = {
-            "title": "Image Uploads Not Available",
-            "description": f'You need {trust_info["posts_needed"]} more approved posts and {trust_info["days_needed"]} more days to unlock image uploads.',
-            "requirements": {
-                "posts_needed": trust_info["posts_needed"],
-                "days_needed": trust_info["days_needed"],
-                "next_level": trust_info["next_level"],
-            },
-            "current_progress": {
-                "posts": trust_info["posts_count"],
-                "account_age_days": trust_info["account_age_days"],
-            },
-            "help_url": "/help/forum-permissions",
-        }
-    else:
-        permissions_data["message"] = {
-            "title": "Image Uploads Available",
-            "description": f'You have {trust_info["current_display"]} status and can upload images to forum posts.',
-            "current_level": trust_info["current_level"],
-        }
-
-    return Response(permissions_data)
 
 
 # === Push Notification Endpoints ===
