@@ -96,7 +96,7 @@ _None._ (Critical is N/A for a maintainability lens.)
 
 User chose to fix the **dead-code sweep + hollow tests** now; everything else
 deferred to todos 221–223. Post-fix suites all green: **backend 628 OK** (`--noinput`),
-**web 615 pass**, **flutter 146 pass**; `manage.py check` clean, `tsc`/`flutter analyze` clean.
+**web 615 pass**, **flutter 165 pass** (after the M18 restore below); `manage.py check` clean, `tsc`/`flutter analyze` clean.
 An orphan re-sweep (grep every deleted symbol across `apps`, no `.py` filter) returned **zero** residual references.
 
 ### Verified (fixed + stack tests green)
@@ -113,19 +113,23 @@ An orphan re-sweep (grep every deleted symbol across `apps`, no `.py` filter) re
 | M5 | Deleted 7 dead onboarding/demo methods + transitively-orphaned `_get_next_step` (kept live `completion_percentage`/`remaining_steps`) | users 102 OK |
 | M10 | Deleted `track_file_upload`, `track_validation_failure`, `get_security_status` + 4 orphaned constants (`MAX_UPLOAD_FAILURES_PER_HOUR`, `UPLOAD_FAILURE_WINDOW`, `MAX_VALIDATION_FAILURES_PER_HOUR`, `VALIDATION_FAILURE_WINDOW`); kept live `_trigger_security_alert` | backend 628 OK |
 | M12 | Deleted clear-dead `getNameError`; tested **security validators** → **deferred** todo 222 | web 615 pass |
-| M17 | Deleted `route_transitions.dart` (284-line unused) | flutter 146 |
-| M18 | Deleted `firestore_service.dart` + `.g.dart` + 2 test files (**user-approved**) | flutter 146 |
-| M19 | Deleted `navigation_extensions.dart` + its test groups + now-unused splash import (**user-approved**) | flutter 146 |
+| M17 | Deleted `route_transitions.dart` (284-line unused) | flutter 165 |
+| M19 | Deleted `navigation_extensions.dart` + its test groups + now-unused splash import (user-approved) | flutter 165 |
 | M20 | Deleted empty `AnonymousVsAuthenticatedRateLimitsTestCase` — both `pass` stubs incl. the unflagged sibling `test_authentication_increases_rate_limit` | users 102 OK |
 | M21 | Rewrote hollow Sentry test → `vi.stubEnv('DEV', false)` forces prod branch; asserts breadcrumb + `captureMessage` | web 615 pass |
 | M22 | Rewrote tautological timeout test → asserts real `httpClient.defaults.timeout` | web 615 pass |
 | L5 | Deleted no-op `handle_user_profile_update` receiver + orphaned `post_save` import | users 102 OK |
 | L7 | Deleted dead `logError`/`logWarning`/`logInfo`; un-exported internal-only `LOG_LEVELS` | web 615 pass |
-| L11 | Deleted unused `getJWT()` | flutter 146 |
+| L11 | Deleted unused `getJWT()` | flutter 165 |
 | L12 | Rewrote tautological base-URL test → asserts real `httpClient.defaults.baseURL` | web 615 pass |
 | L13 | Tightened spoofed-IP test → asserts validated IP `== "192.168.1.100"` (rejects spoofed XFF) | users 102 OK |
 
 **Transitive deletions** (orphaned by a flagged deletion, removed in the same commit after a zero-ref re-sweep): `log_trust_level_upgrade`, `_get_next_step`, `_get_project_for_location`, the 4 `MAX_*`/`*_WINDOW` constants, and the `Group` / `post_save` imports. `_trigger_security_alert` was checked and **kept** (live callers at security.py:240/382/443).
+
+> **Post-review reversal (M18):** `firestore_service.dart` + `.g.dart` + its 2 test
+> files were initially deleted (user-approved at triage), then **restored** after the
+> owner confirmed offline persistence is a roadmap priority to keep and improve. M18
+> is reclassified **deferred → [todo 224](../../todos/224-pending-p2-wire-offline-persistence-firestore.md)** (wire the offline layer into the UI). flutter suite back to **165 pass**. M17/M19 (unrelated to offline persistence) stay deleted.
 
 > **Severity-downgrade note:** M1 and M12 are recorded `verified` for their dead-code portion only; their drifted/wire-or-remove residuals are deferred (todos 221/222). H3's dead util is deleted; the 3 inline-`formatDate` copies remain (cosmetic, not in the dead-code-removal scope).
 
@@ -136,6 +140,7 @@ An orphan re-sweep (grep every deleted symbol across `apps`, no `.py` filter) re
 | M4, M6, M7, M8, M9, M11, M1(parser), L1, L4, L6 | [todo 221](../../todos/221-pending-p2-maint-backend-duplication-contracts.md) (p2) | Backend drifted duplication & misleading contracts — multi-site edits / false contracts; M8 touches the 429 path |
 | M12(validators), M13, M14, M15, M16, L8, L9 | [todo 222](../../todos/222-pending-p3-maint-web-duplication-casts-validators.md) (p3) | Web duplication/casts/coupling + tested security validators needing a wire-or-remove decision (don't blind-delete) |
 | L2, L3, L10 | [todo 223](../../todos/223-pending-p3-maint-misc-low-cleanups.md) (p3) | Misc low-severity cleanups (dead conditional branch, dup model props, stale TODO) |
+| M18 (keep + wire) | [todo 224](../../todos/224-pending-p2-wire-offline-persistence-firestore.md) (p2) | Initially deleted; **restored** — offline persistence is a roadmap priority. Wire `FirestoreService`/`plantsStreamProvider` into the UI |
 
 ## Finding Status
 
@@ -152,6 +157,7 @@ Deferred findings tracked as todos — checked off when the linked todo is archi
 - [ ] #L1 third inline PlantNet parser → todo 221
 - [ ] #L4 frequency→interval mapping in 3 styles → todo 221
 - [ ] #L6 silent broad-except swallow → todo 221
+- [ ] #M18 offline `FirestoreService` — keep + wire to UI (restored) → todo 224
 - [ ] #M12 unwired security validators (wire-or-remove) → todo 222
 - [ ] #M13 sanitize case-collision + needless async → todo 222
 - [ ] #M14 forum pagination duplicated + drifted → todo 222
@@ -169,11 +175,12 @@ Deferred findings tracked as todos — checked off when the linked todo is archi
 | --------- | ----- | -------- | -------- | -------------- | ----- |
 | Critical  | 0     | 0        | 0        | 0              | 0     |
 | High      | 4     | 4        | 0        | 0              | 0     |
-| Medium    | 22    | 12       | 10       | 0              | 0     |
+| Medium    | 22    | 11       | 11       | 0              | 0     |
 | Low       | 13    | 5        | 8        | 0              | 0     |
-| **Total** | 39    | 21       | 18       | 0              | **0** |
+| **Total** | 39    | 20       | 19       | 0              | **0** |
 
-> 21 verified (dead-code sweep + hollow tests), 18 deferred to todos 221–223, 0 open.
+> 20 verified (dead-code sweep + hollow tests), 19 deferred to todos 221–224, 0 open.
+> M18 (`FirestoreService`) was deleted then **restored** post-review — offline persistence is a roadmap priority — and reclassified deferred → todo 224.
 
 ## Coverage & Dedup Notes
 
@@ -193,6 +200,6 @@ Deferred findings tracked as todos — checked off when the linked todo is archi
 | Finding | Destination | Note |
 | ------- | ----------- | ---- |
 | Mass-deletion method (H1/H2/M1-M5/M10/L5 etc.) | `docs/LEARNINGS.md` | Dead-code removal is verified by whole-repo reference re-sweep + orphaned-import check, NOT a green suite; follow transitive-deadness chains to closure; grep without `.py` filter before deleting model methods (string refs in serializers/panels/templates) |
-| M12/M18/M19 (built-but-unwired) | `docs/LEARNINGS.md` | "Zero references" ≠ "delete" — coherent tested features / security utilities get a human delete-vs-wire decision (M18/M19 deleted on approval; M12 validators + M1 parser deferred) |
+| M12/M18/M19 (built-but-unwired) | `docs/LEARNINGS.md` | "Zero references" ≠ "delete" — coherent tested features / security utilities get a human delete-vs-wire decision (M19 deleted on approval; **M18 deleted then restored** when the owner flagged offline persistence as roadmap → todo 224; M12 validators + M1 parser deferred). Reinforces the rule: surface coherent-but-unwired features, don't auto-delete. |
 | H4/M20/M21/M22/L12/L13 (hollow tests) | `docs/LEARNINGS.md` + `docs/rules/testing.md` | Banned hollow-test shapes (empty `pass`, tautological literal, mock-`toBeDefined`-only); `vi.stubEnv('DEV', false)` to enter dev-gated branches; delete empty placeholder stubs |
 | Hollow-test rule | `docs/rules/testing.md` | New "No hollow tests" binding rule (sharpens existing "a test that can't fail isn't a test") |
