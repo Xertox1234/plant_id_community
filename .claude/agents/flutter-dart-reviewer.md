@@ -42,7 +42,7 @@ Review only the files passed to you. Do not read the full repo.
 - [ ] New providers must use `Notifier` class with `@riverpod` annotation — NOT the deprecated `StateNotifier`
 - [ ] `ref.watch()` for reactive reads, `ref.read()` for one-time reads inside callbacks
 - [ ] Generated files (`*.g.dart`) must have corresponding `part '*.g.dart'` directive in the source file
-- [ ] After adding/modifying `@riverpod` providers, plan must include running `build_runner build`
+- [ ] After editing ANY codegen-backed source (`@riverpod`/`@freezed`/has `part '*.g.dart'`) — including deleting an *unrelated* method — the `.g.dart` must be regenerated (`build_runner build --delete-conflicting-outputs`) AND committed in the same change. Riverpod embeds a source-content hash (`_$xHash`), so any edit makes it stale; a stale `.g.dart` passes local `analyze`/`test` but fails CI's "Ensure generated code is committed" gate (see `docs/LEARNINGS.md` 2026-06-09)
 
 **go_router 17.0.0**
 

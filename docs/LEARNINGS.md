@@ -407,3 +407,12 @@ This file is append-only. New entries are added by main Claude after each code r
 
 **Rule**: A test named for behavior X must assert X and fail if X regresses — never `pass`, never assert a locally-declared literal, never assert only that a mock exists. For env/dev-gated code, stub the env to enter the real branch (`vi.stubEnv`). An empty placeholder test for an unbuilt feature is noise — delete it (or build the feature + test together), don't leave a green stub.
 **Agent**: test-quality-reviewer
+
+### [2026-06-09] Editing a `@riverpod` source without regenerating fails CI's codegen gate — `flutter analyze`/`test` won't catch it
+
+**Mistake**: During PR #364 (the maintainability audit) I deleted the unused `getJWT()` method from `auth_service.dart`. `AuthService` is a `@riverpod` Notifier, and Riverpod's generated `auth_service.g.dart` embeds a **source-content hash** (`_$authServiceHash = r'5a072f4f…'`). Deleting *any* code from the source changes that hash, but I never ran `build_runner`, so the committed `.g.dart` carried the stale hash. Local `flutter analyze` (clean) and `flutter test` (165 pass) both passed — they don't regenerate — so the gap was invisible until the CI job's `Ensure generated code is committed` step (`build_runner build` + `git diff --exit-code -- lib test`) failed the PR. This recurred a previously-noted gotcha; it had not been codified into `docs/rules/flutter.md`, so the inject hook never warned at write-time.
+
+**Fix**: `cd plant_community_mobile && flutter pub run build_runner build --delete-conflicting-outputs`, then commit the updated `.g.dart` (only the hash line changed). Codified as a binding rule in `docs/rules/flutter.md` + a JIT trigger (`flutter-codegen-regen`) so editing any `@riverpod`/`@freezed`/`part '*.g.dart'` source now warns at write-time.
+
+**Rule**: After editing ANY codegen-backed Dart source (`@riverpod`, `@freezed`, or one with `part '*.g.dart'`), regenerate with `build_runner` and commit the `.g.dart` in the same change. Local analyze/test cannot detect a stale `.g.dart`; CI's codegen gate will block the merge.
+**Agent**: flutter-dart-reviewer
