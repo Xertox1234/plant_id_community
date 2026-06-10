@@ -44,6 +44,25 @@ _plantnet_circuit, _plantnet_monitor, _plantnet_stats = create_monitored_circuit
 )
 
 
+def parse_plantnet_species(species: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract the core taxonomy fields from a PlantNet ``species`` object.
+
+    Single-sources the scientific-name / family / genus extraction that was
+    hand-rolled in three places (``_extract_care_info`` and ``_merge_suggestions``
+    in the combined service, plus ``get_top_suggestions`` here) — todo 221 / M1,
+    L1. Family and genus use ``scientificName`` (matching the live combined-service
+    parsers); ``get_top_suggestions`` previously read ``scientificNameWithoutAuthor``
+    for them, which had drifted.
+    """
+    family = species.get("family") or {}
+    genus = species.get("genus") or {}
+    return {
+        "scientific_name": species.get("scientificNameWithoutAuthor"),
+        "family": family.get("scientificName"),
+        "genus": genus.get("scientificName"),
+    }
+
+
 class PlantNetAPIService:
     """
     Service for interacting with the PlantNet API.
@@ -386,21 +405,16 @@ class PlantNetAPIService:
                     elif isinstance(name, dict):
                         common_names.append(name.get("value", ""))
 
+                parsed = parse_plantnet_species(species)
                 suggestions.append(
                     {
-                        "scientific_name": species.get(
-                            "scientificNameWithoutAuthor", ""
-                        ),
+                        "scientific_name": parsed["scientific_name"] or "",
                         "scientific_name_full": species.get(
                             "scientificName", ""
                         ),  # Full name with authorship
                         "common_names": common_names,
-                        "family": species.get("family", {}).get(
-                            "scientificNameWithoutAuthor", ""
-                        ),
-                        "genus": species.get("genus", {}).get(
-                            "scientificNameWithoutAuthor", ""
-                        ),
+                        "family": parsed["family"] or "",
+                        "genus": parsed["genus"] or "",
                         "confidence_score": score,
                         "plantnet_id": str(species.get("id", "")),
                         "images": self._extract_species_images(

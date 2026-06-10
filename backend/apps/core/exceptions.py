@@ -174,15 +174,12 @@ def custom_exception_handler(
     status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
     error_code = "internal_error"
 
-    # Handle specific Django exceptions
-    # IMPORTANT: Check Ratelimited before PermissionDenied since Ratelimited inherits from PermissionDenied
-    if isinstance(exc, Ratelimited):
-        error_message = "Rate limit exceeded. Please try again later."
-        status_code = status.HTTP_429_TOO_MANY_REQUESTS
-        error_code = "rate_limit_exceeded"
-        logger.warning("429 Rate Limit Exceeded", extra=log_context)
-
-    elif isinstance(exc, Http404):
+    # Handle specific Django exceptions.
+    # Ratelimited is NOT handled here: it subclasses PermissionDenied and is
+    # caught by the early return at the top of this function (so DRF's default
+    # handler never turns it into a 403). By the time control reaches this block
+    # exc can no longer be a Ratelimited, so a branch for it would be dead code.
+    if isinstance(exc, Http404):
         error_message = "Resource not found"
         status_code = status.HTTP_404_NOT_FOUND
         error_code = "not_found"

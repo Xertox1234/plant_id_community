@@ -623,7 +623,11 @@ class WeatherAlertViewSet(viewsets.ReadOnlyModelViewSet):
     ),
     destroy=extend_schema(
         summary="Delete a garden bed",
-        description="Soft delete a garden bed by setting is_active=False.",
+        description=(
+            "Permanently delete a garden bed. This is a hard delete — the record "
+            "is removed, not deactivated. To deactivate a bed without deleting it, "
+            "PATCH `is_active=false` instead."
+        ),
         tags=["Garden Beds"],
     ),
 )
@@ -934,7 +938,11 @@ class GardenBedViewSet(viewsets.ModelViewSet):
     ),
     destroy=extend_schema(
         summary="Delete a plant",
-        description="Soft delete a plant by setting is_active=False.",
+        description=(
+            "Permanently delete a plant. This is a hard delete — the record is "
+            "removed, not deactivated. To deactivate a plant without deleting it, "
+            "PATCH `is_active=false` instead."
+        ),
         tags=["Plants"],
     ),
 )

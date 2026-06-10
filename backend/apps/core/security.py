@@ -29,6 +29,8 @@ try:
         ACCOUNT_LOCKOUT_DURATION,
         ACCOUNT_LOCKOUT_THRESHOLD,
         ACCOUNT_LOCKOUT_TIME_WINDOW,
+        API_RATE_LIMIT_MAX_REQUESTS,
+        API_RATE_LIMIT_WINDOW,
         LOCKOUT_ATTEMPTS_KEY,
         LOCKOUT_EMAIL_ENABLED,
         LOCKOUT_EMAIL_SUBJECT,
@@ -38,6 +40,7 @@ try:
         LOG_PREFIX_SECURITY,
         MAX_FAILED_LOGINS,
         MAX_FAILED_LOGINS_TIME,
+        SUSPICIOUS_ACTIVITY_THRESHOLD,
         UNKNOWN_IP_ADDRESS,
     )
 except ImportError:
@@ -45,6 +48,8 @@ except ImportError:
     ACCOUNT_LOCKOUT_THRESHOLD = 10
     ACCOUNT_LOCKOUT_DURATION = 3600
     ACCOUNT_LOCKOUT_TIME_WINDOW = 900
+    API_RATE_LIMIT_WINDOW = 60
+    API_RATE_LIMIT_MAX_REQUESTS = 30
     LOCKOUT_ATTEMPTS_KEY = "security:lockout_attempts:{username}"
     LOCKOUT_STATUS_KEY = "security:lockout_status:{username}"
     LOCKOUT_EMAIL_ENABLED = True
@@ -54,6 +59,7 @@ except ImportError:
     LOG_PREFIX_LOCKOUT = "[LOCKOUT]"
     MAX_FAILED_LOGINS = 5
     MAX_FAILED_LOGINS_TIME = 900
+    SUSPICIOUS_ACTIVITY_THRESHOLD = 10
     UNKNOWN_IP_ADDRESS = "unknown"
 
 logger = logging.getLogger(__name__)
@@ -74,7 +80,7 @@ class SecurityMonitor:
     # Thresholds for security alerts (using constants)
     MAX_FAILED_LOGINS = MAX_FAILED_LOGINS
     MAX_FAILED_LOGINS_TIME = MAX_FAILED_LOGINS_TIME
-    SUSPICIOUS_ACTIVITY_THRESHOLD = 10
+    SUSPICIOUS_ACTIVITY_THRESHOLD = SUSPICIOUS_ACTIVITY_THRESHOLD
     SUSPICIOUS_ACTIVITY_TIME = 600  # 10 minutes
 
     @classmethod
@@ -439,7 +445,7 @@ This is an automated security message from Plant Community.
         cache.set(key, recent_logins, 3600)
 
         # Alert if too many logins in short time
-        if len(recent_logins) > 10:  # More than 10 logins per hour
+        if len(recent_logins) > cls.SUSPICIOUS_ACTIVITY_THRESHOLD:
             cls._trigger_security_alert(
                 "suspicious_login_frequency",
                 {
@@ -471,15 +477,17 @@ This is an automated security message from Plant Community.
         requests = cache.get(key, [])
         current_time = time.time()
 
-        # Remove old requests (outside 1 minute window)
-        requests = [req for req in requests if current_time - req < 60]
+        # Remove old requests (outside the rate-limit window)
+        requests = [
+            req for req in requests if current_time - req < API_RATE_LIMIT_WINDOW
+        ]
 
         # Add current request
         requests.append(current_time)
-        cache.set(key, requests, 60)
+        cache.set(key, requests, API_RATE_LIMIT_WINDOW)
 
         # Log high-frequency requests
-        if len(requests) > 30:  # More than 30 requests per minute
+        if len(requests) > API_RATE_LIMIT_MAX_REQUESTS:
             logger.warning(
                 f"High API request frequency: user={user_id}, ip={ip_address}, "
                 f"endpoint={endpoint}, requests={len(requests)}/minute"
@@ -630,15 +638,20 @@ class SecurityMiddleware:
 
                             data = json.loads(request.body.decode("utf-8"))
                             username = data.get("username")
-                    except (
-                        json.JSONDecodeError,
-                        UnicodeDecodeError,
-                        AttributeError,
-                        Exception,
-                    ):
-                        pass
-            except (AttributeError, TypeError, Exception):
-                # Fallback: don't extract username if there are any issues
+                    except Exception as exc:
+                        # Best-effort body parse (may be non-JSON / already
+                        # consumed). Swallow so tracking never breaks the
+                        # response, but don't do it silently.
+                        logger.debug(
+                            "%s username extraction from request body failed: %s",
+                            LOG_PREFIX_SECURITY,
+                            exc,
+                        )
+            except Exception as exc:
+                # Fallback: never let username extraction break the response.
+                logger.debug(
+                    "%s username extraction failed: %s", LOG_PREFIX_SECURITY, exc
+                )
                 username = None
 
             SecurityMonitor.track_failed_login(ip_address, username)

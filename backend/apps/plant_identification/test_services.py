@@ -14,7 +14,10 @@ from apps.core.exceptions import ExternalAPIError
 from apps.plant_identification.services.plant_health_service import (
     PlantHealthAPIService,
 )
-from apps.plant_identification.services.plantnet_service import PlantNetAPIService
+from apps.plant_identification.services.plantnet_service import (
+    PlantNetAPIService,
+    parse_plantnet_species,
+)
 from apps.plant_identification.services.trefle_service import TrefleAPIService
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -58,16 +61,28 @@ class TestPlantNetAPIService(TestCase):
                 {
                     "species": {
                         "scientificNameWithoutAuthor": "Rosa damascena",
-                        "genus": {"scientificNameWithoutAuthor": "Rosa"},
-                        "family": {"scientificNameWithoutAuthor": "Rosaceae"},
+                        "genus": {
+                            "scientificName": "Rosa",
+                            "scientificNameWithoutAuthor": "Rosa",
+                        },
+                        "family": {
+                            "scientificName": "Rosaceae",
+                            "scientificNameWithoutAuthor": "Rosaceae",
+                        },
                     },
                     "score": 0.95,
                 },
                 {
                     "species": {
                         "scientificNameWithoutAuthor": "Rosa gallica",
-                        "genus": {"scientificNameWithoutAuthor": "Rosa"},
-                        "family": {"scientificNameWithoutAuthor": "Rosaceae"},
+                        "genus": {
+                            "scientificName": "Rosa",
+                            "scientificNameWithoutAuthor": "Rosa",
+                        },
+                        "family": {
+                            "scientificName": "Rosaceae",
+                            "scientificNameWithoutAuthor": "Rosaceae",
+                        },
                     },
                     "score": 0.82,
                 },
@@ -139,8 +154,14 @@ class TestPlantNetAPIService(TestCase):
                 {
                     "species": {
                         "scientificNameWithoutAuthor": "Rosa damascena",
-                        "genus": {"scientificNameWithoutAuthor": "Rosa"},
-                        "family": {"scientificNameWithoutAuthor": "Rosaceae"},
+                        "genus": {
+                            "scientificName": "Rosa",
+                            "scientificNameWithoutAuthor": "Rosa",
+                        },
+                        "family": {
+                            "scientificName": "Rosaceae",
+                            "scientificNameWithoutAuthor": "Rosaceae",
+                        },
                         "commonNames": ["Damask rose", "Rose of Castile"],
                     },
                     "score": 0.95,
@@ -492,3 +513,51 @@ class TestServiceCaching(TestCase):
             # Second call uses cache
             result2 = self.trefle_service.search_plants("Rosa damascena")
             self.assertEqual(result2, [{"scientific_name": "Rosa damascena"}])
+
+
+class ParsePlantNetSpeciesTest(TestCase):
+    """Contract for the single-sourced PlantNet species parser (todo 221 / M1, L1).
+
+    This logic was hand-rolled in three places (`_extract_care_info`,
+    `_merge_suggestions`, `get_top_suggestions`) and had drifted: the last read
+    `scientificNameWithoutAuthor` for family/genus while the live parsers read
+    `scientificName`. This pins the single canonical mapping.
+    """
+
+    def test_extracts_canonical_taxonomy_fields(self):
+        species = {
+            "scientificNameWithoutAuthor": "Rosa damascena",
+            "scientificName": "Rosa damascena Mill.",
+            "genus": {"scientificName": "Rosa", "scientificNameWithoutAuthor": "Rosa"},
+            "family": {
+                "scientificName": "Rosaceae",
+                "scientificNameWithoutAuthor": "Rosaceae",
+            },
+        }
+        self.assertEqual(
+            parse_plantnet_species(species),
+            {
+                "scientific_name": "Rosa damascena",
+                "family": "Rosaceae",
+                "genus": "Rosa",
+            },
+        )
+
+    def test_family_and_genus_use_scientific_name_not_without_author(self):
+        # Pins the drift fix: family/genus come from `scientificName`, so a
+        # species carrying only `scientificNameWithoutAuthor` for them yields None.
+        species = {
+            "scientificNameWithoutAuthor": "Rosa damascena",
+            "genus": {"scientificNameWithoutAuthor": "Rosa"},
+            "family": {"scientificNameWithoutAuthor": "Rosaceae"},
+        }
+        parsed = parse_plantnet_species(species)
+        self.assertEqual(parsed["scientific_name"], "Rosa damascena")
+        self.assertIsNone(parsed["family"])
+        self.assertIsNone(parsed["genus"])
+
+    def test_missing_taxonomy_objects_yield_none(self):
+        self.assertEqual(
+            parse_plantnet_species({}),
+            {"scientific_name": None, "family": None, "genus": None},
+        )

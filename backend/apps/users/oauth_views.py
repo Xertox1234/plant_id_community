@@ -304,7 +304,7 @@ def _find_or_create_user(provider, user_data):
     """
     Find existing user or create new user from OAuth data.
     """
-    from apps.users.models import UserPlantCollection
+    from apps.users.signup import create_default_plant_collection
     from django.contrib.auth import get_user_model
 
     User = get_user_model()
@@ -354,13 +354,8 @@ def _find_or_create_user(provider, user_data):
             last_name=last_name,
         )
 
-        # Create default plant collection
-        UserPlantCollection.objects.create(
-            user=user,
-            name="My Plants",
-            description="My personal plant collection",
-            is_public=True,
-        )
+        # Create default plant collection (shared signup side-effect)
+        create_default_plant_collection(user)
 
         # Update additional fields for GitHub
         if provider == "github":
