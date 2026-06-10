@@ -177,8 +177,9 @@ class UserProfileService extends _$UserProfileService {
     }
   }
 
-  // TODO: Add uploadAvatar() method when FirebaseStorageService is implemented
-  // TODO: Add deleteAvatar() method when FirebaseStorageService is implemented
+  // TODO: Add uploadAvatar() using the existing FirebaseStorageService
+  // (the `avatar` URL is already accepted by updateProfile above).
+  // TODO: Add deleteAvatar() using the existing FirebaseStorageService.
 
   /// Refresh profile data from the backend, updating [state] with the result.
   /// A failed fetch lands as `AsyncValue.error` (via [AsyncValue.guard]) so the

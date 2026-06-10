@@ -165,9 +165,9 @@ Deferred findings tracked as todos — checked off when the linked todo is archi
 - [ ] #M16 block-type dispatch edit-in-3-places → todo 222
 - [ ] #L8 getSeverityColor duplicated + drifted → todo 222
 - [ ] #L9 Attachment URL-field sprawl → todo 222
-- [ ] #L2 no-op hasattr branch ×2 → todo 223
-- [ ] #L3 duplicated model image properties → todo 223
-- [ ] #L10 stale FirebaseStorageService TODO → todo 223
+- [x] #L2 no-op hasattr branch ×2 → todo 223 (completed 2026-06-10)
+- [x] #L3 duplicated model image properties → todo 223 (completed 2026-06-10)
+- [x] #L10 stale FirebaseStorageService TODO → todo 223 (completed 2026-06-10)
 
 ## Summary
 
