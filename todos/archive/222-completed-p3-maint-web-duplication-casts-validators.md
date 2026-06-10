@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "222"
 tags: [maintainability, web, react, typescript, audit]
@@ -52,14 +52,53 @@ Per-finding file:line above. Patterns: `web/docs/patterns/react-typescript.md`,
 
 ## Acceptance Criteria
 
-- [ ] M12 validators each wired or removed (with tests); no tested-but-unused security validators remain.
-- [ ] M13 single sanitize fn; no needless async/loading scaffolding.
-- [ ] M14 pagination single-sourced across forum pages.
-- [ ] M15 double-cast removed; `tsc` clean.
-- [ ] M16 block-type registry single-sourced.
-- [ ] L8/L9 addressed; `npm run test` + `type-check` + `lint` green.
+- [~] M12 validators each wired or removed — **split to todo 225** (security
+      judgment call; user chose to defer to its own todo). Investigation done:
+      all 9 validators have 0 import sites; `validateFileType` is redundant with
+      ImageUploadWidget's MIME check; `sanitizeSearchQuery` is the one genuine
+      wire site.
+- [x] M13 single sanitize fn; no needless async/loading scaffolding.
+      (done 2026-06-10 — `SafeHTML` uses the sync `createSafeMarkup` from
+      `utils/sanitize` directly (no useState/useEffect/loading); dead
+      `sanitizeHTML` removed from `sanitize.ts`; orphaned `utils/domSanitizer.ts`
+      deleted.)
+- [x] M14 pagination single-sourced across forum pages.
+      (done 2026-06-10 — `components/ui/Pagination.tsx` + `hooks/useHandlePageChange.ts`
+      replace the byte-identical handler and the drifted JSX in ThreadListPage and
+      SearchPage.)
+- [x] M15 double-cast removed; `tsc` clean.
+      (done 2026-06-10 — `cardData` typed as `CreateDiagnosisCardInput`; the
+      `as unknown as` double-cast removed. It was hiding real mismatches:
+      `diagnosis_result` made optional (matches the code + backend), non-create
+      `plant_recovered` dropped, and the two enum fields narrowed at the boundary.)
+- [~] M16 block-type registry single-sourced — **split to todo 225** (a
+      component-extraction refactor; the per-block editor/renderer JSX genuinely
+      differ with per-block theming — not a mechanical dedup, not safe to rush).
+- [x] L8/L9 addressed; `npm run test` + `type-check` + `lint` green.
+      (done 2026-06-10 — L8: `utils/diagnosisDisplay.ts::getSeverityColor`
+      (typed `SeverityAssessment`) single-sources the two drifted copies. L9:
+      `Attachment` narrowed to the authoritative `image_url`/`thumbnail_url`
+      (the mapper filled 5 aliases from 2 backend fields); `getAttachmentImageUrl`
+      + mapper + tests updated. **type-check + 94 affected tests + lint all green.**)
 
 ## Work Log
+
+### 2026-06-10 - Completed (5 of 7 findings); M12 + M16 split to todo 225
+
+- Completed the five mechanical dedups: M13, M14, M15, L8, L9.
+  Verification: `npm run type-check` clean, `eslint` clean on all changed files,
+  and `vitest run` on the affected suites = **94 passed (4 files)**.
+- M12 (security validators) split to **todo 225** per the user's explicit choice
+  to defer it to its own todo. M16 (block-type registry) also split to 225: its
+  proper fix is a component-extraction refactor (per-block editor/renderer JSX
+  with per-block theming), not a mechanical dedup, and was not safe to rush.
+- Review: deferred to the run's end-of-sweep code-review-orchestrator pass.
+
+### 2026-06-10 - Started by completing-todos skill (run 2026-06-10-0251)
+
+- Picked up by automated workflow (final todo of the sweep). M12 (wire-or-remove
+  the tested security validators) is the one real judgment call — handled
+  directly, not blind-deleted.
 
 ### 2026-06-09 - Created
 

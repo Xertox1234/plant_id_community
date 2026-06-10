@@ -323,23 +323,6 @@ export function sanitizeInput(input: unknown): unknown {
 }
 
 /**
- * Sanitize HTML content (for displaying rich text safely)
- * Allows safe HTML tags but removes scripts and dangerous attributes
- *
- * @param html - HTML content to sanitize
- * @returns Sanitized HTML
- * @deprecated Use sanitizeHtml() with presets instead
- *
- * @example
- * const safeHTML = sanitizeHTML(serverResponse.content)
- * // Safe: <p>Hello</p>
- * // Blocked: <script>alert('xss')</script>
- */
-export function sanitizeHTML(html: unknown): string {
-  return sanitizeHtml(html, SANITIZE_PRESETS.STANDARD);
-}
-
-/**
  * Sanitize error messages from server
  * Prevents XSS if server includes user input in error messages
  *
@@ -362,7 +345,6 @@ export function sanitizeError(error: unknown): unknown {
 
 export default {
   sanitizeInput,
-  sanitizeHTML,
   sanitizeHtml,
   sanitizeError,
   createSafeMarkup,

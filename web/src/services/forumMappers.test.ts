@@ -135,7 +135,6 @@ describe('forumMappers', () => {
     });
     expect(a).toMatchObject({
       id: '7',
-      image: 'http://x/a.jpg',
       image_url: 'http://x/a.jpg',
       thumbnail_url: 'http://x/a_t.jpg',
       display_order: 2,
