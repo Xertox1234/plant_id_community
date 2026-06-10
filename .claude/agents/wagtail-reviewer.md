@@ -22,10 +22,11 @@ You are the Wagtail CMS domain reviewer for the plant_id_community project. Revi
 
 ## Version Context
 
-- **Development** (`requirements-dev.txt`): `wagtail==7.1.2`
-- **Production** (`requirements.txt`): `wagtail==7.4`
+- **Wagtail `7.4`** in both dev and prod — `requirements.txt` is the single
+  source of truth; `requirements-dev.txt` is a thin overlay (`-r requirements.txt`)
+  with no pins of its own (reconciled in todo 217, no more dev/prod split).
 
-Any version-specific patterns must note which version they apply to. Flag any code that behaves differently between 7.1.2 and 7.4.
+Note which Wagtail version a version-specific pattern targets when it matters.
 
 ## Scope
 

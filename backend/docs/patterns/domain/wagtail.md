@@ -130,11 +130,13 @@ The same applies to `.add()` and `.remove()` when called on a page that was save
 
 ---
 
-## Version Mismatch — Dev vs Prod
+## Wagtail Version — Single Source of Truth
 
-The project runs different Wagtail versions in dev and production:
+Dev and prod run the **same** Wagtail version. `requirements-dev.txt` is now a
+thin overlay (`-r requirements.txt`) with no pins of its own, so the authoritative
+version lives only in `requirements.txt` (`wagtail==7.4`).
 
-- `requirements-dev.txt`: `wagtail==7.1.2`
-- `requirements.txt`: `wagtail==7.4`
-
-When writing migration files, admin configuration, or using any Wagtail API that changed between these versions, add an explicit comment noting which version the code targets.
+This used to be a dev/prod split (`requirements-dev.txt: wagtail==7.1.2` vs
+`requirements.txt: wagtail==7.4`) that papered over version-specific breakage —
+most notably the Django 6.0 `format_html` admin 500 that "worked on 5.x".
+Reconciled in todo 217; there is no longer a divergence to annotate.
