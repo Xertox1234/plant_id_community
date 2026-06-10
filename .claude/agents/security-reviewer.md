@@ -31,6 +31,7 @@ Review only the files passed to you. Do not read the full repo. You run in paral
 - [ ] No API keys, passwords, tokens, or secret keys in committed files — check for patterns: `sk-`, `AIza`, `-----BEGIN`, assignment to `KEY`, `SECRET`, `TOKEN`, `PASSWORD`
 - [ ] `SECRET_KEY` must be ≥50 chars and must NOT contain: `django-insecure`, `change-me`, `test`, `dev`, `local`
 - [ ] `.env` files must not be committed — verify `.gitignore` covers `backend/.env`, `*.env`
+- [ ] No account creation in deploy-time paths — migrations must not `call_command()` or `create_user`/`create_superuser`; seed/demo/E2E management commands must raise `CommandError` when `settings.DEBUG` is False and never hardcode a password (byline-only accounts use `set_unusable_password()`)
 
 **File Upload (BLOCKER)**
 

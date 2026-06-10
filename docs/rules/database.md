@@ -28,3 +28,8 @@ Compact checklist auto-injected before edits. Long-form:
   `Harvest` is the reverse (`id` PK, no `uuid`). `pk` always resolves to the real
   primary key. (2026-06-02 audit: shipped twice via endpoints with no test — pair
   every aggregate rewrite with an endpoint test + `assertNumQueries`.)
+- **Data migrations must be self-contained — never `call_command()` from
+  `RunPython`.** The command's *current* code re-runs on every fresh `migrate`
+  in every future environment (CI test DBs, new prod), long after the one-time
+  intent has passed. Inline the operation with `apps.get_model()`; once a
+  one-time data migration has served its purpose, make it a documented no-op.

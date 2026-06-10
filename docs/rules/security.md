@@ -17,3 +17,8 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   `dangerouslySetInnerHTML` with unsanitized content.
 - **Auth-sensitive code is never delegated** to the cheap worker — review by hand.
 - Redact PII (emails, tokens) from logs; GDPR redaction applies to Firebase auth.
+- **Never create user accounts in migrations or any other deploy-time path.**
+  Blog migration 0004 auto-created superuser `plant_care_admin` with a hardcoded
+  password on every `migrate` until 2026-06-10. Dev/demo/E2E seed commands must
+  refuse to run in production (`if not settings.DEBUG: raise CommandError(...)`),
+  and byline-only accounts get `set_unusable_password()` — never a literal password.

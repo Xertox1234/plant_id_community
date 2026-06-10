@@ -172,5 +172,37 @@
     "source": "codify: docs/codify-session-and-todo216",
     "added": "2026-06-06",
     "severity": "warn"
+  },
+  {
+    "id": "migration-no-account-creation",
+    "domains": [
+      "database",
+      "security"
+    ],
+    "path_glob": [
+      "backend/apps/*/migrations/*.py"
+    ],
+    "content_present": "call_command|create_superuser|create_user\\(|set_password",
+    "message": "Migrations must never create accounts or call management commands — RunPython re-runs the command's CURRENT code on every fresh migrate (blog 0004 minted a hardcoded-password superuser on every deploy). Inline with apps.get_model(); no-op served one-time migrations.",
+    "pattern_ref": "docs/rules/security.md",
+    "source": "codify: fix/dev-account-creators",
+    "added": "2026-06-10",
+    "severity": "warn"
+  },
+  {
+    "id": "seed-command-debug-gate",
+    "domains": [
+      "security"
+    ],
+    "path_glob": [
+      "backend/apps/*/management/commands/*.py"
+    ],
+    "content_present": "password\\s*=\\s*[\"']",
+    "content_absent": "settings\\.DEBUG",
+    "message": "Seed/demo/E2E command with a literal password and no DEBUG gate — add `if not settings.DEBUG: raise CommandError(...)` at the top of handle(), and use set_unusable_password() for byline-only accounts.",
+    "pattern_ref": "docs/rules/security.md",
+    "source": "codify: fix/dev-account-creators",
+    "added": "2026-06-10",
+    "severity": "warn"
   }
 ]
