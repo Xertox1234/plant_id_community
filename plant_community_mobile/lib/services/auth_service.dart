@@ -401,11 +401,6 @@ class AuthService extends _$AuthService {
     state = const AuthState(error: message);
   }
 
-  /// Get stored JWT token
-  Future<String?> getJWT() async {
-    return await _secureStorage.read(key: _jwtKey);
-  }
-
   /// Clear stored JWT tokens
   Future<void> _clearJWT() async {
     await _secureStorage.delete(key: _jwtKey);

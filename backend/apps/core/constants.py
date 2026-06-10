@@ -34,14 +34,6 @@ SUSPICIOUS_ACTIVITY_TIME = 600  # 10 minutes
 API_RATE_LIMIT_WINDOW = 60  # 1 minute
 API_RATE_LIMIT_MAX_REQUESTS = 30
 
-# File upload rate limiting
-MAX_UPLOAD_FAILURES_PER_HOUR = 20
-UPLOAD_FAILURE_WINDOW = 3600  # 1 hour
-
-# Validation failure tracking
-MAX_VALIDATION_FAILURES_PER_HOUR = 50
-VALIDATION_FAILURE_WINDOW = 3600  # 1 hour
-
 # ============================================================================
 # IP Address Constants
 # ============================================================================

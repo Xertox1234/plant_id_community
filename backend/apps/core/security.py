@@ -486,116 +486,6 @@ This is an automated security message from Plant Community.
             )
 
     @classmethod
-    def track_file_upload(
-        cls, user: User, filename: str, file_size: int, success: bool, error: str = None
-    ) -> None:
-        """
-        Track file upload attempts for security monitoring.
-
-        Args:
-            user: User uploading the file
-            filename: Name of the uploaded file
-            file_size: Size of the file in bytes
-            success: Whether upload was successful
-            error: Error message if upload failed
-        """
-        user_id = user.id if user else "anonymous"
-
-        if success:
-            logger.info(
-                f"File upload successful: user={user_id}, file={filename}, "
-                f"size={file_size} bytes"
-            )
-        else:
-            logger.warning(
-                f"File upload failed: user={user_id}, file={filename}, "
-                f"size={file_size} bytes, error={error}"
-            )
-
-            # Track failed upload attempts
-            key = f"failed_uploads:{user_id}"
-            failures = cache.get(key, [])
-            current_time = time.time()
-
-            # Remove old failures (outside 1 hour window)
-            failures = [f for f in failures if current_time - f["timestamp"] < 3600]
-
-            # Add current failure
-            failures.append(
-                {"timestamp": current_time, "filename": filename, "error": error}
-            )
-            cache.set(key, failures, 3600)
-
-            # Alert on multiple failures
-            if len(failures) > 20:  # More than 20 failed uploads per hour
-                cls._trigger_security_alert(
-                    "excessive_upload_failures",
-                    {
-                        "user_id": user_id,
-                        "failures": len(failures),
-                        "time_window": "1 hour",
-                    },
-                )
-
-    @classmethod
-    def track_validation_failure(
-        cls,
-        user: User,
-        field: str,
-        value_type: str,
-        error: str,
-        request: HttpRequest = None,
-    ) -> None:
-        """
-        Track validation failures that might indicate attacks.
-
-        Args:
-            user: User who submitted invalid data
-            field: Field that failed validation
-            value_type: Type of value that was invalid
-            error: Validation error message
-            request: Django request object
-        """
-        user_id = user.id if user else "anonymous"
-        ip_address = cls._get_client_ip(request) if request else UNKNOWN_IP_ADDRESS
-
-        logger.warning(
-            f"Validation failure: user={user_id}, ip={ip_address}, "
-            f"field={field}, type={value_type}, error={error}"
-        )
-
-        # Track validation failures
-        key = f"validation_failures:{user_id}"
-        failures = cache.get(key, [])
-        current_time = time.time()
-
-        # Remove old failures (outside 1 hour window)
-        failures = [f for f in failures if current_time - f["timestamp"] < 3600]
-
-        # Add current failure
-        failures.append(
-            {
-                "timestamp": current_time,
-                "field": field,
-                "error": error,
-                "ip": ip_address,
-            }
-        )
-        cache.set(key, failures, 3600)
-
-        # Alert on excessive validation failures
-        if len(failures) > 50:  # More than 50 validation failures per hour
-            cls._trigger_security_alert(
-                "excessive_validation_failures",
-                {
-                    "user_id": user_id,
-                    "ip_address": ip_address,
-                    "failures": len(failures),
-                    "time_window": "1 hour",
-                },
-            )
-
-    @classmethod
     def _trigger_security_alert(cls, alert_type: str, details: Dict[str, Any]) -> None:
         """
         Trigger a security alert for investigation.
@@ -674,22 +564,6 @@ This is an automated security message from Plant Community.
                 )
 
         return UNKNOWN_IP_ADDRESS
-
-    @classmethod
-    def get_security_status(cls) -> Dict[str, Any]:
-        """
-        Get current security status and metrics.
-
-        Returns:
-            Dictionary containing security metrics
-        """
-        # This could be expanded to provide comprehensive security metrics
-        return {
-            "status": "monitoring",
-            "alerts_active": 0,  # Count active alerts
-            "monitoring_enabled": True,
-            "last_check": timezone.now().isoformat(),
-        }
 
 
 class SecurityMiddleware:

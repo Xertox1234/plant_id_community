@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
-import 'package:plant_community_mobile/core/routing/navigation_extensions.dart';
-import 'package:plant_community_mobile/features/splash/splash_screen.dart';
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 
@@ -308,128 +306,6 @@ void main() {
       });
     });
 
-    group('Navigation Extension Tests', () {
-      testWidgets('goToHome() should navigate to home', (
-        WidgetTester tester,
-      ) async {
-        final container = ProviderContainer(
-          overrides: [
-            authServiceProvider.overrideWith(
-              _MockUnauthenticatedAuthNotifier.new,
-            ),
-          ],
-        );
-        addTearDown(container.dispose);
-
-        final router = container.read(appRouterProvider);
-
-        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
-
-        final context = tester.element(find.byType(SplashScreen));
-        context.goToHome();
-        await tester.pump(const Duration(milliseconds: 100));
-
-        expect(
-          router.routerDelegate.currentConfiguration.uri.path,
-          equals(AppRoutes.home),
-        );
-
-        await tester.pump(const Duration(seconds: 4));
-      });
-
-      testWidgets('goToCamera() should navigate to camera', (
-        WidgetTester tester,
-      ) async {
-        final container = ProviderContainer(
-          overrides: [
-            authServiceProvider.overrideWith(
-              _MockUnauthenticatedAuthNotifier.new,
-            ),
-          ],
-        );
-        addTearDown(container.dispose);
-
-        final router = container.read(appRouterProvider);
-
-        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
-
-        final context = tester.element(find.byType(SplashScreen));
-        context.goToCamera();
-        await tester.pump(const Duration(milliseconds: 100));
-
-        expect(
-          router.routerDelegate.currentConfiguration.uri.path,
-          equals(AppRoutes.camera),
-        );
-
-        await tester.pump(const Duration(seconds: 4));
-      });
-
-      testWidgets('goToResults() should navigate to results with plant data', (
-        WidgetTester tester,
-      ) async {
-        final container = ProviderContainer(
-          overrides: [
-            authServiceProvider.overrideWith(
-              _MockUnauthenticatedAuthNotifier.new,
-            ),
-          ],
-        );
-        addTearDown(container.dispose);
-
-        final router = container.read(appRouterProvider);
-        final testPlant = Plant(
-          id: 'test-123',
-          name: 'Test Plant',
-          scientificName: 'Testus planticus',
-          description: 'A test plant for routing tests',
-          care: const ['Water regularly', 'Full sun'],
-          imageUrl: 'https://example.com/plant.jpg',
-          timestamp: DateTime.now(),
-        );
-
-        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
-
-        final context = tester.element(find.byType(SplashScreen));
-        context.goToResults(testPlant);
-        await tester.pump(const Duration(milliseconds: 100));
-
-        expect(
-          router.routerDelegate.currentConfiguration.uri.path,
-          equals(AppRoutes.results),
-        );
-
-        await tester.pump(const Duration(seconds: 4));
-      });
-    });
-
-    group('Deep Link Tests', () {
-      test('DeepLinks.home() should generate correct URI', () {
-        final uri = DeepLinks.home();
-        expect(uri.scheme, equals('plantcommunity'));
-        expect(uri.path, equals(AppRoutes.home));
-      });
-
-      test('DeepLinks.results() should generate correct URI with plant ID', () {
-        final uri = DeepLinks.results('plant-123');
-        expect(uri.scheme, equals('plantcommunity'));
-        expect(uri.path, equals(AppRoutes.results));
-        expect(uri.queryParameters['id'], equals('plant-123'));
-      });
-
-      test('DeepLinks.garden() should generate correct URI', () {
-        final uri = DeepLinks.garden();
-        expect(uri.scheme, equals('plantcommunity'));
-        expect(uri.path, equals(AppRoutes.garden));
-      });
-
-      test('DeepLinks.gardenBed() should generate correct URI with bed ID', () {
-        final uri = DeepLinks.gardenBed('bed-456');
-        expect(uri.scheme, equals('plantcommunity'));
-        expect(uri.path, equals(AppRoutes.garden));
-        expect(uri.queryParameters['bed_id'], equals('bed-456'));
-      });
-    });
   });
 }
 

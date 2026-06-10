@@ -12,7 +12,6 @@ from apps.core.utils.pii_safe_logging import (
     log_safe_username,
 )
 from django.conf import settings
-from django.contrib.auth.models import Group
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -27,78 +26,6 @@ except ImportError:
     WebPushException = Exception
 
 logger = logging.getLogger(__name__)
-
-
-class TrustLevelService:
-    """Service for managing user trust levels and related permissions."""
-
-    @staticmethod
-    def create_trust_level_groups():
-        """Create user groups for different trust levels."""
-        trust_groups = {
-            "basic_members": "Basic Members - Can upload images",
-            "trusted_members": "Trusted Members - Enhanced privileges",
-            "veteran_members": "Veteran Members - Advanced privileges",
-        }
-
-        created_groups = {}
-        for group_name, description in trust_groups.items():
-            group, created = Group.objects.get_or_create(name=group_name)
-            created_groups[group_name] = group
-            if created:
-                print(f"Created group: {group_name}")
-            else:
-                print(f"Group already exists: {group_name}")
-
-        return created_groups
-
-    @staticmethod
-    def assign_user_to_trust_group(user):
-        """Assign user to appropriate trust level group based on their trust_level."""
-        # Remove user from all trust level groups first
-        trust_group_names = ["basic_members", "trusted_members", "veteran_members"]
-        for group_name in trust_group_names:
-            try:
-                group = Group.objects.get(name=group_name)
-                user.groups.remove(group)
-            except Group.DoesNotExist:
-                continue
-
-        # Assign to appropriate group based on trust level
-        group_mapping = {
-            "basic": "basic_members",
-            "trusted": "trusted_members",
-            "veteran": "veteran_members",
-        }
-
-        if user.trust_level in group_mapping:
-            try:
-                group = Group.objects.get(name=group_mapping[user.trust_level])
-                user.groups.add(group)
-                print(f"Assigned {user.username} to {group.name}")
-            except Group.DoesNotExist:
-                print(f"Trust group {group_mapping[user.trust_level]} not found")
-
-    @staticmethod
-    def update_all_user_trust_levels():
-        """Update trust levels for all users and assign to appropriate groups."""
-        from .models import User
-
-        updated_count = 0
-
-        for user in User.objects.all():
-            old_level = user.trust_level
-            user.update_trust_level()
-
-            # Assign to appropriate group
-            TrustLevelService.assign_user_to_trust_group(user)
-
-            if user.trust_level != old_level:
-                updated_count += 1
-                print(f"Updated {user.username}: {old_level} -> {user.trust_level}")
-
-        print(f"Updated trust levels for {updated_count} users")
-        return updated_count
 
 
 class NotificationService:

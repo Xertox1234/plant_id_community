@@ -320,21 +320,6 @@ export function getPasswordError(password: string): string | null {
 }
 
 /**
- * Get validation error message for name
- */
-export function getNameError(name: string): string | null {
-  if (!validateRequired(name)) {
-    return 'Name is required';
-  }
-
-  if (name.trim().length < 2) {
-    return 'Name must be at least 2 characters long';
-  }
-
-  return null;
-}
-
-/**
  * Get validation error message for password confirmation
  */
 export function getPasswordConfirmError(password: string, confirmPassword: string): string | null {

@@ -124,3 +124,38 @@ links to the full audit manifest with detailed findings and resolutions.
   all 8 triggers remain hand-seeded `warn` (M1). LSP integration and cd-to-root
   fix are well-executed additions with no findings.
 - **Commit(s):** (report+todos; no fix commit)
+
+### 2026-06-09 — Maintainability Audit (all stacks)
+
+- **Trigger:** User-invoked `/audit maintainability` (all three stacks,
+  discovery-first). First audit through a **maintainability lens** (complexity,
+  duplication, dead code, drift, type-safety escapes, hollow tests) — prior audits
+  were security/perf/correctness-focused, so dedup risk was low.
+- **Manifest:** [2026-06-09-maintainability.md](2026-06-09-maintainability.md)
+- **Findings:** 0 critical, 4 high, 22 medium, 13 low (39 total). All
+  primary-source verified; high-impact dead-code claims independently confirmed by
+  reference count. Research (Phase 2.5) skipped — every finding is internal-code
+  (no external-library dependence). 2 agent-proposed Highs calibrated down to
+  Medium (M17, M20).
+- **Resolved:** 21 fixed & verified (dead-code sweep + hollow tests — the user's
+  chosen scope), 18 deferred to todos 221–223, 0 false-positive, 0 open. Net
+  **−4,317 / +57 lines across 24 files** (overwhelmingly dead-code removal).
+- **Method note:** mass-deletion discipline — whole-repo (non-`.py`) reference
+  sweep before deleting any model method (catches template/panel/settings string
+  refs), transitive-deadness chains followed to closure (`log_trust_level_upgrade`,
+  `_get_next_step`, `_get_project_for_location`, 4 orphaned constants, 2 orphaned
+  imports), and a post-deletion orphan re-sweep (tests can't catch under-deletion).
+- **Highlights (fixed):** H1 dead `TrustLevelService` (auth-adjacent, print-based,
+  dangerous-if-revived); H2 462-line `_services_deprecated.py` frozen shadow of two
+  live services; H3 dead 382-line `formatDate.ts`; H4 + M20 empty rate-limit
+  *security* tests (one named the RFC `Retry-After` gotcha but asserted nothing) —
+  rewritten/removed; M10 dead `SecurityMonitor` tracking API; M17/M18/M19 dead
+  Flutter modules (offline-sync layer + nav helpers removed with user approval).
+- **Conservative deferrals:** `validation.ts` tested **security validators**
+  (M12) and the drifted PlantNet parser (M1/L1) were NOT blind-deleted — deferred
+  to todos 222/221 for a wire-or-remove decision, per deletion-safety guidance.
+- **Scope note:** the live backend forum (`packages/wagtail_forum/`,
+  `apps/forum_host/`) — new/small, just reviewed in #361/#362 — was a deliberate
+  coverage gap; the Phase-1 churn signal pointed at the now-deleted
+  `forum_integration/`.
+- **Commit(s):** branch `chore/maintainability-audit-2026-06-09` (PR pending).

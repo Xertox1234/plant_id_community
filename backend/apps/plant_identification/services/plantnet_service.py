@@ -441,37 +441,6 @@ class PlantNetAPIService:
                 )
         return images
 
-    def normalize_plantnet_data(self, suggestion: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Normalize PlantNet suggestion data to our internal format.
-
-        Args:
-            suggestion: Suggestion from get_top_suggestions
-
-        Returns:
-            Normalized plant data dictionary
-        """
-        common_names_str = (
-            ", ".join(suggestion.get("common_names", []))
-            if suggestion.get("common_names")
-            else ""
-        )
-
-        return {
-            "plantnet_id": suggestion.get("plantnet_id", ""),
-            "scientific_name": suggestion.get("scientific_name", ""),
-            "common_names": common_names_str,
-            "family": suggestion.get("family", ""),
-            "genus": suggestion.get("genus", ""),
-            "confidence_score": suggestion.get("confidence_score", 0.0),
-            "identification_source": "ai_plantnet",
-            "api_response_data": suggestion,
-            "suggested_scientific_name": suggestion.get("scientific_name", ""),
-            "suggested_common_name": (
-                common_names_str.split(",")[0].strip() if common_names_str else ""
-            ),
-        }
-
     def get_project_info(self, project: str = "world") -> Optional[Dict[str, Any]]:
         """
         Get information about a PlantNet project from the projects list.
@@ -543,73 +512,6 @@ class PlantNetAPIService:
                 )
 
         return projects
-
-    def identify_with_location(
-        self,
-        images: List[Union[str, ContentFile]],
-        latitude: Optional[float] = None,
-        longitude: Optional[float] = None,
-        organs: Optional[List[str]] = None,
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Identify plant with location-based project selection.
-
-        Args:
-            images: List of image files
-            latitude: GPS latitude
-            longitude: GPS longitude
-            organs: Plant organs in images
-
-        Returns:
-            Identification results with location context
-        """
-        # Determine best project based on location
-        project = self._get_project_for_location(latitude, longitude)
-
-        # Perform identification
-        result = self.identify_plant(images, project=project, organs=organs)
-
-        if result:
-            result["location_context"] = {
-                "latitude": latitude,
-                "longitude": longitude,
-                "project_used": project,
-                "project_key": self.PROJECTS.get(project, self.PROJECTS["world"]),
-            }
-
-        return result
-
-    def _get_project_for_location(
-        self, latitude: Optional[float], longitude: Optional[float]
-    ) -> str:
-        """
-        Determine the best PlantNet project based on geographic location.
-
-        Args:
-            latitude: GPS latitude
-            longitude: GPS longitude
-
-        Returns:
-            Best project identifier
-        """
-        if latitude is None or longitude is None:
-            return "world"
-
-        # Simple geographic mapping (can be enhanced with more precise boundaries)
-        if 35 <= latitude <= 70 and -25 <= longitude <= 45:
-            return "europe"
-        elif 25 <= latitude <= 70 and -170 <= longitude <= -50:
-            return "north_america"
-        elif -55 <= latitude <= 15 and -85 <= longitude <= -35:
-            return "south_america"
-        elif -35 <= latitude <= 40 and -20 <= longitude <= 55:
-            return "africa"
-        elif -10 <= latitude <= 70 and 60 <= longitude <= 180:
-            return "asia"
-        elif -50 <= latitude <= -10 and 110 <= longitude <= 180:
-            return "oceania"
-        else:
-            return "world"
 
     def get_service_status(self) -> Dict[str, Any]:
         """
