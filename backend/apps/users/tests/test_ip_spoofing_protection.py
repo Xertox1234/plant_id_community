@@ -245,25 +245,19 @@ class IPValidationInSecurityContextTestCase(TestCase):
         )
 
     def test_failed_login_tracking_with_spoofed_ip(self):
-        """Test that failed login tracking uses validated IP."""
+        """Failed-login tracking must use the validated REMOTE_ADDR, not a spoofed
+        X-Forwarded-For value."""
         request = self.factory.post("/api/auth/login/")
         request.META["REMOTE_ADDR"] = "192.168.1.100"
         request.META["HTTP_X_FORWARDED_FOR"] = "spoofed_ip"
 
-        # Track failed login
-        with patch("apps.core.security.logger") as mock_logger:
-            SecurityMonitor.track_failed_login(
-                ip_address=SecurityMonitor._get_client_ip(request), username="testuser"
-            )
+        validated_ip = SecurityMonitor._get_client_ip(request)
 
-            # Should use validated REMOTE_ADDR, not spoofed IP
-            # Check that warning was logged for invalid IP
-            self.assertTrue(
-                any(
-                    "Invalid IP" in str(call) or "Failed login" in str(call)
-                    for call in mock_logger.warning.call_args_list
-                )
-            )
+        # The garbage X-Forwarded-For value is rejected; the real REMOTE_ADDR wins.
+        self.assertEqual(validated_ip, "192.168.1.100")
+
+        # Tracking the validated IP must not raise.
+        SecurityMonitor.track_failed_login(ip_address=validated_ip, username="testuser")
 
     def test_successful_login_tracking_with_validated_ip(self):
         """Test that successful login tracking uses validated IP."""

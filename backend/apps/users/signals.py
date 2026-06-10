@@ -15,7 +15,6 @@ from apps.core.utils.pii_safe_logging import (
     log_safe_username,
 )
 from django.contrib.auth import get_user_model
-from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 User = get_user_model()
@@ -89,34 +88,4 @@ def handle_user_signup(sender, request, user, **kwargs):
     except Exception as e:
         logger.error(
             f"Error handling user signup for {log_safe_user_context(user)}: {e}"
-        )
-
-
-@receiver(post_save, sender=User)
-def handle_user_profile_update(sender, instance, created, **kwargs):
-    """
-    Handle user profile updates and trust level changes.
-
-    Updates trust levels and sends notifications when appropriate.
-    """
-    if created:
-        # New user creation is handled by user_signed_up signal
-        return
-
-    try:
-        # Check if user's trust level needs updating
-        old_trust_level = getattr(instance, "_old_trust_level", None)
-        if old_trust_level and old_trust_level != instance.trust_level:
-            # Trust level was upgraded
-            logger.info(
-                f"Trust level upgraded for {log_safe_user_context(instance)}: {old_trust_level} -> {instance.trust_level}"
-            )
-
-            # Could send congratulations email here in the future
-            # email_service = EmailService()
-            # email_service.send_trust_level_upgrade_email(instance, old_trust_level, instance.trust_level)
-
-    except Exception as e:
-        logger.error(
-            f"Error handling user profile update for {log_safe_user_context(instance)}: {e}"
         )

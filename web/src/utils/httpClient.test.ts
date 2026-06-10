@@ -83,15 +83,15 @@ describe('HTTP Client - Interceptor Logic', () => {
   });
 
   describe('Configuration values', () => {
-    it('has correct timeout value', () => {
-      const TIMEOUT = 30000;
-      expect(TIMEOUT).toBe(30000);
+    it('has correct timeout value', async () => {
+      const { default: httpClient } = await import('./httpClient');
+      expect(httpClient.defaults.timeout).toBe(30000);
     });
 
-    it('has correct base URL from environment', () => {
-      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      expect(baseURL).toBeTruthy();
-      expect(typeof baseURL).toBe('string');
+    it('has correct base URL from environment', async () => {
+      const { default: httpClient } = await import('./httpClient');
+      const expected = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      expect(httpClient.defaults.baseURL).toBe(expected);
     });
   });
 

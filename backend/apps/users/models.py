@@ -288,110 +288,6 @@ class User(AbstractUser):
         # Basic trust level and above can upload images
         return self.trust_level in ["basic", "trusted", "veteran"]
 
-    def update_trust_level(self):
-        """Update user's trust level based on activity and account age."""
-        from django.utils import timezone
-
-        # Don't downgrade trust levels automatically (only upgrades)
-        current_level_index = [level[0] for level in self.TRUST_LEVELS].index(
-            self.trust_level
-        )
-
-        # Calculate new trust level based on criteria
-        new_level = "new"
-
-        # Progression criteria
-        if (
-            self.posts_count_verified >= 100
-            and self.account_age_days >= 90
-            and current_level_index < 3
-        ):
-            new_level = "veteran"
-        elif (
-            self.posts_count_verified >= 25
-            and self.account_age_days >= 30
-            and current_level_index < 2
-        ):
-            new_level = "trusted"
-        elif (
-            self.posts_count_verified >= 5
-            and self.account_age_days >= 7
-            and current_level_index < 1
-        ):
-            new_level = "basic"
-
-        # Only update if it's an upgrade
-        new_level_index = [level[0] for level in self.TRUST_LEVELS].index(new_level)
-        if new_level_index > current_level_index:
-            old_level = self.trust_level
-            self.trust_level = new_level
-            self.trust_level_updated = timezone.now()
-            self.save(update_fields=["trust_level", "trust_level_updated"])
-
-            # Log the trust level upgrade for potential notifications
-            self.log_trust_level_upgrade(old_level, new_level)
-
-        return self.trust_level
-
-    def log_trust_level_upgrade(self, old_level, new_level):
-        """Log trust level upgrades for potential notifications."""
-        try:
-            ActivityLog.objects.create(
-                user=self,
-                activity_type="trust_level_upgrade",
-                description=f"Trust level upgraded from {old_level} to {new_level}",
-                is_public=False,
-            )
-        except Exception:
-            # Don't fail if activity logging fails
-            pass
-
-    def get_trust_level_display_info(self):
-        """Get detailed information about current trust level and next requirements."""
-        trust_info = {
-            "current_level": self.trust_level,
-            "current_display": self.get_trust_level_display(),
-            "can_upload_images": self.can_upload_images(),
-            "posts_count": self.posts_count_verified,
-            "account_age_days": self.account_age_days,
-        }
-
-        # Add next level requirements
-        if self.trust_level == "new":
-            trust_info.update(
-                {
-                    "next_level": "basic",
-                    "posts_needed": max(0, 5 - self.posts_count_verified),
-                    "days_needed": max(0, 7 - self.account_age_days),
-                }
-            )
-        elif self.trust_level == "basic":
-            trust_info.update(
-                {
-                    "next_level": "trusted",
-                    "posts_needed": max(0, 25 - self.posts_count_verified),
-                    "days_needed": max(0, 30 - self.account_age_days),
-                }
-            )
-        elif self.trust_level == "trusted":
-            trust_info.update(
-                {
-                    "next_level": "veteran",
-                    "posts_needed": max(0, 100 - self.posts_count_verified),
-                    "days_needed": max(0, 90 - self.account_age_days),
-                }
-            )
-        else:  # veteran
-            trust_info.update(
-                {
-                    "next_level": None,
-                    "posts_needed": 0,
-                    "days_needed": 0,
-                }
-            )
-
-        return trust_info
-
 
 class UserPlantCollection(models.Model):
     """
@@ -1021,64 +917,6 @@ class OnboardingProgress(models.Model):
             f"Onboarding for {self.user.username} - {self.get_current_step_display()}"
         )
 
-    def complete_step(self, step_name, time_taken_seconds=None):
-        """Mark a specific onboarding step as completed."""
-        from django.utils import timezone
-
-        if step_name not in [choice[0] for choice in self.ONBOARDING_STEPS]:
-            raise ValueError(f"Invalid onboarding step: {step_name}")
-
-        # Add to completed steps if not already there
-        if step_name not in self.completed_steps:
-            self.completed_steps.append(step_name)
-
-        # Update timing data
-        if time_taken_seconds:
-            self.steps_completion_times[step_name] = time_taken_seconds
-
-        # Update timestamps
-        self.last_step_completed_at = timezone.now()
-
-        # Move to next step if this was the current step
-        if step_name == self.current_step:
-            next_step = self._get_next_step(step_name)
-            if next_step:
-                self.current_step = next_step
-            else:
-                # All steps completed
-                self.is_onboarding_completed = True
-                self.is_onboarding_active = False
-                self.onboarding_completed_at = timezone.now()
-
-                # Calculate total onboarding time
-                if self.onboarding_started_at:
-                    delta = timezone.now() - self.onboarding_started_at
-                    self.total_onboarding_time_seconds = int(delta.total_seconds())
-
-        self.save(
-            update_fields=[
-                "completed_steps",
-                "steps_completion_times",
-                "last_step_completed_at",
-                "current_step",
-                "is_onboarding_completed",
-                "is_onboarding_active",
-                "onboarding_completed_at",
-                "total_onboarding_time_seconds",
-            ]
-        )
-
-    def _get_next_step(self, current_step):
-        """Get the next step in the onboarding sequence."""
-        steps = [choice[0] for choice in self.ONBOARDING_STEPS]
-        try:
-            current_index = steps.index(current_step)
-            if current_index + 1 < len(steps):
-                return steps[current_index + 1]
-        except ValueError:
-            pass
-        return None
-
     @property
     def completion_percentage(self):
         """Calculate the completion percentage of onboarding."""
@@ -1091,26 +929,6 @@ class OnboardingProgress(models.Model):
         """Get list of remaining onboarding steps."""
         all_steps = [choice[0] for choice in self.ONBOARDING_STEPS]
         return [step for step in all_steps if step not in self.completed_steps]
-
-    def enable_demo_mode(self):
-        """Enable demo mode for this user."""
-        self.demo_mode_enabled = True
-        self.save(update_fields=["demo_mode_enabled"])
-
-    def disable_demo_mode(self):
-        """Disable demo mode for this user."""
-        self.demo_mode_enabled = False
-        self.save(update_fields=["demo_mode_enabled"])
-
-    def mark_demo_data_shown(self, demo_type, data_id=None):
-        """Mark that specific demo data has been shown to the user."""
-        if demo_type not in self.demo_data_shown:
-            self.demo_data_shown[demo_type] = []
-
-        if data_id and data_id not in self.demo_data_shown[demo_type]:
-            self.demo_data_shown[demo_type].append(data_id)
-
-        self.save(update_fields=["demo_data_shown"])
 
 
 class DemoData(models.Model):
@@ -1229,33 +1047,6 @@ class DemoData(models.Model):
         """Increment the interaction count for this demo data."""
         self.interaction_count += 1
         self.save(update_fields=["interaction_count"])
-
-    @classmethod
-    def get_for_onboarding_step(cls, step_name, limit=None):
-        """Get demo data relevant for a specific onboarding step."""
-        queryset = cls.objects.filter(
-            target_onboarding_step=step_name, is_active=True
-        ).order_by("display_order", "title")
-
-        if limit:
-            queryset = queryset[:limit]
-
-        return queryset
-
-    @classmethod
-    def get_featured(cls, demo_type=None, limit=None):
-        """Get featured demo data, optionally filtered by type."""
-        queryset = cls.objects.filter(is_featured=True, is_active=True).order_by(
-            "display_order", "title"
-        )
-
-        if demo_type:
-            queryset = queryset.filter(demo_type=demo_type)
-
-        if limit:
-            queryset = queryset[:limit]
-
-        return queryset
 
 
 class OnboardingAnalytics(models.Model):

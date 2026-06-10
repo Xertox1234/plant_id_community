@@ -233,14 +233,33 @@ describe('Logger', () => {
   });
 
   describe('Sentry integration', () => {
-    it('sends breadcrumbs to Sentry in production', () => {
-      // Note: This test assumes production mode behavior
-      // In actual production (import.meta.env.PROD === true), Sentry would be called
-      // For testing, we can verify the Sentry mock is available
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
 
-      expect(Sentry.addBreadcrumb).toBeDefined();
-      expect(Sentry.captureException).toBeDefined();
-      expect(Sentry.captureMessage).toBeDefined();
+    it('sends breadcrumbs to Sentry in production', () => {
+      vi.stubEnv('DEV', false); // force the production branch (sendToSentry, not console)
+      initLogger({});
+
+      logger.info('User navigated', { component: 'Router' });
+
+      expect(Sentry.addBreadcrumb).toHaveBeenCalledWith(
+        expect.objectContaining({ level: 'info', message: 'User navigated' })
+      );
+      // Proves the production path was taken, not console pretty-printing
+      expect(consoleSpy.log).not.toHaveBeenCalled();
+    });
+
+    it('reports warnings to Sentry as captured messages in production', () => {
+      vi.stubEnv('DEV', false);
+      initLogger({});
+
+      logger.warn('Cache miss spike', { component: 'Cache' });
+
+      expect(Sentry.captureMessage).toHaveBeenCalledWith(
+        'Cache miss spike',
+        expect.objectContaining({ level: 'warning' })
+      );
     });
   });
 

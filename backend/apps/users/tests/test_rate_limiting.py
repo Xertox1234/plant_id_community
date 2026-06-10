@@ -285,63 +285,29 @@ class RateLimitHeadersTestCase(TestCase):
         cache.clear()
 
     def test_rate_limit_response_includes_retry_after(self):
-        """Test that rate limited responses include Retry-After header."""
-        # Get CSRF token
+        """A rate-limited (429) login response must carry a Retry-After header
+        with a positive integer seconds value (RFC 6585 / CLAUDE.md gotcha #4)."""
         csrf_response = self.client.get("/api/v1/auth/csrf/")
         csrf_token = csrf_response.cookies.get("csrftoken").value
 
-        # Make requests until rate limited
-        for i in range(6):
-            response = self.client.post(
+        # 5 attempts stay within the 5/15m per-IP login limit.
+        for _ in range(5):
+            self.client.post(
                 "/api/v1/auth/login/",
                 data={"username": "testuser", "password": "WrongPassword123!"},
                 HTTP_X_CSRFTOKEN=csrf_token,
             )
 
-        if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
-            # Check for Retry-After header (django-ratelimit may set this)
-            # Note: This depends on django-ratelimit configuration
-            # May not be present in all configurations
-            pass  # Header check is optional
-
-
-class AnonymousVsAuthenticatedRateLimitsTestCase(TestCase):
-    """Test different rate limits for anonymous vs authenticated users."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        self.client = APIClient()
-        self.user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="TestPassword123!"
-        )
-        cache.clear()
-
-    def tearDown(self):
-        """Clean up after tests."""
-        cache.clear()
-
-    def test_anonymous_has_stricter_limits(self):
-        """Test that anonymous users have stricter rate limits."""
-        # This test depends on specific endpoint implementations
-        # For plant identification endpoint, anonymous users have 10/hour
-        # while authenticated users have 100/hour
-
-        # Test anonymous access to a rate-limited endpoint
-        # (Assuming plant identification endpoint exists and is rate limited)
-        pass  # Implementation depends on specific endpoints
-
-    def test_authentication_increases_rate_limit(self):
-        """Test that authenticated users get higher rate limits."""
-        # Login
-        csrf_response = self.client.get("/api/v1/auth/csrf/")
-        csrf_token = csrf_response.cookies.get("csrftoken").value
-
-        self.client.post(
+        # The 6th attempt in the window is rate limited.
+        response = self.client.post(
             "/api/v1/auth/login/",
-            data={"username": "testuser", "password": "TestPassword123!"},
+            data={"username": "testuser", "password": "WrongPassword123!"},
             HTTP_X_CSRFTOKEN=csrf_token,
         )
 
-        # Test that authenticated user can make more requests
-        # (Specific implementation depends on endpoint configuration)
-        pass  # Implementation depends on specific endpoints
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertTrue(
+            response.has_header("Retry-After"),
+            "429 response must include a Retry-After header",
+        )
+        self.assertGreater(int(response["Retry-After"]), 0)

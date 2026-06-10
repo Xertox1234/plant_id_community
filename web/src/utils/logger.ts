@@ -42,9 +42,9 @@
 import * as Sentry from '@sentry/react';
 
 /**
- * Log Levels
+ * Log Levels (internal — drives LogLevel type and Sentry mapping)
  */
-export const LOG_LEVELS = {
+const LOG_LEVELS = {
   DEBUG: 'debug',
   INFO: 'info',
   WARNING: 'warning',
@@ -392,27 +392,5 @@ export const logger = {
   warn,
   error,
 };
-
-/**
- * Legacy function names for backward compatibility
- * @deprecated Use logger.error() instead
- */
-export function logError(message: string, error: unknown): void {
-  logger.error(message, { error });
-}
-
-/**
- * @deprecated Use logger.warn() instead
- */
-export function logWarning(message: string, data: unknown): void {
-  logger.warn(message, { data });
-}
-
-/**
- * @deprecated Use logger.info() instead
- */
-export function logInfo(message: string, data: unknown): void {
-  logger.info(message, { data });
-}
 
 export default logger;
