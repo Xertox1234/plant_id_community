@@ -10,6 +10,7 @@ This command:
 
 from apps.blog.models import BlogCategory, BlogIndexPage, BlogPostPage
 from apps.plant_identification.models import PlantCareGuide
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -38,6 +39,13 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if not settings.DEBUG:
+            raise CommandError(
+                "migrate_care_guides_to_blog is a legacy one-time content "
+                "migration (ran 2025-08); it is for development only "
+                "(requires DEBUG=True)."
+            )
+
         dry_run = options["dry_run"]
         author_email = options["author_email"]
 
@@ -69,30 +77,12 @@ class Command(BaseCommand):
             author = User.objects.get(email=author_email)
             self.stdout.write(f"Using author: {author.username} ({author.email})")
         except User.DoesNotExist:
-            if not dry_run:
-                # Create a default admin user if none exists
-                author = User.objects.create_user(
-                    username="plant_care_admin",
-                    email=author_email,
-                    password="temp_password_change_immediately",
-                    is_staff=True,
-                    is_superuser=True,
-                )
-                self.stdout.write(
-                    self.style.WARNING(f"Created new admin user: {author.username}")
-                )
-                self.stdout.write(
-                    self.style.WARNING(
-                        "IMPORTANT: Change the default password immediately!"
-                    )
-                )
-            else:
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"Would create admin user with email: {author_email}"
-                    )
-                )
-                return
+            # Never auto-create an account here — this command used to mint a
+            # superuser with a hardcoded password, which is a security hole.
+            raise CommandError(
+                f"No user with email {author_email}. Create the author user "
+                "first (e.g. via createsuperuser) or pass --author-email."
+            )
 
         # Find blog index page for adding blog posts
         try:
@@ -297,7 +287,8 @@ class Command(BaseCommand):
                 "scientific_name": care_guide.plant_species.scientific_name,
                 "description": (
                     care_guide.plant_species.description
-                    or f"Beautiful {care_guide.plant_species.plant_type or 'plant'} with {care_guide.care_difficulty} care requirements."
+                    or f"Beautiful {care_guide.plant_species.plant_type or 'plant'} "
+                    f"with {care_guide.care_difficulty} care requirements."
                 ),
                 "care_difficulty": (
                     care_guide.care_difficulty

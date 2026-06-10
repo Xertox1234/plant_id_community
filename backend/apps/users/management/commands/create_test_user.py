@@ -18,8 +18,9 @@ a clean state for testing.
 from argparse import ArgumentParser
 from typing import Any
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 User = get_user_model()
 
@@ -35,6 +36,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        if not settings.DEBUG:
+            raise CommandError(
+                "create_test_user creates an account with a publicly known "
+                "password and is for local E2E testing only (requires DEBUG=True)."
+            )
         username: str = "e2e_test_user"
         email: str = "e2e@test.com"
         password: str = "E2ETestPassword123456"

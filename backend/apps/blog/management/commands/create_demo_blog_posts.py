@@ -15,6 +15,7 @@ import json
 from datetime import datetime, timedelta
 
 from apps.blog.models import BlogCategory, BlogIndexPage, BlogPostPage, BlogSeries
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -46,6 +47,12 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if not settings.DEBUG:
+            raise CommandError(
+                "create_demo_blog_posts seeds demo content and a staff account; "
+                "it is for development only (requires DEBUG=True)."
+            )
+
         dry_run = options["dry_run"]
         author_email = options["author_email"]
         overwrite = options["overwrite"]
@@ -104,21 +111,20 @@ class Command(BaseCommand):
                 )
                 return None
 
-            # Create demo author
+            # Create demo author with no usable password — it only needs to
+            # exist as a byline; set a password manually if login is needed.
             author = User.objects.create_user(
                 username="plant_blogger",
                 email=author_email,
                 first_name="Plant",
                 last_name="Expert",
-                password="demo_password_change_immediately",
                 is_staff=True,
                 is_superuser=False,
             )
+            author.set_unusable_password()
+            author.save(update_fields=["password"])
             self.stdout.write(
                 self.style.SUCCESS(f"Created demo author: {author.username}")
-            )
-            self.stdout.write(
-                self.style.WARNING("IMPORTANT: Change the demo author password!")
             )
             return author
 
@@ -499,14 +505,22 @@ class Command(BaseCommand):
                 {
                     "video_title": "Visual Propagation Guide",
                     "video_url": "https://youtube.com/watch?v=dQw4w9WgXcQ",
-                    "description": "<p>Watch our step-by-step video guide showing propagation techniques for common houseplants. Perfect for visual learners!</p>",
+                    "description": (
+                        "<p>Watch our step-by-step video guide showing "
+                        "propagation techniques for common houseplants. "
+                        "Perfect for visual learners!</p>"
+                    ),
                 },
             ),
             (
                 "call_to_action",
                 {
                     "cta_title": "Share Your Propagation Success!",
-                    "cta_description": "<p>We'd love to see your plant babies! Share photos of your propagation journey and get tips from our community.</p>",
+                    "cta_description": (
+                        "<p>We'd love to see your plant babies! Share photos "
+                        "of your propagation journey and get tips from our "
+                        "community.</p>"
+                    ),
                     "button_text": "Share in Forum",
                     "button_url": "/forum/",
                     "button_style": "primary",
