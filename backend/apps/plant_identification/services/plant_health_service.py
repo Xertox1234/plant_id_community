@@ -67,11 +67,8 @@ class PlantHealthAPIService:
             Base64 encoded image string
         """
         try:
-            # Open image
-            if hasattr(image_file, "read"):
-                image = Image.open(image_file)
-            else:
-                image = Image.open(image_file)
+            # Open image (Image.open accepts both file-like objects and paths)
+            image = Image.open(image_file)
 
             # Convert to RGB if necessary
             if image.mode in ("RGBA", "LA", "P"):

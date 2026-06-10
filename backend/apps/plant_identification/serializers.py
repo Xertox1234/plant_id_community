@@ -19,6 +19,29 @@ from .models import (
 )
 
 
+def serialize_image_urls(images, request):
+    """Serialize a model's image/thumbnail list to a list of URLs.
+
+    Returns absolute URLs when a ``request`` is in serializer context — correct
+    for the split-origin deployment where the SPA (Cloudflare) and API (Railway)
+    are on different hosts, so a relative ``/media/...`` would resolve against the
+    SPA origin, which serves no media. Falls back to the relative URL when no
+    request is available, so images are never silently dropped (the prior absolute
+    copies returned ``[]`` with no request).
+
+    Shared by the plant-ID and disease request serializers to keep ONE URL shape;
+    these four ``get_images``/``get_image_thumbnails`` copies had drifted (one
+    relative, three absolute — todo 221 / finding M4).
+    """
+    urls = []
+    for image in images:
+        if not image:
+            continue
+        url = image.url
+        urls.append(request.build_absolute_uri(url) if request else url)
+    return urls
+
+
 class PlantSpeciesSerializer(serializers.ModelSerializer):
     """Serializer for PlantSpecies model."""
 
@@ -107,25 +130,11 @@ class PlantIdentificationRequestSerializer(serializers.ModelSerializer):
 
     def get_images(self, obj):
         """Get list of all uploaded image URLs."""
-        images = []
-
-        for image in obj.images:
-            # Return relative URLs so the frontend proxy (/media) can serve them
-            if image:
-                images.append(image.url)
-
-        return images
+        return serialize_image_urls(obj.images, self.context.get("request"))
 
     def get_image_thumbnails(self, obj):
         """Get list of all image thumbnail URLs."""
-        thumbnails = []
-
-        for thumbnail in obj.image_thumbnails:
-            # Return relative URLs so the frontend proxy (/media) can serve them
-            if thumbnail:
-                thumbnails.append(thumbnail.url)
-
-        return thumbnails
+        return serialize_image_urls(obj.image_thumbnails, self.context.get("request"))
 
     def get_results_count(self, obj):
         """Get count of identification results."""
@@ -179,25 +188,11 @@ class PlantDiseaseRequestSerializer(serializers.ModelSerializer):
 
     def get_images(self, obj):
         """Get list of all uploaded symptom image URLs."""
-        request = self.context.get("request")
-        images = []
-
-        for image in obj.images:
-            if image and request:
-                images.append(request.build_absolute_uri(image.url))
-
-        return images
+        return serialize_image_urls(obj.images, self.context.get("request"))
 
     def get_image_thumbnails(self, obj):
         """Get list of all image thumbnail URLs."""
-        request = self.context.get("request")
-        thumbnails = []
-
-        for thumbnail in obj.image_thumbnails:
-            if thumbnail and request:
-                thumbnails.append(request.build_absolute_uri(thumbnail.url))
-
-        return thumbnails
+        return serialize_image_urls(obj.image_thumbnails, self.context.get("request"))
 
     def get_results_count(self, obj):
         """Get count of diagnosis results."""
@@ -443,25 +438,11 @@ class PlantIdentificationRequestWithResultsSerializer(serializers.ModelSerialize
 
     def get_images(self, obj):
         """Get list of all uploaded image URLs."""
-        request = self.context.get("request")
-        images = []
-
-        for image in obj.images:
-            if image and request:
-                images.append(request.build_absolute_uri(image.url))
-
-        return images
+        return serialize_image_urls(obj.images, self.context.get("request"))
 
     def get_image_thumbnails(self, obj):
         """Get list of all image thumbnail URLs."""
-        request = self.context.get("request")
-        thumbnails = []
-
-        for thumbnail in obj.image_thumbnails:
-            if thumbnail and request:
-                thumbnails.append(request.build_absolute_uri(thumbnail.url))
-
-        return thumbnails
+        return serialize_image_urls(obj.image_thumbnails, self.context.get("request"))
 
     def get_results_count(self, obj):
         """Get count of identification results."""
@@ -671,25 +652,11 @@ class PlantDiseaseRequestWithResultsSerializer(serializers.ModelSerializer):
 
     def get_images(self, obj):
         """Get list of all uploaded symptom image URLs."""
-        request = self.context.get("request")
-        images = []
-
-        for image in obj.images:
-            if image and request:
-                images.append(request.build_absolute_uri(image.url))
-
-        return images
+        return serialize_image_urls(obj.images, self.context.get("request"))
 
     def get_image_thumbnails(self, obj):
         """Get list of all image thumbnail URLs."""
-        request = self.context.get("request")
-        thumbnails = []
-
-        for thumbnail in obj.image_thumbnails:
-            if thumbnail and request:
-                thumbnails.append(request.build_absolute_uri(thumbnail.url))
-
-        return thumbnails
+        return serialize_image_urls(obj.image_thumbnails, self.context.get("request"))
 
     def get_results_count(self, obj):
         """Get count of diagnosis results."""

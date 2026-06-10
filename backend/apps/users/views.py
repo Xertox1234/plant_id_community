@@ -31,6 +31,7 @@ from .serializers import (
     UserRegistrationSerializer,
     UserSerializer,
 )
+from .signup import create_default_plant_collection
 
 logger = logging.getLogger(__name__)
 
@@ -110,13 +111,8 @@ def register(request: Request) -> Response:
                 # Create user
                 user = serializer.save()
 
-                # Create default plant collection
-                UserPlantCollection.objects.create(
-                    user=user,
-                    name="My Plants",
-                    description="My personal plant collection",
-                    is_public=True,
-                )
+                # Create default plant collection (shared signup side-effect)
+                create_default_plant_collection(user)
 
                 # Create response with user data
                 response = Response(
@@ -1484,24 +1480,11 @@ def export_care_reminders_calendar(request: Request) -> HttpResponse:
             )
 
             # Calculate next occurrence based on frequency
-            if reminder.frequency == "daily":
-                current_date += timedelta(days=1)
-            elif reminder.frequency == "weekly":
-                current_date += timedelta(weeks=1)
-            elif reminder.frequency == "biweekly":
-                current_date += timedelta(weeks=2)
-            elif reminder.frequency == "monthly":
-                current_date += timedelta(days=30)
-            elif reminder.frequency == "quarterly":
-                current_date += timedelta(days=90)
-            elif reminder.frequency == "biannual":
-                current_date += timedelta(days=180)
-            elif reminder.frequency == "annual":
-                current_date += timedelta(days=365)
-            elif reminder.frequency == "custom" and reminder.custom_interval_days:
-                current_date += timedelta(days=reminder.custom_interval_days)
-            else:
+            # Single-sourced frequency -> interval (CareReminder.get_interval, L4)
+            delta = reminder.get_interval()
+            if delta is None:
                 break  # Unknown frequency, stop generating events
+            current_date += delta
 
     ics_lines.append("END:VCALENDAR")
 
@@ -1581,24 +1564,11 @@ def care_reminder_calendar_preview(request: Request) -> Response:
                 )
 
             # Calculate next occurrence
-            if reminder.frequency == "daily":
-                current_date += timedelta(days=1)
-            elif reminder.frequency == "weekly":
-                current_date += timedelta(weeks=1)
-            elif reminder.frequency == "biweekly":
-                current_date += timedelta(weeks=2)
-            elif reminder.frequency == "monthly":
-                current_date += timedelta(days=30)
-            elif reminder.frequency == "quarterly":
-                current_date += timedelta(days=90)
-            elif reminder.frequency == "biannual":
-                current_date += timedelta(days=180)
-            elif reminder.frequency == "annual":
-                current_date += timedelta(days=365)
-            elif reminder.frequency == "custom" and reminder.custom_interval_days:
-                current_date += timedelta(days=reminder.custom_interval_days)
-            else:
+            # Single-sourced frequency -> interval (CareReminder.get_interval, L4)
+            delta = reminder.get_interval()
+            if delta is None:
                 break
+            current_date += delta
 
     # Sort events by date
     calendar_events.sort(key=lambda x: x["start"])

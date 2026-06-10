@@ -266,7 +266,38 @@ class PlantSpecies(models.Model):
         return confidence >= 0.5
 
 
-class PlantIdentificationRequest(models.Model):
+class RequestImagesMixin:
+    """Shared ``images`` / ``image_thumbnails`` aggregation for request models.
+
+    ``PlantIdentificationRequest`` and ``PlantDiseaseRequest`` both expose up to
+    three image slots (``image_1..3``) with matching thumbnails; these properties
+    collect the populated ones into a list. Single-sourced here (todo 223 / L3) —
+    they were byte-identical copies, the model-layer twin of the serializer dedup
+    in todo 221 / M4. Properties only, so this adds no DB fields or migrations.
+    """
+
+    @property
+    def images(self):
+        """Return a list of all uploaded images (image_1 plus any populated extras)."""
+        images = [self.image_1]
+        if self.image_2:
+            images.append(self.image_2)
+        if self.image_3:
+            images.append(self.image_3)
+        return images
+
+    @property
+    def image_thumbnails(self):
+        """Return a list of all image thumbnails."""
+        thumbnails = [self.image_1_thumbnail]
+        if self.image_2_thumbnail:
+            thumbnails.append(self.image_2_thumbnail)
+        if self.image_3_thumbnail:
+            thumbnails.append(self.image_3_thumbnail)
+        return thumbnails
+
+
+class PlantIdentificationRequest(RequestImagesMixin, models.Model):
     """
     Model representing a user's request to identify a plant.
 
@@ -428,25 +459,7 @@ class PlantIdentificationRequest(models.Model):
             kwargs={"request_id": self.request_id},
         )
 
-    @property
-    def images(self):
-        """Return a list of all uploaded images."""
-        images = [self.image_1]
-        if self.image_2:
-            images.append(self.image_2)
-        if self.image_3:
-            images.append(self.image_3)
-        return images
-
-    @property
-    def image_thumbnails(self):
-        """Return a list of all image thumbnails."""
-        thumbnails = [self.image_1_thumbnail]
-        if self.image_2_thumbnail:
-            thumbnails.append(self.image_2_thumbnail)
-        if self.image_3_thumbnail:
-            thumbnails.append(self.image_3_thumbnail)
-        return thumbnails
+    # images / image_thumbnails provided by RequestImagesMixin (todo 223 / L3)
 
 
 class PlantIdentificationResult(models.Model):
@@ -741,7 +754,7 @@ class UserPlant(models.Model):
         return "Unknown Plant"
 
 
-class PlantDiseaseRequest(models.Model):
+class PlantDiseaseRequest(RequestImagesMixin, models.Model):
     """
     Model representing a user's request to diagnose plant diseases.
     """
@@ -913,25 +926,7 @@ class PlantDiseaseRequest(models.Model):
             kwargs={"request_id": self.request_id},
         )
 
-    @property
-    def images(self):
-        """Return a list of all uploaded symptom images."""
-        images = [self.image_1]
-        if self.image_2:
-            images.append(self.image_2)
-        if self.image_3:
-            images.append(self.image_3)
-        return images
-
-    @property
-    def image_thumbnails(self):
-        """Return a list of all image thumbnails."""
-        thumbnails = [self.image_1_thumbnail]
-        if self.image_2_thumbnail:
-            thumbnails.append(self.image_2_thumbnail)
-        if self.image_3_thumbnail:
-            thumbnails.append(self.image_3_thumbnail)
-        return thumbnails
+    # images / image_thumbnails provided by RequestImagesMixin (todo 223 / L3)
 
 
 class PlantDiseaseDatabase(models.Model):

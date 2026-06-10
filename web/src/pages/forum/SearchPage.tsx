@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { searchForum, fetchCategories } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
 import PostCard from '../../components/forum/PostCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import Button from '../../components/ui/Button';
+import { Pagination } from '../../components/ui/Pagination';
+import { useHandlePageChange } from '../../hooks/useHandlePageChange';
 import { logger } from '../../utils/logger';
 import type { Category, SearchForumResponse } from '@/types';
 
@@ -236,18 +237,8 @@ export default function SearchPage() {
     [setSearchParams]
   );
 
-  // Handle pagination
-  const handlePageChange = useCallback(
-    (newPage: number) => {
-      setSearchParams((prev) => {
-        const newParams = new URLSearchParams(prev);
-        newParams.set('page', newPage.toString());
-        return newParams;
-      });
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    },
-    [setSearchParams]
-  );
+  // Handle pagination (shared hook — todo 222 / M14)
+  const handlePageChange = useHandlePageChange(setSearchParams);
 
   // Clear all filters
   const handleClearFilters = useCallback(() => {
@@ -494,23 +485,13 @@ export default function SearchPage() {
 
           {/* Pagination */}
           {(searchResults.has_next_threads || searchResults.has_next_posts || page > 1) && (
-            <div className="flex justify-center gap-2 mt-8">
-              <Button
-                onClick={() => handlePageChange(page - 1)}
-                disabled={page === 1}
-                variant="secondary"
-              >
-                Previous
-              </Button>
-              <span className="px-4 py-2 text-ink-2">Page {page}</span>
-              <Button
-                onClick={() => handlePageChange(page + 1)}
-                disabled={!searchResults.has_next_threads && !searchResults.has_next_posts}
-                variant="secondary"
-              >
-                Next
-              </Button>
-            </div>
+            <Pagination
+              page={page}
+              onPageChange={handlePageChange}
+              hasPrevious={page > 1}
+              hasNext={searchResults.has_next_threads || searchResults.has_next_posts}
+              variant="secondary"
+            />
           )}
         </div>
       )}

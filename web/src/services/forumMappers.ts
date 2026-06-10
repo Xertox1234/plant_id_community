@@ -131,12 +131,8 @@ export function mapPostToPost(p: BackendPost, threadId: string): Post {
 export function mapImageToAttachment(img: BackendImage): Attachment {
   return {
     id: String(img.id),
-    image: img.image_url || undefined,
     image_url: img.image_url || undefined,
     thumbnail_url: img.thumbnail_url || undefined,
-    image_thumbnail: img.thumbnail_url || undefined,
-    thumbnail: img.thumbnail_url || undefined,
-    large_url: img.large_thumbnail_url || undefined,
     display_order: img.upload_order,
     alt_text: img.alt_text,
     original_filename: img.original_filename,

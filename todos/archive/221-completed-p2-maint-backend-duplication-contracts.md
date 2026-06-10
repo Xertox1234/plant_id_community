@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "221"
 tags: [maintainability, backend, duplication, audit]
@@ -49,14 +49,64 @@ Per-finding file:line above. Patterns: `backend/docs/patterns/architecture/servi
 
 ## Acceptance Criteria
 
-- [ ] M4 image helpers extracted; one URL shape; contract test added.
-- [ ] PlantNet parser single-sourced (M1/L1) with a parser test.
-- [ ] Signup side-effects centralized across all 3 paths (M7).
-- [ ] M6/M9/M8 contracts corrected; M8 covered by rate-limit tests.
-- [ ] M11 magic numbers replaced by constants.
-- [ ] L4/L6 addressed; full backend suite green.
+- [x] M4 image helpers extracted; one URL shape; contract test added.
+      (done 2026-06-10 — `serialize_image_urls` helper in `serializers.py`
+      replaces 4 drifted copies; absolute-when-request, relative fallback.
+      Behavior-preserving: the only relative serializer
+      (`PlantIdentificationRequestSerializer`) is served by `search_detail`
+      WITHOUT request context → fallback keeps it relative; disease viewsets pass
+      request → absolute, unchanged. Contract test in `test_serializers.py`.)
+- [x] PlantNet parser single-sourced (M1/L1) with a parser test.
+      (done 2026-06-10 — `parse_plantnet_species()` used by `_extract_care_info`,
+      `_merge_suggestions`, and `get_top_suggestions`; the latter's drifted
+      `scientificNameWithoutAuthor` family/genus reads fixed to `scientificName`.
+      `ParsePlantNetSpeciesTest` in `test_services.py`.)
+- [x] Signup side-effects centralized across all 3 paths (M7).
+      (done 2026-06-10 — `apps/users/signup.py::create_default_plant_collection`
+      called by register, OAuth, and Firebase; Firebase now GAINS the default
+      "My Plants" collection it lacked. Username-collision deliberately NOT
+      unified — Firebase's UUID-suffix format is pinned by
+      `test_username_collision_handling`; registration uses a user-chosen name.
+      Tests: `test_signup.py` (hook + register endpoint) +
+      `test_new_user_gets_default_plant_collection` (Firebase).)
+- [x] M6/M9/M8 contracts corrected; M8 covered by rate-limit tests.
+      (done 2026-06-10 — M6: garden destroy OpenAPI now says hard-delete (verified
+      both `destroy` overrides call `super().destroy()`); M9: false DEPRECATED note
+      removed from the live `csrf_token_view` (web falls back to `/api/csrf/`);
+      M8: unreachable `Ratelimited` branch + misleading comment removed —
+      `test_retry_after.py` + `test_rate_limiting.py` green (11 passed).)
+- [x] M11 magic numbers replaced by constants.
+      (done 2026-06-10 — `security.py` now sources `SUSPICIOUS_ACTIVITY_THRESHOLD`,
+      `API_RATE_LIMIT_WINDOW`, `API_RATE_LIMIT_MAX_REQUESTS` from `constants.py`;
+      values unchanged 10/60/30.)
+- [x] L4/L6 addressed; full backend suite green.
+      (done 2026-06-10 — L4: `CareReminder.get_interval()` single-sources the
+      frequency→interval map across the model + the ICS and calendar generators;
+      L6: misleading narrow-list-plus-`Exception` swallows in
+      `_post_request_tracking` made honest `except Exception` + debug log. Full
+      suite: **695 passed, 8 skipped**.)
 
 ## Work Log
+
+### 2026-06-10 - Completed by completing-todos skill (run 2026-06-10-0251)
+
+- Verification: all 6 acceptance criteria passed; targeted suites green
+  (retry_after/rate_limiting 11, serializers 4, services 17, users 107) and the
+  **full backend suite 695 passed / 8 skipped**.
+- Key judgment calls (advisor-reviewed): M4 is behavior-preserving (helper's
+  request-aware fallback matches each call site's current output — the relative
+  serializer is served without request context); M7 centralizes only the
+  collection side-effect, NOT username collision (Firebase UUID format is
+  test-pinned); M1 keeps `get_top_suggestions` (test-only) but routes it through
+  the shared parser rather than deleting it.
+- Review: deferred to the run's end-of-sweep code-review-orchestrator pass
+  (security + api-design reviewers included — M7/M8/M4 touch auth, the 429 path,
+  and API contracts).
+
+### 2026-06-10 - Started by completing-todos skill (run 2026-06-10-0251)
+
+- Picked up by automated workflow. Security-adjacent findings (M7 signup, M8
+  429 path, M11/L6 in `core/security.py`) handled directly, not delegated.
 
 ### 2026-06-09 - Created
 

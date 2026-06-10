@@ -27,14 +27,7 @@ interface ImageUploadWidgetProps {
 }
 
 function getAttachmentImageUrl(attachment: Attachment): string {
-  return (
-    attachment.thumbnail_url ||
-    attachment.image_thumbnail ||
-    attachment.thumbnail ||
-    attachment.image_url ||
-    attachment.image ||
-    ''
-  );
+  return attachment.thumbnail_url || attachment.image_url || '';
 }
 
 /**

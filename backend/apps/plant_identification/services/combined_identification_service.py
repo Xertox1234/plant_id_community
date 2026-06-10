@@ -33,7 +33,7 @@ from ..constants import (
     TEMPERATURE_RANGE_CELSIUS,
 )
 from .plant_id_service import PlantIDAPIService
-from .plantnet_service import PlantNetAPIService
+from .plantnet_service import PlantNetAPIService, parse_plantnet_species
 
 logger = logging.getLogger(__name__)
 
@@ -428,11 +428,7 @@ class CombinedPlantIdentificationService:
                 # Extract care data from species information
                 # Note: PlantNet API returns scientific data, care instructions
                 # would need to be enriched from other sources or databases
-                care_info["scientific_name"] = species.get(
-                    "scientificNameWithoutAuthor"
-                )
-                care_info["family"] = species.get("family", {}).get("scientificName")
-                care_info["genus"] = species.get("genus", {}).get("scientificName")
+                care_info.update(parse_plantnet_species(species))
 
         return care_info
 
@@ -478,7 +474,8 @@ class CombinedPlantIdentificationService:
         if plantnet_results and "results" in plantnet_results:
             for idx, result in enumerate(plantnet_results["results"][:3]):  # Top 3
                 species = result.get("species", {})
-                scientific_name = species.get("scientificNameWithoutAuthor")
+                parsed = parse_plantnet_species(species)
+                scientific_name = parsed["scientific_name"]
 
                 # Check if this plant is already in our list (from Plant.id)
                 existing = next(
@@ -494,8 +491,8 @@ class CombinedPlantIdentificationService:
                     # Enrich existing entry with PlantNet data
                     existing["plantnet_score"] = result.get("score")
                     existing["plantnet_matched"] = True
-                    existing["family"] = species.get("family", {}).get("scientificName")
-                    existing["genus"] = species.get("genus", {}).get("scientificName")
+                    existing["family"] = parsed["family"]
+                    existing["genus"] = parsed["genus"]
                 else:
                     # Add as supplemental suggestion
                     common_names = species.get("commonNames", [])
@@ -507,8 +504,8 @@ class CombinedPlantIdentificationService:
                             "scientific_name": scientific_name,
                             "probability": result.get("score", 0),
                             "common_names": common_names,
-                            "family": species.get("family", {}).get("scientificName"),
-                            "genus": species.get("genus", {}).get("scientificName"),
+                            "family": parsed["family"],
+                            "genus": parsed["genus"],
                             "source": "plantnet",
                             "rank": len(combined) + 1,
                         }

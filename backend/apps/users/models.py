@@ -629,26 +629,44 @@ class CareReminder(models.Model):
     def __str__(self):
         return f"{self.title} - {self.get_frequency_display()}"
 
+    def get_interval(self):
+        """Return this reminder's recurrence interval as a timedelta, or None.
+
+        Single source of truth for frequency -> interval (todo 221 / L4) — this
+        mapping was reimplemented in three places (here plus the ICS and calendar
+        generators in views.py) that had diverged on unknown-frequency handling.
+        Returns None for an unrecognized frequency (or "custom" without a
+        configured interval) so each caller decides what to do:
+        `calculate_next_reminder_date` defaults to weekly; the calendar/ICS
+        generators stop their loop.
+        """
+        from datetime import timedelta
+
+        if self.frequency == "custom":
+            return (
+                timedelta(days=self.custom_interval_days)
+                if self.custom_interval_days
+                else None
+            )
+        frequency_map = {
+            "daily": timedelta(days=1),
+            "weekly": timedelta(weeks=1),
+            "biweekly": timedelta(weeks=2),
+            "monthly": timedelta(days=30),
+            "quarterly": timedelta(days=90),
+            "biannual": timedelta(days=180),
+            "annual": timedelta(days=365),
+        }
+        return frequency_map.get(self.frequency)
+
     def calculate_next_reminder_date(self):
         """Calculate the next reminder date based on frequency."""
         from datetime import timedelta
 
         from django.utils import timezone
 
-        if self.frequency == "custom" and self.custom_interval_days:
-            delta = timedelta(days=self.custom_interval_days)
-        else:
-            frequency_map = {
-                "daily": timedelta(days=1),
-                "weekly": timedelta(weeks=1),
-                "biweekly": timedelta(weeks=2),
-                "monthly": timedelta(days=30),
-                "quarterly": timedelta(days=90),
-                "biannual": timedelta(days=180),
-                "annual": timedelta(days=365),
-            }
-            delta = frequency_map.get(self.frequency, timedelta(weeks=1))
-
+        # Unknown frequency falls back to weekly (preserved behavior).
+        delta = self.get_interval() or timedelta(weeks=1)
         base_date = self.last_reminder_sent or timezone.now()
         return base_date + delta
 

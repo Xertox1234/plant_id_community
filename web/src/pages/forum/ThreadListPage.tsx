@@ -5,6 +5,8 @@ import { parseLeadingId } from '../../utils/forumUrls';
 import ThreadCard from '../../components/forum/ThreadCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
+import { Pagination } from '../../components/ui/Pagination';
+import { useHandlePageChange } from '../../hooks/useHandlePageChange';
 import { logger } from '../../utils/logger';
 import type { Thread, Category } from '@/types';
 
@@ -114,18 +116,8 @@ export default function ThreadListPage() {
     [setSearchParams]
   );
 
-  // Handle pagination
-  const handlePageChange = useCallback(
-    (newPage: number) => {
-      setSearchParams((prev) => {
-        const newParams = new URLSearchParams(prev);
-        newParams.set('page', newPage.toString());
-        return newParams;
-      });
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    },
-    [setSearchParams]
-  );
+  // Handle pagination (shared hook — todo 222 / M14)
+  const handlePageChange = useHandlePageChange(setSearchParams);
 
   // Calculate pagination
   const totalPages = useMemo(() => {
@@ -261,23 +253,14 @@ export default function ThreadListPage() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="mt-8 flex justify-center items-center gap-2">
-          <Button onClick={() => handlePageChange(page - 1)} disabled={page <= 1} variant="outline">
-            Previous
-          </Button>
-
-          <span className="px-4 py-2 text-ink-2">
-            Page {page} of {totalPages}
-          </span>
-
-          <Button
-            onClick={() => handlePageChange(page + 1)}
-            disabled={page >= totalPages}
-            variant="outline"
-          >
-            Next
-          </Button>
-        </div>
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          onPageChange={handlePageChange}
+          hasPrevious={page > 1}
+          hasNext={page < totalPages}
+          variant="outline"
+        />
       )}
     </div>
   );

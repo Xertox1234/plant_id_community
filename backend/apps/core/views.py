@@ -29,8 +29,11 @@ def csrf_token_view(request):
     without reading it directly from the cookie (which would require
     CSRF_COOKIE_HTTPONLY = False).
 
-    DEPRECATED: Use meta tag pattern (ReactAppView) instead.
-    This endpoint is kept for backward compatibility.
+    This is a LIVE endpoint, not deprecated: when the SPA is served as static
+    assets (e.g. the Cloudflare Workers frontend) there is no Django-rendered
+    meta tag, so `web/src/utils/csrf.ts` falls back to fetching `/api/csrf/`.
+    The `ReactAppView` meta-tag path is only available when Django serves the
+    HTML shell.
 
     Usage in React:
     ```typescript

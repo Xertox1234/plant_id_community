@@ -13,8 +13,8 @@ vi.mock('../../services/forumService');
 function createMockAttachment(overrides = {}) {
   return {
     id: 'attachment-123',
-    image: 'https://example.com/image.jpg',
-    image_thumbnail: 'https://example.com/image-thumb.jpg',
+    image_url: 'https://example.com/image.jpg',
+    thumbnail_url: 'https://example.com/image-thumb.jpg',
     file_size: 1024000,
     created_at: '2025-11-02T12:00:00Z',
     ...overrides,
@@ -386,8 +386,8 @@ describe('ImageUploadWidget', () => {
 
     it('reorders images when an image preview is dropped on another preview', async () => {
       const attachments = [
-        createMockAttachment({ id: '1', image_thumbnail: 'https://example.com/1-thumb.jpg' }),
-        createMockAttachment({ id: '2', image_thumbnail: 'https://example.com/2-thumb.jpg' }),
+        createMockAttachment({ id: '1', thumbnail_url: 'https://example.com/1-thumb.jpg' }),
+        createMockAttachment({ id: '2', thumbnail_url: 'https://example.com/2-thumb.jpg' }),
       ];
       const reorderedAttachments = [attachments[1], attachments[0]];
       vi.spyOn(forumService, 'reorderPostImages').mockResolvedValue(reorderedAttachments);
@@ -423,8 +423,8 @@ describe('ImageUploadWidget', () => {
 
     it('reorders images with keyboard-accessible move buttons', async () => {
       const attachments = [
-        createMockAttachment({ id: '1', image_thumbnail: 'https://example.com/1-thumb.jpg' }),
-        createMockAttachment({ id: '2', image_thumbnail: 'https://example.com/2-thumb.jpg' }),
+        createMockAttachment({ id: '1', thumbnail_url: 'https://example.com/1-thumb.jpg' }),
+        createMockAttachment({ id: '2', thumbnail_url: 'https://example.com/2-thumb.jpg' }),
       ];
       const reorderedAttachments = [attachments[1], attachments[0]];
       vi.spyOn(forumService, 'reorderPostImages').mockResolvedValue(reorderedAttachments);
@@ -448,8 +448,8 @@ describe('ImageUploadWidget', () => {
 
     it('resyncs to the server order when a reorder fails mid-sequence', async () => {
       const attachments = [
-        createMockAttachment({ id: '1', image_thumbnail: 'https://example.com/1-thumb.jpg' }),
-        createMockAttachment({ id: '2', image_thumbnail: 'https://example.com/2-thumb.jpg' }),
+        createMockAttachment({ id: '1', thumbnail_url: 'https://example.com/1-thumb.jpg' }),
+        createMockAttachment({ id: '2', thumbnail_url: 'https://example.com/2-thumb.jpg' }),
       ];
       // Sequential PATCH reorder fails; the widget must re-fetch the true order.
       vi.spyOn(forumService, 'reorderPostImages').mockRejectedValue(new Error('Reorder failed'));

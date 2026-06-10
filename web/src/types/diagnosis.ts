@@ -201,7 +201,10 @@ export interface DiagnosisCard {
  * Create diagnosis card input
  */
 export interface CreateDiagnosisCardInput {
-  diagnosis_result: string;
+  // Optional: only sent when the backend returned a diagnosis_result id. The
+  // create endpoint accepts a card without it (SaveDiagnosisModal omits it for
+  // ad-hoc saves).
+  diagnosis_result?: string;
   plant_scientific_name: string;
   plant_common_name?: string;
   custom_nickname?: string;

@@ -147,27 +147,27 @@ An orphan re-sweep (grep every deleted symbol across `apps`, no `.py` filter) re
 Deferred findings tracked as todos — checked off when the linked todo is archived
 (the `completing-todos` skill renames this manifest to `…-COMPLETED.md` once all are `[x]`).
 
-- [ ] #M1 PlantNet parser drift/consolidation → todo 221
-- [ ] #M4 image-URL serializers duplicated + drifted → todo 221
-- [ ] #M6 misleading soft-delete OpenAPI schema → todo 221
-- [ ] #M7 drifted signup side-effects across 3 paths → todo 221
-- [ ] #M8 unreachable Ratelimited branch + misleading comment → todo 221
-- [ ] #M9 csrf_token_view falsely marked DEPRECATED → todo 221
-- [ ] #M11 rate-limit magic numbers vs orphaned constants → todo 221
-- [ ] #L1 third inline PlantNet parser → todo 221
-- [ ] #L4 frequency→interval mapping in 3 styles → todo 221
-- [ ] #L6 silent broad-except swallow → todo 221
+- [x] #M1 PlantNet parser drift/consolidation → todo 221 (completed 2026-06-10)
+- [x] #M4 image-URL serializers duplicated + drifted → todo 221 (completed 2026-06-10)
+- [x] #M6 misleading soft-delete OpenAPI schema → todo 221 (completed 2026-06-10)
+- [x] #M7 drifted signup side-effects across 3 paths → todo 221 (completed 2026-06-10)
+- [x] #M8 unreachable Ratelimited branch + misleading comment → todo 221 (completed 2026-06-10)
+- [x] #M9 csrf_token_view falsely marked DEPRECATED → todo 221 (completed 2026-06-10)
+- [x] #M11 rate-limit magic numbers vs orphaned constants → todo 221 (completed 2026-06-10)
+- [x] #L1 third inline PlantNet parser → todo 221 (completed 2026-06-10)
+- [x] #L4 frequency→interval mapping in 3 styles → todo 221 (completed 2026-06-10)
+- [x] #L6 silent broad-except swallow → todo 221 (completed 2026-06-10)
 - [ ] #M18 offline `FirestoreService` — keep + wire to UI (restored) → todo 224
-- [ ] #M12 unwired security validators (wire-or-remove) → todo 222
-- [ ] #M13 sanitize case-collision + needless async → todo 222
-- [ ] #M14 forum pagination duplicated + drifted → todo 222
-- [ ] #M15 harmful double-cast at diagnosis-create boundary → todo 222
-- [ ] #M16 block-type dispatch edit-in-3-places → todo 222
-- [ ] #L8 getSeverityColor duplicated + drifted → todo 222
-- [ ] #L9 Attachment URL-field sprawl → todo 222
-- [ ] #L2 no-op hasattr branch ×2 → todo 223
-- [ ] #L3 duplicated model image properties → todo 223
-- [ ] #L10 stale FirebaseStorageService TODO → todo 223
+- [ ] #M12 unwired security validators (wire-or-remove) → todo 225 (split from 222)
+- [x] #M13 sanitize case-collision + needless async → todo 222 (completed 2026-06-10)
+- [x] #M14 forum pagination duplicated + drifted → todo 222 (completed 2026-06-10)
+- [x] #M15 harmful double-cast at diagnosis-create boundary → todo 222 (completed 2026-06-10)
+- [ ] #M16 block-type dispatch edit-in-3-places → todo 225 (split from 222)
+- [x] #L8 getSeverityColor duplicated + drifted → todo 222 (completed 2026-06-10)
+- [x] #L9 Attachment URL-field sprawl → todo 222 (completed 2026-06-10)
+- [x] #L2 no-op hasattr branch ×2 → todo 223 (completed 2026-06-10)
+- [x] #L3 duplicated model image properties → todo 223 (completed 2026-06-10)
+- [x] #L10 stale FirebaseStorageService TODO → todo 223 (completed 2026-06-10)
 
 ## Summary
 

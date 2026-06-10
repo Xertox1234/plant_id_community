@@ -19,29 +19,11 @@ import {
   fetchReminders,
 } from '../../services/diagnosisService';
 import { logger } from '../../utils/logger';
-import type {
-  DiagnosisBlock,
-  DiagnosisCard,
-  DiagnosisReminder,
-  TreatmentStatus,
-  SeverityAssessment,
-} from '@/types';
+import { getSeverityColor } from '../../utils/diagnosisDisplay';
+import type { DiagnosisBlock, DiagnosisCard, DiagnosisReminder, TreatmentStatus } from '@/types';
 
 interface ReminderResults {
   results: DiagnosisReminder[];
-}
-
-/**
- * Get severity badge color
- */
-function getSeverityColor(severity: SeverityAssessment): string {
-  const colors: Record<SeverityAssessment, string> = {
-    mild: 'bg-leaf/10 text-ink ring-leaf/20',
-    moderate: 'bg-warn/10 text-ink ring-warn/20',
-    severe: 'bg-tertiary/10 text-ink ring-tertiary/20',
-    critical: 'bg-error/10 text-ink ring-error/20',
-  };
-  return colors[severity] || 'bg-surface-2 text-ink-2 ring-line/20';
 }
 
 /**

@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react';
-import { createSafeMarkup, SANITIZE_PRESETS } from '../utils/domSanitizer';
+import { createSafeMarkup, SANITIZE_PRESETS } from '../utils/sanitize';
 import type { StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
 
 /**
  * SafeHTML Component
  *
- * Wrapper component that handles async HTML sanitization with DOMPurify.
- * DOMPurify is dynamically imported to reduce initial bundle size.
+ * Renders DOMPurify-sanitized HTML. Sanitization is synchronous (DOMPurify is in
+ * the main bundle via utils/sanitize), so there is no loading state or effect
+ * (todo 222 / M13 — dropped the needless async wrapper + scaffolding).
  */
 interface SafeHTMLProps {
   html: string;
@@ -14,26 +14,7 @@ interface SafeHTMLProps {
 }
 
 function SafeHTML({ html, className = '' }: SafeHTMLProps) {
-  const [safeMarkup, setSafeMarkup] = useState<{ __html: string } | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    createSafeMarkup(html, SANITIZE_PRESETS.STREAMFIELD).then((markup) => {
-      if (isMounted) {
-        setSafeMarkup(markup);
-      }
-    });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [html]);
-
-  if (!safeMarkup) {
-    return <div className={className}>Loading...</div>;
-  }
-
+  const safeMarkup = createSafeMarkup(html, SANITIZE_PRESETS.STREAMFIELD);
   return <div className={className} dangerouslySetInnerHTML={safeMarkup} />;
 }
 

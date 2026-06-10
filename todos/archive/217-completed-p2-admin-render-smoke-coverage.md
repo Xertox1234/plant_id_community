@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "217"
 tags: [testing, ci, wagtail, admin, dependencies]
@@ -91,17 +91,66 @@ Observed while diagnosing the `/cms/login/` 500 (2026-06-06):
 
 ## Acceptance Criteria
 
-- [ ] A smoke test renders `/cms/login/` (200) and the authenticated admin
+- [x] A smoke test renders `/cms/login/` (200) and the authenticated admin
       dashboard (non-500); it fails if a global admin hook or admin template
-      raises.
-- [ ] `requirements-dev.txt` either matches `requirements.txt`'s Django (+ the
+      raises. (done 2026-06-10 — `apps/blog/tests/test_admin_render_smoke.py`,
+      2 passed: login page 200, superuser `wagtailadmin_home` 200.)
+- [x] `requirements-dev.txt` either matches `requirements.txt`'s Django (+ the
       drifted siblings) or its divergence is removed/documented as deliberate.
-- [ ] (Optional) CI fails loudly if the installed Django diverges from the pin.
-- [ ] The smoke test lives in a CI-collected location (not
+      (done 2026-06-10 — divergence **removed**: `requirements-dev.txt` is now a
+      thin overlay `-r requirements.txt` with no pins of its own, so dev == prod
+      by construction. It was a stale orphan no tooling installs — verified no
+      Makefile/Dockerfile/CI/script references it.)
+- [x] (Optional) CI fails loudly if the installed Django diverges from the pin.
+      (done 2026-06-10 — declined as **moot by design**: with the overlay there
+      is one pin, in `requirements.txt`, which CI installs, so installed Django
+      equals the pin by construction. A guard would assert pip installed what it
+      was told. The file's header comment warns against re-adding pins.)
+- [x] The smoke test lives in a CI-collected location (not
       `apps/forum_integration/tests`), and a decision on forum admin-hook
       coverage (forum-enabled CI job vs documented local-only) is recorded.
+      (done 2026-06-10 — test is in `apps/blog/tests/` (always-installed,
+      non-ignored). Forum decision: `apps/forum_integration` was retired
+      (machina, PR #362); the replacement `packages/wagtail_forum` registers
+      **no** `insert_global_admin_*` hooks (verified empty `wagtail_hooks.py`),
+      so the global-hook 500 class that motivated this todo cannot recur from
+      forum. Forum stays `ENABLE_FORUM=False` in CI with its own package test
+      suite; admin-hook coverage there is local-only and currently moot.)
 
 ## Work Log
+
+### 2026-06-10 - Completed by completing-todos skill (run 2026-06-10-0251)
+
+- Verification: all 4 acceptance criteria passed (smoke test `2 passed`; the 3
+  config/decision criteria satisfied + documented above).
+- Review: deferred to the run's end-of-sweep code-review-orchestrator pass over
+  the full diff (per the "blaze through, diff review before merge" directive).
+
+### 2026-06-10 - Implemented (completing-todos run 2026-06-10-0251)
+
+- **Smoke test** (`apps/blog/tests/test_admin_render_smoke.py`): renders the
+  Wagtail login page (`wagtailadmin_login` → 200, `secure=True` clears
+  `SECURE_SSL_REDIRECT`) and the authenticated admin home (`wagtailadmin_home`
+  via a superuser fixture → 200). `2 passed in 15.40s`. Confirmed the
+  `format_html` fix is already on main (blog hooks use interpolation args; the
+  no-arg button uses `mark_safe`; dead `insert_global_admin_*` blog hooks
+  removed), so the test passes and now guards against regression.
+- **`requirements-dev.txt` reconciled** → thin overlay `-r requirements.txt`
+  (no own pins). Verified it is an orphan: no Makefile/Dockerfile/CI/script
+  installs it (grep). Pressure-tested the overlay-vs-bump choice with
+  kimi-challenge — its prod-bloat risks don't apply (requirements.txt is already
+  a combined prod+dev freeze; prod install path unchanged). A proper
+  prod-base/dev-overlay split is the larger ideal but out of scope for this p2.
+- **Stale doc references fixed** (would otherwise contradict the new overlay):
+  `backend/docs/patterns/domain/wagtail.md` and
+  `.claude/agents/wagtail-reviewer.md` "dev: wagtail 7.1.2 / prod: 7.4" →
+  "7.4 in both; requirements.txt is the single source of truth."
+- Optional CI Django-version guard: declined as moot by design (one pin, CI
+  installs it).
+
+### 2026-06-10 - Started by completing-todos skill (run 2026-06-10-0251)
+
+- Picked up by automated workflow (sweep of 217/221/222/223, clean completions only).
 
 ### 2026-06-06 - CI coverage gap documented
 

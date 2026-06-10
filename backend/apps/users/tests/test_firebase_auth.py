@@ -377,6 +377,27 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
         self.assertEqual(user.username, "newuser")
         self.assertTrue(user.is_active)
 
+    def test_new_user_gets_default_plant_collection(self):
+        """A new Firebase user gets the default "My Plants" collection (M7).
+
+        Regression: the Firebase path previously skipped the default-collection
+        side-effect that registration and OAuth applied, so Firebase users landed
+        without one. Now all three paths share `create_default_plant_collection`.
+        """
+        from apps.users.firebase_auth_views import get_or_create_user_from_firebase
+        from apps.users.models import UserPlantCollection
+
+        user, created = get_or_create_user_from_firebase(
+            firebase_uid="firebase-uid-collection",
+            firebase_email="collectionuser@example.com",
+            display_name="Collection User",
+        )
+
+        self.assertTrue(created)
+        collections = UserPlantCollection.objects.filter(user=user)
+        self.assertEqual(collections.count(), 1)
+        self.assertEqual(collections.first().name, "My Plants")
+
     def test_get_existing_user(self):
         """Test retrieving an existing user."""
         from apps.users.firebase_auth_views import get_or_create_user_from_firebase

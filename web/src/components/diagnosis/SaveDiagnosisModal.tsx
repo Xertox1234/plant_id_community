@@ -1,7 +1,11 @@
 import { useState, FormEvent, ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createDiagnosisCard } from '../../services/diagnosisService';
-import type { CreateDiagnosisCardInput } from '../../types/diagnosis';
+import type {
+  CreateDiagnosisCardInput,
+  DiseaseType,
+  SeverityAssessment,
+} from '../../types/diagnosis';
 import { logger } from '../../utils/logger';
 
 interface DiseaseInfo {
@@ -56,7 +60,7 @@ export default function SaveDiagnosisModal({
       setError(null);
 
       // Prepare diagnosis card data
-      const cardData: Record<string, unknown> = {
+      const cardData: CreateDiagnosisCardInput = {
         // diagnosis_result is optional - only include if we have an ID from backend
         ...(diseaseInfo.diagnosis_result_id && {
           diagnosis_result: diseaseInfo.diagnosis_result_id,
@@ -66,22 +70,21 @@ export default function SaveDiagnosisModal({
         plant_common_name: identificationData?.plant_name || '',
         custom_nickname: formData.custom_nickname || '',
         disease_name: diseaseInfo.disease_name,
-        disease_type: diseaseInfo.disease_type || 'environmental',
-        severity_assessment: diseaseInfo.severity || 'moderate',
+        // diseaseInfo carries these as loose strings from the diagnosis API;
+        // narrow them to the create-input enums at this boundary.
+        disease_type: (diseaseInfo.disease_type || 'environmental') as DiseaseType,
+        severity_assessment: (diseaseInfo.severity || 'moderate') as SeverityAssessment,
         confidence_score: diseaseInfo.probability || 0.0,
         care_instructions: diseaseInfo.care_instructions || [],
         personal_notes: formData.personal_notes || '',
         treatment_status: 'not_started',
-        plant_recovered: null,
         share_with_community: false,
         is_favorite: false,
       };
 
       logger.info('[SaveDiagnosisModal] Creating diagnosis card', { cardData });
 
-      const createdCard = await createDiagnosisCard(
-        cardData as unknown as CreateDiagnosisCardInput
-      );
+      const createdCard = await createDiagnosisCard(cardData);
 
       logger.info('[SaveDiagnosisModal] Card created successfully', { uuid: createdCard.uuid });
 

@@ -72,13 +72,11 @@ export interface Post {
  */
 export interface Attachment {
   id: string;
-  image?: string;
-  image_url?: string; // Backend serializer field for original image URL
-  image_thumbnail?: string; // Thumbnail URL
-  thumbnail_url?: string; // Backend serializer field for thumbnail URL
-  thumbnail?: string; // Alias for compatibility
-  medium_url?: string;
-  large_url?: string;
+  // The backend serializes exactly these two URL fields; the previous `image`,
+  // `image_thumbnail`, `thumbnail`, `medium_url`, `large_url` aliases were all
+  // redundant copies the mapper filled from these two (todo 222 / L9).
+  image_url?: string; // original image URL
+  thumbnail_url?: string; // thumbnail URL
   original_filename?: string;
   file_size?: number;
   mime_type?: string;

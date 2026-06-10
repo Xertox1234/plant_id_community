@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useState, MouseEvent } from 'react';
 import { toggleFavorite, deleteDiagnosisCard } from '../../services/diagnosisService';
 import { logger } from '../../utils/logger';
+import { getSeverityColor } from '../../utils/diagnosisDisplay';
 import type { DiagnosisCard as DiagnosisCardType } from '@/types/diagnosis';
 
 /**
@@ -16,19 +17,6 @@ function getStatusColor(status: string): string {
     monitoring: 'bg-warn/10 text-ink',
   };
   return colors[status] || 'bg-surface-3 text-ink-2';
-}
-
-/**
- * Get severity badge color
- */
-function getSeverityColor(severity: string): string {
-  const colors: Record<string, string> = {
-    mild: 'bg-leaf/10 text-ink ring-leaf/20',
-    moderate: 'bg-warn/10 text-ink ring-warn/20',
-    severe: 'bg-tertiary/10 text-ink ring-tertiary/20',
-    critical: 'bg-error/10 text-ink ring-error/20',
-  };
-  return colors[severity] || 'bg-surface-2 text-ink-2 ring-line/20';
 }
 
 /**

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "223"
 tags: [maintainability, audit, cleanup]
@@ -44,11 +44,34 @@ Per-finding file:line above.
 
 ## Acceptance Criteria
 
-- [ ] L2 dead conditional collapsed in both files; plant_identification tests green.
-- [ ] L3 model image properties single-sourced.
-- [ ] L10 stale TODO removed or avatar upload implemented; `flutter analyze` clean.
+- [x] L2 dead conditional collapsed in both files; plant_identification tests green.
+      (done 2026-06-10 — both `_prepare_image` no-op `if hasattr(...)` branches
+      collapsed to `Image.open(image_file)`; 99 plant_identification tests pass.)
+- [x] L3 model image properties single-sourced.
+      (done 2026-06-10 — `RequestImagesMixin` holds the shared `images` /
+      `image_thumbnails` properties; both `PlantIdentificationRequest` and
+      `PlantDiseaseRequest` inherit it. `makemigrations --check` → no changes,
+      so no DB/migration impact. Pairs with todo 221 / M4.)
+- [x] L10 stale TODO removed or avatar upload implemented; `flutter analyze` clean.
+      (done 2026-06-10 — `FirebaseStorageService` confirmed implemented
+      (`lib/services/firebase_storage_service.dart`), so the false
+      "when ... is implemented" dependency was removed; TODOs reworded to the
+      honest "using the existing FirebaseStorageService". `flutter analyze` on the
+      file: No issues found. `build_runner` regen left the `.g.dart` unchanged
+      (comment edit is outside the provider hash).)
 
 ## Work Log
+
+### 2026-06-10 - Completed by completing-todos skill (run 2026-06-10-0251)
+
+- Verification: all 3 acceptance criteria passed (plant_identification 99 passed;
+  `makemigrations --check` no changes for L3; `flutter analyze` clean for L10).
+- Review: deferred to the run's end-of-sweep code-review-orchestrator pass.
+
+### 2026-06-10 - Started by completing-todos skill (run 2026-06-10-0251)
+
+- Picked up by automated workflow. L3 (model image properties) is the model-layer
+  twin of todo 221's M4 serializer work, done immediately before this.
 
 ### 2026-06-09 - Created
 
