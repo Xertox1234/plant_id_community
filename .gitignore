@@ -180,6 +180,9 @@ pids/
 !.claude/settings.json
 # .claude/settings.local.json stays ignored — it holds per-developer overrides
 
+# Devin AI agent workflow configs — per-developer local tooling, not shared
+.devin/
+
 # CLAUDE.md contains project-specific context and may include sensitive info
 # Use CLAUDE.md.example as template
 CLAUDE.md
