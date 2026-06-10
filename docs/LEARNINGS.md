@@ -416,3 +416,14 @@ This file is append-only. New entries are added by main Claude after each code r
 
 **Rule**: After editing ANY codegen-backed Dart source (`@riverpod`, `@freezed`, or one with `part '*.g.dart'`), regenerate with `build_runner` and commit the `.g.dart` in the same change. Local analyze/test cannot detect a stale `.g.dart`; CI's codegen gate will block the merge.
 **Agent**: flutter-dart-reviewer
+
+## Security sweep (2026-06-10 additions)
+
+### [2026-06-10] A data migration that `call_command()`s a seed command minted a superuser with a hardcoded password on every deploy
+
+**Mistake**: Blog migration `0004_auto_20250819_1922` used `RunPython` → `call_command("migrate_care_guides_to_blog")`. That command, when the author user was missing, silently created superuser `plant_care_admin` / `temp_password_change_immediately`. Because Railway's start command runs `manage.py migrate --noinput` on **every deploy**, this was a standing account-creation path in production for ~10 months — gated only by the accident that prod had zero `PlantCareGuide` rows (the command early-returns at count 0). Three more known-credential creators shipped alongside: `create_sample_blog_posts.py` (superuser `admin`/`admin123`), `create_test_user` (`e2e@test.com`, known password), `create_demo_blog_posts` (staff `plant_blogger`, known password) — all runnable in prod with one `railway run`. A second trap: `migrations/RunPython` calling a management command executes the command's *current* code on every fresh `migrate` (CI test DBs, new environments), not a snapshot of what it did in Aug 2025.
+
+**Fix**: Migration 0004 forward is now a documented no-op (its destructive reverse — deleting blog posts — became `RunPython.noop` too); the command raises `CommandError` instead of creating an author; all three seed commands are DEBUG-gated; demo author gets `set_unusable_password()`; `create_sample_blog_posts.py` and a stray git-tracked `web/backend/` duplicate were deleted. Regression tests assert each guard AND that the dangerous accounts are never created. Verified prod via `railway ssh` shell query: 1 user total, none of the suspect accounts.
+
+**Rule**: Never create accounts or set passwords in a migration or any deploy-time path. Data migrations never `call_command()` — inline with `apps.get_model()`, and no-op them once served. Seed/demo/E2E commands must raise `CommandError` when `settings.DEBUG` is False.
+**Agent**: security-reviewer
