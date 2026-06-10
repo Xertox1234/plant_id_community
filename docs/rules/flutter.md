@@ -17,3 +17,9 @@ Compact checklist auto-injected before edits. Long-form:
 - **Never retry `429` (rate limit) on non-idempotent requests** — retrying a
   rate-limited POST/PATCH can create duplicate records. Exclude 429 from the retry
   predicate and surface it to the UI as a rate-limit error.
+- **Regenerate codegen after editing any `@riverpod`/`@freezed`/`part '*.g.dart'`
+  source** — run `flutter pub run build_runner build --delete-conflicting-outputs`
+  and commit the updated `.g.dart`. Riverpod embeds a source-content hash
+  (`_$xHash`), so *any* edit (even deleting an unrelated method) makes it stale. CI's
+  "Ensure generated code is committed" gate (`build_runner` + `git diff
+  --exit-code`) blocks the merge; local `flutter analyze`/`test` will NOT catch it.
