@@ -137,6 +137,32 @@ An orphan re-sweep (grep every deleted symbol across `apps`, no `.py` filter) re
 | M12(validators), M13, M14, M15, M16, L8, L9 | [todo 222](../../todos/222-pending-p3-maint-web-duplication-casts-validators.md) (p3) | Web duplication/casts/coupling + tested security validators needing a wire-or-remove decision (don't blind-delete) |
 | L2, L3, L10 | [todo 223](../../todos/223-pending-p3-maint-misc-low-cleanups.md) (p3) | Misc low-severity cleanups (dead conditional branch, dup model props, stale TODO) |
 
+## Finding Status
+
+Deferred findings tracked as todos — checked off when the linked todo is archived
+(the `completing-todos` skill renames this manifest to `…-COMPLETED.md` once all are `[x]`).
+
+- [ ] #M1 PlantNet parser drift/consolidation → todo 221
+- [ ] #M4 image-URL serializers duplicated + drifted → todo 221
+- [ ] #M6 misleading soft-delete OpenAPI schema → todo 221
+- [ ] #M7 drifted signup side-effects across 3 paths → todo 221
+- [ ] #M8 unreachable Ratelimited branch + misleading comment → todo 221
+- [ ] #M9 csrf_token_view falsely marked DEPRECATED → todo 221
+- [ ] #M11 rate-limit magic numbers vs orphaned constants → todo 221
+- [ ] #L1 third inline PlantNet parser → todo 221
+- [ ] #L4 frequency→interval mapping in 3 styles → todo 221
+- [ ] #L6 silent broad-except swallow → todo 221
+- [ ] #M12 unwired security validators (wire-or-remove) → todo 222
+- [ ] #M13 sanitize case-collision + needless async → todo 222
+- [ ] #M14 forum pagination duplicated + drifted → todo 222
+- [ ] #M15 harmful double-cast at diagnosis-create boundary → todo 222
+- [ ] #M16 block-type dispatch edit-in-3-places → todo 222
+- [ ] #L8 getSeverityColor duplicated + drifted → todo 222
+- [ ] #L9 Attachment URL-field sprawl → todo 222
+- [ ] #L2 no-op hasattr branch ×2 → todo 223
+- [ ] #L3 duplicated model image properties → todo 223
+- [ ] #L10 stale FirebaseStorageService TODO → todo 223
+
 ## Summary
 
 | Severity  | Found | Verified | Deferred | False-positive | Open  |
@@ -166,4 +192,7 @@ An orphan re-sweep (grep every deleted symbol across `apps`, no `.py` filter) re
 
 | Finding | Destination | Note |
 | ------- | ----------- | ---- |
-| —       | —           | —    |
+| Mass-deletion method (H1/H2/M1-M5/M10/L5 etc.) | `docs/LEARNINGS.md` | Dead-code removal is verified by whole-repo reference re-sweep + orphaned-import check, NOT a green suite; follow transitive-deadness chains to closure; grep without `.py` filter before deleting model methods (string refs in serializers/panels/templates) |
+| M12/M18/M19 (built-but-unwired) | `docs/LEARNINGS.md` | "Zero references" ≠ "delete" — coherent tested features / security utilities get a human delete-vs-wire decision (M18/M19 deleted on approval; M12 validators + M1 parser deferred) |
+| H4/M20/M21/M22/L12/L13 (hollow tests) | `docs/LEARNINGS.md` + `docs/rules/testing.md` | Banned hollow-test shapes (empty `pass`, tautological literal, mock-`toBeDefined`-only); `vi.stubEnv('DEV', false)` to enter dev-gated branches; delete empty placeholder stubs |
+| Hollow-test rule | `docs/rules/testing.md` | New "No hollow tests" binding rule (sharpens existing "a test that can't fail isn't a test") |

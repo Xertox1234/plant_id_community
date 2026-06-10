@@ -378,3 +378,32 @@ This file is append-only. New entries are added by main Claude after each code r
 **Mistake**: A local branch list had grown to 37, ~92% of which were dead. Squash-merging a PR collapses the branch's commits into one new commit on `main` with a different SHA, so `git branch -d` (and `git branch --merged`) never recognize the original branch as merged — it lingers indefinitely. Worse, `git diff main..<branch>` is actively misleading for a branch that's many commits behind `main`: the diff is dominated by `main`'s *newer* work appearing as "deletions," which reads as huge unmerged value when the branch is actually superseded (one branch showed −1722 lines but its PR was already merged).
 **Fix**: Detect superseded branches by **PR state + landed artifacts**, not by diffing: `gh pr list --state all --head <branch>` (merged/closed?), and confirm the deliverables (e.g. archived todos, the squash commit) are in `main`. For squash detection without a PR, collapse the branch to a single tree-commit on its merge-base and `git cherry main <commit>` (a `-` means patch-present in `main`). Pruned 37 → relevant branches this way.
 **Rule**: Don't trust `git branch -d`/`--merged` or 2-dot diffs to decide if a branch is safe to delete in a squash-merge repo. Confirm the PR merged/closed and its content landed in `main`, then `git branch -D`. Periodically prune, or enable auto-delete-on-merge, so squash debris doesn't accumulate.
+
+---
+
+## Audit method (2026-06-09 maintainability audit)
+
+### [2026-06-09] Dead-code deletion: tests cannot catch under-deletion — re-sweep references instead
+
+**Mistake**: When removing dead code, the instinct is "delete it, run the suite, green = safe." But dead code has *no test exercising it* — so leaving a freshly-orphaned helper behind (e.g. deleting a method whose only callee `_get_next_step`/`log_trust_level_upgrade`/`_get_project_for_location` is now unreferenced) never moves a single test. "Suite green" is structurally blind to under-deletion. The symmetric trap is over-deletion: a model method referenced only by **string** (a serializer `fields=[...]`/`source=`, a Wagtail panel, a template, a URL route, settings) won't be caught by a `--glob '*.py'` grep, and the test that would catch it is often the untested path.
+
+**Fix**: Three-part discipline, used across this 24-file / −4,317-line deletion with zero regressions: (1) **before** deleting a model method, grep the WHOLE repo with no `.py` filter to catch string references; (2) follow transitive-deadness chains to closure — after removing a parent, re-grep each callee and delete it only if now at zero refs, stopping at the first still-referenced symbol (kept `_trigger_security_alert`, which had live callers); (3) **after** all deletions, re-sweep every deleted symbol across the tree to prove zero residual references, and run `pyflakes` on touched files to catch newly-orphaned imports (`Group`, `post_save` were removed this way). Tests are the backstop, not the primary instrument.
+
+**Rule**: Dead-code removal is verified by reference re-sweep (whole-repo, non-`.py`) + orphaned-import check, NOT by a green suite. Follow transitive chains to closure in the same commit. Before deleting a model method, grep without the `.py` filter (string refs in serializers/panels/templates/URLs).
+
+### [2026-06-09] "Built but unwired" ≠ "dead code" — surface coherent unused features, don't auto-delete
+
+**Mistake**: A maintainability sweep flags zero-reference code as "dead." But some zero-reference code is a *coherent, tested feature built ahead of its UI* (a Flutter `FirestoreService` offline-sync layer + tests with no screen consuming it; a 199-line type-safe nav helper layer prod bypasses) or a *tested security utility that arguably should be wired up* (`validation.ts` `validateFileType`/`sanitizeSearchQuery` — unused, but their absence at the upload widget / search box is a latent gap, not a reason to delete). Blind-deleting these removes intended-roadmap work or forecloses closing a real gap.
+
+**Fix**: Split "dead code" into (a) **superseded/orphaned** (a live replacement exists, or it's truly incoherent) → safe delete, and (b) **coherent-but-unwired feature** → surface to the human for a delete-vs-wire decision before touching it. In this audit, the offline-sync layer + nav helpers were deleted only after explicit user approval; the tested security validators + a drifted PlantNet parser were *deferred* to todos for a wire-or-remove decision rather than deleted.
+
+**Rule**: Zero references is necessary but not sufficient for deletion. If the code is a coherent, tested feature (or a security utility that plausibly *should* be called), surface it for a human delete-vs-wire decision — don't auto-delete.
+
+### [2026-06-09] Hollow tests give false green on security paths — empty `pass`, tautologies, and dev-gated branches
+
+**Mistake**: Three recurring shapes of a test that *cannot fail*, all found this audit (6 instances): (1) an empty body that loops to a side effect then `pass` ("optional" header check on a 429 — named for the RFC `Retry-After` gotcha, asserted nothing); (2) a tautology that re-declares the value it checks (`const TIMEOUT = 30000; expect(TIMEOUT).toBe(30000)` instead of reading `httpClient.defaults.timeout`); (3) a test for production-only behavior that never enters the production branch (Sentry calls gated behind `import.meta.env.DEV === false`, so the test only asserted the mock `toBeDefined()`).
+
+**Fix**: (1) assert the real effect (`status == 429` AND `int(response["Retry-After"]) > 0`); (2) import the real subject and assert *its* config; (3) force the gated branch with `vi.stubEnv('DEV', false)` and assert the real call (`Sentry.captureMessage`) plus that the dev path was NOT taken (`consoleSpy.log` not called). Empty stubs for unimplemented behavior were deleted, not faked.
+
+**Rule**: A test named for behavior X must assert X and fail if X regresses — never `pass`, never assert a locally-declared literal, never assert only that a mock exists. For env/dev-gated code, stub the env to enter the real branch (`vi.stubEnv`). An empty placeholder test for an unbuilt feature is noise — delete it (or build the feature + test together), don't leave a green stub.
+**Agent**: test-quality-reviewer
