@@ -47,6 +47,10 @@ add_domain() {
 [[ "$REL" == backend/apps/blog/* ]] && \
   { add_domain wagtail; add_domain api; add_domain security; }
 
+[[ "$REL" == backend/apps/forum/* || "$REL" == backend/apps/forum_host/* || \
+   "$REL" == backend/packages/wagtail_forum/* ]] && \
+  { add_domain forum; add_domain wagtail; }
+
 [[ "$REL" == */migrations/* ]] && \
   { add_domain database; add_domain security; }
 
@@ -108,8 +112,25 @@ if command -v python3 >/dev/null 2>&1; then
     | python3 "$PROJECT_ROOT/scripts/inject/match_triggers.py" 2>/dev/null) \
     || MATCH_OUT=""
 fi
+# Identical warning sets are injected once per session: the first fire stays in
+# the session context, so re-injecting on every matching edit is pure noise.
+TRIGGER_FIRED=""
 if [ -n "$MATCH_OUT" ]; then
-  printf '\n[RECENT MISTAKES — matched this edit]\n%s\n' "$MATCH_OUT" >> "$TMPFILE"
+  INJECT_TRIGGERS=1
+  if [ -n "$SESSION_ID" ]; then
+    SAFE_ID=$(printf '%s' "$SESSION_ID" | tr -c 'A-Za-z0-9._-' '_')
+    TRIG_HASH=$(printf '%s' "$MATCH_OUT" | cksum | cut -d' ' -f1)
+    TRIG_MARKER="/tmp/inject-${SAFE_ID}-trig-${TRIG_HASH}"
+    if [ -f "$TRIG_MARKER" ]; then
+      INJECT_TRIGGERS=0
+    else
+      : > "$TRIG_MARKER" 2>/dev/null || true
+    fi
+  fi
+  if [ "$INJECT_TRIGGERS" -eq 1 ]; then
+    printf '\n[RECENT MISTAKES — matched this edit]\n%s\n' "$MATCH_OUT" >> "$TMPFILE"
+    TRIGGER_FIRED=1
+  fi
 fi
 
 # (4) Domain-rule checklists, deduped once per session per domain.
@@ -146,5 +167,13 @@ if [ "$CONTEXT_SIZE" -gt "$THRESHOLD" ]; then
 fi
 
 CONTEXT=$(cat "$TMPFILE")
-jq -n --arg ctx "$CONTEXT" \
-  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":$ctx}}'
+if [ -n "$TRIGGER_FIRED" ]; then
+  # Surface trigger fires to the user (the log alone is invisible; see
+  # scripts/inject/report_fires.py for aggregate counts).
+  SUMMARY=$(printf '%s' "$MATCH_OUT" | head -1 | cut -c1-160)
+  jq -n --arg ctx "$CONTEXT" --arg msg "Recurring-mistake trigger matched this edit: $SUMMARY" \
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":$ctx},"systemMessage":$msg}'
+else
+  jq -n --arg ctx "$CONTEXT" \
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":$ctx}}'
+fi

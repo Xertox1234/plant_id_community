@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"systemMessage\": \"Run /codify if you discovered patterns worth preserving this session.\"}'",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && git diff --quiet HEAD 2>/dev/null || echo '{\"systemMessage\": \"Run /codify if you discovered patterns worth preserving this session.\"}'",
             "timeout": 5
           }
         ]

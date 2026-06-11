@@ -1,25 +1,17 @@
 # Forum — binding rules
 
-Compact checklist auto-injected before edits to `forum_integration/`. Long-form:
-`backend/docs/patterns/domain/forum.md`.
+Compact checklist auto-injected before edits to the forum code. Long-form:
+`backend/packages/wagtail_forum/README.md`.
 
-- **Real app is `forum_integration/`**, not `forum/`. Machina models come from
-  `machina.apps.forum.*` (third-party); our logic lives in `apps/forum_integration/`.
-- **Never hardcode trust-level thresholds** — always use `TrustLevelService.get_trust_level()`
-  or import from `apps/forum_integration/constants.py`. Hardcoded `timedelta(days=7)` etc.
-  diverge silently from the service definition.
-- **Spam keyword scoring uses `max()`, not `sum()`** — summing inflates the score
-  across categories. Use the highest category score.
-- **Detail `@action` endpoints must include the `uuid` lookup parameter** — omitting it
-  causes `CanUploadImages` and other trust-level permission classes to silently fail.
-  (Same as `get_permissions()` + `super()` rule in `docs/rules/api.md`.)
-- **`SpamDetectionService` caches internally** — do not wrap calls in your own cache.
-  Ensure Redis is running; a missing cache falls back to DB on every check.
+- **Forum code lives in three places** (django-machina and `apps/forum_integration/`
+  were fully retired, PR #362): the reusable package `backend/packages/wagtail_forum/`
+  (boards are Wagtail Pages; topics/posts are snippets; optional DRF API), the host
+  integration app `backend/apps/forum_host/`, and management commands in
+  `backend/apps/forum/management/`. The package core must import nothing
+  host-specific — use `settings.AUTH_USER_MODEL`, never a concrete user model.
 - **`ENABLE_FORUM` is evaluated at import time** — `@override_settings(ENABLE_FORUM=True)`
   cannot re-register apps mid-test. Use a subprocess with the env var set to test startup
-  paths that depend on `INSTALLED_APPS`.
-- Run `python manage.py warm_moderation_cache` post-deploy to avoid cold-start penalty on
-  the moderation dashboard.
+  paths that depend on `INSTALLED_APPS`. (It is `True` locally, `False` in CI.)
 - **Never use `or` as a numeric default where 0 is valid** — `(max_order or -1) + 1` fails
   when `max_order` is 0 because `0 or -1 == -1`. Use `(max_order if max_order is not None else -1) + 1`.
   Also, auto-assign logic in `save()` must be insert-only (`self.pk is None`), or it re-fires on UPDATE.

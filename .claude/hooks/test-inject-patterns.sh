@@ -57,6 +57,15 @@ check "blog models → wagtail rules" \
   '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/blog/models.py"}}' \
   "RULES — wagtail"
 
+# forum (package + host app) → forum + wagtail
+check "wagtail_forum package → forum rules" \
+  '{"tool_name":"Edit","tool_input":{"file_path":"backend/packages/wagtail_forum/wagtail_forum/models/topics.py"}}' \
+  "RULES — forum"
+
+check "forum_host app → wagtail rules" \
+  '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/forum_host/settings.py"}}' \
+  "RULES — wagtail"
+
 # migrations → database + security
 check "migration → database rules" \
   '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/plant_identification/migrations/0001_initial.py"}}' \
@@ -126,6 +135,29 @@ check_empty "Read tool → no output" \
 # Missing file_path → no output
 check_empty "missing file_path → no output" \
   '{"tool_name":"Edit","tool_input":{}}'
+
+# Trigger warnings fire once per session: first matching edit emits a
+# systemMessage + RECENT MISTAKES block; an identical edit in the same session
+# is deduped. Relies on the react-router-bare-import trigger in
+# docs/rules/triggers.json; INJECT_FIRES_LOG=/dev/null keeps the real fire log
+# clean.
+TRIG_SESSION="inject-test-$$"
+TRIG_EVENT=$(jq -n --arg sid "$TRIG_SESSION" \
+  '{tool_name:"Write",session_id:$sid,tool_input:{file_path:"web/src/InjectTest.tsx",content:"import { useNavigate } from \"react-router\";\n"}}')
+rm -f "/tmp/inject-${TRIG_SESSION}-"* 2>/dev/null
+OUT1=$(printf '%s' "$TRIG_EVENT" | INJECT_FIRES_LOG=/dev/null bash "$HOOK" 2>/dev/null)
+OUT2=$(printf '%s' "$TRIG_EVENT" | INJECT_FIRES_LOG=/dev/null bash "$HOOK" 2>/dev/null)
+if echo "$OUT1" | grep -q "systemMessage" && echo "$OUT1" | grep -q "RECENT MISTAKES"; then
+  echo "PASS: trigger match → systemMessage + RECENT MISTAKES"; PASS=$((PASS + 1))
+else
+  echo "FAIL: trigger match → systemMessage + RECENT MISTAKES"; FAIL=$((FAIL + 1))
+fi
+if echo "$OUT2" | grep -q "RECENT MISTAKES"; then
+  echo "FAIL: repeat trigger in same session → deduped"; FAIL=$((FAIL + 1))
+else
+  echo "PASS: repeat trigger in same session → deduped"; PASS=$((PASS + 1))
+fi
+rm -f "/tmp/inject-${TRIG_SESSION}-"* 2>/dev/null
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
