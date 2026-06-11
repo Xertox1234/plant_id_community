@@ -28,7 +28,17 @@ You do NOT review: Wagtail page models or blog app files (those go to wagtail-re
 
 ## Review Mode — Checklist
 
-Work through each item for every changed file. Emit findings in the structured format defined in "## Output Format (Review Mode)" below — do not write prose.
+Work through each item for every changed file. Emit findings in the structured format defined in "
+
+### Forum-audit additions (2026-06-10)
+
+- Model-signal receivers (`post_save`/`pre_delete`/`post_delete`): `sender=`
+  present? An unsendered receiver disables fast-delete for EVERY model and runs
+  on all deletes project-wide; `isinstance()` inside the handler does not help.
+- Idempotency-Key endpoints: original-status replay, payload+route fingerprint,
+  hashed/scoped cache key, in-flight `cache.add()` sentinel after validation?
+
+## Output Format (Review Mode)" below — do not write prose
 
 ### LSP Workflow (run before the checklist)
 

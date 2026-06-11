@@ -68,6 +68,20 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
 
 - [ ] Any code referencing a specific Wagtail version number must note if dev (7.1.2) and prod (7.4) differ
 
+### Forum-audit additions (2026-06-10)
+
+- `published` receivers: side effects guarded for first-publish
+  (`first_published_at == last_published_at`)? `unpublished`/`post_delete`
+  counterparts present for every counter/privilege maintained on publish?
+- Custom views/APIs over Page models: querysets use `.live().public()`
+  (PageViewRestriction is NOT auto-enforced)? Bare cross-tree `get(slug=...)`
+  (siblings-only uniqueness → MultipleObjectsReturned 500)?
+- API-writable StreamField: explicit unknown-type rejection, value type checks
+  (str / dict-of-str), chooser-PK validation? (`to_python()` does none of these.)
+- Programmatic `save_revision().publish()` of user-visible content: is anything
+  (e.g. the TITLE) skipping the spam/moderation screen `workflow.start()` would
+  have run?
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

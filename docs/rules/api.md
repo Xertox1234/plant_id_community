@@ -24,3 +24,12 @@ Compact checklist auto-injected before edits. Long-form:
   `django-ratelimit`'s `Ratelimited` carries no rate (the decorator discards it),
   so capture the rate at the decorator site (`apps/core/ratelimit.py` wraps it and
   re-raises with `.rate`) and map it (`/m`→60, `/h`→3600, …) in the handler.
+- **`logger.exception()` only works inside an `except` block** — elsewhere it
+  logs `NoneType: None`. For `Signal.send_robust()` results, use
+  `logger.error(..., exc_info=response)` (the returned exception carries
+  `__traceback__`).
+- **Idempotency-Key endpoints**: hash the user-supplied key (sha256) and scope
+  it by endpoint + user; fingerprint route-params + payload (422 on reuse with
+  a different request); replay the ORIGINAL status code, not 200; `cache.add()`
+  an in-flight sentinel (short TTL, placed AFTER validation) → 409 for
+  concurrent twins. See wagtail_forum/api/idempotency.py for the reference shape.

@@ -33,3 +33,14 @@ Compact checklist auto-injected before edits. Long-form:
   in every future environment (CI test DBs, new prod), long after the one-time
   intent has passed. Inline the operation with `apps.get_model()`; once a
   one-time data migration has served its purpose, make it a documented no-op.
+- **Model-signal receivers MUST pass `sender=`** — `@receiver(post_delete)` (or
+  `pre_delete`/`post_save`) without a sender registers for EVERY model: Django's
+  `can_fast_delete()` then returns False project-wide, so every bulk/cascade
+  delete anywhere fetches rows and deletes one-by-one with per-instance signal
+  dispatch. Use lazy strings: `@receiver(post_delete, sender="app.Model")`.
+- **Denormalized counters: recount in ONE UPDATE statement**
+  (`.update(n=Coalesce(Subquery(...Count...), 0))`) — the subquery evaluates
+  inside the UPDATE, so concurrent writers can't persist a stale read the way a
+  read-modify-write `save()` can. And preserve every invariant other code relies
+  on (e.g. a cursor-pagination "never NULL" ordering field needs `Coalesce` to a
+  fallback in EVERY writer).
