@@ -147,3 +147,32 @@ def test_moderation_decided_signal_fires_with_outcome():
 
     assert status == "published"
     assert received == {"status": "published", "obj_pk": post.pk}
+
+
+@pytest.mark.django_db
+def test_opening_post_by_another_author_cannot_publish_someone_elses_topic():
+    """The IDOR author-guard in submit_for_moderation (audit M18): a trusted
+    user's opening post must never force ANOTHER author's draft topic live."""
+    ensure_default_workflow()
+    owner = User.objects.create_user(username="owner", password="x")
+    attacker = User.objects.create_user(username="attacker", password="x")
+    p = ForumProfile.for_user(attacker)
+    p.trust_level = TrustLevel.MEMBER  # autopublishes their own content
+    p.save()
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum2", slug="forum2"))
+    board = index.add_child(instance=ForumBoard(title="General2", slug="general2"))
+    draft_topic = Topic.objects.create(
+        board=board, title="T", slug="t", author=owner, live=False
+    )
+    post = Post.objects.create(
+        topic=draft_topic, author=attacker, is_opening_post=True, live=False
+    )
+
+    submit_for_moderation(post, attacker)
+
+    draft_topic.refresh_from_db()
+    post.refresh_from_db()
+    assert post.live is True  # the attacker's own content may publish
+    assert draft_topic.live is False  # but never the owner's draft topic

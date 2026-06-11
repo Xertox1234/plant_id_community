@@ -6,12 +6,11 @@ template that raises — e.g. the Django 6.0 `format_html("<literal>")` no-arg
 `TypeError` that 500'd *all* of `/cms/` (including the login page) in production
 on 2026-06-06 — fails these tests instead of shipping undetected.
 
-Placement is deliberate: this lives in `apps/blog/tests/` (an always-installed,
-CI-collected app) rather than a forum app. CI runs pytest with
-`ENABLE_FORUM=False`, so forum apps are not in `INSTALLED_APPS` and their tests
-are skipped; a smoke test placed there would never run in CI. Blog is always
-installed, so blog/global admin-hook regressions ARE gated here. See todo 217
-for the forum admin-hook coverage decision.
+Placement note: this lives in `apps/blog/tests/` because at the time of writing
+forum apps were gated behind `ENABLE_FORUM` (off in CI) and a smoke test there
+would not have run. That flag was removed on 2026-06-10 (forum apps are always
+installed), but blog remains a fine home for a global admin render gate. See
+todo 217 for the forum admin-hook coverage decision.
 """
 
 from django.contrib.auth import get_user_model

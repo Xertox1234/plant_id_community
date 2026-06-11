@@ -68,6 +68,16 @@ E2E: Playwright, 107 tests
 - [ ] No `act()` warnings left unresolved — they indicate async state update issues
 - [ ] E2E tests for any new user-facing flow added to `web/E2E_TESTING_GUIDE.md`
 
+### Forum-audit additions (2026-06-10)
+
+- DraftStateMixin fixtures: `objects.create()` is born `live=True` — moderated
+  behaviors must be covered through the HTTP/API path at least once, asserting
+  the parent object's `live` flag, not a derived status string.
+- A guard with an `or` (closed/locked, live-post/live-topic): is EACH half
+  covered, or would deleting one operand pass the suite?
+- Parity/coverage tests that compare route tables: do they also pin the view
+  callbacks, or can a route be silently re-pointed?
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

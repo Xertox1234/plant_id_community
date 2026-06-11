@@ -56,7 +56,12 @@ class Post(
         for_concrete_model=False,
     )
 
-    search_fields = [index.SearchField("body")]
+    search_fields = [
+        index.SearchField("body"),
+        # Any real-backend search over live posts filters on this; without it
+        # Elasticsearch raises FilterFieldError (Topic declares it; Post must too).
+        index.FilterField("live"),
+    ]
 
     panels = [
         FieldPanel("topic"),

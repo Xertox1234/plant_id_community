@@ -45,8 +45,9 @@ def submit_for_moderation(obj, user):
     - The opening-post -> topic publish is guarded by an author match so one user
       can never force someone else's draft topic live (IDOR).
     """
-    obj.live = False
-    obj.save(update_fields=["live"])
+    if obj.live:  # API callers already create drafts; skip the redundant UPDATE
+        obj.live = False
+        obj.save(update_fields=["live"])
     # Trust gates the *author's* content, so derive it from obj.author — NEVER the
     # caller. Otherwise a privileged caller (or a 1C bug) could launder an
     # untrusted author's content through their own trust level and skip screening.

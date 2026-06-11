@@ -844,8 +844,13 @@ except Ratelimited:
 
 ## Testing Startup Paths When `INSTALLED_APPS` Is Gated on a Feature Flag
 
-`ENABLE_FORUM` controls which apps appear in `INSTALLED_APPS` — but `INSTALLED_APPS` is
-evaluated once at module import time. `@override_settings(ENABLE_FORUM=True)` changes the
+> **Historical note (2026-06-10):** `ENABLE_FORUM`, the flag this pattern was
+> written for, was removed — it had become a no-op after the machina retirement
+> (defined but used nowhere) and the forum is always-on. The pattern below
+> remains valid for ANY env flag that gates `INSTALLED_APPS`.
+
+A flag controlling which apps appear in `INSTALLED_APPS` has a testing trap: `INSTALLED_APPS` is
+evaluated once at module import time. `@override_settings(FLAG=True)` changes the
 attribute in the running process but **cannot re-evaluate the list**. This means:
 
 - Live app registry (`apps.get_app_configs()`) always reflects the value at startup.
@@ -951,3 +956,24 @@ These forum patterns ensure:
 **Pattern Count**: 11 forum patterns (trust levels + spam detection + startup-path testing + image upload + savepoints + ratelimit)
 **Status**: ✅ Production-validated
 **Performance**: 80-95% cache hit rates, 92% dashboard load reduction
+
+## Visibility-Coupled Trust: Removal Must Revoke What Publishing Granted (2026-06-10)
+
+Trust levels are derived from *visible* content (`live=True` posts in `live=True`
+topics). The original implementation only ever promoted (`max(current, earned)`)
+and only on `published` — so a spammer who farmed 5 posts to reach
+`TRUST_AUTOPUBLISH_LEVEL` kept autopublish after a moderator removed every post.
+The reconciliation contract that closes this:
+
+1. **Recount on every visibility transition**: `published`, `unpublished`,
+   `post_delete` (sendered), and the topic-level transitions (`_refresh_topic_authors`
+   on topic publish/unpublish/delete — posts keep `live=True` when only the topic
+   is taken down).
+2. **Demote auto-earned trust, preserve manual grants**: compare the stored level
+   against what the OLD post_count could have earned — if `current <= earned(old)`
+   it was auto-earned and tracks thresholds in both directions; anything above was
+   an admin grant and is only ever promoted.
+3. **Profile writes lock the row** (`select_for_update` inside `transaction.atomic()`)
+   — trust derivation is read-modify-write.
+
+See `wagtail_forum/signals.py` (`_refresh_profile`, `_refresh_topic_authors`).

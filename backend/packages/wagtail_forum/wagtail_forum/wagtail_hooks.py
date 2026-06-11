@@ -37,6 +37,13 @@ class ForumProfileViewSet(SnippetViewSet):
     menu_label = "Profiles"
     list_display = ["__str__", "trust_level", "post_count"]
 
+    def get_queryset(self, request):
+        # __str__ falls back to user.get_username() — N+1 without this.
+        qs = super().get_queryset(request)
+        if qs is None:
+            qs = self.model.objects.all()
+        return qs.select_related("user")
+
 
 class ForumViewSetGroup(SnippetViewSetGroup):
     items = (TopicViewSet, PostViewSet, ForumProfileViewSet)

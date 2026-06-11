@@ -159,3 +159,34 @@ links to the full audit manifest with detailed findings and resolutions.
   coverage gap; the Phase-1 churn signal pointed at the now-deleted
   `forum_integration/`.
 - **Commit(s):** branch `chore/maintainability-audit-2026-06-09` (PR pending).
+
+### 2026-06-10 — Forum Extension Audit (wagtail_forum + forum_host)
+
+- **Trigger:** User-invoked `/audit` on the forum extension ("make sure we did
+  everything right") — fills the deliberate coverage gap from the 2026-06-09
+  maintainability audit.
+- **Manifest:** [2026-06-10-forum.md](2026-06-10-forum.md)
+- **Findings:** 0 critical, 5 high, 19 medium, 13 low (37 total) from 6 parallel
+  discovery agents (heavy independent convergence) + 2 docs-researchers (13
+  doc-dependent claims: all confirmed/better-fix, zero contradicted).
+- **Resolved:** 34 fixed & verified, 2 deferred to todo 231 (H4 web-client/read-API
+  = documented Spec 2 + L10 URL rationalization), 1 false-positive (L9
+  versioning opt-out — removal proven breaking). 0 open.
+- **Headlines fixed:** rate limiting dropped between plans 1C→1D (host-side
+  throttled wrappers + 429/Retry-After + per-user tests); `board.topic_count`
+  undercount on the API publish path; no unpublish/delete reconciliation —
+  spammers kept autopublish trust earned from removed posts (trust now re-derived
+  both directions, manual grants preserved); topic titles never spam-screened;
+  edit-republish duplicate notifications + activity corruption; bootstrap wiping
+  Forum Moderators perms each deploy (+ missing `access_admin`); idempotency
+  contract (scoped+hashed keys, original-status replay, fingerprint 422, reply +
+  reaction support, in-flight 409); board takedown/PageViewRestriction/multi-tree
+  slug visibility; dead `ENABLE_FORUM` flag deleted (docs/CI claims fixed).
+- **Phase 6 round 2:** orchestrated review of the fix set found 3 HIGH (unsendered
+  global `post_delete` killing fast-delete project-wide; NULL `last_post_at`
+  breaking the cursor invariant; execution-proven non-str block value 500) — all
+  fixed same-session with regression tests. kimi-review CRITICALs ×3 refuted with
+  evidence (documented in manifest).
+- **Tests:** forum suite 62 → 106 (+44); full backend suite green; spectacular:
+  0 forum schema errors.
+- **Commit(s):** branch `chore/forum-audit-2026-06-10` (PR pending).

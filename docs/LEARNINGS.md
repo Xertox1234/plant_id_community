@@ -427,3 +427,32 @@ This file is append-only. New entries are added by main Claude after each code r
 
 **Rule**: Never create accounts or set passwords in a migration or any deploy-time path. Data migrations never `call_command()` — inline with `apps.get_model()`, and no-op them once served. Seed/demo/E2E commands must raise `CommandError` when `settings.DEBUG` is False.
 **Agent**: security-reviewer
+
+## Forum audit (2026-06-10 additions)
+
+### [2026-06-10] An unsendered `@receiver(post_delete)` silently disabled Django fast-delete for the whole project
+
+**Mistake**: The forum audit's own Round-1 fix wired counter reconciliation with `@receiver(post_delete)` and an `isinstance()` check inside the handler. Without `sender=`, the receiver registers for EVERY model — `Collector.can_fast_delete()` consults `post_delete.has_listeners(model)` and starts returning False project-wide, so every bulk/cascade delete (sessions, revisions, JWT blacklist, anything) fetches rows into memory and deletes one-by-one with per-instance signal dispatch. No forum test could catch it; only the Phase-6 orchestrated review of the fix diff did.
+
+**Fix**: Two receivers with lazy string senders (`sender="wagtail_forum.Topic"` / `"wagtail_forum.Post"`), plus a thread-local pre_delete marker so a topic's cascade doesn't recount the board once per deleted post.
+
+**Rule**: Model-signal receivers always pass `sender=`; `isinstance()` filtering inside the handler does not undo the registration-time damage.
+**Agent**: django-drf-reviewer
+
+### [2026-06-10] "Deferred to the next plan" work silently evaporated between plans (forum rate limiting)
+
+**Mistake**: The forum design spec required `django-ratelimit → 429` throttling. Plan 1C explicitly deferred it to Plan 1D ("host-level throttling configured there"); Plan 1D never mentioned throttling. Result: the forum shipped to production with zero rate limiting on any endpoint, combined with automatic trust promotion at 5 posts → unlimited unscreened autopublish. Found only by a 4-agent-convergent audit finding.
+
+**Fix**: Host-side throttled view wrappers (`forum_host/api.py`/`api_urls.py`) with a route-parity test so new package endpoints can't ship unmounted; rates runtime-resolvable via `FORUM_RATELIMITS`.
+
+**Rule**: When plan N defers an item to plan N+1, the deferral is not done until plan N+1's task list contains it — verify the handoff landed, in the same review that approves plan N+1.
+**Agent**: (process — audit Phase 1 checks plan-deferral handoffs)
+
+### [2026-06-10] StreamField API writes: `to_python()` neither rejects unknown blocks nor type-checks values
+
+**Mistake**: The API's body validation relied on a `to_python()` dry-run to reject malformed StreamField JSON. Execution-proven gaps: unknown block types are silently DROPPED (client content vanishes with a 201), an int `paragraph` value passes and then 500s in `nh3.clean()` (TypeError), an int `heading` persists silently, and ChooserBlock PKs are stored unresolved (nonexistent or restricted-collection IDs accepted). A test named `test_body_block_rejects_unknown_block_type` asserted only block configuration, masking the gap.
+
+**Fix**: Explicit pre-checks in `validate_forum_body`: unknown type → 400, str (or dict-of-str for StructBlock) value enforcement → 400, chooser blocks rejected on the API path until an upload story exists.
+
+**Rule**: Never treat `StreamBlock.to_python()` as validation for API-submitted bodies; validate type-membership and value types yourself.
+**Agent**: wagtail-reviewer

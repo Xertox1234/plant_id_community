@@ -1,7 +1,11 @@
 from rest_framework import serializers
 
-from ..models import ForumBoard, ForumProfile, Topic
+from ..models import ForumBoard, ForumProfile, Reaction, Topic
 from .sanitize import validate_forum_body
+
+# Bio is stored in an unbounded TextField; bound it at the API boundary like
+# post bodies are (MAX_BODY_CHARS) — PATCHing megabytes is storage abuse.
+MAX_BIO_CHARS = 2_000
 
 
 class BoardSerializer(serializers.ModelSerializer):
@@ -48,21 +52,29 @@ class ReplyCreateSerializer(serializers.Serializer):
         return validate_forum_body(value)
 
 
+class ReactionSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=Reaction.REACTION_CHOICES)
+
+
 class MeProfileSerializer(serializers.ModelSerializer):
     capabilities = serializers.SerializerMethodField()
+    bio = serializers.CharField(
+        max_length=MAX_BIO_CHARS, required=False, allow_blank=True
+    )
 
     class Meta:
         model = ForumProfile
+        # flags_received deliberately NOT exposed: it would give a spammer a
+        # live signal of proximity to moderation thresholds (audit L12).
         fields = [
             "display_name",
             "bio",
             "signature",
             "trust_level",
             "post_count",
-            "flags_received",
             "capabilities",
         ]
-        read_only_fields = ["trust_level", "post_count", "flags_received"]
+        read_only_fields = ["trust_level", "post_count"]
 
     def get_capabilities(self, obj):
         # v1: static all-True. Trust/lock-aware gating (e.g. can_react only at

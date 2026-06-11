@@ -23,3 +23,8 @@ Compact checklist auto-injected before edits.
 - **Freeze time in count-to-limit rate-limit tests** (`freezegun.freeze_time`) so
   all N requests share one window — django-ratelimit's jittered window can roll
   over mid-hammer and flake the `assertEqual(..., 429)`.
+- **DraftStateMixin fixtures: `objects.create()` is born `live=True`** — it
+  bypasses the draft→moderation→publish flow entirely, so workflow/counter
+  tests built on it can stay green while the real API path (born `live=False`)
+  is broken. Cover every moderated behavior through the HTTP endpoint at least
+  once, and assert the PARENT object's liveness, not a derived status string.

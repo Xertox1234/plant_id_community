@@ -204,5 +204,21 @@
     "source": "codify: fix/dev-account-creators",
     "added": "2026-06-10",
     "severity": "warn"
+  },
+  {
+    "id": "unsendered-model-signal-receiver",
+    "domains": [
+      "database",
+      "api"
+    ],
+    "path_glob": [
+      "backend/*.py"
+    ],
+    "content_present": "@receiver\\(\\s*(pre_delete|post_delete|pre_save|post_save)\\s*[,)]\\s*(?![^)]*sender\\s*=)",
+    "message": "Model-signal @receiver without sender= registers for EVERY model: project-wide fast-delete is disabled and the handler runs on all saves/deletes. Pass sender='app.Model' (lazy string works).",
+    "pattern_ref": "docs/LEARNINGS.md",
+    "source": "codify: chore/forum-audit-2026-06-10",
+    "added": "2026-06-10",
+    "severity": "warn"
   }
 ]

@@ -40,6 +40,21 @@ def test_banned_word_flagged(settings):
     assert "casino" in result.reason.lower()
 
 
+def test_opening_post_text_includes_topic_title(settings):
+    # A Post has no title field; the topic title (user input on the same create
+    # request) must be screened with the opening post or title spam publishes
+    # unscreened (audit M1).
+    settings.WAGTAILFORUM_SPAM_BANNED_WORDS = ["casino"]
+    post = SimpleNamespace(
+        is_opening_post=True,
+        topic=SimpleNamespace(title="Best casino deals"),
+        body=_FakeBody("a perfectly normal body"),
+    )
+    result = get_spam_backend().check(post)
+    assert result.is_clean is False
+    assert "casino" in result.reason.lower()
+
+
 def test_default_autopublish_level_is_member():
     assert get_setting("TRUST_AUTOPUBLISH_LEVEL") == 2
 

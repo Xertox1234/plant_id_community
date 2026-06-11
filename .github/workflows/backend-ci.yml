@@ -35,7 +35,6 @@ jobs:
     env:
       DEBUG: 'True'
       ENABLE_FILE_LOGGING: 'False'
-      ENABLE_FORUM: 'False'
       DATABASE_URL: 'sqlite:///db.sqlite3'
       SECRET_KEY: 'ci-django-key-for-backend-checks-abcdefghijklmnopqrstuvwxyz1234567890'
       JWT_SECRET_KEY: 'ci-jwt-key-for-backend-checks-abcdefghijklmnopqrstuvwxyz1234567890-different'
@@ -125,10 +124,6 @@ jobs:
     env:
       DEBUG: 'True'
       ENABLE_FILE_LOGGING: 'False'
-      # Forum stays OFF: ENABLE_FORUM=True would pull apps.forum_integration into
-      # INSTALLED_APPS and un-ignore the very tests pytest.ini deliberately skips
-      # (forum_integration tests + 2 plant_identification diagnosis files).
-      ENABLE_FORUM: 'False'
       # MUST be set explicitly: under pytest, "test" is not in sys.argv, so the
       # Postgres test branch never fires and pytest-django reads DATABASE_URL.
       # TEST_DB_* would have no effect here.

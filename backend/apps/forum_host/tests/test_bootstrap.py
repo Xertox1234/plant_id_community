@@ -17,6 +17,32 @@ def test_bootstrap_created_workflow_and_group():
 
 
 @pytest.mark.django_db
+def test_bootstrap_preserves_admin_added_permissions():
+    """Re-running bootstrap (every deploy's migrate) must not strip permissions
+    an admin granted to the group (2026-06-10 audit M3)."""
+    from apps.forum_host.bootstrap import ensure_forum_bootstrap
+    from django.contrib.auth.models import Permission
+
+    group = Group.objects.get(name="Forum Moderators")
+    extra = Permission.objects.exclude(pk__in=group.permissions.all()).first()
+    group.permissions.add(extra)
+
+    ensure_forum_bootstrap(sender=type("S", (), {"label": "forum_host"}))
+
+    assert group.permissions.filter(pk=extra.pk).exists()
+
+
+@pytest.mark.django_db
+def test_moderator_group_grants_wagtail_admin_access():
+    """A user whose only group is Forum Moderators must be able to log into
+    /cms/ — the group needs wagtailadmin.access_admin (2026-06-10 audit M3)."""
+    group = Group.objects.get(name="Forum Moderators")
+    assert group.permissions.filter(
+        codename="access_admin", content_type__app_label="wagtailadmin"
+    ).exists()
+
+
+@pytest.mark.django_db
 def test_post_resolves_the_default_workflow():
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))

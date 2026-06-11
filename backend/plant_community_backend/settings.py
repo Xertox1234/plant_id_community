@@ -164,9 +164,6 @@ THIRD_PARTY_APPS = [
     "allauth.socialaccount.providers.github",
 ]
 
-# Feature flags
-ENABLE_FORUM = config("ENABLE_FORUM", default=False, cast=bool)
-
 # Local Apps
 LOCAL_APPS = [
     "apps.users",

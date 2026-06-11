@@ -140,3 +140,34 @@ This used to be a dev/prod split (`requirements-dev.txt: wagtail==7.1.2` vs
 `requirements.txt: wagtail==7.4`) that papered over version-specific breakage —
 most notably the Django 6.0 `format_html` admin 500 that "worked on 5.x".
 Reconciled in todo 217; there is no longer a divergence to annotate.
+
+## Publish-Signal Semantics for DraftStateMixin Snippets (2026-06-10, forum audit)
+
+`wagtail.signals.published` fires on **every** publish — first publish, moderator
+edit-republish, scheduled republish. Side effects that must happen once (push
+notifications, "created" events) need a first-publish guard:
+
+```python
+def _is_first_publish(instance):
+    # Wagtail stamps both with the same value on the first publish; later
+    # publishes move only last_published_at.
+    return (
+        instance.first_published_at is not None
+        and instance.first_published_at == instance.last_published_at
+    )
+```
+
+Caveats discovered the hard way:
+
+- **Republish only fresh instances.** `save_revision()` snapshots the in-memory
+  instance; calling it on a stale object (pre-publish timestamps) and publishing
+  resets `first_published_at` itself. Admin flows load fresh; programmatic
+  republish must `refresh_from_db()` first.
+- **`unpublished` + `post_delete` are part of the same contract** — any
+  denormalized counter or derived privilege maintained on `published` goes stale
+  (or stays wrongly granted) without the reverse hooks.
+- **Activity ordering should derive from `first_published_at`**, not
+  `last_published_at` — otherwise an edit-republish of an old post stamps "new
+  activity" and corrupts `-last_post_at` ordering.
+- **`objects.create()` is born `live=True`** for DraftStateMixin models — test
+  fixtures built on it never exercise the draft→publish transitions.
