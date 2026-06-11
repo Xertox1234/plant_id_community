@@ -47,6 +47,8 @@ while IFS= read -r file; do
   case "$file" in
     backend/apps/blog/*)
       add_pattern wagtail; add_pattern api; add_pattern security ;;
+    backend/apps/forum/*|backend/apps/forum_host/*|backend/packages/wagtail_forum/*)
+      add_pattern forum; add_pattern wagtail; add_pattern security ;;
     */migrations/*)
       add_pattern database; add_pattern security ;;
     */serializers.py)
