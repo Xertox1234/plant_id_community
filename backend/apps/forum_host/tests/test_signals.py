@@ -23,6 +23,9 @@ def test_publishing_a_reply_dispatches_a_host_notification(monkeypatch):
 
     opening = Post.objects.create(topic=topic, author=author, is_opening_post=True)
     opening.save_revision().publish()
+    # topic_created fires on the TOPIC's first publish (2026-06-10 audit M2:
+    # firing it from the opening post's publish deep-linked to a draft topic).
+    topic.save_revision().publish()
     reply = Post.objects.create(topic=topic, author=author, is_opening_post=False)
     reply.save_revision().publish()
 

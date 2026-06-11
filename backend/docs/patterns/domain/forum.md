@@ -844,8 +844,13 @@ except Ratelimited:
 
 ## Testing Startup Paths When `INSTALLED_APPS` Is Gated on a Feature Flag
 
-`ENABLE_FORUM` controls which apps appear in `INSTALLED_APPS` — but `INSTALLED_APPS` is
-evaluated once at module import time. `@override_settings(ENABLE_FORUM=True)` changes the
+> **Historical note (2026-06-10):** `ENABLE_FORUM`, the flag this pattern was
+> written for, was removed — it had become a no-op after the machina retirement
+> (defined but used nowhere) and the forum is always-on. The pattern below
+> remains valid for ANY env flag that gates `INSTALLED_APPS`.
+
+A flag controlling which apps appear in `INSTALLED_APPS` has a testing trap: `INSTALLED_APPS` is
+evaluated once at module import time. `@override_settings(FLAG=True)` changes the
 attribute in the running process but **cannot re-evaluate the list**. This means:
 
 - Live app registry (`apps.get_app_configs()`) always reflects the value at startup.

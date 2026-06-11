@@ -35,8 +35,15 @@ def ensure_forum_bootstrap(sender, **kwargs):
             "publish_topic",
             "publish_post",
         ],
+    ) | Permission.objects.filter(
+        # Without access_admin a moderator-only user cannot log into /cms/ at all.
+        content_type__app_label="wagtailadmin",
+        codename="access_admin",
     )
-    group.permissions.set(perms)
+    # add(), not set(): this runs on EVERY post_migrate, and set() would strip
+    # permissions an admin granted to the group (host-customization-preserving,
+    # like ensure_default_workflow).
+    group.permissions.add(*perms)
 
 
 def connect():

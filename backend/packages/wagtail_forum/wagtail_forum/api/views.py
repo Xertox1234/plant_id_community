@@ -2,22 +2,37 @@ import logging
 
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import generics
 from rest_framework import status as http_status
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from wagtail.search.backends import get_search_backend
 
+try:  # Schema annotations are optional — hosts without drf-spectacular still work.
+    from drf_spectacular.utils import extend_schema
+except ImportError:  # pragma: no cover
+
+    def extend_schema(**kwargs):
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+
 from ..blocks import ForumBodyBlock
 from ..models import ForumBoard, Post, Reaction, Topic
 from ..workflow import submit_for_moderation
-from .idempotency import idempotency_cache_key, remember, replay
+from .exceptions import Conflict, UnprocessableEntity
+from .idempotency import fingerprint, idempotency_cache_key, remember, replay, reserve
 from .pagination import TopicCursorPagination
 from .serializers import (
     BoardSerializer,
     MeProfileSerializer,
+    ReactionSerializer,
     ReplyCreateSerializer,
     TopicCreateSerializer,
     TopicListSerializer,
@@ -25,14 +40,69 @@ from .serializers import (
 
 logger = logging.getLogger("wagtail_forum")
 
+# Retries for the slug auto-dedup loop on topic create (see _create_topic).
+MAX_SLUG_ATTEMPTS = 5
+
+
+def _visible_boards():
+    """Boards the API may expose: live AND without a Wagtail view restriction.
+
+    `PageViewRestriction` (login/password/group privacy) is not enforced
+    automatically by custom views — `.public()` is the opt-in (audit M7).
+    Restricted boards are conservatively invisible to the whole API.
+    """
+    return ForumBoard.objects.live().public()
+
+
+def _get_board(slug):
+    """Resolve a board by slug, 404ing hidden boards and 409ing ambiguity.
+
+    Wagtail slugs are unique only among siblings, so two boards under
+    different ForumIndex pages can share a slug — `.get()` would raise
+    `MultipleObjectsReturned` → 500 (audit M8).
+    """
+    boards = list(_visible_boards().filter(slug=slug)[:2])
+    if not boards:
+        raise NotFound()
+    if len(boards) > 1:
+        raise Conflict(
+            "Board slug is ambiguous across forum trees; contact the site admin."
+        )
+    return boards[0]
+
+
+def _replay_or_none(cache_key, payload_fingerprint):
+    """Return a replayed Response for a remembered idempotent request.
+
+    Reusing a key with a different payload is a client bug — reject it (422)
+    instead of silently returning the previous response (audit M4). A request
+    whose twin is still in flight gets 409 (IETF idempotency-key draft) —
+    views call reserve() just before their mutating operation, so a request
+    failing validation never wedges the key.
+    """
+    cached = replay(cache_key)
+    if cached is None:
+        return None
+    if cached.get("processing"):
+        raise Conflict("A request with this Idempotency-Key is being processed.")
+    if cached["fingerprint"] != payload_fingerprint:
+        raise UnprocessableEntity(
+            "Idempotency-Key was already used with a different payload."
+        )
+    # Replay the ORIGINAL status (e.g. 201), not a fresh 200 — clients key on
+    # 201 to detect creation (IETF idempotency-key draft).
+    return Response(cached["data"], status=cached["status"])
+
 
 class BoardListView(generics.ListAPIView):
     serializer_class = BoardSerializer
     pagination_class = None  # boards are few; return a flat results list
-    versioning_class = None  # host may configure NamespaceVersioning globally; opt out
+    # Opt out of host versioning: the package may be mounted outside a version
+    # namespace, where NamespaceVersioning would 404 every request.
+    versioning_class = None
 
     def get_queryset(self):
-        return ForumBoard.objects.live().order_by("path")
+        return _visible_boards().order_by("path")
 
     def list(self, request, *args, **kwargs):
         data = self.get_serializer(self.get_queryset(), many=True).data
@@ -45,7 +115,7 @@ class TopicListView(generics.ListAPIView):
     versioning_class = None
 
     def get_queryset(self):
-        board = get_object_or_404(ForumBoard.objects.live(), slug=self.kwargs["slug"])
+        board = _get_board(self.kwargs["slug"])
         return (
             Topic.objects.filter(board=board, live=True)
             .select_related("author", "last_post_author")
@@ -57,42 +127,34 @@ class TopicCreateView(APIView):
     permission_classes = [IsAuthenticated]
     versioning_class = None
 
+    @extend_schema(
+        request=TopicCreateSerializer,
+        responses={201: dict, 409: dict, 422: dict},
+        description=(
+            "Create a topic (with its opening post) and route it through "
+            "moderation. Supports an Idempotency-Key header: a retry with the "
+            "same key replays the original response (original status code); "
+            "reuse with a different payload returns 422. A taken slug is "
+            "auto-suffixed (-2, -3, …) — read the final slug from the response."
+        ),
+    )
     def post(self, request, slug):
-        cache_key = idempotency_cache_key(request)
-        cached = replay(cache_key)
-        if cached is not None:
-            return Response(cached, status=http_status.HTTP_200_OK)
+        cache_key = idempotency_cache_key(request, "topic-create")
+        payload_fp = (
+            fingerprint({"slug": slug, "body": request.data}) if cache_key else None
+        )
+        replayed = _replay_or_none(cache_key, payload_fp)
+        if replayed is not None:
+            return replayed
 
         serializer = TopicCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        board = get_object_or_404(ForumBoard.objects.live(), slug=slug)
+        board = _get_board(slug)
 
-        # 1) Create the draft topic + opening post atomically (born live=False).
-        try:
-            with transaction.atomic():
-                topic = Topic(
-                    board=board,
-                    title=serializer.validated_data["title"],
-                    slug=serializer.validated_data["slug"],
-                    author=request.user,
-                    live=False,
-                )
-                topic.save()
-                opening = Post(
-                    topic=topic,
-                    author=request.user,
-                    is_opening_post=True,
-                    body=ForumBodyBlock().to_python(serializer.validated_data["body"]),
-                    live=False,
-                )
-                opening.save()
-        except IntegrityError:
-            return Response(
-                {"detail": "A topic with this slug already exists in this board."},
-                status=http_status.HTTP_409_CONFLICT,
-            )
+        reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
+        topic, opening = self._create_topic(request, board, serializer.validated_data)
 
-        # 2) Route through moderation OUTSIDE the creation transaction. A pluggable
+        # Route through moderation OUTSIDE the creation transaction. A pluggable
         # spam backend can raise; the draft is already live=False, so never 500 —
         # leave it as a pending draft for a moderator.
         try:
@@ -105,35 +167,91 @@ class TopicCreateView(APIView):
             status = "pending"
 
         result = {"id": topic.id, "slug": topic.slug, "status": status}
-        # Cache the outcome — including a backend-crash "pending". The draft topic
-        # is already committed above, so a retry with the same key would otherwise
-        # hit the (board, slug) uniqueness constraint and 409 instead of cleanly
-        # replaying the pending result.
-        remember(cache_key, result)
+        # Cache the outcome — including a backend-crash "pending" — so a client
+        # retry with the same key cleanly replays instead of re-creating.
+        remember(cache_key, result, http_status.HTTP_201_CREATED, payload_fp)
         return Response(result, status=http_status.HTTP_201_CREATED)
+
+    @staticmethod
+    def _create_topic(request, board, validated):
+        """Create the draft topic + opening post atomically (born live=False).
+
+        A taken slug is auto-suffixed instead of 409ing: the unique constraint
+        also covers DRAFT topics, so a conflict response would leak a hidden
+        draft's existence (audit L4). Each attempt runs in its own transaction
+        so an IntegrityError can't poison an outer atomic block.
+        """
+        base_slug = validated["slug"]
+        for attempt in range(MAX_SLUG_ATTEMPTS):
+            if attempt == 0:
+                slug_try = base_slug
+            else:
+                # Truncate so base+suffix fits SlugField(max_length=255) —
+                # Postgres raises DataError (500) past it; SQLite won't.
+                suffix = f"-{attempt + 1}"
+                slug_try = f"{base_slug[:255 - len(suffix)]}{suffix}"
+            try:
+                with transaction.atomic():
+                    topic = Topic(
+                        board=board,
+                        title=validated["title"],
+                        slug=slug_try,
+                        author=request.user,
+                        live=False,
+                    )
+                    topic.save()
+                    opening = Post(
+                        topic=topic,
+                        author=request.user,
+                        is_opening_post=True,
+                        body=ForumBodyBlock().to_python(validated["body"]),
+                        live=False,
+                    )
+                    opening.save()
+                return topic, opening
+            except IntegrityError:
+                continue
+        raise Conflict("Could not allocate a unique slug for this topic.")
 
 
 class ReplyCreateView(APIView):
     permission_classes = [IsAuthenticated]
     versioning_class = None
 
+    @extend_schema(
+        request=ReplyCreateSerializer,
+        responses={201: dict, 404: dict, 409: dict, 422: dict},
+        description=(
+            "Reply to a topic; the reply routes through moderation. Supports "
+            "an Idempotency-Key header (a mobile retry must not create a "
+            "duplicate reply)."
+        ),
+    )
     def post(self, request, topic_id):
-        topic = get_object_or_404(Topic, id=topic_id)
-        # SECURITY: hide non-live topics entirely (404) BEFORE the closed/locked
-        # check — a 403/409 on a draft would leak its existence, and a reply must
-        # never go live on a hidden thread.
-        if not topic.live:
-            return Response(
-                {"detail": "Not found."}, status=http_status.HTTP_404_NOT_FOUND
-            )
+        cache_key = idempotency_cache_key(request, "reply-create")
+        payload_fp = (
+            fingerprint({"topic": topic_id, "body": request.data})
+            if cache_key
+            else None
+        )
+        replayed = _replay_or_none(cache_key, payload_fp)
+        if replayed is not None:
+            return replayed
+
+        # SECURITY: hide non-live topics and topics on hidden boards entirely
+        # (404) BEFORE the closed/locked check — a 403/409 on a draft would
+        # leak its existence, and a reply must never go live on a hidden
+        # thread. Board liveness/privacy counts too (audit M6/M7).
+        topic = get_object_or_404(
+            Topic.objects.filter(live=True, board__in=_visible_boards()),
+            id=topic_id,
+        )
         if topic.is_closed or topic.locked:
-            return Response(
-                {"detail": "Topic is closed to replies."},
-                status=http_status.HTTP_409_CONFLICT,
-            )
+            raise Conflict("Topic is closed to replies.")
         serializer = ReplyCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
         post = Post(
             topic=topic,
             author=request.user,
@@ -154,36 +272,52 @@ class ReplyCreateView(APIView):
             )
             moderation_status = "pending"
 
-        return Response(
-            {"id": post.id, "status": moderation_status},
-            status=http_status.HTTP_201_CREATED,
-        )
+        result = {"id": post.id, "status": moderation_status}
+        remember(cache_key, result, http_status.HTTP_201_CREATED, payload_fp)
+        return Response(result, status=http_status.HTTP_201_CREATED)
 
 
 class ReactionToggleView(APIView):
     permission_classes = [IsAuthenticated]
     versioning_class = None
 
+    @extend_schema(
+        request=ReactionSerializer,
+        responses={200: dict, 400: dict, 404: dict},
+        description=(
+            "Toggle a reaction. The response includes `reacted` (the resulting "
+            "state for this user). With an Idempotency-Key header a retry "
+            "replays the original result instead of toggling back."
+        ),
+    )
     def post(self, request, post_id):
+        cache_key = idempotency_cache_key(request, "reaction-toggle")
+        payload_fp = (
+            fingerprint({"post": post_id, "body": request.data}) if cache_key else None
+        )
+        replayed = _replay_or_none(cache_key, payload_fp)
+        if replayed is not None:
+            return replayed
+
         post = get_object_or_404(Post.objects.select_related("topic"), id=post_id)
-        # SECURITY: hide non-live posts / posts on non-live topics (404) — mirrors
-        # the reply non-live guard. Reacting to draft/pending content would leak its
-        # existence and let reactions accumulate on unpublished content.
-        if not post.live or not post.topic.live:
-            return Response(
-                {"detail": "Not found."}, status=http_status.HTTP_404_NOT_FOUND
-            )
-        rtype = request.data.get("type")
-        if rtype not in dict(Reaction.REACTION_CHOICES):
-            return Response(
-                {"detail": "Invalid reaction type."},
-                status=http_status.HTTP_400_BAD_REQUEST,
-            )
+        # SECURITY: hide non-live posts / posts on non-live topics / hidden
+        # boards (404) — mirrors the reply guard (audit M6/M7).
+        if (
+            not post.live
+            or not post.topic.live
+            or not _visible_boards().filter(pk=post.topic.board_id).exists()
+        ):
+            raise NotFound()
+        serializer = ReactionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
+        rtype = serializer.validated_data["type"]
         existing = Reaction.objects.filter(
             post=post, user=request.user, reaction_type=rtype
         ).first()
         if existing:
             existing.delete()
+            reacted = False
         else:
             # A concurrent double-tap can race two INSERTs past the SELECT; the
             # unique constraint (post, user, reaction_type) protects integrity —
@@ -195,8 +329,11 @@ class ReactionToggleView(APIView):
                     )
             except IntegrityError:
                 pass
+            reacted = True
         counts = Reaction.recount(post)
-        return Response({"reaction_counts": counts}, status=http_status.HTTP_200_OK)
+        result = {"reaction_counts": counts, "reacted": reacted}
+        remember(cache_key, result, http_status.HTTP_200_OK, payload_fp)
+        return Response(result, status=http_status.HTTP_200_OK)
 
 
 class MeProfileView(generics.RetrieveUpdateAPIView):
@@ -217,12 +354,19 @@ class SearchView(APIView):
         50  # bound the result set; a high-cardinality query won't blow up memory
     )
 
+    @extend_schema(
+        responses={200: dict},
+        description="Search live topic titles. Query param: q.",
+    )
     def get(self, request):
         query = request.query_params.get("q", "").strip()
         results = []
         if query:
             backend = get_search_backend()
-            hits = backend.search(query, Topic.objects.filter(live=True))
+            hits = backend.search(
+                query,
+                Topic.objects.filter(live=True, board__in=_visible_boards()),
+            )
             for topic in hits[: self.MAX_RESULTS]:
                 results.append(
                     {"id": topic.id, "slug": topic.slug, "title": topic.title}
@@ -232,19 +376,50 @@ class SearchView(APIView):
 
 class SyncView(APIView):
     versioning_class = None
+    MAX_TOPICS = 200  # page size for the delta poll; has_more signals truncation
 
+    @extend_schema(
+        responses={200: dict, 400: dict},
+        description=(
+            "Mobile delta-sync. Query params: since (ISO-8601, tz-aware), "
+            "board (slug). Returns topics updated at-or-after `since` plus "
+            "`has_more` and `next_since` for continuation; rows equal to the "
+            "boundary repeat — clients upsert by id."
+        ),
+    )
     def get(self, request):
-        since = parse_datetime(request.query_params.get("since", "") or "")
-        qs = Topic.objects.filter(live=True)
+        raw_since = request.query_params.get("since", "")
+        since = None
+        if raw_since:
+            since = parse_datetime(raw_since)
+            if since is None or timezone.is_naive(since):
+                # A silently-ignored bad value degrades to a full resync; a
+                # naive datetime is interpreted in the server TZ (audit M11).
+                raise ValidationError(
+                    {"since": "Provide an ISO-8601 datetime with a timezone offset."}
+                )
+        qs = Topic.objects.filter(live=True, board__in=_visible_boards())
         board_slug = request.query_params.get("board")
         if board_slug:
             qs = qs.filter(board__slug=board_slug)
         if since:
-            qs = qs.filter(updated_at__gt=since)
+            # >= so a row stamped exactly at the boundary is never lost; the
+            # repeat is harmless (clients upsert by id).
+            qs = qs.filter(updated_at__gte=since)
+        batch = list(qs.order_by("updated_at", "id")[: self.MAX_TOPICS + 1])
+        has_more = len(batch) > self.MAX_TOPICS
+        batch = batch[: self.MAX_TOPICS]
         topics = [
             {"id": t.id, "slug": t.slug, "title": t.title, "updated_at": t.updated_at}
-            for t in qs.order_by("updated_at")[:200]
+            for t in batch
         ]
         # Tombstones (ids deleted since `since`) require a soft-delete log added in
         # a later plan; return an empty list for now.
-        return Response({"topics": topics, "deleted": []})
+        return Response(
+            {
+                "topics": topics,
+                "deleted": [],
+                "has_more": has_more,
+                "next_since": batch[-1].updated_at if batch else raw_since or None,
+            }
+        )

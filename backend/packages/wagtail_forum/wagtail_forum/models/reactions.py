@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Count
 
 
@@ -41,14 +41,21 @@ class Reaction(models.Model):
         as 0), so consumers must read it as ``post.reaction_counts.get(type, 0)``,
         never by direct key access.
         """
-        counts = {
-            row["reaction_type"]: row["n"]
-            for row in Reaction.objects.filter(post=post)
-            .values("reaction_type")
-            .annotate(n=Count("id"))
-        }
+        from .posts import Post
+
+        # Lock the post row for the read-recount-write: two concurrent toggles
+        # could otherwise interleave and persist a stale count (lost update).
+        with transaction.atomic():
+            locked = Post.objects.select_for_update().get(pk=post.pk)
+            counts = {
+                row["reaction_type"]: row["n"]
+                for row in Reaction.objects.filter(post=locked)
+                .values("reaction_type")
+                .annotate(n=Count("pk"))
+            }
+            locked.reaction_counts = counts
+            locked.save(update_fields=["reaction_counts"])
         post.reaction_counts = counts
-        post.save(update_fields=["reaction_counts"])
         return counts
 
     def __str__(self):

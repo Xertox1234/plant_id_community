@@ -38,3 +38,43 @@ def test_sync_returns_topics_changed_since():
     assert resp.status_code == 200
     slugs = [t["slug"] for t in resp.data["topics"]]
     assert "fresh" in slugs and "old" not in slugs
+
+
+@pytest.mark.django_db
+def test_sync_rejects_invalid_or_naive_since():
+    _board()
+    client = APIClient()
+    # Unparseable: silently full-syncing would mask a broken client (audit M11).
+    assert client.get("/forum/sync/?since=not-a-date").status_code == 400
+    # Naive datetime: would be interpreted in the server TZ — silent drift.
+    assert client.get("/forum/sync/?since=2026-06-10T00:00:00").status_code == 400
+
+
+@pytest.mark.django_db
+def test_sync_reports_truncation_and_continuation():
+    board = _board()
+    t = Topic.objects.create(board=board, title="a", slug="a", live=True)
+
+    resp = APIClient().get(f"/forum/sync/?board={board.slug}")
+
+    assert resp.data["has_more"] is False
+    # next_since lets the client continue from the last row it received.
+    assert resp.data["next_since"] == t.updated_at
+
+
+@pytest.mark.django_db
+def test_sync_truncation_sets_has_more_and_boundary_next_since(monkeypatch):
+    from wagtail_forum.api import views as forum_views
+
+    monkeypatch.setattr(forum_views.SyncView, "MAX_TOPICS", 2)
+    board = _board()
+    for i in range(3):
+        Topic.objects.create(board=board, title=f"t{i}", slug=f"t{i}", live=True)
+
+    resp = APIClient().get(f"/forum/sync/?board={board.slug}")
+
+    assert len(resp.data["topics"]) == 2
+    assert resp.data["has_more"] is True
+    # next_since is the LAST RETURNED row's timestamp; with the >= boundary the
+    # client re-receives that row and upserts by id — never loses one.
+    assert resp.data["next_since"] == Topic.objects.get(slug="t1").updated_at

@@ -15,7 +15,7 @@ import json
 
 import nh3
 from rest_framework import serializers
-from wagtail.blocks import RichTextBlock
+from wagtail.blocks import ChooserBlock, RichTextBlock, StructBlock
 
 from ..blocks import ForumBodyBlock
 
@@ -52,17 +52,63 @@ def validate_forum_body(value):
 
     Returns the cleaned value so the caller stores the safe version.
     """
+    # Raise bare messages: this runs inside a field-level validator, and DRF
+    # already keys field errors under the field name — a dict here would
+    # double-nest the response as {"body": {"body": [...]}} (audit M14).
     if not isinstance(value, list):
-        raise serializers.ValidationError({"body": "Invalid post body."})
+        raise serializers.ValidationError("Invalid post body.")
     if len(value) > MAX_BODY_BLOCKS:
-        raise serializers.ValidationError({"body": "Post body has too many blocks."})
+        raise serializers.ValidationError("Post body has too many blocks.")
     if len(json.dumps(value)) > MAX_BODY_CHARS:
-        raise serializers.ValidationError({"body": "Post body is too large."})
+        raise serializers.ValidationError("Post body is too large.")
     body_block = ForumBodyBlock()
+
+    # Reject unknown block types explicitly: StreamBlock.to_python silently
+    # DROPS them (the client's content would vanish without an error). Also
+    # enforce value types here — to_python/clean do NOT: an int paragraph
+    # value reaches nh3.clean() and raises TypeError (500), and an int heading
+    # persists, breaking the text-by-contract render assumption.
+    struct_types = {
+        name
+        for name, block in body_block.child_blocks.items()
+        if isinstance(block, StructBlock)
+    }
+    for block in value:
+        if (
+            not isinstance(block, dict)
+            or block.get("type") not in body_block.child_blocks
+        ):
+            raise serializers.ValidationError("Invalid post body.")
+        block_value = block.get("value")
+        if block["type"] in struct_types:
+            if not isinstance(block_value, dict) or not all(
+                isinstance(v, str) for v in block_value.values()
+            ):
+                raise serializers.ValidationError("Invalid post body.")
+        elif not isinstance(block_value, str):
+            raise serializers.ValidationError("Invalid post body.")
+
+    # Reject chooser blocks (image, …) outright on the API path: the dry-run
+    # below does not resolve the referenced PK, so a caller could store a
+    # nonexistent ID (breaks rendering) or reference a restricted-collection
+    # asset by guessing IDs — an IDOR-by-reference (audit L5). There is no
+    # forum upload path yet; Spec 2 adds one with collection validation.
+    chooser_types = {
+        name
+        for name, block in body_block.child_blocks.items()
+        if isinstance(block, ChooserBlock)
+    }
+    for block in value:
+        if isinstance(block, dict) and block.get("type") in chooser_types:
+            raise serializers.ValidationError(
+                "Blocks referencing site objects (e.g. images) cannot be "
+                "submitted via the API."
+            )
+
     try:
         body_block.to_python(value)
     except Exception as exc:  # malformed StreamField payload
-        raise serializers.ValidationError({"body": "Invalid post body."}) from exc
+        raise serializers.ValidationError("Invalid post body.") from exc
 
     # Sanitize every rich-text block type, not a hardcoded name — a future
     # RichTextBlock added to ForumBodyBlock must not silently bypass sanitization.

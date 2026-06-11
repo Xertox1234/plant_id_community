@@ -44,5 +44,8 @@ def test_topics_list_is_cursor_paginated_with_bounded_queries():
     assert len(resp.data["results"]) == 20  # page_size
     assert resp.data["next"] is not None  # cursor link
     assert resp.data["results"][0]["slug"] == "t0"  # most-recent activity first
-    # Denormalized counters + select_related → no per-row author/board lookups.
-    assert len(ctx.captured_queries) <= 6
+    # Exactly 3: board lookup (live+public), topics page (select_related pulls
+    # author/last_post_author in the same query), cursor has-next probe.
+    # Pinned EXACTLY (docs/rules/testing.md) — an N+1 hiding under a <= ceiling
+    # passes silently; if this changes, explain the new number here.
+    assert len(ctx.captured_queries) == 3

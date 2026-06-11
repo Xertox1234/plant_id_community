@@ -45,7 +45,10 @@ def ratelimit(group=None, key=None, rate=None, method=ALL, block=True):
             except Ratelimited as exc:
                 # django-ratelimit already set request.limited before raising; we
                 # only re-raise with the rate attached for the Retry-After header.
-                raise RatelimitedWithRate(rate) from exc
+                # django-ratelimit accepts a callable rate (resolved per request);
+                # resolve it the same way so .rate is always the "N/period" string.
+                resolved = rate(group, request) if callable(rate) else rate
+                raise RatelimitedWithRate(resolved) from exc
 
         return _wrapped
 

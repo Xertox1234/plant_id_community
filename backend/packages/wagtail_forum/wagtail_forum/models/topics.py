@@ -66,6 +66,9 @@ class Topic(
         index.SearchField("title"),
         index.AutocompleteField("title"),
         index.FilterField("live"),
+        # SearchView filters by visible board (`board__in`); without this a
+        # real search backend raises FilterFieldError.
+        index.FilterField("board_id"),
     ]
 
     panels = [
@@ -78,7 +81,17 @@ class Topic(
 
     class Meta:
         ordering = ["-is_pinned", "-last_post_at"]
-        indexes = [models.Index(fields=["board", "-last_post_at"])]
+        indexes = [
+            models.Index(fields=["board", "-last_post_at"]),
+            # /sync/ filters live topics by updated_at and orders by
+            # (updated_at, id) on every mobile poll — match the index to the
+            # sort so tie-heavy timestamps don't fall back to incremental sort.
+            models.Index(
+                fields=["updated_at", "id"],
+                name="wf_topic_sync_idx",
+                condition=models.Q(live=True),
+            ),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["board", "slug"], name="uniq_topic_slug_per_board"

@@ -9,9 +9,11 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   integration app `backend/apps/forum_host/`, and management commands in
   `backend/apps/forum/management/`. The package core must import nothing
   host-specific — use `settings.AUTH_USER_MODEL`, never a concrete user model.
-- **`ENABLE_FORUM` is evaluated at import time** — `@override_settings(ENABLE_FORUM=True)`
-  cannot re-register apps mid-test. Use a subprocess with the env var set to test startup
-  paths that depend on `INSTALLED_APPS`. (It is `True` locally, `False` in CI.)
+- **The forum is always-on — there is no `ENABLE_FORUM` flag.** It was a dead
+  no-op after the machina retirement (defined but used nowhere) and was removed
+  2026-06-10. Do not re-introduce a gate without wiring it to `INSTALLED_APPS`
+  AND URL mounting AND CI, and remember `INSTALLED_APPS` gating is evaluated at
+  import time (`@override_settings` cannot re-register apps — use a subprocess).
 - **Never use `or` as a numeric default where 0 is valid** — `(max_order or -1) + 1` fails
   when `max_order` is 0 because `0 or -1 == -1`. Use `(max_order if max_order is not None else -1) + 1`.
   Also, auto-assign logic in `save()` must be insert-only (`self.pk is None`), or it re-fires on UPDATE.
