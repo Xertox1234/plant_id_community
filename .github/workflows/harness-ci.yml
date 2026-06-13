@@ -43,9 +43,11 @@ jobs:
 
       - name: Hook self-tests
         run: |
+          pip install ruff==0.15.17  # for test-format-on-edit.sh (matches backend/requirements.txt)
           bash .claude/hooks/test-inject-patterns.sh
           bash .claude/hooks/test-kimi-review.sh
           bash .claude/hooks/test-guard-worktree-isolation.sh
+          bash .claude/hooks/test-format-on-edit.sh
 
       - name: Python inject tests
         run: |

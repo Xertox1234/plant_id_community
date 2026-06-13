@@ -179,6 +179,7 @@ rpds-py==0.28.0
 rsa==4.9.1
 ruamel.yaml==0.18.16
 ruamel.yaml.clib==0.2.14
+ruff==0.15.17  # F401 auto-fix at edit time (.claude/hooks/format-on-edit.sh); NOT a formatter — black+isort own formatting
 safety==3.6.2
 safety-schemas==0.0.16
 sentry-sdk==2.59.0

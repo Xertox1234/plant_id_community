@@ -220,5 +220,19 @@
     "source": "codify: chore/forum-audit-2026-06-10",
     "added": "2026-06-10",
     "severity": "warn"
+  },
+  {
+    "id": "secrets-baseline-manual-edit",
+    "domains": [
+      "security"
+    ],
+    "path_glob": [
+      ".secrets.baseline"
+    ],
+    "message": "Editing .secrets.baseline by hand churns line numbers and drops audit decisions. If a test PLACEHOLDER is re-flagged, add `# pragma: allowlist secret` on that line instead — it survives line shifts. To refresh the baseline safely, run scripts/refresh-secrets-baseline.sh (uses `scan --baseline`, not `scan >`).",
+    "pattern_ref": "docs/PRE_COMMIT_SETUP.md",
+    "source": "pre-commit friction reduction 2026-06-13",
+    "added": "2026-06-13",
+    "severity": "warn"
   }
 ]
