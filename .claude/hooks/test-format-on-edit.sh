@@ -6,11 +6,14 @@ set -uo pipefail
 
 HOOK="$(cd "$(dirname "$0")" && pwd)/format-on-edit.sh"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# Resolve ruff the way the hook does: backend venv first, then PATH (CI installs it
+# on PATH; local dev has it in the venv).
 REAL_RUFF="$REPO_ROOT/backend/venv/bin/ruff"
+[ -x "$REAL_RUFF" ] || REAL_RUFF="$(command -v ruff 2>/dev/null || true)"
 PASS=0; FAIL=0
 
 # The hook fail-opens without ruff, so there is nothing to assert if it is absent.
-[ -x "$REAL_RUFF" ] || { echo "SKIP: ruff not installed at $REAL_RUFF (run: backend/venv/bin/pip install -r backend/requirements.txt)"; exit 0; }
+[ -x "$REAL_RUFF" ] || { echo "SKIP: ruff not installed (pip install ruff, or backend/venv/bin/pip install -r backend/requirements.txt)"; exit 0; }
 
 # Throwaway fake repo root (FORMAT_ON_EDIT_ROOT) so no real file is touched, and
 # the ruff test seam (FORMAT_ON_EDIT_RUFF) so resolution is deterministic.
