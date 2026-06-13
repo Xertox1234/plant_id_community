@@ -29,13 +29,15 @@ run() { # file_path (repo-relative), tool_name → runs hook, sets RC/ERR
 ok()   { echo "PASS: $1"; PASS=$((PASS+1)); }
 no()   { echo "FAIL: $1"; echo "  $2"; FAIL=$((FAIL+1)); }
 
-# 1. Core: unused import in a normal backend file is auto-removed.
+# 1. Core: unused import is auto-removed, used one kept, and a CLEAN fix exits 0
+#    (RC=0 guards against ruff's "All checks passed!" being read as a residual).
 mkfixture backend/apps/scratch.py 'import os\nimport sys\n\nprint(sys.version)\n'
 run backend/apps/scratch.py
-if ! grep -q '^import os$' "$ROOT/backend/apps/scratch.py" && grep -q 'import sys' "$ROOT/backend/apps/scratch.py"; then
-  ok "removes unused import, keeps used one"
+if ! grep -q '^import os$' "$ROOT/backend/apps/scratch.py" \
+   && grep -q 'import sys' "$ROOT/backend/apps/scratch.py" && [ "$RC" -eq 0 ]; then
+  ok "removes unused import, keeps used one, exits 0"
 else
-  no "removes unused import, keeps used one" "file still: $(tr '\n' ' ' < "$ROOT/backend/apps/scratch.py")"
+  no "removes unused import, keeps used one, exits 0" "rc=$RC file: $(tr '\n' ' ' < "$ROOT/backend/apps/scratch.py")"
 fi
 
 # 2. Skip-list: a per-file-ignore path is left untouched (intentional re-exports).
@@ -67,14 +69,16 @@ ERR=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/failop
       | FORMAT_ON_EDIT_RUFF="$ROOT/no-such-ruff" FORMAT_ON_EDIT_ROOT="$ROOT" bash "$HOOK" 2>&1 >/dev/null); RC=$?
 [ "$RC" -eq 0 ] && grep -q 'import os' "$ROOT/backend/apps/failopen.py" && ok "ruff missing → fail-open exit 0" || no "ruff missing → fail-open exit 0" "rc=$RC"
 
-# 7. Residual F401 (read-only DIR blocks ruff's atomic-rename fix; report still
-#    works) → exit 2 + stderr. A read-only file alone fails: ruff rewrites via the
-#    parent dir, so the dir must be unwritable.
-mkdir -p "$ROOT/backend/apps/ro"
-mkfixture backend/apps/ro/locked.py 'import os\n'
-chmod 555 "$ROOT/backend/apps/ro"
-run backend/apps/ro/locked.py
-chmod u+w "$ROOT/backend/apps/ro"
+# 7. Residual F401 that ruff cannot auto-fix → exit 2 + stderr feedback.
+#    The hook's contract is "if ruff still REPORTS F401 after the --fix pass, exit
+#    2" — test that control flow with a stub ruff (real ruff's fix heuristics are
+#    ruff's concern, not the hook's), which is deterministic.
+STUB="$ROOT/fake-ruff"
+{ echo '#!/usr/bin/env bash'; echo 'echo "residual.py:1:8: F401 os imported but unused"'; echo 'exit 1'; } > "$STUB"
+chmod +x "$STUB"
+mkfixture backend/apps/residual.py 'import os\n'
+ERR=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/residual.py"}}' \
+      | FORMAT_ON_EDIT_RUFF="$STUB" FORMAT_ON_EDIT_ROOT="$ROOT" bash "$HOOK" 2>&1 >/dev/null); RC=$?
 if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qi 'F401\|unused'; then
   ok "unfixable F401 → exit 2 with feedback"
 else

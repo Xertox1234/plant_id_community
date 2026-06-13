@@ -72,7 +72,11 @@ fi
 "$RUFF" check --isolated --select F401 --fix --quiet "$ABS" >/dev/null 2>&1 || true
 
 # Report any F401 ruff could not auto-fix so Claude can resolve them before commit.
-RESIDUAL=$("$RUFF" check --isolated --select F401 --output-format concise "$ABS" 2>/dev/null) || RESIDUAL=""
+# --quiet prints diagnostics only — without it ruff emits "All checks passed!" to
+# stdout on success, a false residual. No `|| RESIDUAL=""`: ruff exits non-zero
+# *because* it found diagnostics, so swallowing that would clear the very residual
+# we want. With no `set -e`, the failed substitution does not end the script.
+RESIDUAL=$("$RUFF" check --isolated --select F401 --quiet --output-format concise "$ABS" 2>/dev/null)
 if [ -n "$RESIDUAL" ]; then
   printf 'Unused imports remain in %s (flake8 F401 will block the commit):\n%s\n' "$REL" "$RESIDUAL" >&2
   exit 2
