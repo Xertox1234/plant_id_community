@@ -242,9 +242,18 @@ pip install detect-secrets
 # Verify installation
 detect-secrets --version
 
-# Regenerate baseline
-detect-secrets scan > .secrets.baseline
+# Refresh the baseline (preserves audit decisions; clears line-number churn)
+bash scripts/refresh-secrets-baseline.sh
+
+# Equivalent manual form — note `--baseline`, NOT `scan > .secrets.baseline`.
+# The redirect form WIPES every audit decision and re-introduces churn; only
+# use it for the very first baseline when none exists yet.
+#   detect-secrets scan --baseline .secrets.baseline
 ```
+
+> If a test **placeholder** secret keeps getting re-flagged after lines shift,
+> add a trailing `# pragma: allowlist secret` on that line — it is ignored
+> regardless of line number, so it never re-enters the baseline.
 
 ### Issue: Hooks too slow
 
