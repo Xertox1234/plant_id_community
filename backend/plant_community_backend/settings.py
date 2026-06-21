@@ -962,6 +962,21 @@ SECURE_SSL_REDIRECT = not DEBUG
 # Railway routes solely through its proxy, so set TRUST_PROXY_SSL_HEADER=True there.
 if config("TRUST_PROXY_SSL_HEADER", default=False, cast=bool):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Per-IP rate limiting behind a reverse proxy (todo 218). django-ratelimit's
+# key="ip" keys on REMOTE_ADDR, which behind Railway's proxy is the *proxy*
+# address — so the per-IP limit never accumulates per real client. apps.core
+# .ratelimit.client_ip_key resolves the real client from X-Forwarded-For,
+# trusting only the rightmost N hops set here. X-Forwarded-For is
+# client-controllable on the left, so N MUST equal the number of proxies that
+# actually append to XFF in the live environment (confirm against prod). Default
+# 0 (no trusted proxy → REMOTE_ADDR) keeps local/dev/test correct; set to the
+# confirmed hop count on Railway.
+# max(0, ...): a negative count would index X-Forwarded-For from the left (the
+# attacker-controllable end), so clamp to a safe floor.
+RATELIMIT_TRUSTED_PROXY_COUNT = max(
+    0, config("RATELIMIT_TRUSTED_PROXY_COUNT", default=0, cast=int)
+)
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True

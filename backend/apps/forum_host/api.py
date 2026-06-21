@@ -7,7 +7,7 @@ these in place of `wagtail_forum.api.urls`. Rates resolve through
 override them without re-importing the decorators.
 """
 
-from apps.core.ratelimit import ratelimit
+from apps.core.ratelimit import client_ip_key, ratelimit
 from django.conf import settings
 from django.utils.decorators import method_decorator
 from wagtail_forum.api import views as forum_views
@@ -51,11 +51,15 @@ class MeProfileView(forum_views.MeProfileView):
     pass
 
 
-@method_decorator(ratelimit(key="ip", rate=_rate("search"), method="GET"), name="get")
+@method_decorator(
+    ratelimit(key=client_ip_key, rate=_rate("search"), method="GET"), name="get"
+)
 class SearchView(forum_views.SearchView):
     pass
 
 
-@method_decorator(ratelimit(key="ip", rate=_rate("sync"), method="GET"), name="get")
+@method_decorator(
+    ratelimit(key=client_ip_key, rate=_rate("sync"), method="GET"), name="get"
+)
 class SyncView(forum_views.SyncView):
     pass

@@ -88,6 +88,111 @@ else
   no "unfixable F401 → exit 2 with feedback" "rc=$RC err=$ERR"
 fi
 
+# --- TS/TSX branch (eslint --fix; seam: FORMAT_ON_EDIT_ESLINT) ---
+
+# 8. TS clean: eslint reports nothing → exit 0.
+ESLINT_OK="$ROOT/eslint-ok"
+{ echo '#!/usr/bin/env bash'; echo 'exit 0'; } > "$ESLINT_OK"; chmod +x "$ESLINT_OK"
+mkfixture web/src/clean.ts 'export const x = 1;\n'
+ERR=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"web/src/clean.ts"}}' \
+      | FORMAT_ON_EDIT_ESLINT="$ESLINT_OK" FORMAT_ON_EDIT_ROOT="$ROOT" bash "$HOOK" 2>&1 >/dev/null); RC=$?
+[ "$RC" -eq 0 ] && ok "TS clean → exit 0" || no "TS clean → exit 0" "rc=$RC err=$ERR"
+
+# 9. TS residual: eslint --fix no-ops, the residual pass reports an error → exit 2.
+ESLINT_ERR="$ROOT/eslint-err"
+{ echo '#!/usr/bin/env bash'
+  echo 'for a in "$@"; do [ "$a" = "--fix" ] && exit 0; done'
+  echo 'echo "src/bad.ts:1:1: error oops no-undef"'
+  echo 'exit 1'; } > "$ESLINT_ERR"; chmod +x "$ESLINT_ERR"
+mkfixture web/src/bad.ts 'const y = z;\n'
+ERR=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"web/src/bad.ts"}}' \
+      | FORMAT_ON_EDIT_ESLINT="$ESLINT_ERR" FORMAT_ON_EDIT_ROOT="$ROOT" bash "$HOOK" 2>&1 >/dev/null); RC=$?
+if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qi 'eslint'; then
+  ok "TS residual error → exit 2 with feedback"
+else
+  no "TS residual error → exit 2 with feedback" "rc=$RC err=$ERR"
+fi
+
+# 10. TS fail-open: eslint binary absent → exit 0.
+mkfixture web/src/failopen.ts 'export const a = 1;\n'
+ERR=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"web/src/failopen.ts"}}' \
+      | FORMAT_ON_EDIT_ESLINT="$ROOT/no-such-eslint" FORMAT_ON_EDIT_ROOT="$ROOT" bash "$HOOK" 2>&1 >/dev/null); RC=$?
+[ "$RC" -eq 0 ] && ok "TS eslint missing → fail-open exit 0" || no "TS eslint missing → fail-open exit 0" "rc=$RC"
+
+# --- Dart branch (dart fix --apply; seam: FORMAT_ON_EDIT_DART) ---
+
+DARTSTUB="$ROOT/dart-stub"
+{ echo '#!/usr/bin/env bash'; echo "echo called >> '$ROOT/dart-called'"; echo 'exit 0'; } > "$DARTSTUB"; chmod +x "$DARTSTUB"
+
+# 11. Dart: dart fix is invoked on a normal .dart file → exit 0, fixer called.
+mkfixture plant_community_mobile/lib/foo.dart 'void main() {}\n'
+rm -f "$ROOT/dart-called"
+ERR=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"plant_community_mobile/lib/foo.dart"}}' \
+      | FORMAT_ON_EDIT_DART="$DARTSTUB" FORMAT_ON_EDIT_ROOT="$ROOT" bash "$HOOK" 2>&1 >/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && [ -f "$ROOT/dart-called" ]; then ok "Dart fix invoked → exit 0"; else
+  no "Dart fix invoked → exit 0" "rc=$RC called=$([ -f "$ROOT/dart-called" ] && echo yes || echo no)"; fi
+
+# 12. Dart generated file (.g.dart) is skipped — fixer NOT called.
+mkfixture plant_community_mobile/lib/foo.g.dart '// GENERATED\n'
+rm -f "$ROOT/dart-called"
+ERR=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"plant_community_mobile/lib/foo.g.dart"}}' \
+      | FORMAT_ON_EDIT_DART="$DARTSTUB" FORMAT_ON_EDIT_ROOT="$ROOT" bash "$HOOK" 2>&1 >/dev/null); RC=$?
+if [ "$RC" -eq 0 ] && [ ! -f "$ROOT/dart-called" ]; then ok "Dart generated .g.dart skipped"; else
+  no "Dart generated .g.dart skipped" "rc=$RC called=$([ -f "$ROOT/dart-called" ] && echo yes || echo no)"; fi
+
+# 13. Dart fail-open: dart binary absent → exit 0.
+mkfixture plant_community_mobile/lib/failopen.dart 'void main() {}\n'
+ERR=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"plant_community_mobile/lib/failopen.dart"}}' \
+      | FORMAT_ON_EDIT_DART="$ROOT/no-such-dart" FORMAT_ON_EDIT_ROOT="$ROOT" bash "$HOOK" 2>&1 >/dev/null); RC=$?
+[ "$RC" -eq 0 ] && ok "Dart missing → fail-open exit 0" || no "Dart missing → fail-open exit 0" "rc=$RC"
+
+# 14. Skip-list ↔ setup.cfg F401 sync (todo 232): every setup.cfg [flake8]
+#     per-file-ignore carrying F401 must be in the hook's skip-list (between the
+#     SKIPLIST sentinels), or the hook would strip an intentional re-export. Assert
+#     the F401 set ⊆ the skip-list (the hook may legitimately carry extras like
+#     settings.py). Runs against the REAL repo files (not the fake ROOT).
+SETUP_CFG="$REPO_ROOT/backend/setup.cfg"
+if [ -f "$SETUP_CFG" ] && command -v python3 >/dev/null 2>&1; then
+  SKIP=$(awk '/SKIPLIST-START/{f=1;next} /SKIPLIST-END/{f=0} f' "$HOOK" \
+    | grep -oE 'backend/[A-Za-z0-9_./-]+\.py' | sed 's#^backend/##' | sort -u)
+  CFG=$(python3 - "$SETUP_CFG" <<'PY'
+import configparser, sys
+cp = configparser.ConfigParser(interpolation=None)
+cp.read(sys.argv[1])
+for line in cp.get('flake8', 'per-file-ignores', fallback='').splitlines():
+    line = line.strip()
+    if ':' in line:
+        path, codes = line.split(':', 1)
+        if 'F401' in codes:
+            print(path.strip())
+PY
+)
+  check_subset() { # $1=needles(newline-sep)  $2=haystack(newline-sep) → echoes missing
+    local m=""
+    while IFS= read -r p; do
+      [ -z "$p" ] && continue
+      printf '%s\n' "$2" | grep -qxF "$p" || m="$m $p"
+    done <<< "$1"
+    printf '%s' "$m"
+  }
+  # (a) Current state must be in sync (and CFG must be non-empty, so a broken parse
+  #     fails loudly instead of passing vacuously).
+  REAL_MISSING=$(check_subset "$CFG" "$SKIP")
+  if [ -z "$REAL_MISSING" ] && [ -n "$CFG" ]; then
+    ok "skip-list ⊇ setup.cfg F401 ignores (in sync)"
+  else
+    no "skip-list ⊇ setup.cfg F401 ignores (in sync)" "missing:$REAL_MISSING cfg_empty?=$([ -z "$CFG" ] && echo yes || echo no)"
+  fi
+  # (b) Teeth: a setup.cfg F401 entry NOT in the skip-list is detected as missing.
+  if printf '%s' "$(check_subset 'apps/fake_reexport.py' "$SKIP")" | grep -q 'fake_reexport'; then
+    ok "sync check detects an unmirrored F401 ignore"
+  else
+    no "sync check detects an unmirrored F401 ignore" "fake entry not flagged"
+  fi
+else
+  ok "skip-list sync check (setup.cfg or python3 absent — skipped)"
+fi
+
 echo "----"
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
