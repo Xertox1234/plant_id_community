@@ -12,7 +12,10 @@ import uuid
 from typing import Optional, Tuple
 
 import firebase_admin
-from apps.core.ratelimit import ratelimit  # rate-preserving wrapper (Retry-After)
+from apps.core.ratelimit import (  # rate-preserving wrapper (Retry-After)
+    client_ip_key,
+    ratelimit,
+)
 from apps.plant_identification.constants import RATE_LIMITS
 from apps.users.signup import create_default_plant_collection
 from django.contrib.auth import get_user_model
@@ -92,7 +95,7 @@ def _ensure_firebase_initialized() -> None:
 @api_view(["POST"])
 @permission_classes([AllowAny])
 @ratelimit(
-    key="ip",
+    key=client_ip_key,
     rate=RATE_LIMITS["auth_endpoints"]["firebase_token_exchange"],
     method="POST",
     block=True,

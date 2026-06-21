@@ -4,6 +4,7 @@ Authentication and user management views for the Plant Community application.
 
 import logging
 
+from apps.core.ratelimit import client_ip_key
 from apps.core.security import SecurityMonitor, log_security_event
 from apps.core.utils.pii_safe_logging import log_safe_user_context, log_safe_username
 from apps.plant_identification.constants import RATE_LIMITS
@@ -90,7 +91,10 @@ def get_csrf_token(request: Request) -> Response:
 @permission_classes([permissions.AllowAny])
 @csrf_protect  # SECURITY: Enforce CSRF protection for registration
 @ratelimit(
-    key="ip", rate=RATE_LIMITS["auth_endpoints"]["register"], method="POST", block=True
+    key=client_ip_key,
+    rate=RATE_LIMITS["auth_endpoints"]["register"],
+    method="POST",
+    block=True,
 )
 def register(request: Request) -> Response:
     """
@@ -151,7 +155,10 @@ def register(request: Request) -> Response:
 @csrf_protect
 @ensure_csrf_cookie  # Ensure CSRF cookie is set in response so clients can use it for subsequent requests
 @ratelimit(
-    key="ip", rate=RATE_LIMITS["auth_endpoints"]["login"], method="POST", block=True
+    key=client_ip_key,
+    rate=RATE_LIMITS["auth_endpoints"]["login"],
+    method="POST",
+    block=True,
 )
 def login(request: Request) -> Response:
     """
@@ -333,7 +340,7 @@ def logout(request: Request) -> Response:
 @permission_classes([permissions.AllowAny])
 @csrf_protect  # CRITICAL: Validates CSRF for ALL POST requests (not just cookie-based)
 @ratelimit(
-    key="ip",
+    key=client_ip_key,
     rate=RATE_LIMITS["auth_endpoints"]["token_refresh"],
     method="POST",
     block=True,

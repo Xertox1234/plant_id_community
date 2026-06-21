@@ -5,7 +5,7 @@ Custom OAuth views for handling social authentication with JWT token generation.
 import logging
 import secrets
 
-from apps.core.ratelimit import ratelimit
+from apps.core.ratelimit import client_ip_key, ratelimit
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.conf import settings
 from django.contrib.auth import login as django_login
@@ -31,7 +31,7 @@ def get_oauth_redirect_url(provider):
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
-@ratelimit(key="ip", rate="10/m", method="GET", block=True)
+@ratelimit(key=client_ip_key, rate="10/m", method="GET", block=True)
 def oauth_login(request, provider):
     """
     Initiate OAuth login process for the specified provider.
@@ -112,7 +112,7 @@ def oauth_login(request, provider):
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
-@ratelimit(key="ip", rate="10/m", method="GET", block=True)
+@ratelimit(key=client_ip_key, rate="10/m", method="GET", block=True)
 def oauth_callback(request, provider):
     """
     Handle OAuth callback and generate JWT tokens.
