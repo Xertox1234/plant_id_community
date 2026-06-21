@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "232"
 tags: [harness, hooks, ruff, testing]
@@ -55,11 +55,32 @@ re-export, with no test to catch it.
 
 ## Acceptance Criteria
 
-- [ ] A test fails when a file with an `F401` per-file-ignore in `setup.cfg` is not
-      present in the hook's skip-list.
-- [ ] The test runs in `harness-ci.yml` and passes on the current (in-sync) state.
+- [x] A test fails when a file with an `F401` per-file-ignore in `setup.cfg` is not
+      present in the hook's skip-list. (done 2026-06-21 — DEMONSTRATED: injecting a
+      fake `apps/fake_reexport.py: F401` into setup.cfg made the test report
+      `FAIL: skip-list ⊇ setup.cfg F401 ignores` (PASS=14 FAIL=1); reverted →
+      all-pass. A "teeth" assertion also pins the detection logic directly.)
+- [x] The test runs in `harness-ci.yml` and passes on the current (in-sync) state.
+      (done 2026-06-21 — added as test #14 in `test-format-on-edit.sh`, which
+      `harness-ci.yml:50` already runs in the Hook self-tests step; 15/15 pass.)
 
 ## Work Log
+
+### 2026-06-21 - Completed (run 2026-06-21-1412)
+
+- Added `SKIPLIST-START`/`SKIPLIST-END` sentinels around the hook's skip-list in
+  `format-on-edit.sh` so the test can parse it robustly (the dispatch `case
+  backend/*.py)` would otherwise false-match a naive regex).
+- Added test #14 to `test-format-on-edit.sh`: parses setup.cfg `[flake8]
+  per-file-ignores` for F401 entries (configparser, `interpolation=None`) and the
+  hook skip-list (between sentinels, normalized to backend-relative), and asserts
+  the F401 set ⊆ the skip-list. Chose the lighter **subset-assertion** over
+  extracting a shared source (per the todo's step-3 guidance — the hook may carry
+  extras like `settings.py`). Includes a non-vacuous guard (CFG must be non-empty)
+  and a "teeth" assertion (an unmirrored entry is detected).
+- No `harness-ci.yml` change needed — line 50 already runs `test-format-on-edit.sh`.
+- Verified: 15/15 pass in-sync; injecting a fake `apps/fake_reexport.py: F401`
+  flips it to FAIL (1), reverted → pass.
 
 ### 2026-06-14 - Filed
 
