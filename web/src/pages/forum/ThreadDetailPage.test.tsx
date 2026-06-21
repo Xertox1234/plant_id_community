@@ -250,10 +250,9 @@ describe('ThreadDetailPage', () => {
 
     renderThreadDetailPage();
 
-    await waitFor(() => {
-      // Wait for page to finish loading
-      expect(screen.queryByRole('status')).not.toBeInTheDocument();
-    });
+    // Block until the loaded state is rendered (the read-only notice appears),
+    // then assert the write UI is absent.
+    await screen.findByText(/read-only/i);
 
     expect(screen.queryByText(/Post Your Reply/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
