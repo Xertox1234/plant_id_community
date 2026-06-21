@@ -15,12 +15,14 @@ vi.mock('../../contexts/AuthContext', () => ({
 }));
 
 /**
- * Helper to render PostCard with Router context
+ * Helper to render PostCard with Router context.
+ * Passes onEdit/onDelete/onReact by default so display tests stay unaffected
+ * by the handler-presence guards.
  */
-function renderPostCard(post, onEdit = vi.fn(), onDelete = vi.fn()) {
+function renderPostCard(post, onEdit = vi.fn(), onDelete = vi.fn(), onReact = vi.fn()) {
   return render(
     <BrowserRouter>
-      <PostCard post={post} onEdit={onEdit} onDelete={onDelete} />
+      <PostCard post={post} onEdit={onEdit} onDelete={onDelete} onReact={onReact} />
     </BrowserRouter>
   );
 }
@@ -146,7 +148,7 @@ describe('PostCard', () => {
     expect(screen.queryByText(/edited/i)).not.toBeInTheDocument();
   });
 
-  it('renders reaction counts with emojis', () => {
+  it('renders reaction counts with emojis when onReact is provided', () => {
     const post = createMockPost({
       reaction_counts: {
         like: 5,
@@ -168,14 +170,14 @@ describe('PostCard', () => {
     expect(screen.getByText('1')).toBeInTheDocument();
   });
 
-  it('always renders the four reaction buttons, defaulting counts to 0', () => {
+  it('renders the four reaction buttons when onReact is provided, defaulting counts to 0', () => {
     const post = createMockPost({
       reaction_counts: {},
     });
 
     renderPostCard(post);
 
-    // All four reaction buttons render so a user can add a first reaction.
+    // All four reaction buttons render when handler is present.
     expect(screen.getByLabelText('React like')).toBeInTheDocument();
     expect(screen.getByLabelText('React love')).toBeInTheDocument();
     expect(screen.getByLabelText('React helpful')).toBeInTheDocument();
@@ -183,7 +185,7 @@ describe('PostCard', () => {
     expect(screen.getAllByText('0')).toHaveLength(4);
   });
 
-  it('shows each reaction type with its count (0 when absent)', () => {
+  it('shows each reaction type with its count (0 when absent) when onReact is provided', () => {
     const post = createMockPost({
       reaction_counts: {
         like: 0,
@@ -195,6 +197,21 @@ describe('PostCard', () => {
 
     expect(screen.getByLabelText('React love')).toHaveTextContent('2');
     expect(screen.getByLabelText('React like')).toHaveTextContent('0');
+  });
+
+  it('hides reaction buttons when onReact is not provided', () => {
+    const post = createMockPost({ reaction_counts: { like: 5 } });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} />
+      </BrowserRouter>
+    );
+
+    expect(screen.queryByLabelText('React like')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('React love')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('React helpful')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('React thanks')).not.toBeInTheDocument();
   });
 
   it('calls onReact with the post id and reaction type when clicked', async () => {
@@ -255,7 +272,7 @@ describe('PostCard', () => {
     expect(screen.getByText('p')).toBeInTheDocument();
   });
 
-  it('edit and delete buttons are in the DOM for the post owner without hover', () => {
+  it('edit and delete buttons are in the DOM for the post owner when handlers are provided', () => {
     vi.mocked(useAuth).mockReturnValueOnce({
       user: { id: 1, email: 'owner@example.com', is_staff: false, is_moderator: false },
       isAuthenticated: true,
@@ -276,5 +293,31 @@ describe('PostCard', () => {
     // Buttons must be in the DOM regardless of hover state (CSS hides them on md+).
     expect(screen.getByTitle('Edit post')).toBeInTheDocument();
     expect(screen.getByTitle('Delete post')).toBeInTheDocument();
+  });
+
+  it('hides edit and delete buttons for the post owner when no handlers are provided', () => {
+    vi.mocked(useAuth).mockReturnValueOnce({
+      user: { id: 1, email: 'owner@example.com', is_staff: false, is_moderator: false },
+      isAuthenticated: true,
+      isLoading: false,
+      error: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+      signup: vi.fn(),
+      clearError: vi.fn(),
+    });
+
+    const post = createMockPost({
+      author: { id: 1, username: 'owner', email: '', display_name: 'Owner', trust_level: 'member' },
+    });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} />
+      </BrowserRouter>
+    );
+
+    expect(screen.queryByTitle('Edit post')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Delete post')).not.toBeInTheDocument();
   });
 });
