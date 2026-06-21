@@ -25,10 +25,13 @@ def _board(slug="general"):
     return index.add_child(instance=ForumBoard(title=slug.title(), slug=slug))
 
 
-def _live_topic(board, slug="t"):
+def _live_topic(board, slug="t", body=None):
     author = User.objects.create_user(username=f"op-{slug}", password="x")
     topic = Topic.objects.create(board=board, title=slug, slug=slug, author=author)
-    post = Post.objects.create(topic=topic, author=author, is_opening_post=True)
+    kwargs = {"topic": topic, "author": author, "is_opening_post": True}
+    if body is not None:
+        kwargs["body"] = body
+    post = Post.objects.create(**kwargs)
     post.save_revision().publish()
     return topic, post
 
@@ -38,8 +41,18 @@ def test_pending_topics_are_excluded_from_list_search_and_sync():
     board = _board()
     _live_topic(board, slug="visible")
     author = User.objects.create_user(username="spammer", password="x")
-    Topic.objects.create(
+    hidden_topic = Topic.objects.create(
         board=board, title="hidden spam", slug="hidden-spam", author=author, live=False
+    )
+    # Add a live post whose body contains the search term "hidden" so the
+    # post-search visibility filter (topic__live=True) is genuinely exercised.
+    # Without this post, searched.data["posts"] == [] is vacuously true.
+    Post.objects.create(
+        topic=hidden_topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[{"type": "paragraph", "value": "<p>hidden spam body</p>"}],
     )
     client = APIClient()
 
@@ -118,7 +131,13 @@ def test_search_excludes_taken_down_board():
     # SearchView must gate on board visibility too — deleting its
     # _visible_boards() filter has to fail a test (review finding 10).
     board = _board(slug="searchable")
-    _live_topic(board, slug="findme")
+    # Give the opening post a body containing the search term so the
+    # post-search path (topic__board__in=_visible_boards()) is genuinely exercised.
+    _live_topic(
+        board,
+        slug="findme",
+        body=[{"type": "paragraph", "value": "<p>findme body text</p>"}],
+    )
     board.unpublish()
 
     resp = APIClient().get("/forum/search/?q=findme")

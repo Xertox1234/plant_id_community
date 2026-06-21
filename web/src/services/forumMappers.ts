@@ -225,6 +225,7 @@ export function mapSearchPostToPost(p: BackendSearchPost): Post {
     reaction_counts: {},
     can_edit: false,
     can_delete: false,
+    topic_title: p.topic_title,
   };
 }
 

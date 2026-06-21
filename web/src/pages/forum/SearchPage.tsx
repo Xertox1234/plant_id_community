@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { searchForum, fetchCategories } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
-import PostCard from '../../components/forum/PostCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { Pagination } from '../../components/ui/Pagination';
 import { useHandlePageChange } from '../../hooks/useHandlePageChange';
@@ -453,14 +452,20 @@ export default function SearchPage() {
                   // content_raw holds the backend excerpt (may contain truncated HTML tags).
                   // Strip tags so we render plain text only — never dangerouslySetInnerHTML.
                   const plainExcerpt = stripTags(post.content_raw);
+                  // Build a link to the topic by id (topic_title is carried by mapSearchPostToPost).
+                  // topic_id is stored in post.thread; topic_title is carried through.
+                  const topicLink = `/forum/-topic/${post.thread}`;
                   return (
-                    <div key={post.id}>
-                      <PostCard post={post} />
-                      {hasSearchMatch(plainExcerpt, query) && (
-                        <p
-                          className="mt-2 text-sm text-ink-2 bg-tertiary/10 border border-tertiary/20 rounded-lg p-3"
-                          aria-label="Highlighted post match"
-                        >
+                    <div key={post.id} className="bg-surface-2 rounded-lg border border-line-2 p-4">
+                      <Link
+                        to={topicLink}
+                        className="text-base font-semibold text-primary hover:underline"
+                        aria-label={`Go to topic: ${post.topic_title || 'View topic'}`}
+                      >
+                        {highlightText(post.topic_title || 'View topic', query)}
+                      </Link>
+                      {plainExcerpt && (
+                        <p className="mt-2 text-sm text-ink-2" aria-label="Highlighted post match">
                           {highlightText(plainExcerpt, query)}
                         </p>
                       )}

@@ -56,6 +56,11 @@ export interface Post {
   content_format?: string;
   /** StreamField body blocks from wagtail_forum; rendered by StreamFieldRenderer. */
   body?: BlogStreamFieldBlock[];
+  /**
+   * Set only on search-result posts (from mapSearchPostToPost).
+   * The topic title is carried so SearchPage can render a link without a PostCard.
+   */
+  topic_title?: string;
   created_at: string;
   updated_at?: string;
   edited_at?: string;

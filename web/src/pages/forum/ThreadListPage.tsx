@@ -55,7 +55,9 @@ export default function ThreadListPage() {
         const threadsData = await fetchThreads({ board: categoryData.slug });
 
         setCategory(categoryData);
-        setThreads(threadsData.items);
+        // Stamp the resolved category onto each thread so threadPath builds
+        // correct URLs (/forum/{id}-{slug}/...) instead of /forum/-topic/...
+        setThreads(threadsData.items.map((t) => ({ ...t, category: categoryData })));
         setNextCursor(threadsData.meta.next ?? null);
       } catch (err) {
         logger.error('Error loading thread list data', {
@@ -113,7 +115,11 @@ export default function ThreadListPage() {
     try {
       setLoadingMore(true);
       const threadsData = await fetchThreads({ board: boardSlug, cursor: nextCursor });
-      setThreads((prev) => [...prev, ...threadsData.items]);
+      // Stamp category so Load More threads also get correct threadPath URLs.
+      setThreads((prev) => [
+        ...prev,
+        ...threadsData.items.map((t) => ({ ...t, category: category! })),
+      ]);
       setNextCursor(threadsData.meta.next ?? null);
     } catch (err) {
       logger.error('Error loading more threads', {
@@ -124,7 +130,7 @@ export default function ThreadListPage() {
     } finally {
       setLoadingMore(false);
     }
-  }, [nextCursor, categorySlug]);
+  }, [nextCursor, categorySlug, category]);
 
   if (loading && !category) {
     return (

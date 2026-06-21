@@ -3,7 +3,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import SearchPage from './SearchPage';
-import { createMockCategory, createMockThread, createMockPost } from '../../tests/forumUtils';
+import { createMockCategory, createMockThread } from '../../tests/forumUtils';
+import { mapSearchPostToPost } from '../../services/forumMappers';
 import * as forumService from '../../services/forumService';
 
 // Mock the forumService
@@ -205,22 +206,24 @@ describe('SearchPage', () => {
       expect(screen.queryByText('[deleted]')).not.toBeInTheDocument();
     });
 
-    it('renders post results in separate section', async () => {
+    it('renders post results as compact rows (excerpt + topic title link, no PostCard)', async () => {
+      // Use real mapSearchPostToPost output — shape is {id, thread, author=[deleted], body=[], content_raw=excerpt, topic_title}
+      // This matches what forumService.searchForum actually returns and would have shown "[deleted]" via PostCard.
+      const post1 = mapSearchPostToPost({
+        id: 1,
+        topic_id: 42,
+        topic_title: 'Watering Guide',
+        excerpt: 'Water your plants regularly',
+      });
+      const post2 = mapSearchPostToPost({
+        id: 2,
+        topic_id: 43,
+        topic_title: 'Beginner Tips',
+        excerpt: 'Watering tips for beginners',
+      });
       const mockResults = createMockSearchResults({
         query: 'watering',
-        posts: [
-          createMockPost({
-            id: '1',
-            // body renders in PostCard; content_raw is used for plain-text highlight
-            body: [{ id: 'b1', type: 'paragraph', value: '<p>Water your plants regularly</p>' }],
-            content_raw: 'Water your plants regularly',
-          }),
-          createMockPost({
-            id: '2',
-            body: [{ id: 'b2', type: 'paragraph', value: '<p>Watering tips for beginners</p>' }],
-            content_raw: 'Watering tips for beginners',
-          }),
-        ],
+        posts: [post1, post2],
         total_posts: 2,
       });
 
@@ -229,9 +232,16 @@ describe('SearchPage', () => {
       renderSearchPage('/forum/search?q=watering');
 
       await waitFor(() => {
-        // PostCard renders body blocks; text comes from paragraph block value
+        // Topic title rendered as a link
+        expect(screen.getByRole('link', { name: /Watering Guide/i })).toBeInTheDocument();
+        // Excerpt rendered as plain text
         expect(screen.getByText(/Water your plants regularly/i)).toBeInTheDocument();
       });
+
+      // [deleted] sentinel must NOT appear — compact row does not render author
+      expect(screen.queryByText('[deleted]')).not.toBeInTheDocument();
+      // No empty PostCard author block (PostCard renders author.display_name in a specific element)
+      expect(screen.queryByText('Test User')).not.toBeInTheDocument();
     });
 
     it('displays no results message when no matches found', async () => {
