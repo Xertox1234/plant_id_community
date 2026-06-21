@@ -65,6 +65,21 @@ class OneTrustedProxyTests(SimpleTestCase):
         req = _request(remote_addr=PROXY_IP, xff="not-an-ip-address")
         self.assertEqual(get_trusted_client_ip(req), PROXY_IP)
 
+    def test_ip_with_port_in_trusted_position_falls_back(self):
+        # Pins M1 (todo 218): if the proxy appends "client:port" instead of a bare
+        # IP, ipaddress.ip_address rejects it and we fall back to REMOTE_ADDR. This
+        # is SAFE (the result is the server-set proxy address, never the
+        # attacker-influenced string) but it OVER-THROTTLES — every client collapses
+        # into the single REMOTE_ADDR bucket. The live-verification step MUST confirm
+        # the prod proxy appends a bare IP, or strip the port before relying on this.
+        req = _request(remote_addr=PROXY_IP, xff=f"{CLIENT_IP}:8080")
+        self.assertEqual(get_trusted_client_ip(req), PROXY_IP)
+
+    def test_bracketed_ipv6_with_port_in_trusted_position_falls_back(self):
+        # Same M1 caveat for the bracketed IPv6 + port form "[2001:db8::1]:443".
+        req = _request(remote_addr=PROXY_IP, xff="[2001:db8::1]:443")
+        self.assertEqual(get_trusted_client_ip(req), PROXY_IP)
+
 
 @override_settings(RATELIMIT_TRUSTED_PROXY_COUNT=2)
 class TwoTrustedProxiesTests(SimpleTestCase):

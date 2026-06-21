@@ -100,8 +100,9 @@ brute-force — but the IP layer is a deliberate control that's silently off.
       0 bare `key="ip"` remain; `manage.py check` clean.)
 - [x] A test pins the client-IP-from-XFF behavior (incl. the spoofing-rejection
       case). (done 2026-06-21 — `apps/core/tests/test_ratelimit_client_ip.py`,
-      15 tests incl. spoof-rotation rejection + IPv6 /64 masking; full run 22
-      passed with the rate-limit regression suite.)
+      17 tests incl. spoof-rotation rejection, IPv6 /64 masking, and the M1
+      `IP:port` / bracketed-IPv6 → REMOTE_ADDR fallback (added in PR #377 review);
+      full run green with the rate-limit regression suite.)
 
 ## Work Log
 
