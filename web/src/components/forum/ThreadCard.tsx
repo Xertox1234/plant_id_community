@@ -8,6 +8,8 @@ import type { Thread } from '@/types';
 interface ThreadCardProps {
   thread: Thread;
   compact?: boolean;
+  /** Pass true for search results where author data is unavailable (sentinel). */
+  hideAuthor?: boolean;
 }
 
 /**
@@ -16,7 +18,7 @@ interface ThreadCardProps {
  * Displays a thread preview in the thread list.
  * Shows title, excerpt, author, stats, and activity time.
  */
-function ThreadCard({ thread, compact = false }: ThreadCardProps) {
+function ThreadCard({ thread, compact = false, hideAuthor = false }: ThreadCardProps) {
   // Memoize formatted date to prevent recalculation
   const formattedDate = useMemo(() => {
     try {
@@ -76,12 +78,15 @@ function ThreadCard({ thread, compact = false }: ThreadCardProps) {
 
         {/* Metadata */}
         <div className="flex items-center gap-2 text-sm text-ink-3 flex-wrap">
-          {/* Author */}
-          <span className="font-medium text-ink-2">
-            {thread.author.display_name || thread.author.username}
-          </span>
-
-          <span aria-hidden="true">•</span>
+          {/* Author — omitted for search results where no real author data exists */}
+          {!hideAuthor && (
+            <>
+              <span className="font-medium text-ink-2">
+                {thread.author.display_name || thread.author.username}
+              </span>
+              <span aria-hidden="true">•</span>
+            </>
+          )}
 
           {/* Category (if compact) */}
           {compact && (

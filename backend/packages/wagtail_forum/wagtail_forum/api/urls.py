@@ -3,11 +3,13 @@ from django.urls import path
 from .views import (
     BoardListView,
     MeProfileView,
+    PostListView,
     ReactionToggleView,
     ReplyCreateView,
     SearchView,
     SyncView,
     TopicCreateView,
+    TopicDetailView,
     TopicListView,
 )
 
@@ -20,6 +22,12 @@ urlpatterns = [
         "boards/<slug:slug>/topics/create/",
         TopicCreateView.as_view(),
         name="topic-create",
+    ),
+    path("topics/<int:topic_id>/", TopicDetailView.as_view(), name="topic-detail"),
+    path(
+        "topics/<int:topic_id>/posts/",
+        PostListView.as_view(),
+        name="post-list",
     ),
     path(
         "topics/<int:topic_id>/posts/create/",

@@ -28,13 +28,15 @@ from ..models import ForumBoard, Post, Reaction, Topic
 from ..workflow import submit_for_moderation
 from .exceptions import Conflict, UnprocessableEntity
 from .idempotency import fingerprint, idempotency_cache_key, remember, replay, reserve
-from .pagination import TopicCursorPagination
+from .pagination import PostCursorPagination, TopicCursorPagination
 from .serializers import (
     BoardSerializer,
     MeProfileSerializer,
+    PostSerializer,
     ReactionSerializer,
     ReplyCreateSerializer,
     TopicCreateSerializer,
+    TopicDetailSerializer,
     TopicListSerializer,
 )
 
@@ -121,6 +123,30 @@ class TopicListView(generics.ListAPIView):
             .select_related("author", "last_post_author")
             .order_by("-last_post_at", "-id")
         )
+
+
+class TopicDetailView(generics.RetrieveAPIView):
+    serializer_class = TopicDetailSerializer
+    versioning_class = None
+    lookup_url_kwarg = "topic_id"
+
+    def get_queryset(self):
+        return Topic.objects.filter(
+            live=True, board__in=_visible_boards()
+        ).select_related("board", "author", "last_post_author")
+
+
+class PostListView(generics.ListAPIView):
+    serializer_class = PostSerializer
+    pagination_class = PostCursorPagination
+    versioning_class = None
+
+    def get_queryset(self):
+        topic = get_object_or_404(
+            Topic.objects.filter(live=True, board__in=_visible_boards()),
+            id=self.kwargs["topic_id"],
+        )
+        return topic.posts.filter(live=True).select_related("author")
 
 
 class TopicCreateView(APIView):
@@ -356,22 +382,35 @@ class SearchView(APIView):
 
     @extend_schema(
         responses={200: dict},
-        description="Search live topic titles. Query param: q.",
+        description="Search live topic titles and post bodies. Query param: q.",
     )
     def get(self, request):
         query = request.query_params.get("q", "").strip()
-        results = []
+        topics, posts = [], []
         if query:
             backend = get_search_backend()
-            hits = backend.search(
-                query,
-                Topic.objects.filter(live=True, board__in=_visible_boards()),
+            boards = _visible_boards()
+            topic_hits = backend.search(
+                query, Topic.objects.filter(live=True, board__in=boards)
             )
-            for topic in hits[: self.MAX_RESULTS]:
-                results.append(
-                    {"id": topic.id, "slug": topic.slug, "title": topic.title}
+            for t in topic_hits[: self.MAX_RESULTS]:
+                topics.append({"id": t.id, "slug": t.slug, "title": t.title})
+            post_hits = backend.search(
+                query,
+                Post.objects.filter(
+                    live=True, topic__live=True, topic__board__in=boards
+                ).select_related("topic"),
+            )
+            for p in post_hits[: self.MAX_RESULTS]:
+                posts.append(
+                    {
+                        "id": p.id,
+                        "topic_id": p.topic_id,
+                        "topic_title": p.topic.title,
+                        "excerpt": p.body.render_as_block()[:200] if p.body else "",
+                    }
                 )
-        return Response({"results": results})
+        return Response({"topics": topics, "posts": posts})
 
 
 class SyncView(APIView):

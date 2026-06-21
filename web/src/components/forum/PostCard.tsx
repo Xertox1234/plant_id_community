@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { sanitizeHtml, SANITIZE_PRESETS } from '../../utils/sanitize';
 import { useAuth } from '../../contexts/AuthContext';
+import StreamFieldRenderer from '../StreamFieldRenderer';
 import type { Post } from '@/types';
 
 interface PostCardProps {
@@ -46,11 +46,6 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
       return 'recently';
     }
   }, [post.created_at]);
-
-  // Sanitize content for display
-  const sanitizedContent = useMemo(() => {
-    return sanitizeHtml(post.content_raw, SANITIZE_PRESETS.FORUM);
-  }, [post.content_raw]);
 
   return (
     <div
@@ -105,50 +100,55 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
           </div>
         </div>
 
-        {/* Actions (edit/delete) — always visible on mobile, fade in on desktop hover */}
-        {canEdit && (
+        {/* Actions (edit/delete) — shown only when handlers are provided (Phase 2 write UI).
+            Always visible on mobile, fade in on desktop hover. */}
+        {canEdit && (onEdit || onDelete) && (
           <div className="flex gap-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-            <button
-              onClick={() => onEdit?.(post)}
-              className="min-h-11 px-3 py-1 text-sm text-sky hover:bg-sky/10 rounded inline-flex items-center"
-              title="Edit post"
-            >
-              ✏️ Edit
-            </button>
-            <button
-              onClick={() => onDelete?.(post)}
-              className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded inline-flex items-center"
-              title="Delete post"
-            >
-              🗑️ Delete
-            </button>
+            {onEdit && (
+              <button
+                onClick={() => onEdit(post)}
+                className="min-h-11 px-3 py-1 text-sm text-sky hover:bg-sky/10 rounded inline-flex items-center"
+                title="Edit post"
+              >
+                ✏️ Edit
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={() => onDelete(post)}
+                className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded inline-flex items-center"
+                title="Delete post"
+              >
+                🗑️ Delete
+              </button>
+            )}
           </div>
         )}
       </div>
 
       {/* Post Content */}
-      <div
-        className="prose prose-sm sm:prose-base max-w-none mb-4 break-words prose-pre:overflow-x-auto prose-img:max-w-full prose-img:h-auto prose-table:block prose-table:overflow-x-auto dark:prose-invert"
-        dangerouslySetInnerHTML={{ __html: sanitizedContent }}
-      />
-
-      {/* Reactions — always show the four reaction buttons so a user can add a
-          first reaction; counts default to 0 when none exist yet. */}
-      <div className="flex gap-3 pt-4 border-t border-line">
-        {REACTION_TYPES.map((type) => (
-          <button
-            key={type}
-            type="button"
-            onClick={() => onReact?.(post.id, type)}
-            className="inline-flex items-center gap-1 min-h-11 px-3 py-1 bg-surface-2 hover:bg-surface-3 rounded-full text-sm transition-colors"
-            aria-label={`React ${type}`}
-            title={`React ${type}`}
-          >
-            <span>{getReactionEmoji(type)}</span>
-            <span className="font-medium">{post.reaction_counts?.[type] ?? 0}</span>
-          </button>
-        ))}
+      <div className="mb-4 break-words">
+        <StreamFieldRenderer blocks={post.body} />
       </div>
+
+      {/* Reactions — shown only when an onReact handler is provided (Phase 2 write UI). */}
+      {onReact && (
+        <div className="flex gap-3 pt-4 border-t border-line">
+          {REACTION_TYPES.map((type) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => onReact(post.id, type)}
+              className="inline-flex items-center gap-1 min-h-11 px-3 py-1 bg-surface-2 hover:bg-surface-3 rounded-full text-sm transition-colors"
+              aria-label={`React ${type}`}
+              title={`React ${type}`}
+            >
+              <span>{getReactionEmoji(type)}</span>
+              <span className="font-medium">{post.reaction_counts?.[type] ?? 0}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

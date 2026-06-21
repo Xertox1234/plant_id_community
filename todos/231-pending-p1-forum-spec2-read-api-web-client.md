@@ -83,3 +83,41 @@ tracked it; this todo is that tracker.
 
 - Filed from forum audit H4 (+ L10, sync-cursor note) during Phase 4 deferral;
   everything else from the audit was fixed in the audit branch.
+
+### 2026-06-21 - Phase 1 (read path) landed — todo still OPEN (Phase 2/3 remain)
+
+Spec + plan: `docs/superpowers/specs/2026-06-20-forum-spec2-read-write-client-design.md`,
+`docs/superpowers/plans/2026-06-20-forum-spec2-phase1-read-path.md`. Branch
+`feat/forum-spec2-web-client` (subagent-driven execution, 8 tasks, each reviewed).
+
+**Done in Phase 1:**
+
+- Backend read endpoints: `GET /topics/{id}/` (topic-detail) + `GET /topics/{id}/posts/`
+  (cursor-paginated) with `expand_db_html()` body serialization and EXACT query-count
+  pins. Search extended to topics + posts (full parity) — required adding
+  `index.RelatedFields("topic", [live, board_id])` to `Post.search_fields` so the DB
+  backend can visibility-filter post hits. `seed_default_forum` idempotent command.
+  Route-parity guard green; forum backend suite 114 passed.
+- Web read client rewritten to the new contract (boards/topics/posts/search); machina
+  read paths gone; post bodies render via `StreamFieldRenderer`. Thread view is
+  **read-only for Phase 1** (reply/react/delete controls hidden behind a "coming soon"
+  notice — user-approved) since the write endpoints are Phase 2. Web suite green.
+
+**Still open (do NOT close this todo):**
+
+- Phase 2: write path (create/edit/delete post, reactions) + re-enable the write UI;
+  `grep categories/ web/src/services/` still hits the un-rewritten `createThread`.
+- Phase 3: image upload + rendition serialization (chooser blocks still rejected on the
+  API path); add the `image` case back to `StreamFieldRenderer`.
+- Compound `(updated_at, id)` sync cursor + same-timestamp livelock test (kimi note).
+- Route rationalization (audit L10): verb-style create routes + mixed slug/id identifiers.
+
+**Phase 1 tech-debt follow-ups (small):**
+
+- topic-detail query pin is N=4 and includes a redundant Q4
+  (`SELECT id, topic_id FROM post WHERE id=… LIMIT 21`) — a refetch of the opening post
+  already found by `get_opening_post_id`. Constant-cost; eliminate when convenient.
+- New DRF views are auto-schema'd (spectacular warnings, non-gating). "schema-annotated"
+  acceptance wants `@extend_schema`/`@extend_schema_field` + `swagger_fake_view` guards.
+- Deploy: confirm `seed_default_forum` runs in the Railway release step (not just
+  documented in `backend/CLAUDE.md`) so prod isn't error-free-but-empty.

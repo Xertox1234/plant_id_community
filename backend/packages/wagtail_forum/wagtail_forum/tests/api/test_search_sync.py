@@ -1,9 +1,12 @@
 import datetime
 
 import pytest
+from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Topic
+from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+
+User = get_user_model()
 
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
@@ -21,7 +24,7 @@ def test_search_returns_matching_topics():
 
     resp = APIClient().get("/forum/search/?q=Monstera")
     assert resp.status_code == 200
-    assert any(r["slug"] == "m" for r in resp.data["results"])
+    assert any(t["slug"] == "m" for t in resp.data["topics"])
 
 
 @pytest.mark.django_db
@@ -78,3 +81,26 @@ def test_sync_truncation_sets_has_more_and_boundary_next_since(monkeypatch):
     # next_since is the LAST RETURNED row's timestamp; with the >= boundary the
     # client re-receives that row and upserts by id — never loses one.
     assert resp.data["next_since"] == Topic.objects.get(slug="t1").updated_at
+
+
+@pytest.mark.django_db
+def test_search_returns_topics_and_posts():
+    board = _board()
+    author = User.objects.create_user(username="ada", password="x")
+    topic = Topic.objects.create(
+        board=board, title="Monstera care", slug="monstera", author=author, live=True
+    )
+    post = Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[{"type": "paragraph", "value": "<p>watering a monstera</p>"}],
+    )
+
+    resp = APIClient().get("/forum/search/?q=monstera")
+
+    assert resp.status_code == 200
+    assert "topics" in resp.data and "posts" in resp.data
+    assert any(t["id"] == topic.id for t in resp.data["topics"])
+    assert any(p["id"] == post.id for p in resp.data["posts"])

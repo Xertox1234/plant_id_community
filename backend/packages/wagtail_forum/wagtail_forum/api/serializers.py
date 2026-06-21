@@ -1,6 +1,8 @@
 from rest_framework import serializers
+from wagtail.blocks import RichTextBlock
+from wagtail.rich_text import expand_db_html
 
-from ..models import ForumBoard, ForumProfile, Reaction, Topic
+from ..models import ForumBoard, ForumProfile, Post, Reaction, Topic
 from .sanitize import validate_forum_body
 
 # Bio is stored in an unbounded TextField; bound it at the API boundary like
@@ -34,6 +36,130 @@ class TopicListSerializer(serializers.ModelSerializer):
             "last_post_at",
             "last_post_author",
         ]
+
+
+class TopicDetailSerializer(serializers.ModelSerializer):
+    author = serializers.CharField(source="author.get_username", default=None)
+    last_post_author = serializers.CharField(
+        source="last_post_author.get_username", default=None
+    )
+    board = serializers.SerializerMethodField()
+    opening_post_id = serializers.SerializerMethodField()
+    locked = serializers.BooleanField()
+
+    class Meta:
+        model = Topic
+        fields = [
+            "id",
+            "title",
+            "slug",
+            "board",
+            "author",
+            "is_pinned",
+            "is_closed",
+            "locked",
+            "reply_count",
+            "view_count",
+            "created_at",
+            "last_post_at",
+            "last_post_author",
+            "opening_post_id",
+        ]
+
+    def get_board(self, obj):
+        return {"id": obj.board.id, "slug": obj.board.slug, "title": obj.board.title}
+
+    def get_opening_post_id(self, obj):
+        post = obj.posts.filter(is_opening_post=True, live=True).only("id").first()
+        return post.id if post else None
+
+
+def serialize_forum_body(stream_value):
+    """StreamField -> [{type, value, id}] for the React StreamFieldRenderer.
+
+    RichText (paragraph) blocks are run through expand_db_html() so Wagtail's
+    link rewriter runs (SECURITY: blocks.py:18-21) — never raw value.source.
+    Phase 1 bodies contain only text blocks (heading/paragraph/quote/code);
+    image-block rendition serialization arrives in Phase 3.
+    """
+    blocks = []
+    for bound in stream_value:
+        if isinstance(bound.block, RichTextBlock):
+            value = expand_db_html(bound.value.source)
+        else:
+            value = bound.block.get_api_representation(bound.value)
+        blocks.append({"type": bound.block_type, "value": value, "id": bound.id})
+    return blocks
+
+
+class PostAuthorSerializer(serializers.Serializer):
+    username = serializers.CharField(source="get_username")
+    display_name = serializers.SerializerMethodField()
+    trust_level = serializers.SerializerMethodField()
+
+    def get_display_name(self, obj):
+        full = obj.get_full_name()
+        return full or obj.get_username()
+
+    def get_trust_level(self, obj):
+        return None  # populated in a later plan when ForumProfile is joined
+
+
+class PostSerializer(serializers.ModelSerializer):
+    author = serializers.SerializerMethodField()
+    body = serializers.SerializerMethodField()
+    topic_id = serializers.IntegerField()
+    edited_at = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    can_edit = serializers.SerializerMethodField()
+    can_delete = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Post
+        fields = [
+            "id",
+            "topic_id",
+            "author",
+            "body",
+            "created_at",
+            "updated_at",
+            "edited_at",
+            "is_opening_post",
+            "status",
+            "reaction_counts",
+            "can_edit",
+            "can_delete",
+        ]
+
+    def get_author(self, obj):
+        if obj.author is None:
+            return {
+                "username": "[deleted]",
+                "display_name": "[deleted]",
+                "trust_level": None,
+            }
+        return PostAuthorSerializer(obj.author).data
+
+    def get_body(self, obj):
+        return serialize_forum_body(obj.body)
+
+    def get_edited_at(self, obj):
+        return obj.updated_at if obj.edited else None
+
+    def get_status(self, obj):
+        return "live" if obj.live else "pending"
+
+    def _is_owner_or_mod(self, obj):
+        user = self.context.get("request").user if self.context.get("request") else None
+        if not user or not user.is_authenticated:
+            return False
+        return user == obj.author or user.has_perm("wagtail_forum.change_post")
+
+    def get_can_edit(self, obj):
+        return self._is_owner_or_mod(obj)
+
+    def get_can_delete(self, obj):
+        return self._is_owner_or_mod(obj)
 
 
 class TopicCreateSerializer(serializers.Serializer):

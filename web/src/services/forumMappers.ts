@@ -1,49 +1,87 @@
-import { slugifyTitle } from '../utils/forumUrls';
+import type { StreamFieldBlock } from '../types/blog';
 import type { Category, Thread, Post, Attachment } from '../types/forum';
 
-// Backend response shapes (machina-flavored). Kept local — internal to the service layer.
-export interface BackendUser {
+// ---------------------------------------------------------------------------
+// Backend shapes — wagtail_forum API contract
+// ---------------------------------------------------------------------------
+
+export interface BackendBoard {
   id: number;
-  username: string;
-  first_name?: string;
-  last_name?: string;
-}
-export interface BackendForum {
-  id: number;
-  name: string;
+  title: string;
+  slug: string;
   description?: string;
-  topics_count?: number;
-  posts_count?: number;
-  last_activity?: string | null;
-  slug?: string | null;
+  topic_count?: number;
+  post_count?: number;
 }
-export interface BackendTopic {
+
+export interface BackendTopicListItem {
   id: number;
-  subject: string;
-  poster: BackendUser | null;
-  forum: { id: number; name: string; slug?: string | null } | null;
-  created: string;
-  posts_count?: number;
-  last_post_on?: string | null;
-  replies_count?: number;
-  views_count?: number;
-  /** Machina Topic.type: 0=post, 1=sticky, 2=announce */
-  type?: number;
-  /** Machina Topic.status: 0=unlocked, 1=locked */
-  status?: number;
+  title: string;
+  slug: string;
+  author: string | null;
+  is_pinned: boolean;
+  is_closed: boolean;
+  reply_count: number;
+  view_count: number;
+  last_post_at: string | null;
+  last_post_author: string | null;
 }
+
+export interface BackendTopicDetail {
+  id: number;
+  title: string;
+  slug: string;
+  board: { id: number; slug: string; title: string };
+  author: string | null;
+  is_pinned: boolean;
+  is_closed: boolean;
+  locked: boolean;
+  reply_count: number;
+  view_count: number;
+  created_at: string;
+  last_post_at: string | null;
+  last_post_author: string | null;
+  opening_post_id: number | null;
+}
+
+// StreamFieldBlock re-exported for consumers that import backend shapes from this module.
+export type { StreamFieldBlock } from '../types/blog';
+
+export interface BackendPostAuthor {
+  username: string;
+  display_name: string;
+  trust_level: string | null;
+}
+
 export interface BackendPost {
   id: number;
-  content: string;
-  poster: BackendUser | null;
-  created: string;
-  updated?: string;
-  content_format?: string;
-  /** Map of reaction_type -> active count, e.g. { like: 5, love: 2 }. */
-  reaction_counts?: Record<string, number>;
-  /** The post's topic (thread) id (todo 112). */
-  topic_id?: number;
+  topic_id: number;
+  author: BackendPostAuthor;
+  body: StreamFieldBlock[];
+  created_at: string;
+  updated_at?: string;
+  edited_at?: string | null;
+  is_opening_post: boolean;
+  status: 'live' | 'pending';
+  reaction_counts: Record<string, number>;
+  can_edit: boolean;
+  can_delete: boolean;
 }
+
+export interface BackendSearchTopic {
+  id: number;
+  slug: string;
+  title: string;
+}
+
+export interface BackendSearchPost {
+  id: number;
+  topic_id: number;
+  topic_title: string;
+  excerpt: string;
+}
+
+// Image shape stays — used by write functions (Phase 2/3).
 export interface BackendImage {
   id: number;
   image_url?: string | null;
@@ -56,59 +94,87 @@ export interface BackendImage {
   created_at?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 type ForumAuthor = Thread['author'];
 
-const DELETED_USER = {
-  id: '',
-  username: '[deleted]',
-  display_name: '[deleted]',
-} as unknown as ForumAuthor;
+/** Build a forum author from a plain string username (topic list/detail). */
+function authorFromString(username: string | null): ForumAuthor {
+  if (!username) {
+    return { id: '', username: '[deleted]', display_name: '[deleted]' } as unknown as ForumAuthor;
+  }
+  return { id: '', username, display_name: username } as unknown as ForumAuthor;
+}
 
-export function mapUser(u: BackendUser | null): ForumAuthor {
-  if (!u) return DELETED_USER;
-  const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
-  // Translation boundary: the backend user shape is narrower than the auth `User`
-  // type the forum reuses, and forum ids are strings. Cast through `unknown`.
+/** Build a forum author from the post author object. */
+function authorFromObject(a: BackendPostAuthor): ForumAuthor {
+  if (a.username === '[deleted]') {
+    return { id: '', username: '[deleted]', display_name: '[deleted]' } as unknown as ForumAuthor;
+  }
   return {
-    id: String(u.id),
-    username: u.username,
-    display_name: fullName || u.username,
+    id: '',
+    username: a.username,
+    display_name: a.display_name || a.username,
+    trust_level: a.trust_level ?? undefined,
   } as unknown as ForumAuthor;
 }
 
-export function mapForumToCategory(f: BackendForum): Category {
+// ---------------------------------------------------------------------------
+// Mappers
+// ---------------------------------------------------------------------------
+
+export function mapBoardToCategory(b: BackendBoard): Category {
   return {
-    id: String(f.id),
-    name: f.name,
-    slug: f.slug || slugifyTitle(f.name),
-    description: f.description,
-    thread_count: f.topics_count ?? 0,
-    post_count: f.posts_count ?? 0,
-    created_at: f.last_activity || '',
+    id: String(b.id),
+    name: b.title,
+    slug: b.slug,
+    description: b.description,
+    thread_count: b.topic_count ?? 0,
+    post_count: b.post_count ?? 0,
+    created_at: '',
   };
 }
 
-export function mapTopicToThread(t: BackendTopic): Thread {
-  const category: Category = t.forum
-    ? {
-        id: String(t.forum.id),
-        name: t.forum.name,
-        slug: t.forum.slug || slugifyTitle(t.forum.name),
-        created_at: '',
-      }
-    : { id: '', name: '', slug: '', created_at: '' };
+export function mapTopicListItemToThread(t: BackendTopicListItem): Thread {
   return {
     id: String(t.id),
-    title: t.subject,
-    slug: slugifyTitle(t.subject),
+    title: t.title,
+    slug: t.slug,
+    // No category info on the list item — caller must supply or leave empty
+    category: { id: '', name: '', slug: '', created_at: '' },
+    author: authorFromString(t.author),
+    // list item has no created_at; use last_post_at as best proxy
+    created_at: t.last_post_at || '',
+    last_activity_at: t.last_post_at || '',
+    post_count: t.reply_count,
+    view_count: t.view_count,
+    is_pinned: t.is_pinned,
+    is_locked: t.is_closed,
+    is_active: true,
+  };
+}
+
+export function mapTopicDetailToThread(t: BackendTopicDetail): Thread {
+  const category: Category = {
+    id: String(t.board.id),
+    name: t.board.title,
+    slug: t.board.slug,
+    created_at: '',
+  };
+  return {
+    id: String(t.id),
+    title: t.title,
+    slug: t.slug,
     category,
-    author: mapUser(t.poster),
-    created_at: t.created,
-    last_activity_at: t.last_post_on || t.created,
-    post_count: t.posts_count ?? 0,
-    view_count: t.views_count ?? 0,
-    is_pinned: (t.type ?? 0) === 1,
-    is_locked: (t.status ?? 0) === 1,
+    author: authorFromString(t.author),
+    created_at: t.created_at,
+    last_activity_at: t.last_post_at || t.created_at,
+    post_count: t.reply_count,
+    view_count: t.view_count,
+    is_pinned: t.is_pinned,
+    is_locked: t.is_closed || t.locked,
     is_active: true,
   };
 }
@@ -117,14 +183,49 @@ export function mapPostToPost(p: BackendPost, threadId: string): Post {
   return {
     id: String(p.id),
     thread: threadId,
-    author: mapUser(p.poster),
-    content_raw: p.content,
-    content_html: p.content,
-    content_format: p.content_format || 'html',
-    created_at: p.created,
-    updated_at: p.updated,
-    is_active: true,
+    author: authorFromObject(p.author),
+    content_raw: '', // StreamField body — no plain-text equivalent; Task 6 renders body blocks
+    content_html: undefined,
+    content_format: 'draftail',
+    body: p.body,
+    created_at: p.created_at,
+    updated_at: p.updated_at,
+    edited_at: p.edited_at ?? undefined,
+    is_first_post: p.is_opening_post,
+    is_active: p.status === 'live',
     reaction_counts: p.reaction_counts ?? {},
+    can_edit: p.can_edit,
+    can_delete: p.can_delete,
+  };
+}
+
+export function mapSearchTopicToThread(t: BackendSearchTopic): Thread {
+  return {
+    id: String(t.id),
+    title: t.title,
+    slug: t.slug,
+    category: { id: '', name: '', slug: '', created_at: '' },
+    author: authorFromString(null),
+    created_at: '',
+    last_activity_at: '',
+    is_active: true,
+  };
+}
+
+export function mapSearchPostToPost(p: BackendSearchPost): Post {
+  return {
+    id: String(p.id),
+    thread: String(p.topic_id),
+    author: authorFromString(null),
+    content_raw: p.excerpt,
+    content_format: 'plain',
+    body: [],
+    created_at: '',
+    is_active: true,
+    reaction_counts: {},
+    can_edit: false,
+    can_delete: false,
+    topic_title: p.topic_title,
   };
 }
 

@@ -1,38 +1,25 @@
-import { useState, useEffect, useCallback, FormEvent } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import {
-  fetchThread,
-  fetchPosts,
-  createPost,
-  deletePost,
-  toggleReaction,
-} from '../../services/forumService';
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { fetchThread, fetchPosts } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
-import { useAuth } from '../../contexts/AuthContext';
 import PostCard from '../../components/forum/PostCard';
-import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import { logger } from '../../utils/logger';
 import type { Thread, Post } from '@/types';
-
-interface PostsData {
-  items: Post[];
-  meta: {
-    count: number;
-  };
-}
+import type { PaginatedResponse } from '@/types/forum';
 
 /**
  * ThreadDetailPage Component
  *
- * Displays a thread with its posts and allows replying.
+ * Displays a thread with its posts (read-only for Phase 1).
  * Route: /forum/:categorySlug/:threadSlug
+ *
+ * Phase 2: reply/react/delete write UI removed for read-only Phase 1 —
+ * restore from git history (commit 36f0a54) + the Phase 2 plan.
  */
 export default function ThreadDetailPage() {
   const { categorySlug, threadSlug } = useParams<{ categorySlug: string; threadSlug: string }>();
-  const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
 
   // The route param is a hybrid "id-slug"; lookups use the leading topic id.
   const topicId = parseLeadingId(threadSlug);
@@ -41,19 +28,12 @@ export default function ThreadDetailPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  // Reaction failures are shown inline; they must not clobber the whole-page
-  // `error` state, which unmounts the thread view.
-  const [reactionError, setReactionError] = useState<string | null>(null);
 
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState<number>(1);
+  // Cursor pagination state
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  // totalPosts is seeded from thread.post_count (meta.count is hardcoded 0 by the service)
   const [totalPosts, setTotalPosts] = useState<number>(0);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
-
-  // Reply form state
-  const [replyContent, setReplyContent] = useState<string>('');
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [replyError, setReplyError] = useState<string | null>(null);
 
   // Load thread and initial posts
   useEffect(() => {
@@ -70,13 +50,14 @@ export default function ThreadDetailPage() {
 
         const [threadData, postsData] = (await Promise.all([
           fetchThread(topicId),
-          fetchPosts({ thread: topicId, page: 1 }),
-        ])) as [Thread, PostsData];
+          fetchPosts({ thread: topicId }),
+        ])) as [Thread, PaginatedResponse<Post>];
 
         setThread(threadData);
         setPosts(postsData.items);
-        setTotalPosts(postsData.meta.count);
-        setCurrentPage(1);
+        // meta.count is hardcoded 0 by the service; seed from thread.post_count instead
+        setTotalPosts(threadData.post_count ?? 0);
+        setNextCursor(postsData.meta.next ?? null);
       } catch (err) {
         logger.error('Error loading thread data', {
           component: 'ThreadDetailPage',
@@ -92,126 +73,30 @@ export default function ThreadDetailPage() {
     loadData();
   }, [topicId, threadSlug, categorySlug]);
 
-  // Handle reply submission
-  const handleReplySubmit = useCallback(
-    async (e: FormEvent<HTMLFormElement>) => {
-      e.preventDefault();
-
-      if (!isAuthenticated) {
-        navigate('/login', { state: { from: window.location.pathname } });
-        return;
-      }
-
-      if (!replyContent.trim()) {
-        setReplyError('Reply content is required');
-        return;
-      }
-
-      if (!thread || topicId == null) {
-        setReplyError('Thread not found');
-        return;
-      }
-
-      try {
-        setIsSubmitting(true);
-        setReplyError(null);
-
-        const newPost = (await createPost({
-          thread: topicId,
-          content_raw: replyContent,
-          content_format: 'html', // TipTap outputs HTML
-        })) as Post;
-
-        setPosts((prev) => [...prev, newPost]);
-        setTotalPosts((prev) => prev + 1);
-        setReplyContent(''); // Clear editor
-
-        // Scroll to new post
-        setTimeout(() => {
-          const element = document.getElementById(`post-${newPost.id}`);
-          element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 100);
-      } catch (err) {
-        logger.error('Error creating post', {
-          component: 'ThreadDetailPage',
-          error: err,
-          context: { threadId: thread?.id, contentLength: replyContent?.length },
-        });
-        setReplyError(err instanceof Error ? err.message : 'Failed to create post');
-      } finally {
-        setIsSubmitting(false);
-      }
-    },
-    [isAuthenticated, navigate, replyContent, thread, topicId]
-  );
-
-  // Handle post deletion
-  const handleDeletePost = useCallback(async (post: Post) => {
-    if (!window.confirm('Are you sure you want to delete this post?')) {
-      return;
-    }
-
-    try {
-      await deletePost(post.id);
-      setPosts((prev) => prev.filter((p) => p.id !== post.id));
-      setTotalPosts((prev) => prev - 1);
-    } catch (err) {
-      logger.error('Error deleting post', {
-        component: 'ThreadDetailPage',
-        error: err,
-        context: { postId: post.id },
-      });
-      alert(`Failed to delete post: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    }
-  }, []);
-
-  // Toggle a reaction on a post and reflect the new counts in place.
-  const handleReact = useCallback(
-    async (postId: string, reactionType: string) => {
-      if (!isAuthenticated) {
-        navigate('/login', { state: { from: window.location.pathname } });
-        return;
-      }
-
-      setReactionError(null);
-      try {
-        const result = await toggleReaction(postId, reactionType);
-        setPosts((prev) =>
-          prev.map((p) => (p.id === postId ? { ...p, reaction_counts: result.reaction_counts } : p))
-        );
-      } catch (err) {
-        setReactionError(err instanceof Error ? err.message : 'Could not react');
-      }
-    },
-    [isAuthenticated, navigate]
-  );
-
-  // Load more posts (pagination)
+  // Load more posts (cursor pagination) — Phase 2
   const handleLoadMore = useCallback(async () => {
-    if (topicId == null) return;
+    if (topicId == null || !nextCursor) return;
 
     try {
       setLoadingMore(true);
-      const nextPage = currentPage + 1;
-
       const postsData = (await fetchPosts({
         thread: topicId,
-        page: nextPage,
-      })) as PostsData;
+        cursor: nextCursor,
+      })) as PaginatedResponse<Post>;
 
       setPosts((prev) => [...prev, ...postsData.items]);
-      setCurrentPage(nextPage);
+      setNextCursor(postsData.meta.next ?? null);
     } catch (err) {
       logger.error('Error loading more posts', {
         component: 'ThreadDetailPage',
         error: err,
-        context: { threadId: thread?.id, page: currentPage + 1 },
+        context: { threadId: thread?.id },
       });
       alert(`Failed to load more posts: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setLoadingMore(false);
     }
-  }, [currentPage, topicId, thread?.id]);
+  }, [nextCursor, topicId, thread?.id]);
 
   if (loading) {
     return (
@@ -296,31 +181,17 @@ export default function ThreadDetailPage() {
         </div>
       </div>
 
-      {/* Inline reaction error — never replaces the page */}
-      {reactionError && (
-        <div className="mb-4 flex items-center justify-between bg-error/10 border border-error/30 text-ink px-4 py-3 rounded">
-          <span>{reactionError}</span>
-          <button
-            type="button"
-            onClick={() => setReactionError(null)}
-            className="text-sm text-error hover:text-error/80 underline"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
       {/* Posts List */}
       <div className="space-y-4 mb-8">
         {posts.map((post) => (
           <div key={post.id} id={`post-${post.id}`}>
-            <PostCard post={post} onDelete={handleDeletePost} onReact={handleReact} />
+            <PostCard post={post} />
           </div>
         ))}
       </div>
 
-      {/* Load More Button */}
-      {posts.length < totalPosts && (
+      {/* Load More Button (cursor pagination) */}
+      {nextCursor && (
         <div className="mb-8 text-center">
           <Button
             onClick={handleLoadMore}
@@ -331,67 +202,15 @@ export default function ThreadDetailPage() {
           >
             {loadingMore
               ? 'Loading...'
-              : `Load More Posts (${totalPosts - posts.length} remaining)`}
+              : `Load More Posts (${Math.max(0, totalPosts - posts.length)} remaining)`}
           </Button>
         </div>
       )}
 
-      {/* Reply Form */}
-      {!thread.is_locked && (
-        <div className="bg-surface-2 rounded-lg shadow-md p-6">
-          <h3 className="text-xl font-bold mb-4 text-ink">Post Your Reply</h3>
-
-          {!isAuthenticated ? (
-            <div className="text-center py-8">
-              <p className="text-ink-2 mb-4">You must be logged in to reply to this thread.</p>
-              <Link to="/login" state={{ from: window.location.pathname }}>
-                <Button variant="primary">Log In</Button>
-              </Link>
-            </div>
-          ) : (
-            <form onSubmit={handleReplySubmit}>
-              <TipTapEditor
-                content={replyContent}
-                onChange={setReplyContent}
-                placeholder="Write your reply..."
-                className="mb-4"
-              />
-
-              {replyError && (
-                <div className="mb-4 p-3 bg-error/10 border border-error/30 text-ink rounded">
-                  {replyError}
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <Button
-                  type="submit"
-                  variant="primary"
-                  loading={isSubmitting}
-                  disabled={!replyContent.trim()}
-                >
-                  {isSubmitting ? 'Posting...' : 'Post Reply'}
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setReplyContent('')}
-                  disabled={isSubmitting}
-                >
-                  Clear
-                </Button>
-              </div>
-            </form>
-          )}
-        </div>
-      )}
-
-      {thread.is_locked && (
-        <div className="bg-surface-2 border border-line-2 text-ink-2 px-6 py-4 rounded-lg text-center">
-          🔒 This thread is locked. No new replies can be posted.
-        </div>
-      )}
+      {/* Read-only notice — Phase 2 will restore reply/react/delete write UI */}
+      <div className="mt-8 rounded-lg border border-line bg-surface-2 p-6 text-center">
+        <p className="text-ink-2">🔒 Replies are coming soon — the forum is read-only for now.</p>
+      </div>
     </div>
   );
 }

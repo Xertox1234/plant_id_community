@@ -13,3 +13,9 @@ class TopicCursorPagination(ForumCursorPagination):
     # deterministic when last_post_at ties. The list filters live=True, and live
     # topics always have a non-null last_post_at, so the cursor never orders on NULL.
     ordering = ("-last_post_at", "-id")
+
+
+class PostCursorPagination(ForumCursorPagination):
+    # Posts read oldest-first (Post.Meta.ordering = ["created_at"]); id is the
+    # unique tiebreak that keeps the cursor deterministic when created_at ties.
+    ordering = ("created_at", "id")

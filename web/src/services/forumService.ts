@@ -1,21 +1,28 @@
 /**
  * Forum API Service — translation layer.
  *
- * The backend serves an id-based, machina-shaped API; this module calls those
- * real endpoints and maps responses to the clean React domain types.
- * Lookups use integer ids (parsed from hybrid id+slug route params).
+ * READ functions target the wagtail_forum API contract (Tasks 1-4).
+ * WRITE functions (createThread, createPost, updatePost, deletePost,
+ * toggleReaction, image fns) are Phase 2/3 — left structurally intact
+ * so they still compile, but their endpoints will 404 until Phase 2 lands.
  *
  * Cookie-based JWT auth with CSRF on mutating requests.
  */
 import { getCsrfToken } from '../utils/csrf';
 import {
-  mapForumToCategory,
-  mapTopicToThread,
+  mapBoardToCategory,
+  mapTopicListItemToThread,
+  mapTopicDetailToThread,
   mapPostToPost,
+  mapSearchTopicToThread,
+  mapSearchPostToPost,
   mapImageToAttachment,
-  type BackendForum,
-  type BackendTopic,
+  type BackendBoard,
+  type BackendTopicListItem,
+  type BackendTopicDetail,
   type BackendPost,
+  type BackendSearchTopic,
+  type BackendSearchPost,
   type BackendImage,
 } from './forumMappers';
 import type {
@@ -61,20 +68,24 @@ async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Pr
 }
 
 // ---------------------------------------------------------------------------
-// Categories
+// Categories (boards)
 // ---------------------------------------------------------------------------
 
 export async function fetchCategories(): Promise<Category[]> {
-  const data = await authenticatedFetch<DrfPage<BackendForum>>(`${FORUM_BASE}/categories/`);
-  return (data.results || []).map(mapForumToCategory);
+  // BoardListView returns {results: [...]} (pagination_class = None, but still
+  // wraps in {results} via its custom list() override — verified in views.py:111).
+  const data = await authenticatedFetch<{ results: BackendBoard[] }>(`${FORUM_BASE}/boards/`);
+  return (data.results || []).map(mapBoardToCategory);
 }
 
 /** No backend tree endpoint — returns the flat list (no children). */
-export async function fetchCategoryTree(): Promise<Category[]> {
-  return fetchCategories();
-}
+export const fetchCategoryTree = fetchCategories;
 
-/** Resolve a single category by its integer id (from the hybrid route param). */
+/**
+ * Resolve a single category by its integer id.
+ * Fetches the boards list and scans for the matching id string.
+ * (Slug-based lookup is Task 6 — callers still pass a numeric id from parseLeadingId.)
+ */
 export async function fetchCategory(forumId: number): Promise<Category> {
   const categories = await fetchCategories();
   const match = categories.find((c) => c.id === String(forumId));
@@ -86,29 +97,42 @@ export async function fetchCategory(forumId: number): Promise<Category> {
 // Threads (topics)
 // ---------------------------------------------------------------------------
 
+/**
+ * Fetch topics for a board.
+ *
+ * New signature: { board: string; cursor?: string }
+ * Legacy fields (category, page, search, ordering) are accepted for backward
+ * compat with existing callers (ThreadListPage) so global type-check passes;
+ * they are ignored until Task 6 updates the callers.
+ *
+ * CURSOR NOTE: DRF cursor `next`/`previous` are absolute URLs.
+ * `authenticatedFetch` passes its `url` argument straight to `fetch()` with no
+ * base prepended, so absolute cursor URLs are safe to pass through unchanged.
+ */
 export async function fetchThreads(
-  options: { page?: number; category?: number; search?: string; ordering?: string } = {}
+  options: {
+    board?: string;
+    cursor?: string;
+    // Legacy caller fields — accepted but ignored until Task 6 updates callers.
+    category?: number;
+    page?: number;
+    search?: string;
+    ordering?: string;
+  } = {}
 ): Promise<PaginatedResponse<Thread>> {
-  const { page = 1, category, search, ordering } = options;
-  const params = new URLSearchParams({ page: String(page) });
-  if (search) params.set('search', search);
-  if (ordering) params.set('ordering', ordering);
-  const path =
-    category != null
-      ? `${FORUM_BASE}/categories/${category}/topics/?${params}`
-      : `${FORUM_BASE}/topics/?${params}`;
-  const data = await authenticatedFetch<DrfPage<BackendTopic>>(path);
+  const { board, cursor } = options;
+  if (!board) throw new Error('A board slug is required');
+  const url = cursor || `${FORUM_BASE}/boards/${board}/topics/`;
+  const data = await authenticatedFetch<DrfPage<BackendTopicListItem>>(url);
   return {
-    items: (data.results || []).map(mapTopicToThread),
-    meta: { count: data.count || 0, next: data.next, previous: data.previous },
+    items: (data.results || []).map(mapTopicListItemToThread),
+    meta: { count: 0, next: data.next, previous: data.previous },
   };
 }
 
 export async function fetchThread(topicId: number): Promise<Thread> {
-  const data = await authenticatedFetch<{ topic: BackendTopic }>(
-    `${FORUM_BASE}/topics/${topicId}/`
-  );
-  return mapTopicToThread(data.topic);
+  const data = await authenticatedFetch<BackendTopicDetail>(`${FORUM_BASE}/topics/${topicId}/`);
+  return mapTopicDetailToThread(data);
 }
 
 export async function createThread(data: {
@@ -117,8 +141,10 @@ export async function createThread(data: {
   first_post_content: string;
   first_post_format?: string;
 }): Promise<Thread> {
+  // Phase 2 will migrate this to POST /boards/{slug}/topics/ with a body[] payload.
+  // Left structurally intact so it compiles; endpoint will 404 until Phase 2.
   const { title, category, first_post_content, first_post_format = 'plain' } = data;
-  const res = await authenticatedFetch<{ topic: BackendTopic }>(
+  const res = await authenticatedFetch<{ topic: BackendTopicDetail }>(
     `${FORUM_BASE}/categories/${category}/topics/create/`,
     {
       method: 'POST',
@@ -129,24 +155,34 @@ export async function createThread(data: {
       }),
     }
   );
-  return mapTopicToThread(res.topic);
+  return mapTopicDetailToThread(res.topic);
 }
 
 // ---------------------------------------------------------------------------
 // Posts
 // ---------------------------------------------------------------------------
 
+/**
+ * Fetch posts for a topic (cursor-paginated).
+ *
+ * New signature: { thread: number; cursor?: string }
+ * `page` is accepted for backward compat (ThreadDetailPage); ignored until Task 6.
+ *
+ * CURSOR NOTE: absolute cursor URLs are passed through unchanged — see fetchThreads.
+ */
 export async function fetchPosts(options: {
   thread: number;
+  cursor?: string;
+  // Legacy caller field — accepted but ignored until Task 6.
   page?: number;
 }): Promise<PaginatedResponse<Post>> {
-  const { thread, page = 1 } = options;
+  const { thread, cursor } = options;
   if (thread == null) throw new Error('Thread id is required');
-  const params = new URLSearchParams({ topic: String(thread), page: String(page) });
-  const data = await authenticatedFetch<DrfPage<BackendPost>>(`${FORUM_BASE}/posts/?${params}`);
+  const url = cursor || `${FORUM_BASE}/topics/${thread}/posts/`;
+  const data = await authenticatedFetch<DrfPage<BackendPost>>(url);
   return {
     items: (data.results || []).map((p) => mapPostToPost(p, String(thread))),
-    meta: { count: data.count || 0, next: data.next, previous: data.previous },
+    meta: { count: 0, next: data.next, previous: data.previous },
   };
 }
 
@@ -155,14 +191,13 @@ export async function createPost(data: {
   content_raw: string;
   content_format?: string;
 }): Promise<Post> {
+  // Phase 2 will migrate to POST /topics/{id}/replies/ with a body[] payload.
   const { thread, content_raw, content_format = 'plain' } = data;
   const res = await authenticatedFetch<{ data: BackendPost }>(`${FORUM_BASE}/posts/create/`, {
     method: 'POST',
     body: JSON.stringify({ topic: thread, content: content_raw, content_format }),
   });
   if (!res?.data) {
-    // Defensive guard (todo 111): a response without `data` (e.g. the old
-    // {message, post} shape) must fail clearly, not crash in mapPostToPost.
     throw new Error('createPost: response is missing "data" — unexpected response shape');
   }
   return mapPostToPost(res.data, String(thread));
@@ -174,8 +209,6 @@ export async function updatePost(postId: string, data: UpdatePostInput): Promise
     method: 'PATCH',
     body: JSON.stringify({ content: content_raw, content_format }),
   });
-  // todo 112: map the real topic id from the response (was '', which produced
-  // Post.thread === '' and broke any downstream navigation/re-fetch).
   return mapPostToPost(res.data, String(res.data.topic_id));
 }
 
@@ -282,27 +315,26 @@ export async function reorderPostImages(
 // ---------------------------------------------------------------------------
 
 export async function searchForum(options: SearchForumOptions): Promise<SearchForumResponse> {
-  const { q, page = 1, page_size = 20 } = options;
+  // Note: SearchForumOptions includes category/author/date_from/date_to/page/page_size
+  // for backward compat with SearchPage; the backend only supports `q` currently.
+  const { q } = options;
   if (!q || q.trim() === '') throw new Error('Search query is required');
   const params = new URLSearchParams({ q: q.trim() });
-  if (page > 1) params.set('page', String(page));
-  if (page_size !== 20) params.set('page_size', String(page_size));
-  const data = await authenticatedFetch<{ topics: BackendTopic[]; posts: BackendPost[] }>(
-    `${FORUM_BASE}/search/?${params}`
-  );
-  const threads = (data.topics || []).map(mapTopicToThread);
-  // todo 112: search posts carry topic_id (PostSerializer), so map a real thread
-  // id rather than '' (same empty-thread bug as updatePost, flagged in review).
-  const posts = (data.posts || []).map((p) => mapPostToPost(p, String(p.topic_id)));
+  const data = await authenticatedFetch<{
+    topics: BackendSearchTopic[];
+    posts: BackendSearchPost[];
+  }>(`${FORUM_BASE}/search/?${params}`);
+  const threads = (data.topics || []).map(mapSearchTopicToThread);
+  const posts = (data.posts || []).map(mapSearchPostToPost);
   return {
     query: q.trim(),
     threads,
     posts,
     total_threads: threads.length,
     total_posts: posts.length,
-    has_next_threads: threads.length >= page_size,
-    has_next_posts: posts.length >= page_size,
-    page,
-    page_size: page_size ?? threads.length + posts.length,
-  } as SearchForumResponse;
+    has_next_threads: false,
+    has_next_posts: false,
+    page: options.page ?? 1,
+    page_size: options.page_size ?? threads.length + posts.length,
+  };
 }

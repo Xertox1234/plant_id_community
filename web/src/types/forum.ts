@@ -3,6 +3,7 @@
  */
 
 import type { User } from './auth';
+import type { StreamFieldBlock as BlogStreamFieldBlock } from './blog';
 
 /**
  * Forum category
@@ -53,6 +54,13 @@ export interface Post {
   content_raw: string;
   content_html?: string;
   content_format?: string;
+  /** StreamField body blocks from wagtail_forum; rendered by StreamFieldRenderer. */
+  body?: BlogStreamFieldBlock[];
+  /**
+   * Set only on search-result posts (from mapSearchPostToPost).
+   * The topic title is carried so SearchPage can render a link without a PostCard.
+   */
+  topic_title?: string;
   created_at: string;
   updated_at?: string;
   edited_at?: string;
@@ -65,6 +73,9 @@ export interface Post {
   is_first_post?: boolean;
   is_active?: boolean;
   reaction_counts?: Record<string, number>;
+  /** Permission flags from the backend (wagtail_forum PostSerializer). */
+  can_edit?: boolean;
+  can_delete?: boolean;
 }
 
 /**

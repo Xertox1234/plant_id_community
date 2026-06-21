@@ -6,8 +6,6 @@ import * as ReactRouter from 'react-router-dom';
 import ThreadDetailPage from './ThreadDetailPage';
 import { createMockThread, createMockPost } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
-import { useAuth } from '../../contexts/AuthContext';
-import type { AuthContextValue } from '../../contexts/AuthContext';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -17,38 +15,16 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-// Mock the forumService and AuthContext
+// Mock the forumService and AuthContext (PostCard calls useAuth internally)
 vi.mock('../../services/forumService');
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: vi.fn(() => ({ user: null, isAuthenticated: false })),
 }));
 
-// Mock TipTapEditor to prevent ProseMirror initialization hanging
-vi.mock('../../components/forum/TipTapEditor', () => ({
-  default: vi.fn(({ content, onChange, placeholder }) => (
-    <div data-testid="mock-tiptap-editor">
-      <textarea
-        className="ProseMirror"
-        value={content}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-      />
-    </div>
-  )),
-}));
-
 /**
  * Helper to render ThreadDetailPage with Router
  */
-function renderThreadDetailPage(
-  categorySlug = 'plant-care',
-  threadSlug = 'watering-tips',
-  authState: Partial<AuthContextValue> = { user: null, isAuthenticated: false }
-) {
-  // The component only reads user/isAuthenticated; useAuth is fully mocked, so a
-  // partial value is sufficient for these render tests.
-  vi.mocked(useAuth).mockReturnValue(authState as AuthContextValue);
-
+function renderThreadDetailPage(categorySlug = 'plant-care', threadSlug = 'watering-tips') {
   return render(
     <MemoryRouter initialEntries={[`/forum/${categorySlug}/${threadSlug}`]}>
       <ThreadDetailPage />
@@ -90,11 +66,11 @@ describe('ThreadDetailPage', () => {
     expect(screen.getByRole('status')).toBeInTheDocument();
   });
 
-  it('fetches thread and posts in parallel on mount', async () => {
+  it('fetches thread and posts on mount', async () => {
     const mockThread = createMockThread({ slug: 'watering-tips' });
     const mockPosts = {
       items: [createMockPost({ id: '1' })],
-      meta: { count: 1 },
+      meta: { count: 0, next: null, previous: null },
     };
 
     const fetchThreadSpy = vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
@@ -104,10 +80,7 @@ describe('ThreadDetailPage', () => {
 
     await waitFor(() => {
       expect(fetchThreadSpy).toHaveBeenCalledWith(12);
-      expect(fetchPostsSpy).toHaveBeenCalledWith({
-        thread: 12,
-        page: 1,
-      });
+      expect(fetchPostsSpy).toHaveBeenCalledWith({ thread: 12 });
     });
   });
 
@@ -209,16 +182,16 @@ describe('ThreadDetailPage', () => {
       items: [
         createMockPost({
           id: '1',
-          content_raw: '<p>First post content</p>',
+          body: [{ id: 'b1', type: 'paragraph', value: '<p>First post content</p>' }],
           is_first_post: true,
         }),
         createMockPost({
           id: '2',
-          content_raw: '<p>Second post content</p>',
+          body: [{ id: 'b2', type: 'paragraph', value: '<p>Second post content</p>' }],
           is_first_post: false,
         }),
       ],
-      meta: { count: 2 },
+      meta: { count: 0, next: null, previous: null },
     };
 
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
@@ -248,7 +221,7 @@ describe('ThreadDetailPage', () => {
     expect(screen.getByText(errorMessage)).toBeInTheDocument();
   });
 
-  it('shows login prompt for unauthenticated users', async () => {
+  it('shows read-only notice instead of reply form', async () => {
     const mockThread = createMockThread();
 
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
@@ -257,20 +230,16 @@ describe('ThreadDetailPage', () => {
       meta: { count: 0 },
     });
 
-    renderThreadDetailPage('plant-care', 'watering-tips', {
-      user: null,
-      isAuthenticated: false,
-    });
+    renderThreadDetailPage();
 
     await waitFor(() => {
-      expect(screen.getByText(/You must be logged in to reply/i)).toBeInTheDocument();
+      expect(screen.getByText(/read-only/i)).toBeInTheDocument();
     });
 
-    const loginButton = screen.getByText('Log In');
-    expect(loginButton).toBeInTheDocument();
+    expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
   });
 
-  it('shows reply form for authenticated users', async () => {
+  it('does not show reply form or Post Your Reply heading', async () => {
     const mockThread = createMockThread();
 
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
@@ -279,105 +248,24 @@ describe('ThreadDetailPage', () => {
       meta: { count: 0 },
     });
 
-    renderThreadDetailPage('plant-care', 'watering-tips', {
-      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
-      isAuthenticated: true,
-    });
+    renderThreadDetailPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('Post Your Reply')).toBeInTheDocument();
-    });
+    // Block until the loaded state is rendered (the read-only notice appears),
+    // then assert the write UI is absent.
+    await screen.findByText(/read-only/i);
 
-    expect(screen.getByText('Post Reply')).toBeInTheDocument();
+    expect(screen.queryByText(/Post Your Reply/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Post Reply/i })).not.toBeInTheDocument();
   });
 
-  it('hides reply form when thread is locked', async () => {
-    const mockThread = createMockThread({ is_locked: true });
-
-    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
-    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
-      items: [],
-      meta: { count: 0 },
-    });
-
-    renderThreadDetailPage('plant-care', 'watering-tips', {
-      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
-      isAuthenticated: true,
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText(/This thread is locked/i)).toBeInTheDocument();
-    });
-
-    expect(screen.queryByText('Post Your Reply')).not.toBeInTheDocument();
-  });
-
-  it('submits reply when authenticated user posts', async () => {
-    const mockThread = createMockThread({ id: 'thread-1' });
-    const mockPosts = { items: [], meta: { count: 0 } };
-    const newPost = createMockPost({ id: 'new-post', content_raw: '<p>My reply</p>' });
-
-    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
-    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(mockPosts);
-    const createPostSpy = vi.spyOn(forumService, 'createPost').mockResolvedValue(newPost);
-
-    const { container } = renderThreadDetailPage('plant-care', 'watering-tips', {
-      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
-      isAuthenticated: true,
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Post Reply')).toBeInTheDocument();
-    });
-
-    // Find TipTap editor and type content
-    const editor = container.querySelector('.ProseMirror');
-    await userEvent.click(editor);
-    await userEvent.keyboard('My reply');
-
-    const submitButton = screen.getByText('Post Reply');
-    await userEvent.click(submitButton);
-
-    await waitFor(() => {
-      expect(createPostSpy).toHaveBeenCalledWith({
-        thread: 12,
-        content_raw: expect.stringContaining('My reply'),
-        content_format: 'html',
-      });
-    });
-  });
-
-  it('shows validation error when submitting empty reply', async () => {
-    const mockThread = createMockThread();
-
-    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
-    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
-      items: [],
-      meta: { count: 0 },
-    });
-
-    renderThreadDetailPage('plant-care', 'watering-tips', {
-      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
-      isAuthenticated: true,
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Post Reply')).toBeInTheDocument();
-    });
-
-    const submitButton = screen.getByText('Post Reply');
-
-    // Button should be disabled when content is empty
-    expect(submitButton).toBeDisabled();
-  });
-
-  it('shows Load More button when more posts exist', async () => {
-    const mockThread = createMockThread();
+  it('shows Load More button when meta.next is present', async () => {
+    const mockThread = createMockThread({ post_count: 45 });
     const mockPosts = {
       items: Array(20)
         .fill(null)
         .map((_, i) => createMockPost({ id: `post-${i}` })),
-      meta: { count: 45 }, // Total 45 posts, showing 20
+      meta: { count: 0, next: 'http://api/next-cursor', previous: null },
     };
 
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
@@ -409,19 +297,20 @@ describe('ThreadDetailPage', () => {
     });
   });
 
-  it('loads more posts when Load More button is clicked', async () => {
-    const mockThread = createMockThread();
+  it('loads more posts using cursor when Load More button is clicked', async () => {
+    const nextCursorUrl = 'http://api/next-cursor';
+    const mockThread = createMockThread({ post_count: 45 });
     const initialPosts = {
       items: Array(20)
         .fill(null)
         .map((_, i) => createMockPost({ id: `post-${i}` })),
-      meta: { count: 45 },
+      meta: { count: 0, next: nextCursorUrl, previous: null },
     };
     const morePosts = {
       items: Array(20)
         .fill(null)
         .map((_, i) => createMockPost({ id: `post-${i + 20}` })),
-      meta: { count: 45 },
+      meta: { count: 0, next: null, previous: null },
     };
 
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
@@ -442,16 +331,17 @@ describe('ThreadDetailPage', () => {
     await waitFor(() => {
       expect(fetchPostsSpy).toHaveBeenCalledWith({
         thread: 12,
-        page: 2,
+        cursor: nextCursorUrl,
       });
     });
   });
 
-  it('displays total post count in header', async () => {
-    const mockThread = createMockThread();
+  it('displays total post count in header from thread.post_count', async () => {
+    const mockThread = createMockThread({ post_count: 150 });
     const mockPosts = {
       items: Array(20).fill(createMockPost()),
-      meta: { count: 150 }, // 150 total posts
+      // meta.count is hardcoded 0 by the service; page uses thread.post_count instead
+      meta: { count: 0, next: null, previous: null },
     };
 
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
@@ -462,124 +352,5 @@ describe('ThreadDetailPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/150 replies/i)).toBeInTheDocument();
     });
-  });
-
-  it('updates post count when new post is submitted', async () => {
-    const mockThread = createMockThread({ id: 'thread-1' });
-    const mockPosts = { items: [], meta: { count: 5 } };
-    const newPost = createMockPost({ id: 'new-post' });
-
-    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
-    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(mockPosts);
-    vi.spyOn(forumService, 'createPost').mockResolvedValue(newPost);
-
-    const { container } = renderThreadDetailPage('plant-care', 'watering-tips', {
-      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
-      isAuthenticated: true,
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText(/5 replies/i)).toBeInTheDocument();
-    });
-
-    // Submit a reply
-    const editor = container.querySelector('.ProseMirror');
-    await userEvent.click(editor);
-    await userEvent.keyboard('New post');
-
-    const submitButton = screen.getByText('Post Reply');
-    await userEvent.click(submitButton);
-
-    // Post count should increment to 6
-    await waitFor(() => {
-      expect(screen.getByText(/6 replies/i)).toBeInTheDocument();
-    });
-  });
-
-  it('toggles a reaction and updates the count for authenticated users', async () => {
-    const mockThread = createMockThread({ id: 'thread-1' });
-    const mockPosts = {
-      items: [createMockPost({ id: 'post-1', reaction_counts: {} })],
-      meta: { count: 1 },
-    };
-
-    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
-    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(mockPosts);
-    const toggleSpy = vi.spyOn(forumService, 'toggleReaction').mockResolvedValue({
-      action: 'added',
-      reaction_type: 'like',
-      reaction_counts: { like: 1 },
-      user_reactions: ['like'],
-    });
-
-    renderThreadDetailPage('3-plant-care', '12-watering-tips', {
-      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
-      isAuthenticated: true,
-    });
-
-    await waitFor(() => {
-      expect(screen.getByLabelText('React like')).toBeInTheDocument();
-    });
-
-    await userEvent.click(screen.getByLabelText('React like'));
-
-    await waitFor(() => {
-      expect(toggleSpy).toHaveBeenCalledWith('post-1', 'like');
-    });
-    expect(screen.getByLabelText('React like')).toHaveTextContent('1');
-  });
-
-  it('does not call the API when an unauthenticated user reacts', async () => {
-    const mockThread = createMockThread({ id: 'thread-1' });
-    const mockPosts = {
-      items: [createMockPost({ id: 'post-1', reaction_counts: {} })],
-      meta: { count: 1 },
-    };
-
-    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
-    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(mockPosts);
-    const toggleSpy = vi.spyOn(forumService, 'toggleReaction');
-
-    renderThreadDetailPage('3-plant-care', '12-watering-tips', {
-      user: null,
-      isAuthenticated: false,
-    });
-
-    await waitFor(() => {
-      expect(screen.getByLabelText('React like')).toBeInTheDocument();
-    });
-
-    await userEvent.click(screen.getByLabelText('React like'));
-
-    expect(toggleSpy).not.toHaveBeenCalled();
-  });
-
-  it('shows an inline error without unmounting the thread when a reaction fails', async () => {
-    const mockThread = createMockThread({ id: 'thread-1', title: 'Stay Visible' });
-    const mockPosts = {
-      items: [createMockPost({ id: 'post-1', reaction_counts: {} })],
-      meta: { count: 1 },
-    };
-
-    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
-    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue(mockPosts);
-    vi.spyOn(forumService, 'toggleReaction').mockRejectedValue(new Error('Reaction failed'));
-
-    renderThreadDetailPage('3-plant-care', '12-watering-tips', {
-      user: { id: 1, email: 'testuser@example.com', username: 'testuser' },
-      isAuthenticated: true,
-    });
-
-    await waitFor(() => {
-      expect(screen.getByLabelText('React like')).toBeInTheDocument();
-    });
-
-    await userEvent.click(screen.getByLabelText('React like'));
-
-    await waitFor(() => {
-      expect(screen.getByText('Reaction failed')).toBeInTheDocument();
-    });
-    // The thread view stays mounted — not replaced by the page-level error panel.
-    expect(screen.getByRole('heading', { level: 1, name: 'Stay Visible' })).toBeInTheDocument();
   });
 });
