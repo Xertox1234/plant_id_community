@@ -75,24 +75,32 @@ describe('PostCard', () => {
     expect(screen.queryByText('Original Post')).not.toBeInTheDocument();
   });
 
-  it('sanitizes HTML content to prevent XSS', () => {
+  it('renders StreamField body blocks and sanitizes HTML to prevent XSS', () => {
     const post = createMockPost({
-      content_raw: '<p>Safe content</p><script>alert("xss")</script>',
+      body: [
+        { id: '1', type: 'paragraph', value: '<p>Safe content</p><script>alert("xss")</script>' },
+      ],
     });
 
     const { container } = renderPostCard(post);
 
-    // Should render safe content
+    // Should render the text content from the paragraph block
     expect(screen.getByText('Safe content')).toBeInTheDocument();
 
-    // Should NOT render script tag
+    // StreamFieldRenderer sanitizes via DOMPurify — script tags must not appear
     const scripts = container.querySelectorAll('script');
     expect(scripts.length).toBe(0);
   });
 
-  it('allows safe HTML tags (paragraphs, bold, links)', () => {
+  it('renders StreamField paragraph body with safe HTML elements', () => {
     const post = createMockPost({
-      content_raw: '<p>Test <strong>bold</strong> and <a href="#">link</a></p>',
+      body: [
+        {
+          id: '1',
+          type: 'paragraph',
+          value: '<p>Test <strong>bold</strong> and <a href="#">link</a></p>',
+        },
+      ],
     });
 
     const { container } = renderPostCard(post);

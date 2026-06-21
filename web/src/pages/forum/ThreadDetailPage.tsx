@@ -15,13 +15,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import { logger } from '../../utils/logger';
 import type { Thread, Post } from '@/types';
-
-interface PostsData {
-  items: Post[];
-  meta: {
-    count: number;
-  };
-}
+import type { PaginatedResponse } from '@/types/forum';
 
 /**
  * ThreadDetailPage Component
@@ -45,8 +39,9 @@ export default function ThreadDetailPage() {
   // `error` state, which unmounts the thread view.
   const [reactionError, setReactionError] = useState<string | null>(null);
 
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState<number>(1);
+  // Cursor pagination state
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  // totalPosts is seeded from thread.post_count (meta.count is hardcoded 0 by the service)
   const [totalPosts, setTotalPosts] = useState<number>(0);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
 
@@ -70,13 +65,14 @@ export default function ThreadDetailPage() {
 
         const [threadData, postsData] = (await Promise.all([
           fetchThread(topicId),
-          fetchPosts({ thread: topicId, page: 1 }),
-        ])) as [Thread, PostsData];
+          fetchPosts({ thread: topicId }),
+        ])) as [Thread, PaginatedResponse<Post>];
 
         setThread(threadData);
         setPosts(postsData.items);
-        setTotalPosts(postsData.meta.count);
-        setCurrentPage(1);
+        // meta.count is hardcoded 0 by the service; seed from thread.post_count instead
+        setTotalPosts(threadData.post_count ?? 0);
+        setNextCursor(postsData.meta.next ?? null);
       } catch (err) {
         logger.error('Error loading thread data', {
           component: 'ThreadDetailPage',
@@ -186,32 +182,30 @@ export default function ThreadDetailPage() {
     [isAuthenticated, navigate]
   );
 
-  // Load more posts (pagination)
+  // Load more posts (cursor pagination) — Phase 2
   const handleLoadMore = useCallback(async () => {
-    if (topicId == null) return;
+    if (topicId == null || !nextCursor) return;
 
     try {
       setLoadingMore(true);
-      const nextPage = currentPage + 1;
-
       const postsData = (await fetchPosts({
         thread: topicId,
-        page: nextPage,
-      })) as PostsData;
+        cursor: nextCursor,
+      })) as PaginatedResponse<Post>;
 
       setPosts((prev) => [...prev, ...postsData.items]);
-      setCurrentPage(nextPage);
+      setNextCursor(postsData.meta.next ?? null);
     } catch (err) {
       logger.error('Error loading more posts', {
         component: 'ThreadDetailPage',
         error: err,
-        context: { threadId: thread?.id, page: currentPage + 1 },
+        context: { threadId: thread?.id },
       });
       alert(`Failed to load more posts: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setLoadingMore(false);
     }
-  }, [currentPage, topicId, thread?.id]);
+  }, [nextCursor, topicId, thread?.id]);
 
   if (loading) {
     return (
@@ -319,8 +313,8 @@ export default function ThreadDetailPage() {
         ))}
       </div>
 
-      {/* Load More Button */}
-      {posts.length < totalPosts && (
+      {/* Load More Button (cursor pagination) */}
+      {nextCursor && (
         <div className="mb-8 text-center">
           <Button
             onClick={handleLoadMore}

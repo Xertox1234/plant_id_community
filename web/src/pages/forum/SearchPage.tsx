@@ -9,6 +9,11 @@ import { useHandlePageChange } from '../../hooks/useHandlePageChange';
 import { logger } from '../../utils/logger';
 import type { Category, SearchForumResponse } from '@/types';
 
+/** Strip HTML tags from a string, returning plain text. */
+function stripTags(html: string): string {
+  return html.replace(/<[^>]*>/g, '');
+}
+
 function highlightText(text: string | undefined, query: string) {
   if (!text || !query.trim()) return text || '';
 
@@ -444,19 +449,24 @@ export default function SearchPage() {
                 Posts ({searchResults.total_posts})
               </h2>
               <div className="space-y-4">
-                {searchResults.posts.map((post) => (
-                  <div key={post.id}>
-                    <PostCard post={post} />
-                    {hasSearchMatch(post.content_raw, query) && (
-                      <p
-                        className="mt-2 text-sm text-ink-2 bg-tertiary/10 border border-tertiary/20 rounded-lg p-3"
-                        aria-label="Highlighted post match"
-                      >
-                        {highlightText(post.content_raw, query)}
-                      </p>
-                    )}
-                  </div>
-                ))}
+                {searchResults.posts.map((post) => {
+                  // content_raw holds the backend excerpt (may contain truncated HTML tags).
+                  // Strip tags so we render plain text only — never dangerouslySetInnerHTML.
+                  const plainExcerpt = stripTags(post.content_raw);
+                  return (
+                    <div key={post.id}>
+                      <PostCard post={post} />
+                      {hasSearchMatch(plainExcerpt, query) && (
+                        <p
+                          className="mt-2 text-sm text-ink-2 bg-tertiary/10 border border-tertiary/20 rounded-lg p-3"
+                          aria-label="Highlighted post match"
+                        >
+                          {highlightText(plainExcerpt, query)}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

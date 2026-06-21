@@ -90,11 +90,11 @@ describe('ThreadDetailPage', () => {
     expect(screen.getByRole('status')).toBeInTheDocument();
   });
 
-  it('fetches thread and posts in parallel on mount', async () => {
+  it('fetches thread and posts on mount', async () => {
     const mockThread = createMockThread({ slug: 'watering-tips' });
     const mockPosts = {
       items: [createMockPost({ id: '1' })],
-      meta: { count: 1 },
+      meta: { count: 0, next: null, previous: null },
     };
 
     const fetchThreadSpy = vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
@@ -104,10 +104,7 @@ describe('ThreadDetailPage', () => {
 
     await waitFor(() => {
       expect(fetchThreadSpy).toHaveBeenCalledWith(12);
-      expect(fetchPostsSpy).toHaveBeenCalledWith({
-        thread: 12,
-        page: 1,
-      });
+      expect(fetchPostsSpy).toHaveBeenCalledWith({ thread: 12 });
     });
   });
 
@@ -209,16 +206,16 @@ describe('ThreadDetailPage', () => {
       items: [
         createMockPost({
           id: '1',
-          content_raw: '<p>First post content</p>',
+          body: [{ id: 'b1', type: 'paragraph', value: '<p>First post content</p>' }],
           is_first_post: true,
         }),
         createMockPost({
           id: '2',
-          content_raw: '<p>Second post content</p>',
+          body: [{ id: 'b2', type: 'paragraph', value: '<p>Second post content</p>' }],
           is_first_post: false,
         }),
       ],
-      meta: { count: 2 },
+      meta: { count: 0, next: null, previous: null },
     };
 
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
@@ -371,13 +368,13 @@ describe('ThreadDetailPage', () => {
     expect(submitButton).toBeDisabled();
   });
 
-  it('shows Load More button when more posts exist', async () => {
-    const mockThread = createMockThread();
+  it('shows Load More button when meta.next is present', async () => {
+    const mockThread = createMockThread({ post_count: 45 });
     const mockPosts = {
       items: Array(20)
         .fill(null)
         .map((_, i) => createMockPost({ id: `post-${i}` })),
-      meta: { count: 45 }, // Total 45 posts, showing 20
+      meta: { count: 0, next: 'http://api/next-cursor', previous: null },
     };
 
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
@@ -409,19 +406,20 @@ describe('ThreadDetailPage', () => {
     });
   });
 
-  it('loads more posts when Load More button is clicked', async () => {
-    const mockThread = createMockThread();
+  it('loads more posts using cursor when Load More button is clicked', async () => {
+    const nextCursorUrl = 'http://api/next-cursor';
+    const mockThread = createMockThread({ post_count: 45 });
     const initialPosts = {
       items: Array(20)
         .fill(null)
         .map((_, i) => createMockPost({ id: `post-${i}` })),
-      meta: { count: 45 },
+      meta: { count: 0, next: nextCursorUrl, previous: null },
     };
     const morePosts = {
       items: Array(20)
         .fill(null)
         .map((_, i) => createMockPost({ id: `post-${i + 20}` })),
-      meta: { count: 45 },
+      meta: { count: 0, next: null, previous: null },
     };
 
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
@@ -442,16 +440,17 @@ describe('ThreadDetailPage', () => {
     await waitFor(() => {
       expect(fetchPostsSpy).toHaveBeenCalledWith({
         thread: 12,
-        page: 2,
+        cursor: nextCursorUrl,
       });
     });
   });
 
-  it('displays total post count in header', async () => {
-    const mockThread = createMockThread();
+  it('displays total post count in header from thread.post_count', async () => {
+    const mockThread = createMockThread({ post_count: 150 });
     const mockPosts = {
       items: Array(20).fill(createMockPost()),
-      meta: { count: 150 }, // 150 total posts
+      // meta.count is hardcoded 0 by the service; page uses thread.post_count instead
+      meta: { count: 0, next: null, previous: null },
     };
 
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);

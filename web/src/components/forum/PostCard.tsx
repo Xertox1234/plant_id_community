@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { sanitizeHtml, SANITIZE_PRESETS } from '../../utils/sanitize';
 import { useAuth } from '../../contexts/AuthContext';
+import StreamFieldRenderer from '../StreamFieldRenderer';
 import type { Post } from '@/types';
 
 interface PostCardProps {
@@ -46,11 +46,6 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
       return 'recently';
     }
   }, [post.created_at]);
-
-  // Sanitize content for display
-  const sanitizedContent = useMemo(() => {
-    return sanitizeHtml(post.content_raw, SANITIZE_PRESETS.FORUM);
-  }, [post.content_raw]);
 
   return (
     <div
@@ -127,10 +122,9 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
       </div>
 
       {/* Post Content */}
-      <div
-        className="prose prose-sm sm:prose-base max-w-none mb-4 break-words prose-pre:overflow-x-auto prose-img:max-w-full prose-img:h-auto prose-table:block prose-table:overflow-x-auto dark:prose-invert"
-        dangerouslySetInnerHTML={{ __html: sanitizedContent }}
-      />
+      <div className="mb-4 break-words">
+        <StreamFieldRenderer blocks={post.body} />
+      </div>
 
       {/* Reactions — always show the four reaction buttons so a user can add a
           first reaction; counts default to 0 when none exist yet. */}

@@ -3,6 +3,7 @@
  */
 
 import type { User } from './auth';
+import type { StreamFieldBlock as BlogStreamFieldBlock } from './blog';
 
 /**
  * Forum category
@@ -40,16 +41,6 @@ export interface Thread {
 }
 
 /**
- * One block in a Wagtail StreamField body (wagtail_forum ForumBodyBlock).
- * The `value` is block-type-specific; consumers must switch on `type`.
- */
-export interface StreamFieldBlock {
-  type: string;
-  value: unknown;
-  id: string;
-}
-
-/**
  * Forum post
  */
 export interface Post {
@@ -63,8 +54,8 @@ export interface Post {
   content_raw: string;
   content_html?: string;
   content_format?: string;
-  /** StreamField body blocks from wagtail_forum; rendered by Task 6. */
-  body?: StreamFieldBlock[];
+  /** StreamField body blocks from wagtail_forum; rendered by StreamFieldRenderer. */
+  body?: BlogStreamFieldBlock[];
   created_at: string;
   updated_at?: string;
   edited_at?: string;

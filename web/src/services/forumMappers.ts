@@ -1,4 +1,5 @@
-import type { Category, Thread, Post, Attachment, StreamFieldBlock } from '../types/forum';
+import type { StreamFieldBlock } from '../types/blog';
+import type { Category, Thread, Post, Attachment } from '../types/forum';
 
 // ---------------------------------------------------------------------------
 // Backend shapes — wagtail_forum API contract
@@ -43,9 +44,8 @@ export interface BackendTopicDetail {
   opening_post_id: number | null;
 }
 
-// StreamFieldBlock is defined in types/forum.ts and re-exported below for
-// consumers that import backend shapes from this module.
-export type { StreamFieldBlock } from '../types/forum';
+// StreamFieldBlock re-exported for consumers that import backend shapes from this module.
+export type { StreamFieldBlock } from '../types/blog';
 
 export interface BackendPostAuthor {
   username: string;

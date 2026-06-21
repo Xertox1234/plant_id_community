@@ -184,8 +184,17 @@ describe('SearchPage', () => {
       const mockResults = createMockSearchResults({
         query: 'watering',
         posts: [
-          createMockPost({ id: '1', content_raw: 'Water your plants regularly' }),
-          createMockPost({ id: '2', content_raw: 'Watering tips for beginners' }),
+          createMockPost({
+            id: '1',
+            // body renders in PostCard; content_raw is used for plain-text highlight
+            body: [{ id: 'b1', type: 'paragraph', value: '<p>Water your plants regularly</p>' }],
+            content_raw: 'Water your plants regularly',
+          }),
+          createMockPost({
+            id: '2',
+            body: [{ id: 'b2', type: 'paragraph', value: '<p>Watering tips for beginners</p>' }],
+            content_raw: 'Watering tips for beginners',
+          }),
         ],
         total_posts: 2,
       });
@@ -195,7 +204,7 @@ describe('SearchPage', () => {
       renderSearchPage('/forum/search?q=watering');
 
       await waitFor(() => {
-        // Check for post content in results
+        // PostCard renders body blocks; text comes from paragraph block value
         expect(screen.getByText(/Water your plants regularly/i)).toBeInTheDocument();
       });
     });

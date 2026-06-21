@@ -1,26 +1,17 @@
-import { useState, useEffect, useCallback, useMemo, FormEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { fetchThreads, fetchCategory } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
 import ThreadCard from '../../components/forum/ThreadCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
-import { Pagination } from '../../components/ui/Pagination';
-import { useHandlePageChange } from '../../hooks/useHandlePageChange';
 import { logger } from '../../utils/logger';
 import type { Thread, Category } from '@/types';
-
-interface ThreadsData {
-  items: Thread[];
-  meta: {
-    count: number;
-  };
-}
 
 /**
  * ThreadListPage Component
  *
- * Displays threads in a category with search, filters, and pagination.
+ * Displays threads in a category with search, filters, and cursor pagination.
  * Route: /forum/:categorySlug
  */
 export default function ThreadListPage() {
@@ -31,21 +22,21 @@ export default function ThreadListPage() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [totalCount, setTotalCount] = useState<number>(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
 
-  // Get search params
-  const page = parseInt(searchParams.get('page') || '1', 10);
+  // URL-driven search/ordering (client-side UI only — not passed to fetchThreads)
   const search = searchParams.get('search') || '';
   const ordering = searchParams.get('order') || '-last_activity_at';
 
-  const limit = 20;
+  // Track the resolved board slug so Load More can reuse it without re-fetching category
+  const boardSlugRef = useRef<string | null>(null);
 
-  // Load category and threads
+  // Load category and initial threads
   useEffect(() => {
     const loadData = async () => {
       if (!categorySlug) return;
 
-      // The route param is a hybrid "id-slug"; lookups use the leading id.
       const forumId = parseLeadingId(categorySlug);
       if (forumId == null) {
         setError('Invalid category URL');
@@ -57,20 +48,20 @@ export default function ThreadListPage() {
         setLoading(true);
         setError(null);
 
-        // Load category info and threads in parallel
-        const [categoryData, threadsData] = (await Promise.all([
-          fetchCategory(forumId),
-          fetchThreads({ category: forumId, page, search: search || undefined, ordering }),
-        ])) as [Category, ThreadsData];
+        // Resolve the true board slug first, then fetch threads by slug.
+        const categoryData = await fetchCategory(forumId);
+        boardSlugRef.current = categoryData.slug;
+
+        const threadsData = await fetchThreads({ board: categoryData.slug });
 
         setCategory(categoryData);
         setThreads(threadsData.items);
-        setTotalCount(threadsData.meta.count);
+        setNextCursor(threadsData.meta.next ?? null);
       } catch (err) {
         logger.error('Error loading thread list data', {
           component: 'ThreadListPage',
           error: err,
-          context: { categorySlug, page, search },
+          context: { categorySlug },
         });
         setError(err instanceof Error ? err.message : 'Failed to load threads');
       } finally {
@@ -79,9 +70,9 @@ export default function ThreadListPage() {
     };
 
     loadData();
-  }, [categorySlug, page, search, ordering]);
+  }, [categorySlug]);
 
-  // Handle search form submission
+  // Handle search form submission (URL/UI only)
   const handleSearch = useCallback(
     (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
@@ -95,34 +86,45 @@ export default function ThreadListPage() {
         } else {
           newParams.delete('search');
         }
-        newParams.set('page', '1'); // Reset to page 1
         return newParams;
       });
     },
     [setSearchParams]
   );
 
-  // Handle ordering change
+  // Handle ordering change (URL/UI only)
   const handleOrderChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const newOrder = e.target.value;
       setSearchParams((prev) => {
         const newParams = new URLSearchParams(prev);
         newParams.set('order', newOrder);
-        newParams.set('page', '1'); // Reset to page 1
         return newParams;
       });
     },
     [setSearchParams]
   );
 
-  // Handle pagination (shared hook — todo 222 / M14)
-  const handlePageChange = useHandlePageChange(setSearchParams);
+  // Load more threads using the cursor from the last response
+  const handleLoadMore = useCallback(async () => {
+    const boardSlug = boardSlugRef.current;
+    if (!nextCursor || !boardSlug) return;
 
-  // Calculate pagination
-  const totalPages = useMemo(() => {
-    return Math.ceil(totalCount / limit);
-  }, [totalCount, limit]);
+    try {
+      setLoadingMore(true);
+      const threadsData = await fetchThreads({ board: boardSlug, cursor: nextCursor });
+      setThreads((prev) => [...prev, ...threadsData.items]);
+      setNextCursor(threadsData.meta.next ?? null);
+    } catch (err) {
+      logger.error('Error loading more threads', {
+        component: 'ThreadListPage',
+        error: err,
+        context: { categorySlug },
+      });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [nextCursor, categorySlug]);
 
   if (loading && !category) {
     return (
@@ -222,7 +224,6 @@ export default function ThreadListPage() {
               setSearchParams((prev) => {
                 const newParams = new URLSearchParams(prev);
                 newParams.delete('search');
-                newParams.set('page', '1');
                 return newParams;
               });
             }}
@@ -251,16 +252,19 @@ export default function ThreadListPage() {
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <Pagination
-          page={page}
-          totalPages={totalPages}
-          onPageChange={handlePageChange}
-          hasPrevious={page > 1}
-          hasNext={page < totalPages}
-          variant="outline"
-        />
+      {/* Load More (cursor pagination) */}
+      {nextCursor && (
+        <div className="mt-8 text-center">
+          <Button
+            onClick={handleLoadMore}
+            variant="outline"
+            loading={loadingMore}
+            disabled={loadingMore}
+            className="min-h-11"
+          >
+            {loadingMore ? 'Loading...' : 'Load More'}
+          </Button>
+        </div>
       )}
     </div>
   );

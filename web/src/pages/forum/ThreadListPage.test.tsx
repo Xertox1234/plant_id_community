@@ -48,7 +48,7 @@ describe('ThreadListPage', () => {
     expect(screen.getByRole('status')).toBeInTheDocument();
   });
 
-  it('fetches category and threads in parallel on mount', async () => {
+  it('fetches category then threads by board slug on mount', async () => {
     const mockCategory = createMockCategory({
       slug: 'plant-care',
       name: 'Plant Care',
@@ -67,12 +67,7 @@ describe('ThreadListPage', () => {
 
     await waitFor(() => {
       expect(fetchCategorySpy).toHaveBeenCalledWith(3);
-      expect(fetchThreadsSpy).toHaveBeenCalledWith({
-        category: 3,
-        page: 1,
-        search: undefined,
-        ordering: '-last_activity_at',
-      });
+      expect(fetchThreadsSpy).toHaveBeenCalledWith({ board: 'plant-care' });
     });
   });
 
@@ -271,39 +266,67 @@ describe('ThreadListPage', () => {
     });
   });
 
-  it('renders pagination buttons when multiple pages exist', async () => {
+  it('shows Load More button when meta.next is present', async () => {
     const mockCategory = createMockCategory({ slug: 'plant-care' });
 
     vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: Array(20).fill(createMockThread()),
-      meta: { count: 45, next: 'next-url', previous: null },
+      meta: { count: 0, next: 'http://api/next-cursor', previous: null },
     });
 
     renderThreadListPage();
 
     await waitFor(() => {
-      expect(screen.getByText(/Page 1 of/i)).toBeInTheDocument();
+      expect(screen.getByText('Load More')).toBeInTheDocument();
     });
-
-    expect(screen.getByText('Previous')).toBeInTheDocument();
-    expect(screen.getByText('Next')).toBeInTheDocument();
   });
 
-  it('disables Previous button on first page', async () => {
+  it('calls fetchThreads with cursor when Load More is clicked', async () => {
+    const mockCategory = createMockCategory({ slug: 'plant-care' });
+    const nextCursorUrl = 'http://api/next-cursor';
+
+    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    const fetchThreadsSpy = vi
+      .spyOn(forumService, 'fetchThreads')
+      .mockResolvedValueOnce({
+        items: Array(20).fill(createMockThread()),
+        meta: { count: 0, next: nextCursorUrl, previous: null },
+      })
+      .mockResolvedValueOnce({
+        items: [createMockThread({ id: 'extra' })],
+        meta: { count: 0, next: null, previous: null },
+      });
+
+    renderThreadListPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('Load More')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText('Load More'));
+
+    await waitFor(() => {
+      expect(fetchThreadsSpy).toHaveBeenCalledWith({
+        board: 'plant-care',
+        cursor: nextCursorUrl,
+      });
+    });
+  });
+
+  it('hides Load More button when meta.next is null', async () => {
     const mockCategory = createMockCategory({ slug: 'plant-care' });
 
     vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: Array(20).fill(createMockThread()),
-      meta: { count: 45 },
+      meta: { count: 0, next: null, previous: null },
     });
 
     renderThreadListPage();
 
     await waitFor(() => {
-      const previousButton = screen.getByText('Previous');
-      expect(previousButton).toBeDisabled();
+      expect(screen.queryByText('Load More')).not.toBeInTheDocument();
     });
   });
 
