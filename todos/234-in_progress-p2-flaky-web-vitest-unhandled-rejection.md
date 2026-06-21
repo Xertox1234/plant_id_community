@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p2
 issue_id: "234"
 tags: [web, testing, vitest, ci, flaky]
@@ -67,6 +67,56 @@ a recurring tax on every merge.
       change (no intermittent exit-1 with all-tests-passing).
 
 ## Work Log
+
+### 2026-06-21 - Investigated; could NOT reproduce locally → blocked on a real stack (run 2026-06-21-1412)
+
+Picked up by completing-todos. **Outcome: not completable this run** — the flake
+did not reproduce locally, so the exact originating call site can't be pinned and a
+fix can't be verified. Left `in_progress`. Findings below to give the next attempt
+a head start.
+
+**Reproduction attempts (all clean):**
+
+- Forum page tests alone (`ThreadDetailPage` + `SearchPage` + `ThreadListPage` +
+  `CategoryListPage`), 3× → 66 passed, 0 unhandled. Confirms the leak is **cross-file**,
+  surfacing only in the full 34-file run.
+- Full suite `npx vitest run`, **20 runs** with precise detection (true process exit
+  code + the `Errors  N` summary line) → **all exit 0, 623 passed**. The flake is
+  CI-specific or <5% locally.
+- Caution for the next person: the three components legitimately `logger.error(...)`
+  in their catch blocks, so `Error: Thread not found` / `Search failed` /
+  `Category not found` print on EVERY run as expected logs. Grepping for `Error:`
+  or `fail` gives FALSE reproductions — gate only on exit code / the `Errors N`
+  summary / the `⎯ Unhandled Errors ⎯` section.
+
+**Theories ruled out (by code inspection):**
+
+- `ThreadDetailPage` uses `Promise.all([fetchThread, fetchPosts])` in try/catch. The
+  obvious "Promise.all leaks the 2nd rejection" theory is WRONG: per spec `Promise.all`
+  attaches a rejection handler to each input promise, so both rejections are consumed.
+  (Confirmed: forum-only runs with both mocks rejecting are clean.)
+- `ThreadListPage` awaits `fetchCategory` then `fetchThreads` **sequentially** — the
+  first rejection throws before the 2nd call is made, so no orphan promise.
+- `SearchPage` calls `performSearch()` fire-and-forget (`:149`) but that fn is fully
+  try/catch/finally-wrapped, so it RESOLVES (never rejects) → no unhandled rejection.
+- All three components catch their rejections (try/catch → setError). No component has
+  an un-awaited, un-caught promise in normal flow.
+
+**Where this leaves it / recommended next step:**
+
+- The leak is a rare cross-file timing artifact, not an obvious un-caught promise.
+  Pinning it needs the **real stack** from a failing run: re-run Web CI until it fails
+  and capture the `⎯⎯ Unhandled Errors ⎯⎯` → "This error originated in …" line (the CI
+  logs that had it were cleared when #372's job was re-run). Or reproduce locally with
+  a much longer loop / CI-like pool settings (`--pool=forks`, slower machine/load).
+- Likely class once pinned: a test triggers an async path (e.g. an event handler or a
+  debounced 300ms search timer in `SearchPage` that fires after teardown) whose
+  rejected promise loses its handler across the test-file boundary. Fix at the source
+  per the todo (await/clear the timer in the test, or guard the effect), NOT via
+  `dangerouslyIgnoreUnhandledErrors`.
+- Sibling risk noted in passing: `BlogListPage.tsx:68` also uses `Promise.all` (not
+  forum, not in the reported messages) — harmless per the spec analysis above, but
+  worth a glance if the leak ever traces to a `Promise.all` site.
 
 ### 2026-06-14 - Filed
 
