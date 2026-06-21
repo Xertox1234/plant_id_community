@@ -22,10 +22,19 @@ if [ -z "$DS" ]; then
 fi
 
 echo "Refreshing .secrets.baseline (in place, preserving audit decisions)..."
+# Mirror BOTH of the gate's exclusion mechanisms in .pre-commit-config.yaml: the
+# detect-secrets `args: --exclude-files` (.env.example, package-lock.json) AND the
+# pre-commit top-level `exclude:` regex (*.lock, *.min.js, *.g.dart,
+# SECURITY_INCIDENT_*). If only the args set is mirrored, a full rescan adds
+# entries (e.g. generated *.g.dart high-entropy strings) the gate never scans —
+# baseline noise. Keep this list in sync if the gate's excludes change.
 "$DS" scan --baseline .secrets.baseline \
   --exclude-files '\.env\.example$' \
   --exclude-files 'package-lock\.json$' \
-  --exclude-files 'yarn\.lock$'
+  --exclude-files '\.lock$' \
+  --exclude-files '\.min\.js$' \
+  --exclude-files '\.g\.dart$' \
+  --exclude-files 'backend/docs/development/SECURITY_INCIDENT_.*\.md$'
 
 echo "Done. Review the diff, then stage it:"
 echo "  git diff .secrets.baseline"
