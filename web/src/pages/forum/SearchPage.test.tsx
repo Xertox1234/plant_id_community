@@ -182,10 +182,15 @@ describe('SearchPage', () => {
 
     it('does not render [deleted] author sentinel on search thread cards', async () => {
       // Search topics have no real author data; mapSearchTopicToThread produces a [deleted] sentinel.
-      // ThreadCard must not surface this sentinel as an author label.
+      // ThreadCard with hideAuthor must not surface this sentinel as an author label.
+      const deletedThread = createMockThread({
+        id: '1',
+        title: 'Watering Guide',
+        author: { id: 0, email: '', username: '[deleted]', display_name: '[deleted]' },
+      });
       const mockResults = createMockSearchResults({
         query: 'watering',
-        threads: [createMockThread({ id: '1', title: 'Watering Guide' })],
+        threads: [deletedThread],
         total_threads: 1,
       });
 
