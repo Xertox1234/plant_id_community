@@ -37,3 +37,15 @@ Compact checklist auto-injected before edits. Long-form:
   `save_revision().publish()` bypasses an assigned moderation workflow entirely.
   Anything user-visible that publishes programmatically (titles!) must be
   screened by the code doing the publish.
+- **Filtering a Wagtail search queryset on a RELATED model's field needs
+  `index.RelatedFields`.** `backend.search(q, Post.objects.filter(topic__live=True,
+  topic__board__in=...))` raises `FilterFieldError` at query-compile unless
+  `Post.search_fields` declares `index.RelatedFields("topic", [index.FilterField(
+  "live"), index.FilterField("board_id")])`. Declare it — never drop the
+  visibility filter to silence the error (that leaks hidden content). No
+  migration: `search_fields` is not schema on the DB backend.
+- **Never seed Wagtail pages in `post_migrate`.** It also runs against every TEST
+  database, colliding with test helpers that build the same (sibling-unique) slug
+  → `MultipleObjectsReturned`/409. Seed via an idempotent management command and
+  wire it into the deploy `startCommand` (`railway.json`) — a documented-but-unwired
+  seed command ships an empty forum to prod.

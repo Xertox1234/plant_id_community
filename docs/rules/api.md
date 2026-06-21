@@ -33,3 +33,7 @@ Compact checklist auto-injected before edits. Long-form:
   a different request); replay the ORIGINAL status code, not 200; `cache.add()`
   an in-flight sentinel (short TTL, placed AFTER validation) → 409 for
   concurrent twins. See wagtail_forum/api/idempotency.py for the reference shape.
+- **DRF cursor pagination `next`/`previous` are ABSOLUTE URLs** (built from the
+  request host). Clients fetch them verbatim — do NOT re-prefix the API base
+  (double-prefixing 404s). The page-fetch helper must accept either a relative
+  path (first page) or an absolute cursor URL (subsequent pages).

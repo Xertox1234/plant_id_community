@@ -82,6 +82,18 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
   (e.g. the TITLE) skipping the spam/moderation screen `workflow.start()` would
   have run?
 
+### Forum Spec 2 additions (2026-06-21)
+
+- Search querysets that `.filter()` on a RELATED model's field (e.g.
+  `backend.search(q, Post.objects.filter(topic__live=True, topic__board__in=...))`)
+  must have `index.RelatedFields(rel, [FilterField(...)])` declared on the searched
+  model's `search_fields` — a bare related filter raises `FilterFieldError` at
+  query-compile. Flag any "fix" that DROPS the visibility filter to silence it
+  (leaks hidden content) instead of declaring the field.
+- Response-shape changes (renamed/removed top-level keys): are ALL consumers
+  updated, including tests in OTHER files not in this diff? (Diff-scoped review
+  can't see them — call out that a whole-suite run is required.)
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
