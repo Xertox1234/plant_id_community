@@ -51,7 +51,10 @@ def test_pending_topics_are_excluded_from_list_search_and_sync():
     assert [t["slug"] for t in synced.data["topics"]] == ["visible"]
 
     searched = client.get("/forum/search/?q=hidden")
-    assert searched.data["results"] == []
+    # Search shape is {topics, posts} (Spec 2). A live=False topic and any of
+    # its posts must be absent from BOTH lists.
+    assert searched.data["topics"] == []
+    assert searched.data["posts"] == []
 
 
 @pytest.mark.django_db
@@ -119,4 +122,6 @@ def test_search_excludes_taken_down_board():
     board.unpublish()
 
     resp = APIClient().get("/forum/search/?q=findme")
-    assert resp.data["results"] == []
+    # A taken-down (unpublished) board must be excluded from BOTH search lists.
+    assert resp.data["topics"] == []
+    assert resp.data["posts"] == []
