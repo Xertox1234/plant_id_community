@@ -382,22 +382,35 @@ class SearchView(APIView):
 
     @extend_schema(
         responses={200: dict},
-        description="Search live topic titles. Query param: q.",
+        description="Search live topic titles and post bodies. Query param: q.",
     )
     def get(self, request):
         query = request.query_params.get("q", "").strip()
-        results = []
+        topics, posts = [], []
         if query:
             backend = get_search_backend()
-            hits = backend.search(
-                query,
-                Topic.objects.filter(live=True, board__in=_visible_boards()),
+            boards = _visible_boards()
+            topic_hits = backend.search(
+                query, Topic.objects.filter(live=True, board__in=boards)
             )
-            for topic in hits[: self.MAX_RESULTS]:
-                results.append(
-                    {"id": topic.id, "slug": topic.slug, "title": topic.title}
+            for t in topic_hits[: self.MAX_RESULTS]:
+                topics.append({"id": t.id, "slug": t.slug, "title": t.title})
+            post_hits = backend.search(
+                query,
+                Post.objects.filter(
+                    live=True, topic__live=True, topic__board__in=boards
+                ).select_related("topic"),
+            )
+            for p in post_hits[: self.MAX_RESULTS]:
+                posts.append(
+                    {
+                        "id": p.id,
+                        "topic_id": p.topic_id,
+                        "topic_title": p.topic.title,
+                        "excerpt": p.body.render_as_block()[:200] if p.body else "",
+                    }
                 )
-        return Response({"results": results})
+        return Response({"topics": topics, "posts": posts})
 
 
 class SyncView(APIView):

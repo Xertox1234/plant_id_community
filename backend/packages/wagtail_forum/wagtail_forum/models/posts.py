@@ -61,6 +61,17 @@ class Post(
         # Any real-backend search over live posts filters on this; without it
         # Elasticsearch raises FilterFieldError (Topic declares it; Post must too).
         index.FilterField("live"),
+        # Required so the DB search backend can filter on topic__live and
+        # topic__board_id (visibility constraints in SearchView). Without this
+        # declaration the backend raises FilterFieldError. No migration or
+        # reindex needed for the DB backend.
+        index.RelatedFields(
+            "topic",
+            [
+                index.FilterField("live"),
+                index.FilterField("board_id"),
+            ],
+        ),
     ]
 
     panels = [
