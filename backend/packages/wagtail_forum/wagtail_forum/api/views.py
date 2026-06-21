@@ -28,10 +28,11 @@ from ..models import ForumBoard, Post, Reaction, Topic
 from ..workflow import submit_for_moderation
 from .exceptions import Conflict, UnprocessableEntity
 from .idempotency import fingerprint, idempotency_cache_key, remember, replay, reserve
-from .pagination import TopicCursorPagination
+from .pagination import PostCursorPagination, TopicCursorPagination
 from .serializers import (
     BoardSerializer,
     MeProfileSerializer,
+    PostSerializer,
     ReactionSerializer,
     ReplyCreateSerializer,
     TopicCreateSerializer,
@@ -133,6 +134,19 @@ class TopicDetailView(generics.RetrieveAPIView):
         return Topic.objects.filter(
             live=True, board__in=_visible_boards()
         ).select_related("board", "author", "last_post_author")
+
+
+class PostListView(generics.ListAPIView):
+    serializer_class = PostSerializer
+    pagination_class = PostCursorPagination
+    versioning_class = None
+
+    def get_queryset(self):
+        topic = get_object_or_404(
+            Topic.objects.filter(live=True, board__in=_visible_boards()),
+            id=self.kwargs["topic_id"],
+        )
+        return topic.posts.filter(live=True).select_related("author")
 
 
 class TopicCreateView(APIView):

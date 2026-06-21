@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     BoardListView,
     MeProfileView,
+    PostListView,
     ReactionToggleView,
     ReplyCreateView,
     SearchView,
@@ -23,6 +24,11 @@ urlpatterns = [
         name="topic-create",
     ),
     path("topics/<int:topic_id>/", TopicDetailView.as_view(), name="topic-detail"),
+    path(
+        "topics/<int:topic_id>/posts/",
+        PostListView.as_view(),
+        name="post-list",
+    ),
     path(
         "topics/<int:topic_id>/posts/create/",
         ReplyCreateView.as_view(),
