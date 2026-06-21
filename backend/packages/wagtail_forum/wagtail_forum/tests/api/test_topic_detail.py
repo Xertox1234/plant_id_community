@@ -1,5 +1,7 @@
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 from wagtail.models import Page
 from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
@@ -25,7 +27,8 @@ def test_topic_detail_returns_live_topic():
         topic=topic, author=author, is_opening_post=True, live=True
     )
 
-    resp = APIClient().get(f"/forum/topics/{topic.id}/")
+    with CaptureQueriesContext(connection) as ctx:
+        resp = APIClient().get(f"/forum/topics/{topic.id}/")
 
     assert resp.status_code == 200
     assert resp.data["id"] == topic.id
@@ -33,6 +36,10 @@ def test_topic_detail_returns_live_topic():
     assert resp.data["board"]["slug"] == "general"
     assert resp.data["author"] == "ada"
     assert resp.data["opening_post_id"] == opening.id
+    # Exactly 4: page-view-restriction check, topic fetch (select_related board/author),
+    # opening-post id lookup, post refetch by id.
+    # Pinned EXACTLY (docs/rules/testing.md) — if this changes, explain the new count here.
+    assert len(ctx.captured_queries) == 4
 
 
 @pytest.mark.django_db
