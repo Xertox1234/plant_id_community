@@ -28,7 +28,6 @@ python manage.py test apps.users --keepdb
 python manage.py warm_moderation_cache
 python manage.py warm_moderation_cache --force
 
-# Forum seeding (run after deploy to ensure the forum has a default board)
 python manage.py seed_default_forum    # ensure the forum has a default board (idempotent)
 
 # Redis
