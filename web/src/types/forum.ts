@@ -40,6 +40,16 @@ export interface Thread {
 }
 
 /**
+ * One block in a Wagtail StreamField body (wagtail_forum ForumBodyBlock).
+ * The `value` is block-type-specific; consumers must switch on `type`.
+ */
+export interface StreamFieldBlock {
+  type: string;
+  value: unknown;
+  id: string;
+}
+
+/**
  * Forum post
  */
 export interface Post {
@@ -53,6 +63,8 @@ export interface Post {
   content_raw: string;
   content_html?: string;
   content_format?: string;
+  /** StreamField body blocks from wagtail_forum; rendered by Task 6. */
+  body?: StreamFieldBlock[];
   created_at: string;
   updated_at?: string;
   edited_at?: string;
@@ -65,6 +77,9 @@ export interface Post {
   is_first_post?: boolean;
   is_active?: boolean;
   reaction_counts?: Record<string, number>;
+  /** Permission flags from the backend (wagtail_forum PostSerializer). */
+  can_edit?: boolean;
+  can_delete?: boolean;
 }
 
 /**
