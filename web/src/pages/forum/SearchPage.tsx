@@ -6,6 +6,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { Pagination } from '../../components/ui/Pagination';
 import { useHandlePageChange } from '../../hooks/useHandlePageChange';
 import { logger } from '../../utils/logger';
+import { sanitizeSearchQuery } from '../../utils/validation';
 import type { Category, SearchForumResponse } from '@/types';
 
 /** Strip HTML tags from a string, returning plain text. */
@@ -70,8 +71,10 @@ export default function SearchPage() {
   // Use ref for debounce timer to prevent memory leaks
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Get search params
-  const query = searchParams.get('q') || '';
+  // Get search params. Sanitize the query (strip control chars, cap length) as
+  // client-side defense-in-depth — covers both the typed input and a direct
+  // ?q=... URL before it reaches state, the API, or the rendered "results for".
+  const query = sanitizeSearchQuery(searchParams.get('q') || '');
   const category = searchParams.get('category') || '';
   const author = searchParams.get('author') || '';
   const dateFrom = searchParams.get('date_from') || '';

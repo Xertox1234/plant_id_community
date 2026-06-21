@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p3
 issue_id: "225"
 tags: [maintainability, web, react, typescript, security, audit]
@@ -61,13 +61,51 @@ Per-finding file:line above. Patterns: `web/docs/patterns/react-typescript.md`,
 
 ## Acceptance Criteria
 
-- [ ] M12 validators each wired or removed (with tests); no tested-but-unused
-      security validators remain. User confirmed any deletions.
+- [x] M12 validators each wired or removed (with tests); no tested-but-unused
+      security validators remain. User confirmed any deletions. (done 2026-06-21
+      — user approved "wire 1, delete 8": `sanitizeSearchQuery` wired into
+      `SearchPage` query derivation; the other 8 removed from `validation.ts` +
+      their tests pruned. type-check clean = no dangling refs.)
 - [ ] M16 block-type registry single-sourced (menu + editor + renderer driven
-      from one source; adding a block is one edit).
-- [ ] `npm run test` + `type-check` + `lint` green.
+      from one source; adding a block is one edit). (DEFERRED 2026-06-21 by user
+      — real component refactor of the diagnosis StreamField editor; left for a
+      focused session. This todo stays in_progress until M16 lands.)
+- [x] `npm run test` + `type-check` + `lint` green. (for the M12 change:
+      type-check clean, eslint exit 0, full Vitest suite 546 passed / 34 files.)
 
 ## Work Log
+
+### 2026-06-21 - M12 done (user-approved), M16 deferred (run 2026-06-21-1412)
+
+Walk-through with the user. **M12 (user chose "wire 1, delete 8"):**
+
+- Verified the audit's claim against current code (post-PR#374 forum rewrite):
+  all 9 security validators have **0 import sites**; internal deps mapped
+  (`validateCategorySlug→validateSlug`, `validatePagination→validateInteger`,
+  so the 8 delete together cleanly); the kept form validators
+  (`validateRequired/Email/Password/PasswordMatch`) are used internally by the
+  live `get*Error` helpers, so they stayed.
+- Wired `sanitizeSearchQuery` into `SearchPage` at the query derivation
+  (`const query = sanitizeSearchQuery(searchParams.get('q') || '')`) — one point
+  that covers the typed input AND a direct `?q=...` URL (defense-in-depth;
+  backend already sanitizes).
+- Deleted the other 8 (`validateSlug/Token/ContentType/Url/Integer/Pagination/
+  CategorySlug/FileType`) from `validation.ts` and pruned their tests from
+  `validation.test.ts` (removed the now-dead validator `describe`s + the
+  deleted-validator assertions in the cross-cutting `security`/`edge` blocks;
+  kept the email-XSS-rejection assertion). 77 dead test cases removed.
+- Verified: `tsc --noEmit` clean (proves no dangling refs to the deleted
+  validators anywhere), `eslint` exit 0, full Vitest suite **546 passed / 34
+  files**. Self-reviewed (deletion was provably dead code; wiring is trivial) —
+  no multi-agent review (proportionate).
+
+**M16: DEFERRED by the user** — single-sourcing the diagnosis StreamField block
+dispatch (menu array + editor switch at `StreamFieldEditor.tsx:20,58,415` +
+renderer switch at `DiagnosisDetailPage.tsx:45`) is a real component-extraction
+refactor with per-block JSX/theming and regression risk, not a mechanical dedup.
+Left for a focused session. **This todo stays `in_progress`** until M16 lands;
+the `source_review` finding (M12,M16) is NOT checked off yet (M16 still open).
+Consider splitting M16 to its own todo if it stays deferred.
 
 ### 2026-06-10 - Created (split from todo 222)
 
