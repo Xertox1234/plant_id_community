@@ -977,6 +977,16 @@ if config("TRUST_PROXY_SSL_HEADER", default=False, cast=bool):
 RATELIMIT_TRUSTED_PROXY_COUNT = max(
     0, config("RATELIMIT_TRUSTED_PROXY_COUNT", default=0, cast=int)
 )
+# Alternative to the positional XFF count: a single trusted META key that already
+# holds the real client IP. Railway/Envoy expose it as X-Envoy-External-Address →
+# set RATELIMIT_CLIENT_IP_META_KEY=HTTP_X_ENVOY_EXTERNAL_ADDRESS. Takes precedence
+# over the count when set. The proxy MUST set this header authoritatively (else a
+# client could spoof it). Empty = use the XFF-count strategy.
+RATELIMIT_CLIENT_IP_META_KEY = config("RATELIMIT_CLIENT_IP_META_KEY", default="")
+# One-time diagnostic: log how each rate-limited request resolved its client IP
+# (REMOTE_ADDR + candidate forwarding headers). Enable briefly on a new proxy to
+# confirm its real shape, then set back to False. Default off.
+RATELIMIT_LOG_RESOLUTION = config("RATELIMIT_LOG_RESOLUTION", default=False, cast=bool)
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True

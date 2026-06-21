@@ -11,6 +11,7 @@ signature, so every decorator that uses the imported name benefits automatically
 """
 
 import ipaddress
+import logging
 from functools import wraps
 from typing import Optional
 
@@ -19,6 +20,8 @@ from django.http import HttpRequest
 from django_ratelimit import ALL
 from django_ratelimit.decorators import ratelimit as _ratelimit
 from django_ratelimit.exceptions import Ratelimited
+
+logger = logging.getLogger(__name__)
 
 
 class RatelimitedWithRate(Ratelimited):
@@ -83,30 +86,65 @@ def get_trusted_client_ip(request: HttpRequest) -> Optional[str]:
     observed. Indexing from the right means any extra left-prepended (spoofed)
     entries cannot shift the result, so a forged header cannot rotate the key.
 
-    SECURITY: ``RATELIMIT_TRUSTED_PROXY_COUNT`` MUST equal the number of proxies
-    that actually append to XFF in the live environment. If it is too high, the
-    limit groups unrelated clients; if a deployment does not append XFF at all, no
-    count is safe and a dedicated header must be used instead. The default of 0
-    (no trusted proxy → ``REMOTE_ADDR``) keeps local/dev/test correct.
+    Two resolution strategies (use whichever fits the live proxy):
+
+    1. ``RATELIMIT_CLIENT_IP_META_KEY`` — a single trusted META key that already
+       holds the real client (e.g. Railway/Envoy's ``HTTP_X_ENVOY_EXTERNAL_ADDRESS``).
+       Positional XFF counting is unreliable on proxies that vary the chain, so a
+       deployment that exposes a clean header should point at it directly. Only
+       honored when it parses as an IP; the proxy MUST set it authoritatively
+       (overwrite any client-sent value) or it is spoofable.
+    2. ``RATELIMIT_TRUSTED_PROXY_COUNT`` — count this many hops from the RIGHT of
+       ``X-Forwarded-For`` and take that entry. Indexing from the right means
+       left-prepended (spoofed) entries cannot shift the result. The count MUST
+       equal the number of proxies that actually append to XFF.
+
+    Default (neither set) → ``REMOTE_ADDR``, which keeps local/dev/test correct.
+    Set ``RATELIMIT_LOG_RESOLUTION=True`` to log how each request resolved (a
+    one-time diagnostic for confirming a proxy's real shape, then turn it off).
 
     Returns the validated client IP, or ``None`` when it cannot be determined.
     """
     remote_addr = request.META.get("REMOTE_ADDR", "")
+    meta_key = getattr(settings, "RATELIMIT_CLIENT_IP_META_KEY", "")
     proxy_count = getattr(settings, "RATELIMIT_TRUSTED_PROXY_COUNT", 0)
 
-    if proxy_count > 0:
+    result = remote_addr or None
+
+    if meta_key:
+        # (1) Trusted single real-client header (e.g. Railway's Envoy header).
+        candidate = request.META.get(meta_key, "").strip()
+        if _is_valid_ip(candidate):
+            result = candidate
+    elif proxy_count > 0:
+        # (2) Positional X-Forwarded-For. The trusted position only exists if XFF
+        # carries at least proxy_count entries; fewer means a missing expected hop.
         xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
         parts = [part.strip() for part in xff.split(",") if part.strip()]
-        # The trusted position only exists if XFF carries at least proxy_count
-        # entries; fewer means a missing expected hop — fall back to REMOTE_ADDR.
         if len(parts) >= proxy_count:
             candidate = parts[-proxy_count]
             if _is_valid_ip(candidate):
-                return candidate
-            # A non-IP in the trusted position is malformed/forged: fall through to
-            # REMOTE_ADDR rather than key on an attacker-supplied value.
+                result = candidate
+            # A non-IP in the trusted position is malformed/forged: keep REMOTE_ADDR
+            # rather than key on an attacker-supplied value.
 
-    return remote_addr or None
+    if getattr(settings, "RATELIMIT_LOG_RESOLUTION", False):
+        # Diagnostic only (off by default). Dumps the candidate forwarding headers
+        # so the real client-IP shape of an unknown proxy can be confirmed once.
+        logger.warning(
+            "[RATELIMIT-RESOLVE] remote_addr=%s x_forwarded_for=%r "
+            "x_envoy_external_address=%r x_real_ip=%r meta_key=%r proxy_count=%s "
+            "-> resolved=%s",
+            remote_addr,
+            request.META.get("HTTP_X_FORWARDED_FOR"),
+            request.META.get("HTTP_X_ENVOY_EXTERNAL_ADDRESS"),
+            request.META.get("HTTP_X_REAL_IP"),
+            meta_key,
+            proxy_count,
+            result,
+        )
+
+    return result
 
 
 def _mask_ip(ip: str) -> str:
