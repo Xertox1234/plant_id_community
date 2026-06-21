@@ -136,3 +136,48 @@ class UnknownBucketTests(SimpleTestCase):
         req = _request(remote_addr="", xff=None)
         self.assertIsNone(get_trusted_client_ip(req))
         self.assertEqual(client_ip_key(None, req), "unknown")
+
+
+ENVOY_META = "HTTP_X_ENVOY_EXTERNAL_ADDRESS"
+
+
+@override_settings(
+    RATELIMIT_CLIENT_IP_META_KEY=ENVOY_META, RATELIMIT_TRUSTED_PROXY_COUNT=1
+)
+class ClientIpMetaKeyTests(SimpleTestCase):
+    """A configured single trusted header (e.g. Railway/Envoy) wins over XFF."""
+
+    def test_header_value_is_used(self):
+        req = RequestFactory().get("/", REMOTE_ADDR=PROXY_IP, **{ENVOY_META: CLIENT_IP})
+        self.assertEqual(get_trusted_client_ip(req), CLIENT_IP)
+
+    def test_header_takes_precedence_over_xff(self):
+        # XFF would resolve to SPOOF_IP under count=1, but the trusted header wins.
+        req = RequestFactory().get(
+            "/",
+            REMOTE_ADDR=PROXY_IP,
+            HTTP_X_FORWARDED_FOR=SPOOF_IP,
+            **{ENVOY_META: CLIENT_IP},
+        )
+        self.assertEqual(get_trusted_client_ip(req), CLIENT_IP)
+        self.assertEqual(client_ip_key(None, req), CLIENT_IP)
+
+    def test_missing_or_invalid_header_falls_back_to_remote_addr(self):
+        # Header absent → REMOTE_ADDR (does NOT fall through to XFF when a meta key
+        # is configured; the deployment is expected to set the header).
+        req = RequestFactory().get(
+            "/", REMOTE_ADDR=PROXY_IP, HTTP_X_FORWARDED_FOR=CLIENT_IP
+        )
+        self.assertEqual(get_trusted_client_ip(req), PROXY_IP)
+        bad = RequestFactory().get("/", REMOTE_ADDR=PROXY_IP, **{ENVOY_META: "nope"})
+        self.assertEqual(get_trusted_client_ip(bad), PROXY_IP)
+
+
+@override_settings(RATELIMIT_TRUSTED_PROXY_COUNT=1, RATELIMIT_LOG_RESOLUTION=True)
+class LogResolutionTests(SimpleTestCase):
+    """The diagnostic log is side-effect-only — resolution is unchanged."""
+
+    def test_resolution_unchanged_with_logging_on(self):
+        req = _request(remote_addr=PROXY_IP, xff=CLIENT_IP)
+        self.assertEqual(get_trusted_client_ip(req), CLIENT_IP)
+        self.assertEqual(client_ip_key(None, req), CLIENT_IP)
