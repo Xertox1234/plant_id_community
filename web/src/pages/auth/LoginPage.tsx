@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
-import { getEmailError, getPasswordError } from '../../utils/validation';
+import { getEmailError } from '../../utils/validation';
 import { sanitizeInput, sanitizeError } from '../../utils/sanitize';
 import { logger } from '../../utils/logger';
 
@@ -91,9 +91,12 @@ export default function LoginPage() {
       newErrors.email = emailError;
     }
 
-    const passwordError = getPasswordError(formData.password);
-    if (passwordError) {
-      newErrors.password = passwordError;
+    // Login authenticates against an EXISTING password — only require that one was
+    // entered. The 14-char strength rule (getPasswordError) applies to NEW
+    // passwords on signup/reset only; running it here locked out accounts whose
+    // password predates that rule.
+    if (!formData.password) {
+      newErrors.password = 'Password is required'; // pragma: allowlist secret
     }
 
     setErrors(newErrors);
