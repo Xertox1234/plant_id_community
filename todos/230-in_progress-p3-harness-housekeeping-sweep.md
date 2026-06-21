@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p3
 issue_id: "230"
 tags: [harness, docs, housekeeping, memory]
@@ -55,13 +55,45 @@ duplicates enforcement that now lives in triggers/hooks.
 
 ## Acceptance Criteria
 
-- [ ] todos/ contains only TEMPLATE.md, README.md, archive/, and live todo files.
-- [ ] Forum pattern doc matches code that actually exists.
-- [ ] MEMORY.md index has no entries flagged stale.
+- [x] todos/ contains only TEMPLATE.md, README.md, archive/, and live todo files.
+      (done 2026-06-21 — `git mv`'d the 6 reference docs to
+      `docs/archive/todos-reference/`; README had no links to update.)
+- [x] Forum pattern doc matches code that actually exists. (done 2026-06-21 —
+      archived the stale 979-line doc to
+      `docs/archive/forum-patterns-trust-spam-pre-wagtail.md`; wrote a concise
+      replacement pointing to the real `wagtail_forum` package (spam/, models/
+      moderation.py, api/sanitize.py), `forum_host`, README, and docs/rules/forum.md
+      — verified those paths exist; the only mentions of deleted code are in the
+      archive notice.)
+- [x] MEMORY.md index has no entries flagged stale. (done 2026-06-21 — deleted
+      `project_forum_app_path.md` (self-flagged STALE, superseded by the
+      wagtail-forum-rebuild memory) and its index line; 0 STALE markers remain.)
 - [ ] No instruction text is loaded twice (global + project CLAUDE.md overlap
-      resolved).
+      resolved). (DEFERRED 2026-06-21 — the Kimi delegation guidance is in BOTH
+      `~/.claude/CLAUDE.md` (global, all projects) and project `CLAUDE.md:250+`.
+      Resolving it edits the user's GLOBAL cross-project config and requires a
+      judgment call on which copy to keep — not done unilaterally at a sweep tail.
+      This todo stays in_progress until that's decided.)
 
 ## Work Log
+
+### 2026-06-21 - Parts 1–3 done, part 4 deferred (run 2026-06-21-1412)
+
+- **Part 1 (todos/ cleanup):** moved the 6 reference docs (GITHUB_*, IMPLEMENTATION_
+  CHECKLIST, QUICK_REFERENCE_*, RESEARCH_SUMMARY) to `docs/archive/todos-reference/`
+  via `git mv`. todos/ now holds only TEMPLATE.md, README.md, archive/, live todos.
+- **Part 2 (forum pattern doc):** the 979-line doc described the retired
+  `forum_integration` (TrustLevelService/SpamDetectionService/warm_moderation_cache).
+  Archived it; wrote a concise accurate replacement pointing to the live package
+  (chose "archive + new doc" over a full rewrite, per the todo's Recommended Action).
+- **Part 3 (memory prune):** deleted the self-flagged-stale `project_forum_app_path.md`
+  - its MEMORY.md line.
+- **Part 4 (CLAUDE.md dedup): DEFERRED.** The delegation guidance lives in both the
+  user's GLOBAL `~/.claude/CLAUDE.md` and project `CLAUDE.md`. Deduping means editing
+  the global cross-project file and deciding which copy is canonical — a call for the
+  user, not a unilateral sweep-tail edit. (The gotcha→pointer trim in Recommended
+  Action #4 is also optional judgment and was left as-is; the gotchas are useful prose.)
+  **Follow-up:** decide global-vs-project canonical delegation copy, then this closes.
 
 ### 2026-06-10 - Created
 
