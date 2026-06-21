@@ -456,3 +456,23 @@ This file is append-only. New entries are added by main Claude after each code r
 
 **Rule**: Never treat `StreamBlock.to_python()` as validation for API-submitted bodies; validate type-membership and value types yourself.
 **Agent**: wagtail-reviewer
+
+## Forum Spec 2 Phase 1 (2026-06-21 additions)
+
+### [2026-06-21] Wagtail DB search rejects relation-field filters without `index.RelatedFields`
+
+**Mistake**: Extending forum search to post bodies required visibility-filtering the searched queryset (`Post.objects.filter(live=True, topic__live=True, topic__board__in=_visible_boards())`). The Wagtail database search backend raised `FilterFieldError: Cannot filter search results with field "board_id"` at query-compile — `Post.search_fields` only declared `FilterField("live")`, so the related `topic__live`/`topic__board_id` filters were undeclared. The plan's listed files didn't include the model, so the task got BLOCKED mid-implementation.
+
+**Fix**: Added `index.RelatedFields("topic", [index.FilterField("live"), index.FilterField("board_id")])` to `Post.search_fields`. No migration/reindex (`search_fields` is not schema on the DB backend). Dropping the filters to silence the error would have leaked hidden-board / draft-topic posts into search — the wrong fix.
+
+**Rule**: To filter a Wagtail search queryset on a related model's field, declare `index.RelatedFields(rel, [FilterField(...)])` on the searched model — never drop the filter to silence `FilterFieldError`.
+**Agent**: wagtail-reviewer
+
+### [2026-06-21] A response-shape rename broke security tests in a file the diff never touched
+
+**Mistake**: Forum search changed from `{"results": [...]}` (topics only) to `{"topics": [...], "posts": [...]}`. The task updated the assertions in `test_search_sync.py`, and BOTH the per-task review and the independent kimi-review (both diff-scoped) passed clean. But two pre-existing SECURITY visibility tests in `test_visibility.py` — not in the diff — still asserted `resp.data["results"]` and `KeyError`'d. Only the whole-app suite run (final verification) caught it. The negative post-search assertions were also vacuous (the hidden content's body never contained the search term, so `posts == []` passed without exercising the visibility filter).
+
+**Fix**: Updated the two tests to the new shape AND strengthened them to assert exclusion from both `topics` and `posts`, with the search term present in the hidden content's post body so the filter is genuinely exercised.
+
+**Rule**: A response-key rename is a cross-file contract change — grep the WHOLE suite for old-shape consumers and run the full app suite, not just touched files. Diff-scoped review (human or kimi) structurally cannot see out-of-diff consumers.
+**Agent**: (process — full-suite run before "done")

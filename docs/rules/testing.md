@@ -28,3 +28,12 @@ Compact checklist auto-injected before edits.
   tests built on it can stay green while the real API path (born `live=False`)
   is broken. Cover every moderated behavior through the HTTP endpoint at least
   once, and assert the PARENT object's liveness, not a derived status string.
+- **A response-shape change breaks consumers OUTSIDE the diff.** Renaming a
+  response key (e.g. `{results}` → `{topics, posts}`) is a cross-file contract
+  change — grep the WHOLE suite for the old key and run the full app suite, not
+  just the touched files. Diff-scoped review (human or kimi) structurally can't
+  see out-of-diff consumers; only the full-suite run catches them.
+- **`.live().public()` filtering costs one extra query** (a `PageViewRestriction`
+  lookup). An exact `assertNumQueries`/`captured_queries` pin on any endpoint that
+  gates visibility via `.public()` must include it — a topic-detail endpoint
+  measured 4, not the naive 3.
