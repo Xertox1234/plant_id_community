@@ -180,6 +180,26 @@ describe('SearchPage', () => {
       });
     });
 
+    it('does not render [deleted] author sentinel on search thread cards', async () => {
+      // Search topics have no real author data; mapSearchTopicToThread produces a [deleted] sentinel.
+      // ThreadCard must not surface this sentinel as an author label.
+      const mockResults = createMockSearchResults({
+        query: 'watering',
+        threads: [createMockThread({ id: '1', title: 'Watering Guide' })],
+        total_threads: 1,
+      });
+
+      vi.spyOn(forumService, 'searchForum').mockResolvedValue(mockResults);
+
+      renderSearchPage('/forum/search?q=watering');
+
+      await waitFor(() => {
+        expect(screen.getByText('Watering Guide')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText('[deleted]')).not.toBeInTheDocument();
+    });
+
     it('renders post results in separate section', async () => {
       const mockResults = createMockSearchResults({
         query: 'watering',

@@ -425,7 +425,7 @@ export default function SearchPage() {
               <div className="space-y-4">
                 {searchResults.threads.map((thread) => (
                   <div key={thread.id}>
-                    <ThreadCard thread={thread} />
+                    <ThreadCard thread={thread} hideAuthor />
                     {(hasSearchMatch(thread.title, query) ||
                       hasSearchMatch(thread.excerpt, query)) && (
                       <p

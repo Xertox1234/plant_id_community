@@ -325,7 +325,7 @@ export default function ThreadDetailPage() {
           >
             {loadingMore
               ? 'Loading...'
-              : `Load More Posts (${totalPosts - posts.length} remaining)`}
+              : `Load More Posts (${Math.max(0, totalPosts - posts.length)} remaining)`}
           </Button>
         </div>
       )}
