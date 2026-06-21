@@ -36,6 +36,42 @@ class TopicListSerializer(serializers.ModelSerializer):
         ]
 
 
+class TopicDetailSerializer(serializers.ModelSerializer):
+    author = serializers.CharField(source="author.get_username", default=None)
+    last_post_author = serializers.CharField(
+        source="last_post_author.get_username", default=None
+    )
+    board = serializers.SerializerMethodField()
+    opening_post_id = serializers.SerializerMethodField()
+    locked = serializers.BooleanField()
+
+    class Meta:
+        model = Topic
+        fields = [
+            "id",
+            "title",
+            "slug",
+            "board",
+            "author",
+            "is_pinned",
+            "is_closed",
+            "locked",
+            "reply_count",
+            "view_count",
+            "created_at",
+            "last_post_at",
+            "last_post_author",
+            "opening_post_id",
+        ]
+
+    def get_board(self, obj):
+        return {"id": obj.board.id, "slug": obj.board.slug, "title": obj.board.title}
+
+    def get_opening_post_id(self, obj):
+        post = obj.posts.filter(is_opening_post=True, live=True).only("id").first()
+        return post.id if post else None
+
+
 class TopicCreateSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=255)
     slug = serializers.SlugField(max_length=255)

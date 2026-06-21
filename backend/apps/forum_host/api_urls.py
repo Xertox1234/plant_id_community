@@ -7,7 +7,7 @@ package endpoint cannot silently ship unmounted or unthrottled.
 """
 
 from django.urls import path
-from wagtail_forum.api.views import BoardListView, TopicListView
+from wagtail_forum.api.views import BoardListView, TopicDetailView, TopicListView
 
 from .api import (
     MeProfileView,
@@ -28,6 +28,7 @@ urlpatterns = [
         TopicCreateView.as_view(),
         name="topic-create",
     ),
+    path("topics/<int:topic_id>/", TopicDetailView.as_view(), name="topic-detail"),
     path(
         "topics/<int:topic_id>/posts/create/",
         ReplyCreateView.as_view(),

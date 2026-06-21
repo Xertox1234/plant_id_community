@@ -8,6 +8,7 @@ from .views import (
     SearchView,
     SyncView,
     TopicCreateView,
+    TopicDetailView,
     TopicListView,
 )
 
@@ -21,6 +22,7 @@ urlpatterns = [
         TopicCreateView.as_view(),
         name="topic-create",
     ),
+    path("topics/<int:topic_id>/", TopicDetailView.as_view(), name="topic-detail"),
     path(
         "topics/<int:topic_id>/posts/create/",
         ReplyCreateView.as_view(),

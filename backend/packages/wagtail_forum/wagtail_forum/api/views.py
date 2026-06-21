@@ -35,6 +35,7 @@ from .serializers import (
     ReactionSerializer,
     ReplyCreateSerializer,
     TopicCreateSerializer,
+    TopicDetailSerializer,
     TopicListSerializer,
 )
 
@@ -121,6 +122,17 @@ class TopicListView(generics.ListAPIView):
             .select_related("author", "last_post_author")
             .order_by("-last_post_at", "-id")
         )
+
+
+class TopicDetailView(generics.RetrieveAPIView):
+    serializer_class = TopicDetailSerializer
+    versioning_class = None
+    lookup_url_kwarg = "topic_id"
+
+    def get_queryset(self):
+        return Topic.objects.filter(
+            live=True, board__in=_visible_boards()
+        ).select_related("board", "author", "last_post_author")
 
 
 class TopicCreateView(APIView):
