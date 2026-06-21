@@ -58,6 +58,33 @@ cause remains).
 
 ## Work Log
 
+### 2026-06-21 - Scoped during a sweep; DEFERRED to a focused session (head-start findings)
+
+Read both hooks during run 2026-06-21-1412. Key discovery: this is a
+**reconciliation of two DIVERGED tables**, not a mechanical extraction — the
+divergence is the rot, so consolidation requires deciding the canonical mapping
+for each difference. User chose to defer (too risky to rush at a sweep tail; one
+fires on every Edit/Write, one gates every commit). Differences found
+(`inject-patterns.sh` vs `kimi-review.sh`):
+
+- forum dirs → inject: `forum,wagtail`; kimi: `forum,wagtail,security` (+security).
+- `*/api/*.py` → inject: no rule; kimi: `api,security`.
+- `*.dart` → inject: any `*.dart` → flutter; kimi: only `plant_community_mobile/*.dart`.
+- backend `*.py` fallback → inject: `api,security,database`; kimi: `+caching`.
+- match mode → inject: additive if-blocks + TWO "only-if-DOMAINS-empty" fallbacks
+  (`backend/*.py`, then `*.ts/*.tsx → typescript`); kimi: `case` (first-match-wins)
+  for the dir/role block + an additive `case` for the testing classification.
+
+Implications for the design: the JSON schema must carry an ordered list + a per-
+consumer `mode` (additive vs first-match) OR both consumers normalize to additive
+(a behavior change the hook tests would need to bless). The two "only-if-empty"
+fallbacks in inject must be modeled as a lower-priority tier, not a plain entry.
+Markdown consumers to update: `.claude/skills/codify/SKILL.md`,
+`.claude/agents/code-review-orchestrator.md`,
+`.claude/agents/full-review-orchestrator.md` (+ its exclusion list). Gate on
+`test-inject-patterns.sh` + `test-kimi-review.sh`; use the `INJECT_PATTERNS_DISABLE=1`
+kill switch while editing the live hook. **229 depends on this — defer it too.**
+
 ### 2026-06-10 - Created
 
 - Filed from harness audit session (finding #2 of the environment audit).
