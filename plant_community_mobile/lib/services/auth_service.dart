@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../core/utils/log_redaction.dart';
@@ -39,6 +40,16 @@ class AuthState {
     );
   }
 }
+
+/// Current Firebase user id, or `null` when signed out.
+///
+/// Firestore (offline persistence + sync) is scoped by the Firebase uid, which
+/// is available as soon as the Firebase user exists — independent of the Django
+/// JWT exchange that gates [AuthState.isAuthenticated]. Consumers that persist
+/// or read user-scoped data should watch this rather than the full auth state.
+final currentUserIdProvider = Provider<String?>(
+  (ref) => ref.watch(authServiceProvider).firebaseUser?.uid,
+);
 
 /// Authentication service that handles Firebase Auth + Django JWT
 ///
