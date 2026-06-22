@@ -109,3 +109,33 @@ Never hardcode API URLs — always use the Vite environment variable:
 ```typescript
 const apiUrl = import.meta.env.VITE_API_URL;
 ```
+
+---
+
+## Displaying Errors — Render `.message`, Not the Object
+
+A structured error object (`{ message, code, ... }`) rendered as a string becomes
+the literal `[object Object]` — `String({ message: 'x' })` calls
+`Object.prototype.toString`, it does not reach into the object.
+
+A defensive-looking sanitizer can mask the bug without fixing it. Helpers that
+return non-strings **unchanged** are a no-op on objects:
+
+```typescript
+// utils/sanitize.ts — returns NON-strings unchanged (a no-op on objects)
+export function sanitizeError(error: unknown): unknown {
+  if (!error || typeof error !== 'string') return error; // ← an object passes straight through
+  return stripHtml(error);
+}
+
+// ❌ result.error is an AuthError object → renders "[object Object]" to the user
+setServerError(String(sanitizeError(result.error)));
+
+// ✅ extract the string field FIRST, then sanitize
+setServerError(String(sanitizeError(result.error?.message ?? 'Something went wrong.')));
+```
+
+Rule of thumb: pass the **string** you intend to display into a `sanitize*`/transform
+helper, never a structured object. This bit both `LoginPage` and `SignupPage`: the
+auth `error.message` was already a clean, readable string (the service layer even
+flattens DRF field errors into it); only the render call was wrong.

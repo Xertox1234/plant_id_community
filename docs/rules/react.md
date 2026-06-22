@@ -12,3 +12,6 @@ Compact checklist auto-injected before edits. Long-form:
 - **Send CSRF headers** on state-changing requests (`X-CSRFToken`).
 - Clean up effects — abort fetches, clear timers, remove listeners on unmount.
 - Tailwind CSS 4 conventions; no hardcoded hex colors where a token exists.
+- **Render `error.message`, not the error object.** `String({message,code})` is the
+  literal `[object Object]`; a `sanitize*` helper that returns non-strings unchanged
+  won't save you — pass the string field in.

@@ -61,6 +61,13 @@ This file is append-only. New entries are added by main Claude after each code r
 **Rule**: All timers (setTimeout, setInterval) in React components must be stored in `useRef`. Never store timer IDs in `useState`.
 **Agent**: react-typescript-reviewer
 
+### [2026-06-21] Rendering a structured error object showed the literal "[object Object]" (PR #381)
+
+**Mistake**: `LoginPage`/`SignupPage` passed the whole structured `AuthError` (`{message, code, details}`) to `setServerError(String(sanitizeError(result.error)))`. `sanitizeError()` returns non-strings UNCHANGED (`if (typeof error !== 'string') return error`), so it neither sanitized nor coerced — and `String({...})` rendered the literal `[object Object]` to the user on every server-side auth failure (e.g. "email already exists", bad credentials). The bug was duplicated across both auth pages.
+**Fix**: Render `result.error?.message` — `authService` already builds a readable string there (signup even flattens DRF field errors into it). Added `LoginPage.test.tsx` / `SignupPage.test.tsx` to guard it.
+**Rule**: Display `error.message` (a string) for any structured error, never the error object. A `sanitize*`/transform helper that returns non-strings unchanged is a no-op on objects — coerce to the string field BEFORE passing it in.
+**Agent**: react-typescript-reviewer
+
 ---
 
 ## Flutter/Firebase

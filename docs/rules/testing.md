@@ -37,3 +37,8 @@ Compact checklist auto-injected before edits.
   lookup). An exact `assertNumQueries`/`captured_queries` pin on any endpoint that
   gates visibility via `.public()` must include it — a topic-detail endpoint
   measured 4, not the naive 3.
+- **Testing a `useAuth`/context page**: create the mock fn with `vi.hoisted` (the
+  `vi.mock` factory is hoisted above imports, so a bare top-level `const` throws),
+  wrap in `MemoryRouter` for `useNavigate`/`useLocation`, and query by
+  placeholder/role — `getByLabelText` is brittle when a label carries a
+  required-`*` span. See `web/docs/patterns/testing.md`.
