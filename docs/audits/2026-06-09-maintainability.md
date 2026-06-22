@@ -131,6 +131,8 @@ An orphan re-sweep (grep every deleted symbol across `apps`, no `.py` filter) re
 > owner confirmed offline persistence is a roadmap priority to keep and improve. M18
 > is reclassified **deferred → [todo 224](../../todos/224-pending-p2-wire-offline-persistence-firestore.md)** (wire the offline layer into the UI). flutter suite back to **165 pass**. M17/M19 (unrelated to offline persistence) stay deleted.
 
+<!-- -->
+
 > **Severity-downgrade note:** M1 and M12 are recorded `verified` for their dead-code portion only; their drifted/wire-or-remove residuals are deferred (todos 221/222). H3's dead util is deleted; the 3 inline-`formatDate` copies remain (cosmetic, not in the dead-code-removal scope).
 
 ## Deferred Items
@@ -157,7 +159,7 @@ Deferred findings tracked as todos — checked off when the linked todo is archi
 - [x] #L1 third inline PlantNet parser → todo 221 (completed 2026-06-10)
 - [x] #L4 frequency→interval mapping in 3 styles → todo 221 (completed 2026-06-10)
 - [x] #L6 silent broad-except swallow → todo 221 (completed 2026-06-10)
-- [ ] #M18 offline `FirestoreService` — keep + wire to UI (restored) → todo 224
+- [x] #M18 offline `FirestoreService` — keep + wire to UI (restored) → todo 224 (completed 2026-06-22)
 - [ ] #M12 unwired security validators (wire-or-remove) → todo 225 (split from 222)
 - [x] #M13 sanitize case-collision + needless async → todo 222 (completed 2026-06-10)
 - [x] #M14 forum pagination duplicated + drifted → todo 222 (completed 2026-06-10)

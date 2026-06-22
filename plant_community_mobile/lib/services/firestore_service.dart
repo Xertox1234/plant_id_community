@@ -1,9 +1,22 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../models/plant.dart';
 
 part 'firestore_service.g.dart';
+
+/// Injectable Firestore instance.
+///
+/// Production uses the real `FirebaseFirestore.instance`; tests override this
+/// with a `FakeFirebaseFirestore` so the real [FirestoreService] logic (queries,
+/// parsing, ordering, error handling) runs against an in-memory backend instead
+/// of being re-implemented by a hand-rolled mock. Mirrors the plain-`Provider`
+/// injection convention used by `apiServiceProvider` (see
+/// docs/patterns/riverpod.md).
+final firebaseFirestoreProvider = Provider<FirebaseFirestore>(
+  (ref) => FirebaseFirestore.instance,
+);
 
 /// Firestore service for offline data persistence and cross-device sync
 ///
@@ -41,15 +54,23 @@ part 'firestore_service.g.dart';
 /// ```
 @riverpod
 class FirestoreService extends _$FirestoreService {
-  FirebaseFirestore get _firestore => FirebaseFirestore.instance;
+  FirebaseFirestore get _firestore => ref.read(firebaseFirestoreProvider);
 
   @override
   void build() {
-    // Enable offline persistence (cached data available when offline)
-    _firestore.settings = const Settings(
-      persistenceEnabled: true,
-      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
-    );
+    // Enable offline persistence (cached data available when offline).
+    // Guarded: an injected fake (tests) does not implement the settings setter,
+    // so assigning it would throw NoSuchMethodError.
+    try {
+      _firestore.settings = const Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[FIRESTORE] Persistence settings not applied: $e');
+      }
+    }
 
     if (kDebugMode) {
       debugPrint('[FIRESTORE] Service initialized with offline persistence');
@@ -150,7 +171,7 @@ class FirestoreService extends _$FirestoreService {
   /// Click the URL in the error message to auto-create the index in Firebase Console.
   ///
   /// Throws [FirestoreException] if userId is invalid
-  Stream<List<Plant>> getPlantsStream(String userId) {
+  Stream<PlantsSnapshot> getPlantsStream(String userId) {
     _validateUserId(userId);
 
     if (kDebugMode) {
@@ -171,7 +192,7 @@ class FirestoreService extends _$FirestoreService {
             );
           }
 
-          return snapshot.docs
+          final plants = snapshot.docs
               .map((doc) {
                 try {
                   return Plant.fromJson(doc.data());
@@ -185,14 +206,17 @@ class FirestoreService extends _$FirestoreService {
               })
               .whereType<Plant>()
               .toList(); // Filter out nulls
-        })
-        .handleError((error) {
-          if (kDebugMode) {
-            debugPrint('[FIRESTORE ERROR] Stream error: $error');
-          }
-          // Return empty list on error, don't crash the app
-          return <Plant>[];
+
+          return PlantsSnapshot(
+            plants: plants,
+            isFromCache: snapshot.metadata.isFromCache,
+            hasPendingWrites: snapshot.metadata.hasPendingWrites,
+          );
         });
+    // NOTE: stream-level errors (permission-denied, missing index, quota) are
+    // deliberately NOT swallowed here — they propagate to the StreamProvider's
+    // AsyncError so the collection screen can show its error state. Per-document
+    // parse failures are handled above (skipped), not surfaced as errors.
   }
 
   /// Delete plant from Firestore
@@ -333,9 +357,33 @@ class FirestoreService extends _$FirestoreService {
 ///
 /// This provider automatically handles offline/online transitions
 @riverpod
-Stream<List<Plant>> plantsStream(Ref ref, String userId) {
+Stream<PlantsSnapshot> plantsStream(Ref ref, String userId) {
   final firestoreService = ref.watch(firestoreServiceProvider.notifier);
   return firestoreService.getPlantsStream(userId);
+}
+
+/// A single emission from [FirestoreService.getPlantsStream]: the parsed plant
+/// list plus the Firestore sync metadata that drives offline/sync UI badges.
+@immutable
+class PlantsSnapshot {
+  const PlantsSnapshot({
+    required this.plants,
+    this.isFromCache = false,
+    this.hasPendingWrites = false,
+  });
+
+  /// Plants parsed from the snapshot, newest first.
+  final List<Plant> plants;
+
+  /// True when this emission came from Firestore's local cache rather than the
+  /// server — i.e. the device is offline (or the server round-trip is pending).
+  final bool isFromCache;
+
+  /// True when there are local writes not yet acknowledged by the server.
+  final bool hasPendingWrites;
+
+  /// Empty, fully-synced snapshot.
+  static const empty = PlantsSnapshot(plants: <Plant>[]);
 }
 
 /// Custom exception for Firestore errors

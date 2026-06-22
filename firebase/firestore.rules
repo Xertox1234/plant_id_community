@@ -17,6 +17,14 @@ service cloud.firestore {
       allow create: if isOwner(userId);
       allow update: if isOwner(userId);
       allow delete: if false; // Users can't delete their own document
+
+      // Identified plants — offline-synced per-user subcollection (mobile app).
+      // Written/read by FirestoreService (savePlant / getPlantsStream). Firestore
+      // rules do NOT cascade from the parent doc, so this needs its own
+      // owner-only rule or the catch-all `if false` denies all server sync.
+      match /identified_plants/{plantId} {
+        allow read, write: if isOwner(userId);
+      }
     }
 
     // Plant identifications

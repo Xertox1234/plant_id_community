@@ -1,109 +1,125 @@
-import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:plant_community_mobile/services/firestore_service.dart';
-import 'package:plant_community_mobile/services/api_service.dart';
-import 'package:plant_community_mobile/models/plant.dart';
 import 'package:dio/dio.dart';
+import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:plant_community_mobile/models/plant.dart';
+import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:plant_community_mobile/services/firestore_service.dart';
 
-/// Integration tests for offline mode and data synchronization.
+/// Integration tests for offline persistence and data synchronization.
 ///
-/// These tests verify:
-/// 1. Data is cached locally when offline
-/// 2. Data is accessible when offline
-/// 3. Data syncs to backend when back online
-/// 4. Conflicts are resolved properly
+/// The Firestore tests run the REAL [FirestoreService] against an in-memory
+/// [FakeFirebaseFirestore] (injected via [firebaseFirestoreProvider]), so the
+/// actual save / read / parse / ordering / streaming logic is exercised — not a
+/// hand-rolled mock of the service.
 ///
-/// Note: These tests use mocks to simulate offline/online states
-/// without requiring actual network connectivity changes.
+/// On the offline→online *transition*: Firestore performs reconnect sync
+/// natively. A `set()` issued while offline lands in the SDK's local write queue
+/// and flushes to the server automatically when connectivity returns; the local
+/// cache write is immediate, so the data is readable the whole time. That
+/// queue-flush round-trip is internal to the SDK and not reproducible in-process
+/// (the fake is always an in-memory store with no network), so these tests cover
+/// the contract the UI actually depends on: **a saved plant is immediately and
+/// continuously readable from the local store**. A literal network round-trip
+/// would require the Firebase emulator.
 void main() {
-  group('Offline Mode Tests', () {
+  group('Offline persistence (real FirestoreService + fake Firestore)', () {
+    late FakeFirebaseFirestore fake;
     late ProviderContainer container;
+    late FirestoreService firestore;
+
+    const userId = 'test-user-id';
 
     setUp(() {
+      fake = FakeFirebaseFirestore();
       container = ProviderContainer(
-        overrides: [
-          firestoreServiceProvider.overrideWith(() {
-            return MockFirestoreService();
-          }),
-          apiServiceProvider.overrideWith((ref) {
-            return OfflineApiService(); // Simulates offline state
-          }),
-        ],
+        overrides: [firebaseFirestoreProvider.overrideWithValue(fake)],
       );
+      firestore = container.read(firestoreServiceProvider.notifier);
     });
 
-    tearDown(() {
-      container.dispose();
-    });
+    tearDown(() => container.dispose());
 
-    test('Firestore caches identified plants offline', () async {
-      final firestoreService = container.read(firestoreServiceProvider.notifier);
-
-      final testPlant = Plant(
-        id: 'test-plant-1',
+    test('a saved plant is immediately readable from the local store', () async {
+      final plant = Plant(
+        id: 'offline-1',
         name: 'Monstera Deliciosa',
         scientificName: 'Monstera deliciosa',
         description: 'Swiss Cheese Plant',
-        care: ['Water weekly', 'Bright indirect light'],
+        care: const ['Water weekly', 'Bright indirect light'],
         imageUrl: 'https://example.com/monstera.jpg',
-        timestamp: DateTime.now(),
+        timestamp: DateTime.parse('2026-01-01T00:00:00Z'),
       );
 
-      // Save plant to Firestore (offline cache)
-      await firestoreService.savePlant('test-user-id', testPlant);
+      await firestore.savePlant(userId, plant);
 
-      // Verify plant was saved
-      final savedPlants = await firestoreService
-          .getPlantsStream('test-user-id')
-          .first;
-
-      expect(savedPlants, hasLength(1));
-      expect(savedPlants.first.id, testPlant.id);
-      expect(savedPlants.first.name, testPlant.name);
+      final snapshot = await firestore.getPlantsStream(userId).first;
+      expect(snapshot.plants, hasLength(1));
+      expect(snapshot.plants.first.id, 'offline-1');
+      expect(snapshot.plants.first.name, 'Monstera Deliciosa');
     });
 
-    test('Can read cached plants when offline', () async {
-      final firestoreService = container.read(firestoreServiceProvider.notifier);
+    test('multiple plants saved while offline all read back, newest first', () async {
+      await firestore.savePlant(
+        userId,
+        _plant('1', DateTime.parse('2026-01-01T00:00:00Z')),
+      );
+      await firestore.savePlant(
+        userId,
+        _plant('2', DateTime.parse('2026-02-01T00:00:00Z')),
+      );
 
-      // Pre-populate cache with plants
-      final plants = [
-        Plant(
-          id: '1',
-          name: 'Plant 1',
-          scientificName: 'Plantus uno',
-          description: 'First plant',
-          care: [],
-          timestamp: DateTime.now(),
-        ),
-        Plant(
-          id: '2',
-          name: 'Plant 2',
-          scientificName: 'Plantus dos',
-          description: 'Second plant',
-          care: [],
-          timestamp: DateTime.now(),
-        ),
-      ];
-
-      for (final plant in plants) {
-        await firestoreService.savePlant('test-user-id', plant);
-      }
-
-      // Read plants while offline
-      final cachedPlants = await firestoreService
-          .getPlantsStream('test-user-id')
-          .first;
-
-      expect(cachedPlants, hasLength(2));
-      expect(cachedPlants.map((p) => p.name), containsAll(['Plant 1', 'Plant 2']));
+      final snapshot = await firestore.getPlantsStream(userId).first;
+      expect(snapshot.plants.map((p) => p.id).toList(), ['2', '1']);
     });
 
-    test('Offline API calls throw ApiException', () async {
-      final apiService = container.read(apiServiceProvider);
+    test('data persisted before reconnect is still present afterward', () async {
+      // Stand-in for the offline→online transition: the write lands in the local
+      // store first (offline) and remains readable after the SDK would have
+      // synced it (online). With no network in the fake, "before" and "after"
+      // read from the same persisted store — exactly the continuity guarantee
+      // the collection UI relies on across a reconnect.
+      await firestore.savePlant(
+        userId,
+        _plant('transition', DateTime.parse('2026-01-01T00:00:00Z')),
+      );
 
-      // Attempt to upload file while offline
-      expect(
-        () => apiService.uploadFile(
+      final before = await firestore.getPlantsStream(userId).first;
+      expect(before.plants, hasLength(1));
+
+      final after = await firestore.getPlantsStream(userId).first;
+      expect(after.plants, hasLength(1));
+      expect(after.plants.first.id, 'transition');
+    });
+
+    test('the stream reflects a plant saved after subscribing', () async {
+      // Real-time reactivity: the collection screen watches this stream, so a
+      // save must produce a fresh emission carrying the new plant. Resolves
+      // deterministically on the matching emission rather than on a fixed delay.
+      final stream = firestore.getPlantsStream(userId);
+      await firestore.savePlant(
+        userId,
+        _plant('live', DateTime.parse('2026-01-01T00:00:00Z')),
+      );
+
+      final emission = await stream.firstWhere(
+        (s) => s.plants.any((p) => p.id == 'live'),
+      );
+
+      expect(emission.plants.map((p) => p.id), contains('live'));
+    });
+  });
+
+  group('API offline/online behavior (mocked ApiService)', () {
+    test('offline API calls throw ApiException', () async {
+      final container = ProviderContainer(
+        overrides: [apiServiceProvider.overrideWith((ref) => OfflineApiService())],
+      );
+      addTearDown(container.dispose);
+      final api = container.read(apiServiceProvider);
+
+      await expectLater(
+        () => api.uploadFile(
           '/plant-identification/identify/',
           filePath: '/path/to/image.jpg',
           fieldName: 'image',
@@ -111,33 +127,15 @@ void main() {
         throwsA(isA<ApiException>()),
       );
     });
-  });
 
-  group('Online Sync Tests', () {
-    late ProviderContainer container;
-
-    setUp(() {
-      container = ProviderContainer(
-        overrides: [
-          firestoreServiceProvider.overrideWith(() {
-            return MockFirestoreService();
-          }),
-          apiServiceProvider.overrideWith((ref) {
-            return OnlineApiService(); // Simulates online state
-          }),
-        ],
+    test('online API upload returns identification data', () async {
+      final container = ProviderContainer(
+        overrides: [apiServiceProvider.overrideWith((ref) => OnlineApiService())],
       );
-    });
+      addTearDown(container.dispose);
+      final api = container.read(apiServiceProvider);
 
-    tearDown(() {
-      container.dispose();
-    });
-
-    test('Data syncs to backend when online', () async {
-      final apiService = container.read(apiServiceProvider);
-
-      // Simulate successful API call when online
-      final response = await apiService.uploadFile(
+      final response = await api.uploadFile(
         '/plant-identification/identify/',
         filePath: '/path/to/image.jpg',
         fieldName: 'image',
@@ -147,134 +145,17 @@ void main() {
       expect(response.data, isA<Map<String, dynamic>>());
       expect(response.data['name'], isNotNull);
     });
-
-    test('Pending changes sync when connectivity restored', () async {
-      final firestoreService = container.read(firestoreServiceProvider.notifier);
-
-      // Simulate plants saved while offline
-      final offlinePlants = [
-        Plant(
-          id: 'offline-1',
-          name: 'Offline Plant 1',
-          scientificName: 'Offlinius plantus',
-          description: 'Saved while offline',
-          care: [],
-          timestamp: DateTime.now(),
-        ),
-      ];
-
-      for (final plant in offlinePlants) {
-        await firestoreService.savePlant('test-user-id', plant);
-      }
-
-      // Simulate going online and syncing
-      // (In real implementation, this would be handled by Firestore's
-      // automatic offline persistence and sync when connectivity returns)
-
-      final syncedPlants = await firestoreService
-          .getPlantsStream('test-user-id')
-          .first;
-
-      expect(syncedPlants, hasLength(1));
-      expect(syncedPlants.first.id, 'offline-1');
-    });
-  });
-
-  group('Offline → Online Transition Tests', () {
-    test('Firestore handles offline → online transition gracefully', () async {
-      final mockFirestore = MockFirestoreService();
-
-      // Save data offline
-      await mockFirestore.savePlant(
-        'user-1',
-        Plant(
-          id: 'transition-plant',
-          name: 'Transition Test Plant',
-          scientificName: 'Transitius testus',
-          description: 'Testing offline/online transition',
-          care: [],
-          timestamp: DateTime.now(),
-        ),
-      );
-
-      // Read data (should work both offline and online)
-      final plantsBeforeOnline = await mockFirestore
-          .getPlantsStream('user-1')
-          .first;
-
-      expect(plantsBeforeOnline, hasLength(1));
-
-      // Simulate going online (Firestore would auto-sync)
-      // In real app, Firestore handles this automatically
-
-      // Data should still be accessible
-      final plantsAfterOnline = await mockFirestore
-          .getPlantsStream('user-1')
-          .first;
-
-      expect(plantsAfterOnline, hasLength(1));
-      expect(plantsAfterOnline.first.id, 'transition-plant');
-    });
   });
 }
 
-/// Mock Firestore service that simulates offline caching.
-class MockFirestoreService extends FirestoreService {
-  final Map<String, List<Plant>> _cache = {};
-
-  @override
-  void build() {
-    // No-op for mock
-  }
-
-  @override
-  Future<void> savePlant(String userId, Plant plant) async {
-    await Future.delayed(const Duration(milliseconds: 50));
-
-    if (!_cache.containsKey(userId)) {
-      _cache[userId] = [];
-    }
-
-    // Add or update plant
-    final existingIndex = _cache[userId]!.indexWhere((p) => p.id == plant.id);
-    if (existingIndex != -1) {
-      _cache[userId]![existingIndex] = plant;
-    } else {
-      _cache[userId]!.add(plant);
-    }
-  }
-
-  @override
-  Stream<List<Plant>> getPlantsStream(String userId) {
-    // Return cached plants as stream
-    final plants = _cache[userId] ?? [];
-    return Stream.value(plants);
-  }
-
-  @override
-  Future<Plant?> getPlant(String userId, String plantId) async {
-    final plants = _cache[userId] ?? [];
-    try {
-      return plants.firstWhere((p) => p.id == plantId);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  @override
-  Future<void> deletePlant(String userId, String plantId) async {
-    await Future.delayed(const Duration(milliseconds: 50));
-
-    if (_cache.containsKey(userId)) {
-      _cache[userId]!.removeWhere((plant) => plant.id == plantId);
-    }
-  }
-
-  @override
-  Future<void> clearAllPlants(String userId) async {
-    _cache[userId] = [];
-  }
-}
+Plant _plant(String id, DateTime timestamp) => Plant(
+  id: id,
+  name: 'Plant $id',
+  scientificName: 'Plantus $id',
+  description: 'desc',
+  care: const [],
+  timestamp: timestamp,
+);
 
 /// Mock API service that simulates offline state (no connectivity).
 class OfflineApiService extends ApiService {

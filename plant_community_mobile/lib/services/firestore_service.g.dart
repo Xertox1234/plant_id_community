@@ -143,7 +143,7 @@ final class FirestoreServiceProvider
   }
 }
 
-String _$firestoreServiceHash() => r'7a0e0dc724b821fd01be2a2b67ad0f8f42500c98';
+String _$firestoreServiceHash() => r'0e345266d8775efccb5625dd93a1c7aa7055a743';
 
 /// Firestore service for offline data persistence and cross-device sync
 ///
@@ -212,11 +212,11 @@ final plantsStreamProvider = PlantsStreamFamily._();
 final class PlantsStreamProvider
     extends
         $FunctionalProvider<
-          AsyncValue<List<Plant>>,
-          List<Plant>,
-          Stream<List<Plant>>
+          AsyncValue<PlantsSnapshot>,
+          PlantsSnapshot,
+          Stream<PlantsSnapshot>
         >
-    with $FutureModifier<List<Plant>>, $StreamProvider<List<Plant>> {
+    with $FutureModifier<PlantsSnapshot>, $StreamProvider<PlantsSnapshot> {
   /// Provider for plants stream by user ID
   ///
   /// This provider automatically handles offline/online transitions
@@ -243,12 +243,12 @@ final class PlantsStreamProvider
 
   @$internal
   @override
-  $StreamProviderElement<List<Plant>> $createElement(
+  $StreamProviderElement<PlantsSnapshot> $createElement(
     $ProviderPointer pointer,
   ) => $StreamProviderElement(pointer);
 
   @override
-  Stream<List<Plant>> create(Ref ref) {
+  Stream<PlantsSnapshot> create(Ref ref) {
     final argument = this.argument as String;
     return plantsStream(ref, argument);
   }
@@ -264,14 +264,14 @@ final class PlantsStreamProvider
   }
 }
 
-String _$plantsStreamHash() => r'a3741e4f6e9cf3513ae0ff0817f5b5dbfeabd1c1';
+String _$plantsStreamHash() => r'6f22a4b58a4dbf7108a7f083d2e8f0bd5d4d8cbf';
 
 /// Provider for plants stream by user ID
 ///
 /// This provider automatically handles offline/online transitions
 
 final class PlantsStreamFamily extends $Family
-    with $FunctionalFamilyOverride<Stream<List<Plant>>, String> {
+    with $FunctionalFamilyOverride<Stream<PlantsSnapshot>, String> {
   PlantsStreamFamily._()
     : super(
         retry: null,

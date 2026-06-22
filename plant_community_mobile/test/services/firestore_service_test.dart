@@ -1,14 +1,15 @@
+import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/firestore_service.dart';
 
 void main() {
   group('FirestoreService', () {
-    // Note: These are conceptual tests
-    // Full integration testing would require:
-    // 1. Firebase Test Lab or Firebase Emulator Suite
-    // 2. Mock Firestore using packages like cloud_firestore_mocks
-    // 3. Widget tests with ProviderScope for Riverpod
+    // These cover the Plant (de)serialization contract FirestoreService relies
+    // on. The real service CRUD/stream behavior is exercised against a
+    // FakeFirebaseFirestore in the 'FirestoreService against fake Firestore'
+    // group below.
 
     test('Plant model toJson/fromJson roundtrip', () {
       // Create test plant
@@ -93,40 +94,6 @@ void main() {
       );
     });
 
-    // Integration test placeholder
-    // To run with Firebase Emulator:
-    // 1. Install Firebase CLI: npm install -g firebase-tools
-    // 2. firebase emulators:start --only firestore
-    // 3. Connect to emulator in test setup:
-    //    FirebaseFirestore.instance.useFirestoreEmulator('localhost', 8080)
-    //
-    // Example integration test structure:
-    //
-    // testWidgets('FirestoreService saves and retrieves plant', (tester) async {
-    //   // Setup
-    //   final container = ProviderContainer();
-    //   final firestoreService = container.read(firestoreServiceProvider.notifier);
-    //   final testUserId = 'test-user-123';
-    //
-    //   final plant = Plant(
-    //     id: 'plant-123',
-    //     name: 'Rose',
-    //     scientificName: 'Rosa',
-    //     description: 'Beautiful flower',
-    //     care: ['Water daily'],
-    //     timestamp: DateTime.now(),
-    //   );
-    //
-    //   // Act
-    //   await firestoreService.savePlant(testUserId, plant);
-    //
-    //   final retrievedPlant = await firestoreService.getPlant(testUserId, 'plant-123');
-    //
-    //   // Assert
-    //   expect(retrievedPlant, isNotNull);
-    //   expect(retrievedPlant!.id, equals('plant-123'));
-    //   expect(retrievedPlant.name, equals('Rose'));
-    // });
   });
 
   group('Plant copyWith', () {
@@ -270,6 +237,160 @@ void main() {
       final plant = Plant.fromJson(json);
       expect(plant.care, isA<List<String>>());
       expect(plant.care.length, equals(2));
+    });
+  });
+
+  // Exercises the REAL FirestoreService against an in-memory FakeFirebaseFirestore
+  // injected through firebaseFirestoreProvider — so the actual query, parsing,
+  // ordering and error-skipping logic runs, not a hand-rolled reimplementation.
+  group('FirestoreService against fake Firestore', () {
+    late FakeFirebaseFirestore fake;
+    late ProviderContainer container;
+    late FirestoreService service;
+
+    const uid = 'user-1';
+
+    Plant plantAt(String id, DateTime ts, {String name = 'Plant'}) => Plant(
+      id: id,
+      name: name,
+      scientificName: '$name scientificus',
+      description: 'desc',
+      care: const ['Water weekly'],
+      timestamp: ts,
+    );
+
+    setUp(() {
+      fake = FakeFirebaseFirestore();
+      container = ProviderContainer(
+        overrides: [firebaseFirestoreProvider.overrideWithValue(fake)],
+      );
+      service = container.read(firestoreServiceProvider.notifier);
+    });
+
+    tearDown(() => container.dispose());
+
+    test('savePlant persists and getPlantsStream reads it back', () async {
+      await service.savePlant(
+        uid,
+        plantAt('p1', DateTime.parse('2026-01-01T00:00:00Z'), name: 'Rose'),
+      );
+
+      final snapshot = await service.getPlantsStream(uid).first;
+
+      expect(snapshot.plants, hasLength(1));
+      expect(snapshot.plants.first.id, 'p1');
+      expect(snapshot.plants.first.name, 'Rose');
+    });
+
+    test('getPlantsStream orders plants by timestamp, newest first', () async {
+      await service.savePlant(
+        uid,
+        plantAt('old', DateTime.parse('2026-01-01T00:00:00Z')),
+      );
+      await service.savePlant(
+        uid,
+        plantAt('new', DateTime.parse('2026-03-01T00:00:00Z')),
+      );
+      await service.savePlant(
+        uid,
+        plantAt('mid', DateTime.parse('2026-02-01T00:00:00Z')),
+      );
+
+      final snapshot = await service.getPlantsStream(uid).first;
+
+      expect(snapshot.plants.map((p) => p.id).toList(), ['new', 'mid', 'old']);
+    });
+
+    test('getPlantsStream skips malformed documents', () async {
+      // A document that cannot be parsed (missing required fields), written
+      // straight to the backend to simulate a corrupt/foreign record.
+      await fake
+          .collection('users')
+          .doc(uid)
+          .collection('identified_plants')
+          .doc('broken')
+          .set({
+            'id': 'broken',
+            'timestamp': DateTime.parse('2026-03-01T00:00:00Z')
+                .toIso8601String(),
+          });
+      await service.savePlant(
+        uid,
+        plantAt('good', DateTime.parse('2026-02-01T00:00:00Z')),
+      );
+
+      final snapshot = await service.getPlantsStream(uid).first;
+
+      expect(snapshot.plants.map((p) => p.id).toList(), ['good']);
+    });
+
+    test('deletePlant removes a plant', () async {
+      await service.savePlant(
+        uid,
+        plantAt('p1', DateTime.parse('2026-01-01T00:00:00Z')),
+      );
+
+      await service.deletePlant(uid, 'p1');
+
+      final snapshot = await service.getPlantsStream(uid).first;
+      expect(snapshot.plants, isEmpty);
+    });
+
+    test('getPlant returns the plant, or null when missing', () async {
+      await service.savePlant(
+        uid,
+        plantAt('p1', DateTime.parse('2026-01-01T00:00:00Z'), name: 'Fern'),
+      );
+
+      final found = await service.getPlant(uid, 'p1');
+      expect(found, isNotNull);
+      expect(found!.name, 'Fern');
+
+      final missing = await service.getPlant(uid, 'nope');
+      expect(missing, isNull);
+    });
+
+    test('clearAllPlants removes every plant for the user', () async {
+      await service.savePlant(
+        uid,
+        plantAt('p1', DateTime.parse('2026-01-01T00:00:00Z')),
+      );
+      await service.savePlant(
+        uid,
+        plantAt('p2', DateTime.parse('2026-02-01T00:00:00Z')),
+      );
+
+      await service.clearAllPlants(uid);
+
+      final snapshot = await service.getPlantsStream(uid).first;
+      expect(snapshot.plants, isEmpty);
+    });
+
+    test('plants are scoped per user', () async {
+      await service.savePlant(
+        'user-a',
+        plantAt('a1', DateTime.parse('2026-01-01T00:00:00Z')),
+      );
+      await service.savePlant(
+        'user-b',
+        plantAt('b1', DateTime.parse('2026-01-01T00:00:00Z')),
+      );
+
+      final aSnap = await service.getPlantsStream('user-a').first;
+      final bSnap = await service.getPlantsStream('user-b').first;
+
+      expect(aSnap.plants.map((p) => p.id), ['a1']);
+      expect(bSnap.plants.map((p) => p.id), ['b1']);
+    });
+
+    test('savePlant rejects an empty userId', () async {
+      await expectLater(
+        () => service.savePlant(
+          '',
+          plantAt('p1', DateTime.parse('2026-01-01T00:00:00Z')),
+        ),
+        throwsA(isA<FirestoreException>()),
+      );
     });
   });
 }

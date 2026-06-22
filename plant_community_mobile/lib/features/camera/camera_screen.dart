@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/routing/app_router.dart';
 import '../../core/theme/green_thumb_extension.dart';
+import '../../services/auth_service.dart';
+import '../../services/firestore_service.dart';
 import '../../services/plant_identification_service.dart';
 import '../../services/api_service.dart';
 import '../../models/plant.dart';
@@ -101,6 +104,11 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
         },
       );
 
+      // Persist for offline access + cross-device sync. Fire-and-forget: the
+      // local cache write is immediate, while the server round-trip may never
+      // complete while offline — so awaiting it would block navigation.
+      _persistPlantOffline(plant);
+
       if (!mounted) return;
 
       // Navigate to results screen with plant data (passed as extra)
@@ -125,6 +133,25 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
         });
       }
     }
+  }
+
+  /// Persist an identified plant to Firestore for offline access.
+  ///
+  /// Best-effort and fire-and-forget: a persistence failure is logged but never
+  /// surfaced to the user or allowed to block navigation. Skipped when no user
+  /// is signed in (anonymous identification has no user-scoped collection).
+  void _persistPlantOffline(Plant plant) {
+    final uid = ref.read(currentUserIdProvider);
+    if (uid == null || uid.isEmpty) return;
+
+    unawaited(
+      ref
+          .read(firestoreServiceProvider.notifier)
+          .savePlant(uid, plant)
+          .catchError((Object e) {
+            debugPrint('[CAMERA] Offline persist failed: $e');
+          }),
+    );
   }
 
   /// Show error snackbar
