@@ -82,6 +82,7 @@ Use Grep as fallback for any LSP call that returns an error or empty/inconclusiv
 - [ ] React 19: no deprecated lifecycle methods, no class components in new code
 - [ ] `useCallback` dependencies must be correct — timer refs must NOT be in dependency arrays
 - [ ] Loading and error states required for any component that fetches data
+- [ ] Error display must render `error.message` (a string), never the structured error object — `String(errorObj)` renders the literal `[object Object]`; `sanitize*` helpers that return non-strings unchanged do NOT prevent this (PR #381)
 - [ ] Responsive design: mobile-first Tailwind classes, minimum tap target 44x44px
 
 ## Output Format (Review Mode)
