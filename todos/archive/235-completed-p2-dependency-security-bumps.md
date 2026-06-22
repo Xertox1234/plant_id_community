@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "235"
 tags: [security, dependencies, ci]
@@ -80,10 +80,20 @@ no fix exists and the path is unreachable.
       StreamField rendering with the new `dompurify`). (2026-06-22: web 551 passed
       incl. StreamFieldRenderer XSS + forum PostCard sanitization; backend 774
       passed / 8 skipped with bumps installed.)
-- [ ] `Security Scan Summary` check green on the bump PR. (Requires the PR — the
-      only criterion not satisfiable without pushing; will be confirmed by CI.)
+- [x] `Security Scan Summary` check green on the bump PR. (2026-06-22: PR #384 —
+      all 14 checks green incl. `Security Scan Summary`, `Frontend npm Security
+      Scan`, `Backend Python Security Scan`, and the full backend pytest suite on
+      Postgres+Redis. Merged to main as d20f708.)
 
 ## Work Log
+
+### 2026-06-22 - Completed by completing-todos skill (sweep run 2026-06-22-0205)
+
+- Verification: all 4 acceptance criteria passed. C1–C3 verified locally; C4
+  (`Security Scan Summary`) confirmed green on PR #384 (14/14 checks), merged to
+  main as d20f708.
+- Review: 1 independent diff review, 0 blocking findings (2 low/informational
+  notes, accepted). CI's kimi-review gate also passed on both commits.
 
 ### 2026-06-22 - Bumps applied + verified (C1–C3 green; C4 pending the PR)
 
