@@ -483,3 +483,23 @@ This file is append-only. New entries are added by main Claude after each code r
 
 **Rule**: A response-key rename is a cross-file contract change — grep the WHOLE suite for old-shape consumers and run the full app suite, not just touched files. Diff-scoped review (human or kimi) structurally cannot see out-of-diff consumers.
 **Agent**: (process — full-suite run before "done")
+
+## Dependency security bumps (todo 235, 2026-06-22)
+
+### [2026-06-22] `pytest --reuse-db` against a foreign/partial test DB → 81 phantom failures
+
+**Mistake**: Verifying the 235 dependency bumps, ran the forum backend tests with `pytest --reuse-db` against a test DB an earlier run had built for a *different* app subset (users+blog). 81 of 114 forum tests "failed" — workflow routing, bootstrap, ratelimits, seed, signals — and the failures looked like they could be the bumps. The reused DB simply lacked the forum app's migrations + `post_migrate` bootstrap (default workflow/board/permissions). Earlier, `manage.py test apps.forum_host wagtail_forum` had reported "Ran 0 tests" (a false pass) because the project runs tests via pytest, not the Django test runner.
+
+**Fix**: Re-ran with `pytest --create-db` (fresh DB applies all migrations + post_migrate) → 114 passed. The bumps were innocent; the full suite then ran 774 passed / 8 skipped.
+
+**Rule**: Backend tests run via **pytest** (`pytest.ini`), not `manage.py test`. When running a different/wider app subset than the cached test DB was built for, use `pytest --create-db` before attributing failures to the diff — `--reuse-db` against a foreign or partial test DB yields phantom failures. (Echoes the "small verification batches" lesson: nearly mis-attributed 81 fake failures.)
+**Agent**: (process — test-running gotcha; not diff-reviewable)
+
+### [2026-06-22] pip-audit's empty "Fix Versions" column does NOT mean unfixable
+
+**Mistake**: todo 235 planned to add a justified pip-audit `--ignore-vuln` for `bleach GHSA-g75f-g53v-794x` because the baseline scan showed an empty "Fix Versions" column ("no fix yet"). Treating empty-fix as unfixable would have added a needless permanent suppression to `security-scan.yml`.
+
+**Fix**: Bumped `bleach` 6.3.0→6.4.0 anyway; pip-audit then reported the advisory gone — 6.4.0 is outside its affected range (pip-audit just hadn't populated a fixed-version for that advisory). No suppression added; the existing 6-entry ignore set stayed unchanged.
+
+**Rule**: Before adding a pip-audit `--ignore-vuln` line for a "no fix listed" advisory, try bumping the package — the empty "Fix Versions" column ≠ unfixable. Suppress only when no bump clears it, with a dated one-line justification. Run `npm audit fix` WITHOUT `--force` (force pulls breaking majors).
+**Agent**: security-reviewer

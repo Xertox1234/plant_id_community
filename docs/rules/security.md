@@ -22,3 +22,9 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   password on every `migrate` until 2026-06-10. Dev/demo/E2E seed commands must
   refuse to run in production (`if not settings.DEBUG: raise CommandError(...)`),
   and byline-only accounts get `set_unusable_password()` — never a literal password.
+- **Try a bump before suppressing a vuln.** pip-audit's empty "Fix Versions"
+  column does NOT mean unfixable — the advisory's affected range may exclude a
+  newer release (bleach `GHSA-g75f-g53v-794x` showed no fix at 6.3.0 but was gone
+  at 6.4.0). Add an `--ignore-vuln` line (in `.github/workflows/security-scan.yml`)
+  only when no bump clears it, with a dated one-line justification. Run
+  `npm audit fix` WITHOUT `--force` (`--force` pulls breaking majors).
