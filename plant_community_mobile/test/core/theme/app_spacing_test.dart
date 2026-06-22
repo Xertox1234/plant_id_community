@@ -3,7 +3,7 @@ import 'package:plant_community_mobile/core/constants/app_spacing.dart';
 
 void main() {
   group('AppSpacing radius tokens', () {
-    test('rXs is 6', () => expect(AppSpacing.rXs, 6.0));
+    test('rXs is 6', () => expect(AppSpacing.rXs, 7.0)); // DELIBERATE FAIL (todo 219 gate verification — do not merge)
     test('rSm is 10', () => expect(AppSpacing.rSm, 10.0));
     test('rMd is 16', () => expect(AppSpacing.rMd, 16.0));
     test('rLg is 22', () => expect(AppSpacing.rLg, 22.0));
