@@ -127,8 +127,9 @@ export default function LoginPage() {
         // Redirect to the page user was trying to access, or home
         navigate(from, { replace: true });
       } else {
-        // Show error from backend (sanitized to prevent XSS)
-        const rawError = result.error || 'Login failed. Please try again.';
+        // Show the readable message from the structured AuthError, not the whole
+        // object — String({message,code,...}) renders the literal "[object Object]".
+        const rawError = result.error?.message || 'Login failed. Please try again.';
         setServerError(String(sanitizeError(rawError)));
       }
     } catch (error) {
