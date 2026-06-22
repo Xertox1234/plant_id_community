@@ -16,6 +16,12 @@ Compact checklist auto-injected before edits.
   for an unbuilt feature is noise — delete it, don't leave a green stub.
 - **Rebuild a stale test DB** with `--noinput` after migration changes
   (`python manage.py test apps.foo --noinput`) — otherwise `FieldError`.
+- **Backend tests run via pytest** (`pytest.ini`; `manage.py test apps.forum_host
+  wagtail_forum` finds 0 forum tests). `pytest --reuse-db` against a test DB built
+  for a *different/narrower* app subset gives mass PHANTOM failures (a 235 run hit
+  81 fake forum failures — the reused DB lacked the forum migrations +
+  `post_migrate` bootstrap). When changing the app subset, use `pytest --create-db`
+  before blaming the code. See `docs/LEARNINGS.md` 2026-06-22.
 - **Test the golden path AND edge cases** — invalid input, auth failures,
   empty results, boundary values.
 - Pin query counts on any endpoint touched by a performance change.
