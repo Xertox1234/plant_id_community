@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p2
 issue_id: "219"
 tags: [ci, branch-protection, flutter, mobile, process]
@@ -134,6 +134,80 @@ is path-filtered, so making it required would deadlock every non-mobile PR.
   backend/web/harness checks; the Flutter job was advisory.
 - Confirmed `mobile-ci.yml` is path-filtered, so the simple "add to required
   checks" fix would deadlock non-mobile PRs. Captured the safe approaches above.
+
+### 2026-06-22 - Started by completing-todos skill (run 2026-06-22-1542)
+
+- Picked up by automated workflow. Implementing Option 1 (always-run
+  `mobile-ci-gate` job + conditional Flutter job via `dorny/paths-filter`).
+
+### 2026-06-22 - Implemented Option 1 (workflow change) — branch-protection step pending
+
+**Done (this PR, branch `todo-219-mobile-ci-required-gate`):**
+
+- Rewrote `.github/workflows/mobile-ci.yml` to the always-run gate pattern:
+  - Removed the `paths:` filter from the `pull_request` trigger (workflow now runs
+    on every PR); kept the `push` trigger path-filtered.
+  - Added a `changes` job (`dorny/paths-filter@v4`, current major — latest is
+    v4.0.1) exposing `outputs.mobile`.
+  - `flutter-fresh-checkout` now `needs: changes` and runs only when mobile files
+    changed (`if: needs.changes.outputs.mobile == 'true' || github.event_name ==
+    'workflow_dispatch'`). Job body unchanged.
+  - Added `mobile-ci-gate` (job id **is** the branch-protection context — no
+    `name:` override): `needs: [changes, flutter-fresh-checkout]`, `if: always()`.
+    Fails the gate if change-detection didn't succeed OR the Flutter job result is
+    `failure`/`cancelled`; passes otherwise (incl. Flutter `skipped` on non-mobile
+    PRs, so non-mobile PRs are never deadlocked).
+
+**Verification (local — proves implementation correctness, NOT the acceptance
+criteria, which are GitHub-side):**
+
+- `actionlint .github/workflows/mobile-ci.yml` → `OK (no issues)` (validates the
+  `needs`/context refs and the gate's shell).
+- `python3 -c "yaml.safe_load(...)"` → parses; jobs = `[changes,
+  flutter-fresh-checkout, mobile-ci-gate]`.
+- Gate decision logic simulated across all six scenarios — every one matched the
+  expected verdict: non-mobile PR → PASS (no deadlock); mobile pass → PASS; mobile
+  fail → FAIL; cancelled → FAIL; broken change-detection → FAIL (no silent green);
+  workflow_dispatch → PASS.
+
+**Code review:** No specialist reviewer matches a YAML workflow change
+(code-review-orchestrator routing → 0 agents). Self-assessment: gate wiring correct
+across every scenario; no GitHub Actions expression-injection risk (only the
+controlled `needs.*.result` enum is interpolated). 1 HIGH + 3 LOW:
+
+- HIGH — gate is inert until `mobile-ci-gate` is added to `main`'s required
+  contexts (verified live: required set is still the 4 backend/web/harness checks).
+  This is the tracked admin step below, **not** a code defect; nothing in this PR
+  can close it.
+- LOW (all accepted, no code change): (1) paths-filter false-negative is the only
+  residual slip-through vector — low prob, globs match scope + mirror the `push`
+  filter; (2) `dorny/paths-filter@v4` pinned to a major tag not a SHA — matches repo
+  convention; (3) `workflow_dispatch` may show a cosmetic red gate (non-gating,
+  manual only).
+
+**Remaining (NOT done — why this todo stays `in_progress`):** all four acceptance
+criteria are GitHub-side / repo-admin and cannot be verified locally. Required
+**ordered** handoff:
+
+1. Merge this PR to `main` (the gate workflow must live on the default branch
+   before it can back a required check).
+2. Open any PR after the merge and read the **exact** reported check name; confirm
+   it is literally `mobile-ci-gate`. (A required context that never matches =
+   permanent deadlock — the very failure this todo prevents.)
+3. Repo-admin adds it as a required context, only after step 2 confirms the string:
+
+   ```bash
+   gh api -X POST \
+     repos/Xertox1234/plant_id_community/branches/main/protection/required_status_checks/contexts \
+     -f 'contexts[]=mobile-ci-gate'
+   ```
+
+   Per the user's choice, Claude runs this with explicit go-ahead once steps 1–2
+   are confirmed.
+4. Live-verify the criteria: a docs-only PR shows `mobile-ci-gate` green quickly
+   (criterion #2); a mobile PR with a deliberately failing `flutter test` shows the
+   gate red and is blocked from merge (criterion #3). Then check off the criteria
+   and archive the todo.
 
 ## Notes
 

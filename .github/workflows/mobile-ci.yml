@@ -1,5 +1,19 @@
 name: Mobile Fresh Checkout CI
 
+# The heavy Flutter job (analyze + test + debug build, ~6.5 min) only needs to run
+# when mobile files change, so its work stays gated on a path check. But a
+# path-filtered *workflow trigger* can't back a required status check: GitHub waits
+# forever for a check that never reports on PRs whose diff doesn't match `paths:`,
+# deadlocking every non-mobile PR (see .github/workflows/harness-ci.yml for the same
+# trap and rationale).
+#
+# Fix (todo 219): run on EVERY pull_request (no path filter), detect whether mobile
+# files changed in a cheap `changes` job, gate the heavy Flutter job on that result,
+# and add a lightweight `mobile-ci-gate` job that ALWAYS reports a status.
+# `mobile-ci-gate` is the required status check on `main`: it passes quickly when no
+# mobile files changed (Flutter skipped) and fails when the Flutter job fails. The
+# `push` trigger stays path-filtered — required checks gate PRs, not post-merge pushes.
+
 'on':
   push:
     branches: [main, develop]
@@ -8,14 +22,29 @@ name: Mobile Fresh Checkout CI
       - '.github/workflows/mobile-ci.yml'
   pull_request:
     branches: [main, develop]
-    paths:
-      - 'plant_community_mobile/**'
-      - '.github/workflows/mobile-ci.yml'
   workflow_dispatch: {}
 
 jobs:
+  changes:
+    name: Detect mobile changes
+    runs-on: ubuntu-latest
+    outputs:
+      mobile: ${{ steps.filter.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            mobile:
+              - 'plant_community_mobile/**'
+              - '.github/workflows/mobile-ci.yml'
+
   flutter-fresh-checkout:
     name: Flutter analyze, test, and debug build
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
     defaults:
@@ -55,3 +84,30 @@ jobs:
           --dart-define=FIREBASE_MESSAGING_SENDER_ID=000000000000
           --dart-define=FIREBASE_PROJECT_ID=ci-placeholder-project
           --dart-define=FIREBASE_STORAGE_BUCKET=ci-placeholder-project.appspot.com
+
+  # Required status check for `main`. ALWAYS runs (no path filter on pull_request)
+  # so it always reports a status, and collapses the conditional Flutter job into a
+  # single honest gate: pass when mobile is untouched (Flutter skipped), fail when
+  # Flutter fails or change-detection itself failed (so a broken `changes` job can't
+  # pass the gate green). Keep the job id `mobile-ci-gate` — it IS the
+  # branch-protection context string.
+  mobile-ci-gate:
+    needs: [changes, flutter-fresh-checkout]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate on Flutter CI result
+        run: |
+          changes_result='${{ needs.changes.result }}'
+          flutter_result='${{ needs.flutter-fresh-checkout.result }}'
+          echo "changes job result: $changes_result"
+          echo "flutter job result: $flutter_result"
+          if [ "$changes_result" != 'success' ]; then
+            echo "::error::Change-detection job did not succeed ($changes_result); failing the gate instead of passing silently."
+            exit 1
+          fi
+          if [ "$flutter_result" = 'failure' ] || [ "$flutter_result" = 'cancelled' ]; then
+            echo "::error::Flutter CI did not pass ($flutter_result)."
+            exit 1
+          fi
+          echo "Mobile CI gate passed (Flutter job result: $flutter_result)."
