@@ -234,5 +234,22 @@
     "source": "pre-commit friction reduction 2026-06-13",
     "added": "2026-06-13",
     "severity": "warn"
+  },
+  {
+    "id": "render-error-message-not-object",
+    "domains": [
+      "react",
+      "typescript"
+    ],
+    "path_glob": [
+      "web/src/**/*.tsx"
+    ],
+    "content_present": "String\\(\\s*sanitizeError\\(",
+    "content_absent": "sanitizeError\\([^)]*\\.message",
+    "message": "String(sanitizeError(...)) renders the literal '[object Object]' if you pass the error OBJECT. Render result.error?.message (a string) instead — sanitize* helpers no-op on non-strings.",
+    "pattern_ref": "web/docs/patterns/react-typescript.md",
+    "source": "codify: docs/codify-auth-error-patterns",
+    "added": "2026-06-21",
+    "severity": "warn"
   }
 ]

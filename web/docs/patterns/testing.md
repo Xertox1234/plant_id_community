@@ -67,3 +67,55 @@ New user-facing flows require a test case entry in `web/E2E_TESTING_GUIDE.md`. F
 **Steps**: 1. ... 2. ... 3. ...
 **Expected**: [visible outcome]
 ```
+
+---
+
+## Testing a Page That Uses `useAuth` + Router
+
+Component tests for a page that calls `useAuth()` and React Router hooks
+(`useNavigate`/`useLocation`) need three things. Canonical recipe — see
+`src/pages/auth/LoginPage.test.tsx`:
+
+```typescript
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import LoginPage from './LoginPage';
+
+// 1. vi.hoisted: the vi.mock factory is hoisted ABOVE the imports, so it cannot
+//    close over a plain top-level const (temporal-dead-zone error). Create the
+//    mock fn inside vi.hoisted so the factory can reference it.
+const { mockLogin } = vi.hoisted(() => ({ mockLogin: vi.fn() }));
+vi.mock('../../contexts/AuthContext', () => ({
+  useAuth: () => ({ login: mockLogin }),
+}));
+
+// 2. MemoryRouter supplies real useNavigate/useLocation — no need to mock them.
+const renderPage = () =>
+  render(
+    <MemoryRouter>
+      <LoginPage />
+    </MemoryRouter>
+  );
+
+it('submits with a short existing password', async () => {
+  mockLogin.mockResolvedValue({ success: true });
+  renderPage();
+  // 3. Query by PLACEHOLDER, not getByLabelText: the field <label> carries a
+  //    required "*" span, so an exact label match ("Password") fails.
+  fireEvent.change(screen.getByPlaceholderText('Enter your password'), {
+    target: { value: 'shortpw' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+  await waitFor(() => expect(mockLogin).toHaveBeenCalled());
+});
+```
+
+Gotchas:
+
+- `vi.hoisted` is mandatory — a bare `const mockLogin = vi.fn()` referenced in the
+  factory throws "Cannot access 'mockLogin' before initialization".
+- Prefer `getByPlaceholderText` / `getByRole` over `getByLabelText` when labels
+  include a required-`*` span or other non-text nodes.
+- Test-fixture passwords (`password: '...'`) trip detect-secrets — add
+  `// pragma: allowlist secret` on the literal's line, and put it on a `const` so
+  Prettier can't shift the comment off that line.
