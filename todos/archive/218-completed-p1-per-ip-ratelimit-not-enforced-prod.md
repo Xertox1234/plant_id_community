@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p1
 issue_id: "218"
 tags: [security, rate-limiting, deployment, railway]
@@ -87,12 +87,17 @@ brute-force — but the IP layer is a deliberate control that's silently off.
 
 ## Acceptance Criteria
 
-- [ ] A burst above the limit from one IP returns `429 rate_limit_exceeded` +
-      `Retry-After`, verified against the live backend. (LIVE-VERIFY pending —
-      requires Railway deploy + setting `RATELIMIT_TRUSTED_PROXY_COUNT`.)
-- [ ] A forged `X-Forwarded-For` does NOT let a client evade the per-IP limit.
-      (Code-level property proven by test `test_spoof_cannot_rotate_the_key`;
-      LIVE-VERIFY against the real backend still pending.)
+- [x] A burst above the limit from one IP returns `429 rate_limit_exceeded` +
+      `Retry-After`, verified against the live backend. (done 2026-06-21 —
+      verified against prod: a login burst from one IP returned `429`
+      `rate_limit_exceeded` + `Retry-After: 3600` after the window; before the fix
+      13+ attempts never tripped. Required `RATELIMIT_TRUSTED_PROXY_COUNT=2` on
+      Railway, NOT 1 — see Work Log.)
+- [x] A forged `X-Forwarded-For` does NOT let a client evade the per-IP limit.
+      (done 2026-06-21 — verified against prod: after the limit tripped, requests
+      with forged `X-Forwarded-For: 1.2.3.4` / `9.9.9.9` STILL returned `429`
+      (Railway stamps the real client into the trusted slot, so a forged prefix
+      can't rotate the key). Also unit-pinned by `test_spoof_cannot_rotate_the_key`.)
 - [x] Client-IP derivation is centralized and trusted-proxy-aware (one helper,
       reused by all `key="ip"` limits). (done 2026-06-21 — `client_ip_key` /
       `get_trusted_client_ip` in `apps/core/ratelimit.py`; all 8 `key="ip"`
@@ -105,6 +110,32 @@ brute-force — but the IP layer is a deliberate control that's silently off.
       full run green with the rate-limit regression suite.)
 
 ## Work Log
+
+### 2026-06-21 - LIVE-VERIFIED in prod; COMPLETE (Railway needs count=2, not 1)
+
+Closed after live verification against the Railway backend. Two follow-up PRs were
+needed beyond the original landing (#377):
+
+- **#378** added a configurable real-client strategy + a gated `RATELIMIT_LOG_RESOLUTION`
+  diagnostic, because the first live test with `RATELIMIT_TRUSTED_PROXY_COUNT=1`
+  did NOT trip the limit (7 attempts, all 401). The diagnostic revealed why:
+  Railway's `X-Forwarded-For` is `<real-client>, <railway-internal-proxy>` (TWO
+  entries), `X-Envoy-External-Address` is unset, and `X-Real-IP` = the real client.
+  With count=1 the resolver took `parts[-1]` = the internal proxy (varies per
+  request) → counter never accumulated. **The fix was `RATELIMIT_TRUSTED_PROXY_COUNT=2`**
+  (real client is `parts[-2]`); no header override was needed.
+- **Live verification (prod, count=2):** a login burst from one IP returned
+  `429 rate_limit_exceeded` + `Retry-After: 3600` after the window; forged
+  `X-Forwarded-For: 1.2.3.4` / `9.9.9.9` requests STILL returned `429` (spoofing
+  cannot rotate the key — Railway stamps the real client into `parts[-2]`).
+- Note: the `5/15m` limit allowed ~6 before blocking the 7th — django-ratelimit
+  window/boundary leniency, not a defect; enforcement is correct.
+- Diagnostic turned back off (`RATELIMIT_LOG_RESOLUTION=False`); the gated code in
+  #378 stays for future proxy debugging. Prod env now has
+  `RATELIMIT_TRUSTED_PROXY_COUNT=2`.
+
+Unrelated bug found while testing (now fixed, PR #379): the React login form ran
+the 14-char NEW-password rule on sign-in, locking out short-password accounts.
 
 ### 2026-06-21 - Started by completing-todos skill (run 2026-06-21-1412)
 
