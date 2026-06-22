@@ -58,6 +58,58 @@ cause remains).
 
 ## Work Log
 
+### 2026-06-22 - Re-scoped during sweep run 2026-06-22-0205; DEFERRED again (Type-A design ready)
+
+Read all five consumers this session. **The scope is bigger than the 2026-06-21
+note captured** — consolidation spans THREE mapping types across six tables, not
+just the two hooks:
+
+- **Type A — path → rule-domains** (picks `docs/rules/<domain>.md`):
+  `inject-patterns.sh`, `kimi-review.sh`, AND `codify/SKILL.md` Step 1. codify
+  diverges *further* than the two hooks: `blog → wagtail,api` (NO security),
+  `backend other .py → security` only, and no forum rule at all.
+- **Type B — path → review-agents**: `code-review-orchestrator.md` (Phase 1) and
+  `full-review-orchestrator.md` (562 lines; primary/secondary precedence,
+  missing-root reviewer-skipping, the shared exclusion list). **This overlaps
+  todo 229** ("rationalize the 17-agent fleet"), which *depends on* 226.
+- **Type C — finding-domain → agent**: `codify/SKILL.md` Step 4.
+
+**Decision (user, this session):** DEFER. Recommended path when resumed is
+**Option A — domains-only now, agents to 229**. That fixes the actual hook-rot
+cause (Type A) and leaves Type B for 229, which owns the fleet and will extend
+`routing.json` with agent mappings as it decides which agents survive.
+**Option A requires amending Acceptance Criterion 1** to scope it to domains
+(note that 229 adds the agent mappings) — do not silently narrow it.
+
+**Type-A reconciliation design (DONE — ready to implement):**
+
+- Schema: ordered `rules` list, each `{globs, domains, tier: "primary"|"fallback"}`,
+  plus a shared `exclusions` list. One matcher in `scripts/inject/route_domains.py`:
+  collect domains from ALL matching `primary` rules (additive, deduped,
+  order-preserving); if NO primary matched, apply matching `fallback` rules. Both
+  hooks call it.
+- This normalizes `kimi-review.sh` from first-match-wins → additive (strictly more
+  thorough for the commit gate). Verified: no kimi test asserts routing, so none
+  break; every existing `test-inject-patterns.sh` case still passes under this
+  model (traced by hand).
+- `fallback` tier = `backend/*.py` and `*.ts`/`*.tsx` (disjoint globs, so the two
+  old "only-if-empty" checks collapse into one fallback pass).
+- Canonical choices for the divergences: forum → `forum,wagtail,security`
+  (+security); `*/api/*.py` → `api,security` (explicit rule); `*.dart` → `flutter`
+  (any path, not just `plant_community_mobile/`); `backend/*.py` fallback →
+  `api,security,database` (drop kimi's `+caching`); blog → `wagtail,api,security`
+  (codify gains security — a behavior change to bless in tests, not silent).
+- **Verify before writing:** `grep` whether any real backend `.py` matches
+  `*firebase*` but no tier-1 rule (the firebase edge case where the normalized
+  matcher resolves differently than inject's two-point emptiness check). If none
+  exists, it's moot; if one does, document the resolution.
+- Keep `INJECT_PATTERNS_DISABLE=1` / `SKIP_KIMI_REVIEW=1` kill switches active
+  while editing the live hooks. Gate on `test-inject-patterns.sh` +
+  `test-kimi-review.sh` + the fake-domain smoke test.
+
+(File was briefly flipped to `in_progress` during scoping, then reverted to
+`pending` on the defer decision — no implementation was written.)
+
 ### 2026-06-21 - Scoped during a sweep; DEFERRED to a focused session (head-start findings)
 
 Read both hooks during run 2026-06-21-1412. Key discovery: this is a
