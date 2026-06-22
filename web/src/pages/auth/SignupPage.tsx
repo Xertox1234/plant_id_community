@@ -148,8 +148,9 @@ export default function SignupPage() {
         // Redirect to home page after successful signup
         navigate('/', { replace: true });
       } else {
-        // Show error from backend (sanitized to prevent XSS)
-        const rawError = result.error || 'Signup failed. Please try again.';
+        // Show the readable message from the structured AuthError, not the whole
+        // object — String({message,code,...}) renders the literal "[object Object]".
+        const rawError = result.error?.message || 'Signup failed. Please try again.';
         setServerError(String(sanitizeError(rawError)));
       }
     } catch (error) {
