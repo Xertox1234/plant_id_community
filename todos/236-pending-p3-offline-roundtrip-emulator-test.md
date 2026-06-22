@@ -36,18 +36,21 @@ offline feature promises, and it is currently unverified.
 
 ## Recommended Action
 
-1. Add a Firebase **Firestore emulator** config (an `emulators` block in
-   `firebase.json`, or reuse an existing emulator setup) and a script to start it.
+1. Add a Firebase **Firestore emulator** config — neither `firebase.json` (root
+   or `plant_community_mobile/`) has an `emulators` block today, so this is
+   net-new: add one plus a script to start the emulator.
 2. Write a Flutter `integration_test` (not a widget/unit test) that:
-   - points `FirebaseFirestore.instance` at the emulator,
+   - points the client at the emulator via
+     `FirebaseFirestore.instance.useFirestoreEmulator(host, port)`,
    - calls `disableNetwork()`, then `savePlant(uid, plant)`,
    - asserts the snapshot is readable with `hasPendingWrites == true` /
      `isFromCache == true`,
    - calls `enableNetwork()`, waits for `hasPendingWrites` to flip to `false`,
    - asserts the document is present server-side (independent emulator read).
-3. Gate it so the default `flutter test` run stays green without the emulator
-   (skip/guard when `FIRESTORE_EMULATOR_HOST` is unset). Optionally wire an
-   emulator job into CI as a separate, non-blocking gate.
+3. Gate it so the default `flutter test` run stays green without the emulator —
+   use an env var (e.g. `FIRESTORE_EMULATOR_HOST`) purely as a *skip guard*; the
+   client connects via `useFirestoreEmulator`, not by reading that var. Optionally
+   wire an emulator job into CI as a separate, non-blocking gate.
 
 ## Technical Details
 
@@ -87,4 +90,6 @@ offline feature promises, and it is currently unverified.
   on the literal SDK reconnect flush, which is valuable but not a current
   regression.
 - Related: todo 237 (reconcile Firestore plants with the backend on reconnect) —
-  both stem from the same offline-persistence wiring.
+  both stem from the same offline-persistence wiring, and 237's reconcile test
+  needs the same emulator harness this todo builds. Whoever lands 236 first should
+  lay that infra so 237 can reuse it rather than standing up a second setup.
