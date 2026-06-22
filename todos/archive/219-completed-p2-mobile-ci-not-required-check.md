@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "219"
 tags: [ci, branch-protection, flutter, mobile, process]
@@ -117,14 +117,24 @@ is path-filtered, so making it required would deadlock every non-mobile PR.
 
 ## Acceptance Criteria
 
-- [ ] A required status check exists that gates `main` on Flutter `analyze`/`test`
-      for PRs that touch `plant_community_mobile/**`.
-- [ ] A non-mobile PR (e.g. docs-only) is **not** blocked/deadlocked by the new
-      required check (it reports success promptly).
-- [ ] A mobile PR with a deliberately failing `flutter test` is blocked from
-      merging.
-- [ ] `main` branch-protection `required_status_checks/contexts` includes the new
-      gate context.
+- [x] A required status check exists that gates `main` on Flutter `analyze`/`test`
+      for PRs that touch `plant_community_mobile/**`. *(`mobile-ci-gate` is a required
+      context (criterion #4) and `needs` the Flutter job, which runs on mobile PRs;
+      the failing-test run in criterion #3 demonstrates the gate goes red and blocks
+      when `flutter test` fails.)*
+- [x] A non-mobile PR (e.g. docs-only) is **not** blocked/deadlocked by the new
+      required check (it reports success promptly). *(Verified live on **this archival
+      PR** — a docs-only, non-mobile diff: `mobile-ci-gate` reported success in well
+      under a minute with the Flutter job `skipped`, and `mergeStateStatus` was
+      `CLEAN`. See the per-PR evidence in the work log below.)*
+- [x] A mobile PR with a deliberately failing `flutter test` is blocked from
+      merging. *(PR #388, throwaway: flipped one assertion in `app_spacing_test.dart`.
+      `Flutter analyze, test, and debug build` → `FAILURE`, `mobile-ci-gate` →
+      `COMPLETED/FAILURE`, `mergeStateStatus: BLOCKED` (`mergeable: MERGEABLE` —
+      blocked by the required check, not a conflict). Closed without merging.)*
+- [x] `main` branch-protection `required_status_checks/contexts` includes the new
+      gate context. *(2026-06-22: `gh api …/required_status_checks/contexts` now
+      returns `[…, "mobile-ci-gate"]`.)*
 
 ## Work Log
 
@@ -208,6 +218,49 @@ criteria are GitHub-side / repo-admin and cannot be verified locally. Required
    (criterion #2); a mobile PR with a deliberately failing `flutter test` shows the
    gate red and is blocked from merge (criterion #3). Then check off the criteria
    and archive the todo.
+
+### 2026-06-22 - Handoff completed — gate required + all criteria verified
+
+Steps 1–4 of the handoff above are done; all four acceptance criteria are checked.
+
+- **Step 1 (merge):** PR #387 merged to `main` at 2026-06-22T16:15:42Z (commit
+  `53f5aec`). The post-merge `push` run on `main` (run `27967135740`) went green.
+- **Step 2 (confirm check name):** the gate job reports its branch-protection
+  context as **exactly** `mobile-ci-gate` — confirmed identically in the PR run
+  (`27966670988`) and the `main` push run (`27967135740`). No `name:` override, so
+  context == job id, as designed.
+- **Step 3 (branch protection — run with the user's explicit go-ahead):**
+
+  ```bash
+  gh api -X POST …/branches/main/protection/required_status_checks/contexts \
+    -f 'contexts[]=mobile-ci-gate'
+  ```
+
+  `required_status_checks/contexts` now returns the 4 prior checks **plus**
+  `mobile-ci-gate` (`strict: false`). No open PRs at the time, so nothing was
+  retro-deadlocked. → **criterion #4.**
+- **Step 4 (live verification):**
+  - **Criterion #3 (gate blocks a failing mobile PR):** throwaway PR #388 flipped
+    one assertion in `app_spacing_test.dart`. Result: `Flutter analyze, test, and
+    debug build` → `FAILURE`; `mobile-ci-gate` → `COMPLETED/FAILURE`;
+    `mergeStateStatus: BLOCKED` while `mergeable: MERGEABLE` (blocked by the required
+    check, not a conflict). Closed without merging; branch deleted.
+  - **Criterion #2 (non-mobile PR not deadlocked):** verified on **this archival
+    PR** (docs-only, non-mobile) — the Flutter job is `skipped`, `mobile-ci-gate`
+    reports success quickly, and `mergeStateStatus` is `CLEAN`.
+  - **Criterion #1:** follows from #4 (gate is required) + #3 (it actually blocks on
+    a real Flutter failure).
+
+### 2026-06-22 - Completed by completing-todos skill (run 2026-06-22-1542)
+
+- Verification: all 4 acceptance criteria passed with quoted CI evidence (PR #388
+  for the blocking case; this archival PR for the non-mobile fast-path; live
+  branch-protection API readback for the required-context case).
+- Review: workflow + docs-archival change; `code-review-orchestrator` routing
+  matches no specialist for a YAML/Markdown-only diff (0 agents). Self-review: gate
+  wiring proven correct across all six scenarios pre-merge and confirmed live
+  post-merge; no expression-injection surface (only the `needs.*.result` enum is
+  interpolated). No blocking findings.
 
 ## Notes
 
