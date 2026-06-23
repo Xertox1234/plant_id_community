@@ -1,6 +1,7 @@
 import logging
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -439,9 +440,9 @@ class SyncView(APIView):
         responses={200: dict, 400: dict},
         description=(
             "Mobile delta-sync. Query params: since (ISO-8601, tz-aware), "
-            "board (slug). Returns topics updated at-or-after `since` plus "
-            "`has_more` and `next_since` for continuation; rows equal to the "
-            "boundary repeat — clients upsert by id."
+            "since_id (int, the last id seen at `since`), board (slug). Returns "
+            "topics after the compound (updated_at, id) cursor plus `has_more`, "
+            "`next_since` and `next_since_id` for continuation."
         ),
     )
     def get(self, request):
@@ -455,14 +456,24 @@ class SyncView(APIView):
                 raise ValidationError(
                     {"since": "Provide an ISO-8601 datetime with a timezone offset."}
                 )
+        try:
+            since_id = int(request.query_params.get("since_id", 0) or 0)
+        except (TypeError, ValueError):
+            raise ValidationError({"since_id": "Provide an integer topic id."})
+
         qs = Topic.objects.filter(live=True, board__in=_visible_boards())
         board_slug = request.query_params.get("board")
         if board_slug:
             qs = qs.filter(board__slug=board_slug)
         if since:
-            # >= so a row stamped exactly at the boundary is never lost; the
-            # repeat is harmless (clients upsert by id).
-            qs = qs.filter(updated_at__gte=since)
+            # Strict compound-key cursor: advance past every (updated_at, id)
+            # already seen without re-sending the boundary row and without
+            # livelocking when a full page shares one updated_at (bulk import).
+            # since_id defaults to 0, so a `since` with no `since_id` behaves
+            # like the old >= boundary (first sync loses nothing).
+            qs = qs.filter(
+                Q(updated_at__gt=since) | Q(updated_at=since, id__gt=since_id)
+            )
         batch = list(qs.order_by("updated_at", "id")[: self.MAX_TOPICS + 1])
         has_more = len(batch) > self.MAX_TOPICS
         batch = batch[: self.MAX_TOPICS]
@@ -478,5 +489,6 @@ class SyncView(APIView):
                 "deleted": [],
                 "has_more": has_more,
                 "next_since": batch[-1].updated_at if batch else raw_since or None,
+                "next_since_id": batch[-1].id if batch else (since_id or None),
             }
         )

@@ -78,8 +78,8 @@ def test_sync_truncation_sets_has_more_and_boundary_next_since(monkeypatch):
 
     assert len(resp.data["topics"]) == 2
     assert resp.data["has_more"] is True
-    # next_since is the LAST RETURNED row's timestamp; with the >= boundary the
-    # client re-receives that row and upserts by id — never loses one.
+    # next_since is the LAST RETURNED row's timestamp; paired with next_since_id
+    # the compound cursor resumes strictly after it (no repeat, no loss).
     assert resp.data["next_since"] == Topic.objects.get(slug="t1").updated_at
 
 
@@ -104,3 +104,42 @@ def test_search_returns_topics_and_posts():
     assert "topics" in resp.data and "posts" in resp.data
     assert any(t["id"] == topic.id for t in resp.data["topics"])
     assert any(p["id"] == post.id for p in resp.data["posts"])
+
+
+@pytest.mark.django_db
+def test_sync_compound_cursor_advances_through_same_timestamp_rows(monkeypatch):
+    """AC3: >MAX_TOPICS topics sharing one updated_at must paginate, not livelock.
+
+    The old `updated_at >= since` cursor returned the same first page forever
+    when a whole page shared one timestamp (bulk import). The compound
+    (updated_at, id) cursor advances by id within the tie.
+    """
+    from wagtail_forum.api import views as forum_views
+
+    monkeypatch.setattr(forum_views.SyncView, "MAX_TOPICS", 2)
+    board = _board()
+    ids = []
+    for i in range(3):
+        t = Topic.objects.create(board=board, title=f"t{i}", slug=f"t{i}", live=True)
+        ids.append(t.id)
+    shared = datetime.datetime(2026, 6, 23, tzinfo=datetime.timezone.utc)
+    Topic.objects.filter(id__in=ids).update(updated_at=shared)
+    ids.sort()  # order_by("updated_at", "id") => ascending id within the tie
+
+    client = APIClient()
+    page1 = client.get("/forum/sync/", {"board": board.slug}).data
+    assert [t["id"] for t in page1["topics"]] == ids[:2]
+    assert page1["has_more"] is True
+
+    # Pass the compound cursor via the data dict so the +00:00 offset is URL-
+    # encoded (an f-string `since=...+00:00` decodes the `+` as a space → 400).
+    since = page1["next_since"]
+    if not isinstance(since, str):
+        since = since.isoformat()
+    page2 = client.get(
+        "/forum/sync/",
+        {"board": board.slug, "since": since, "since_id": page1["next_since_id"]},
+    ).data
+    # Progress: the third row only, never a repeat of the first page.
+    assert [t["id"] for t in page2["topics"]] == [ids[2]]
+    assert page2["has_more"] is False
