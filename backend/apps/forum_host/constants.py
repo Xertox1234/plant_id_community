@@ -7,6 +7,8 @@
 DEFAULT_FORUM_RATELIMITS = {
     "topic_create": "10/h",
     "reply_create": "30/h",
+    "post_update": "30/h",
+    "post_delete": "20/h",
     "reaction_toggle": "60/m",
     "profile_update": "10/h",
     "search": "30/m",

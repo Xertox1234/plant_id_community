@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import generics
 from rest_framework import status as http_status
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -26,13 +26,14 @@ except ImportError:  # pragma: no cover
 
 from ..blocks import ForumBodyBlock
 from ..models import ForumBoard, Post, Reaction, Topic
-from ..workflow import submit_for_moderation
+from ..workflow import submit_edit_for_moderation, submit_for_moderation
 from .exceptions import Conflict, UnprocessableEntity
 from .idempotency import fingerprint, idempotency_cache_key, remember, replay, reserve
 from .pagination import PostCursorPagination, TopicCursorPagination
 from .serializers import (
     BoardSerializer,
     MeProfileSerializer,
+    PostEditSerializer,
     PostSerializer,
     ReactionSerializer,
     ReplyCreateSerializer,
@@ -322,6 +323,83 @@ class PostListView(generics.ListAPIView):
         result = {"id": post.id, "status": moderation_status}
         remember(cache_key, result, http_status.HTTP_201_CREATED, payload_fp)
         return Response(result, status=http_status.HTTP_201_CREATED)
+
+
+class PostWriteView(APIView):
+    """Edit (PATCH) or soft-delete (DELETE) a single post. Author or moderator."""
+
+    permission_classes = [IsAuthenticated]
+    versioning_class = None
+
+    def _get_editable(self, request, post_id):
+        # Hide non-live posts / posts on non-live topics / hidden boards (404),
+        # never 403 — no existence leak (mirrors ReplyCreateView, audit M6/M7).
+        post = get_object_or_404(
+            Post.objects.select_related("topic", "author"), id=post_id
+        )
+        if (
+            not post.live
+            or not post.topic.live
+            or not _visible_boards().filter(pk=post.topic.board_id).exists()
+        ):
+            raise NotFound()
+        # Trust the author OR a moderator (the change_post perm). can_edit/
+        # can_delete in PostSerializer compute the same predicate for the client.
+        if not (
+            request.user == post.author
+            or request.user.has_perm("wagtail_forum.change_post")
+        ):
+            raise PermissionDenied()
+        return post
+
+    @extend_schema(
+        request=PostEditSerializer,
+        responses={200: PostSerializer, 400: dict, 403: dict, 404: dict, 409: dict},
+        description=(
+            "Edit a post (author or moderator). Re-screened by author trust: a "
+            "trusted edit publishes immediately; an untrusted edit awaits "
+            "moderation while the last-approved body keeps serving. Response is "
+            "the post plus moderation_status (published|pending). 409 if the "
+            "topic is closed/locked."
+        ),
+    )
+    def patch(self, request, post_id):
+        post = self._get_editable(request, post_id)
+        if post.topic.is_closed or post.topic.locked:
+            raise Conflict("Topic is closed to edits.")
+        serializer = PostEditSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        post.body = ForumBodyBlock().to_python(serializer.validated_data["body"])
+        try:
+            moderation_status = submit_edit_for_moderation(post, request.user)
+        except Exception:
+            logger.exception(
+                "[ERROR] submit_edit_for_moderation failed for post %s", post.pk
+            )
+            moderation_status = "pending"
+        post.refresh_from_db()
+        data = PostSerializer(post, context={"request": request}).data
+        data["moderation_status"] = moderation_status
+        return Response(data)
+
+    @extend_schema(
+        responses={204: None, 403: dict, 404: dict, 409: dict},
+        description=(
+            "Soft-delete a post (author or moderator) by unpublishing it; the "
+            "topic's reply_count recounts via the unpublish signal. Deleting an "
+            "opening post returns 409 (delete the topic instead)."
+        ),
+    )
+    def delete(self, request, post_id):
+        post = self._get_editable(request, post_id)
+        if post.is_opening_post:
+            raise Conflict("Cannot delete the opening post; delete the topic.")
+        # unpublish() fires Wagtail's `unpublished` signal -> the forum's counter
+        # receivers recount reply_count/last_post_at/board/profile. Do NOT recount
+        # by hand (that double-processes). user=None: forum authors are not
+        # Wagtail editors, matching submit_for_moderation's publish(user=None).
+        post.unpublish(user=None)
+        return Response(status=http_status.HTTP_204_NO_CONTENT)
 
 
 class ReactionToggleView(APIView):

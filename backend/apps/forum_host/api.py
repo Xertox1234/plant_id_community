@@ -40,6 +40,16 @@ class PostListView(forum_views.PostListView):
 
 
 @method_decorator(
+    ratelimit(key="user", rate=_rate("post_update"), method="PATCH"), name="patch"
+)
+@method_decorator(
+    ratelimit(key="user", rate=_rate("post_delete"), method="DELETE"), name="delete"
+)
+class PostWriteView(forum_views.PostWriteView):
+    pass
+
+
+@method_decorator(
     ratelimit(key="user", rate=_rate("reaction_toggle"), method="POST"), name="post"
 )
 class ReactionToggleView(forum_views.ReactionToggleView):

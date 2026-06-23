@@ -4,6 +4,7 @@ from .views import (
     BoardListView,
     MeProfileView,
     PostListView,
+    PostWriteView,
     ReactionToggleView,
     SearchView,
     SyncView,
@@ -18,6 +19,7 @@ urlpatterns = [
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
     path("topics/<int:topic_id>/", TopicDetailView.as_view(), name="topic-detail"),
     path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
+    path("posts/<int:post_id>/", PostWriteView.as_view(), name="post-detail"),
     path(
         "posts/<int:post_id>/reactions/",
         ReactionToggleView.as_view(),
