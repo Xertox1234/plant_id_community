@@ -136,7 +136,8 @@ Spec + plan: `docs/superpowers/specs/2026-06-20-forum-spec2-read-write-client-de
 
 ### 2026-06-23 - PR-1 (backend cleanup) landed — AC1 + AC3 done; todo still OPEN
 
-Branch `feat/forum-spec2-phase2`; spec open questions resolved + plan written
+**PR #394** (open, not auto-merged — owner merges). Branch
+`feat/forum-spec2-phase2`; spec open questions resolved + plan written
 (`docs/superpowers/plans/2026-06-23-forum-spec2-pr1-backend-cleanup.md`). The
 remaining epic is decomposed into 3 PRs (PR-1 backend cleanup, PR-2 write path,
 PR-3 images); this is PR-1.
