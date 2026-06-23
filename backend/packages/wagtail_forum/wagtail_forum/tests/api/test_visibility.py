@@ -81,7 +81,7 @@ def test_unpublished_board_takedown_is_effective():
     client.force_authenticate(user)
 
     reply = client.post(
-        f"/forum/topics/{topic.id}/posts/create/",
+        f"/forum/topics/{topic.id}/posts/",
         {"body": [{"type": "paragraph", "value": "<p>hi</p>"}]},
         format="json",
     )

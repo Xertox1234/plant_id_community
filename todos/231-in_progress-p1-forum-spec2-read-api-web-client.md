@@ -168,6 +168,50 @@ before its first use) — re-added after the usage existed.
 **Still open (do NOT close):** AC2 (web off machina) + AC4 final URL surface need
 PR-2 (write path) and PR-3 (images). Todo archives only after PR-3.
 
+### 2026-06-23 - PR-2a (backend write path) landed — todo still OPEN
+
+Branch `feat/forum-spec2-pr2a-backend-write`; plan
+`docs/superpowers/plans/2026-06-23-forum-spec2-pr2a-backend-write.md`. PR-2 was
+split into PR-2a (backend, this) + PR-2b (web client) so the risky edit helper +
+route rationalization get isolated review and match the one-at-a-time merge
+cadence. **No migration** (Q3 adds no field; `edited` already exists).
+
+**De-risk spike first (throwaway):** confirmed on real Postgres + Wagtail that
+`save_revision()` + `workflow.start()` on a LIVE, untrusted post keeps the
+last-approved body serving while the new revision waits, and that `edited`
+captured in the revision publishes atomically — i.e. the create-path's force
+`live=False` must NOT be reused for edits. Also confirmed the TipTap→StreamField
+HTML round-trip (`bold/italic/external-link/code/ul`) survives nh3 → `to_python`
+→ `expand_db_html`. Spike deleted; assertions reborn as real tests.
+
+**Done in PR-2a (TDD, four commits):**
+
+- **Edit helper** — `submit_edit_for_moderation(post, user)` in `workflow.py`:
+  sets `edited=True` in memory, `save_revision()`, then publishes (trusted) or
+  starts the workflow (untrusted) — NEVER forces `live=False`, NEVER `post.save()`
+  the new body. Returns `published|pending` off `has_unpublished_changes`. Trust
+  derives from `post.author`. 3 unit tests.
+- **Route rationalization (spec Phase 2)** — `…/topics/create/` →
+  `POST …/topics/`, `…/posts/create/` → `POST …/posts/` by merging each create
+  view into its sibling list view (GET=list + POST=create on one class);
+  `get_permissions` makes only POST require auth. Host throttles only `name="post"`
+  (GET stays public/unthrottled). Route names `topic-create`/`reply-create`
+  removed; parity + rate-limit tests updated in lockstep.
+- **`PostWriteView`** at `posts/<id>/` — `PATCH` (edit, re-moderates via the helper;
+  409 closed/locked, 403 non-author/non-mod, 404 hidden, 400 malformed; response =
+  `PostSerializer` + `moderation_status`) and `DELETE` (soft-delete = `unpublish()`,
+  which fires the existing `unpublished` signal → `reply_count` recounts; **no
+  manual recount**; Q1 opening-post DELETE → 409). New `post-detail` route + host
+  wrapper (`post_update`/`post_delete` rates). 9 API tests incl. moderator path,
+  hidden-board 404, and a PATCH throttle-enforcement test.
+
+Verification: full forum package + host suite **131 passed**; `manage.py
+spectacular` exits 0 with `/forum/posts/{post_id}/` exposing patch+delete and no
+new forum-view error; zero-coupling `test_reusability`/`test_smoke` green. Gotcha
+hit + fixed again: autoflake stripped `PermissionDenied` +
+`submit_edit_for_moderation` (added before first use) — re-added after the
+`PostWriteView` usage existed.
+
 ### 2026-06-23 - PR-2b (web write client) landed — todo still OPEN
 
 Branch `feat/forum-spec2-pr2b-web-write` off `main` (web-only; disjoint from the
@@ -191,9 +235,13 @@ the web suite mocks `fetch`, so PR-2b is fully verifiable without it.
   composer (hidden when locked), inline edit, delete-with-confirm, and reaction
   toggles; the read-only notice is gone. `PostCard` now gates edit/delete on the
   backend `can_edit`/`can_delete` (the client-side author check was dead — the
-  mapper sets `author.id=''`).
+  mapper sets `author.id=''`). Code-review follow-ups: published replies reload
+  through the cursor (the new reply is the newest → last page); "N remaining"
+  counts loaded replies (reply_count excludes the opening post); the write UI is
+  auth-gated (new-thread behind ProtectedLayout; composer/reactions hidden for
+  logged-out users).
 
-Verification: full web suite **559 passed** (37 files); `tsc --noEmit` clean;
+Verification: full web suite **561 passed** (37 files); `tsc --noEmit` clean;
 ESLint 0 errors. Machina write-path sweep of `forumService.ts` is empty
 (`topics/create/`, `posts/create/`, `posts/{id}/delete/`, `reaction_type` all
 gone); the only legacy paths left are the **image** fns (PR-3).

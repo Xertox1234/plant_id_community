@@ -231,6 +231,13 @@ class ReplyCreateSerializer(serializers.Serializer):
         return validate_forum_body(value)
 
 
+class PostEditSerializer(serializers.Serializer):
+    body = serializers.JSONField()
+
+    def validate_body(self, value):
+        return validate_forum_body(value)
+
+
 class ReactionSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=Reaction.REACTION_CHOICES)
 

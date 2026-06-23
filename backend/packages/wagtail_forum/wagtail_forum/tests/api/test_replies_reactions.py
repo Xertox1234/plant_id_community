@@ -44,7 +44,7 @@ def test_reply_blocked_on_closed_topic():
     client = APIClient()
     client.force_authenticate(user)
     resp = client.post(
-        f"/forum/topics/{topic.id}/posts/create/",
+        f"/forum/topics/{topic.id}/posts/",
         {"body": [{"type": "paragraph", "value": "<p>hi</p>"}]},
         format="json",
     )
@@ -65,7 +65,7 @@ def test_reply_to_non_live_topic_returns_404():
     client = APIClient()
     client.force_authenticate(user)
     resp = client.post(
-        f"/forum/topics/{draft.id}/posts/create/",
+        f"/forum/topics/{draft.id}/posts/",
         {"body": [{"type": "paragraph", "value": "<p>hi</p>"}]},
         format="json",
     )
@@ -83,7 +83,7 @@ def test_reply_dangerous_body_is_sanitized():
     client = APIClient()
     client.force_authenticate(user)
     resp = client.post(
-        f"/forum/topics/{topic.id}/posts/create/",
+        f"/forum/topics/{topic.id}/posts/",
         {
             "body": [
                 {
@@ -166,7 +166,7 @@ def test_reaction_on_non_live_topic_post_returns_404():
 def _reply(client, topic, key=None):
     headers = {"HTTP_IDEMPOTENCY_KEY": key} if key else {}
     return client.post(
-        f"/forum/topics/{topic.id}/posts/create/",
+        f"/forum/topics/{topic.id}/posts/",
         {"body": [{"type": "paragraph", "value": "<p>hi</p>"}]},
         format="json",
         **headers,
@@ -200,7 +200,7 @@ def test_idempotency_key_reuse_with_different_payload_is_422():
 
     assert _reply(client, topic, key="k1").status_code == 201
     r2 = client.post(
-        f"/forum/topics/{topic.id}/posts/create/",
+        f"/forum/topics/{topic.id}/posts/",
         {"body": [{"type": "paragraph", "value": "<p>DIFFERENT</p>"}]},
         format="json",
         HTTP_IDEMPOTENCY_KEY="k1",
@@ -287,7 +287,7 @@ def test_reply_blocked_on_locked_topic():
     client = APIClient()
     client.force_authenticate(user)
     resp = client.post(
-        f"/forum/topics/{topic.id}/posts/create/",
+        f"/forum/topics/{topic.id}/posts/",
         {"body": [{"type": "paragraph", "value": "<p>hi</p>"}]},
         format="json",
     )

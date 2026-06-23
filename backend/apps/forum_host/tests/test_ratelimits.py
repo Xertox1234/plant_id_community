@@ -71,7 +71,7 @@ def test_topic_create_is_throttled_per_user():
 
     def create(slug):
         return client.post(
-            f"/api/v1/forum/boards/{board.slug}/topics/create/",
+            f"/api/v1/forum/boards/{board.slug}/topics/",
             {
                 "title": slug,
                 "slug": slug,
@@ -96,8 +96,9 @@ def test_wrapped_routes_use_the_throttled_views():
     from apps.forum_host import api_urls as host
 
     wrapped = {
-        "topic-create": throttled.TopicCreateView,
-        "reply-create": throttled.ReplyCreateView,
+        "topic-list": throttled.TopicListView,
+        "post-list": throttled.PostListView,
+        "post-detail": throttled.PostWriteView,
         "reaction-toggle": throttled.ReactionToggleView,
         "me-profile": throttled.MeProfileView,
         "search": throttled.SearchView,
@@ -125,7 +126,7 @@ def test_throttle_is_per_user_not_global():
     with freeze_time("2026-06-10 12:00:00"):
         client.force_authenticate(users[0])
         first = client.post(
-            f"/api/v1/forum/boards/{board.slug}/topics/create/",
+            f"/api/v1/forum/boards/{board.slug}/topics/",
             {
                 "title": "a",
                 "slug": "a",
@@ -134,7 +135,7 @@ def test_throttle_is_per_user_not_global():
             format="json",
         )
         blocked = client.post(
-            f"/api/v1/forum/boards/{board.slug}/topics/create/",
+            f"/api/v1/forum/boards/{board.slug}/topics/",
             {
                 "title": "b",
                 "slug": "b",
@@ -144,7 +145,7 @@ def test_throttle_is_per_user_not_global():
         )
         client.force_authenticate(users[1])  # a DIFFERENT user is not throttled
         other = client.post(
-            f"/api/v1/forum/boards/{board.slug}/topics/create/",
+            f"/api/v1/forum/boards/{board.slug}/topics/",
             {
                 "title": "c",
                 "slug": "c",
@@ -156,3 +157,53 @@ def test_throttle_is_per_user_not_global():
     assert first.status_code == 201
     assert blocked.status_code == 429
     assert other.status_code == 201
+
+
+@override_settings(FORUM_RATELIMITS={"post_update": "1/h"})
+@pytest.mark.django_db
+def test_post_update_is_throttled_per_user():
+    """The new PATCH handler is throttled by the host wrapper (post_update).
+    DELETE uses the identical @method_decorator mechanism on the same class."""
+    from wagtail_forum.blocks import ForumBodyBlock
+    from wagtail_forum.models import Post, Topic
+    from wagtail_forum.workflow import submit_for_moderation
+
+    ensure_default_workflow()
+    board = _board()
+    author = User.objects.create_user(username="ed", password="x")
+    p = ForumProfile.for_user(author)
+    p.trust_level = TrustLevel.MEMBER  # >= autopublish, so create+edit go live
+    p.save()
+
+    topic = Topic(board=board, title="t", slug="t", author=author, live=False)
+    topic.save()
+    op = Post(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        body=ForumBodyBlock().to_python([{"type": "paragraph", "value": "<p>op</p>"}]),
+        live=False,
+    )
+    op.save()
+    submit_for_moderation(op, author)
+    reply = Post(
+        topic=topic,
+        author=author,
+        body=ForumBodyBlock().to_python([{"type": "paragraph", "value": "<p>r</p>"}]),
+        live=False,
+    )
+    reply.save()
+    submit_for_moderation(reply, author)
+
+    client = APIClient()
+    client.force_authenticate(author)
+    payload = {"body": [{"type": "paragraph", "value": "<p>e</p>"}]}
+    with freeze_time("2026-06-10 12:00:00"):
+        first = client.patch(f"/api/v1/forum/posts/{reply.id}/", payload, format="json")
+        blocked = client.patch(
+            f"/api/v1/forum/posts/{reply.id}/", payload, format="json"
+        )
+
+    assert first.status_code == 200
+    assert blocked.status_code == 429
+    assert "Retry-After" in blocked
