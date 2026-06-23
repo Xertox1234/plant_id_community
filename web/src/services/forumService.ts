@@ -220,44 +220,15 @@ export async function deletePost(postId: string): Promise<void> {
 // Reactions (toggle model)
 // ---------------------------------------------------------------------------
 
-interface BackendReactionResponse {
-  reactions?: Record<string, { count: number; users: unknown[] }>;
-  user_reactions?: string[];
-  action?: 'added' | 'removed';
-  reaction_type?: string;
-}
-
-function toCounts(r: BackendReactionResponse): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const [type, info] of Object.entries(r.reactions || {})) counts[type] = info.count;
-  return counts;
-}
-
-/** Toggle a reaction on a post; returns updated counts + the user's active reactions. */
+/** Toggle a reaction on a post; returns updated counts + this user's resulting state. */
 export async function toggleReaction(
   postId: string,
   reactionType: string
 ): Promise<ReactionToggleResult> {
-  const res = await authenticatedFetch<BackendReactionResponse>(
-    `${FORUM_BASE}/posts/${postId}/reactions/`,
-    { method: 'POST', body: JSON.stringify({ reaction_type: reactionType }) }
-  );
-  return {
-    action: res.action || 'added',
-    reaction_type: res.reaction_type || reactionType,
-    reaction_counts: toCounts(res),
-    user_reactions: res.user_reactions || [],
-  };
-}
-
-/** Read reaction counts + the current user's active reactions for a post. */
-export async function fetchReactions(
-  postId: string
-): Promise<{ reaction_counts: Record<string, number>; user_reactions: string[] }> {
-  const res = await authenticatedFetch<BackendReactionResponse>(
-    `${FORUM_BASE}/posts/${postId}/reactions/`
-  );
-  return { reaction_counts: toCounts(res), user_reactions: res.user_reactions || [] };
+  return authenticatedFetch<ReactionToggleResult>(`${FORUM_BASE}/posts/${postId}/reactions/`, {
+    method: 'POST',
+    body: JSON.stringify({ type: reactionType }),
+  });
 }
 
 // ---------------------------------------------------------------------------

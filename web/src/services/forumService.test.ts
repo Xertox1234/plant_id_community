@@ -10,7 +10,6 @@ import {
   updatePost,
   deletePost,
   toggleReaction,
-  fetchReactions,
   uploadPostImage,
   deletePostImage,
   searchForum,
@@ -311,35 +310,14 @@ describe('forumService (wagtail_forum API contract)', () => {
     );
   });
 
-  it('toggleReaction posts reaction_type and normalizes counts', async () => {
-    fetchMock.mockResolvedValueOnce(
-      okJson({
-        action: 'added',
-        reaction_type: 'like',
-        reactions: { like: { count: 3, users: [] } },
-        user_reactions: ['like'],
-      })
-    );
+  it('toggleReaction posts {type} and returns {reaction_counts, reacted}', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ reaction_counts: { like: 3 }, reacted: true }));
     const r = await toggleReaction('50', 'like');
-    expect(r).toMatchObject({
-      action: 'added',
-      reaction_counts: { like: 3 },
-      user_reactions: ['like'],
-    });
+    expect(r).toEqual({ reaction_counts: { like: 3 }, reacted: true });
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toContain('/posts/50/reactions/');
-    expect(JSON.parse(opts.body)).toEqual({ reaction_type: 'like' });
-  });
-
-  it('fetchReactions normalizes counts and user_reactions', async () => {
-    fetchMock.mockResolvedValueOnce(
-      okJson({
-        reactions: { like: { count: 3, users: [] } },
-        user_reactions: [],
-      })
-    );
-    const r = await fetchReactions('50');
-    expect(r.reaction_counts).toEqual({ like: 3 });
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body)).toEqual({ type: 'like' });
   });
 
   it('uploadPostImage sends FormData with the plural field name to images/upload/', async () => {
