@@ -471,6 +471,9 @@ class SyncView(APIView):
             # livelocking when a full page shares one updated_at (bulk import).
             # since_id defaults to 0, so a `since` with no `since_id` behaves
             # like the old >= boundary (first sync loses nothing).
+            # The OR form is the ORM idiom for keyset pagination (Django has no
+            # row-value tuple lookup); it still rides the partial (updated_at, id)
+            # index on Topic (models/topics.py: wf_topic_sync_idx).
             qs = qs.filter(
                 Q(updated_at__gt=since) | Q(updated_at=since, id__gt=since_id)
             )

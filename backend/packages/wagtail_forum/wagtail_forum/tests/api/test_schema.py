@@ -31,3 +31,25 @@ def test_read_views_appear_in_openapi_schema_with_documented_200():
     post_list = paths["/forum/topics/{topic_id}/posts/"]["get"]
     assert post_list["responses"]["200"]["content"]["application/json"]["schema"]
     assert post_list.get("description")
+
+
+@pytest.mark.django_db
+def test_read_serializer_method_fields_are_typed_not_default_string():
+    """@extend_schema_field gives the read serializers' SerializerMethodFields real
+    types instead of drf-spectacular's `string` fallback (todo 231 review)."""
+    from drf_spectacular.generators import SchemaGenerator
+
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    components = schema["components"]["schemas"]
+
+    post = components["Post"]["properties"]
+    assert post["author"]["type"] == "object"
+    assert post["body"]["type"] == "array"
+    assert post["edited_at"]["format"] == "date-time"
+    assert post["status"]["type"] == "string"
+    assert post["can_edit"]["type"] == "boolean"
+    assert post["can_delete"]["type"] == "boolean"
+
+    topic = components["TopicDetail"]["properties"]
+    assert topic["board"]["type"] == "object"
+    assert topic["opening_post_id"]["type"] == "integer"

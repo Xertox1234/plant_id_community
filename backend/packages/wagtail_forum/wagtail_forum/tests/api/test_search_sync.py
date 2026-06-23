@@ -80,9 +80,11 @@ def test_sync_truncation_sets_has_more_and_boundary_next_since(monkeypatch):
 
     assert len(resp.data["topics"]) == 2
     assert resp.data["has_more"] is True
-    # next_since is the LAST RETURNED row's timestamp; paired with next_since_id
-    # the compound cursor resumes strictly after it (no repeat, no loss).
-    assert resp.data["next_since"] == Topic.objects.get(slug="t1").updated_at
+    # next_since/next_since_id are the LAST RETURNED row's (updated_at, id); paired
+    # they let the compound cursor resume strictly after it (no repeat, no loss).
+    last = Topic.objects.get(slug="t1")
+    assert resp.data["next_since"] == last.updated_at
+    assert resp.data["next_since_id"] == last.id
 
 
 @pytest.mark.django_db
@@ -145,3 +147,21 @@ def test_sync_compound_cursor_advances_through_same_timestamp_rows(monkeypatch):
     # Progress: the third row only, never a repeat of the first page.
     assert [t["id"] for t in page2["topics"]] == [ids[2]]
     assert page2["has_more"] is False
+
+
+@pytest.mark.django_db
+def test_sync_without_since_id_includes_exact_boundary_row():
+    """First sync (since given, no since_id) keeps the old >= boundary: a row
+    stamped exactly at `since` is returned, not skipped (since_id defaults to 0).
+    """
+    board = _board()
+    t = Topic.objects.create(board=board, title="boundary", slug="b", live=True)
+    boundary = datetime.datetime(2026, 6, 23, 12, 0, tzinfo=datetime.timezone.utc)
+    Topic.objects.filter(id=t.id).update(updated_at=boundary)
+
+    resp = (
+        APIClient()
+        .get("/forum/sync/", {"board": board.slug, "since": boundary.isoformat()})
+        .data
+    )
+    assert [x["id"] for x in resp["topics"]] == [t.id]

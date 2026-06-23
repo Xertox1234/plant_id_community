@@ -5,9 +5,54 @@ from wagtail.rich_text import expand_db_html
 from ..models import ForumBoard, ForumProfile, Post, Reaction, Topic
 from .sanitize import validate_forum_body
 
+try:  # Schema annotations are optional — hosts without drf-spectacular still work.
+    from drf_spectacular.types import OpenApiTypes
+    from drf_spectacular.utils import extend_schema_field
+except ImportError:  # pragma: no cover
+
+    def extend_schema_field(field):
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+    class OpenApiTypes:
+        BOOL = DATETIME = INT = STR = None
+
+
 # Bio is stored in an unbounded TextField; bound it at the API boundary like
 # post bodies are (MAX_BODY_CHARS) — PATCHing megabytes is storage abuse.
 MAX_BIO_CHARS = 2_000
+
+# Inline OpenAPI schemas so drf-spectacular types PostSerializer's
+# SerializerMethodFields precisely instead of defaulting each to `string`
+# (which also emits an "unable to resolve type hint" warning per method).
+AUTHOR_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "username": {"type": "string"},
+        "display_name": {"type": "string"},
+        "trust_level": {"type": "integer", "nullable": True},
+    },
+}
+BOARD_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer"},
+        "slug": {"type": "string"},
+        "title": {"type": "string"},
+    },
+}
+FORUM_BODY_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "type": {"type": "string"},
+            "id": {"type": "string", "nullable": True},
+        },
+    },
+}
 
 
 class BoardSerializer(serializers.ModelSerializer):
@@ -66,9 +111,11 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             "opening_post_id",
         ]
 
+    @extend_schema_field(BOARD_SCHEMA)
     def get_board(self, obj):
         return {"id": obj.board.id, "slug": obj.board.slug, "title": obj.board.title}
 
+    @extend_schema_field(OpenApiTypes.INT)
     def get_opening_post_id(self, obj):
         post = obj.posts.filter(is_opening_post=True, live=True).only("id").first()
         return post.id if post else None
@@ -131,6 +178,7 @@ class PostSerializer(serializers.ModelSerializer):
             "can_delete",
         ]
 
+    @extend_schema_field(AUTHOR_SCHEMA)
     def get_author(self, obj):
         if obj.author is None:
             return {
@@ -140,12 +188,15 @@ class PostSerializer(serializers.ModelSerializer):
             }
         return PostAuthorSerializer(obj.author).data
 
+    @extend_schema_field(FORUM_BODY_SCHEMA)
     def get_body(self, obj):
         return serialize_forum_body(obj.body)
 
+    @extend_schema_field(OpenApiTypes.DATETIME)
     def get_edited_at(self, obj):
         return obj.updated_at if obj.edited else None
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_status(self, obj):
         return "live" if obj.live else "pending"
 
@@ -155,9 +206,11 @@ class PostSerializer(serializers.ModelSerializer):
             return False
         return user == obj.author or user.has_perm("wagtail_forum.change_post")
 
+    @extend_schema_field(OpenApiTypes.BOOL)
     def get_can_edit(self, obj):
         return self._is_owner_or_mod(obj)
 
+    @extend_schema_field(OpenApiTypes.BOOL)
     def get_can_delete(self, obj):
         return self._is_owner_or_mod(obj)
 
