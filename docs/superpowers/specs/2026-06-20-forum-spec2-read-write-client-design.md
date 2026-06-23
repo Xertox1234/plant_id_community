@@ -290,25 +290,53 @@ revision/workflow machinery.
   image block**, compose/edit/delete/react flows, cursor "Load More".
 - Type-check + ESLint + Vitest green (web CI gates).
 
-## Open questions for implementation planning
+## Resolved decisions (2026-06-23, approved by William)
 
-1. **Opening-post delete:** does `DELETE` on an `is_opening_post` post delete the
-   whole topic (cascade) or get rejected (409, "delete the topic instead")?
-   Leaning **reject** for v1 (simpler; topic-delete is not in scope).
-2. **Edit re-moderation:** does a low-trust author editing a live post re-enter the
-   moderation workflow (new revision → re-`submit_for_moderation`) or publish in
-   place? Leaning **publish in place for trusted authors; flag for moderation only
-   if the spam backend trips** — settle against `workflow.py` semantics in the plan.
-3. **Soft-delete field — is one even needed?** `Post` has `DraftStateMixin` and
-   `PostListView` filters `live=True`, so *unpublishing* a post (`live=False`)
-   already hides it with no new field/migration. A dedicated field
-   (`deleted_at`/`is_removed`) is justified **only** to distinguish a *deleted* post
-   from a *pending-moderation* post — both are `live=False`. This couples to a
-   sub-decision: does `PostListView` show an author their own `pending` post
-   ("awaiting approval", per Spec 1's mobile principle)? If yes, "deleted" and
-   "pending" must be distinguishable → add the field; if the list only ever shows
-   `live=True` posts, unpublish-to-delete suffices and **no field is added**.
-   Resolve both together in the plan; do not add the field by default.
-4. **View-count increment:** does `GET /topics/{id}/` bump `view_count`? If so,
-   do it without breaking the detail endpoint's `assertNumQueries` (single UPDATE)
-   and guard against double-count on the client's parallel detail+posts fetch.
+The four implementation-planning questions below were resolved during the Spec 2
+Phase 2/3 brainstorming session, grounded in the actual model code
+(`models/posts.py`, `models/topics.py`, `workflow.py`):
+
+1. **Opening-post delete → REJECT (409).** `DELETE` on an `is_opening_post` post
+   returns **409** ("delete the topic instead"). Deleting it would orphan the
+   topic (it backs `uniq_opening_post_per_topic` + `get_opening_post_id`) or force
+   a surprise cascade that removes every reply. Topic-delete stays out of scope.
+2. **Edit re-moderation → moderation-by-trust, but an edit NEVER unpublishes live
+   content.** A trusted author's edit (`trust >= TRUST_AUTOPUBLISH_LEVEL`) saves a
+   new revision and publishes it immediately, setting `edited=True`. An untrusted
+   author's edit saves a new revision that enters the spam-check workflow: clean →
+   published (`edited=True`); flagged → the **new revision stays pending** while the
+   post keeps serving its last-approved revision. No approved content goes dark
+   because of an edit. This needs a **dedicated edit helper** — the existing
+   `submit_for_moderation` is create-shaped (it force-drafts `live=False`), which
+   would unpublish a live post; the edit path must NOT force `live=False`.
+3. **Soft-delete → no new field; delete = unpublish (`live=False`).** `PostListView`
+   stays `live=True`-only, so a *deleted* post and a *pending* post are both
+   unlisted and never need distinguishing → **no migration**. Web does **not** show
+   an author their own pending posts (matches current web parity; the Spec-1 mobile
+   "awaiting approval" list UX is deferred). `status: pending|published` is returned
+   by the **create/reply** responses only (so the composer can show "awaiting
+   approval"), **not** by the post-list serializer. Recount `topic.reply_count`
+   (live, non-opening posts) on delete.
+4. **View-count → no increment in this epic.** `GET /topics/{id}/` does **not** bump
+   `view_count`. Meaningful view tracking needs per-session dedup and would add an
+   UPDATE to the `assertNumQueries`-pinned detail endpoint; both are out of scope.
+   `view_count` renders as-is (deferred enhancement).
+
+## Scope note — todo 231 criteria beyond this (web-focused) spec
+
+This spec is web-only (§Scope) and explicitly defers the `/sync/` compound
+`(updated_at, id)` cursor + the read-view `@extend_schema` annotations as
+"backend-internal / out of web scope" — but both are **acceptance criteria of
+todo 231** (AC3 and AC1 respectively). The implementation plan therefore also
+covers, as a self-contained backend slice:
+
+- **AC1:** add `@extend_schema` (+ `swagger_fake_view` guards) to `TopicDetailView`
+  and `PostListView` (read endpoints, `expand_db_html`, query-pins already landed
+  in Phase 1).
+- **AC3:** `SyncView` compound `(updated_at, id)` cursor + same-timestamp livelock
+  test. Verified **no consumer** exists (`grep` of `web/` + `plant_community_mobile/`
+  for `/sync/`/`next_since` is empty), so the `next_since` contract change is free.
+- **AC2 grep caveat:** `grep -r "categories/" web/src/services/` can never be empty
+  (`blogService.ts` legitimately calls `/api/v2/categories/` for the blog). The real
+  gate is "no machina **forum** paths in `forumService.ts`" (finding H4 was
+  forumService-specific).

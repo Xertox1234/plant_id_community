@@ -1,6 +1,7 @@
 import logging
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -125,23 +126,41 @@ class TopicListView(generics.ListAPIView):
         )
 
 
+@extend_schema(
+    responses={200: TopicDetailSerializer, 404: dict},
+    description=(
+        "Retrieve a topic's detail. Returns 404 for a non-live topic or a "
+        "topic on a hidden/non-live board (no existence leak)."
+    ),
+)
 class TopicDetailView(generics.RetrieveAPIView):
     serializer_class = TopicDetailSerializer
     versioning_class = None
     lookup_url_kwarg = "topic_id"
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Topic.objects.none()
         return Topic.objects.filter(
             live=True, board__in=_visible_boards()
         ).select_related("board", "author", "last_post_author")
 
 
+@extend_schema(
+    responses={200: PostSerializer(many=True)},
+    description=(
+        "List a topic's live posts, oldest first (cursor-paginated). Returns "
+        "404 if the topic is non-live or on a hidden/non-live board."
+    ),
+)
 class PostListView(generics.ListAPIView):
     serializer_class = PostSerializer
     pagination_class = PostCursorPagination
     versioning_class = None
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Post.objects.none()
         topic = get_object_or_404(
             Topic.objects.filter(live=True, board__in=_visible_boards()),
             id=self.kwargs["topic_id"],
@@ -421,9 +440,9 @@ class SyncView(APIView):
         responses={200: dict, 400: dict},
         description=(
             "Mobile delta-sync. Query params: since (ISO-8601, tz-aware), "
-            "board (slug). Returns topics updated at-or-after `since` plus "
-            "`has_more` and `next_since` for continuation; rows equal to the "
-            "boundary repeat — clients upsert by id."
+            "since_id (int, the last id seen at `since`), board (slug). Returns "
+            "topics after the compound (updated_at, id) cursor plus `has_more`, "
+            "`next_since` and `next_since_id` for continuation."
         ),
     )
     def get(self, request):
@@ -437,14 +456,27 @@ class SyncView(APIView):
                 raise ValidationError(
                     {"since": "Provide an ISO-8601 datetime with a timezone offset."}
                 )
+        try:
+            since_id = int(request.query_params.get("since_id", 0) or 0)
+        except (TypeError, ValueError):
+            raise ValidationError({"since_id": "Provide an integer topic id."})
+
         qs = Topic.objects.filter(live=True, board__in=_visible_boards())
         board_slug = request.query_params.get("board")
         if board_slug:
             qs = qs.filter(board__slug=board_slug)
         if since:
-            # >= so a row stamped exactly at the boundary is never lost; the
-            # repeat is harmless (clients upsert by id).
-            qs = qs.filter(updated_at__gte=since)
+            # Strict compound-key cursor: advance past every (updated_at, id)
+            # already seen without re-sending the boundary row and without
+            # livelocking when a full page shares one updated_at (bulk import).
+            # since_id defaults to 0, so a `since` with no `since_id` behaves
+            # like the old >= boundary (first sync loses nothing).
+            # The OR form is the ORM idiom for keyset pagination (Django has no
+            # row-value tuple lookup); it still rides the partial (updated_at, id)
+            # index on Topic (models/topics.py: wf_topic_sync_idx).
+            qs = qs.filter(
+                Q(updated_at__gt=since) | Q(updated_at=since, id__gt=since_id)
+            )
         batch = list(qs.order_by("updated_at", "id")[: self.MAX_TOPICS + 1])
         has_more = len(batch) > self.MAX_TOPICS
         batch = batch[: self.MAX_TOPICS]
@@ -460,5 +492,6 @@ class SyncView(APIView):
                 "deleted": [],
                 "has_more": has_more,
                 "next_since": batch[-1].updated_at if batch else raw_since or None,
+                "next_since_id": batch[-1].id if batch else (since_id or None),
             }
         )
