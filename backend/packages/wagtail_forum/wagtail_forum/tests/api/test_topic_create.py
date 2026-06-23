@@ -58,10 +58,10 @@ def test_trusted_user_creates_published_topic_idempotently():
     headers = {"HTTP_IDEMPOTENCY_KEY": "abc-123"}
 
     r1 = client.post(
-        f"/forum/boards/{board.slug}/topics/create/", payload, format="json", **headers
+        f"/forum/boards/{board.slug}/topics/", payload, format="json", **headers
     )
     r2 = client.post(
-        f"/forum/boards/{board.slug}/topics/create/", payload, format="json", **headers
+        f"/forum/boards/{board.slug}/topics/", payload, format="json", **headers
     )
 
     assert r1.status_code == 201
@@ -86,7 +86,7 @@ def test_api_topic_create_publishes_topic_and_updates_board_counters():
     client = APIClient()
     client.force_authenticate(user)
     r = client.post(
-        f"/forum/boards/{board.slug}/topics/create/",
+        f"/forum/boards/{board.slug}/topics/",
         {
             "title": "Hello",
             "slug": "hello",
@@ -115,7 +115,7 @@ def test_spam_in_topic_title_is_screened():
     client = APIClient()
     client.force_authenticate(user)
     r = client.post(
-        f"/forum/boards/{board.slug}/topics/create/",
+        f"/forum/boards/{board.slug}/topics/",
         {
             "title": "Best casino deals",
             "slug": "casino-deals",
@@ -148,13 +148,13 @@ def test_duplicate_slug_is_auto_suffixed():
     }
 
     r1 = client.post(
-        f"/forum/boards/{board.slug}/topics/create/",
+        f"/forum/boards/{board.slug}/topics/",
         payload,
         format="json",
         HTTP_IDEMPOTENCY_KEY="k1",
     )
     r2 = client.post(
-        f"/forum/boards/{board.slug}/topics/create/",
+        f"/forum/boards/{board.slug}/topics/",
         payload,
         format="json",
         HTTP_IDEMPOTENCY_KEY="k2",
@@ -186,9 +186,7 @@ def test_spam_backend_exception_leaves_pending_not_500():
         "body": [{"type": "paragraph", "value": "<p>hello there friend</p>"}],
     }
 
-    resp = client.post(
-        f"/forum/boards/{board.slug}/topics/create/", payload, format="json"
-    )
+    resp = client.post(f"/forum/boards/{board.slug}/topics/", payload, format="json")
 
     assert resp.status_code == 201
     assert resp.data["status"] == "pending"
@@ -217,13 +215,13 @@ def test_spam_backend_crash_replays_pending_on_retry():
     }
 
     r1 = client.post(
-        f"/forum/boards/{board.slug}/topics/create/",
+        f"/forum/boards/{board.slug}/topics/",
         payload,
         format="json",
         HTTP_IDEMPOTENCY_KEY="key1",
     )
     r2 = client.post(
-        f"/forum/boards/{board.slug}/topics/create/",
+        f"/forum/boards/{board.slug}/topics/",
         payload,
         format="json",
         HTTP_IDEMPOTENCY_KEY="key1",
@@ -260,9 +258,7 @@ def test_dangerous_body_is_sanitized_on_write():
             }
         ],
     }
-    resp = client.post(
-        f"/forum/boards/{board.slug}/topics/create/", payload, format="json"
-    )
+    resp = client.post(f"/forum/boards/{board.slug}/topics/", payload, format="json")
     assert resp.status_code == 201
     source = (
         Post.objects.get(topic__slug="t", is_opening_post=True).body[0].value.source
@@ -292,9 +288,7 @@ def test_safe_link_is_preserved():
             }
         ],
     }
-    resp = client.post(
-        f"/forum/boards/{board.slug}/topics/create/", payload, format="json"
-    )
+    resp = client.post(f"/forum/boards/{board.slug}/topics/", payload, format="json")
     assert resp.status_code == 201
     source = (
         Post.objects.get(topic__slug="t2", is_opening_post=True).body[0].value.source
@@ -316,9 +310,7 @@ def test_oversized_body_is_rejected():
         "slug": "t",
         "body": [{"type": "paragraph", "value": "<p>x</p>"}] * (MAX_BODY_BLOCKS + 1),
     }
-    resp = client.post(
-        f"/forum/boards/{board.slug}/topics/create/", payload, format="json"
-    )
+    resp = client.post(f"/forum/boards/{board.slug}/topics/", payload, format="json")
     assert resp.status_code == 400
     # Flat field error — body maps to a list of strings, not the double-nested
     # {"body": {"body": [...]}} shape (M14). The project envelope nests field
@@ -336,11 +328,11 @@ def test_unauthenticated_writes_are_rejected():
     client = APIClient()  # no credentials
 
     create = client.post(
-        f"/forum/boards/{board.slug}/topics/create/",
+        f"/forum/boards/{board.slug}/topics/",
         {"title": "x", "slug": "x", "body": []},
         format="json",
     )
-    reply = client.post("/forum/topics/1/posts/create/", {"body": []}, format="json")
+    reply = client.post("/forum/topics/1/posts/", {"body": []}, format="json")
     react = client.post("/forum/posts/1/reactions/", {"type": "like"}, format="json")
 
     assert create.status_code == 401
@@ -367,12 +359,8 @@ def test_slug_suffix_never_exceeds_max_length():
         "body": [{"type": "paragraph", "value": "<p>hi</p>"}],
     }
 
-    r1 = client.post(
-        f"/forum/boards/{board.slug}/topics/create/", payload, format="json"
-    )
-    r2 = client.post(
-        f"/forum/boards/{board.slug}/topics/create/", payload, format="json"
-    )
+    r1 = client.post(f"/forum/boards/{board.slug}/topics/", payload, format="json")
+    r2 = client.post(f"/forum/boards/{board.slug}/topics/", payload, format="json")
 
     assert r1.status_code == r2.status_code == 201
     assert len(r2.data["slug"]) <= 255
