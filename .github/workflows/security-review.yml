@@ -1,0 +1,67 @@
+name: Security Review
+
+# Unskippable PR-level security review using Anthropic's claude-code-security-review
+# action. Unlike the local kimi-review commit hook (bypassable with
+# SKIP_KIMI_REVIEW=1), this runs server-side for every PR into main and cannot be
+# skipped by a contributor. Findings are posted as PR comments.
+#
+# Advisory (non-required) to start: keep it OFF the branch-protection required-checks
+# list for the first 2-3 PRs, then promote to required if signal/noise is acceptable.
+# Promotion is a repository-settings change, not a workflow change.
+#
+# Setup (user action): add an `ANTHROPIC_API_KEY` repository secret. The key must be
+# enabled for both the Claude API and Claude Code usage. Without it, the job skips
+# gracefully (and fork PRs never receive the secret — see Security note below).
+#
+# Security note: the action is NOT hardened against prompt injection and only runs
+# when the API-key secret is present. Under the `pull_request` trigger, GitHub does
+# not expose secrets to fork-originated PRs, so this job self-skips on untrusted
+# forks — the intended safe default. Do not switch to `pull_request_target`.
+
+on:
+  pull_request:
+    branches: [main]
+
+# A newer push to the same PR cancels an in-flight review run (saves API cost).
+concurrency:
+  group: security-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Minimal permissions: read the code, write PR comments. Nothing else.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  security-review:
+    name: Claude Code Security Review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for ANTHROPIC_API_KEY
+        id: check-key
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::warning::ANTHROPIC_API_KEY secret is not set (or unavailable on a fork PR) — security review skipped."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout PR head
+        if: steps.check-key.outputs.enabled == 'true'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      # Pinned to main HEAD as of 2026-06-23 — the action publishes no tags or
+      # releases, so a commit SHA is the only immutable pin available. Bump
+      # deliberately after reviewing upstream changes.
+      - name: Run Claude Code security review
+        if: steps.check-key.outputs.enabled == 'true'
+        uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda
+        with:
+          comment-pr: true
+          claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
