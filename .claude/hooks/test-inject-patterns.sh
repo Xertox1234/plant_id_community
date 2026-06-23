@@ -114,6 +114,20 @@ check "backend test file → testing rules" \
   '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/forum/tests/test_views.py"}}' \
   "RULES — testing"
 
+# Ordered-fallback regression: a backend *.py that ALSO matches *firebase* must get
+# BOTH the backend/*.py fallback domains (database) AND the firebase additive domains
+# (firebase). The backend/*.py fallback is positioned BEFORE the firebase rule in
+# routing.json, so firebase stacks on top of it. A "fallback only if no rule matched
+# anywhere" model would drop database here — these two checks guard against that
+# regression (see docs/rules/routing.json: ORDER IS LOAD-BEARING).
+check "backend firebase .py → database (fallback fires)" \
+  '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/garden/firebase_config.py"}}' \
+  "RULES — database"
+
+check "backend firebase .py → firebase (stacks on fallback)" \
+  '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/garden/firebase_config.py"}}' \
+  "RULES — firebase"
+
 # Output is valid JSON
 check "output is valid JSON with hookSpecificOutput" \
   '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/users/views.py"}}' \

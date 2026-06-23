@@ -1,0 +1,42 @@
+{
+  "_comment": [
+    "Single source of truth for path -> docs/rules/<domain> routing.",
+    "Consumers: .claude/hooks/inject-patterns.sh (edit-time), .claude/hooks/kimi-review.sh",
+    "(commit gate), and .claude/skills/codify/SKILL.md Step 1 — all via",
+    "scripts/inject/route_domains.py. Adding/renaming a domain = edit THIS file only.",
+    "",
+    "ORDER IS LOAD-BEARING. Rules are evaluated top-to-bottom per path:",
+    "  - mode 'additive': if any glob matches, its domains are added (deduped).",
+    "  - mode 'fallback': applied ONLY if no domain has been collected YET at this",
+    "    position. A fallback must stay BELOW the additive rules it defers to, and",
+    "    additive rules placed AFTER a fallback still stack on top of it. This is why",
+    "    e.g. backend/apps/garden/firebase_config.py resolves to",
+    "    api,security,database (backend/*.py fallback) + firebase,security (stacked).",
+    "    Reordering changes behavior — see test-inject-patterns.sh firebase regression.",
+    "",
+    "Globs use fnmatch semantics (matched case-sensitively, '*' spans '/'), matching",
+    "bash [[ == ]] in the original hooks. todo 229 will add 'agents'/'exclusions'.",
+    "",
+    "Consequence of the testing-rule-before-ts-fallback order: a web non-.tsx test",
+    "file (e.g. web/src/App.spec.ts) resolves to 'testing' only — the *.ts fallback",
+    "is suppressed by the earlier testing match. This matches the old inject hook;",
+    "the old kimi/codify tables gave typescript+testing. Blessed (fail-safe: drops a",
+    "checklist hint, never blocks). .tsx web specs keep typescript via web/src/*.tsx."
+  ],
+  "rules": [
+    { "globs": ["backend/apps/blog/*"], "domains": ["wagtail", "api", "security"], "mode": "additive" },
+    { "globs": ["backend/apps/forum/*", "backend/apps/forum_host/*", "backend/packages/wagtail_forum/*"], "domains": ["forum", "wagtail", "security"], "mode": "additive" },
+    { "globs": ["*/migrations/*"], "domains": ["database", "security"], "mode": "additive" },
+    { "globs": ["*/serializers.py"], "domains": ["api"], "mode": "additive" },
+    { "globs": ["*/tasks.py", "*celery*", "*/beat*.py"], "domains": ["celery"], "mode": "additive" },
+    { "globs": ["*/views.py", "*/viewsets.py", "*/api/*.py", "*/permissions.py"], "domains": ["api", "security"], "mode": "additive" },
+    { "globs": ["*/models.py"], "domains": ["database", "security"], "mode": "additive" },
+    { "globs": ["*/cache*.py", "*/signals.py"], "domains": ["caching"], "mode": "additive" },
+    { "globs": ["backend/*.py"], "domains": ["api", "security", "database"], "mode": "fallback" },
+    { "globs": ["firebase/*", "*firebase*"], "domains": ["firebase", "security"], "mode": "additive" },
+    { "globs": ["*.dart"], "domains": ["flutter"], "mode": "additive" },
+    { "globs": ["web/src/*.tsx"], "domains": ["react", "typescript"], "mode": "additive" },
+    { "globs": ["*/tests/*", "*test_*.py", "*_test.py", "*.test.ts", "*.test.tsx", "*.spec.ts", "*.spec.tsx"], "domains": ["testing"], "mode": "additive" },
+    { "globs": ["*.ts", "*.tsx"], "domains": ["typescript"], "mode": "fallback" }
+  ]
+}
