@@ -167,3 +167,40 @@ before its first use) — re-added after the usage existed.
 
 **Still open (do NOT close):** AC2 (web off machina) + AC4 final URL surface need
 PR-2 (write path) and PR-3 (images). Todo archives only after PR-3.
+
+### 2026-06-23 - PR-2b (web write client) landed — todo still OPEN
+
+Branch `feat/forum-spec2-pr2b-web-write` off `main` (web-only; disjoint from the
+backend PR-2a). Plan: `docs/superpowers/plans/2026-06-23-forum-spec2-pr2b-web-write.md`.
+PR-2a (backend write path, PR #395) is its prerequisite for live integration but
+the web suite mocks `fetch`, so PR-2b is fully verifiable without it.
+
+**Done (TDD; commits = plan + reactions + service-writes + NewThread + wiring + this log):**
+
+- **Service** (`forumService.ts`) migrated onto the PR-2a routes:
+  `createThread` → `POST /boards/{slug}/topics/` (client slugifies the title;
+  returns `{id, slug, status}`); `createPost` → `POST /topics/{id}/posts/`
+  (`{id, status}`); `updatePost` → `PATCH /posts/{id}/` (full post +
+  `moderation_status`); `deletePost` → `DELETE /posts/{id}/`; `toggleReaction`
+  → `{type}` request / `{reaction_counts, reacted}` response. Bodies wrapped as a
+  single `paragraph` StreamField block via `toBodyBlocks`. `fetchReactions`
+  deleted (no GET on the toggle endpoint).
+- **Compose UI**: new `NewThreadPage` + `/forum/new-thread` route (a published
+  topic navigates into the thread; a *pending* one is `live=False` and would 404,
+  so we notify + return to the board). `ThreadDetailPage` gained the reply
+  composer (hidden when locked), inline edit, delete-with-confirm, and reaction
+  toggles; the read-only notice is gone. `PostCard` now gates edit/delete on the
+  backend `can_edit`/`can_delete` (the client-side author check was dead — the
+  mapper sets `author.id=''`).
+
+Verification: full web suite **559 passed** (37 files); `tsc --noEmit` clean;
+ESLint 0 errors. Machina write-path sweep of `forumService.ts` is empty
+(`topics/create/`, `posts/create/`, `posts/{id}/delete/`, `reaction_type` all
+gone); the only legacy paths left are the **image** fns (PR-3).
+
+**Deferred to PR-3 (do NOT close the todo):** inline image upload/render —
+`POST /topics/{id}/images/`, `validate_forum_body` relax, the web
+`StreamFieldRenderer` `image` case, and migrating the forum image client fns.
+Also a UX nicety: the composer toolbar still offers heading/quote/strike/
+code-block marks that the server's nh3 allowlist flattens to text (graceful, no
+data loss) — trim later. Todo archives after PR-3.
