@@ -121,4 +121,16 @@ describe('StreamFieldBlock', () => {
       expect.objectContaining({ component: 'StreamFieldBlock' })
     );
   });
+
+  it('renders nothing for a block type that collides with an Object.prototype key', () => {
+    // A plain-object registry inherits prototype members; a 'constructor' type
+    // must still hit the guard (not resolve Object.prototype.constructor).
+    const protoBlock = { type: 'constructor', value: 'x' } as unknown as DiagnosisBlock;
+    const { container } = render(<StreamFieldBlock block={protoBlock} />);
+    expect(container.firstChild).toBeNull();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[StreamFieldBlock] Unknown block type',
+      expect.objectContaining({ component: 'StreamFieldBlock' })
+    );
+  });
 });

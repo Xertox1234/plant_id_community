@@ -147,13 +147,14 @@ const BLOCK_RENDERERS: BlockRendererMap = {
  * Unknown block types (unexpected backend data) log a warning and render nothing.
  */
 export function StreamFieldBlock({ block }: { block: DiagnosisBlock }) {
-  // The cast widens the per-type renderer to the union, and the `| undefined`
-  // plus the !Renderer guard below intentionally defend against block types the
-  // backend may send that are not yet in the DiagnosisBlock union — don't drop
-  // the guard just because the registry is statically exhaustive.
-  const Renderer = BLOCK_RENDERERS[block.type] as FC<{ block: DiagnosisBlock }> | undefined;
-
-  if (!Renderer) {
+  // `Object.hasOwn` (not `BLOCK_RENDERERS[block.type]` truthiness) guards the
+  // lookup: a plain object literal inherits `Object.prototype` members, so a
+  // backend block type of 'constructor'/'toString'/etc. would otherwise resolve
+  // a truthy inherited function and render garbage. This intentionally defends
+  // against block types the backend may send that are not yet in the
+  // DiagnosisBlock union — don't drop it because the registry is statically
+  // exhaustive.
+  if (!Object.hasOwn(BLOCK_RENDERERS, block.type)) {
     logger.warn('[StreamFieldBlock] Unknown block type', {
       component: 'StreamFieldBlock',
       context: { block },
@@ -161,5 +162,8 @@ export function StreamFieldBlock({ block }: { block: DiagnosisBlock }) {
     return null;
   }
 
+  // The cast widens the per-type renderer to the union; dispatch is keyed on
+  // `block.type`, so the runtime block always matches its renderer's narrowed type.
+  const Renderer = BLOCK_RENDERERS[block.type] as FC<{ block: DiagnosisBlock }>;
   return <Renderer block={block} />;
 }
