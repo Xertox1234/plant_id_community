@@ -1,22 +1,38 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, FormEvent } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchThread, fetchPosts } from '../../services/forumService';
+import {
+  fetchThread,
+  fetchPosts,
+  createPost,
+  updatePost,
+  deletePost,
+  toggleReaction,
+} from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
 import PostCard from '../../components/forum/PostCard';
+import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import { logger } from '../../utils/logger';
 import type { Thread, Post } from '@/types';
 import type { PaginatedResponse } from '@/types/forum';
 
+/** Strip tags + whitespace to detect an effectively-empty rich-text body. */
+function isBlankHtml(html: string): boolean {
+  return html.replace(/<[^>]*>/g, '').trim() === '';
+}
+
+/** Extract the editable HTML from a post body (the single paragraph block). */
+function bodyToHtml(body: Post['body']): string {
+  const value = body?.find((b) => b.type === 'paragraph')?.value;
+  return typeof value === 'string' ? value : '';
+}
+
 /**
  * ThreadDetailPage Component
  *
- * Displays a thread with its posts (read-only for Phase 1).
+ * Displays a thread with its posts and the write UI (reply, edit, delete, react).
  * Route: /forum/:categorySlug/:threadSlug
- *
- * Phase 2: reply/react/delete write UI removed for read-only Phase 1 —
- * restore from git history (commit 36f0a54) + the Phase 2 plan.
  */
 export default function ThreadDetailPage() {
   const { categorySlug, threadSlug } = useParams<{ categorySlug: string; threadSlug: string }>();
@@ -34,6 +50,15 @@ export default function ThreadDetailPage() {
   // totalPosts is seeded from thread.post_count (meta.count is hardcoded 0 by the service)
   const [totalPosts, setTotalPosts] = useState<number>(0);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
+
+  // Write-path state
+  const [replyBody, setReplyBody] = useState<string>('');
+  const [replySubmitting, setReplySubmitting] = useState<boolean>(false);
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editBody, setEditBody] = useState<string>('');
+  const [editSubmitting, setEditSubmitting] = useState<boolean>(false);
+  // A transient banner for write errors + moderation outcomes.
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Load thread and initial posts
   useEffect(() => {
@@ -73,7 +98,7 @@ export default function ThreadDetailPage() {
     loadData();
   }, [topicId, threadSlug, categorySlug]);
 
-  // Load more posts (cursor pagination) — Phase 2
+  // Load more posts (cursor pagination)
   const handleLoadMore = useCallback(async () => {
     if (topicId == null || !nextCursor) return;
 
@@ -92,11 +117,116 @@ export default function ThreadDetailPage() {
         error: err,
         context: { threadId: thread?.id },
       });
-      alert(`Failed to load more posts: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setNotice(
+        `Failed to load more posts: ${err instanceof Error ? err.message : 'Unknown error'}`
+      );
     } finally {
       setLoadingMore(false);
     }
   }, [nextCursor, topicId, thread?.id]);
+
+  // Submit a reply. A published reply is refetched into the list; a pending reply
+  // (untrusted author) is unlisted, so we only confirm it was submitted.
+  const handleReply = useCallback(
+    async (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      if (topicId == null || isBlankHtml(replyBody)) return;
+      try {
+        setReplySubmitting(true);
+        setNotice(null);
+        const res = await createPost({ thread: topicId, content: replyBody });
+        setReplyBody('');
+        if (res.status === 'published') {
+          const refreshed = await fetchPosts({ thread: topicId });
+          setPosts(refreshed.items);
+          setNextCursor(refreshed.meta.next ?? null);
+          setTotalPosts((n) => n + 1);
+        } else {
+          setNotice('Your reply was submitted and is awaiting moderation.');
+        }
+      } catch (err) {
+        logger.error('Error posting reply', {
+          component: 'ThreadDetailPage',
+          error: err,
+          context: { threadId: topicId },
+        });
+        setNotice(err instanceof Error ? err.message : 'Failed to post reply');
+      } finally {
+        setReplySubmitting(false);
+      }
+    },
+    [topicId, replyBody]
+  );
+
+  const handleReact = useCallback(async (postId: string, reactionType: string) => {
+    try {
+      const result = await toggleReaction(postId, reactionType);
+      setPosts((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, reaction_counts: result.reaction_counts } : p))
+      );
+    } catch (err) {
+      logger.error('Error toggling reaction', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { postId, reactionType },
+      });
+      setNotice(err instanceof Error ? err.message : 'Failed to react');
+    }
+  }, []);
+
+  const handleDelete = useCallback(async (post: Post) => {
+    if (!window.confirm('Delete this post? This cannot be undone.')) return;
+    try {
+      await deletePost(post.id);
+      setPosts((prev) => prev.filter((p) => p.id !== post.id));
+      setTotalPosts((n) => Math.max(0, n - 1));
+    } catch (err) {
+      logger.error('Error deleting post', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { postId: post.id },
+      });
+      setNotice(err instanceof Error ? err.message : 'Failed to delete post');
+    }
+  }, []);
+
+  const handleEdit = useCallback((post: Post) => {
+    setEditingPostId(post.id);
+    setEditBody(bodyToHtml(post.body));
+  }, []);
+
+  const handleEditSubmit = useCallback(
+    async (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      if (editingPostId == null || isBlankHtml(editBody)) return;
+      try {
+        setEditSubmitting(true);
+        setNotice(null);
+        const res = await updatePost(editingPostId, { content: editBody });
+        setPosts((prev) => prev.map((p) => (p.id === editingPostId ? res.post : p)));
+        if (res.status === 'pending') {
+          setNotice('Your edit was submitted and is awaiting moderation.');
+        }
+        setEditingPostId(null);
+        setEditBody('');
+      } catch (err) {
+        logger.error('Error editing post', {
+          component: 'ThreadDetailPage',
+          error: err,
+          context: { postId: editingPostId },
+        });
+        setNotice(err instanceof Error ? err.message : 'Failed to save edit');
+      } finally {
+        setEditSubmitting(false);
+      }
+    },
+    [editingPostId, editBody]
+  );
+
+  const cancelEdit = useCallback(() => {
+    setEditingPostId(null);
+    setEditBody('');
+  }, []);
 
   if (loading) {
     return (
@@ -181,13 +311,49 @@ export default function ThreadDetailPage() {
         </div>
       </div>
 
+      {/* Write-path notice (errors + moderation outcomes) */}
+      {notice && (
+        <div className="mb-6 rounded-lg border border-line bg-surface-2 px-4 py-3 text-ink-2">
+          {notice}
+        </div>
+      )}
+
       {/* Posts List */}
       <div className="space-y-4 mb-8">
-        {posts.map((post) => (
-          <div key={post.id} id={`post-${post.id}`}>
-            <PostCard post={post} />
-          </div>
-        ))}
+        {posts.map((post) =>
+          editingPostId === post.id ? (
+            <form
+              key={post.id}
+              onSubmit={handleEditSubmit}
+              className="bg-surface-2 rounded-lg shadow-md p-6 space-y-3"
+            >
+              <span className="block text-sm font-medium text-ink-2">Edit post</span>
+              <TipTapEditor key={post.id} content={editBody} onChange={setEditBody} />
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={isBlankHtml(editBody) || editSubmitting}
+                  loading={editSubmitting}
+                >
+                  Save
+                </Button>
+                <Button type="button" variant="outline" onClick={cancelEdit}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div key={post.id} id={`post-${post.id}`}>
+              <PostCard
+                post={post}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onReact={handleReact}
+              />
+            </div>
+          )
+        )}
       </div>
 
       {/* Load More Button (cursor pagination) */}
@@ -207,10 +373,32 @@ export default function ThreadDetailPage() {
         </div>
       )}
 
-      {/* Read-only notice — Phase 2 will restore reply/react/delete write UI */}
-      <div className="mt-8 rounded-lg border border-line bg-surface-2 p-6 text-center">
-        <p className="text-ink-2">🔒 Replies are coming soon — the forum is read-only for now.</p>
-      </div>
+      {/* Reply composer — hidden when the thread is locked/closed */}
+      {thread.is_locked ? (
+        <div className="mt-8 rounded-lg border border-line bg-surface-2 p-6 text-center">
+          <p className="text-ink-2">🔒 This thread is locked — new replies are disabled.</p>
+        </div>
+      ) : (
+        <form
+          onSubmit={handleReply}
+          className="mt-8 bg-surface-2 rounded-lg shadow-md p-6 space-y-3"
+        >
+          <h2 className="text-lg font-semibold text-ink">Post a Reply</h2>
+          <TipTapEditor
+            content={replyBody}
+            onChange={setReplyBody}
+            placeholder="Write a reply..."
+          />
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={isBlankHtml(replyBody) || replySubmitting}
+            loading={replySubmitting}
+          >
+            Post Reply
+          </Button>
+        </form>
+      )}
     </div>
   );
 }

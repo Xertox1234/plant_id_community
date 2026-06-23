@@ -3,16 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import PostCard from './PostCard';
-import { useAuth } from '../../contexts/AuthContext';
 import { createMockPost } from '../../tests/forumUtils';
-
-// Mock the AuthContext
-vi.mock('../../contexts/AuthContext', () => ({
-  useAuth: vi.fn(() => ({
-    user: null,
-    isAuthenticated: false,
-  })),
-}));
 
 /**
  * Helper to render PostCard with Router context.
@@ -272,21 +263,8 @@ describe('PostCard', () => {
     expect(screen.getByText('p')).toBeInTheDocument();
   });
 
-  it('edit and delete buttons are in the DOM for the post owner when handlers are provided', () => {
-    vi.mocked(useAuth).mockReturnValueOnce({
-      user: { id: 1, email: 'owner@example.com', is_staff: false, is_moderator: false },
-      isAuthenticated: true,
-      isLoading: false,
-      error: null,
-      login: vi.fn(),
-      logout: vi.fn(),
-      signup: vi.fn(),
-      clearError: vi.fn(),
-    });
-
-    const post = createMockPost({
-      author: { id: 1, username: 'owner', email: '', display_name: 'Owner', trust_level: 'member' },
-    });
+  it('shows edit/delete buttons when can_edit/can_delete are true and handlers are provided', () => {
+    const post = createMockPost({ can_edit: true, can_delete: true });
 
     renderPostCard(post);
 
@@ -295,21 +273,17 @@ describe('PostCard', () => {
     expect(screen.getByTitle('Delete post')).toBeInTheDocument();
   });
 
-  it('hides edit and delete buttons for the post owner when no handlers are provided', () => {
-    vi.mocked(useAuth).mockReturnValueOnce({
-      user: { id: 1, email: 'owner@example.com', is_staff: false, is_moderator: false },
-      isAuthenticated: true,
-      isLoading: false,
-      error: null,
-      login: vi.fn(),
-      logout: vi.fn(),
-      signup: vi.fn(),
-      clearError: vi.fn(),
-    });
+  it('hides edit/delete buttons when the capability flags are false', () => {
+    const post = createMockPost({ can_edit: false, can_delete: false });
 
-    const post = createMockPost({
-      author: { id: 1, username: 'owner', email: '', display_name: 'Owner', trust_level: 'member' },
-    });
+    renderPostCard(post);
+
+    expect(screen.queryByTitle('Edit post')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Delete post')).not.toBeInTheDocument();
+  });
+
+  it('hides edit/delete buttons when no handlers are provided even if capable', () => {
+    const post = createMockPost({ can_edit: true, can_delete: true });
 
     render(
       <BrowserRouter>
@@ -319,5 +293,23 @@ describe('PostCard', () => {
 
     expect(screen.queryByTitle('Edit post')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Delete post')).not.toBeInTheDocument();
+  });
+
+  it('calls onEdit/onDelete with the post when the buttons are clicked', async () => {
+    const onEdit = vi.fn();
+    const onDelete = vi.fn();
+    const post = createMockPost({ id: 'post-7', can_edit: true, can_delete: true });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onEdit={onEdit} onDelete={onDelete} />
+      </BrowserRouter>
+    );
+
+    await userEvent.click(screen.getByTitle('Edit post'));
+    await userEvent.click(screen.getByTitle('Delete post'));
+
+    expect(onEdit).toHaveBeenCalledWith(post);
+    expect(onDelete).toHaveBeenCalledWith(post);
   });
 });
