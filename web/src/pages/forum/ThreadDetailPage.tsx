@@ -13,6 +13,7 @@ import PostCard from '../../components/forum/PostCard';
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
+import { useAuth } from '../../contexts/AuthContext';
 import { logger } from '../../utils/logger';
 import type { Thread, Post } from '@/types';
 import type { PaginatedResponse } from '@/types/forum';
@@ -54,6 +55,7 @@ async function collectAllPosts(threadId: number): Promise<{ items: Post[]; next:
  */
 export default function ThreadDetailPage() {
   const { categorySlug, threadSlug } = useParams<{ categorySlug: string; threadSlug: string }>();
+  const { isAuthenticated } = useAuth();
 
   // The route param is a hybrid "id-slug"; lookups use the leading topic id.
   const topicId = parseLeadingId(threadSlug);
@@ -371,7 +373,7 @@ export default function ThreadDetailPage() {
                 post={post}
                 onEdit={handleEdit}
                 onDelete={handleDelete}
-                onReact={handleReact}
+                onReact={isAuthenticated ? handleReact : undefined}
               />
             </div>
           )
@@ -404,6 +406,15 @@ export default function ThreadDetailPage() {
       {thread.is_locked ? (
         <div className="mt-8 rounded-lg border border-line bg-surface-2 p-6 text-center">
           <p className="text-ink-2">🔒 This thread is locked — new replies are disabled.</p>
+        </div>
+      ) : !isAuthenticated ? (
+        <div className="mt-8 rounded-lg border border-line bg-surface-2 p-6 text-center">
+          <p className="text-ink-2">
+            <Link to="/login" className="text-primary hover:underline">
+              Log in
+            </Link>{' '}
+            to post a reply.
+          </p>
         </div>
       ) : (
         <form

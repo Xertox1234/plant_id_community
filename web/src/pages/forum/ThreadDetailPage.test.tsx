@@ -6,6 +6,7 @@ import * as ReactRouter from 'react-router-dom';
 import ThreadDetailPage from './ThreadDetailPage';
 import { createMockThread, createMockPost } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
+import { useAuth } from '../../contexts/AuthContext';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -19,6 +20,7 @@ vi.mock('react-router-dom', async () => {
 // The aria-label is the placeholder so the reply composer ("Write a reply...") and
 // the edit editor ("body", no placeholder) are individually addressable.
 vi.mock('../../services/forumService');
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../../components/forum/TipTapEditor', () => ({
   default: ({
     onChange,
@@ -45,6 +47,11 @@ function renderThreadDetailPage(categorySlug = 'plant-care', threadSlug = 'water
   );
 }
 
+const mockAuth = (isAuthenticated: boolean) =>
+  ({ user: isAuthenticated ? { id: 1 } : null, isAuthenticated }) as unknown as ReturnType<
+    typeof useAuth
+  >;
+
 describe('ThreadDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -54,6 +61,8 @@ describe('ThreadDetailPage', () => {
       categorySlug: '3-plant-care',
       threadSlug: '12-watering-tips',
     });
+    // Default to authenticated so the write UI renders; the logged-out test overrides.
+    vi.mocked(useAuth).mockReturnValue(mockAuth(true));
   });
 
   it('shows error (not infinite spinner) when threadSlug has no leading id', async () => {
@@ -258,6 +267,21 @@ describe('ThreadDetailPage', () => {
       expect(screen.getByText(/new replies are disabled/i)).toBeInTheDocument();
     });
     expect(screen.queryByRole('button', { name: /Post Reply/i })).not.toBeInTheDocument();
+  });
+
+  it('hides the composer and reaction buttons for a logged-out user', async () => {
+    vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [createMockPost({ id: '5', reaction_counts: { like: 1 } })],
+      meta: { count: 0, next: null, previous: null },
+    });
+
+    renderThreadDetailPage();
+
+    await screen.findByText(/Log in/i);
+    expect(screen.queryByRole('button', { name: /Post Reply/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('React like')).not.toBeInTheDocument();
   });
 
   it('submits a published reply and shows it after refetch', async () => {

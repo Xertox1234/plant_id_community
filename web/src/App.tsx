@@ -53,7 +53,6 @@ function App() {
           <Route path="/blog/preview/:content_type/:token" element={<BlogPreview />} />
           <Route path="/forum/search" element={<SearchPage />} />
           <Route path="/forum" element={<CategoryListPage />} />
-          <Route path="/forum/new-thread" element={<NewThreadPage />} />
           <Route path="/forum/:categorySlug" element={<ThreadListPage />} />
           <Route path="/forum/:categorySlug/:threadSlug" element={<ThreadDetailPage />} />
         </Route>
@@ -61,6 +60,8 @@ function App() {
         {/* Protected routes - requires authentication */}
         <Route element={<ProtectedLayout />}>
           <Route element={<RootLayout />}>
+            {/* Composing a thread requires auth (the API rejects anon writes). */}
+            <Route path="/forum/new-thread" element={<NewThreadPage />} />
             <Route path="/diagnose" element={<DiseaseDiagnosePage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/settings" element={<SettingsPage />} />
