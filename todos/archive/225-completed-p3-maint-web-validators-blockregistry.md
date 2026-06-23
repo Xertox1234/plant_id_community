@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "225"
 tags: [maintainability, web, react, typescript, security, audit]
@@ -66,14 +66,72 @@ Per-finding file:line above. Patterns: `web/docs/patterns/react-typescript.md`,
       — user approved "wire 1, delete 8": `sanitizeSearchQuery` wired into
       `SearchPage` query derivation; the other 8 removed from `validation.ts` +
       their tests pruned. type-check clean = no dangling refs.)
-- [ ] M16 block-type registry single-sourced (menu + editor + renderer driven
-      from one source; adding a block is one edit). (DEFERRED 2026-06-21 by user
-      — real component refactor of the diagnosis StreamField editor; left for a
-      focused session. This todo stays in_progress until M16 lands.)
-- [x] `npm run test` + `type-check` + `lint` green. (for the M12 change:
-      type-check clean, eslint exit 0, full Vitest suite 546 passed / 34 files.)
+- [x] M16 block-type registry single-sourced (renderer driven from one source;
+      adding a block is one edit). (done 2026-06-23 — investigation showed the
+      diagnosis `StreamFieldEditor.tsx` was **dead code**: never imported in git
+      history, no tests, no diagnosis edit page exists — `care_instructions` are
+      backend AI-generated and rendered read-only. User chose "delete editor +
+      registry-fy renderer". Deleted the 370-line dead editor (3 of 4 dispatch
+      spots gone); extracted the live renderer into `streamFieldBlocks.tsx`
+      driven by an exhaustive `Record<DiagnosisBlock['type'], …>` registry — TS
+      now fails the build until a new block type has a registered renderer
+      (adding a block = one edit). The audit's "menu + editor" sources were the
+      dead editor, so single-sourcing applies to the one live consumer.)
+- [x] `npm run test` + `type-check` + `lint` green. (M16 change: `tsc --noEmit`
+      exit 0 — proves no dangling refs to the deleted editor/inlined renderer;
+      eslint exit 0; full Vitest suite **571 passed / 38 files** incl. 10 new
+      `streamFieldBlocks.test.tsx` cases — one per block type + unknown-type
+      fallback.)
 
 ## Work Log
+
+### 2026-06-23 - M16 done (delete dead editor + registry-fy renderer) (run 2026-06-23-1511)
+
+- Picked up by `/todo-next 225`. M12 already done; only M16 (block-type
+  registry) remained. Already `in_progress`, so no rename needed.
+- **Key finding (corrects the audit):** `web/src/components/diagnosis/
+  StreamFieldEditor.tsx` (370 lines) was **dead code** — `git log -S` shows it
+  was *never* imported in the entire history, it has no test, and there is no
+  diagnosis create/edit page. `care_instructions` are produced by the backend
+  (AI) and rendered read-only by the inline `StreamFieldBlockComponent` in
+  `DiagnosisDetailPage.tsx`. So M16's premise ("dispatch switched in 3 spots,
+  add-a-block = 3 edits, drive menu + editor + renderer from one registry") was
+  3 dead switches (in the editor) + 1 live switch (the renderer). The unrelated
+  `components/StreamFieldRenderer.tsx` is the blog/forum renderer, not this.
+- Pressure-tested with `kimi-challenge` (flagged the live renderer being an
+  untestable in-page switch as the real concern) and brought the fork to the
+  user via AskUserQuestion. **User chose "Delete editor + registry-fy renderer".**
+- Implementation:
+  - `git rm` the dead `StreamFieldEditor.tsx` (removes 3 of 4 dispatch spots).
+  - New `components/diagnosis/streamFieldBlocks.tsx`: one small renderer per
+    block type, each typed via `BlockRendererMap[K] = FC<{block: Extract<
+    DiagnosisBlock,{type:K}>}>`; exhaustive `BLOCK_RENDERERS: BlockRendererMap`
+    registry; exported `StreamFieldBlock` dispatcher that looks up by
+    `block.type` and logs+returns null for unknown (preserves old `default`
+    behavior). JSX copied verbatim from the old renderer → no visual change.
+  - `DiagnosisDetailPage.tsx`: deleted the inline `StreamFieldBlockComponent`,
+    imported and used `StreamFieldBlock` (rename-usage → remove-def → add-import
+    order to dodge the edit-time import strip).
+  - New `streamFieldBlocks.test.tsx`: 10 cases (every block type + frequency-
+    absent, image caption/alt fallback, unknown-type warn+null).
+- Verification: `tsc --noEmit` exit 0; `eslint` exit 0; `vitest run` **571
+  passed / 38 files**.
+- Review (code-review-orchestrator → react-typescript-reviewer): 0 critical / 0
+  high / 0 medium. Confirmed behavioral parity (JSX moved verbatim), exhaustive
+  typing, safe deletion (no remaining `StreamFieldEditor` refs). 1 LOW + 1 INFO
+  — both fixed rather than deferred: the image "omits caption" test now asserts
+  no `<p>` renders (was hollow per testing rules); added a comment on the
+  dispatcher cast/guard so it isn't "simplified" away. Re-ran gate after fix:
+  tsc 0, eslint 0, streamFieldBlocks 10/10.
+
+### 2026-06-23 - Completed by completing-todos skill (run 2026-06-23-1511)
+
+- Verification: both open acceptance criteria (M16 + green gate) passed with
+  quoted evidence above. M12 was already done (2026-06-21).
+- Review: 2 findings total (1 LOW, 1 INFO), 0 blocking — both repaired.
+- Checked off #M12 and #M16 in the source review doc. All 21 Finding Status
+  lines now `[x]`, so `docs/audits/2026-06-09-maintainability.md` was renamed to
+  `docs/audits/2026-06-09-maintainability-COMPLETED.md` — all findings resolved.
 
 ### 2026-06-21 - M12 done (user-approved), M16 deferred (run 2026-06-21-1412)
 
