@@ -16,27 +16,18 @@ Run:
 git diff main...HEAD --stat
 ```
 
-Build a list of changed-file domains (read top-to-bottom, a path may match
-several rows):
+Derive the changed-file domains from the single source of truth
+(`docs/rules/routing.json`) with the shared matcher — the same one the
+`inject-patterns.sh` and `kimi-review.sh` hooks use. Do **not** keep a copy of the
+path→domain table here:
 
-| Changed path matches                                    | Domain label(s)            |
-| -------------------------------------------------------- | -------------------------- |
-| `backend/apps/**/migrations/*`                           | `database`, `security`     |
-| `backend/apps/blog/**`                                   | `wagtail`, `api`           |
-| `backend/apps/**/serializers.py`, `**/api/**`            | `api`                      |
-| `backend/apps/**/views.py`, `**/viewsets.py`, `**/permissions.py` | `api`, `security` |
-| `backend/apps/**/models.py`                              | `database`, `security`     |
-| `backend/apps/**/tasks.py`, `**/celery*`                 | `celery`                   |
-| `backend/apps/**/cache*.py`, `**/signals.py`             | `caching`                  |
-| `backend/**/*.py` (other)                                | `security`                 |
-| `web/src/**/*.tsx`                                       | `react`, `typescript`      |
-| `web/src/**/*.ts`                                        | `typescript`               |
-| `plant_community_mobile/**/*.dart`                       | `flutter`                  |
-| `firebase/**`, `**/firebase*`                            | `firebase`, `security`     |
-| `**/tests/**`, `**/test_*.py`, `**/*.test.ts*`, `**/*.spec.ts*` | `testing`           |
+```bash
+git diff main...HEAD --name-only | python3 scripts/inject/route_domains.py
+```
 
-Combine all matched labels. If the diff is empty, output "Nothing to codify —
-no changes on this branch." and stop.
+This prints the comma-separated domain labels (deduped, e.g. `api,security,database`),
+which double as `docs/rules/<domain>` names. If the diff is empty (no output / no
+changed files), output "Nothing to codify — no changes on this branch." and stop.
 
 ## Step 2 — Run kimi-review on the branch diff
 

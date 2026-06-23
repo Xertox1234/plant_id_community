@@ -110,7 +110,11 @@ OUT=$(run_hook clean '{"tool_input":{"command":"git push origin main"}}')
 assert_empty "git push does NOT match" "$OUT"
 
 # ---------- Skip semantics ----------
-OUT=$(SKIP_KIMI_REVIEW=1 echo '{"tool_input":{"command":"git commit -m x"}}' | bash "$HOOK" 2>/dev/null)
+# NB: the env var must bind to the HOOK, not to `echo`. The old form
+# (`SKIP_KIMI_REVIEW=1 echo ... | bash "$HOOK"`) set it only for `echo`, so the
+# hook ran unset — silently passing only because a clean tree exits at the
+# "no staged files" gate. With anything staged it reached kimi-review and failed.
+OUT=$(echo '{"tool_input":{"command":"git commit -m x"}}' | SKIP_KIMI_REVIEW=1 bash "$HOOK" 2>/dev/null)
 assert_empty "SKIP_KIMI_REVIEW=1 skips" "$OUT"
 
 EMPTY_DIR=$(mktemp -d)

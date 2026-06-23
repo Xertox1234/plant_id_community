@@ -35,62 +35,15 @@ RULES_DIR="$PROJECT_ROOT/docs/rules"
 # as-is and simply fall through to no domain match.
 REL="${FILE_PATH#"$PROJECT_ROOT"/}"
 
-# Map file path to domains. Independent if-blocks so multiple rows can match.
+# Map file path to docs/rules/ domains via the shared matcher. Single source of
+# truth: docs/rules/routing.json (also consumed by kimi-review.sh and the codify
+# skill). Fail-open: missing python3 or unreadable routing → empty DOMAINS, so the
+# hook still emits the discipline floor + any matched triggers below.
 DOMAINS=""
-add_domain() {
-  case ",$DOMAINS," in
-    *,"$1",*) ;;
-    *) DOMAINS="${DOMAINS:+$DOMAINS,}$1" ;;
-  esac
-}
-
-[[ "$REL" == backend/apps/blog/* ]] && \
-  { add_domain wagtail; add_domain api; add_domain security; }
-
-[[ "$REL" == backend/apps/forum/* || "$REL" == backend/apps/forum_host/* || \
-   "$REL" == backend/packages/wagtail_forum/* ]] && \
-  { add_domain forum; add_domain wagtail; }
-
-[[ "$REL" == */migrations/* ]] && \
-  { add_domain database; add_domain security; }
-
-[[ "$REL" == */serializers.py ]] && add_domain api
-
-[[ "$REL" == */tasks.py || "$REL" == *celery* || "$REL" == */beat*.py ]] && \
-  add_domain celery
-
-[[ "$REL" == */views.py || "$REL" == */viewsets.py || \
-   "$REL" == */permissions.py ]] && \
-  { add_domain api; add_domain security; }
-
-[[ "$REL" == */models.py ]] && { add_domain database; add_domain security; }
-
-[[ "$REL" == */cache*.py || "$REL" == */signals.py ]] && add_domain caching
-
-# Generic backend Python catch-all (only if nothing more specific matched).
-if [ -z "$DOMAINS" ]; then
-  [[ "$REL" == backend/*.py ]] && \
-    { add_domain api; add_domain security; add_domain database; }
-fi
-
-[[ "$REL" == firebase/* || "$REL" == *firebase* ]] && \
-  { add_domain firebase; add_domain security; }
-
-[[ "$REL" == *.dart ]] && add_domain flutter
-
-[[ "$REL" == web/src/*.tsx ]] && { add_domain react; add_domain typescript; }
-
-# Test files accumulate the testing domain regardless of enclosing directory.
-[[ "$REL" == */tests/* || "$REL" == *test_*.py || "$REL" == *_test.py || \
-   "$REL" == *.test.ts || "$REL" == *.test.tsx || \
-   "$REL" == *.spec.ts || "$REL" == *.spec.tsx ]] && \
-  add_domain testing
-
-# typescript fallback for .ts/.tsx files when no more-specific domain matched.
-if [ -z "$DOMAINS" ]; then
-  case "$REL" in
-    *.ts|*.tsx) add_domain typescript ;;
-  esac
+if command -v python3 >/dev/null 2>&1; then
+  DOMAINS=$(printf '%s\n' "$REL" \
+    | python3 "$PROJECT_ROOT/scripts/inject/route_domains.py" 2>/dev/null) \
+    || DOMAINS=""
 fi
 
 # Build context in a temp file (avoids subshell newline stripping)

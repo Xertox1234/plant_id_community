@@ -33,51 +33,20 @@ GIT_COMMIT_RE='^([[:space:]]*[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*g
 FILES=$(git diff --cached --name-only 2>/dev/null)
 [ -n "$FILES" ] || exit 0
 
-# 6) Map staged files to docs/rules/ domains
+# 6) Map staged files to docs/rules/ domains via the shared matcher. Single source
+#    of truth: docs/rules/routing.json (also consumed by inject-patterns.sh and the
+#    codify skill). The matcher is additive (this normalizes the old first-match-wins
+#    case to the additive model inject-patterns.sh already used — strictly more
+#    thorough for the gate). Fail-open: missing python3 or unreadable routing →
+#    empty PATTERNS, so the review below still runs, just unscoped.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PATTERNS=''
-add_pattern() {
-  case ",$PATTERNS," in
-    *,$1,*) ;;
-    *) PATTERNS="${PATTERNS:+$PATTERNS,}$1" ;;
-  esac
-}
-
-while IFS= read -r file; do
-  # Directory/file-role classification — first match wins per file.
-  case "$file" in
-    backend/apps/blog/*)
-      add_pattern wagtail; add_pattern api; add_pattern security ;;
-    backend/apps/forum/*|backend/apps/forum_host/*|backend/packages/wagtail_forum/*)
-      add_pattern forum; add_pattern wagtail; add_pattern security ;;
-    */migrations/*)
-      add_pattern database; add_pattern security ;;
-    */serializers.py)
-      add_pattern api ;;
-    */tasks.py|*celery*|*/beat*.py)
-      add_pattern celery ;;
-    */views.py|*/viewsets.py|*/api/*.py|*/permissions.py)
-      add_pattern api; add_pattern security ;;
-    */models.py)
-      add_pattern database; add_pattern security ;;
-    */cache*.py|*/signals.py)
-      add_pattern caching ;;
-    backend/*.py)
-      add_pattern api; add_pattern security; add_pattern database; add_pattern caching ;;
-    firebase/*|*firebase*)
-      add_pattern firebase; add_pattern security ;;
-    web/src/*.tsx)
-      add_pattern react; add_pattern typescript ;;
-    web/src/*.ts)
-      add_pattern typescript ;;
-    plant_community_mobile/*.dart)
-      add_pattern flutter ;;
-  esac
-  # Extension/test classification — additive, runs for every file.
-  case "$file" in
-    *test_*.py|*_test.py|*/tests/*|*.test.ts|*.test.tsx|*.spec.ts|*.spec.tsx)
-      add_pattern testing ;;
-  esac
-done <<< "$FILES"
+if command -v python3 >/dev/null 2>&1; then
+  PATTERNS=$(printf '%s' "$FILES" \
+    | python3 "$PROJECT_ROOT/scripts/inject/route_domains.py" 2>/dev/null) \
+    || PATTERNS=''
+fi
 
 # 7) Run review on the staged diff with Tier A deterministic verification. Only
 #    CRITICAL + WARNING (project convention). docs/rules/ holds the compact
