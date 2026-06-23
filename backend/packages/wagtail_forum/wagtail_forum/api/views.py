@@ -125,23 +125,41 @@ class TopicListView(generics.ListAPIView):
         )
 
 
+@extend_schema(
+    responses={200: TopicDetailSerializer, 404: dict},
+    description=(
+        "Retrieve a topic's detail. Returns 404 for a non-live topic or a "
+        "topic on a hidden/non-live board (no existence leak)."
+    ),
+)
 class TopicDetailView(generics.RetrieveAPIView):
     serializer_class = TopicDetailSerializer
     versioning_class = None
     lookup_url_kwarg = "topic_id"
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Topic.objects.none()
         return Topic.objects.filter(
             live=True, board__in=_visible_boards()
         ).select_related("board", "author", "last_post_author")
 
 
+@extend_schema(
+    responses={200: PostSerializer(many=True)},
+    description=(
+        "List a topic's live posts, oldest first (cursor-paginated). Returns "
+        "404 if the topic is non-live or on a hidden/non-live board."
+    ),
+)
 class PostListView(generics.ListAPIView):
     serializer_class = PostSerializer
     pagination_class = PostCursorPagination
     versioning_class = None
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Post.objects.none()
         topic = get_object_or_404(
             Topic.objects.filter(live=True, board__in=_visible_boards()),
             id=self.kwargs["topic_id"],
