@@ -20,6 +20,7 @@ import {
 } from '../../services/diagnosisService';
 import { logger } from '../../utils/logger';
 import { getSeverityColor } from '../../utils/diagnosisDisplay';
+import { StreamFieldBlock } from '../../components/diagnosis/streamFieldBlocks';
 import type { DiagnosisBlock, DiagnosisCard, DiagnosisReminder, TreatmentStatus } from '@/types';
 
 interface ReminderResults {
@@ -36,129 +37,6 @@ function formatDate(dateString: string): string {
     month: 'long',
     day: 'numeric',
   }).format(date);
-}
-
-/**
- * StreamField Block Renderer
- */
-function StreamFieldBlockComponent({ block }: { block: DiagnosisBlock }) {
-  switch (block.type) {
-    case 'heading':
-      return <h3 className="text-xl font-semibold text-ink mt-6 mb-3">{block.value}</h3>;
-
-    case 'paragraph':
-      return <p className="text-ink-2 mb-4 leading-relaxed">{block.value}</p>;
-
-    case 'treatment_step': {
-      const typedValue = block.value;
-      return (
-        <div className="bg-sky/10 border-l-4 border-sky p-4 mb-4">
-          <div className="flex items-start">
-            <svg
-              className="w-5 h-5 text-sky mt-0.5 mr-3 flex-shrink-0"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fillRule="evenodd"
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                clipRule="evenodd"
-              />
-            </svg>
-            <div className="flex-1">
-              <h4 className="font-semibold text-sky mb-1">{typedValue.title}</h4>
-              <p className="text-sky">{typedValue.description}</p>
-              {typedValue.frequency && (
-                <p className="text-sm text-sky mt-2">Frequency: {typedValue.frequency}</p>
-              )}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    case 'symptom_check': {
-      const typedValue = block.value;
-      return (
-        <div className="bg-warn/10 border-l-4 border-warn p-4 mb-4">
-          <div className="flex items-start">
-            <svg
-              className="w-5 h-5 text-warn mt-0.5 mr-3 flex-shrink-0"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fillRule="evenodd"
-                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                clipRule="evenodd"
-              />
-            </svg>
-            <div className="flex-1">
-              <h4 className="font-semibold text-warn mb-1">Symptom Check: {typedValue.symptom}</h4>
-              <p className="text-warn">{typedValue.what_to_look_for}</p>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    case 'prevention_tip':
-      return (
-        <div className="bg-leaf/10 border-l-4 border-leaf p-4 mb-4">
-          <div className="flex items-start">
-            <svg
-              className="w-5 h-5 text-leaf mt-0.5 mr-3 flex-shrink-0"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fillRule="evenodd"
-                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-                clipRule="evenodd"
-              />
-            </svg>
-            <div className="flex-1">
-              <h4 className="font-semibold text-leaf mb-1">Prevention Tip</h4>
-              <p className="text-leaf">{block.value}</p>
-            </div>
-          </div>
-        </div>
-      );
-
-    case 'list_block':
-      return (
-        <ul className="list-disc list-inside space-y-2 mb-4 text-ink-2">
-          {block.value.items?.map((item, index) => (
-            <li key={index} className="ml-4">
-              {item}
-            </li>
-          ))}
-        </ul>
-      );
-
-    case 'image': {
-      const typedValue = block.value;
-      return (
-        <div className="mb-6">
-          <img
-            src={typedValue.url}
-            alt={typedValue.alt_text || 'Care instruction image'}
-            className="rounded-lg w-full max-w-2xl mx-auto"
-          />
-          {typedValue.caption && (
-            <p className="text-sm text-ink-2 text-center mt-2 italic">{typedValue.caption}</p>
-          )}
-        </div>
-      );
-    }
-
-    default:
-      logger.warn('[StreamFieldBlock] Unknown block type', {
-        component: 'StreamFieldBlock',
-        context: { block },
-      });
-      return null;
-  }
 }
 
 export default function DiagnosisDetailPage() {
@@ -583,7 +461,7 @@ export default function DiagnosisDetailPage() {
           {card.care_instructions && card.care_instructions.length > 0 ? (
             <div className="prose prose-green max-w-none">
               {card.care_instructions.map((block, index) => (
-                <StreamFieldBlockComponent key={index} block={block as DiagnosisBlock} />
+                <StreamFieldBlock key={index} block={block as DiagnosisBlock} />
               ))}
             </div>
           ) : (
