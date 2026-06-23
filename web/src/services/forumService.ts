@@ -1,10 +1,9 @@
 /**
- * Forum API Service — translation layer.
+ * Forum API Service — translation layer for the wagtail_forum REST API.
  *
- * READ functions target the wagtail_forum API contract (Tasks 1-4).
- * WRITE functions (createThread, createPost, updatePost, deletePost,
- * toggleReaction, image fns) are Phase 2/3 — left structurally intact
- * so they still compile, but their endpoints will 404 until Phase 2 lands.
+ * READ and WRITE functions (create topic/reply, edit, delete, react) target the
+ * wagtail_forum contract. The image functions remain on the legacy shape pending
+ * PR-3 (inline-image upload + render); they are not wired into any compose UI.
  *
  * Cookie-based JWT auth with CSRF on mutating requests.
  */
@@ -31,14 +30,25 @@ import type {
   Post,
   Attachment,
   PaginatedResponse,
+  CreateTopicInput,
+  CreateTopicResult,
+  CreateReplyInput,
+  CreateReplyResult,
   UpdatePostInput,
+  EditPostResult,
   SearchForumOptions,
   SearchForumResponse,
   ReactionToggleResult,
 } from '../types/forum';
+import { slugifyTitle } from '../utils/forumUrls';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const FORUM_BASE = `${API_URL}/api/v1/forum`;
+
+/** Wrap composer HTML as the forum body StreamField (a single paragraph block). */
+function toBodyBlocks(html: string): Array<{ type: 'paragraph'; value: string }> {
+  return [{ type: 'paragraph', value: html }];
+}
 
 interface DrfPage<T> {
   results?: T[];
@@ -135,27 +145,17 @@ export async function fetchThread(topicId: number): Promise<Thread> {
   return mapTopicDetailToThread(data);
 }
 
-export async function createThread(data: {
-  title: string;
-  category: number;
-  first_post_content: string;
-  first_post_format?: string;
-}): Promise<Thread> {
-  // Phase 2 will migrate this to POST /boards/{slug}/topics/ with a body[] payload.
-  // Left structurally intact so it compiles; endpoint will 404 until Phase 2.
-  const { title, category, first_post_content, first_post_format = 'plain' } = data;
-  const res = await authenticatedFetch<{ topic: BackendTopicDetail }>(
-    `${FORUM_BASE}/categories/${category}/topics/create/`,
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        subject: title,
-        content: first_post_content,
-        content_format: first_post_format,
-      }),
-    }
-  );
-  return mapTopicDetailToThread(res.topic);
+export async function createThread(data: CreateTopicInput): Promise<CreateTopicResult> {
+  const { boardSlug, title, content } = data;
+  const res = await authenticatedFetch<{
+    id: number;
+    slug: string;
+    status: 'published' | 'pending';
+  }>(`${FORUM_BASE}/boards/${boardSlug}/topics/`, {
+    method: 'POST',
+    body: JSON.stringify({ title, slug: slugifyTitle(title), body: toBodyBlocks(content) }),
+  });
+  return { id: String(res.id), slug: res.slug, status: res.status };
 }
 
 // ---------------------------------------------------------------------------
@@ -186,78 +186,42 @@ export async function fetchPosts(options: {
   };
 }
 
-export async function createPost(data: {
-  thread: number;
-  content_raw: string;
-  content_format?: string;
-}): Promise<Post> {
-  // Phase 2 will migrate to POST /topics/{id}/replies/ with a body[] payload.
-  const { thread, content_raw, content_format = 'plain' } = data;
-  const res = await authenticatedFetch<{ data: BackendPost }>(`${FORUM_BASE}/posts/create/`, {
-    method: 'POST',
-    body: JSON.stringify({ topic: thread, content: content_raw, content_format }),
-  });
-  if (!res?.data) {
-    throw new Error('createPost: response is missing "data" — unexpected response shape');
-  }
-  return mapPostToPost(res.data, String(thread));
+export async function createPost(data: CreateReplyInput): Promise<CreateReplyResult> {
+  const { thread, content } = data;
+  const res = await authenticatedFetch<{ id: number; status: 'published' | 'pending' }>(
+    `${FORUM_BASE}/topics/${thread}/posts/`,
+    { method: 'POST', body: JSON.stringify({ body: toBodyBlocks(content) }) }
+  );
+  return { id: String(res.id), status: res.status };
 }
 
-export async function updatePost(postId: string, data: UpdatePostInput): Promise<Post> {
-  const { content_raw, content_format } = data;
-  const res = await authenticatedFetch<{ data: BackendPost }>(`${FORUM_BASE}/posts/${postId}/`, {
+export async function updatePost(postId: string, data: UpdatePostInput): Promise<EditPostResult> {
+  const res = await authenticatedFetch<
+    BackendPost & { moderation_status: 'published' | 'pending' }
+  >(`${FORUM_BASE}/posts/${postId}/`, {
     method: 'PATCH',
-    body: JSON.stringify({ content: content_raw, content_format }),
+    body: JSON.stringify({ body: toBodyBlocks(data.content) }),
   });
-  return mapPostToPost(res.data, String(res.data.topic_id));
+  return { post: mapPostToPost(res, String(res.topic_id)), status: res.moderation_status };
 }
 
 export async function deletePost(postId: string): Promise<void> {
-  await authenticatedFetch<void>(`${FORUM_BASE}/posts/${postId}/delete/`, { method: 'DELETE' });
+  await authenticatedFetch<void>(`${FORUM_BASE}/posts/${postId}/`, { method: 'DELETE' });
 }
 
 // ---------------------------------------------------------------------------
 // Reactions (toggle model)
 // ---------------------------------------------------------------------------
 
-interface BackendReactionResponse {
-  reactions?: Record<string, { count: number; users: unknown[] }>;
-  user_reactions?: string[];
-  action?: 'added' | 'removed';
-  reaction_type?: string;
-}
-
-function toCounts(r: BackendReactionResponse): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const [type, info] of Object.entries(r.reactions || {})) counts[type] = info.count;
-  return counts;
-}
-
-/** Toggle a reaction on a post; returns updated counts + the user's active reactions. */
+/** Toggle a reaction on a post; returns updated counts + this user's resulting state. */
 export async function toggleReaction(
   postId: string,
   reactionType: string
 ): Promise<ReactionToggleResult> {
-  const res = await authenticatedFetch<BackendReactionResponse>(
-    `${FORUM_BASE}/posts/${postId}/reactions/`,
-    { method: 'POST', body: JSON.stringify({ reaction_type: reactionType }) }
-  );
-  return {
-    action: res.action || 'added',
-    reaction_type: res.reaction_type || reactionType,
-    reaction_counts: toCounts(res),
-    user_reactions: res.user_reactions || [],
-  };
-}
-
-/** Read reaction counts + the current user's active reactions for a post. */
-export async function fetchReactions(
-  postId: string
-): Promise<{ reaction_counts: Record<string, number>; user_reactions: string[] }> {
-  const res = await authenticatedFetch<BackendReactionResponse>(
-    `${FORUM_BASE}/posts/${postId}/reactions/`
-  );
-  return { reaction_counts: toCounts(res), user_reactions: res.user_reactions || [] };
+  return authenticatedFetch<ReactionToggleResult>(`${FORUM_BASE}/posts/${postId}/reactions/`, {
+    method: 'POST',
+    body: JSON.stringify({ type: reactionType }),
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -169,11 +169,42 @@ export interface CreatePostInput {
 }
 
 /**
- * Update post input
+ * Update post input — body is HTML; the service wraps it as a paragraph block.
  */
 export interface UpdatePostInput {
-  content_raw: string;
-  content_format: string;
+  content: string;
+}
+
+/** Create-topic input (POST /boards/{slug}/topics/). content is HTML. */
+export interface CreateTopicInput {
+  boardSlug: string;
+  title: string;
+  content: string;
+}
+
+/** Create-reply input (POST /topics/{id}/posts/). content is HTML. */
+export interface CreateReplyInput {
+  thread: number;
+  content: string;
+}
+
+/** Thin create-topic response — the topic may be pending moderation. */
+export interface CreateTopicResult {
+  id: string;
+  slug: string;
+  status: 'published' | 'pending';
+}
+
+/** Thin create-reply response — the reply may be pending moderation. */
+export interface CreateReplyResult {
+  id: string;
+  status: 'published' | 'pending';
+}
+
+/** Edit response — the (currently-live) post plus its moderation outcome. */
+export interface EditPostResult {
+  post: Post;
+  status: 'published' | 'pending';
 }
 
 /**
@@ -222,10 +253,8 @@ export interface SearchForumResponse {
 
 /** Result of toggling a reaction on a post (backend toggle endpoint). */
 export interface ReactionToggleResult {
-  action: 'added' | 'removed';
-  reaction_type: string;
   /** Map of reaction_type -> count, e.g. { like: 5, love: 2 } */
   reaction_counts: Record<string, number>;
-  /** Reaction types the current user currently has active on this post */
-  user_reactions: string[];
+  /** Whether the current user now has this reaction active on the post. */
+  reacted: boolean;
 }

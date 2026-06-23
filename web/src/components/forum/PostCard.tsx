@@ -1,6 +1,5 @@
 import { memo, useMemo } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { useAuth } from '../../contexts/AuthContext';
 import StreamFieldRenderer from '../StreamFieldRenderer';
 import type { Post } from '@/types';
 
@@ -32,11 +31,10 @@ function getReactionEmoji(type: string): string {
  * Includes author info, content, reactions, and edit/delete options.
  */
 function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
-  const { user } = useAuth();
-
-  const isAuthor = user && String(user.id) === String(post.author.id);
-  const isModerator = user && (user.is_staff || user.is_moderator);
-  const canEdit = isAuthor || isModerator;
+  // Edit/delete visibility is driven by the backend capability flags
+  // (PostSerializer.can_edit/can_delete) — the only authority on author-or-mod.
+  const showEdit = !!post.can_edit && !!onEdit;
+  const showDelete = !!post.can_delete && !!onDelete;
 
   // Memoize formatted date
   const formattedDate = useMemo(() => {
@@ -100,22 +98,22 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
           </div>
         </div>
 
-        {/* Actions (edit/delete) — shown only when handlers are provided (Phase 2 write UI).
-            Always visible on mobile, fade in on desktop hover. */}
-        {canEdit && (onEdit || onDelete) && (
+        {/* Actions (edit/delete) — gated on the backend capability flags AND the
+            presence of a handler. Always visible on mobile, fade in on desktop hover. */}
+        {(showEdit || showDelete) && (
           <div className="flex gap-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-            {onEdit && (
+            {showEdit && (
               <button
-                onClick={() => onEdit(post)}
+                onClick={() => onEdit!(post)}
                 className="min-h-11 px-3 py-1 text-sm text-sky hover:bg-sky/10 rounded inline-flex items-center"
                 title="Edit post"
               >
                 ✏️ Edit
               </button>
             )}
-            {onDelete && (
+            {showDelete && (
               <button
-                onClick={() => onDelete(post)}
+                onClick={() => onDelete!(post)}
                 className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded inline-flex items-center"
                 title="Delete post"
               >

@@ -6,6 +6,7 @@ import * as ReactRouter from 'react-router-dom';
 import ThreadDetailPage from './ThreadDetailPage';
 import { createMockThread, createMockPost } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
+import { useAuth } from '../../contexts/AuthContext';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -15,10 +16,24 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-// Mock the forumService and AuthContext (PostCard calls useAuth internally)
+// Mock the forumService; stub TipTapEditor to a textarea (jsdom-hostile rich editor).
+// The aria-label is the placeholder so the reply composer ("Write a reply...") and
+// the edit editor ("body", no placeholder) are individually addressable.
 vi.mock('../../services/forumService');
-vi.mock('../../contexts/AuthContext', () => ({
-  useAuth: vi.fn(() => ({ user: null, isAuthenticated: false })),
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../components/forum/TipTapEditor', () => ({
+  default: ({
+    onChange,
+    placeholder,
+  }: {
+    onChange?: (html: string) => void;
+    placeholder?: string;
+  }) => (
+    <textarea
+      aria-label={placeholder || 'body'}
+      onChange={(e) => onChange?.(`<p>${e.target.value}</p>`)}
+    />
+  ),
 }));
 
 /**
@@ -32,6 +47,11 @@ function renderThreadDetailPage(categorySlug = 'plant-care', threadSlug = 'water
   );
 }
 
+const mockAuth = (isAuthenticated: boolean) =>
+  ({ user: isAuthenticated ? { id: 1 } : null, isAuthenticated }) as unknown as ReturnType<
+    typeof useAuth
+  >;
+
 describe('ThreadDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -41,6 +61,8 @@ describe('ThreadDetailPage', () => {
       categorySlug: '3-plant-care',
       threadSlug: '12-watering-tips',
     });
+    // Default to authenticated so the write UI renders; the logged-out test overrides.
+    vi.mocked(useAuth).mockReturnValue(mockAuth(true));
   });
 
   it('shows error (not infinite spinner) when threadSlug has no leading id', async () => {
@@ -221,42 +243,208 @@ describe('ThreadDetailPage', () => {
     expect(screen.getByText(errorMessage)).toBeInTheDocument();
   });
 
-  it('shows read-only notice instead of reply form', async () => {
-    const mockThread = createMockThread();
-
-    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
-    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
-      items: [],
-      meta: { count: 0 },
-    });
+  it('shows a reply composer (no read-only notice)', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
 
     renderThreadDetailPage();
 
     await waitFor(() => {
-      expect(screen.getByText(/read-only/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Post a Reply/i })).toBeInTheDocument();
     });
-
-    expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Write a reply...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Post Reply/i })).toBeInTheDocument();
+    expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
   });
 
-  it('does not show reply form or Post Your Reply heading', async () => {
-    const mockThread = createMockThread();
+  it('hides the reply composer when the thread is locked', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ is_locked: true }));
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
 
-    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(mockThread);
+    renderThreadDetailPage();
+
+    await waitFor(() => {
+      expect(screen.getByText(/new replies are disabled/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /Post Reply/i })).not.toBeInTheDocument();
+  });
+
+  it('hides the composer and reaction buttons for a logged-out user', async () => {
+    vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
     vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
-      items: [],
-      meta: { count: 0 },
+      items: [createMockPost({ id: '5', reaction_counts: { like: 1 } })],
+      meta: { count: 0, next: null, previous: null },
     });
 
     renderThreadDetailPage();
 
-    // Block until the loaded state is rendered (the read-only notice appears),
-    // then assert the write UI is absent.
-    await screen.findByText(/read-only/i);
-
-    expect(screen.queryByText(/Post Your Reply/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    await screen.findByText(/Log in/i);
     expect(screen.queryByRole('button', { name: /Post Reply/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('React like')).not.toBeInTheDocument();
+  });
+
+  it('submits a published reply and shows it after refetch', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 0 }));
+    const fetchPostsSpy = vi
+      .spyOn(forumService, 'fetchPosts')
+      .mockResolvedValueOnce({ items: [], meta: { count: 0, next: null, previous: null } })
+      .mockResolvedValueOnce({
+        items: [
+          createMockPost({
+            id: '99',
+            body: [{ id: 'b', type: 'paragraph', value: '<p>my reply</p>' }],
+          }),
+        ],
+        meta: { count: 0, next: null, previous: null },
+      });
+    vi.spyOn(forumService, 'createPost').mockResolvedValue({ id: '99', status: 'published' });
+
+    renderThreadDetailPage();
+
+    await screen.findByRole('button', { name: /Post Reply/i });
+    await userEvent.type(screen.getByLabelText('Write a reply...'), 'my reply');
+    await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+
+    await waitFor(() => expect(screen.getByText('my reply')).toBeInTheDocument());
+    expect(forumService.createPost).toHaveBeenCalledWith({
+      thread: 12,
+      content: '<p>my reply</p>',
+    });
+    expect(fetchPostsSpy).toHaveBeenCalledTimes(2);
+    // The composer remounts (key bump) so it visibly clears after posting.
+    expect(screen.getByLabelText('Write a reply...')).toHaveValue('');
+  });
+
+  it('a published reply on a multi-page thread loads through to the new reply', async () => {
+    // The new reply is the NEWEST post (oldest-first ordering) → last cursor page.
+    // Reloading must follow the cursor to the end, not stop at page 1.
+    const opening = createMockPost({
+      id: '1',
+      is_first_post: true,
+      body: [{ id: 'b0', type: 'paragraph', value: '<p>opening</p>' }],
+    });
+    const reply = createMockPost({
+      id: '99',
+      body: [{ id: 'b9', type: 'paragraph', value: '<p>my reply</p>' }],
+    });
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 1 }));
+    vi.spyOn(forumService, 'fetchPosts')
+      .mockResolvedValueOnce({
+        items: [opening],
+        meta: { count: 0, next: 'cursor-2', previous: null },
+      }) // mount: page 1
+      .mockResolvedValueOnce({
+        items: [opening],
+        meta: { count: 0, next: 'cursor-2', previous: null },
+      }) // reload: page 1
+      .mockResolvedValueOnce({ items: [reply], meta: { count: 0, next: null, previous: null } }); // reload: page 2 (the reply)
+    vi.spyOn(forumService, 'createPost').mockResolvedValue({ id: '99', status: 'published' });
+
+    renderThreadDetailPage();
+
+    await screen.findByRole('button', { name: /Post Reply/i });
+    await userEvent.type(screen.getByLabelText('Write a reply...'), 'my reply');
+    await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+
+    await waitFor(() => expect(screen.getByText('my reply')).toBeInTheDocument());
+    // Load More is gone — the cursor was followed to the end.
+    expect(screen.queryByText(/Load More Posts/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a moderation notice for a pending reply and does not refetch', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    const fetchPostsSpy = vi
+      .spyOn(forumService, 'fetchPosts')
+      .mockResolvedValue({ items: [], meta: { count: 0 } });
+    vi.spyOn(forumService, 'createPost').mockResolvedValue({ id: '99', status: 'pending' });
+
+    renderThreadDetailPage();
+
+    await screen.findByRole('button', { name: /Post Reply/i });
+    await userEvent.type(screen.getByLabelText('Write a reply...'), 'spammy');
+    await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+
+    await waitFor(() => expect(screen.getByText(/awaiting moderation/i)).toBeInTheDocument());
+    expect(fetchPostsSpy).toHaveBeenCalledTimes(1); // initial load only — no refetch
+  });
+
+  it('deletes a post after confirmation and removes it from the list', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 1 }));
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [
+        createMockPost({
+          id: '5',
+          can_delete: true,
+          body: [{ id: 'b', type: 'paragraph', value: '<p>doomed</p>' }],
+        }),
+      ],
+      meta: { count: 0, next: null, previous: null },
+    });
+    const deleteSpy = vi.spyOn(forumService, 'deletePost').mockResolvedValue(undefined);
+
+    renderThreadDetailPage();
+
+    await screen.findByText('doomed');
+    await userEvent.click(screen.getByTitle('Delete post'));
+
+    await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith('5'));
+    expect(screen.queryByText('doomed')).not.toBeInTheDocument();
+  });
+
+  it('toggling a reaction updates the displayed count', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [createMockPost({ id: '5', reaction_counts: { like: 0 } })],
+      meta: { count: 0, next: null, previous: null },
+    });
+    vi.spyOn(forumService, 'toggleReaction').mockResolvedValue({
+      reaction_counts: { like: 1 },
+      reacted: true,
+    });
+
+    renderThreadDetailPage();
+
+    await screen.findByLabelText('React like');
+    expect(screen.getByLabelText('React like')).toHaveTextContent('0');
+    await userEvent.click(screen.getByLabelText('React like'));
+
+    await waitFor(() => expect(screen.getByLabelText('React like')).toHaveTextContent('1'));
+    expect(forumService.toggleReaction).toHaveBeenCalledWith('5', 'like');
+  });
+
+  it('edits a post and shows the new body', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [
+        createMockPost({
+          id: '5',
+          can_edit: true,
+          body: [{ id: 'b', type: 'paragraph', value: '<p>old</p>' }],
+        }),
+      ],
+      meta: { count: 0, next: null, previous: null },
+    });
+    vi.spyOn(forumService, 'updatePost').mockResolvedValue({
+      post: createMockPost({
+        id: '5',
+        body: [{ id: 'b', type: 'paragraph', value: '<p>new body</p>' }],
+      }),
+      status: 'published',
+    });
+
+    renderThreadDetailPage();
+
+    await screen.findByText('old');
+    await userEvent.click(screen.getByTitle('Edit post'));
+    await userEvent.type(await screen.findByLabelText('body'), 'new body');
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/i }));
+
+    await waitFor(() =>
+      expect(forumService.updatePost).toHaveBeenCalledWith('5', { content: '<p>new body</p>' })
+    );
+    await waitFor(() => expect(screen.getByText('new body')).toBeInTheDocument());
   });
 
   it('shows Load More button when meta.next is present', async () => {
