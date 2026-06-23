@@ -169,11 +169,42 @@ export interface CreatePostInput {
 }
 
 /**
- * Update post input
+ * Update post input — body is HTML; the service wraps it as a paragraph block.
  */
 export interface UpdatePostInput {
-  content_raw: string;
-  content_format: string;
+  content: string;
+}
+
+/** Create-topic input (POST /boards/{slug}/topics/). content is HTML. */
+export interface CreateTopicInput {
+  boardSlug: string;
+  title: string;
+  content: string;
+}
+
+/** Create-reply input (POST /topics/{id}/posts/). content is HTML. */
+export interface CreateReplyInput {
+  thread: number;
+  content: string;
+}
+
+/** Thin create-topic response — the topic may be pending moderation. */
+export interface CreateTopicResult {
+  id: string;
+  slug: string;
+  status: 'published' | 'pending';
+}
+
+/** Thin create-reply response — the reply may be pending moderation. */
+export interface CreateReplyResult {
+  id: string;
+  status: 'published' | 'pending';
+}
+
+/** Edit response — the (currently-live) post plus its moderation outcome. */
+export interface EditPostResult {
+  post: Post;
+  status: 'published' | 'pending';
 }
 
 /**

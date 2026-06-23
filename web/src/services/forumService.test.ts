@@ -262,52 +262,58 @@ describe('forumService (wagtail_forum API contract)', () => {
 
   // --- Write functions (structurally intact, Phase 2) -----------------------
 
-  it('createThread posts to /categories/{id}/topics/create/ (Phase 2 placeholder)', async () => {
-    fetchMock.mockResolvedValueOnce(okJson({ topic: backendTopicDetail }));
-    const t = await createThread({
-      title: 'Succulent help',
-      category: 3,
-      first_post_content: 'hello',
-      first_post_format: 'html',
+  it('createThread posts to /boards/{slug}/topics/ with {title, slug, body[]}', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({ id: 12, slug: 'succulent-help', status: 'published' })
+    );
+    const r = await createThread({
+      boardSlug: 'plant-care',
+      title: 'Succulent help!',
+      content: '<p>hi</p>',
     });
-    expect(t.id).toBe('12');
+    expect(r).toEqual({ id: '12', slug: 'succulent-help', status: 'published' });
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toContain('/categories/3/topics/create/');
+    expect(url).toContain('/boards/plant-care/topics/');
     expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body)).toEqual({
+      title: 'Succulent help!',
+      slug: 'succulent-help',
+      body: [{ type: 'paragraph', value: '<p>hi</p>' }],
+    });
   });
 
-  it('createPost posts to /posts/create/ and unwraps {data}', async () => {
-    fetchMock.mockResolvedValueOnce(okJson({ message: 'ok', data: backendPost }));
-    const p = await createPost({ thread: 12, content_raw: 'hi', content_format: 'html' });
-    expect(p.id).toBe('50');
+  it('createPost posts to /topics/{id}/posts/ with {body[]}', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ id: 51, status: 'pending' }));
+    const r = await createPost({ thread: 12, content: '<p>hi</p>' });
+    expect(r).toEqual({ id: '51', status: 'pending' });
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toContain('/posts/create/');
-    expect(JSON.parse(opts.body)).toMatchObject({ topic: 12, content: 'hi' });
+    expect(url).toContain('/topics/12/posts/');
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body)).toEqual({ body: [{ type: 'paragraph', value: '<p>hi</p>' }] });
   });
 
-  it('createPost throws a clear error when the response is missing {data}', async () => {
-    fetchMock.mockResolvedValueOnce(okJson({ message: 'ok', post: backendPost }));
-    await expect(
-      createPost({ thread: 12, content_raw: 'hi', content_format: 'html' })
-    ).rejects.toThrow(/missing "data"/);
-  });
-
-  it('updatePost maps topic_id to thread', async () => {
-    fetchMock.mockResolvedValueOnce(okJson({ data: { ...backendPost, topic_id: 77 } }));
-    const p = await updatePost('50', { content_raw: '<p>edited</p>', content_format: 'html' });
-    expect(p.thread).toBe('77');
+  it('updatePost PATCHes /posts/{id}/ with {body[]} and returns {post, status}', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({ ...backendPost, id: 50, topic_id: 77, moderation_status: 'published' })
+    );
+    const r = await updatePost('50', { content: '<p>edited</p>' });
+    expect(r.status).toBe('published');
+    expect(r.post.id).toBe('50');
+    expect(r.post.thread).toBe('77');
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toContain('/posts/50/');
     expect(opts.method).toBe('PATCH');
+    expect(JSON.parse(opts.body)).toEqual({
+      body: [{ type: 'paragraph', value: '<p>edited</p>' }],
+    });
   });
 
-  it('deletePost hits the /delete/ suffix endpoint', async () => {
+  it('deletePost DELETEs /posts/{id}/ (no /delete/ suffix)', async () => {
     fetchMock.mockResolvedValueOnce({ ok: true, status: 204, json: async () => undefined });
     await deletePost('50');
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/posts/50/delete/'),
-      expect.objectContaining({ method: 'DELETE' })
-    );
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/posts\/50\/$/);
+    expect(opts.method).toBe('DELETE');
   });
 
   it('toggleReaction posts {type} and returns {reaction_counts, reacted}', async () => {
@@ -354,9 +360,7 @@ describe('forumService (wagtail_forum API contract)', () => {
       status: 429,
       json: async () => ({ detail: 'Rate limit exceeded' }),
     });
-    await expect(createPost({ thread: 12, content_raw: 'x' })).rejects.toThrow(
-      'Rate limit exceeded'
-    );
+    await expect(createPost({ thread: 12, content: 'x' })).rejects.toThrow('Rate limit exceeded');
   });
 
   it('propagates backend errors with canonical message field', async () => {
@@ -365,6 +369,6 @@ describe('forumService (wagtail_forum API contract)', () => {
       status: 403,
       json: async () => ({ message: 'Permission denied' }),
     });
-    await expect(createPost({ thread: 12, content_raw: 'x' })).rejects.toThrow('Permission denied');
+    await expect(createPost({ thread: 12, content: 'x' })).rejects.toThrow('Permission denied');
   });
 });
