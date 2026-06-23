@@ -7,20 +7,18 @@ package endpoint cannot silently ship unmounted or unthrottled.
 """
 
 from django.urls import path
-from wagtail_forum.api.views import (
-    BoardListView,
-    PostListView,
-    TopicDetailView,
-    TopicListView,
-)
+
+# GET-only views are mounted straight from the package (no throttle); views with
+# a throttled write handler come from the host wrappers in .api.
+from wagtail_forum.api.views import BoardListView, TopicDetailView
 
 from .api import (
     MeProfileView,
+    PostListView,
     ReactionToggleView,
-    ReplyCreateView,
     SearchView,
     SyncView,
-    TopicCreateView,
+    TopicListView,
 )
 
 app_name = "wagtail_forum_api"
@@ -28,22 +26,8 @@ app_name = "wagtail_forum_api"
 urlpatterns = [
     path("boards/", BoardListView.as_view(), name="board-list"),
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
-    path(
-        "boards/<slug:slug>/topics/create/",
-        TopicCreateView.as_view(),
-        name="topic-create",
-    ),
     path("topics/<int:topic_id>/", TopicDetailView.as_view(), name="topic-detail"),
-    path(
-        "topics/<int:topic_id>/posts/",
-        PostListView.as_view(),
-        name="post-list",
-    ),
-    path(
-        "topics/<int:topic_id>/posts/create/",
-        ReplyCreateView.as_view(),
-        name="reply-create",
-    ),
+    path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
     path(
         "posts/<int:post_id>/reactions/",
         ReactionToggleView.as_view(),

@@ -71,7 +71,7 @@ def test_topic_create_is_throttled_per_user():
 
     def create(slug):
         return client.post(
-            f"/api/v1/forum/boards/{board.slug}/topics/create/",
+            f"/api/v1/forum/boards/{board.slug}/topics/",
             {
                 "title": slug,
                 "slug": slug,
@@ -96,8 +96,8 @@ def test_wrapped_routes_use_the_throttled_views():
     from apps.forum_host import api_urls as host
 
     wrapped = {
-        "topic-create": throttled.TopicCreateView,
-        "reply-create": throttled.ReplyCreateView,
+        "topic-list": throttled.TopicListView,
+        "post-list": throttled.PostListView,
         "reaction-toggle": throttled.ReactionToggleView,
         "me-profile": throttled.MeProfileView,
         "search": throttled.SearchView,
@@ -125,7 +125,7 @@ def test_throttle_is_per_user_not_global():
     with freeze_time("2026-06-10 12:00:00"):
         client.force_authenticate(users[0])
         first = client.post(
-            f"/api/v1/forum/boards/{board.slug}/topics/create/",
+            f"/api/v1/forum/boards/{board.slug}/topics/",
             {
                 "title": "a",
                 "slug": "a",
@@ -134,7 +134,7 @@ def test_throttle_is_per_user_not_global():
             format="json",
         )
         blocked = client.post(
-            f"/api/v1/forum/boards/{board.slug}/topics/create/",
+            f"/api/v1/forum/boards/{board.slug}/topics/",
             {
                 "title": "b",
                 "slug": "b",
@@ -144,7 +144,7 @@ def test_throttle_is_per_user_not_global():
         )
         client.force_authenticate(users[1])  # a DIFFERENT user is not throttled
         other = client.post(
-            f"/api/v1/forum/boards/{board.slug}/topics/create/",
+            f"/api/v1/forum/boards/{board.slug}/topics/",
             {
                 "title": "c",
                 "slug": "c",

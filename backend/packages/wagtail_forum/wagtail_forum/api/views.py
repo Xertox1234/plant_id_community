@@ -117,6 +117,12 @@ class TopicListView(generics.ListAPIView):
     pagination_class = TopicCursorPagination
     versioning_class = None
 
+    def get_permissions(self):
+        # POST (create) needs auth; GET (list) stays public like the read path.
+        if self.request.method == "POST":
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
     def get_queryset(self):
         board = _get_board(self.kwargs["slug"])
         return (
@@ -124,53 +130,6 @@ class TopicListView(generics.ListAPIView):
             .select_related("author", "last_post_author")
             .order_by("-last_post_at", "-id")
         )
-
-
-@extend_schema(
-    responses={200: TopicDetailSerializer, 404: dict},
-    description=(
-        "Retrieve a topic's detail. Returns 404 for a non-live topic or a "
-        "topic on a hidden/non-live board (no existence leak)."
-    ),
-)
-class TopicDetailView(generics.RetrieveAPIView):
-    serializer_class = TopicDetailSerializer
-    versioning_class = None
-    lookup_url_kwarg = "topic_id"
-
-    def get_queryset(self):
-        if getattr(self, "swagger_fake_view", False):
-            return Topic.objects.none()
-        return Topic.objects.filter(
-            live=True, board__in=_visible_boards()
-        ).select_related("board", "author", "last_post_author")
-
-
-@extend_schema(
-    responses={200: PostSerializer(many=True)},
-    description=(
-        "List a topic's live posts, oldest first (cursor-paginated). Returns "
-        "404 if the topic is non-live or on a hidden/non-live board."
-    ),
-)
-class PostListView(generics.ListAPIView):
-    serializer_class = PostSerializer
-    pagination_class = PostCursorPagination
-    versioning_class = None
-
-    def get_queryset(self):
-        if getattr(self, "swagger_fake_view", False):
-            return Post.objects.none()
-        topic = get_object_or_404(
-            Topic.objects.filter(live=True, board__in=_visible_boards()),
-            id=self.kwargs["topic_id"],
-        )
-        return topic.posts.filter(live=True).select_related("author")
-
-
-class TopicCreateView(APIView):
-    permission_classes = [IsAuthenticated]
-    versioning_class = None
 
     @extend_schema(
         request=TopicCreateSerializer,
@@ -259,9 +218,52 @@ class TopicCreateView(APIView):
         raise Conflict("Could not allocate a unique slug for this topic.")
 
 
-class ReplyCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+@extend_schema(
+    responses={200: TopicDetailSerializer, 404: dict},
+    description=(
+        "Retrieve a topic's detail. Returns 404 for a non-live topic or a "
+        "topic on a hidden/non-live board (no existence leak)."
+    ),
+)
+class TopicDetailView(generics.RetrieveAPIView):
+    serializer_class = TopicDetailSerializer
     versioning_class = None
+    lookup_url_kwarg = "topic_id"
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Topic.objects.none()
+        return Topic.objects.filter(
+            live=True, board__in=_visible_boards()
+        ).select_related("board", "author", "last_post_author")
+
+
+@extend_schema(
+    responses={200: PostSerializer(many=True)},
+    description=(
+        "List a topic's live posts, oldest first (cursor-paginated). Returns "
+        "404 if the topic is non-live or on a hidden/non-live board."
+    ),
+)
+class PostListView(generics.ListAPIView):
+    serializer_class = PostSerializer
+    pagination_class = PostCursorPagination
+    versioning_class = None
+
+    def get_permissions(self):
+        # POST (reply) needs auth; GET (list) stays public like the read path.
+        if self.request.method == "POST":
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Post.objects.none()
+        topic = get_object_or_404(
+            Topic.objects.filter(live=True, board__in=_visible_boards()),
+            id=self.kwargs["topic_id"],
+        )
+        return topic.posts.filter(live=True).select_related("author")
 
     @extend_schema(
         request=ReplyCreateSerializer,

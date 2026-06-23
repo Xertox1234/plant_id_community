@@ -26,14 +26,16 @@ def _rate(name):
 @method_decorator(
     ratelimit(key="user", rate=_rate("topic_create"), method="POST"), name="post"
 )
-class TopicCreateView(forum_views.TopicCreateView):
+class TopicListView(forum_views.TopicListView):
+    # GET (list) is public + unthrottled; only the merged POST (create) is rated.
     pass
 
 
 @method_decorator(
     ratelimit(key="user", rate=_rate("reply_create"), method="POST"), name="post"
 )
-class ReplyCreateView(forum_views.ReplyCreateView):
+class PostListView(forum_views.PostListView):
+    # GET (list) is public + unthrottled; only the merged POST (reply) is rated.
     pass
 
 
