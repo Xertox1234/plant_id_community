@@ -6,8 +6,12 @@ forum at /forum/, but the project's `preprocess_exclude_wagtail` hook keeps only
 urlconf the forum sits at /api/v1/forum/, survives the hook, and SCHEMA_PATH_
 PREFIX_TRIM strips /api/v1 → final keys are /forum/... .
 
-Generating the schema also exercises the swagger_fake_view guards — without
-them, PostListView.get_queryset's get_object_or_404 raises during generation.
+This covers the operation-level `@extend_schema` (documented 200 + description).
+The views' `get_queryset` also carry a `swagger_fake_view` guard whose job is to
+suppress drf-spectacular's "Failed to obtain model through view's queryset"
+warning during generation; that guard is NOT exercised by this test (the
+generator resolves the model from `serializer_class`, not `get_queryset`), so do
+not rely on this test to catch a guard regression.
 """
 
 import pytest

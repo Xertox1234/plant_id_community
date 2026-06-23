@@ -51,6 +51,8 @@ def test_sync_rejects_invalid_or_naive_since():
     assert client.get("/forum/sync/?since=not-a-date").status_code == 400
     # Naive datetime: would be interpreted in the server TZ — silent drift.
     assert client.get("/forum/sync/?since=2026-06-10T00:00:00").status_code == 400
+    # Non-integer compound-cursor id: reject rather than silently reset to 0.
+    assert client.get("/forum/sync/?since_id=abc").status_code == 400
 
 
 @pytest.mark.django_db
