@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p1
 issue_id: "231"
 tags: [forum, api, web, spec-2]
@@ -70,12 +70,24 @@ tracked it; this todo is that tracker.
 
 ## Acceptance Criteria
 
-- [ ] Topic detail + post list read endpoints exist, schema-annotated, with
+- [x] Topic detail + post list read endpoints exist, schema-annotated, with
       `expand_db_html()` body serialization and query-count-pinned tests.
+      (read endpoints + `expand_db_html` + query pins landed Phase 1; PR-1
+      2026-06-23 added `@extend_schema` + `swagger_fake_view` guards to
+      `TopicDetailView`/`PostListView`. `tests/api/test_schema.py` green;
+      `manage.py spectacular` exits 0 with both forum read ops documented.)
 - [ ] Web forum pages render against the live API (no machina paths remain;
-      `grep -r "categories/" web/src/services/` is empty).
-- [ ] Sync uses a compound cursor; same-timestamp livelock test added.
-- [ ] Route-parity test green with the final URL surface.
+      `grep -r "categories/" web/src/services/` is empty). *(PR-2/PR-3 — write
+      path + images. Note: the literal grep also matches `blogService.ts`'s
+      `/api/v2/categories/`; the real gate is no machina forum paths in
+      `forumService.ts`.)*
+- [x] Sync uses a compound cursor; same-timestamp livelock test added.
+      (PR-1 2026-06-23 — `SyncView` filters `Q(updated_at__gt) | Q(updated_at=,
+      id__gt)` ordered `(updated_at, id)`, returns `next_since_id`;
+      `test_sync_compound_cursor_advances_through_same_timestamp_rows` green.)
+- [ ] Route-parity test green with the final URL surface. *(parity green now —
+      `test_host_api_routes_match_package` passes — but the "final URL surface"
+      arrives with PR-2's route rationalization; keep open until then.)*
 
 ## Work Log
 
@@ -121,3 +133,36 @@ Spec + plan: `docs/superpowers/specs/2026-06-20-forum-spec2-read-write-client-de
   acceptance wants `@extend_schema`/`@extend_schema_field` + `swagger_fake_view` guards.
 - Deploy: confirm `seed_default_forum` runs in the Railway release step (not just
   documented in `backend/CLAUDE.md`) so prod isn't error-free-but-empty.
+
+### 2026-06-23 - PR-1 (backend cleanup) landed — AC1 + AC3 done; todo still OPEN
+
+Branch `feat/forum-spec2-phase2`; spec open questions resolved + plan written
+(`docs/superpowers/plans/2026-06-23-forum-spec2-pr1-backend-cleanup.md`). The
+remaining epic is decomposed into 3 PRs (PR-1 backend cleanup, PR-2 write path,
+PR-3 images); this is PR-1.
+
+**Done in PR-1 (TDD, two commits):**
+
+- **AC1** — `@extend_schema` + `swagger_fake_view` guards on `TopicDetailView`/
+  `PostListView`. The guard is load-bearing: `PostListView.get_queryset` calls
+  `get_object_or_404`, which dropped the path during schema generation until
+  guarded. New `tests/api/test_schema.py` generates the schema under the REAL
+  urlconf (the project's `preprocess_exclude_wagtail` hook keeps only `/api/v1/*`,
+  so the bare `/forum/` test urlconf filters to empty) and asserts both read ops
+  carry a documented 200. `manage.py spectacular` exits 0.
+- **AC3** — `SyncView` compound `(updated_at, id)` cursor: filters
+  `Q(updated_at__gt=since) | Q(updated_at=since, id__gt=since_id)`, returns
+  `next_since_id`. Fixes the bulk-import livelock (>MAX_TOPICS rows sharing one
+  `updated_at`). `since_id` defaults to 0 → first sync keeps the old no-loss
+  boundary; `next_since` unchanged → the two existing sync tests still pass.
+  Verified no `/sync/` consumer exists in `web/` or `plant_community_mobile/`, so
+  the `next_since_id` addition is a free contract change.
+
+Verification: forum package API suite **50 passed**; host route-parity +
+rate-limit **5 passed** (`test_host_api_routes_match_package` green — PR-1 changed
+no routes). Gotcha hit + fixed: the PostToolUse Python formatter stripped the
+`from django.db.models import Q` import while it was momentarily unused (added
+before its first use) — re-added after the usage existed.
+
+**Still open (do NOT close):** AC2 (web off machina) + AC4 final URL surface need
+PR-2 (write path) and PR-3 (images). Todo archives only after PR-3.
