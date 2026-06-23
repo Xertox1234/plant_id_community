@@ -54,6 +54,9 @@ export default function ThreadDetailPage() {
   // Write-path state
   const [replyBody, setReplyBody] = useState<string>('');
   const [replySubmitting, setReplySubmitting] = useState<boolean>(false);
+  // TipTap's `content` is init-only, so resetting replyBody won't clear the editor;
+  // bumping this key remounts a fresh (empty) composer after a successful reply.
+  const [composerKey, setComposerKey] = useState<number>(0);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editBody, setEditBody] = useState<string>('');
   const [editSubmitting, setEditSubmitting] = useState<boolean>(false);
@@ -136,6 +139,7 @@ export default function ThreadDetailPage() {
         setNotice(null);
         const res = await createPost({ thread: topicId, content: replyBody });
         setReplyBody('');
+        setComposerKey((k) => k + 1); // remount the editor so it visibly clears
         if (res.status === 'published') {
           const refreshed = await fetchPosts({ thread: topicId });
           setPosts(refreshed.items);
@@ -385,6 +389,7 @@ export default function ThreadDetailPage() {
         >
           <h2 className="text-lg font-semibold text-ink">Post a Reply</h2>
           <TipTapEditor
+            key={composerKey}
             content={replyBody}
             onChange={setReplyBody}
             placeholder="Write a reply..."

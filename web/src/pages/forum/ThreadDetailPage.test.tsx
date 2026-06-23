@@ -288,6 +288,8 @@ describe('ThreadDetailPage', () => {
       content: '<p>my reply</p>',
     });
     expect(fetchPostsSpy).toHaveBeenCalledTimes(2);
+    // The composer remounts (key bump) so it visibly clears after posting.
+    expect(screen.getByLabelText('Write a reply...')).toHaveValue('');
   });
 
   it('shows a moderation notice for a pending reply and does not refetch', async () => {
