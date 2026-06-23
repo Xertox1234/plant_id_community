@@ -28,6 +28,24 @@ function bodyToHtml(body: Post['body']): string {
   return typeof value === 'string' ? value : '';
 }
 
+// Posts are ordered oldest-first, so a brand-new reply is the NEWEST post and lands
+// on the last cursor page. Reload every page through to the end after posting so the
+// author actually sees their reply (refetching only page 1 would show the oldest 20).
+const MAX_REFRESH_PAGES = 50; // safety bound for pathologically long threads
+async function collectAllPosts(threadId: number): Promise<{ items: Post[]; next: string | null }> {
+  const items: Post[] = [];
+  let cursor: string | undefined;
+  let next: string | null = null;
+  for (let i = 0; i < MAX_REFRESH_PAGES; i++) {
+    const page = await fetchPosts(cursor ? { thread: threadId, cursor } : { thread: threadId });
+    items.push(...page.items);
+    next = page.meta.next ?? null;
+    if (!next) break;
+    cursor = next;
+  }
+  return { items, next };
+}
+
 /**
  * ThreadDetailPage Component
  *
@@ -141,9 +159,9 @@ export default function ThreadDetailPage() {
         setReplyBody('');
         setComposerKey((k) => k + 1); // remount the editor so it visibly clears
         if (res.status === 'published') {
-          const refreshed = await fetchPosts({ thread: topicId });
+          const refreshed = await collectAllPosts(topicId);
           setPosts(refreshed.items);
-          setNextCursor(refreshed.meta.next ?? null);
+          setNextCursor(refreshed.next);
           setTotalPosts((n) => n + 1);
         } else {
           setNotice('Your reply was submitted and is awaiting moderation.');
@@ -372,7 +390,12 @@ export default function ThreadDetailPage() {
           >
             {loadingMore
               ? 'Loading...'
-              : `Load More Posts (${Math.max(0, totalPosts - posts.length)} remaining)`}
+              : // totalPosts is reply_count (excludes the opening post), so compare it
+                // against loaded REPLIES, not all loaded posts, or it under-counts by 1.
+                `Load More Posts (${Math.max(
+                  0,
+                  totalPosts - posts.filter((p) => !p.is_first_post).length
+                )} remaining)`}
           </Button>
         </div>
       )}

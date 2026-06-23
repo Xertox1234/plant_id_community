@@ -292,6 +292,42 @@ describe('ThreadDetailPage', () => {
     expect(screen.getByLabelText('Write a reply...')).toHaveValue('');
   });
 
+  it('a published reply on a multi-page thread loads through to the new reply', async () => {
+    // The new reply is the NEWEST post (oldest-first ordering) → last cursor page.
+    // Reloading must follow the cursor to the end, not stop at page 1.
+    const opening = createMockPost({
+      id: '1',
+      is_first_post: true,
+      body: [{ id: 'b0', type: 'paragraph', value: '<p>opening</p>' }],
+    });
+    const reply = createMockPost({
+      id: '99',
+      body: [{ id: 'b9', type: 'paragraph', value: '<p>my reply</p>' }],
+    });
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 1 }));
+    vi.spyOn(forumService, 'fetchPosts')
+      .mockResolvedValueOnce({
+        items: [opening],
+        meta: { count: 0, next: 'cursor-2', previous: null },
+      }) // mount: page 1
+      .mockResolvedValueOnce({
+        items: [opening],
+        meta: { count: 0, next: 'cursor-2', previous: null },
+      }) // reload: page 1
+      .mockResolvedValueOnce({ items: [reply], meta: { count: 0, next: null, previous: null } }); // reload: page 2 (the reply)
+    vi.spyOn(forumService, 'createPost').mockResolvedValue({ id: '99', status: 'published' });
+
+    renderThreadDetailPage();
+
+    await screen.findByRole('button', { name: /Post Reply/i });
+    await userEvent.type(screen.getByLabelText('Write a reply...'), 'my reply');
+    await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+
+    await waitFor(() => expect(screen.getByText('my reply')).toBeInTheDocument());
+    // Load More is gone — the cursor was followed to the end.
+    expect(screen.queryByText(/Load More Posts/i)).not.toBeInTheDocument();
+  });
+
   it('shows a moderation notice for a pending reply and does not refetch', async () => {
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
     const fetchPostsSpy = vi
