@@ -55,7 +55,9 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
         # A local account already owns this email and this social account is not
         # yet linked. Only proceed when the provider has VERIFIED the email —
         # linking (or creating) off an unverified email is an account-takeover
-        # vector, the same stance the custom oauth_views path takes.
+        # vector. This is the allauth arm of the verified-email invariant
+        # (canonical: docs/patterns/security/authentication.md → "Trust only
+        # provider-verified emails").
         #
         # A bare `return` here is NOT safe: under SOCIALACCOUNT_AUTO_SIGNUP allauth
         # would then auto-create a SECOND account holding the victim's email

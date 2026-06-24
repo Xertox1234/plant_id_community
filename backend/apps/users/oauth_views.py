@@ -231,11 +231,12 @@ def _handle_google_callback(request, code):
 
         profile = profile_response.json()
 
-        # Refuse to trust an unverified email. Matching (or creating) a Django
-        # account by an email Google has not verified is an account-takeover
-        # vector — the same stance the GitHub path takes (primary AND verified).
-        # The v2 userinfo endpoint returns `verified_email`; fall back to the
-        # OIDC `email_verified` claim, and default to unverified if absent.
+        # Verified-email invariant (canonical: docs/patterns/security/
+        # authentication.md → "Trust only provider-verified emails"). Refuse to
+        # trust an unverified email: matching (or creating) a Django account by
+        # an email Google has not verified is an account-takeover vector. The v2
+        # userinfo endpoint returns `verified_email`; fall back to the OIDC
+        # `email_verified` claim, and default to unverified if absent.
         email_verified = profile.get(
             "verified_email", profile.get("email_verified", False)
         )
@@ -301,6 +302,8 @@ def _handle_github_callback(request, code):
             email_response = requests.get(email_url, headers=headers)
             if email_response.status_code == 200:
                 emails = email_response.json()
+                # Verified-email invariant (canonical: docs/patterns/security/
+                # authentication.md → "Trust only provider-verified emails").
                 # Require BOTH primary and verified — matching a Django account by
                 # an unverified email is an account-takeover vector.
                 primary_email = next(
