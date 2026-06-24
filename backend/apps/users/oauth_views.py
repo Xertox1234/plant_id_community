@@ -229,7 +229,24 @@ def _handle_google_callback(request, code):
             logger.error(f"Google profile fetch failed: {profile_response.text}")
             return None
 
-        return profile_response.json()
+        profile = profile_response.json()
+
+        # Refuse to trust an unverified email. Matching (or creating) a Django
+        # account by an email Google has not verified is an account-takeover
+        # vector — the same stance the GitHub path takes (primary AND verified).
+        # The v2 userinfo endpoint returns `verified_email`; fall back to the
+        # OIDC `email_verified` claim, and default to unverified if absent.
+        email_verified = profile.get(
+            "verified_email", profile.get("email_verified", False)
+        )
+        if profile.get("email") and not email_verified:
+            logger.warning(
+                "[SECURITY] Google returned an unverified email — refusing to "
+                "match/create an account (GDPR: no email logged)"
+            )
+            profile.pop("email", None)
+
+        return profile
 
     except Exception as e:
         logger.error(f"Google OAuth handling error: {str(e)}")

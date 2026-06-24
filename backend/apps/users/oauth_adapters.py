@@ -6,13 +6,11 @@ import logging
 from typing import Any, Optional
 
 from allauth.account.adapter import DefaultAccountAdapter
-from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.socialaccount.models import SocialLogin
-from apps.core.utils.pii_safe_logging import log_safe_user_context, log_safe_username
-from django.conf import settings
+from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.contrib.auth import get_user_model
-from django.http import HttpRequest, HttpResponseRedirect
+from django.http import HttpRequest
 from django.urls import reverse
 
 logger = logging.getLogger(__name__)
@@ -40,16 +38,45 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
         ):
             email = sociallogin.account.extra_data.get("email")
             if email:
+                # Only auto-link to an existing local account when the provider
+                # has VERIFIED the email. Linking by an unverified email is an
+                # account-takeover vector — the same stance the custom
+                # oauth_views path takes. allauth's connect() bypasses
+                # SOCIALACCOUNT_EMAIL_VERIFICATION, so we gate it explicitly here.
+                if not self._provider_email_verified(sociallogin, email):
+                    logger.warning(
+                        f"[SECURITY] Refused to auto-link "
+                        f"{sociallogin.account.provider} account by unverified email"
+                    )
+                    return
                 try:
                     existing_user = User.objects.get(email=email)
                     if not sociallogin.is_existing:
                         # Connect the social account to existing user
                         sociallogin.connect(request, existing_user)
                         logger.info(
-                            f"Connected {sociallogin.account.provider} account to existing {log_safe_user_context(existing_user)}"
+                            f"Connected {sociallogin.account.provider} account "
+                            f"to existing {log_safe_user_context(existing_user)}"
                         )
                 except User.DoesNotExist:
                     pass
+
+    @staticmethod
+    def _provider_email_verified(sociallogin: SocialLogin, email: str) -> bool:
+        """Return True only if the provider has verified `email`.
+
+        allauth populates ``sociallogin.email_addresses`` (``EmailAddress``
+        instances with a ``.verified`` flag) from the provider's own signal —
+        for Google that mirrors the ``email_verified`` claim; for GitHub it
+        reflects the verified-emails API. Fail closed: an email the provider
+        did not return as verified (or did not enumerate) is treated as
+        unverified.
+        """
+        target = email.lower()
+        for addr in sociallogin.email_addresses:
+            if addr.email and addr.email.lower() == target:
+                return bool(addr.verified)
+        return False
 
     def save_user(
         self, request: HttpRequest, sociallogin: SocialLogin, form: Optional[Any] = None
