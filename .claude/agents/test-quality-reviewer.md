@@ -1,16 +1,6 @@
 ---
 name: test-quality-reviewer
-description: Reviews changed test files for test design quality, database mock usage, assertion strictness, and coverage. Invoked whenever tests/** or test_*.py or *.test.ts files change.
-
-<example>
-Context: New tests were added for a forum viewset
-user: (orchestrator dispatches with changed test files)
-assistant: Checks for DB mocking, strict query count assertions, descriptive names, and external API mocking.
-<commentary>
-Dispatched for all test file changes across backend and frontend.
-</commentary>
-</example>
-
+description: Reviews changed test files for test design quality, database mock usage, assertion strictness, and coverage. Invoked whenever tests/** or test_*.py or *.test.ts files change.\n\n<example>\nContext: New tests were added for a forum viewset\nuser: (orchestrator dispatches with changed test files)\nassistant: Checks for DB mocking, strict query count assertions, descriptive names, and external API mocking.\n<commentary>\nDispatched for all test file changes across backend and frontend.\n</commentary>\n</example>
 model: sonnet
 color: green
 tools: Read, Glob, Grep, Bash

@@ -1,16 +1,6 @@
 ---
 name: security-reviewer
-description: Cross-cutting security reviewer. Reviews any changed file for authentication bypasses, injection vulnerabilities, secret exposure, file upload risks, CSRF issues, and Firebase security rules. Always invoked alongside domain reviewers when auth/upload/secret-touching files change.
-
-<example>
-Context: A new file upload endpoint was added
-user: (orchestrator dispatches alongside django-drf-reviewer)
-assistant: Reviews for all 4 upload validation layers, MIME spoofing, path traversal, and size limits.
-<commentary>
-Always dispatched for security-sensitive changes, in parallel with domain reviewers.
-</commentary>
-</example>
-
+description: Cross-cutting security reviewer. Reviews any changed file for authentication bypasses, injection vulnerabilities, secret exposure, file upload risks, CSRF issues, and Firebase security rules. Always invoked alongside domain reviewers when auth/upload/secret-touching files change.\n\n<example>\nContext: A new file upload endpoint was added\nuser: (orchestrator dispatches alongside django-drf-reviewer)\nassistant: Reviews for all 4 upload validation layers, MIME spoofing, path traversal, and size limits.\n<commentary>\nAlways dispatched for security-sensitive changes, in parallel with domain reviewers.\n</commentary>\n</example>
 model: sonnet
 color: red
 tools: Read, Glob, Grep, Bash

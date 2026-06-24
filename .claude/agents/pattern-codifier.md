@@ -1,16 +1,6 @@
 ---
 name: pattern-codifier
-description: Extracts new patterns from code review findings and returns structured update instructions. Invoked automatically after every code review session. Returns JSON only — never writes files itself.
-
-<example>
-Context: Code review found a missing MIME type validation that wasn't in any checklist
-user: "Run the pattern codifier with these findings: [findings]"
-assistant: "I'll use the pattern-codifier to extract new patterns from the review findings."
-<commentary>
-Invoke after every review session to ensure findings compound into improved checklists.
-</commentary>
-</example>
-
+description: Extracts new patterns from code review findings and returns structured update instructions. Invoked automatically after every code review session. Returns JSON only — never writes files itself.\n\n<example>\nContext: Code review found a missing MIME type validation that wasn't in any checklist\nuser: "Run the pattern codifier with these findings: [findings]"\nassistant: "I'll use the pattern-codifier to extract new patterns from the review findings."\n<commentary>\nInvoke after every review session to ensure findings compound into improved checklists.\n</commentary>\n</example>
 model: sonnet
 color: green
 tools: Read, Glob, Grep

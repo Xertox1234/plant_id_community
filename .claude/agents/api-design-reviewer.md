@@ -1,16 +1,6 @@
 ---
 name: api-design-reviewer
-description: Reviews changed serializer, API view, and URL config files for REST design consistency, OpenAPI schema correctness, versioning, and error response shapes. Invoked when serializers.py, urls.py, or api/ directory files change.
-
-<example>
-Context: A new endpoint was added to the diagnosis API
-user: (orchestrator dispatches with changed files)
-assistant: Checks URL versioning, error response shape, OpenAPI annotations, and serializer type safety.
-<commentary>
-Dispatched for API layer changes.
-</commentary>
-</example>
-
+description: Reviews changed serializer, API view, and URL config files for REST design consistency, OpenAPI schema correctness, versioning, and error response shapes. Invoked when serializers.py, urls.py, or api/ directory files change.\n\n<example>\nContext: A new endpoint was added to the diagnosis API\nuser: (orchestrator dispatches with changed files)\nassistant: Checks URL versioning, error response shape, OpenAPI annotations, and serializer type safety.\n<commentary>\nDispatched for API layer changes.\n</commentary>\n</example>
 model: sonnet
 color: cyan
 tools: Read, Glob, Grep, Bash

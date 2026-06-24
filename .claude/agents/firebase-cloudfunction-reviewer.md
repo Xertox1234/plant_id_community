@@ -1,16 +1,6 @@
 ---
 name: firebase-cloudfunction-reviewer
-description: Reviews Firebase Cloud Functions code for idempotency, retry safety, cold start optimisation, error handling, and trigger correctness. Invoked when functions/** files change.
-
-<example>
-Context: A new Firestore-triggered function was added to process new plant identifications
-user: (orchestrator dispatches with changed files)
-assistant: Reviews trigger scope, idempotency, retry configuration, error handling, and cold start patterns.
-<commentary>
-Dispatched for all Cloud Functions changes.
-</commentary>
-</example>
-
+description: Reviews Firebase Cloud Functions code for idempotency, retry safety, cold start optimisation, error handling, and trigger correctness. Invoked when functions/** files change.\n\n<example>\nContext: A new Firestore-triggered function was added to process new plant identifications\nuser: (orchestrator dispatches with changed files)\nassistant: Reviews trigger scope, idempotency, retry configuration, error handling, and cold start patterns.\n<commentary>\nDispatched for all Cloud Functions changes.\n</commentary>\n</example>
 model: sonnet
 color: orange
 tools: Read, Glob, Grep, Bash

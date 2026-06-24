@@ -1,16 +1,6 @@
 ---
 name: celery-async-reviewer
-description: Reviews Celery task definitions, beat schedules, retry configuration, and async error handling. Invoked when tasks.py, celery*.py, or beat*.py files change.
-
-<example>
-Context: A new Celery task was added to send daily garden reminders
-user: (orchestrator dispatches with changed files)
-assistant: Reviews for idempotency, retry configuration, beat schedule timezone awareness, and error handler.
-<commentary>
-Dispatched for all Celery async task changes.
-</commentary>
-</example>
-
+description: Reviews Celery task definitions, beat schedules, retry configuration, and async error handling. Invoked when tasks.py, celery*.py, or beat*.py files change.\n\n<example>\nContext: A new Celery task was added to send daily garden reminders\nuser: (orchestrator dispatches with changed files)\nassistant: Reviews for idempotency, retry configuration, beat schedule timezone awareness, and error handler.\n<commentary>\nDispatched for all Celery async task changes.\n</commentary>\n</example>
 model: sonnet
 color: purple
 tools: Read, Glob, Grep, Bash
