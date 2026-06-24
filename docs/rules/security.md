@@ -28,3 +28,12 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   at 6.4.0). Add an `--ignore-vuln` line (in `.github/workflows/security-scan.yml`)
   only when no bump clears it, with a dated one-line justification. Run
   `npm audit fix` WITHOUT `--force` (`--force` pulls breaking majors).
+- **Trust only provider-verified emails.** Never match or create a Django
+  account from a provider-supplied email the provider hasn't marked verified;
+  fail closed when the verification signal is absent. Each OAuth/federated path
+  enforces this with its own local guard (strip / set-if-verified /
+  `ImmediateHttpResponse` / 403) — a shared *policy*, not shared code, so do not
+  collapse the four guards into one provider-switch helper. When a guard strips
+  the email, the downstream user lookup MUST treat a missing email as a hard
+  stop. Canonical: `backend/docs/patterns/security/authentication.md` → "Trust
+  only provider-verified emails".

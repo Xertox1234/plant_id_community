@@ -503,3 +503,27 @@ This file is append-only. New entries are added by main Claude after each code r
 
 **Rule**: Before adding a pip-audit `--ignore-vuln` line for a "no fix listed" advisory, try bumping the package — the empty "Fix Versions" column ≠ unfixable. Suppress only when no bump clears it, with a dated one-line justification. Run `npm audit fix` WITHOUT `--force` (force pulls breaking majors).
 **Agent**: security-reviewer
+
+## OAuth verified-email invariant (PR #400, 2026-06-24)
+
+### [2026-06-24] A cross-provider security invariant is shared *policy*, not shared *code* — don't consolidate the guards
+
+**Context**: Review finding #2 flagged the "trust only a provider-verified email" rule as scattered across four auth paths (Google web, GitHub web, allauth, Firebase mobile) and prescribed the usual altitude fix: "generalize the mechanism instead of repeating special cases." Applied literally, that would mean one `email_verified(...)` helper the four paths call.
+
+**Why that was the wrong altitude**: the four guards are not the same predicate over a shared shape. They read verification from genuinely different structures — a Google profile dict (`verified_email`/`email_verified`), a GitHub emails list (`primary AND verified`), allauth `EmailAddress` rows (`.verified`), a Firebase JWT claim (`email_verified` + a trusted-provider allowlist) — and enforce failure four different ways (strip email / set-if-verified / raise `ImmediateHttpResponse` / 403+`ValueError`). There is no shared chokepoint to push a gate down to (web → `_find_or_create_user`, Firebase → `get_or_create_user_from_firebase`, different modules). A single provider-switch helper would have *been* the special-cases-on-shared-infra smell, and would have misrepresented each provider's signal (e.g. implying Firebase honors `verified_email`, which it never sends).
+
+**Fix**: single-source the **policy**, not the code. Wrote the canonical rule once in `backend/docs/patterns/security/authentication.md` ("Trust only provider-verified emails": invariant + fail-closed rationale + per-provider table) and had each enforcement site cite it with a one-line comment. Policy at one altitude; per-provider mechanisms stay local.
+
+**Hidden contract worth pinning** (surfaced as a review WARNING — not a bug, but a real fragile coupling): the Google-web guard enforces the invariant by *stripping* `email` from the profile, which only fails closed because `_find_or_create_user` treats a missing email as a hard stop (`email = user_data.get("email"); if not email: return None`). If a future edit adds an email fallback there, the strip-based guard silently breaks. Pinned by `test_stripped_email_does_not_match_existing_account`.
+
+**Rule**: When the same security rule appears across N integrations that read it from different shapes and enforce it differently, single-source the *policy* in the pattern library and cross-reference each guard — don't force a shared helper. A "strip the input → downstream fails closed" guard depends on the downstream hard-stopping on the missing input; assert that coupling in a test.
+**Agent**: security-reviewer
+
+### [2026-06-24] detect-secrets baseline churn → commit-abort loop when a doc edit shifts a baselined example token
+
+**Mistake**: Editing `authentication.md` (which contains example tokens already recorded in `.secrets.baseline`) shifted those tokens' line numbers. The `detect-secrets` pre-commit hook rewrites `.secrets.baseline` in place on every run — updating both the moved `line_number`s and a fresh `generated_at` timestamp. That rewrite is an unstaged change *created during the commit*, so pre-commit's stash-then-restore conflicts with the hook's edits and aborts the commit. Re-staging just re-triggers the rewrite: a loop. (markdownlint's whole-file blank-line normalization compounded it by shifting lines again.)
+
+**Fix**: Stage the hook-regenerated baseline, confirm the diff is **only** `line_number`/`generated_at` churn with no new `hashed_secret` block (i.e. no actual new secret — the scan had already passed clean on prior attempts), then commit once with `SKIP=detect-secrets` so the hook doesn't re-timestamp the baseline mid-write.
+
+**Rule**: When a docs/pattern edit moves a line that holds an example token already in `.secrets.baseline`, expect the detect-secrets hook to churn the baseline and loop the commit. Break it by staging the regenerated baseline, verifying the diff is purely `line_number`/`generated_at` (grep for any added `hashed_secret`), and committing with `SKIP=detect-secrets` for that one write. Never `SKIP` it without first confirming no new secret block was added.
+**Agent**: (process — commit-hook gotcha; not diff-reviewable)

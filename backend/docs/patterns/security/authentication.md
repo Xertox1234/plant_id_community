@@ -2,6 +2,7 @@
 
 **Last Updated**: November 13, 2025
 **Consolidated From**:
+
 - `docs/development/AUTHENTICATION_TESTING_PATTERNS_CODIFICATION.md`
 - `docs/development/SECURITY_PATTERNS_CODIFIED.md`
 - `docs/testing/DRF_AUTHENTICATION_TESTING_PATTERNS.md`
@@ -26,6 +27,7 @@
 ### Pattern: Secure JWT Secret Keys
 
 **Anti-Pattern** ❌:
+
 ```python
 # settings.py - INSECURE
 JWT_SECRET_KEY = "jwt-dev-secret-key-change-in-production-2024"
@@ -33,12 +35,14 @@ SECRET_KEY = "django-insecure-dev-key-change-in-production-2024"
 ```
 
 **Problems**:
+
 - Predictable keys allow token forgery
 - Development keys left in production
 - Complete authentication bypass possible
 - User impersonation via forged tokens
 
 **Correct Pattern** ✅:
+
 ```python
 # settings.py
 import os
@@ -61,12 +65,14 @@ if not DEBUG:
 ```
 
 **Generation**:
+
 ```bash
 # Generate strong JWT secret
 python -c "import secrets; print(secrets.token_urlsafe(64))"
 ```
 
 **Configuration**:
+
 ```python
 # backend/.env (NEVER commit)
 JWT_SECRET_KEY=your-generated-secret-here-64-chars-minimum
@@ -80,6 +86,7 @@ JWT_SECRET_KEY=generate-with-python-secrets-token-urlsafe-64
 ### Pattern: JWT Token Lifecycle
 
 **Correct Implementation**:
+
 ```python
 # apps/users/authentication.py
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -118,6 +125,7 @@ SIMPLE_JWT = {
 ```
 
 **Why This Matters**:
+
 - Short access token lifetime limits exposure window
 - Refresh token rotation prevents token replay attacks
 - Blacklisting ensures old tokens can't be reused
@@ -127,6 +135,7 @@ SIMPLE_JWT = {
 ### Pattern: Token Refresh with Blacklisting
 
 **Anti-Pattern** ❌:
+
 ```python
 # Directly using refresh token without blacklisting
 def refresh_token_view(request):
@@ -136,6 +145,7 @@ def refresh_token_view(request):
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # apps/users/views.py
 from rest_framework.decorators import api_view
@@ -180,6 +190,7 @@ def token_refresh(request):
 ### Pattern: Secure Session Configuration
 
 **Correct Configuration**:
+
 ```python
 # settings.py
 
@@ -200,6 +211,7 @@ SESSION_CACHE_ALIAS = 'default'
 ```
 
 **Why Each Setting Matters**:
+
 - `SECURE`: HTTPS-only prevents token interception
 - `HTTPONLY`: Prevents XSS attacks from stealing tokens
 - `SAMESITE='Lax'`: CSRF protection while allowing normal navigation
@@ -210,6 +222,7 @@ SESSION_CACHE_ALIAS = 'default'
 ### Pattern: Account Lockout Protection
 
 **Correct Implementation**:
+
 ```python
 # apps/core/security.py
 from django.core.cache import cache
@@ -276,6 +289,7 @@ def record_failed_attempt(username):
 ```
 
 **Testing Pattern**:
+
 ```python
 # apps/users/tests/test_account_lockout.py
 from django.test import TestCase
@@ -319,6 +333,7 @@ class AccountLockoutTestCase(TestCase):
 ### Pattern: Secure OAuth Configuration
 
 **Anti-Pattern** ❌:
+
 ```python
 # settings.py - INSECURE
 GOOGLE_OAUTH2_CLIENT_ID = 'your-google-client-id.apps.googleusercontent.com'
@@ -326,6 +341,7 @@ GOOGLE_OAUTH2_CLIENT_SECRET = 'your-google-client-secret'  # Hardcoded!
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # settings.py
 GOOGLE_OAUTH2_CLIENT_ID = os.environ.get('GOOGLE_OAUTH2_CLIENT_ID')
@@ -352,11 +368,49 @@ SOCIALACCOUNT_PROVIDERS = {
 
 ---
 
+### Pattern: Trust only provider-verified emails
+
+**This is the single source of truth for the verified-email invariant. Every
+auth path that matches or creates a Django account by a provider-supplied email
+MUST enforce it. A path's local mechanism cross-references back to this section.**
+
+**Invariant**: Never match — or create — a Django account from an email a
+provider has not explicitly marked **verified**. **Fail closed**: an absent,
+missing, or falsy verification signal is treated as *unverified*.
+
+**Why** ❌: `User.email` is not DB-unique, and accounts created through the
+custom OAuth flow carry no allauth `EmailAddress` row to trip a uniqueness
+check. So an attacker who controls a provider account whose *unverified* email
+equals a victim's address can, depending on the path, either auto-link onto the
+victim's account or have a **second** account silently created holding the
+victim's email — an account-takeover / impersonation vector.
+
+The signal and the fail-closed enforcement live in different shapes per
+provider (a dict claim, a list of email objects, allauth `EmailAddress` rows, a
+Firebase JWT claim). They are intentionally **not** consolidated into one
+helper: this is a shared *policy*, not shared *code*, and a single
+provider-switch function would be a worse abstraction than four local guards.
+What is single-sourced is this policy.
+
+| Path | Where it lives | Verification signal | Enforcement on failure |
+|------|----------------|---------------------|------------------------|
+| Google (web) | `oauth_views._handle_google_callback` | `verified_email` (v2 userinfo) or `email_verified` (OIDC); absent → unverified | strip `email` from the profile so `_find_or_create_user` fails closed |
+| GitHub (web) | `oauth_views._handle_github_callback` | an email object that is both `primary` **and** `verified` | `email` is only set when a primary+verified address exists |
+| allauth (web) | `oauth_adapters.pre_social_login` / `_provider_email_verified` | `sociallogin.email_addresses[].verified` (case-folded match) | raise `ImmediateHttpResponse` → `?error=unverified_email`; never auto-link or fall through to auto-signup |
+| Firebase (mobile) | `firebase_auth_views` | `email_verified` claim, or `sign_in_provider` in the trusted federated set (Google, Apple) | 403 at token exchange; `ValueError` before binding a UID onto an existing account |
+
+**GDPR**: when refusing an unverified email, log the decision but **never the
+address** — log the provider and a redacted form only. See
+`firebase_auth_views.redact_email`.
+
+---
+
 ## Django REST Framework Auth
 
 ### Pattern: DRF Permission Classes
 
 **Correct Implementation**:
+
 ```python
 # apps/forum/permissions.py
 from rest_framework import permissions
@@ -398,6 +452,7 @@ class PostViewSet(viewsets.ModelViewSet):
 ```
 
 **Critical Pattern**: ViewSet `get_permissions()` must respect `@action` decorators:
+
 ```python
 def get_permissions(self):
     """CRITICAL: Let custom actions use their own permission_classes."""
@@ -427,6 +482,7 @@ def custom_action(self, request, pk=None):
 ### Pattern: CSRF Token Handling in DRF Tests
 
 **Anti-Pattern** ❌:
+
 ```python
 # DRF APIClient doesn't auto-handle cookies like Django TestClient
 def test_protected_endpoint(self):
@@ -435,6 +491,7 @@ def test_protected_endpoint(self):
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # apps/users/tests/test_authentication.py
 from rest_framework.test import APITestCase, APIClient
@@ -470,12 +527,14 @@ class AuthTestCase(APITestCase):
 ### Pattern: API Versioning in Tests
 
 **Anti-Pattern** ❌:
+
 ```python
 # Tests use unversioned URLs
 response = self.client.post('/api/auth/login/', ...)  # 404 in production!
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # Always match production URL patterns
 response = self.client.post('/api/v1/auth/login/', ...)  # ✓
@@ -493,6 +552,7 @@ response = self.client.post(LOGIN_URL, credentials)
 ### Pattern: Time-Based Test Mocking
 
 **Anti-Pattern** ❌:
+
 ```python
 # Global time.time() mocking creates recursive MagicMock errors
 with patch('time.time', return_value=future_time):
@@ -500,6 +560,7 @@ with patch('time.time', return_value=future_time):
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 import time
 from unittest.mock import patch
@@ -527,6 +588,7 @@ def test_lockout_expiry(self):
 ### Pattern: Layered Security Testing
 
 **Anti-Pattern** ❌:
+
 ```python
 # Expecting single status code from multiple security layers
 def test_rate_limit(self):
@@ -537,6 +599,7 @@ def test_rate_limit(self):
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 def test_rate_limit(self):
     """Test rate limiting - may trigger before or after account lockout."""
