@@ -1,16 +1,6 @@
 ---
 name: flutter-firebase-reviewer
-description: Reviews Flutter files related to Firebase Auth, Firestore, Storage, and Cloud Function invocations. Also reviews backend Firebase token exchange code. Invoked when firebase auth, Firestore listener, or storage files change.
-
-<example>
-Context: The auth service was updated to add Google sign-in
-user: (orchestrator dispatches with changed files)
-assistant: Reviews for StreamSubscription disposal, secure token storage, GDPR email redaction, and Firestore listener cleanup.
-<commentary>
-Dispatched for any Firebase-related Flutter or backend changes.
-</commentary>
-</example>
-
+description: Reviews Flutter files related to Firebase Auth, Firestore, Storage, and Cloud Function invocations. Also reviews backend Firebase token exchange code. Invoked when firebase auth, Firestore listener, or storage files change.\n\n<example>\nContext: The auth service was updated to add Google sign-in\nuser: (orchestrator dispatches with changed files)\nassistant: Reviews for StreamSubscription disposal, secure token storage, GDPR email redaction, and Firestore listener cleanup.\n<commentary>\nDispatched for any Firebase-related Flutter or backend changes.\n</commentary>\n</example>
 model: sonnet
 color: yellow
 tools: Read, Glob, Grep, Bash

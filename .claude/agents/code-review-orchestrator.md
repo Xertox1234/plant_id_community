@@ -1,16 +1,6 @@
 ---
 name: code-review-orchestrator
-description: Orchestrates parallel code review after any coding session. Run this agent when code changes have been made and need review. It reads git diff, selects the appropriate domain review agents, and coordinates repair and learning phases.
-
-<example>
-Context: User has finished implementing a Django viewset and wants a review
-user: "Review the changes I just made"
-assistant: "I'll use the code-review-orchestrator to analyse the changed files and dispatch the right reviewers in parallel."
-<commentary>
-Any request to review recent changes should trigger the orchestrator, not individual reviewers directly.
-</commentary>
-</example>
-
+description: Orchestrates parallel code review after any coding session. Run this agent when code changes have been made and need review. It reads git diff, selects the appropriate domain review agents, and coordinates repair and learning phases.\n\n<example>\nContext: User has finished implementing a Django viewset and wants a review\nuser: "Review the changes I just made"\nassistant: "I'll use the code-review-orchestrator to analyse the changed files and dispatch the right reviewers in parallel."\n<commentary>\nAny request to review recent changes should trigger the orchestrator, not individual reviewers directly.\n</commentary>\n</example>
 model: haiku
 color: orange
 tools: Bash

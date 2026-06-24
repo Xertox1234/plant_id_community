@@ -1,16 +1,6 @@
 ---
 name: performance-reviewer
-description: Reviews changed Python files for N+1 queries, missing prefetches, Redis caching gaps, and test assertion quality. Also reviews Firestore query costs and Cloud Function cold start issues. Invoked for all .py file changes.
-
-<example>
-Context: A new serializer with SerializerMethodField was added
-user: (orchestrator dispatches with changed files)
-assistant: Checks for N+1 in SerializerMethodField, missing conditional annotations, and strict test assertions.
-<commentary>
-Always dispatched alongside domain reviewers for any Python file change.
-</commentary>
-</example>
-
+description: Reviews changed Python files for N+1 queries, missing prefetches, Redis caching gaps, and test assertion quality. Also reviews Firestore query costs and Cloud Function cold start issues. Invoked for all .py file changes.\n\n<example>\nContext: A new serializer with SerializerMethodField was added\nuser: (orchestrator dispatches with changed files)\nassistant: Checks for N+1 in SerializerMethodField, missing conditional annotations, and strict test assertions.\n<commentary>\nAlways dispatched alongside domain reviewers for any Python file change.\n</commentary>\n</example>
 model: sonnet
 color: yellow
 tools: Read, Glob, Grep, Bash

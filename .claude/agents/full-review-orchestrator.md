@@ -1,16 +1,6 @@
 ---
 name: full-review-orchestrator
-description: Orchestrates a full-repository code review. Enumerates every active source file, batches by app/feature, dispatches all domain reviewers in waves, produces a persistent report under docs/reviews/, and drives an optional repair phase via filter expressions. Coexists with code-review-orchestrator (incremental); neither replaces the other.
-
-<example>
-Context: User wants a comprehensive audit of the entire codebase
-user: "Run a full review of the codebase"
-assistant: "I'll use the full-review-orchestrator to enumerate active source files, dispatch all domain reviewers in waves, and produce a persistent report."
-<commentary>
-Use this orchestrator when the user wants a whole-codebase audit. For incremental reviews of recent changes, use code-review-orchestrator instead.
-</commentary>
-</example>
-
+description: Orchestrates a full-repository code review. Enumerates every active source file, batches by app/feature, dispatches all domain reviewers in waves, produces a persistent report under docs/reviews/, and drives an optional repair phase via filter expressions. Coexists with code-review-orchestrator (incremental); neither replaces the other.\n\n<example>\nContext: User wants a comprehensive audit of the entire codebase\nuser: "Run a full review of the codebase"\nassistant: "I'll use the full-review-orchestrator to enumerate active source files, dispatch all domain reviewers in waves, and produce a persistent report."\n<commentary>\nUse this orchestrator when the user wants a whole-codebase audit. For incremental reviews of recent changes, use code-review-orchestrator instead.\n</commentary>\n</example>
 model: haiku
 color: purple
 tools: Bash, Read, Glob, Grep, Write

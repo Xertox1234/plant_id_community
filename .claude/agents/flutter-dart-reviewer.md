@@ -1,16 +1,6 @@
 ---
 name: flutter-dart-reviewer
-description: Reviews changed Flutter Dart files for Riverpod patterns, memory leaks, Material Design 3 compliance, and null safety. Invoked when plant_community_mobile/**/*.dart files change (non-auth/Firebase files).
-
-<example>
-Context: A new plant results screen was added with a Riverpod provider
-user: (orchestrator dispatches with changed files)
-assistant: Reviews for Riverpod 3.x patterns, StreamSubscription cleanup, null safety, and Material 3 compliance.
-<commentary>
-Dispatched automatically for Flutter Dart changes not related to Firebase auth.
-</commentary>
-</example>
-
+description: Reviews changed Flutter Dart files for Riverpod patterns, memory leaks, Material Design 3 compliance, and null safety. Invoked when plant_community_mobile/**/*.dart files change (non-auth/Firebase files).\n\n<example>\nContext: A new plant results screen was added with a Riverpod provider\nuser: (orchestrator dispatches with changed files)\nassistant: Reviews for Riverpod 3.x patterns, StreamSubscription cleanup, null safety, and Material 3 compliance.\n<commentary>\nDispatched automatically for Flutter Dart changes not related to Firebase auth.\n</commentary>\n</example>
 model: sonnet
 color: blue
 tools: Read, Glob, Grep, Bash
