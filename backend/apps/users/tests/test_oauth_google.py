@@ -14,9 +14,11 @@ reachable code paths:
 from unittest.mock import MagicMock, patch
 
 from allauth.account.models import EmailAddress
+from allauth.core.exceptions import ImmediateHttpResponse
 from apps.users import oauth_views
 from apps.users.oauth_adapters import CustomSocialAccountAdapter
 from django.contrib.auth import get_user_model
+from django.http import HttpResponseRedirect
 from django.test import RequestFactory, TestCase
 
 User = get_user_model()
@@ -142,22 +144,30 @@ class PreSocialLoginVerifiedEmailTest(TestCase):
         sociallogin.connect = MagicMock()
         return sociallogin
 
-    def test_unverified_email_is_not_linked(self):
+    def test_unverified_email_aborts_without_linking_or_creating(self):
         User.objects.create_user(username="victim", email="victim@example.com")
+        before = User.objects.count()
         sociallogin = self._sociallogin(email="victim@example.com", verified=False)
 
-        self.adapter.pre_social_login(self.request, sociallogin)
+        # The flow is aborted with a redirect — a bare return would let allauth's
+        # auto-signup create a second account holding the victim's email.
+        with self.assertRaises(ImmediateHttpResponse) as ctx:
+            self.adapter.pre_social_login(self.request, sociallogin)
 
+        self.assertIsInstance(ctx.exception.response, HttpResponseRedirect)
+        self.assertIn("error=unverified_email", ctx.exception.response.url)
         sociallogin.connect.assert_not_called()
+        self.assertEqual(User.objects.count(), before)
 
-    def test_no_verified_email_record_is_not_linked(self):
+    def test_no_verified_email_record_aborts(self):
         # extra_data carries the email, but the provider enumerated no matching
-        # verified EmailAddress — fail closed.
+        # verified EmailAddress — fail closed and abort the flow.
         User.objects.create_user(username="victim", email="victim@example.com")
         sociallogin = self._sociallogin(email="victim@example.com", verified=False)
         sociallogin.email_addresses = []
 
-        self.adapter.pre_social_login(self.request, sociallogin)
+        with self.assertRaises(ImmediateHttpResponse):
+            self.adapter.pre_social_login(self.request, sociallogin)
 
         sociallogin.connect.assert_not_called()
 
