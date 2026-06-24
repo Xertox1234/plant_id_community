@@ -89,7 +89,13 @@ offline feature promises, and it is currently unverified.
   store) is already covered by the fake-based suite; this closes the remaining gap
   on the literal SDK reconnect flush, which is valuable but not a current
   regression.
-- Related: todo 237 (reconcile Firestore plants with the backend on reconnect) —
-  both stem from the same offline-persistence wiring, and 237's reconcile test
-  needs the same emulator harness this todo builds. Whoever lands 236 first should
-  lay that infra so 237 can reuse it rather than standing up a second setup.
+- This todo stands on its own and is **not** affected by todo 237's resolution.
+  236 verifies the Firestore SDK's *own* offline write-queue flush to the Firestore
+  emulator (client cache → Firestore server) — real behavior wired by todo 224.
+- Stale cross-reference corrected (2026-06-24): an earlier note here claimed "237's
+  reconcile test needs the same emulator harness this todo builds." Todo 237 was
+  **resolved as a no-op** — investigation found the identify endpoint is stateless
+  and the mobile collection is Firestore-only, so there is no backend↔Firestore
+  reconcile and no "237 reconcile test" to share this harness with. The Firestore
+  round-trip 236 tests is unrelated to the (non-existent) backend sync. See
+  `todos/archive/237-completed-p2-reconcile-firestore-backend-reconnect.md`.
