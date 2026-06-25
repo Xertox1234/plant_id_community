@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "230"
 tags: [harness, docs, housekeeping, memory]
@@ -68,14 +68,39 @@ duplicates enforcement that now lives in triggers/hooks.
 - [x] MEMORY.md index has no entries flagged stale. (done 2026-06-21 — deleted
       `project_forum_app_path.md` (self-flagged STALE, superseded by the
       wagtail-forum-rebuild memory) and its index line; 0 STALE markers remain.)
-- [ ] No instruction text is loaded twice (global + project CLAUDE.md overlap
-      resolved). (DEFERRED 2026-06-21 — the Kimi delegation guidance is in BOTH
-      `~/.claude/CLAUDE.md` (global, all projects) and project `CLAUDE.md:250+`.
-      Resolving it edits the user's GLOBAL cross-project config and requires a
-      judgment call on which copy to keep — not done unilaterally at a sweep tail.
-      This todo stays in_progress until that's decided.)
+- [x] No instruction text is loaded twice (global + project CLAUDE.md overlap
+      resolved). (done 2026-06-24 — user chose Option A: the AUTO-delegate /
+      NEVER-delegate / Ask-first philosophy now lives ONLY in global
+      `~/.claude/CLAUDE.md`, enriched with the generic items the project copy had
+      (>400-line files, exact-line-numbers→Read, <~2000-token tasks, post-session
+      doc updates, the Ask-first tier) so nothing was lost. Project `CLAUDE.md`
+      keeps only its project-specific per-tool reference + `kimi-review` commit-gate
+      detail and a one-line "When to delegate" pointer to the global file.
+      `kimi-review` deliberately left OUT of the global script list — its
+      documented role is the repo commit-gate, not cross-project guidance. Verified
+      by re-reading both files: the philosophy now exists in exactly one place.)
 
 ## Work Log
+
+### 2026-06-24 - Part 4 done, todo closed
+
+- **Part 4 (CLAUDE.md dedup): RESOLVED.** User chose Option A (keep the shared
+  philosophy in global, point from project). Edits:
+  - Global `~/.claude/CLAUDE.md`: enriched to be the single, complete cross-project
+    delegation philosophy — added the generic items it lacked (single file >400
+    lines → ask-kimi; post-session doc updates; exact-line-numbers → use Read;
+    tasks <~2000 tokens; the "Ask first" tier; folded input-validation/migrations
+    into the security NEVER line). Local user-config file, outside the repo → not
+    in the PR.
+  - Project `CLAUDE.md`: replaced the duplicated `### Delegation rules`
+    (AUTO/NEVER/Ask-first lists) with a one-line `### When to delegate` pointer to
+    the global file. Kept the per-tool reference (lines ~250–309) intact — it is
+    project-specific (commands, the `kimi-review` commit gate, `plant_id` profile)
+    and was never duplicated. `kimi-review` deliberately NOT added to the global
+    script list (its role is the repo commit-gate).
+  - Verification: re-read both files — the AUTO/NEVER/Ask-first philosophy now
+    exists in exactly one place (global); nothing dropped. AC #4 satisfied; all
+    four ACs complete → archived.
 
 ### 2026-06-21 - Parts 1–3 done, part 4 deferred (run 2026-06-21-1412)
 
