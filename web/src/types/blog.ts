@@ -92,6 +92,27 @@ export interface CallToActionBlock extends BaseStreamFieldBlock {
 }
 
 /**
+ * Image block value.
+ * Backend (forum PR-3): an ImageChooserBlock serialized as a flat rendition dict.
+ */
+export interface ImageBlockValue {
+  id: number;
+  url: string;
+  alt?: string;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Image block
+ * Backend: ImageChooserBlock (forum inline images) → {id, url, alt, width, height}.
+ */
+export interface ImageBlock extends BaseStreamFieldBlock {
+  type: 'image';
+  value: ImageBlockValue;
+}
+
+/**
  * StreamField block types
  */
 export type StreamFieldBlock =
@@ -99,6 +120,7 @@ export type StreamFieldBlock =
   | HeadingBlock
   | QuoteBlock
   | CodeBlock
+  | ImageBlock
   | PlantSpotlightBlock
   | CallToActionBlock;
 

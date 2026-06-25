@@ -68,7 +68,6 @@ export interface Post {
     username: string;
     display_name?: string;
   };
-  attachments?: Attachment[];
   is_edited?: boolean;
   is_first_post?: boolean;
   is_active?: boolean;
@@ -76,25 +75,6 @@ export interface Post {
   /** Permission flags from the backend (wagtail_forum PostSerializer). */
   can_edit?: boolean;
   can_delete?: boolean;
-}
-
-/**
- * Post attachment (image)
- */
-export interface Attachment {
-  id: string;
-  // The backend serializes exactly these two URL fields; the previous `image`,
-  // `image_thumbnail`, `thumbnail`, `medium_url`, `large_url` aliases were all
-  // redundant copies the mapper filled from these two (todo 222 / L9).
-  image_url?: string; // original image URL
-  thumbnail_url?: string; // thumbnail URL
-  original_filename?: string;
-  file_size?: number;
-  mime_type?: string;
-  display_order?: number;
-  alt_text?: string;
-  uploaded_at?: string;
-  created_at?: string;
 }
 
 /**

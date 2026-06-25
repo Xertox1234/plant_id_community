@@ -56,7 +56,19 @@ describe('StreamFieldRenderer', () => {
       });
     });
 
-    // Removed tests for image block (block no longer supported - TODO #033)
+    it('renders image block as an <img> with the rendition url and alt', () => {
+      const blocks: StreamFieldBlock[] = [
+        {
+          id: '1',
+          type: 'image',
+          value: { id: 7, url: 'https://cdn.example/img.jpg', alt: 'a seedling' },
+        },
+      ];
+      render(<StreamFieldRenderer blocks={blocks} />);
+
+      const img = screen.getByRole('img', { name: 'a seedling' });
+      expect(img).toHaveAttribute('src', 'https://cdn.example/img.jpg');
+    });
 
     it('renders quote block with string value', () => {
       const blocks: StreamFieldBlock[] = [{ id: '1', type: 'quote', value: 'Test quote text' }];

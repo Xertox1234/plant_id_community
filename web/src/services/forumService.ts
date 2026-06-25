@@ -15,20 +15,17 @@ import {
   mapPostToPost,
   mapSearchTopicToThread,
   mapSearchPostToPost,
-  mapImageToAttachment,
   type BackendBoard,
   type BackendTopicListItem,
   type BackendTopicDetail,
   type BackendPost,
   type BackendSearchTopic,
   type BackendSearchPost,
-  type BackendImage,
 } from './forumMappers';
 import type {
   Category,
   Thread,
   Post,
-  Attachment,
   PaginatedResponse,
   CreateTopicInput,
   CreateTopicResult,
@@ -41,14 +38,10 @@ import type {
   ReactionToggleResult,
 } from '../types/forum';
 import { slugifyTitle } from '../utils/forumUrls';
+import { htmlToBodyBlocks } from '../utils/forumBody';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const FORUM_BASE = `${API_URL}/api/v1/forum`;
-
-/** Wrap composer HTML as the forum body StreamField (a single paragraph block). */
-function toBodyBlocks(html: string): Array<{ type: 'paragraph'; value: string }> {
-  return [{ type: 'paragraph', value: html }];
-}
 
 interface DrfPage<T> {
   results?: T[];
@@ -153,7 +146,7 @@ export async function createThread(data: CreateTopicInput): Promise<CreateTopicR
     status: 'published' | 'pending';
   }>(`${FORUM_BASE}/boards/${boardSlug}/topics/`, {
     method: 'POST',
-    body: JSON.stringify({ title, slug: slugifyTitle(title), body: toBodyBlocks(content) }),
+    body: JSON.stringify({ title, slug: slugifyTitle(title), body: htmlToBodyBlocks(content) }),
   });
   return { id: String(res.id), slug: res.slug, status: res.status };
 }
@@ -190,7 +183,7 @@ export async function createPost(data: CreateReplyInput): Promise<CreateReplyRes
   const { thread, content } = data;
   const res = await authenticatedFetch<{ id: number; status: 'published' | 'pending' }>(
     `${FORUM_BASE}/topics/${thread}/posts/`,
-    { method: 'POST', body: JSON.stringify({ body: toBodyBlocks(content) }) }
+    { method: 'POST', body: JSON.stringify({ body: htmlToBodyBlocks(content) }) }
   );
   return { id: String(res.id), status: res.status };
 }
@@ -200,7 +193,7 @@ export async function updatePost(postId: string, data: UpdatePostInput): Promise
     BackendPost & { moderation_status: 'published' | 'pending' }
   >(`${FORUM_BASE}/posts/${postId}/`, {
     method: 'PATCH',
-    body: JSON.stringify({ body: toBodyBlocks(data.content) }),
+    body: JSON.stringify({ body: htmlToBodyBlocks(data.content) }),
   });
   return { post: mapPostToPost(res, String(res.topic_id)), status: res.moderation_status };
 }
@@ -225,21 +218,27 @@ export async function toggleReaction(
 }
 
 // ---------------------------------------------------------------------------
-// Images
+// Images (inline post images — Spec 2 PR-3)
 // ---------------------------------------------------------------------------
 
-export async function fetchPostImages(postId: string): Promise<Attachment[]> {
-  const data = await authenticatedFetch<{ images: BackendImage[] }>(
-    `${FORUM_BASE}/posts/${postId}/images/`
-  );
-  return (data.images || []).map(mapImageToAttachment);
+export interface UploadedImage {
+  id: number;
+  url: string;
+  alt: string;
+  width: number;
+  height: number;
 }
 
-export async function uploadPostImage(postId: string, imageFile: File): Promise<Attachment> {
+/**
+ * Upload an inline image into the forum image collection. Topic-independent:
+ * the returned id is referenced from an `image` body block (see utils/forumBody).
+ * Multipart, so let the browser set Content-Type; CSRF + cookie auth as usual.
+ */
+export async function uploadPostImage(imageFile: File): Promise<UploadedImage> {
   const csrfToken = await getCsrfToken();
   const formData = new FormData();
-  formData.append('images', imageFile); // backend expects the plural field name
-  const response = await fetch(`${FORUM_BASE}/posts/${postId}/images/upload/`, {
+  formData.append('image', imageFile);
+  const response = await fetch(`${FORUM_BASE}/images/`, {
     method: 'POST',
     credentials: 'include',
     headers: { Accept: 'application/json', ...(csrfToken && { 'X-CSRFToken': csrfToken }) },
@@ -247,31 +246,9 @@ export async function uploadPostImage(postId: string, imageFile: File): Promise<
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Upload failed' }));
-    throw new Error(error.message || error.detail || `HTTP ${response.status}`);
+    throw new Error(error.detail || error.message || `HTTP ${response.status}`);
   }
-  const data = (await response.json()) as { images: BackendImage[] };
-  if (!data.images?.length) throw new Error('Upload returned no image');
-  return mapImageToAttachment(data.images[0]);
-}
-
-export async function deletePostImage(postId: string, attachmentId: string): Promise<void> {
-  await authenticatedFetch<void>(`${FORUM_BASE}/posts/${postId}/images/${attachmentId}/delete/`, {
-    method: 'DELETE',
-  });
-}
-
-/** No bulk reorder endpoint — PATCH upload_order on each image in sequence. */
-export async function reorderPostImages(
-  postId: string,
-  attachmentIds: string[]
-): Promise<Attachment[]> {
-  for (let i = 0; i < attachmentIds.length; i++) {
-    await authenticatedFetch<unknown>(`${FORUM_BASE}/posts/${postId}/images/${attachmentIds[i]}/`, {
-      method: 'PATCH',
-      body: JSON.stringify({ upload_order: i }),
-    });
-  }
-  return fetchPostImages(postId);
+  return response.json() as Promise<UploadedImage>;
 }
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import {
   toggleReaction,
 } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
+import { bodyBlocksToHtml } from '../../utils/forumBody';
 import PostCard from '../../components/forum/PostCard';
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -21,12 +22,6 @@ import type { PaginatedResponse } from '@/types/forum';
 /** Strip tags + whitespace to detect an effectively-empty rich-text body. */
 function isBlankHtml(html: string): boolean {
   return html.replace(/<[^>]*>/g, '').trim() === '';
-}
-
-/** Extract the editable HTML from a post body (the single paragraph block). */
-function bodyToHtml(body: Post['body']): string {
-  const value = body?.find((b) => b.type === 'paragraph')?.value;
-  return typeof value === 'string' ? value : '';
 }
 
 // Posts are ordered oldest-first, so a brand-new reply is the NEWEST post and lands
@@ -216,7 +211,7 @@ export default function ThreadDetailPage() {
 
   const handleEdit = useCallback((post: Post) => {
     setEditingPostId(post.id);
-    setEditBody(bodyToHtml(post.body));
+    setEditBody(bodyBlocksToHtml(post.body));
   }, []);
 
   const handleEditSubmit = useCallback(

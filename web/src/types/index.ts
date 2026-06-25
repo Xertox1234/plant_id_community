@@ -16,7 +16,6 @@ export type {
   Category,
   Thread,
   Post,
-  Attachment,
   CreateThreadData,
   CreatePostData,
   SearchForumResponse,

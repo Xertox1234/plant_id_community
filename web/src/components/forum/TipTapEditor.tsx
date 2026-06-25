@@ -2,7 +2,10 @@ import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
-import { ReactNode, useEffect } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
+import { uploadPostImage } from '../../services/forumService';
+import { logger } from '../../utils/logger';
+import { ForumImage } from './forumImageNode';
 
 interface TipTapEditorProps {
   content?: string;
@@ -45,6 +48,7 @@ export default function TipTapEditor({
       Placeholder.configure({
         placeholder,
       }),
+      ForumImage,
     ],
     content,
     editable,
@@ -53,6 +57,35 @@ export default function TipTapEditor({
       onChange?.(html);
     },
   });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
+  const handleImageSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // allow re-selecting the same file after an error
+    if (!file || !editor) return;
+    setImageError(null);
+    setUploadingImage(true);
+    try {
+      const image = await uploadPostImage(file);
+      // insertContent (not setImage) so the custom imageId attr rides along.
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: 'image',
+          attrs: { src: image.url, alt: image.alt, imageId: image.id },
+        })
+        .run();
+    } catch (err) {
+      logger.error('[forum] image upload failed', err);
+      setImageError(err instanceof Error ? err.message : 'Image upload failed');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   // Cleanup: Destroy editor instance on unmount to prevent memory leak
   useEffect(() => {
@@ -88,31 +121,10 @@ export default function TipTapEditor({
             <em>I</em>
           </ToolbarButton>
 
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleStrike().run()}
-            isActive={editor.isActive('strike')}
-            title="Strikethrough"
-          >
-            <s>S</s>
-          </ToolbarButton>
-
-          <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
-
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-            isActive={editor.isActive('heading', { level: 2 })}
-            title="Heading 2"
-          >
-            H2
-          </ToolbarButton>
-
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-            isActive={editor.isActive('heading', { level: 3 })}
-            title="Heading 3"
-          >
-            H3
-          </ToolbarButton>
+          {/* Strike / headings / blockquote / code-block are intentionally
+              omitted: the server's nh3 allowlist keeps only bold, italic, links,
+              lists and inline code, so those marks would silently flatten to
+              plain text (Spec 2 PR-3). */}
 
           <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
 
@@ -132,14 +144,6 @@ export default function TipTapEditor({
             1.
           </ToolbarButton>
 
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleBlockquote().run()}
-            isActive={editor.isActive('blockquote')}
-            title="Quote"
-          >
-            "
-          </ToolbarButton>
-
           <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
 
           <ToolbarButton
@@ -148,14 +152,6 @@ export default function TipTapEditor({
             title="Inline Code"
           >
             {'</>'}
-          </ToolbarButton>
-
-          <ToolbarButton
-            onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-            isActive={editor.isActive('codeBlock')}
-            title="Code Block"
-          >
-            {'{ }'}
           </ToolbarButton>
 
           <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
@@ -181,7 +177,27 @@ export default function TipTapEditor({
               ⛓️‍💥
             </ToolbarButton>
           )}
+
+          <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
+
+          <ToolbarButton onClick={() => fileInputRef.current?.click()} title="Insert image">
+            {uploadingImage ? '⏳' : '🖼️'}
+          </ToolbarButton>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            data-testid="forum-image-input"
+            onChange={handleImageSelect}
+          />
         </div>
+      )}
+
+      {imageError && (
+        <p className="bg-surface border-b border-line-2 px-3 py-2 text-sm text-error" role="alert">
+          {imageError}
+        </p>
       )}
 
       {/* Editor Content */}

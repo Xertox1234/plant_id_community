@@ -48,8 +48,8 @@ describe('TipTapEditor', () => {
     });
 
     expect(screen.getByTitle('Italic (Ctrl+I)')).toBeInTheDocument();
-    expect(screen.getByTitle('Heading 2')).toBeInTheDocument();
     expect(screen.getByTitle('Insert Link')).toBeInTheDocument();
+    expect(screen.getByTitle('Insert image')).toBeInTheDocument();
   });
 
   it('does not render toolbar when readonly', async () => {
@@ -100,15 +100,17 @@ describe('TipTapEditor', () => {
     expect(italicButton).toHaveAttribute('type', 'button');
   });
 
-  it('renders heading toolbar buttons', async () => {
+  it('omits the marks the server nh3 allowlist would flatten (Spec 2 PR-3 trim)', async () => {
     render(<TipTapEditor onChange={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByTitle('Heading 2')).toBeInTheDocument();
+      expect(screen.getByTitle('Bold (Ctrl+B)')).toBeInTheDocument();
     });
 
-    expect(screen.getByTitle('Heading 2')).toBeInTheDocument();
-    expect(screen.getByTitle('Heading 3')).toBeInTheDocument();
+    expect(screen.queryByTitle('Heading 2')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Heading 3')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Strikethrough')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Quote')).not.toBeInTheDocument();
   });
 
   it('renders list toolbar buttons', async () => {
@@ -122,15 +124,24 @@ describe('TipTapEditor', () => {
     expect(screen.getByTitle('Numbered List')).toBeInTheDocument();
   });
 
-  it('renders code toolbar buttons', async () => {
+  it('renders the inline code button but not the (trimmed) code block button', async () => {
     render(<TipTapEditor onChange={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByTitle('Code Block')).toBeInTheDocument();
+      expect(screen.getByTitle('Inline Code')).toBeInTheDocument();
     });
 
-    expect(screen.getByTitle('Inline Code')).toBeInTheDocument();
-    expect(screen.getByTitle('Code Block')).toBeInTheDocument();
+    expect(screen.queryByTitle('Code Block')).not.toBeInTheDocument();
+  });
+
+  it('renders the insert-image button and a hidden file input', async () => {
+    render(<TipTapEditor onChange={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Insert image')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('forum-image-input')).toHaveAttribute('type', 'file');
   });
 
   it('shows loading state before editor initializes', () => {

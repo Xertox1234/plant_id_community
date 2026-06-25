@@ -104,7 +104,6 @@ export function createMockPost(overrides: Partial<Post> = {}): Post {
     updated_at: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
     edited_at: null,
     edited_by: undefined,
-    attachments: [],
     is_edited: false,
     is_first_post: false,
     is_active: true,

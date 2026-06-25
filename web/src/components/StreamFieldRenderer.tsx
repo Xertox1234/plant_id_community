@@ -91,7 +91,13 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
       // Backend: RichTextBlock (HTML string)
       return <SafeHTML html={block.value} className="mb-4 text-ink-2 leading-relaxed" />;
 
-    // Removed: image block (no backend definition, use paragraph with embedded images)
+    case 'image': {
+      // Backend (forum PR-3): ImageChooserBlock → {id, url, alt, width, height}.
+      const { url, alt } = block.value;
+      return (
+        <img src={url} alt={alt || ''} className="rounded-lg max-w-full h-auto my-4 mx-auto" />
+      );
+    }
 
     case 'quote': {
       // Backend: StructBlock with quote_text (RichTextBlock) and attribution (CharBlock)
