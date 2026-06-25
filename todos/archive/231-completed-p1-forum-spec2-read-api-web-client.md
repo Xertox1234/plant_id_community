@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p1
 issue_id: "231"
 tags: [forum, api, web, spec-2]
