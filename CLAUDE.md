@@ -308,24 +308,10 @@ kimi-challenge --decision "<the approach>" --paths <relevant-files>
 
 Claude still makes the final call — kimi-challenge surfaces the weaknesses.
 
-### Delegation rules
+### When to delegate
 
-**AUTO-delegate (no prompt needed):**
-
-- Reading 3+ files for exploration or context
-- Single file >400 lines when goal is understanding (not editing)
-- Boilerplate: pytest tests, DRF viewsets/serializers, Flutter widgets, Riverpod providers
-- Post-session documentation updates
-
-**NEVER delegate:**
-
-- Architecture decisions, refactoring plans, feature design
-- Debugging (requires reasoning about error state)
-- Security-sensitive code: auth, permissions, input validation, migrations
-- Tasks requiring exact line numbers for editing — use Read directly
-- Tasks under ~2000 tokens (overhead not worth it)
-
-**Ask first (ambiguous):**
-
-- "Summarize what changed in this PR"
-- Anything touching auth or permissions even if it seems mechanical
+The delegation philosophy (AUTO-delegate / NEVER-delegate / Ask-first tiers) is
+cross-project and lives in `~/.claude/CLAUDE.md` — not repeated here, to avoid
+loading the same guidance twice. The per-tool reference above is the
+project-specific layer (commands, the `kimi-review` commit gate, the `plant_id`
+profile).
