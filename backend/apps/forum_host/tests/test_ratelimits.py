@@ -99,6 +99,7 @@ def test_wrapped_routes_use_the_throttled_views():
         "topic-list": throttled.TopicListView,
         "post-list": throttled.PostListView,
         "post-detail": throttled.PostWriteView,
+        "image-upload": throttled.PostImageUploadView,
         "reaction-toggle": throttled.ReactionToggleView,
         "me-profile": throttled.MeProfileView,
         "search": throttled.SearchView,
@@ -157,6 +158,37 @@ def test_throttle_is_per_user_not_global():
     assert first.status_code == 201
     assert blocked.status_code == 429
     assert other.status_code == 201
+
+
+@override_settings(FORUM_RATELIMITS={"image_upload": "1/h"})
+@pytest.mark.django_db
+def test_image_upload_is_throttled_per_user():
+    import io
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from PIL import Image as PILImage
+
+    user = User.objects.create_user(username="up", password="x")
+    client = APIClient()
+    client.force_authenticate(user)
+
+    def upload():
+        buf = io.BytesIO()
+        PILImage.new("RGB", (10, 10), "red").save(buf, format="JPEG")
+        buf.seek(0)
+        return client.post(
+            "/api/v1/forum/images/",
+            {"image": SimpleUploadedFile("a.jpg", buf.read(), "image/jpeg")},
+            format="multipart",
+        )
+
+    with freeze_time("2026-06-10 12:00:00"):
+        first = upload()
+        blocked = upload()
+
+    assert first.status_code == 201
+    assert blocked.status_code == 429  # NOT 403 — Ratelimited subclasses it
+    assert "Retry-After" in blocked
 
 
 @override_settings(FORUM_RATELIMITS={"post_update": "1/h"})

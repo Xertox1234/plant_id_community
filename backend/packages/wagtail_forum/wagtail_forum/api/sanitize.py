@@ -16,8 +16,11 @@ import json
 import nh3
 from rest_framework import serializers
 from wagtail.blocks import ChooserBlock, RichTextBlock, StructBlock
+from wagtail.images import get_image_model
+from wagtail.images.blocks import ImageChooserBlock
 
 from ..blocks import ForumBodyBlock
+from ..collections import get_forum_image_collection
 
 # Allowlist scoped to ForumBodyBlock's RichTextBlock features (bold, italic, link,
 # ol, ul, code) plus the structural tags Wagtail emits. nh3 drops everything else,
@@ -62,6 +65,11 @@ def validate_forum_body(value):
     if len(json.dumps(value)) > MAX_BODY_CHARS:
         raise serializers.ValidationError("Post body is too large.")
     body_block = ForumBodyBlock()
+    image_types = {
+        name
+        for name, block in body_block.child_blocks.items()
+        if isinstance(block, ImageChooserBlock)
+    }
 
     # Reject unknown block types explicitly: StreamBlock.to_python silently
     # DROPS them (the client's content would vanish without an error). Also
@@ -85,24 +93,47 @@ def validate_forum_body(value):
                 isinstance(v, str) for v in block_value.values()
             ):
                 raise serializers.ValidationError("Invalid post body.")
+        elif block["type"] in image_types:
+            # An image chooser value is the referenced image's integer PK; bool
+            # is an int subclass, so exclude it. Membership is verified below.
+            if not isinstance(block_value, int) or isinstance(block_value, bool):
+                raise serializers.ValidationError("Invalid post body.")
         elif not isinstance(block_value, str):
             raise serializers.ValidationError("Invalid post body.")
 
-    # Reject chooser blocks (image, …) outright on the API path: the dry-run
-    # below does not resolve the referenced PK, so a caller could store a
-    # nonexistent ID (breaks rendering) or reference a restricted-collection
-    # asset by guessing IDs — an IDOR-by-reference (audit L5). There is no
-    # forum upload path yet; Spec 2 adds one with collection validation.
-    chooser_types = {
+    # Non-image chooser blocks stay rejected outright: there is no upload/
+    # validation path for them, so a caller could store a nonexistent PK
+    # (breaks rendering) or reference a restricted asset by guessing IDs.
+    other_chooser_types = {
         name
         for name, block in body_block.child_blocks.items()
-        if isinstance(block, ChooserBlock)
+        if isinstance(block, ChooserBlock) and name not in image_types
     }
     for block in value:
-        if isinstance(block, dict) and block.get("type") in chooser_types:
+        if isinstance(block, dict) and block.get("type") in other_chooser_types:
             raise serializers.ValidationError(
                 "Blocks referencing site objects (e.g. images) cannot be "
                 "submitted via the API."
+            )
+
+    # Image blocks ARE allowed, but only when every referenced PK is an image in
+    # the forum collection — the to_python dry-run never resolves chooser PKs, so
+    # an unchecked id is an IDOR-by-reference (audit L5). One bulk query.
+    image_ids = [
+        block["value"]
+        for block in value
+        if isinstance(block, dict) and block.get("type") in image_types
+    ]
+    if image_ids:
+        valid_ids = set(
+            get_image_model()
+            .objects.filter(id__in=image_ids, collection=get_forum_image_collection())
+            .values_list("id", flat=True)
+        )
+        if any(image_id not in valid_ids for image_id in image_ids):
+            raise serializers.ValidationError(
+                "Post body references an image that is not in the forum "
+                "image collection."
             )
 
     try:

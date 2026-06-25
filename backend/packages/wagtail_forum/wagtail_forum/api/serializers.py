@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from wagtail.blocks import RichTextBlock
+from wagtail.images import get_image_model
 from wagtail.rich_text import expand_db_html
 
 from ..models import ForumBoard, ForumProfile, Post, Reaction, Topic
@@ -121,21 +122,82 @@ class TopicDetailSerializer(serializers.ModelSerializer):
         return post.id if post else None
 
 
-def serialize_forum_body(stream_value):
+def serialize_image_for_api(image, request=None):
+    """An image block's API value: {id, url, alt, width, height}.
+
+    Serves a bounded `max-1200x1200` rendition (not the 5000px-capped original).
+    The URL is made absolute against the request so the web client — served from
+    a different origin than the media backend — resolves it correctly.
+    """
+    rendition = image.get_rendition("max-1200x1200")
+    url = rendition.url
+    if request is not None:
+        url = request.build_absolute_uri(url)
+    return {
+        "id": image.id,
+        "url": url,
+        "alt": image.title or "",
+        "width": rendition.width,
+        "height": rendition.height,
+    }
+
+
+def build_forum_image_map(posts):
+    """Map {image_id: Image} for every image block across *posts* (one query).
+
+    Reads each post's raw StreamField data — NOT the resolved bound blocks — so
+    collecting ids costs no per-image query, then batch-fetches with prefetched
+    renditions. Keeps the post-list query count flat regardless of how many
+    images a page references (no N+1). Returns {} when no image blocks exist, so
+    a text-only page issues no extra query.
+    """
+    image_ids = set()
+    for post in posts:
+        for raw in post.body.raw_data:
+            if raw.get("type") == "image" and isinstance(raw.get("value"), int):
+                image_ids.add(raw["value"])
+    if not image_ids:
+        return {}
+    images = (
+        get_image_model()
+        .objects.filter(id__in=image_ids)
+        .prefetch_renditions("max-1200x1200")
+    )
+    return {img.id: img for img in images}
+
+
+def serialize_forum_body(stream_value, image_map=None, request=None):
     """StreamField -> [{type, value, id}] for the React StreamFieldRenderer.
 
-    RichText (paragraph) blocks are run through expand_db_html() so Wagtail's
-    link rewriter runs (SECURITY: blocks.py:18-21) — never raw value.source.
-    Phase 1 bodies contain only text blocks (heading/paragraph/quote/code);
-    image-block rendition serialization arrives in Phase 3.
+    Iterates the RAW StreamField data, never the resolved StreamValue: merely
+    iterating a StreamValue makes Wagtail bulk-resolve each block type, and for
+    image blocks that is an `Image.objects.in_bulk()` PER POST — an N+1 across a
+    page (the whole reason build_forum_image_map batches up front). Working from
+    raw data sidesteps that: image blocks resolve through *image_map*; every
+    other block's to_python/get_api_representation is DB-free.
+
+    RichText (paragraph) raw value IS the stored HTML source, run through
+    expand_db_html() so Wagtail's link rewriter runs (SECURITY: blocks.py:18-21)
+    — never the unrewritten source. A referenced image missing from the map
+    (e.g. deleted after posting) serializes as None.
     """
+    image_map = image_map or {}
+    child_blocks = stream_value.stream_block.child_blocks
     blocks = []
-    for bound in stream_value:
-        if isinstance(bound.block, RichTextBlock):
-            value = expand_db_html(bound.value.source)
-        else:
-            value = bound.block.get_api_representation(bound.value)
-        blocks.append({"type": bound.block_type, "value": value, "id": bound.id})
+    for raw in stream_value.raw_data:
+        block_type = raw.get("type")
+        raw_value = raw.get("value")
+        child = child_blocks.get(block_type)
+        if block_type == "image":
+            image = image_map.get(raw_value)
+            value = serialize_image_for_api(image, request) if image else None
+        elif isinstance(child, RichTextBlock):
+            value = expand_db_html(raw_value or "")
+        elif child is not None:
+            value = child.get_api_representation(child.to_python(raw_value))
+        else:  # unknown type (cannot occur in stored data — validated on write)
+            value = raw_value
+        blocks.append({"type": block_type, "value": value, "id": raw.get("id")})
     return blocks
 
 
@@ -190,7 +252,11 @@ class PostSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(FORUM_BODY_SCHEMA)
     def get_body(self, obj):
-        return serialize_forum_body(obj.body)
+        return serialize_forum_body(
+            obj.body,
+            self.context.get("forum_image_map"),
+            self.context.get("request"),
+        )
 
     @extend_schema_field(OpenApiTypes.DATETIME)
     def get_edited_at(self, obj):

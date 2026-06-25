@@ -8,9 +8,11 @@ from django.utils.dateparse import parse_datetime
 from rest_framework import generics
 from rest_framework import status as http_status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from wagtail.images import get_image_model
 from wagtail.search.backends import get_search_backend
 
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
@@ -25,6 +27,7 @@ except ImportError:  # pragma: no cover
 
 
 from ..blocks import ForumBodyBlock
+from ..collections import get_forum_image_collection
 from ..models import ForumBoard, Post, Reaction, Topic
 from ..workflow import submit_edit_for_moderation, submit_for_moderation
 from .exceptions import Conflict, UnprocessableEntity
@@ -40,7 +43,10 @@ from .serializers import (
     TopicCreateSerializer,
     TopicDetailSerializer,
     TopicListSerializer,
+    build_forum_image_map,
+    serialize_image_for_api,
 )
+from .upload_validation import validate_image_upload
 
 logger = logging.getLogger("wagtail_forum")
 
@@ -266,6 +272,22 @@ class PostListView(generics.ListAPIView):
         )
         return topic.posts.filter(live=True).select_related("author")
 
+    def list(self, request, *args, **kwargs):
+        # Build the page's image map ONCE (one batched query) and feed it to the
+        # serializer via context, so image-block rendition serialization never
+        # fans out into a per-image lookup (the post-list query count is pinned).
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        objects = page if page is not None else queryset
+        context = {
+            **self.get_serializer_context(),
+            "forum_image_map": build_forum_image_map(objects),
+        }
+        serializer = self.get_serializer(objects, many=True, context=context)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
     @extend_schema(
         request=ReplyCreateSerializer,
         responses={201: dict, 404: dict, 409: dict, 422: dict},
@@ -378,7 +400,13 @@ class PostWriteView(APIView):
             )
             moderation_status = "pending"
         post.refresh_from_db()
-        data = PostSerializer(post, context={"request": request}).data
+        data = PostSerializer(
+            post,
+            context={
+                "request": request,
+                "forum_image_map": build_forum_image_map([post]),
+            },
+        ).data
         data["moderation_status"] = moderation_status
         return Response(data)
 
@@ -400,6 +428,50 @@ class PostWriteView(APIView):
         # Wagtail editors, matching submit_for_moderation's publish(user=None).
         post.unpublish(user=None)
         return Response(status=http_status.HTTP_204_NO_CONTENT)
+
+
+class PostImageUploadView(APIView):
+    """Upload an inline post image (4-layer validated) into the forum collection.
+
+    Topic-independent (Spec 2 PR-3): a new-thread composer has no topic id yet,
+    and an image is scoped by collection, not topic. The body references the
+    returned id via an `image` block (membership-checked in api/sanitize.py).
+    """
+
+    permission_classes = [IsAuthenticated]
+    versioning_class = None
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {"image": {"type": "string", "format": "binary"}},
+            }
+        },
+        responses={201: dict, 400: dict, 401: dict},
+        description=(
+            "Upload an inline post image (4-layer validated: extension, MIME, "
+            "size, PIL decode) into the forum image collection. Returns "
+            "{id, url, alt, width, height}; reference the returned id from an "
+            "`image` body block. Requires authentication."
+        ),
+    )
+    def post(self, request):
+        image_file = request.FILES.get("image")
+        if image_file is None:
+            raise ValidationError("No image file provided.")
+        validate_image_upload(image_file)
+        image = get_image_model().objects.create(
+            title=(image_file.name or "forum-image")[:255],
+            file=image_file,
+            collection=get_forum_image_collection(),
+            uploaded_by_user=request.user,
+        )
+        return Response(
+            serialize_image_for_api(image, request),
+            status=http_status.HTTP_201_CREATED,
+        )
 
 
 class ReactionToggleView(APIView):
