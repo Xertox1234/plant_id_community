@@ -9,6 +9,15 @@ import { afterEach, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
+// Surface the originating stack of any unhandled promise rejection. Vitest treats a
+// post-test unhandled rejection as a run-level error (exit 1) even when every test file
+// passes, but by default the leaked stack is hard to attribute to a call site. This
+// reporter is intentionally NON-suppressing — it only logs; Vitest still fails the run —
+// so it diagnoses leaks without masking them (see todo 234).
+process.on('unhandledRejection', (reason) => {
+  console.error('\n[UNHANDLED REJECTION]', reason instanceof Error ? reason.stack : reason);
+});
+
 // Cleanup after each test case (e.g., clearing jsdom)
 afterEach(() => {
   cleanup();
