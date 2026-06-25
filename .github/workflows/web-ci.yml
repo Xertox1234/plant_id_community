@@ -42,21 +42,8 @@ jobs:
         run: npm run lint
 
       - name: Unit and component tests (Vitest)
-        # TEMPORARY (todo 234 flake hunt) — loop the suite many times in one CI job so the
-        # rare post-test unhandled rejection surfaces here; the setup.ts reporter prints its
-        # originating stack. Stop on first failure so the failing attempt is the tail of the
-        # log. REVERT to the single `npm run test -- --run` line before merge.
-        run: |
-          for i in $(seq 1 40); do
-            echo "::group::vitest attempt $i"
-            npm run test -- --run
-            rc=$?
-            echo "::endgroup::"
-            if [ "$rc" -ne 0 ]; then
-              echo "::error::flake reproduced on attempt $i (exit $rc)"
-              exit "$rc"
-            fi
-          done
+        # --run forces a single pass (Vitest defaults to watch mode interactively).
+        run: npm run test -- --run
 
       # Playwright E2E is intentionally NOT run here. web/playwright.config.ts
       # defines a webServer block that auto-starts the Vite dev server, and the
