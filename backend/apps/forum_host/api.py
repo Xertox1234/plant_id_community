@@ -50,6 +50,13 @@ class PostWriteView(forum_views.PostWriteView):
 
 
 @method_decorator(
+    ratelimit(key="user", rate=_rate("image_upload"), method="POST"), name="post"
+)
+class PostImageUploadView(forum_views.PostImageUploadView):
+    pass
+
+
+@method_decorator(
     ratelimit(key="user", rate=_rate("reaction_toggle"), method="POST"), name="post"
 )
 class ReactionToggleView(forum_views.ReactionToggleView):

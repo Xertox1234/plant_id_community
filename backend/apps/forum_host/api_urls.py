@@ -14,6 +14,7 @@ from wagtail_forum.api.views import BoardListView, TopicDetailView
 
 from .api import (
     MeProfileView,
+    PostImageUploadView,
     PostListView,
     PostWriteView,
     ReactionToggleView,
@@ -29,6 +30,7 @@ urlpatterns = [
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
     path("topics/<int:topic_id>/", TopicDetailView.as_view(), name="topic-detail"),
     path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
+    path("images/", PostImageUploadView.as_view(), name="image-upload"),
     path("posts/<int:post_id>/", PostWriteView.as_view(), name="post-detail"),
     path(
         "posts/<int:post_id>/reactions/",
