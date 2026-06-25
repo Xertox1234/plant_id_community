@@ -251,5 +251,21 @@
     "source": "codify: docs/codify-auth-error-patterns",
     "added": "2026-06-21",
     "severity": "warn"
+  },
+  {
+    "id": "tiptap-extension-exact-pin",
+    "domains": [
+      "react",
+      "typescript"
+    ],
+    "path_glob": [
+      "web/package.json"
+    ],
+    "content_present": "\"@tiptap/extension-[^\"]+\":\\s*\"\\^",
+    "message": "Pin @tiptap/extension-* to the EXACT @tiptap/core version (no caret) — a caret resolves to a newer 3.x whose peer @tiptap/core mismatches the pinned core → npm ERESOLVE. See docs/rules/react.md.",
+    "pattern_ref": "docs/rules/react.md",
+    "source": "codify: chore/codify-forum-pr3",
+    "added": "2026-06-25",
+    "severity": "warn"
   }
 ]

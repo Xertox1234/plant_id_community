@@ -49,3 +49,18 @@ Compact checklist auto-injected before edits. Long-form:
   → `MultipleObjectsReturned`/409. Seed via an idempotent management command and
   wire it into the deploy `startCommand` (`railway.json`) — a documented-but-unwired
   seed command ships an empty forum to prod.
+- **Serialize a StreamField body from `stream_value.raw_data`, never by iterating
+  the resolved StreamValue.** Plain `for bound in stream_value` makes Wagtail
+  bulk-resolve each block type — and for a `ChooserBlock` (image/document/page)
+  that is an `Image.objects.in_bulk()` PER post: an N+1 across a page that no
+  `prefetch_renditions` on the post queryset can reach (the ids live inside the
+  JSON, not a relation). Collect chooser ids from `raw_data` up front, batch-fetch
+  once into an `{id: obj}` map, then read the map while iterating raw data. Pin the
+  endpoint's `assertNumQueries` and prove it's flat across N. See `docs/LEARNINGS.md`
+  2026-06-25.
+- **Relax an API-write chooser-block rejection only with a collection-membership
+  check.** When permitting an image/chooser block on the DRF write path, resolve
+  every referenced PK with one bulk query scoped to the feature's Wagtail
+  collection (`get_image_model().objects.filter(id__in=ids, collection=…)`); reject
+  any nonexistent or out-of-collection id. The `to_python` dry-run never resolves
+  chooser PKs, so an unchecked id is an IDOR-by-reference.
