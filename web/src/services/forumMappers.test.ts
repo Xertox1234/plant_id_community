@@ -6,7 +6,6 @@ import {
   mapPostToPost,
   mapSearchTopicToThread,
   mapSearchPostToPost,
-  mapImageToAttachment,
 } from './forumMappers';
 
 describe('forumMappers (wagtail_forum contract)', () => {
@@ -251,30 +250,5 @@ describe('forumMappers (wagtail_forum contract)', () => {
       excerpt: 'Some excerpt',
     });
     expect(p).toMatchObject({ id: '99', thread: '7', content_raw: 'Some excerpt' });
-  });
-
-  // -------------------------------------------------------------------------
-  // Image → Attachment (unchanged)
-  // -------------------------------------------------------------------------
-
-  it('mapImageToAttachment maps image_url, thumbnail_url, upload_order→display_order', () => {
-    const a = mapImageToAttachment({
-      id: 7,
-      image_url: 'http://x/a.jpg',
-      thumbnail_url: 'http://x/a_t.jpg',
-      large_thumbnail_url: 'http://x/a_l.jpg',
-      upload_order: 2,
-      alt_text: 'a plant',
-      original_filename: 'a.jpg',
-      file_size: 1234,
-      created_at: '2026-01-01T00:00:00Z',
-    });
-    expect(a).toMatchObject({
-      id: '7',
-      image_url: 'http://x/a.jpg',
-      thumbnail_url: 'http://x/a_t.jpg',
-      display_order: 2,
-      alt_text: 'a plant',
-    });
   });
 });

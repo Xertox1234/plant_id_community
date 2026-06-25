@@ -1,5 +1,5 @@
 import type { StreamFieldBlock } from '../types/blog';
-import type { Category, Thread, Post, Attachment } from '../types/forum';
+import type { Category, Thread, Post } from '../types/forum';
 
 // ---------------------------------------------------------------------------
 // Backend shapes — wagtail_forum API contract
@@ -79,19 +79,6 @@ export interface BackendSearchPost {
   topic_id: number;
   topic_title: string;
   excerpt: string;
-}
-
-// Image shape stays — used by write functions (Phase 2/3).
-export interface BackendImage {
-  id: number;
-  image_url?: string | null;
-  thumbnail_url?: string | null;
-  large_thumbnail_url?: string | null;
-  upload_order?: number;
-  alt_text?: string;
-  original_filename?: string;
-  file_size?: number;
-  created_at?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -226,19 +213,5 @@ export function mapSearchPostToPost(p: BackendSearchPost): Post {
     can_edit: false,
     can_delete: false,
     topic_title: p.topic_title,
-  };
-}
-
-export function mapImageToAttachment(img: BackendImage): Attachment {
-  return {
-    id: String(img.id),
-    image_url: img.image_url || undefined,
-    thumbnail_url: img.thumbnail_url || undefined,
-    display_order: img.upload_order,
-    alt_text: img.alt_text,
-    original_filename: img.original_filename,
-    file_size: img.file_size,
-    created_at: img.created_at,
-    uploaded_at: img.created_at,
   };
 }

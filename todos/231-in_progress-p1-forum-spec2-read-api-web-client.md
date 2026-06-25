@@ -76,18 +76,22 @@ tracked it; this todo is that tracker.
       2026-06-23 added `@extend_schema` + `swagger_fake_view` guards to
       `TopicDetailView`/`PostListView`. `tests/api/test_schema.py` green;
       `manage.py spectacular` exits 0 with both forum read ops documented.)
-- [ ] Web forum pages render against the live API (no machina paths remain;
-      `grep -r "categories/" web/src/services/` is empty). *(PR-2/PR-3 — write
-      path + images. Note: the literal grep also matches `blogService.ts`'s
-      `/api/v2/categories/`; the real gate is no machina forum paths in
-      `forumService.ts`.)*
+- [x] Web forum pages render against the live API (no machina paths remain;
+      `grep -r "categories/" web/src/services/` is empty). *(write path landed
+      PR-2b; images landed PR-3b — `forumService.ts` has zero machina forum paths,
+      the four legacy image fns are migrated/deleted, and the `Attachment`/
+      `BackendImage` types + orphaned `ImageUploadWidget` are gone. The real gate
+      `grep -nE "images/upload|posts/[^/]*/images|reaction_type" forumService.ts`
+      is empty.)*
 - [x] Sync uses a compound cursor; same-timestamp livelock test added.
       (PR-1 2026-06-23 — `SyncView` filters `Q(updated_at__gt) | Q(updated_at=,
       id__gt)` ordered `(updated_at, id)`, returns `next_since_id`;
       `test_sync_compound_cursor_advances_through_same_timestamp_rows` green.)
-- [ ] Route-parity test green with the final URL surface. *(parity green now —
-      `test_host_api_routes_match_package` passes — but the "final URL surface"
-      arrives with PR-2's route rationalization; keep open until then.)*
+- [x] Route-parity test green with the final URL surface. *(PR-2a rationalized
+      the write routes; PR-3a added `POST /forum/images/` to both the package and
+      host tables. `test_host_api_routes_match_package` +
+      `test_wrapped_routes_use_the_throttled_views` green — the URL surface is now
+      final.)*
 
 ## Work Log
 
@@ -252,3 +256,76 @@ gone); the only legacy paths left are the **image** fns (PR-3).
 Also a UX nicety: the composer toolbar still offers heading/quote/strike/
 code-block marks that the server's nh3 allowlist flattens to text (graceful, no
 data loss) — trim later. Todo archives after PR-3.
+
+### 2026-06-24 - PR-3a (backend images) landed — AC4 done; todo still OPEN
+
+**PR #406 (MERGED to main).** Branch `feat/forum-spec2-pr3a-backend-images`; plan
+`docs/superpowers/plans/2026-06-24-forum-spec2-pr3-images.md`. PR-3 (the final
+epic PR) was split PR-3a (backend) + PR-3b (web), matching PR-2a/PR-2b.
+
+**Compose-UX decision (user, this session): TRUE INTERLEAVING** — images render
+exactly where placed (custom TipTap image node + a bidirectional body serializer
+in PR-3b). The backend forces images to be separate `image` StreamField blocks
+anyway: nh3's rich-text allowlist has no `img`, so an inline `<img>` is stripped.
+
+**Done in PR-3a (TDD):**
+
+- `image = ImageChooserBlock()` was already a live `ForumBodyBlock` but rejected
+  on write, unrendered on read, no upload path — all three closed.
+- Forum image `Collection` (`collections.py::get_forum_image_collection()`,
+  idempotent get-or-create, package-core/domain-agnostic).
+- `POST /forum/images/` `PostImageUploadView` — `IsAuthenticated`,
+  `versioning_class=None`, 4-layer validation (`api/upload_validation.py`,
+  package-local; copies the canonical garden_calendar pattern since the package
+  can't import `apps.*` per `test_reusability`). **Topic-independent route**
+  (deviates from the spec's `/topics/{id}/images/`): new-thread compose has no
+  topic id, and the image is scoped by collection not topic. Returns
+  `{id,url,alt,width,height}`. Host-throttled (`image_upload` 30/h → 429).
+- `validate_forum_body` now permits image blocks whose PK is in the forum
+  collection (one bulk membership query); nonexistent/out-of-collection ids still
+  reject (closes audit-L5 IDOR-by-reference); other choosers stay rejected.
+- Read: `serialize_forum_body` emits a `max-1200x1200` rendition dict from a
+  per-page `{id:Image}` map (`build_forum_image_map`). **N+1 caught + fixed:**
+  iterating a `StreamValue` makes Wagtail bulk-resolve image blocks via
+  `Image.objects.in_bulk()` *per post* — rewrote to iterate `raw_data` instead;
+  pinned flat at 5 queries (N=1 ≡ N=4). URLs absolutized via `build_absolute_uri`
+  (web is a different origin than media).
+- AC4 (route-parity / final URL surface) DONE: images route mirrored to host +
+  throttled wrapper; parity/callback/throttle tests updated.
+
+Verification: 147 forum tests green (was 131); `manage.py spectacular` exits 0
+with `/forum/images/` documented. Advisor flagged (and I added) an end-to-end
+round-trip test: upload → reply body with image+heading+code → read back.
+
+### 2026-06-24 - PR-3b (web images) landed — AC2 done; todo COMPLETE after merge
+
+Branch `feat/forum-spec2-pr3b-web-images` off main (web-only; PR-3a is the live-
+integration prerequisite, but the web suite mocks `fetch`, so PR-3b verifies
+independently).
+
+**Done (TDD):**
+
+- `ImageBlock` type added to the `blog.ts` StreamField union; `StreamFieldRenderer`
+  gained an `image` case (`<img src={value.url}>`).
+- **Bidirectional serializer** `utils/forumBody.ts` (the concentrated complexity):
+  `htmlToBodyBlocks(html)` DOMParser-splits composer HTML into interleaved
+  `paragraph`/`image` blocks (image value = the wagtail id from `data-image-id`);
+  `bodyBlocksToHtml(body)` rebuilds it for the edit composer. Round-trip unit-
+  tested. Replaced the single-paragraph `toBodyBlocks` (forumService) and
+  `bodyToHtml` (ThreadDetailPage).
+- TipTap: added `@tiptap/extension-image@3.22.5` (pinned to match core 3.22.5),
+  extended with a `data-image-id` attr; an "Insert image" toolbar button →
+  hidden file input → `uploadPostImage` → `insertContent` image node. Trimmed the
+  nh3-flattened toolbar buttons (strike/H2/H3/blockquote/code-block); kept
+  bold/italic/lists/inline-code/link.
+- `uploadPostImage(file)` → `POST /forum/images/` (field `image`, returns
+  `{id,url,alt,width,height}`). Deleted the dead legacy fns
+  (`fetchPostImages`/`deletePostImage`/`reorderPostImages`), dead types
+  (`Attachment`, `BackendImage`, `mapImageToAttachment`), the unused `Post.attachments`
+  field, and the orphaned `ImageUploadWidget` (+ test).
+
+Verification: 552 web tests green (38 files), `tsc --noEmit` clean, ESLint 0
+errors. AC2 gate empty (no machina forum paths in `forumService.ts`). **NOT YET
+DEPLOYED** — prod image writes 404 until Railway (backend) + Cloudflare (web)
+deploy. Todo 231 archives once PR-3b merges (tick audit finding H4, rename the
+review doc).

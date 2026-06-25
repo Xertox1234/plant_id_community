@@ -11,7 +11,6 @@ import {
   deletePost,
   toggleReaction,
   uploadPostImage,
-  deletePostImage,
   searchForum,
 } from './forumService';
 import { clearCsrfToken } from '../utils/csrf';
@@ -326,30 +325,17 @@ describe('forumService (wagtail_forum API contract)', () => {
     expect(JSON.parse(opts.body)).toEqual({ type: 'like' });
   });
 
-  it('uploadPostImage sends FormData with the plural field name to images/upload/', async () => {
+  it('uploadPostImage POSTs FormData (field "image") to the topic-independent /images/ route', async () => {
     const file = new File(['x'], 'a.jpg', { type: 'image/jpeg' });
     fetchMock.mockResolvedValueOnce(
-      okJson({
-        images: [
-          { id: 7, image_url: 'http://x/a.jpg', thumbnail_url: 'http://x/t.jpg', upload_order: 0 },
-        ],
-      })
+      okJson({ id: 7, url: 'http://x/a.jpg', alt: 'a.jpg', width: 800, height: 600 })
     );
-    const a = await uploadPostImage('50', file);
-    expect(a).toMatchObject({ id: '7', image_url: 'http://x/a.jpg', display_order: 0 });
+    const img = await uploadPostImage(file);
+    expect(img).toEqual({ id: 7, url: 'http://x/a.jpg', alt: 'a.jpg', width: 800, height: 600 });
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toContain('/posts/50/images/upload/');
+    expect(url).toContain('/api/v1/forum/images/');
     expect(opts.body).toBeInstanceOf(FormData);
-    expect((opts.body as FormData).has('images')).toBe(true);
-  });
-
-  it('deletePostImage hits the images/{id}/delete/ endpoint', async () => {
-    fetchMock.mockResolvedValueOnce({ ok: true, status: 204, json: async () => undefined });
-    await deletePostImage('50', '7');
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/posts/50/images/7/delete/'),
-      expect.objectContaining({ method: 'DELETE' })
-    );
+    expect((opts.body as FormData).has('image')).toBe(true);
   });
 
   // --- Error propagation ----------------------------------------------------
