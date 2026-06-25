@@ -538,3 +538,21 @@ This file is append-only. New entries are added by main Claude after each code r
 
 **Rule**: Before scoping work to "sync / reconcile store A with store B," confirm by reading the code that **both** writes actually occur. A `user`/owner argument passed into a service is not evidence of persistence — follow it to a concrete `.objects.create`/`.save`. And a write to a store **no client reads back** is a dead-end to remove, not a store to keep in sync. Here, both checks killed the premise: the backend "write" never happened, and the one backend collection that does get written has no reader.
 **Agent**: (process — premise-validation; surfaced via advisor + owner decision)
+
+## Forum Spec 2 — inline images (todo 231 PR-3, 2026-06-25)
+
+### [2026-06-25] Iterating a Wagtail StreamValue is a hidden per-post N+1 for ChooserBlocks
+
+**Mistake**: A forum post-body serializer resolved image blocks to renditions by looping `for bound in stream_value` and reading each block. The post-list endpoint's exact `assertNumQueries` pin still passed for text-only posts, so it looked fine — but with image blocks the query count grew with the number of posts (N=1 → 6 queries, N=4 → 9). A batched `Image.objects.filter(id__in=…).prefetch_renditions(...)` up front did NOT prevent it.
+
+**Root cause**: `StreamValue.__getitem__` (hit by iteration) calls `_prefetch_blocks(type)`, which calls `child_block.bulk_to_python(...)`; for an `ImageChooserBlock` that is `Image.objects.in_bulk(values)` — issued **once per post's StreamValue** (each post is a separate value), and it runs even if you never touch `bound.value`, purely from iterating. The image ids live inside the StreamField JSON, not a relation, so `prefetch_renditions` on the *post* queryset can't reach them and the prefetched map is bypassed by Wagtail's own lazy resolution.
+
+**Fix**: Serialize from `stream_value.raw_data` (the unresolved JSON list), not the resolved StreamValue. Collect chooser ids from raw data, batch-fetch once into an `{id: obj}` map at the view level, pass it via serializer context, and read the map while iterating raw data — never `bound.value` for the chooser block. RichText raw value IS the stored HTML source, so `expand_db_html(raw["value"])` is equivalent to `bound.value.source`. Result: flat 5 queries, verified N=1 ≡ N=4. Diagnosed by wrapping the DB cursor to dump a stack on the offending `wagtailimages_image` query (the stack pointed straight at `_prefetch_blocks`).
+**Agent**: performance-reviewer / wagtail-reviewer (codified as a check)
+
+### [2026-06-25] kimi-review WARNINGs on the merged PR-3 backend (deferred, not blocking)
+
+**Findings** (kimi-review, post-merge codify pass): (1) `get_forum_image_collection()` (`wagtail_forum/collections.py`) does query-then-`add_child`, not atomic — two truly-concurrent *first-ever* image uses could create two "Forum Images" collections, after which membership checks against `.first()` reject images uploaded into the other. One-time startup race only. (2) `validate_image_upload` sets PIL's global `PILImage.MAX_IMAGE_PIXELS` per request — technically not thread-safe, but benign here because every request sets it to the *same* constant (`get_setting("IMAGE_MAX_PIXELS")`), so concurrent writes can't vary it.
+
+**Fix/decision**: Both are low-risk and were merged as-is. The clean fix for (1) is to create the collection at deploy time in `seed_default_forum` (single-threaded release step) so request-time get-or-create always finds it — filed as follow-up todo 247, not hot-patched. (2) is the canonical 4-layer pattern (`garden_calendar` does the same) and is benign because every caller assigns the *same* constant, so concurrent writes can't vary the threshold; left as-is. If a per-request limit is ever needed, drop the global and compare `width * height > limit` explicitly. Recorded so neither is "rediscovered" as a new bug.
+**Agent**: security-reviewer / performance-reviewer

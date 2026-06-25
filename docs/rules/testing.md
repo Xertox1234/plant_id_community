@@ -48,3 +48,10 @@ Compact checklist auto-injected before edits.
   wrap in `MemoryRouter` for `useNavigate`/`useLocation`, and query by
   placeholder/role — `getByLabelText` is brittle when a label carries a
   required-`*` span. See `web/docs/patterns/testing.md`.
+- **Test a rich-editor serializer against the REAL editor's output, not
+  hand-written HTML.** When code parses `editor.getHTML()` (e.g. splitting TipTap
+  HTML into StreamField blocks), unit tests fed crafted HTML strings + page tests
+  that mock the editor both miss the actual seam. Instantiate the real editor
+  headlessly (`new Editor({ extensions: [StarterKit, …] })` works in jsdom) and
+  assert `parse(editor.getHTML())` round-trips — that's the only test that catches
+  an inline-vs-block node or a dropped custom attribute before prod.
