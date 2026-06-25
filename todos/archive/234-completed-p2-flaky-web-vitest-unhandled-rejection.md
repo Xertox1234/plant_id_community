@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "234"
 tags: [web, testing, vitest, ci, flaky]
@@ -60,13 +60,65 @@ a recurring tax on every merge.
 
 ## Acceptance Criteria
 
-- [ ] The originating test file + call site are identified and documented.
-- [ ] The unhandled rejection is fixed at the source (awaited/caught), not globally
-      suppressed.
-- [ ] The Web CI Vitest job passes across multiple consecutive runs of an unrelated
-      change (no intermittent exit-1 with all-tests-passing).
+> **Resolution (2026-06-25): not-reproducible + mitigated.** AC1/AC2 are **not satisfiable** —
+> there is no observable leak to pin or fix (unreproducible in ~346 runs across macOS/Linux/CI,
+> cold + warm; no orphan promise by static analysis; likely already fixed by PRs #406/#407).
+> Rather than fabricate a fix, the leak class is **mitigated** so any recurrence self-diagnoses.
+
+- [ ] ~~Originating test file + call site identified~~ — **not satisfiable**: unreproducible;
+      documented why instead (2026-06-25 work log + static analysis).
+- [ ] ~~Fixed at the source~~ — **n/a**: no observable leak; likely already fixed by the
+      forum-test rewrite. **Mitigated** via a non-suppressing reporter (explicitly *not* suppressed).
+- [x] The Web CI Vitest job passes across multiple consecutive runs — **verified**: 24 cold
+      separate CI jobs + 40 warm in-job runs all green (2026-06-25).
 
 ## Work Log
+
+### 2026-06-25 — Exhaustively investigated; UNREPRODUCIBLE on every platform → mitigated + resolved
+
+**Outcome: resolved as not-reproducible + mitigated.** The flake did not surface in
+**~346 full-suite runs** across every platform/config; static analysis shows no orphan
+promise; the three tests that create the leaked error strings were materially rewritten by
+PRs #406/#407 (forum spec-2 PR-3) *after* this was filed (2026-06-14), so it was almost
+certainly fixed incidentally. Shipped a permanent, non-suppressing `unhandledRejection`
+reporter so any recurrence is instantly self-diagnosing — closing the exact gap that left
+this stuck (run #372's logs were cleared before the stack could be read). Did **not**
+fabricate a source fix for a leak that cannot be observed (would dishonestly "satisfy"
+AC#1/AC#2). PR #410.
+
+**Reproduction attempts (all clean — 0 trips):**
+
+- **macOS** (darwin-arm64, Node 24.9): default `vitest run` 100×; `--maxWorkers=1` 6×;
+  `--no-file-parallelism` 1×; 25× under full CPU saturation (12 `yes` hogs on 10 cores);
+  30× with `--sequence.shuffle`. = 162 runs.
+- **Linux** (Docker `node:24-bookworm`, Node 24.18): 100× shuffled, fresh `npm ci`. *This is
+  the lever the 2026-06-21 attempt lacked* — unhandled-rejection timing (when V8 fires the
+  event vs microtask drain/GC/libuv) is platform-specific, so macOS could never reproduce a
+  CI-Linux flake.
+- **CI** (ubuntu-latest): 40× warm loop in one job; then **24 independent COLD separate jobs**
+  (temporary `flake-hunt` matrix, `fail-fast:false`) to replicate the original cold-job
+  failure condition. All green.
+
+**Why no static fix exists (root-cause analysis — read all 4 forum page tests + service test
++ components):**
+
+- Every forum component attaches its rejection handler **synchronously**, so no orphan can
+  form: `ThreadDetailPage` `Promise.all([fetchThread, fetchPosts])` attaches to both inputs in
+  one tick (both rejections consumed); `ThreadListPage` awaits `fetchCategory`→`fetchThreads`
+  sequentially (2nd never called on the error path, and `mockRejectedValue` is **lazy** → not
+  an orphan); `SearchPage` awaits each call in try/catch.
+- Every error-path test awaits & asserts its rejection (`waitFor` / `await expect().rejects`);
+  `forumService.test.ts` uses `await expect(fetchCategory(999)).rejects.toThrow('Category not found')`.
+- The logger's Sentry path is dead in tests (`import.meta.env.DEV` → `console.log` only), so
+  the "CategoryListPage mocks logger / doesn't leak" correlation is a red herring (its real
+  difference is a single async call vs the others' multi-call patterns).
+- Vitest 4.1.5 **removed** `poolOptions.forks.singleFork`; its replacement `isolate:false`
+  breaks 100+ tests via state-bleed, so the pure single-process amplifier is unavailable.
+
+**Delivered:** `web/src/tests/setup.ts` — non-suppressing `process.on('unhandledRejection')`
+reporter (prints the originating stack; Vitest still exits 1, so it diagnoses without masking).
+**If it ever recurs**, the CI log will contain `[UNHANDLED REJECTION] <stack>` → the exact
+call site is pinned immediately and can be fixed at source per the original AC.
 
 ### 2026-06-21 - Investigated; could NOT reproduce locally → blocked on a real stack (run 2026-06-21-1412)
 
