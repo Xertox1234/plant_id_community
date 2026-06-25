@@ -50,3 +50,29 @@ jobs:
       # specs exercise the live backend API (see web/CLAUDE.md). Wiring that into
       # CI needs the Django backend + Postgres/Redis stood up alongside the web
       # server — out of scope for this web-only gate. Track e2e-in-CI separately.
+
+  # TEMPORARY (todo 234 flake hunt) — DELETE this whole job before merge.
+  # Fans out N independent COLD runners, each doing one single-pass `vitest --run`,
+  # to replicate the original cold separate-job failures (a warm in-job loop did not
+  # reproduce). fail-fast:false so every sample runs; the setup.ts reporter prints the
+  # originating stack on any trip. Not a required check — web-checks above is untouched.
+  flake-hunt:
+    name: 'flake hunt (cold sample ${{ matrix.sample }})'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sample: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Vitest cold single pass
+        run: npm run test -- --run
