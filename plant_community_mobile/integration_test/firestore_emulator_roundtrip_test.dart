@@ -51,6 +51,10 @@ void main() {
     testWidgets(
       'a write queued offline flushes to the emulator server on reconnect',
       (tester) async {
+        // Single budget for every async step, tunable in one place (e.g. bump
+        // for a slow CI runner).
+        const stepTimeout = Duration(seconds: 15);
+
         final (fsHost, fsPort) = _splitHostPort(firestoreHostPort);
         // Auth shares the emulator host; default to the conventional 9099 port
         // when only the Firestore define is supplied.
@@ -123,7 +127,7 @@ void main() {
         final cached = await firestore
             .getPlantsStream(uid)
             .firstWhere((s) => s.plants.any((p) => p.id == plant.id))
-            .timeout(const Duration(seconds: 15));
+            .timeout(stepTimeout);
         expect(
           cached.hasPendingWrites,
           isTrue,
@@ -137,19 +141,26 @@ void main() {
 
         // --- Online: reconnect; the queued write flushes to the server ---
         await FirebaseFirestore.instance.enableNetwork();
-        await pendingWrite.timeout(const Duration(seconds: 15));
+        await pendingWrite.timeout(stepTimeout);
 
+        // Observe the SDK clear the pending-write flag — the local signal that the
+        // server acknowledged the queued write (AC: "wait for hasPendingWrites to
+        // become false"). NOTE: a stream emission is NOT itself proof of server
+        // persistence — Firestore can serve this from cache with the flag already
+        // cleared, and won't reliably push a from-server snapshot for an
+        // already-synced query — so the authoritative proof is the Source.server
+        // read below.
         final synced = await firestore
             .getPlantsStream(uid)
             .firstWhere(
               (s) =>
                   s.plants.any((p) => p.id == plant.id) && !s.hasPendingWrites,
             )
-            .timeout(const Duration(seconds: 15));
+            .timeout(stepTimeout);
         expect(
           synced.hasPendingWrites,
           isFalse,
-          reason: 'write should be acknowledged by the server after reconnect',
+          reason: 'the SDK should clear pending writes after the server ack',
         );
 
         // --- Independent server read proves the doc reached the emulator ---
@@ -159,7 +170,7 @@ void main() {
             .collection('identified_plants')
             .doc(plant.id)
             .get(const GetOptions(source: Source.server))
-            .timeout(const Duration(seconds: 15));
+            .timeout(stepTimeout);
         expect(
           serverDoc.exists,
           isTrue,
@@ -170,12 +181,19 @@ void main() {
           isFalse,
           reason: 'a Source.server read must not be served from cache',
         );
-        expect(serverDoc.data()!['name'], 'Monstera Deliciosa');
+        // Every field must round-trip, not just one — guards against a
+        // Plant.toJson serialization regression silently dropping fields.
+        expect(serverDoc.data(), plant.toJson());
       },
       // Emulator gate: skipped unless --dart-define=FIRESTORE_EMULATOR_HOST is
       // supplied (see the file header for the full run command). Keeps plain
       // `flutter test` and define-less device runs green.
       skip: firestoreHostPort.isEmpty,
+      // Overall ceiling so an unreachable emulator fails the test instead of
+      // hanging forever: the un-awaited-with-timeout calls (initializeApp,
+      // useAuthEmulator, signInAnonymously, enable/disableNetwork) have no
+      // per-step timeout of their own.
+      timeout: const Timeout(Duration(minutes: 2)),
     );
   });
 }
@@ -184,5 +202,8 @@ void main() {
 /// (e.g. `[::1]:8080`) keep their address intact.
 (String, int) _splitHostPort(String value) {
   final idx = value.lastIndexOf(':');
+  if (idx < 0) {
+    throw ArgumentError.value(value, 'value', 'expected "host:port"');
+  }
   return (value.substring(0, idx), int.parse(value.substring(idx + 1)));
 }
