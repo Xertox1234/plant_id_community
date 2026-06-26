@@ -202,8 +202,9 @@ void main() {
 /// (e.g. `[::1]:8080`) keep their address intact.
 (String, int) _splitHostPort(String value) {
   final idx = value.lastIndexOf(':');
-  if (idx < 0) {
+  final port = idx < 0 ? null : int.tryParse(value.substring(idx + 1));
+  if (idx < 0 || port == null) {
     throw ArgumentError.value(value, 'value', 'expected "host:port"');
   }
-  return (value.substring(0, idx), int.parse(value.substring(idx + 1)));
+  return (value.substring(0, idx), port);
 }

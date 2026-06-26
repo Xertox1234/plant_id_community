@@ -44,7 +44,13 @@ PROJECT_ID="plant-community-prod"
 cd "$REPO_ROOT"
 
 firebase emulators:exec --project "$PROJECT_ID" --only auth,firestore '
+  # The inner shell does not inherit the outer set -euo pipefail, so re-arm it:
+  # abort on a failed cd, and fail fast (with a clear message) if firebase did
+  # not inject the emulator-host vars rather than emitting empty --dart-defines.
+  set -eu
   cd plant_community_mobile
+  : "${FIRESTORE_EMULATOR_HOST:?firebase did not inject FIRESTORE_EMULATOR_HOST}"
+  : "${FIREBASE_AUTH_EMULATOR_HOST:?firebase did not inject FIREBASE_AUTH_EMULATOR_HOST}"
   flutter test integration_test/firestore_emulator_roundtrip_test.dart $FLUTTER_DEVICE_ARG \
     --dart-define=FIRESTORE_EMULATOR_HOST="$FIRESTORE_EMULATOR_HOST" \
     --dart-define=FIREBASE_AUTH_EMULATOR_HOST="$FIREBASE_AUTH_EMULATOR_HOST"
