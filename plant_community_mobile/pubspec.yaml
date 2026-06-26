@@ -82,6 +82,12 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+  # Emulator-backed integration tests (run on a device/simulator, not the
+  # default `flutter test` which only scans test/). See
+  # integration_test/firestore_emulator_roundtrip_test.dart.
+  integration_test:
+    sdk: flutter
+
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
