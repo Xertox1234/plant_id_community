@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "238"
 tags: [api, openapi, schema, tech-debt, forum]
@@ -99,19 +99,100 @@ Captured from `manage.py spectacular` during PR #394 (2026-06-23):
 
 ## Acceptance Criteria
 
-- [ ] `manage.py spectacular` emits **no** `unable to resolve type hint` warning for
+- [x] `manage.py spectacular` emits **no** `unable to resolve type hint` warning for
       `MeProfileSerializer` and **no** `Failed to obtain model` warning for
       `TopicListView` (grep the command output).
-- [ ] `manage.py spectacular` emits **no** `could not resolve authenticator
+- [x] `manage.py spectacular` emits **no** `could not resolve authenticator
       CookieJWTAuthentication` warning (project-wide), and the generated schema's
       `components.securitySchemes` contains the cookie scheme.
-- [ ] `manage.py spectacular` still exits 0; the `wagtail_forum` package suite and
+- [x] `manage.py spectacular` still exits 0; the `wagtail_forum` package suite and
       `apps/forum_host` route-parity/rate-limit tests stay green.
-- [ ] A test pins the new typing/security (e.g. assert `MeProfile.capabilities.type
+- [x] A test pins the new typing/security (e.g. assert `MeProfile.capabilities.type
       == "object"` and a `securitySchemes` entry exists), matching the regression
       test added for the read serializers in PR #394.
 
 ## Work Log
+
+### 2026-06-27 - Started by completing-todos skill (run 2026-06-27-0237)
+
+- Picked up by automated workflow.
+
+### 2026-06-27 - Implemented (run 2026-06-27-0237)
+
+Three changes (all mirroring the PR #394 pattern) + a regression test:
+
+1. **`api/serializers.py`** — added `CAPABILITIES_SCHEMA` constant and decorated
+   `MeProfileSerializer.get_capabilities` with `@extend_schema_field(...)` (reusing
+   the existing optional drf-spectacular import shim — no hard dependency added).
+2. **`api/views.py`** — added the `swagger_fake_view` guard to
+   `TopicListView.get_queryset` (`return Topic.objects.none()`), plus a class-level
+   `@extend_schema` documenting the GET 200 for parity with the sibling read views.
+3. **`apps/users/schema.py`** (new) — `CookieJWTScheme(OpenApiAuthenticationExtension)`
+   registering the project default authenticator, imported in `UsersConfig.ready()`.
+
+**Deviation from the todo's suggested `name = "cookieAuth"`:** that name is already
+claimed by drf-spectacular's built-in `SessionAuthentication` scheme (the `sessionid`
+cookie). Reusing it produced a NEW warning — `Encountered 2 components with identical
+names "cookieAuth" and different identities … This will very likely result in an
+incorrect schema`. Renamed the scheme to **`jwtCookieAuth`** (a distinct cookie,
+`access_token`), which clears the collision. Generated schema now documents all three
+default auth methods: `cookieAuth` (sessionid), `jwtAuth` (bearer), `jwtCookieAuth`
+(access_token).
+
+**Verification evidence:**
+
+- `manage.py spectacular` → `EXIT: 0`. Grep of stderr for the four targeted patterns
+  (`MeProfileSerializer`, `Failed to obtain model.*TopicListView`, `could not resolve
+  authenticator CookieJWTAuthentication`, `identical names .cookieAuth`) → `match
+  count: 0`. (Pre-existing out-of-scope `unable to resolve type hint` / `Failed to
+  obtain model` warnings remain in `plant_identification`/`blog`/`garden*` serializers —
+  none reference `MeProfileSerializer` or `TopicListView`.)
+- Generated `securitySchemes` block contains
+  `jwtCookieAuth: {type: apiKey, in: cookie, name: access_token}`.
+- `pytest packages/wagtail_forum/.../tests/api/test_schema.py` → `4 passed` (2 existing
+  + 2 new: `test_me_profile_capabilities_typed_as_object`,
+  `test_cookie_jwt_authenticator_documents_a_security_scheme`).
+- `pytest packages/wagtail_forum apps/forum_host --create-db` → `149 passed`.
+- `manage.py check` → `System check identified no issues (0 silenced)`.
+- `pytest apps/users --create-db` → `118 passed` (app whose `apps.py` was modified).
+
+### 2026-06-27 - Code review (run 2026-06-27-0237)
+
+Dispatched `django-drf-reviewer`, `security-reviewer`, `test-quality-reviewer`
+(the orchestrator hit a stream idle timeout, so the relevant domain reviewers were
+dispatched directly). DRF reviewer verified all three correctness constraints clean
+(no hard drf_spectacular dep added to the package; `swagger_fake_view` guard matches
+the sibling views byte-for-byte; class-level `@extend_schema` does not clobber the
+method-level POST schema — same shape as `PostListView`).
+
+**Repaired (two LOW, both in-diff):**
+
+- `apps/users/apps.py` — the `try/except ImportError: pass` around the
+  `apps.users.schema` import silently swallowed a *broken* schema.py import. Since
+  drf-spectacular is a hard project dependency (`DEFAULT_SCHEMA_CLASS`), simplified to
+  a plain `import` (matches the un-guarded `signals` import above) so a real error
+  surfaces loudly instead of un-documenting auth in silence.
+- `tests/api/test_schema.py` — the capabilities test pinned the property *key set*
+  but not the inner value types; added `can_react/can_reply/can_create_topic ==
+  "boolean"` assertions (mirrors the sibling Post-field test). Re-ran: `4 passed`.
+
+**Known issues — accepted at completion (user decision: accept + file follow-up):**
+
+- **[HIGH, pre-existing, out-of-scope] `urls.py:89-97`** — `api/schema/`, `api/docs/`,
+  `api/redoc/` are publicly served in prod (no `permission_classes`, no DEBUG guard).
+  Not in this todo's diff; 238 only added the `jwtCookieAuth` description to the
+  already-public schema (the `access_token` cookie name is already client-observable).
+  **Filed as todo 248 (p2).**
+- **[LOW, pre-existing] `settings.py:484`** `SWAGGER_UI_SETTINGS.persistAuthorization:
+  True` — benign for a cookie-only flow; folded into todo 248's scope.
+
+### 2026-06-27 - Completed by completing-todos skill (run 2026-06-27-0237)
+
+- Verification: all 4 acceptance criteria passed (spectacular exit 0 + 3 target
+  warnings gone + securitySchemes contains `jwtCookieAuth`; 149 forum/forum_host
+  tests, 4 schema tests, 118 users tests, `manage.py check` all green).
+- Review: 3 reviewers, 1 HIGH (pre-existing/out-of-scope → todo 248, accepted by
+  user) + 2 LOW (both repaired in-diff). No in-scope blocking findings.
 
 ### 2026-06-23 - Filed
 

@@ -7,6 +7,12 @@ class UsersConfig(AppConfig):
 
     def ready(self):
         """Import signals and audit log registration when the app is ready."""
+        # Register the OpenAPI security scheme for CookieJWTAuthentication.
+        # drf-spectacular discovers extensions by import; without this the schema
+        # documents no security scheme. drf-spectacular is a hard project
+        # dependency (DEFAULT_SCHEMA_CLASS), so let an import error surface loudly
+        # rather than silently un-documenting auth across the whole API.
+        import apps.users.schema  # noqa: F401
         import apps.users.signals
 
         # Register audit log only if auditlog app is installed and migrated
