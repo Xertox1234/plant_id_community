@@ -22,6 +22,7 @@ const SearchPage = lazy(() => import('./pages/forum/SearchPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const DiseaseDiagnosePage = lazy(() => import('./pages/diagnosis/DiseaseDiagnosePage'));
+const GoogleCallbackPage = lazy(() => import('./pages/auth/GoogleCallbackPage'));
 const ThemePreviewPage = lazy(() => import('./pages/debug/ThemePreviewPage'));
 
 /**
@@ -45,6 +46,10 @@ function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+
+          {/* OAuth landing page — public: the backend redirect arrives here
+              before SPA auth state exists, so it must not sit behind ProtectedLayout. */}
+          <Route path="/auth/google/callback" element={<GoogleCallbackPage />} />
 
           {/* Non-critical routes (lazy loaded) */}
           <Route path="/identify" element={<IdentifyPage />} />
