@@ -55,3 +55,16 @@ Compact checklist auto-injected before edits.
   headlessly (`new Editor({ extensions: [StarterKit, …] })` works in jsdom) and
   assert `parse(editor.getHTML())` round-trips — that's the only test that catches
   an inline-vs-block node or a dropped custom attribute before prod.
+- **drf-spectacular views bind `permission_classes` at import time.**
+  `SpectacularAPIView`/Swagger/Redoc read `permission_classes = SERVE_PERMISSIONS`
+  at class-definition, so `@override_settings(SPECTACULAR_SETTINGS=…)` is INERT and
+  can't flip the gate — test the REAL configured behavior (and a test that overrides
+  `SERVE_PERMISSIONS` back to `AllowAny` and asserts STILL-denied is a valid pin of
+  the binding). An `IsAdminUser` endpoint denies an *anonymous* request with **401**
+  (the first authenticator, e.g. JWT, supplies a `WWW-Authenticate` header) but an
+  *authenticated non-staff* request with **403** — assert the exact code, not a
+  `(401, 403)` set. See `test_schema_endpoint_authz.py` (todo 248).
+- **`force_login()` bypasses passwords — omit `password=` in `create_user(...)`
+  test fixtures.** A literal password kwarg trips the `detect-secrets` pre-commit
+  gate (which aborts the commit, with the real reason often scrolled off the top of
+  the hook output); `force_login(user)` authenticates without one, so drop it.

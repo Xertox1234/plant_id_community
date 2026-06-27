@@ -37,3 +37,11 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   the email, the downstream user lookup MUST treat a missing email as a hard
   stop. Canonical: `backend/docs/patterns/security/authentication.md` → "Trust
   only provider-verified emails".
+- **Gate the drf-spectacular schema/docs endpoints.** `SpectacularAPIView`,
+  `SpectacularSwaggerView`, and `SpectacularRedocView` default to
+  `SERVE_PERMISSIONS = [AllowAny]`, so the full OpenAPI schema (every path,
+  parameter, and the documented auth schemes) plus the interactive Swagger/Redoc
+  UIs are anonymous-readable in production. Gate them with
+  `SPECTACULAR_SETTINGS["SERVE_PERMISSIONS"] = ["rest_framework.permissions.IsAdminUser"]`
+  — one knob covers all three views (and any future one). `SERVE_INCLUDE_SCHEMA=False`
+  does NOT gate them (it only hides the schema's own path). Surfaced in prod (todo 248).

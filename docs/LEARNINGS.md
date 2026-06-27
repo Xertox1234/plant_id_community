@@ -556,3 +556,14 @@ This file is append-only. New entries are added by main Claude after each code r
 
 **Fix/decision**: Both are low-risk and were merged as-is. The clean fix for (1) is to create the collection at deploy time in `seed_default_forum` (single-threaded release step) so request-time get-or-create always finds it — filed as follow-up todo 247, not hot-patched. (2) is the canonical 4-layer pattern (`garden_calendar` does the same) and is benign because every caller assigns the *same* constant, so concurrent writes can't vary the threshold; left as-is. If a per-request limit is ever needed, drop the global and compare `width * height > limit` explicitly. Recorded so neither is "rediscovered" as a new bug.
 **Agent**: security-reviewer / performance-reviewer
+
+## OpenAPI schema endpoints publicly exposed (todo 248, 2026-06-27)
+
+### [2026-06-27] drf-spectacular schema/docs/redoc were anonymous-readable in production
+
+**Mistake**: `api/schema/`, `api/docs/`, and `api/redoc/` were registered in `urls.py` with no `permission_classes` and no `DEBUG` guard, so the full generated OpenAPI schema (every endpoint path, parameter, and the documented `jwtCookieAuth` security scheme) plus the interactive Swagger/Redoc UIs were reachable by anonymous users in prod. Pre-dated todo 238 (which only made it more visible by adding the auth scheme); split out and fixed in 248.
+
+**Root cause**: drf-spectacular's `SpectacularAPIView`/`SpectacularSwaggerView`/`SpectacularRedocView` all default `permission_classes = spectacular_settings.SERVE_PERMISSIONS`, whose package default is `['rest_framework.permissions.AllowAny']`. `SERVE_INCLUDE_SCHEMA=False` (which the project already set) does NOT add auth — it only stops the schema from listing its own path. So registering the views verbatim from the docs leaves them wide open.
+
+**Fix**: Set `SPECTACULAR_SETTINGS["SERVE_PERMISSIONS"] = ["rest_framework.permissions.IsAdminUser"]` — one knob gates all three views (and any future spectacular view), preferable to per-path `.as_view(permission_classes=…)`. Left `SERVE_AUTHENTICATION=None` so the project's `DEFAULT_AUTHENTICATION_CLASSES` apply. Also flipped `SWAGGER_UI_SETTINGS.persistAuthorization` to `False`. Verified live in prod after the Railway auto-deploy: anonymous `GET` now → 401 on all three (was 200). Two non-obvious test facts emerged: (a) `permission_classes` binds at **import time**, so `@override_settings(SPECTACULAR_SETTINGS=…)` can't exercise the gate — test the real configured behavior; (b) `IsAdminUser` returns **401** to anonymous (JWT authenticator supplies `WWW-Authenticate`) but **403** to an authenticated non-staff user.
+**Agent**: security-reviewer (codified as a check + a write-time trigger)
