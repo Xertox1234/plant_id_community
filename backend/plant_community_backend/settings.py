@@ -454,6 +454,13 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "Plant identification and community platform API with dual provider support (Plant.id + PlantNet)",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    # SECURITY (todo 248): gate the schema + Swagger + Redoc endpoints to staff only.
+    # All three views (SpectacularAPIView/SwaggerView/RedocView) read their
+    # permission_classes from this setting, so this single knob locks down
+    # /api/schema/, /api/docs/, and /api/redoc/ — anonymous requests get 401/403,
+    # staff/admin still get the docs in production. SERVE_AUTHENTICATION is left as
+    # the default (None) so the project's DEFAULT_AUTHENTICATION_CLASSES apply.
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
     "CONTACT": {
         "name": "Plant ID Community",
         "url": "https://github.com/Xertox1234/plant_id_community",
@@ -483,7 +490,9 @@ SPECTACULAR_SETTINGS = {
     ],
     "SWAGGER_UI_SETTINGS": {
         "deepLinking": True,
-        "persistAuthorization": True,
+        # SECURITY (todo 248): do not persist a manually entered auth value in
+        # browser localStorage — inconsistent with the httpOnly-cookie auth posture.
+        "persistAuthorization": False,
         "displayOperationId": True,
         "filter": True,
     },
