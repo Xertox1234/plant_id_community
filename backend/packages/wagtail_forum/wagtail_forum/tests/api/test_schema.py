@@ -90,3 +90,20 @@ def test_cookie_jwt_authenticator_documents_a_security_scheme():
         "in": "cookie",
         "name": "access_token",
     }
+
+
+@pytest.mark.django_db
+def test_topic_list_view_guards_schema_generation():
+    """TopicListView.get_queryset returns an empty queryset under
+    `swagger_fake_view` (drf-spectacular's schema-generation flag) instead of
+    raising KeyError on the absent `slug` kwarg. That guard is what suppresses the
+    "Failed to obtain model" warning (todo 238) — the schema tests above resolve
+    the model from `serializer_class`, so they would NOT catch the guard's removal.
+    This pins it: drop the guard and `_get_board(self.kwargs["slug"])` raises
+    KeyError here, failing loudly instead of silently regressing the warning."""
+    from wagtail_forum.api.views import TopicListView
+
+    view = TopicListView()
+    view.swagger_fake_view = True
+    view.kwargs = {}  # schema generation supplies no URL kwargs
+    assert list(view.get_queryset()) == []
