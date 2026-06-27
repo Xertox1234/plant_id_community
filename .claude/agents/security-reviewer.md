@@ -51,6 +51,7 @@ Review only the files passed to you. Do not read the full repo. You run in paral
 - [ ] OAuth/federated account match-or-create gates on a **provider-verified** email (Google `verified_email`/`email_verified`, GitHub `primary AND verified`, allauth `EmailAddress.verified`, Firebase `email_verified` or trusted provider) and fails closed when the signal is absent — matching an existing account by an unverified email is an account-takeover vector; auto-creating off one is a duplicate-account vector. See `authentication.md` → "Trust only provider-verified emails"
 - [ ] An allauth `pre_social_login` that finds an unverified-email collision must ABORT the pipeline (`raise ImmediateHttpResponse(...)`), never bare-`return` — under `SOCIALACCOUNT_AUTO_SIGNUP` a bare return lets allauth auto-create a second account holding the victim's email
 - [ ] A guard that enforces a rule by stripping an input (e.g. removing an unverified `email`) is only safe if the downstream consumer hard-stops on the missing input — verify the fail-closed path, don't assume it
+- [ ] drf-spectacular schema/docs endpoints (`SpectacularAPIView`/`SpectacularSwaggerView`/`SpectacularRedocView`) must be permission-gated — they default to `SERVE_PERMISSIONS = [AllowAny]`, exposing the full OpenAPI schema + Swagger/Redoc UIs to anonymous users. Require `SPECTACULAR_SETTINGS["SERVE_PERMISSIONS"] = [IsAdminUser]` (or a `DEBUG` guard). `SERVE_INCLUDE_SCHEMA=False` does NOT gate them. See `docs/LEARNINGS.md` (todo 248)
 
 **Firebase Security Rules**
 

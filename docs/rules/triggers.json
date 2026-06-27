@@ -267,5 +267,22 @@
     "source": "codify: chore/codify-forum-pr3",
     "added": "2026-06-25",
     "severity": "warn"
+  },
+  {
+    "id": "openapi-schema-endpoint-ungated",
+    "domains": [
+      "api",
+      "security"
+    ],
+    "path_glob": [
+      "backend/**/urls.py"
+    ],
+    "content_present": "Spectacular(API|Swagger|Redoc)View",
+    "content_absent": "SERVE_PERMISSIONS",
+    "message": "drf-spectacular view registered — it defaults to SERVE_PERMISSIONS=[AllowAny] (anonymous-readable schema + Swagger/Redoc). Gate via SPECTACULAR_SETTINGS[\"SERVE_PERMISSIONS\"]=[IsAdminUser] in settings.py (todo 248).",
+    "pattern_ref": "docs/rules/security.md",
+    "source": "codify: chore/codify-248-schema-gating",
+    "added": "2026-06-27",
+    "severity": "warn"
   }
 ]
