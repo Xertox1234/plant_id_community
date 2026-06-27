@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "248"
 tags: [security, openapi, api, authz, schema]
@@ -71,11 +71,11 @@ Once the open question is answered, EITHER:
 
 ## Acceptance Criteria
 
-- [ ] The public-vs-internal question above is resolved and recorded.
-- [ ] If gated: an anonymous `GET /api/schema/` (and `/api/docs/`, `/api/redoc/`)
+- [x] The public-vs-internal question above is resolved and recorded.
+- [x] If gated: an anonymous `GET /api/schema/` (and `/api/docs/`, `/api/redoc/`)
       returns 401/403 in a non-DEBUG configuration; a staff/admin request still works.
-- [ ] `persistAuthorization` is `False` (or its retention is explicitly justified).
-- [ ] A test pins the chosen access policy for `/api/schema/`.
+- [x] `persistAuthorization` is `False` (or its retention is explicitly justified).
+- [x] A test pins the chosen access policy for `/api/schema/`.
 
 ## Work Log
 
@@ -84,3 +84,61 @@ Once the open question is answered, EITHER:
 - Split out of the todo 238 completion code review (security-reviewer HIGH). 238 is
   scoped to schema *warnings*; this is endpoint *authz* in `urls.py` (not in 238's
   diff), so it was deferred here per the user's "accept + file follow-up" decision.
+
+### 2026-06-27 - Started by completing-todos skill (run 2026-06-27-0432)
+
+- Picked up by automated workflow.
+- Open question resolved by user: **Lock to admin (`IsAdminUser`)** — anonymous
+  `GET /api/schema/`, `/api/docs/`, `/api/redoc/` returns 403; staff/admin still works.
+
+### 2026-06-27 - Implemented & verified
+
+**Mechanism (deviation from the literal option-1 preview, same observable policy):**
+gated via `SPECTACULAR_SETTINGS["SERVE_PERMISSIONS"] = ["rest_framework.permissions.IsAdminUser"]`
+in `settings.py` rather than per-path `.as_view(permission_classes=...)`. Confirmed
+against the installed source: all three views
+(`SpectacularAPIView`/`SpectacularSwaggerView`/`SpectacularRedocView`) read
+`permission_classes = spectacular_settings.SERVE_PERMISSIONS` at class-definition
+time (drf_spectacular/views.py:54,124,237; package default is `[AllowAny]`). One knob
+gates all three and any future spectacular view — can't-forget-a-view. `SERVE_AUTHENTICATION`
+left as default (None) so the project's `DEFAULT_AUTHENTICATION_CLASSES` apply. A
+discoverability comment was added at the urls.py paths so the guard is visible from
+where the concern originated. Because `permission_classes` binds at import time,
+`@override_settings` can't exercise the gating — the test verifies the real configured
+behavior instead.
+
+**Files changed:**
+- `backend/plant_community_backend/settings.py` — add `SERVE_PERMISSIONS=[IsAdminUser]`;
+  flip `SWAGGER_UI_SETTINGS.persistAuthorization` `True`→`False`.
+- `backend/plant_community_backend/urls.py` — discoverability comment (no logic change).
+- `backend/apps/core/tests/test_schema_endpoint_authz.py` — new behavioral + settings tests.
+
+**Verification evidence:**
+
+- New tests — `5 passed, 9 subtests passed`:
+
+  ```text
+  apps/core/tests/test_schema_endpoint_authz.py ..... 5 passed, 9 subtests passed in 16.05s
+  ```
+
+- Exact behavior (`/api/schema/`, `/api/docs/`, `/api/redoc/`):
+
+  ```text
+  anonymous   -> 401  (WWW-Authenticate: Bearer realm="api")
+  non-staff   -> denied (401/403)
+  staff/admin -> 200
+  ```
+
+- CI gates intact:
+
+  ```text
+  manage.py check            -> System check identified no issues (0 silenced)
+  manage.py spectacular …    -> exit 0 (only an unrelated Redis-fallback warning)
+  ```
+
+### 2026-06-27 - Completed by completing-todos skill (run 2026-06-27-0432)
+
+- Verification: all 4 acceptance criteria passed (anon→401, non-staff→denied,
+  staff→200; persistAuthorization=False; behavioral + settings tests; CI gates green).
+- Review: code-review-orchestrator (django-drf + test-quality + security) returned
+  5 INFO findings, 0 blocking — no repairs needed.

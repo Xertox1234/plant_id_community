@@ -86,6 +86,9 @@ urlpatterns = [
     # CSP Violation Report endpoint (Issue #014)
     path("api/v1/security/csp-report/", csp_report_view, name="csp-report"),
     # API Documentation (OpenAPI 3.0)
+    # SECURITY (todo 248): these three views are staff-gated via
+    # SPECTACULAR_SETTINGS["SERVE_PERMISSIONS"] = [IsAdminUser] (see settings.py).
+    # Anonymous requests get 401/403; do not add AllowAny here.
     path("api/schema/", SpectacularAPIView.as_view(), name="api-schema"),
     path(
         "api/docs/",
