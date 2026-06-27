@@ -34,10 +34,13 @@ class SchemaEndpointAnonymousDenialTests(TestCase):
         for name in SCHEMA_URL_NAMES:
             with self.subTest(endpoint=name):
                 response = self.client.get(reverse(name))
-                self.assertIn(
+                # Anonymous → 401: CookieJWTAuthentication is first in the auth
+                # stack and supplies a WWW-Authenticate header, so DRF keeps the
+                # NotAuthenticated 401 rather than downgrading it to 403.
+                self.assertEqual(
                     response.status_code,
-                    (401, 403),
-                    f"{name} must deny anonymous access (got {response.status_code})",
+                    401,
+                    f"{name} must return 401 for anonymous access (got {response.status_code})",
                 )
 
 
@@ -83,10 +86,11 @@ class SchemaEndpointImportTimeBindingTests(TestCase):
     """
 
     def test_runtime_serve_permissions_override_does_not_reopen_gate(self):
+        # Anonymous request → still 401; the runtime override is inert (see class docstring).
         response = self.client.get(reverse("api-schema"))
-        self.assertIn(
+        self.assertEqual(
             response.status_code,
-            (401, 403),
+            401,
             "Runtime SERVE_PERMISSIONS override must not re-open the schema endpoint "
             f"(got {response.status_code}).",
         )
