@@ -54,6 +54,14 @@ FORUM_BODY_SCHEMA = {
         },
     },
 }
+CAPABILITIES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "can_react": {"type": "boolean"},
+        "can_reply": {"type": "boolean"},
+        "can_create_topic": {"type": "boolean"},
+    },
+}
 
 
 class BoardSerializer(serializers.ModelSerializer):
@@ -328,6 +336,7 @@ class MeProfileSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["trust_level", "post_count"]
 
+    @extend_schema_field(CAPABILITIES_SCHEMA)
     def get_capabilities(self, obj):
         # v1: static all-True. Trust/lock-aware gating (e.g. can_react only at
         # trust>=1) is a documented follow-up.

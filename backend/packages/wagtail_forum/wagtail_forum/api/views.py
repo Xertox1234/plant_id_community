@@ -119,6 +119,13 @@ class BoardListView(generics.ListAPIView):
         return Response({"results": data})
 
 
+@extend_schema(
+    responses={200: TopicListSerializer(many=True)},
+    description=(
+        "List a board's live topics, most-recent activity first "
+        "(cursor-paginated). Returns 404 for a hidden/non-live board."
+    ),
+)
 class TopicListView(generics.ListAPIView):
     serializer_class = TopicListSerializer
     pagination_class = TopicCursorPagination
@@ -131,6 +138,10 @@ class TopicListView(generics.ListAPIView):
         return super().get_permissions()
 
     def get_queryset(self):
+        # Suppress drf-spectacular's "Failed to obtain model" warning: during
+        # schema generation there is no `slug` kwarg to look the board up by.
+        if getattr(self, "swagger_fake_view", False):
+            return Topic.objects.none()
         board = _get_board(self.kwargs["slug"])
         return (
             Topic.objects.filter(board=board, live=True)

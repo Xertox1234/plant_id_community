@@ -53,3 +53,40 @@ def test_read_serializer_method_fields_are_typed_not_default_string():
     topic = components["TopicDetail"]["properties"]
     assert topic["board"]["type"] == "object"
     assert topic["opening_post_id"]["type"] == "integer"
+
+
+@pytest.mark.django_db
+def test_me_profile_capabilities_typed_as_object():
+    """MeProfileSerializer.get_capabilities is typed via @extend_schema_field
+    instead of drf-spectacular's `string` fallback (todo 238)."""
+    from drf_spectacular.generators import SchemaGenerator
+
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    capabilities = schema["components"]["schemas"]["MeProfile"]["properties"][
+        "capabilities"
+    ]
+    assert capabilities["type"] == "object"
+    props = capabilities["properties"]
+    assert set(props) == {"can_react", "can_reply", "can_create_topic"}
+    assert props["can_react"]["type"] == "boolean"
+    assert props["can_reply"]["type"] == "boolean"
+    assert props["can_create_topic"]["type"] == "boolean"
+
+
+@pytest.mark.django_db
+def test_cookie_jwt_authenticator_documents_a_security_scheme():
+    """CookieJWTAuthentication (the project default authenticator) is resolved to
+    a cookie security scheme instead of an `could not resolve authenticator`
+    warning + empty securitySchemes (todo 238). Project-wide: this makes Swagger's
+    Authorize button work for every authenticated endpoint."""
+    from drf_spectacular.generators import SchemaGenerator
+
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    schemes = schema["components"]["securitySchemes"]
+    # Named jwtCookieAuth, not cookieAuth — the latter is drf-spectacular's
+    # built-in SessionAuthentication scheme (sessionid); reusing it collides.
+    assert schemes["jwtCookieAuth"] == {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "access_token",
+    }
