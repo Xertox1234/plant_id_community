@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { logger } from '../../utils/logger';
 
 /**
@@ -95,15 +96,9 @@ export default function GoogleCallbackPage() {
   }
 
   return (
-    <div
-      className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-surface"
-      role="status"
-      aria-live="polite"
-    >
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-12 h-12 border-4 border-line border-t-primary rounded-full animate-spin" />
-        <p className="text-ink-3 font-medium">Signing you in…</p>
-      </div>
-    </div>
+    <LoadingSpinner
+      label="Signing you in…"
+      className="min-h-[calc(100vh-4rem)] px-4 py-12 bg-surface"
+    />
   );
 }

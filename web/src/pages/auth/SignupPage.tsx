@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import GoogleSignInButton from '../../components/auth/GoogleSignInButton';
+import Divider from '../../components/ui/Divider';
 import { getEmailError, getPasswordError, getPasswordConfirmError } from '../../utils/validation';
 import { sanitizeInput, sanitizeError } from '../../utils/sanitize';
 import { logger } from '../../utils/logger';
@@ -281,12 +282,7 @@ export default function SignupPage() {
             </Button>
           </form>
 
-          {/* Divider */}
-          <div className="my-6 flex items-center gap-4" aria-hidden="true">
-            <div className="h-px flex-1 bg-line" />
-            <span className="text-xs uppercase tracking-wide text-ink-3">or</span>
-            <div className="h-px flex-1 bg-line" />
-          </div>
+          <Divider label="or" />
 
           {/* Google OAuth */}
           <GoogleSignInButton label="Sign up with Google" disabled={isSubmitting} />
