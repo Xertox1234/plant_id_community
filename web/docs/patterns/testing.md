@@ -119,3 +119,69 @@ Gotchas:
 - Test-fixture passwords (`password: '...'`) trip detect-secrets — add
   `// pragma: allowlist secret` on the literal's line, and put it on a `const` so
   Prettier can't shift the comment off that line.
+
+---
+
+## Mocking browser navigation (`window.location.assign`) in jsdom
+
+jsdom makes `window.location.assign` (and `.replace`/`.reload`) **non-configurable**,
+so `vi.spyOn(window.location, 'assign')` throws `TypeError: Cannot redefine
+property: assign`. Replace the whole `window.location` property instead, and
+restore it in `afterEach` (the property itself *is* configurable; its methods
+are not). Canonical — `src/components/auth/GoogleSignInButton.test.tsx`:
+
+```typescript
+describe('GoogleSignInButton', () => {
+  const assignMock = vi.fn();
+  let originalLocation: Location;
+
+  beforeEach(() => {
+    originalLocation = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: { assign: assignMock, href: '' }, // only stub what the component reads
+    });
+    assignMock.mockReset();
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: originalLocation,
+    });
+  });
+
+  it('redirects on click', async () => {
+    render(<GoogleSignInButton />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }));
+    await waitFor(() => expect(assignMock).toHaveBeenCalledWith(expectedUrl));
+  });
+});
+```
+
+A minimal `{ assign, href }` stub is enough when the component under test reads
+nothing else off `location` and renders without a Router.
+
+---
+
+## Disambiguate `getByRole` by exact name when controls share a label substring
+
+A `name` **regex** does a *substring* match, so `getByRole('button', { name:
+/sign in/i })` matches BOTH `"Sign in"` and `"Sign in with Google"` once a page
+has both → `TestingLibraryElementError: Found multiple elements`. When two
+controls share a label substring, switch to an **exact string** `name` (full,
+normalised accessible-name match):
+
+```typescript
+// ✅ exact — targets only the password submit button
+screen.getByRole('button', { name: 'Sign in' });
+screen.getByRole('button', { name: 'Sign in with Google' });
+
+// ❌ substring regex — ambiguous once a second "Sign in…" control exists
+screen.getByRole('button', { name: /sign in/i });
+```
+
+This bit `LoginPage.test.tsx` the moment the Google button landed next to the
+password submit. The `/regex/` form is still fine when only one control matches.

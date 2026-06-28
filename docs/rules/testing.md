@@ -68,3 +68,11 @@ Compact checklist auto-injected before edits.
   test fixtures.** A literal password kwarg trips the `detect-secrets` pre-commit
   gate (which aborts the commit, with the real reason often scrolled off the top of
   the hook output); `force_login(user)` authenticates without one, so drop it.
+- **jsdom: don't `vi.spyOn(window.location, 'assign')`** — `assign`/`replace`/
+  `reload` are non-configurable, so the spy throws `Cannot redefine property:
+  assign`. Replace the whole `window.location` property via `Object.defineProperty`
+  in `beforeEach` (restore in `afterEach`). See `web/docs/patterns/testing.md`.
+- **`getByRole` `name` as a regex is a SUBSTRING match → ambiguous when two
+  controls share a label.** `{ name: /sign in/i }` matches both `"Sign in"` and
+  `"Sign in with Google"` → "Found multiple elements". Use an exact string
+  (`{ name: 'Sign in' }`) once a page has both.

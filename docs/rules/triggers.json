@@ -284,5 +284,21 @@
     "source": "codify: chore/codify-248-schema-gating",
     "added": "2026-06-27",
     "severity": "warn"
+  },
+  {
+    "id": "jsdom-spyon-window-location",
+    "domains": [
+      "testing",
+      "react"
+    ],
+    "path_glob": [
+      "web/src/**/*.test.tsx"
+    ],
+    "content_present": "spyOn\\(\\s*window\\.location",
+    "message": "jsdom makes window.location.assign/replace/reload NON-configurable — vi.spyOn(window.location, 'assign') throws 'Cannot redefine property: assign'. Replace the whole window.location via Object.defineProperty in beforeEach (restore in afterEach). See web/docs/patterns/testing.md.",
+    "pattern_ref": "web/docs/patterns/testing.md",
+    "source": "codify: feat/web-google-signin",
+    "added": "2026-06-27",
+    "severity": "warn"
   }
 ]
