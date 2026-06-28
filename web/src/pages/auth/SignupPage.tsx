@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
+import GoogleSignInButton from '../../components/auth/GoogleSignInButton';
+import Divider from '../../components/ui/Divider';
 import { getEmailError, getPasswordError, getPasswordConfirmError } from '../../utils/validation';
 import { sanitizeInput, sanitizeError } from '../../utils/sanitize';
 import { logger } from '../../utils/logger';
@@ -279,6 +281,11 @@ export default function SignupPage() {
               {isSubmitting ? 'Creating account...' : 'Create account'}
             </Button>
           </form>
+
+          <Divider label="or" />
+
+          {/* Google OAuth */}
+          <GoogleSignInButton label="Sign up with Google" disabled={isSubmitting} />
 
           {/* Login Link */}
           <div className="mt-6 text-center text-sm">

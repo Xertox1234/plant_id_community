@@ -78,6 +78,12 @@ export interface AuthContextValue {
   login: (credentials: LoginCredentials) => Promise<AuthResult>;
   logout: () => Promise<void>;
   signup: (userData: SignupData) => Promise<AuthResult>;
+  /**
+   * Re-read the current user from the backend and sync context state.
+   * Used after the Google OAuth callback, where the JWT cookies are already
+   * set by the backend redirect but context state has not yet caught up.
+   */
+  refreshUser: () => Promise<User | null>;
   clearError: () => void;
 }
 
@@ -278,6 +284,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   /**
+   * Re-read the current user from the backend and sync context state.
+   * The OAuth callback lands here after the backend has already set JWT cookies,
+   * so this re-fetch (a GET against /api/v1/auth/user/) is what populates the
+   * authenticated user into context. Returns the user (or null) for the caller
+   * to branch on. Rotates the request ID on success, matching login/signup.
+   */
+  const refreshUser = async (): Promise<User | null> => {
+    try {
+      const currentUser = await authService.getCurrentUser();
+      setUser(currentUser);
+      if (currentUser) {
+        rotateRequestId();
+      }
+      return currentUser;
+    } catch (err) {
+      logger.error('[AuthContext] refreshUser failed', { error: err });
+      setUser(null);
+      return null;
+    }
+  };
+
+  /**
    * Manually clear error state
    * Useful for dismissing error messages in UI
    */
@@ -295,6 +323,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       login,
       logout,
       signup,
+      refreshUser,
       clearError,
     }),
     [user, isLoading, error]

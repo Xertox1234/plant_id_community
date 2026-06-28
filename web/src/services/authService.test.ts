@@ -14,7 +14,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { login, signup, logout, getCurrentUser, getStoredUser } from './authService';
+import {
+  login,
+  signup,
+  logout,
+  getCurrentUser,
+  getStoredUser,
+  getGoogleOAuthUrl,
+} from './authService';
 import { clearCsrfToken } from '../utils/csrf';
 import type { User, LoginCredentials, SignupData, AuthResponse } from '../types/auth';
 
@@ -518,6 +525,71 @@ describe('authService', () => {
 
       // Assert
       expect(result).toBeNull();
+    });
+  });
+
+  // ============================================================================
+  // GOOGLE OAUTH TESTS
+  // ============================================================================
+
+  describe('getGoogleOAuthUrl', () => {
+    it('returns the backend-provided oauth_url and sends cookies', async () => {
+      // Arrange
+      const oauthUrl = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=xyz';
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ oauth_url: oauthUrl, provider: 'google' }),
+      });
+
+      // Act
+      const result = await getGoogleOAuthUrl();
+
+      // Assert
+      expect(result).toBe(oauthUrl);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/api/auth/oauth/google/login/'),
+        expect.objectContaining({
+          method: 'GET',
+          credentials: 'include', // session cookie carries the OAuth state
+        })
+      );
+    });
+
+    it('throws the backend error message on a non-OK response', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        json: async () => ({ error: 'Google OAuth not configured' }),
+      });
+
+      // Act & Assert
+      await expect(getGoogleOAuthUrl()).rejects.toThrow('Google OAuth not configured');
+    });
+
+    it('throws when the response omits oauth_url', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ provider: 'google' }),
+      });
+
+      // Act & Assert
+      await expect(getGoogleOAuthUrl()).rejects.toThrow(/unavailable/i);
+    });
+
+    it('falls back to the default message when a non-OK body is not JSON', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        json: async () => {
+          throw new Error('not json');
+        },
+      });
+
+      // Act & Assert
+      await expect(getGoogleOAuthUrl()).rejects.toThrow(/unavailable/i);
     });
   });
 });

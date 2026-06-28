@@ -253,6 +253,49 @@ export async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
+/**
+ * Begin Google OAuth sign-in.
+ *
+ * Asks the backend for the Google authorization URL; the caller redirects the
+ * browser to it. `credentials: 'include'` is REQUIRED: the backend stores the
+ * OAuth `state` (CSRF guard) in the Django session, so the `sessionid` cookie
+ * must round-trip to the callback for state validation to pass. In prod this
+ * is a cross-site cookie, which the browser only stores when the backend sets
+ * `SESSION_COOKIE_SAMESITE=None; Secure` (see todo 240).
+ *
+ * Endpoint is unversioned (`/api/auth/oauth/...`), not `/api/v1/...`.
+ */
+export async function getGoogleOAuthUrl(): Promise<string> {
+  const response = await fetch(`${API_URL}/api/auth/oauth/google/login/`, {
+    method: 'GET',
+    headers: {
+      'X-Request-ID': getOrCreateRequestId(),
+    },
+    credentials: 'include', // session cookie carries the OAuth state
+  });
+
+  if (!response.ok) {
+    let message = 'Google sign-in is currently unavailable. Please try again later.';
+    try {
+      const data = await response.json();
+      if (typeof data?.error === 'string' && data.error) {
+        message = data.error;
+      }
+    } catch {
+      // Non-JSON error body — keep the default message.
+    }
+    logger.error('[authService] Google OAuth init failed', { status: response.status });
+    throw new Error(message);
+  }
+
+  const data: { oauth_url?: unknown } = await response.json();
+  if (typeof data.oauth_url !== 'string' || !data.oauth_url) {
+    throw new Error('Google sign-in is currently unavailable. Please try again later.');
+  }
+
+  return data.oauth_url;
+}
+
 export const authService = {
   login,
   signup,
@@ -260,4 +303,5 @@ export const authService = {
   getCurrentUser,
   getStoredUser,
   refreshAccessToken,
+  getGoogleOAuthUrl,
 };

@@ -32,7 +32,9 @@ function fillForm(email: string, password: string) {
   });
 }
 
-const submit = () => fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+// Exact name, not /sign in/i: the page now also renders a "Sign in with Google"
+// button, which a substring regex would ambiguously match.
+const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
 describe('LoginPage', () => {
   beforeEach(() => {
@@ -88,5 +90,13 @@ describe('LoginPage', () => {
 
     expect(await screen.findByText('Invalid email or password.')).toBeInTheDocument();
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
+  });
+
+  it('renders a "Sign in with Google" button alongside the password form', () => {
+    renderLoginPage();
+
+    expect(screen.getByRole('button', { name: 'Sign in with Google' })).toBeInTheDocument();
+    // The password submit button is still distinctly addressable.
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 });
