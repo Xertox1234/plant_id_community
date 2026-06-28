@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "241"
 tags: [security, deployment, railway, secrets, nixpacks]
@@ -53,16 +53,45 @@ layers are still a real hygiene problem, especially before external testers.
 
 ## Acceptance Criteria
 
-- [ ] App secrets are no longer exposed at build time (Railway build log shows no
+- [x] App secrets are no longer exposed at build time (Railway build log shows no
       `SecretsUsedInArgOrEnv` for app secrets), OR the exposure is explicitly
       accepted with a documented rationale if Railway offers no clean mechanism.
-- [ ] Decision recorded on whether to rotate the previously-baked sensitive
+      → **OR-clause taken.** Every clean mechanism was empirically disproven (see
+      Resolution below); exposure explicitly accepted (private registry, zero
+      users → bounded blast radius). User-approved 2026-06-28.
+- [x] Decision recorded on whether to rotate the previously-baked sensitive
       secrets (and rotated if chosen).
+      → **Decision: do NOT rotate.** Rotation is futile while NIXPACKS keeps
+      baking (new values would be re-baked into the next image). Revisit if/when a
+      clean non-baking builder works, or before onboarding real users.
 
 ## Notes
 
 Split from **todo 216** (live-deployment hardening). Surfaced/expanded by 216's
 integration-key migration on 2026-06-24; tracked here so it isn't dropped.
+
+## Resolution (2026-06-28) — accepted via AC1 OR-clause
+
+**Outcome:** keep `NIXPACKS`; explicitly accept the build-time secret exposure;
+do not rotate. Every clean mechanism to stop the baking was empirically disproven:
+
+| Mechanism | Result |
+|-----------|--------|
+| Sealed variables | Per Railway docs, sealed vars are still *injected into builds* — hides the value from the UI/API but does NOT remove build-time exposure. |
+| `RAILPACK` builder | Build **fails**: copies only `requirements.txt`+`pyproject.toml` before `pip install`, so the editable local dep `-e ./packages/wagtail_forum` errors ("not a valid editable requirement"). (PRs #421 reverted by #422.) |
+| `DOCKERFILE` builder | **Builds clean — AC1 was literally met** (0 `SecretsUsedInArgOrEnv`), but the container **runtime-hangs after `migrate` → 502** (undiagnosable here: `railway ssh` blocked, local Docker down). Also permanent hand-maintained overhead (Python/system-dep upkeep NIXPACKS does for free). Caused a ~1h40m prod outage; reverted (PRs #423 → #424). |
+
+**Why this is an acceptable close (not a punt):** p3, **zero users**, image lives in
+Railway's **private** registry (not public) → bounded blast radius. The todo's
+author wrote the OR-clause for exactly this "no clean mechanism" situation.
+
+**Why no rotation:** under NIXPACKS every build re-bakes whatever the current
+secret values are, so rotating now just bakes fresh secrets — no durable benefit.
+
+**Revisit triggers:** (a) a clean non-baking Railway builder becomes viable (e.g.
+RAILPACK gains local-editable support, or a Dockerfile whose runtime hang is
+diagnosed via local `docker run`/healthcheck + `preDeployCommand`); or (b) before
+onboarding real users. The Dockerfile attempt is preserved at commit `6a0b279`.
 
 ## Work Log
 
@@ -154,3 +183,17 @@ integration-key migration on 2026-06-24; tracked here so it isn't dropped.
 - **OPEN DECISION (for user):** get a repro to fix the Dockerfile (start local
   Docker, or approve a scoped SSH read) vs. close this p3 on NIXPACKS + documented
   accept-risk (no rotation — futile under NIXPACKS baking).
+
+### 2026-06-28 - Completed by completing-todos skill (run 2026-06-28-1330)
+
+- **Decision (user-approved): close on AC1 OR-clause** — accept the build-time
+  exposure with documented rationale (see Resolution); **do not rotate** (AC2
+  decision recorded). Both acceptance criteria satisfied via their OR/decision
+  clauses.
+- Verification: prod confirmed healthy on NIXPACKS (root HTTP 302, `main` builder
+  = NIXPACKS, Dockerfile removed). Net code change on `main` from this todo = **zero**
+  (builder unchanged end-to-end; all attempts reverted).
+- Review: no code-review dispatch — the only surviving artifact is this todo doc;
+  the builder change round-tripped to a net-zero diff on `main`.
+- PRs this todo: #421 (RAILPACK, reverted by #422), #423 (DOCKERFILE, reverted by
+  #424). Outcome: NIXPACKS retained, exposure documented & accepted.
