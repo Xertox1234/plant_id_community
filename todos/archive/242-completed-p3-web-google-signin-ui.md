@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "242"
 tags: [frontend, react, oauth, auth, web]
@@ -63,8 +63,15 @@ unreachable from the UI, and the backend's post-login redirect target
       context via `useAuth().refreshUser()` then routes home on success, maps
       backend `?error` codes to readable messages otherwise. Verified by
       `GoogleCallbackPage.test.tsx`: success→navigate, error code, generic, null.)
-- [ ] A real Google login works end-to-end in prod (requires todo 240's Google
+- [x] A real Google login works end-to-end in prod (requires todo 240's Google
       Console redirect-URI + publish/test-user setup to be done first).
+      (2026-06-28 — **VERIFIED under todo 240.** User logged in as `plantadmin` via
+      the deployed "Sign in with Google" button on `houseplant-md.com` — real Google
+      login → callback → authenticated session. The prod precondition below was
+      confirmed satisfied: `SESSION_COOKIE_SAMESITE=None`/`CSRF_COOKIE_SAMESITE=None`
+      are set in Railway. Login was via Chrome; the Safari-ITP architecture risk noted
+      below remains untested and is tracked as a follow-up only if a real Safari login
+      fails.)
       (2026-06-27 — NOT verifiable in this session: needs an interactive prod
       login. PROD PRECONDITION found: `SESSION_COOKIE_SAMESITE` defaults to
       `"Strict"` in prod (settings.py:1010); the OAuth `state` rides the Django
@@ -164,3 +171,18 @@ todo 240's manual Google Console setup (redirect-URI + consent-screen publish) a
 `SESSION_COOKIE_SAMESITE=None` Railway env override. Todo stays `in_progress`; AC#3 closes once
 that manual step + a real login pass (tracked under 240). Web changes remain uncommitted in the
 working tree for the user to branch + PR.
+
+### 2026-06-28 - AC#3 closed; todo complete (run 2026-06-28-0521)
+
+- The code from this todo shipped in **PR #418** (merged to `main`) and is deployed live
+  (`GoogleSignInButton` + `GoogleCallbackPage` confirmed in the `houseplant-md.com` bundle).
+- **AC#3 verified under todo 240:** user performed a real Google login on the deployed
+  site and logged in as `plantadmin`. Railway has `SESSION_COOKIE_SAMESITE=None` set, so
+  the cross-site OAuth-`state` precondition is satisfied. Login was Chrome; the Safari-ITP
+  design risk stays an open follow-up (file only if a real Safari login fails).
+- All 4 ACs now met. No code changes in this session — archival only.
+
+### 2026-06-28 - Completed by completing-todos skill (run 2026-06-28-0521)
+
+- Verification: all 4 acceptance criteria passed (AC#3 closed by 240's real prod login).
+- Review: code already reviewed + merged in #418; no new changes this session.
