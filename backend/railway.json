@@ -1,7 +1,7 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
-    "builder": "NIXPACKS"
+    "builder": "RAILPACK"
   },
   "deploy": {
     "startCommand": "python manage.py migrate --noinput && python manage.py seed_default_forum && python manage.py collectstatic --noinput --verbosity 0 && gunicorn plant_community_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120",
