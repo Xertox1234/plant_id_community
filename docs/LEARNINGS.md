@@ -567,3 +567,34 @@ This file is append-only. New entries are added by main Claude after each code r
 
 **Fix**: Set `SPECTACULAR_SETTINGS["SERVE_PERMISSIONS"] = ["rest_framework.permissions.IsAdminUser"]` — one knob gates all three views (and any future spectacular view), preferable to per-path `.as_view(permission_classes=…)`. Left `SERVE_AUTHENTICATION=None` so the project's `DEFAULT_AUTHENTICATION_CLASSES` apply. Also flipped `SWAGGER_UI_SETTINGS.persistAuthorization` to `False`. Verified live in prod after the Railway auto-deploy: anonymous `GET` now → 401 on all three (was 200). Two non-obvious test facts emerged: (a) `permission_classes` binds at **import time**, so `@override_settings(SPECTACULAR_SETTINGS=…)` can't exercise the gate — test the real configured behavior; (b) `IsAdminUser` returns **401** to anonymous (JWT authenticator supplies `WWW-Authenticate`) but **403** to an authenticated non-staff user.
 **Agent**: security-reviewer (codified as a check + a write-time trigger)
+
+## Cross-site OAuth state ride a session cookie blocked by SameSite=Strict (todo 242, 2026-06-27)
+
+### [2026-06-27] Web Google sign-in's session-cookie OAuth `state` is silently dropped cross-site in prod
+
+**Mistake**: The web Google-OAuth UI (todo 242) is correct front-end code — `GET
+/api/auth/oauth/google/login/` with `credentials: 'include'`, then
+`window.location.assign(oauth_url)` — but it will fail **every** prod login with
+`?error=invalid_state` and **no client-side error**, because the backend stores
+the OAuth `state` CSRF guard in `request.session`. The frontend
+(`houseplant-md.com`) and backend (Railway) are different sites, so the
+`sessionid` the login endpoint sets is a **third-party cookie**; with Django's prod
+default `SESSION_COOKIE_SAMESITE = "Strict"` (settings.py:1010) the browser never
+stores it, so it isn't present at the callback and `secrets.compare_digest(...)`
+fails.
+
+**Root cause**: SameSite=`Strict`/`Lax` suppresses a cookie on cross-site requests.
+The OAuth-state handshake here is inherently cross-site (SPA origin ≠ API origin),
+so the session cookie carrying `state` must be `SameSite=None; Secure` to be stored
+and replayed. This is a separate knob from the JWT-cookie SameSite already
+configured for authenticated API calls.
+
+**Fix**: Set `SESSION_COOKIE_SAMESITE=None` (with `SESSION_COOKIE_SECURE=True`,
+already `not DEBUG`) in Railway. **Necessary but maybe NOT sufficient**: Safari ITP
+blocks third-party cookies outright and Chrome is deprecating them, so a cross-site
+session-cookie OAuth handshake can fail even when SameSite is correct. The durable
+fix is to stop relying on a third-party cookie for `state` — carry it in a signed
+query param (e.g. `itsdangerous`/JWT round-tripped through the provider) instead.
+Tracked as the prod-verification half under todo 240; the 242 UI ships
+fail-closed (a missing/invalid session → readable error + link back to `/login`).
+**Agent**: security-reviewer (deployment precondition; no code change in 242)
