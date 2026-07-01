@@ -197,3 +197,39 @@ onboarding real users. The Dockerfile attempt is preserved at commit `6a0b279`.
   the builder change round-tripped to a net-zero diff on `main`.
 - PRs this todo: #421 (RAILPACK, reverted by #422), #423 (DOCKERFILE, reverted by
   #424). Outcome: NIXPACKS retained, exposure documented & accepted.
+
+### 2026-07-01 - SUPERSEDED — actually FIXED via a guarded DOCKERFILE deploy
+
+The 2026-06-28 close above (accept + document, keep NIXPACKS) is **superseded.** On
+2026-07-01 the user asked to reproduce locally (Docker daemon recovered), which led to
+diagnosing and fixing the real prod-only issues. **The DOCKERFILE builder is now LIVE
+on prod (deploy `0e9b9a8`), build log has 0 `SecretsUsedInArgOrEnv` → AC1 genuinely
+met, no secrets in image layers. NIXPACKS retired.**
+
+The earlier "runtime-502-hang" was actually a chain of 4 distinct prod-only issues,
+each found via `preDeployCommand`+`healthcheckPath`-**guarded** deploys (a failed
+build/healthcheck leaves the old deploy serving → zero outage) and validated locally
+before the next attempt:
+
+1. **Outage (original):** no healthcheck → Railway swaps traffic when the container
+   *starts*, not serves → a startup stall = 1h40m 502. Fix: add `healthcheckPath`.
+2. **collectstatic ~3s/file** filesystem-slow under `python:3.13-slim` on Railway
+   runtime (fine locally / NIXPACKS-Ubuntu) → ate the healthcheck window. Fix: bake
+   `collectstatic` at BUILD (inline throwaway env on the RUN line — nothing baked);
+   runtime start = gunicorn-only. (Django 6 ignores deprecated `STATICFILES_STORAGE`
+   → plain storage, so the DEBUG=True build bake matches prod.)
+3. **`'$PORT' is not a valid port number`** — bare `gunicorn` startCommand exec'd with
+   no shell → literal `$PORT`. Fix: wrap in `sh -c '...'`.
+4. **healthcheck 400 DisallowedHost** — Railway probes `Host: healthcheck.railway.app`.
+   Fix: append it to `ALLOWED_HOSTS` + `SECURE_REDIRECT_EXEMPT` the health path.
+
+Final config: `backend/railway.json` (builder DOCKERFILE, preDeploy migrate+seed,
+gunicorn-only start via `sh -c $PORT`, healthcheck `/api/v1/plant-identification/health/`
+timeout 300), `backend/Dockerfile` (collectstatic baked at build), `settings.py`
+(ALLOWED_HOSTS += healthcheck host, SSL-redirect-exempt health path). PRs: #426 (guarded
+retry) → #427 (verbose diagnostic) → #428/#429/#430 (the four fixes). Prod verified:
+health 200, root 302, cms 302.
+
+**AC2 (rotation): SKIPPED** by user decision 2026-07-01 — the old baked SECRET_KEY/
+JWT_SECRET_KEY values remain in the now-inactive NIXPACKS image in Railway's PRIVATE
+registry (bounded blast radius, zero users); revisit before real users if desired.
