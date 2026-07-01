@@ -112,6 +112,13 @@ ALLOWED_HOSTS = config(
     cast=lambda v: [s.strip() for s in v.split(",")],
 )
 
+# Railway's platform healthcheck probes the container with Host: healthcheck.railway.app.
+# Django's ALLOWED_HOSTS check (get_host) rejects unknown hosts with a 400 before the view
+# runs, which fails the healthcheck (it requires a 200). Always allow that internal host —
+# it is only reachable via Railway's healthcheck, never publicly routable to the container.
+if "healthcheck.railway.app" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("healthcheck.railway.app")
+
 # Application definition
 DJANGO_APPS = [
     "django.contrib.admin",
