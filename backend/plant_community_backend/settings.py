@@ -972,6 +972,12 @@ SECURE_SSL_REDIRECT = not DEBUG
 if config("TRUST_PROXY_SSL_HEADER", default=False, cast=bool):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+# Railway's platform healthcheck probes the container over plain HTTP and does not
+# set X-Forwarded-Proto, so with SECURE_SSL_REDIRECT the health endpoint would 301
+# and the healthcheck (which requires a 200) would fail the deploy. Exempt only that
+# one path from the HTTPS redirect; it exposes no sensitive data.
+SECURE_REDIRECT_EXEMPT = [r"^api/v1/plant-identification/health/$"]
+
 # Per-IP rate limiting behind a reverse proxy (todo 218). django-ratelimit's
 # key="ip" keys on REMOTE_ADDR, which behind Railway's proxy is the *proxy*
 # address — so the per-IP limit never accumulates per real client. apps.core
