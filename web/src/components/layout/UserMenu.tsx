@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { User, Settings, LogOut, ChevronDown } from 'lucide-react';
+import { User, Settings, LogOut, ChevronDown, Leaf } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 /**
@@ -112,6 +112,16 @@ export default function UserMenu() {
 
           {/* Menu Items */}
           <div className="py-2">
+            <Link
+              to="/my-plants"
+              role="menuitem"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-3 px-4 py-2 text-sm text-ink-2 hover:bg-surface transition-colors"
+            >
+              <Leaf className="w-4 h-4" />
+              <span>My Plants</span>
+            </Link>
+
             <Link
               to="/profile"
               role="menuitem"

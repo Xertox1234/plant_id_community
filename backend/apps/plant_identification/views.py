@@ -367,7 +367,12 @@ class UserPlantViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        queryset = UserPlant.objects.filter(user=self.request.user)
+        # select_related: the serializer reads user (StringRelatedField),
+        # species (nested), collection.name, and
+        # from_identification_request.request_id on every row
+        queryset = UserPlant.objects.filter(user=self.request.user).select_related(
+            "user", "species", "collection", "from_identification_request"
+        )
 
         # Filter by collection
         collection_id = self.request.query_params.get("collection")

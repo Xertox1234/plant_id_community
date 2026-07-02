@@ -10,6 +10,7 @@ import type {
   PlantIdentificationResult,
   Collection,
   UserPlant,
+  PaginatedUserPlants,
   IdentificationHistoryItem,
   SavePlantInput,
 } from '../types/plantId';
@@ -171,8 +172,44 @@ async function saveToCollection(plantData: SavePlantInput): Promise<UserPlant> {
   }
 }
 
+/**
+ * Get the user's saved plant collection (paginated, newest first)
+ * Requires authentication — the backend scopes results to the current user.
+ */
+async function getMyPlants(page: number = 1): Promise<PaginatedUserPlants> {
+  const csrfToken = await getCsrfToken();
+
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/${API_VERSION}/plant-identification/plants/?page=${page}`,
+      {
+        credentials: 'include', // Send HttpOnly cookies
+        headers: {
+          ...(csrfToken && { 'X-CSRFToken': csrfToken }),
+        },
+      }
+    );
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Authentication required to view your plants');
+      }
+      const errorData: unknown = await response.json().catch(() => null);
+      throw new Error(extractErrorMessage(errorData) || 'Failed to load your plants');
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error instanceof Error && error.message) {
+      throw error;
+    }
+    throw new Error('Failed to load your plants', { cause: error });
+  }
+}
+
 export const plantIdService = {
   identifyPlant,
   getHistory,
   saveToCollection,
+  getMyPlants,
 };

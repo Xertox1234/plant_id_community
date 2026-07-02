@@ -60,6 +60,20 @@ export interface UserPlant {
   };
   created_at?: string;
   updated_at?: string;
+  // Read-only fields returned by the backend list endpoint
+  collection_name?: string;
+  display_name?: string;
+  image_thumbnail?: string | null;
+}
+
+/**
+ * Paginated response from the UserPlant list endpoint (DRF PageNumberPagination)
+ */
+export interface PaginatedUserPlants {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: UserPlant[];
 }
 
 /**
