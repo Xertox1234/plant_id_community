@@ -49,6 +49,7 @@ jobs:
           # CVE-2026-42304 (Twisted 25.5.0): no stable fix exists (fix is RC-only 26.4.0rc2). Remove when Twisted >=26.4.0 stable releases.
           # PYSEC-2026-89  (Markdown 3.8.1): no upstream fix (OSV: all versions affected); markdown not imported by app code; DoS path unreachable.
           # PYSEC-2026-97  (nltk 3.9.4):     no upstream fix (already latest); filestring() path traversal not called by app code.
+          # PYSEC-2026-597 (nltk 3.9.4):     no upstream fix (OSV last_affected=3.9.4, the latest release); percent-encoded path traversal in nltk.data.load()/find(), which app code never calls (nltk is transitive; zero nltk imports in apps/, packages/, plant_community/).
           # PYSEC-2024-277 (joblib 1.5.2):   supplier-disputed; not imported by app code.
           # PYSEC-2025-183 (PyJWT 2.13.0):   supplier-disputed; mitigated by JWT_SECRET_KEY (the SIMPLE_JWT SIGNING_KEY PyJWT signs with), validated >=50 chars fail-fast at settings import in ALL environments (settings.py:658).
           # CVE-2026-31236 (llm 0.27.1):     no upstream fix per OSV/PyPI advisory; llm is a wagtail-ai transitive dep, not imported directly by app code. Remove when a patched llm release ships.
@@ -56,6 +57,7 @@ jobs:
             --ignore-vuln CVE-2026-42304 \
             --ignore-vuln PYSEC-2026-89 \
             --ignore-vuln PYSEC-2026-97 \
+            --ignore-vuln PYSEC-2026-597 \
             --ignore-vuln PYSEC-2024-277 \
             --ignore-vuln PYSEC-2025-183 \
             --ignore-vuln CVE-2026-31236
