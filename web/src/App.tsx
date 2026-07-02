@@ -20,6 +20,7 @@ const ThreadDetailPage = lazy(() => import('./pages/forum/ThreadDetailPage'));
 const NewThreadPage = lazy(() => import('./pages/forum/NewThreadPage'));
 const SearchPage = lazy(() => import('./pages/forum/SearchPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const MyPlantsPage = lazy(() => import('./pages/MyPlantsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const DiseaseDiagnosePage = lazy(() => import('./pages/diagnosis/DiseaseDiagnosePage'));
 const GoogleCallbackPage = lazy(() => import('./pages/auth/GoogleCallbackPage'));
@@ -68,6 +69,7 @@ function App() {
             {/* Composing a thread requires auth (the API rejects anon writes). */}
             <Route path="/forum/new-thread" element={<NewThreadPage />} />
             <Route path="/diagnose" element={<DiseaseDiagnosePage />} />
+            <Route path="/my-plants" element={<MyPlantsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

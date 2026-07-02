@@ -517,4 +517,103 @@ describe('plantIdService', () => {
       expect(requestBody.care_instructions_json.source).toBe(savePlantInput.source);
     });
   });
+
+  // ============================================================================
+  // GET MY PLANTS TESTS
+  // ============================================================================
+
+  describe('getMyPlants', () => {
+    const mockPaginatedPlants = {
+      count: 1,
+      next: null,
+      previous: null,
+      results: [mockUserPlant],
+    };
+
+    it('should fetch the first page of saved plants', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockPaginatedPlants,
+      });
+
+      // Act
+      const result = await plantIdService.getMyPlants();
+
+      // Assert
+      expect(result).toEqual(mockPaginatedPlants);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v1/plant-identification/plants/?page=1'),
+        expect.objectContaining({
+          credentials: 'include',
+          headers: expect.objectContaining({
+            'X-CSRFToken': 'test-csrf-token',
+          }),
+        })
+      );
+    });
+
+    it('should request the given page number', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ ...mockPaginatedPlants, previous: 'prev-url' }),
+      });
+
+      // Act
+      await plantIdService.getMyPlants(3);
+
+      // Assert
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v1/plant-identification/plants/?page=3'),
+        expect.any(Object)
+      );
+    });
+
+    it('should require authentication (401 error)', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({}),
+      });
+
+      // Act & Assert
+      await expect(plantIdService.getMyPlants()).rejects.toThrow(
+        'Authentication required to view your plants'
+      );
+    });
+
+    it('should surface API error messages', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({ error: true, message: 'Invalid page.' }),
+      });
+
+      // Act & Assert
+      await expect(plantIdService.getMyPlants(99)).rejects.toThrow('Invalid page.');
+    });
+
+    it('should fall back to a generic error message', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: async () => ({}),
+      });
+
+      // Act & Assert
+      await expect(plantIdService.getMyPlants()).rejects.toThrow('Failed to load your plants');
+    });
+
+    it('should handle network errors', async () => {
+      // Arrange
+      fetchMock.mockRejectedValueOnce(new Error('Network error'));
+
+      // Act & Assert
+      await expect(plantIdService.getMyPlants()).rejects.toThrow('Network error');
+    });
+  });
 });

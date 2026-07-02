@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
-import { Menu, X, User, Settings as SettingsIcon, Sun, Moon } from 'lucide-react';
+import { Menu, X, User, Settings as SettingsIcon, Sun, Moon, Leaf } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import UserMenu from './UserMenu';
@@ -202,6 +202,14 @@ export default function Header() {
                     <User className="w-5 h-5 text-primary" />
                     <span className="font-medium">{user?.username || user?.email}</span>
                   </div>
+                  <Link
+                    to="/my-plants"
+                    onClick={closeMenu}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-ink-2 hover:bg-surface font-medium transition-colors"
+                  >
+                    <Leaf className="w-4 h-4" />
+                    My Plants
+                  </Link>
                   <Link
                     to="/profile"
                     onClick={closeMenu}
