@@ -197,3 +197,51 @@ def test_delete_on_hidden_board_is_404():
     resp = client.delete(f"/forum/posts/{reply.id}/")
     assert resp.status_code == 404
     assert Post.objects.get(id=reply.id).live is True  # not deleted
+
+
+def test_moderator_edit_author_deleted_post_persists():
+    """A moderator redaction of an account-deleted author's post (author=None,
+    SET_NULL) persists — never a crash or a silent 200 that drops the edit
+    (finding #2)."""
+    board = _board()
+    author = _member("ada")
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    Post.objects.filter(id=reply.id).update(author=None)  # author account deleted
+    mod = _moderator("mod")
+    client = APIClient()
+    client.force_authenticate(mod)
+    resp = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {"body": [{"type": "paragraph", "value": "<p>[redacted]</p>"}]},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["moderation_status"] == "published"
+    fresh = Post.objects.get(id=reply.id)
+    assert fresh.live and "[redacted]" in fresh.body[0].value.source
+
+
+def test_edit_save_revision_failure_is_not_fake_pending(monkeypatch):
+    """A failure BEFORE the revision is saved must surface as an error, not a
+    fake 200 'pending' (finding #3) — nothing was persisted, so the old body
+    keeps serving and the client is not told a phantom edit is queued."""
+    board = _board()
+    author = _member("ada")
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    original = reply.body[0].value.source
+
+    def boom(self, *args, **kwargs):
+        raise RuntimeError("save_revision blew up")
+
+    monkeypatch.setattr(Post, "save_revision", boom)
+    client = APIClient()
+    client.raise_request_exception = False  # capture the 500 instead of re-raising
+    client.force_authenticate(author)
+    resp = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {"body": [{"type": "paragraph", "value": "<p>edited</p>"}]},
+        format="json",
+    )
+    assert resp.status_code != 200
+    fresh = Post.objects.get(id=reply.id)
+    assert original in fresh.body[0].value.source  # nothing persisted
