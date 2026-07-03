@@ -403,14 +403,23 @@ class PostWriteView(APIView):
         serializer = PostEditSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         post.body = ForumBodyBlock().to_python(serializer.validated_data["body"])
+        # submit_edit_for_moderation owns the persistence contract: a pre-revision
+        # failure propagates (never a fake 'pending'); a moderation-step failure is
+        # caught there and reported truthfully as pending. Do NOT re-wrap it in a
+        # blanket `except -> pending`, which would re-introduce the lie (finding #3).
+        # acting_as_moderator only affects an account-deleted (author=None) post.
+        # A hard delete (topic CASCADE from the admin) racing this edit makes the
+        # helper's lock re-fetch raise DoesNotExist — map it to 404, not a 500.
         try:
-            moderation_status = submit_edit_for_moderation(post, request.user)
-        except Exception:
-            logger.exception(
-                "[ERROR] submit_edit_for_moderation failed for post %s", post.pk
+            moderation_status = submit_edit_for_moderation(
+                post,
+                request.user,
+                acting_as_moderator=request.user.has_perm("wagtail_forum.change_post"),
             )
-            moderation_status = "pending"
-        post.refresh_from_db()
+        except Post.DoesNotExist:
+            raise NotFound()
+        # submit_edit_for_moderation already refresh_from_db()'d `post` (the same
+        # instance), so it is current here — no extra round-trip needed.
         data = PostSerializer(
             post,
             context={
@@ -433,11 +442,23 @@ class PostWriteView(APIView):
         post = self._get_editable(request, post_id)
         if post.is_opening_post:
             raise Conflict("Cannot delete the opening post; delete the topic.")
-        # unpublish() fires Wagtail's `unpublished` signal -> the forum's counter
-        # receivers recount reply_count/last_post_at/board/profile. Do NOT recount
-        # by hand (that double-processes). user=None: forum authors are not
-        # Wagtail editors, matching submit_for_moderation's publish(user=None).
-        post.unpublish(user=None)
+        # Serialize against a racing PATCH: lock the row and re-read liveness under
+        # the lock so a concurrent trusted edit's publish() cannot resurrect this
+        # post after we take it down (finding #13, mirrors submit_edit_for_moderation).
+        with transaction.atomic():
+            try:
+                locked = Post.objects.select_for_update().get(pk=post.pk)
+            except Post.DoesNotExist:
+                raise NotFound()  # hard-deleted (topic CASCADE) between fetch and lock
+            if not locked.live:
+                raise NotFound()  # already taken down by a concurrent delete
+            # unpublish() fires Wagtail's `unpublished` signal -> the forum's
+            # counter receivers recount reply_count/last_post_at/board/profile. Do
+            # NOT recount by hand (that double-processes). user=None: forum authors
+            # are not Wagtail editors, matching submit_for_moderation's publish().
+            # unpublish() SAVES the row, so act on `locked` (the fresh under-lock
+            # instance), never the pre-lock `post` read whose fields may be stale.
+            locked.unpublish(user=None)
         return Response(status=http_status.HTTP_204_NO_CONTENT)
 
 

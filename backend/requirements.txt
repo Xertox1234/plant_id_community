@@ -215,7 +215,7 @@ urllib3==2.7.0
 uvicorn==0.46.0
 uvloop==0.22.1
 vine==5.1.0
-wagtail==7.4
+wagtail==7.4.2
 wagtail-ai==3.1.0
 wagtail-headless-preview==0.8.0
 watchfiles==1.1.1

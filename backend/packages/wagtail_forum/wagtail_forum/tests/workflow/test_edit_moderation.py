@@ -14,6 +14,7 @@ from wagtail_forum.models import (
     Topic,
     TrustLevel,
 )
+from wagtail_forum.signals import moderation_decided
 from wagtail_forum.workflow import (
     ensure_default_workflow,
     submit_edit_for_moderation,
@@ -92,3 +93,118 @@ def test_untrusted_clean_edit_auto_publishes():
     assert status == "published"
     assert fresh.live and "clean edit here" in fresh.body[0].value.source
     assert fresh.edited is True
+
+
+def test_flagged_then_clean_edit_not_wedged():
+    """Regression (finding #1): a spam-rejected edit leaves an active
+    NEEDS_CHANGES workflow state; a later clean edit on the SAME post must still
+    be screened and published, not permanently wedged 'pending'. Before the fix
+    the second workflow.start() raised ValidationError (one active state only)."""
+    ensure_default_workflow()
+    author = _author("wedgee", TrustLevel.NEW)
+    post = _live_post(_board(), author, "<p>original clean</p>")
+    # First edit is flagged -> rejected -> post keeps its old body, stays pending.
+    post.body = _body("<p>spamzzz buy now</p>")
+    with override_settings(WAGTAILFORUM_SPAM_BANNED_WORDS=["spamzzz"]):
+        first = submit_edit_for_moderation(post, author)
+    assert first == "pending"
+    # Second, CLEAN edit on the SAME post must not be wedged by the stale state.
+    post = Post.objects.get(pk=post.pk)
+    post.body = _body("<p>clean followup</p>")
+    second = submit_edit_for_moderation(post, author)
+    fresh = Post.objects.get(pk=post.pk)
+    assert second == "published"
+    assert fresh.live and "clean followup" in fresh.body[0].value.source
+
+
+def test_edit_fires_moderation_decided():
+    """The edit path fires moderation_decided like the create path (finding #4)."""
+    ensure_default_workflow()
+    author = _author("signaler", TrustLevel.MEMBER)
+    post = _live_post(_board(), author)
+    received = []
+
+    def receiver(sender, obj, status, **kwargs):
+        received.append((obj.pk, status))
+
+    moderation_decided.connect(receiver)
+    try:
+        post.body = _body("<p>edited body</p>")
+        submit_edit_for_moderation(post, author)
+    finally:
+        moderation_decided.disconnect(receiver)
+    assert received == [(post.pk, "published")]
+
+
+def test_edit_does_not_resurrect_unpublished_post():
+    """Race guard (finding #13): if a concurrent DELETE unpublishes the post
+    between the edit's liveness gate and publish, the edit must NOT republish it.
+    The row lock plus a liveness re-read inside submit_edit_for_moderation
+    refuses to resurrect a taken-down post. A full two-thread harness is omitted
+    as flaky; this asserts the invariant the lock enforces by simulating the
+    concurrent take-down having already committed."""
+    ensure_default_workflow()
+    author = _author("racer", TrustLevel.MEMBER)  # trusted -> would publish
+    post = _live_post(_board(), author)
+    # Simulate the concurrent delete having committed after the liveness gate.
+    Post.objects.filter(pk=post.pk).update(live=False)
+    post.refresh_from_db()
+    post.body = _body("<p>edit after delete</p>")
+    submit_edit_for_moderation(post, author)
+    fresh = Post.objects.get(pk=post.pk)
+    assert fresh.live is False, "a concurrently-deleted post must not be resurrected"
+
+
+def test_author_deleted_moderator_edit_publishes():
+    """A moderator editing an account-deleted author's post (author=None,
+    SET_NULL) publishes immediately — no ForumProfile.for_user(None) crash, and
+    the redaction is not left pending behind the un-redacted live body
+    (finding #2)."""
+    ensure_default_workflow()
+    author = _author("gone", TrustLevel.MEMBER)
+    post = _live_post(_board(), author)
+    Post.objects.filter(pk=post.pk).update(author=None)
+    post = Post.objects.get(pk=post.pk)
+    post.body = _body("<p>[redacted by mod]</p>")
+    status = submit_edit_for_moderation(post, author, acting_as_moderator=True)
+    fresh = Post.objects.get(pk=post.pk)
+    assert status == "published"
+    assert fresh.live and "[redacted by mod]" in fresh.body[0].value.source
+
+
+def test_author_deleted_untrusted_edit_is_screened_not_crash():
+    """author=None without moderator authority is screened as untrusted rather
+    than crashing on ForumProfile.for_user(None) (finding #2, fail-safe)."""
+    ensure_default_workflow()
+    author = _author("gone2", TrustLevel.MEMBER)
+    post = _live_post(_board(), author, "<p>original kept</p>")
+    Post.objects.filter(pk=post.pk).update(author=None)
+    post = Post.objects.get(pk=post.pk)
+    post.body = _body("<p>spamzzz</p>")
+    with override_settings(WAGTAILFORUM_SPAM_BANNED_WORDS=["spamzzz"]):
+        status = submit_edit_for_moderation(post, author, acting_as_moderator=False)
+    fresh = Post.objects.get(pk=post.pk)
+    assert status == "pending"  # screened as untrusted, not autopublished
+    assert "original kept" in fresh.body[0].value.source
+
+
+def test_edit_of_hard_deleted_post_propagates_does_not_exist(monkeypatch):
+    """If the row is hard-deleted (topic CASCADE) between save_revision and the
+    lock re-fetch, the edit propagates DoesNotExist (the view maps it to 404)
+    rather than swallowing it as a fake 'pending' then crashing on
+    refresh_from_db (review PR #435 finding #1). Simulate the take-down landing
+    right after save_revision — the actual race window."""
+    ensure_default_workflow()
+    author = _author("ghost", TrustLevel.MEMBER)
+    post = _live_post(_board(), author)
+    real_save = Post.save_revision
+
+    def save_then_vanish(self, *args, **kwargs):
+        revision = real_save(self, *args, **kwargs)
+        Post.objects.filter(pk=self.pk).delete()  # concurrent hard delete lands here
+        return revision
+
+    monkeypatch.setattr(Post, "save_revision", save_then_vanish)
+    post.body = _body("<p>edit into the void</p>")
+    with pytest.raises(Post.DoesNotExist):
+        submit_edit_for_moderation(post, author)

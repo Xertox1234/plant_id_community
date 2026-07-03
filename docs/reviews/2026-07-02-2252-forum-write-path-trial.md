@@ -109,7 +109,7 @@ by each todo's `source_finding` — the lead number shown. The mapping is 1:1
 the doc renames to `-COMPLETED`. Match the lead token WITH its trailing space
 (`#1 `, not `#1`) so it doesn't also hit `#11`/`#12`.
 
-- [ ] #1 edit-moderation failure cluster (covers #2, #3, #4, #13) → todo 250
+- [x] #1 edit-moderation failure cluster (covers #2, #3, #4, #13) → todo 250 (completed 2026-07-03)
 - [ ] #5 write-path guard gaps (covers #6, #7) → todo 251
 - [ ] #8 can-edit-delete-affordance-parity → todo 252
 - [ ] #9 write-endpoint test gaps (covers #10) → todo 253

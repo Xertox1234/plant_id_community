@@ -25,6 +25,10 @@ class Post(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
+        # blank=True so full_clean() (called by save_revision) accepts the NULL
+        # author that SET_NULL leaves behind on account deletion — otherwise a
+        # moderator can never edit/redact an account-deleted author's post.
+        blank=True,
         related_name="wagtail_forum_posts",
     )
     body = StreamField(ForumBodyBlock(), blank=True)

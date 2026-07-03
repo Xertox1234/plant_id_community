@@ -598,3 +598,84 @@ query param (e.g. `itsdangerous`/JWT round-tripped through the provider) instead
 Tracked as the prod-verification half under todo 240; the 242 UI ships
 fail-closed (a missing/invalid session → readable error + link back to `/login`).
 **Agent**: security-reviewer (deployment precondition; no code change in 242)
+
+## Forum edit-moderation failure cluster (todo 250, 2026-07-03)
+
+### [2026-07-03] `save_revision()` runs `full_clean()`, so a `null=True` FK without `blank=True` breaks re-saving a SET_NULL row
+
+**Symptom**: A moderator editing an account-deleted author's forum post
+(`Post.author` is `on_delete=SET_NULL`, so `author=None`) got
+`ValidationError: {'author': ['This field cannot be blank.']}`, and the redaction
+was silently lost (the view swallowed it into a fake 200 "pending").
+
+**Root cause**: `RevisionMixin.save_revision()` calls `self.full_clean()`. A
+`ForeignKey(null=True, on_delete=SET_NULL)` with `blank` unset defaults to
+`blank=False`, so full_clean REJECTS the NULL that SET_NULL legitimately writes on
+related-object deletion. The DB allows the NULL; the model's own validation does
+not — an inconsistency that only surfaces when the row is re-saved through a
+revision/full_clean path (create never hits it because author is always set).
+
+**Fix**: Add `blank=True` to any `null=True` FK whose column is populated with NULL
+by SET_NULL AND whose model is revisable (RevisionMixin) or otherwise re-saved via
+full_clean. State-only migration (no SQL — `null=True` already exists).
+**Agent**: wagtail-reviewer.
+
+### [2026-07-03] Re-moderating an edit: the persistence + race + connection-poisoning contract
+
+Three interacting hazards in one `submit_edit_for_moderation`-shaped path (save a
+revision, then publish-or-screen it without taking approved content dark):
+
+1. **Fake "pending"** — a blanket `except Exception -> "pending"` is only truthful
+   when a row was persisted BEFORE the try (the create path saves the Post first).
+   On an edit, a failure before/inside `save_revision` persists nothing, so
+   reporting "pending" lies to the client. Fix: run `save_revision` OUTSIDE the try
+   so a pre-persist failure propagates (an explicit error, not a fake success);
+   wrap ONLY the publish/workflow step (there a revision exists, so "pending" is
+   true).
+2. **Connection poisoning** — catching a DB error INSIDE a `transaction.atomic()`
+   block poisons the connection (`TransactionManagementError` on the next query).
+   Put the `except` AROUND (outside) the `atomic()` so the savepoint has already
+   rolled back and the connection is clean for the follow-up `refresh_from_db()`.
+   Shape: `save_revision()` (autocommits) → `try: with atomic(): lock+publish` →
+   `except: log` → refresh → report.
+3. **Publish resurrects a deleted post** — `revision.publish()` unconditionally
+   forces `live=True`, so a PATCH (edit) racing a soft-delete (`unpublish()`) can
+   republish the just-deleted post. Fix: inside the narrow `atomic()`, take a
+   `select_for_update()` row lock and RE-READ liveness; skip publish if the row is
+   no longer live. The lock serializes the two writers; the re-read refuses to
+   resurrect. Mutate the LOCKED instance (`locked.unpublish()`), never the earlier
+   unlocked read whose fields may be stale (a repair the code review caught).
+
+**Follow-up (PR #435 review)**: the `select_for_update().get(pk=…)` re-fetch could
+raise `DoesNotExist` if the row is HARD-deleted (topic CASCADE, admin-only — no API
+path hard-deletes) between the first fetch and the lock → previously a 500. **Fixed**
+in PR #435: the helper lets `Post.DoesNotExist` propagate (not swallowed by the broad
+`except`) and both `PostWriteView.patch`/`delete` map it to 404. Two edges remain
+**deferred, low-severity → todo 256**: (a) `acting_as_moderator` is computed before
+the `atomic()` (a permission revocation racing the request — a non-issue, request-time
+perm state is standard); (b) the Post row lock is held while the counter signals write
+Topic/Board/Profile, so a concurrent admin topic-hard-delete (Topic→Post) could
+deadlock (PG auto-aborts one txn).
+**Agent**: django-drf-reviewer / wagtail-reviewer.
+
+### [2026-07-03] Deleting a RevisionMixin row cascades its revisions, so a later `save_revision()` on the stale instance fails full_clean — not DoesNotExist
+
+**Symptom**: Writing a test for the "row hard-deleted mid-edit" race, I deleted the
+Post row up front then called `submit_edit_for_moderation(post, …)`, expecting the
+`select_for_update().get()` to raise `Post.DoesNotExist`. Instead `save_revision()`
+(which runs first) raised
+`ValidationError: {'latest_revision': ['revision instance with id 1 is not a valid
+choice.'], 'live_revision': [...]}`.
+
+**Root cause**: `Post.objects.filter(pk=…).delete()` CASCADEs the model's
+`revisions`/`workflow_states` GenericRelations, deleting the revision rows too. The
+stale in-memory instance still carries `latest_revision_id`/`live_revision_id`
+pointing at the now-deleted revision, and `save_revision()` → `full_clean()`
+validates those FKs → rejects the dangling reference. The failure surfaces at
+`save_revision`, before the lock re-fetch is ever reached.
+
+**Fix / testing rule**: to simulate a row vanishing *mid-operation*, delete it AFTER
+the operation's own `save_revision` (e.g. monkeypatch `save_revision` to run the
+real one then delete the row), not before — otherwise you test a different failure
+(full_clean on a dangling revision FK) than the one you intend (the lock re-fetch's
+`DoesNotExist`). **Agent**: wagtail-reviewer.

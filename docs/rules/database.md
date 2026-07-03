@@ -44,3 +44,17 @@ Compact checklist auto-injected before edits. Long-form:
   read-modify-write `save()` can. And preserve every invariant other code relies
   on (e.g. a cursor-pagination "never NULL" ordering field needs `Coalesce` to a
   fallback in EVERY writer).
+- **After `select_for_update().get(pk=…)`, mutate the LOCKED instance, never an
+  earlier unlocked read.** `save()`/`unpublish()`/`publish()` on the pre-lock
+  object writes fields back as they were at the stale read, clobbering a
+  concurrent writer's committed changes. Re-read any value you gate on
+  (`if not locked.live: …`) from the locked row too — that re-read under the lock
+  is what makes the check-then-write atomic (e.g. stops an edit's `publish()` from
+  resurrecting a concurrently-unpublished row). Catch the exception OUTSIDE the
+  `atomic()`, not inside (a caught DB error inside poisons the connection).
+- **A `select_for_update().get(pk=…)` re-fetch can itself raise `DoesNotExist`** if
+  the row was hard-deleted (e.g. a CASCADE) between the first fetch and the lock.
+  In a request handler, catch it and return 404 — do NOT let a blanket
+  `except Exception` swallow it into a fake success and then re-raise on the next
+  ORM call (`refresh_from_db`). Keep the service layer framework-free: let the
+  model's `DoesNotExist` propagate and translate it to `NotFound` at the view.
