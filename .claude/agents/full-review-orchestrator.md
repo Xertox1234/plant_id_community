@@ -1,6 +1,6 @@
 ---
 name: full-review-orchestrator
-description: Orchestrates a full-repository code review. Enumerates every active source file, batches by app/feature, dispatches all domain reviewers in waves, produces a persistent report under docs/reviews/, and drives an optional repair phase via filter expressions. Coexists with code-review-orchestrator (incremental); neither replaces the other.\n\n<example>\nContext: User wants a comprehensive audit of the entire codebase\nuser: "Run a full review of the codebase"\nassistant: "I'll use the full-review-orchestrator to enumerate active source files, dispatch all domain reviewers in waves, and produce a persistent report."\n<commentary>\nUse this orchestrator when the user wants a whole-codebase audit. For incremental reviews of recent changes, use code-review-orchestrator instead.\n</commentary>\n</example>
+description: Orchestrates a whole-repository review: enumerates active source files, dispatches all reviewers in waves, and writes a persistent report under docs/reviews/. Use for full-codebase sweeps, not incremental diffs.
 model: haiku
 color: purple
 tools: Bash, Read, Glob, Grep, Write
@@ -54,7 +54,7 @@ Multiply by ~2.5 (the average number of reviewers per batch given cross-cutting 
    - `functions/` missing → skip `firebase-cloudfunction-reviewer`
    - `plant_community_mobile/lib/` missing → skip `flutter-dart-reviewer`, `flutter-firebase-reviewer`
    - `web/src/` missing → skip `react-typescript-reviewer`
-   - `backend/apps/` missing → skip `django-drf-reviewer`, `wagtail-reviewer`, `celery-async-reviewer`, `api-design-reviewer`, `performance-reviewer`, `security-reviewer` (when only firing for backend)
+   - `backend/apps/` missing → skip `django-drf-reviewer`, `wagtail-reviewer`, `celery-async-reviewer`, `cross-cutting-reviewer` (when only firing for backend)
 
 1. Print this prompt to Main Claude:
 
@@ -116,15 +116,15 @@ git ls-files --cached --others --exclude-standard
 | `backend/apps/<app>/**/*.py` not matching wagtail predicate | `django-drf-reviewer` | ✓ |
 | `backend/apps/blog/**` OR `.py` matching `import wagtail\|from wagtail\|class.*Page` | `wagtail-reviewer` | ✓ (overrides django) |
 | `backend/apps/<app>/**/tasks.py`, `**/celery*.py`, `**/beat*.py` | `celery-async-reviewer` | secondary |
-| `backend/apps/<app>/**/serializers.py`, `**/api/**` | `api-design-reviewer` | secondary |
-| `backend/apps/<app>/**/permissions.py`, `**/auth*.py`, `**/upload*.py`, `**/*token*.py`, `**/*secret*.py` | `security-reviewer` | secondary |
-| `backend/apps/<app>/**/tests/**`, `**/test_*.py` | `test-quality-reviewer` | ✓ for test files |
-| `backend/apps/<app>/**/*.py` (any) | `performance-reviewer` | secondary |
+| `backend/apps/<app>/**/serializers.py`, `**/api/**` | `cross-cutting-reviewer` | secondary |
+| `backend/apps/<app>/**/permissions.py`, `**/auth*.py`, `**/upload*.py`, `**/*token*.py`, `**/*secret*.py` | `cross-cutting-reviewer` | secondary |
+| `backend/apps/<app>/**/tests/**`, `**/test_*.py` | `cross-cutting-reviewer` | ✓ for test files |
+| `backend/apps/<app>/**/*.py` (any) | `cross-cutting-reviewer` | secondary |
 | `web/src/<feature>/**/*.{ts,tsx}` | `react-typescript-reviewer` | ✓ |
-| `web/src/**/*.test.{ts,tsx}` | `test-quality-reviewer` | secondary |
+| `web/src/**/*.test.{ts,tsx}` | `cross-cutting-reviewer` | secondary |
 | `plant_community_mobile/lib/<feature>/**/*.dart` | `flutter-dart-reviewer` | ✓ |
 | `plant_community_mobile/lib/**/firebase*.dart`, `**/auth*.dart` | `flutter-firebase-reviewer` | secondary |
-| `firebase/**`, `*.rules` | `flutter-firebase-reviewer` (primary), `security-reviewer` | flutter-firebase ✓ |
+| `firebase/**`, `*.rules` | `flutter-firebase-reviewer` (primary), `cross-cutting-reviewer` | flutter-firebase ✓ |
 | `functions/**/*.{js,ts}` | `firebase-cloudfunction-reviewer` | ✓ |
 
 The wagtail predicate runs as:
@@ -138,10 +138,10 @@ grep -l "import wagtail\|from wagtail\|class.*Page" <candidate-py-files>
 Multiple rules can match the same file (e.g., `backend/apps/forum/tests/test_views.py` matches both django-drf and test-quality). Resolve primary in this order — first match wins:
 
 1. **Wagtail override**: backend `.py` matching the wagtail predicate → `wagtail-reviewer` is primary.
-1. **Test files**: paths matching `**/tests/**` or `**/test_*.py` (backend) → `test-quality-reviewer` is primary; never django-drf or wagtail. Web `*.test.{ts,tsx}` is the exception — `react-typescript-reviewer` stays primary, `test-quality-reviewer` is secondary (type-check concerns dominate for `.tsx`).
+1. **Test files**: paths matching `**/tests/**` or `**/test_*.py` (backend) → `cross-cutting-reviewer` is primary; never django-drf or wagtail. Web `*.test.{ts,tsx}` is the exception — `react-typescript-reviewer` stays primary, `cross-cutting-reviewer` is secondary (type-check concerns dominate for `.tsx`).
 1. **Domain default**: backend `.py` (non-test, non-wagtail) → `django-drf-reviewer`; web `.{ts,tsx}` → `react-typescript-reviewer`; mobile `.dart` → `flutter-dart-reviewer`; `firebase/**` → `flutter-firebase-reviewer`; `functions/**` → `firebase-cloudfunction-reviewer`.
 
-Cross-cutting reviewers (`celery-async-reviewer`, `api-design-reviewer`, `security-reviewer`, `performance-reviewer`) are always secondary — they never become primary regardless of pattern matches.
+Cross-cutting reviewers (`celery-async-reviewer`, `cross-cutting-reviewer`) are always secondary — they never become primary regardless of pattern matches (exception: `cross-cutting-reviewer` is primary for backend test files, per rule 2 above).
 
 1. Group files into batches:
    - Backend: one batch per Django app (subdirs of `backend/apps/`)
@@ -150,7 +150,7 @@ Cross-cutting reviewers (`celery-async-reviewer`, `api-design-reviewer`, `securi
    - Firebase: one batch covering all of `firebase/`
    - Functions: one batch per subdirectory of `functions/`
 
-1. For each (batch, reviewer) pair, emit one invocation. A single batch produces multiple invocations (e.g., `apps/forum` → django-drf-reviewer + performance-reviewer + maybe security-reviewer + maybe celery-async-reviewer).
+1. For each (batch, reviewer) pair, emit one invocation. A single batch produces multiple invocations (e.g., `apps/forum` → django-drf-reviewer + cross-cutting-reviewer + maybe celery-async-reviewer).
 
 1. Group invocations into waves of `wave_size` (default 8, configurable via the user invocation).
 
@@ -296,7 +296,7 @@ Read the partial checkpoint with the Read tool. It contains: `review_id`, `start
       "description": "...",
       "rule": "<optional>",
       "suggested_fix": "<optional>",
-      "agents": ["django-drf-reviewer", "security-reviewer"],
+      "agents": ["django-drf-reviewer", "cross-cutting-reviewer"],
       "primary_agent": "django-drf-reviewer",
       "repaired": false,
       "repaired_at": null,
@@ -388,7 +388,7 @@ Print:
 
 ```text
 Repair selection (filter expression):
-  examples: "all critical+high", "agent:security-reviewer",
+  examples: "all critical+high", "agent:cross-cutting-reviewer",
             "file:apps/forum/**", "ids:1,4,7-12", "all", "none"
 >
 ```

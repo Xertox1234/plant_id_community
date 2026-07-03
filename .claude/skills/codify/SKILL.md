@@ -84,16 +84,16 @@ a new file in the right subdirectory only if none fits):
 
 | Finding domain  | Update agent(s)                                                     |
 | --------------- | ------------------------------------------------------------------- |
-| Security        | `.claude/agents/security-reviewer.md`                               |
-| Performance     | `.claude/agents/performance-reviewer.md`                            |
+| Security        | `.claude/agents/cross-cutting-reviewer.md`                          |
+| Performance     | `.claude/agents/cross-cutting-reviewer.md`                          |
 | Django / DRF    | `.claude/agents/django-drf-reviewer.md`                             |
 | Wagtail         | `.claude/agents/wagtail-reviewer.md`                                |
-| API design      | `.claude/agents/api-design-reviewer.md`                             |
+| API design      | `.claude/agents/cross-cutting-reviewer.md`                          |
 | React / TS      | `.claude/agents/react-typescript-reviewer.md`                       |
 | Flutter         | `.claude/agents/flutter-dart-reviewer.md`, `flutter-firebase-reviewer.md` |
 | Firebase fns    | `.claude/agents/firebase-cloudfunction-reviewer.md`                 |
 | Celery / async  | `.claude/agents/celery-async-reviewer.md`                           |
-| Testing         | `.claude/agents/test-quality-reviewer.md`                           |
+| Testing         | `.claude/agents/cross-cutting-reviewer.md`                          |
 
 ## Step 5 — Write the codification
 

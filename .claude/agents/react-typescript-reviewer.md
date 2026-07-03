@@ -1,6 +1,6 @@
 ---
 name: react-typescript-reviewer
-description: Reviews changed React and TypeScript files in the web/ frontend for type safety, memory leaks, security, and pattern compliance. Invoked when web/src/**/*.tsx or *.ts files change.\n\n<example>\nContext: A new forum search component was added with a debounced input\nuser: (orchestrator dispatches with changed files)\nassistant: Reviews for React Router imports, timer memory leaks, TypeScript types, and DOMPurify usage.\n<commentary>\nDispatched automatically by orchestrator for web frontend changes.\n</commentary>\n</example>
+description: Reviews changed React and TypeScript web files for type safety, memory leaks, security, and pattern compliance. Dispatched for web/src/**/*.ts and *.tsx changes.
 model: sonnet
 color: cyan
 tools: Read, Glob, Grep, Bash, LSP
