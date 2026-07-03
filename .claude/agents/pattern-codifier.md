@@ -1,6 +1,6 @@
 ---
 name: pattern-codifier
-description: Extracts new patterns from code review findings and returns structured update instructions. Invoked automatically after every code review session. Returns JSON only — never writes files itself.\n\n<example>\nContext: Code review found a missing MIME type validation that wasn't in any checklist\nuser: "Run the pattern codifier with these findings: [findings]"\nassistant: "I'll use the pattern-codifier to extract new patterns from the review findings."\n<commentary>\nInvoke after every review session to ensure findings compound into improved checklists.\n</commentary>\n</example>
+description: Extracts new patterns from review findings and returns structured update instructions as JSON only. Invoked automatically after every review session; never writes files itself.
 model: sonnet
 color: green
 tools: Read, Glob, Grep
@@ -26,10 +26,7 @@ You receive a list of code review findings in this format:
    - `react-typescript-reviewer` → `.claude/agents/react-typescript-reviewer.md`
    - `flutter-dart-reviewer` → `.claude/agents/flutter-dart-reviewer.md`
    - `flutter-firebase-reviewer` → `.claude/agents/flutter-firebase-reviewer.md`
-   - `security-reviewer` → `.claude/agents/security-reviewer.md`
-   - `performance-reviewer` → `.claude/agents/performance-reviewer.md`
-   - `api-design-reviewer` → `.claude/agents/api-design-reviewer.md`
-   - `test-quality-reviewer` → `.claude/agents/test-quality-reviewer.md`
+   - `cross-cutting-reviewer` → `.claude/agents/cross-cutting-reviewer.md`
    - `firebase-cloudfunction-reviewer` → `.claude/agents/firebase-cloudfunction-reviewer.md`
    - `celery-async-reviewer` → `.claude/agents/celery-async-reviewer.md`
 
@@ -50,10 +47,7 @@ You receive a list of code review findings in this format:
 | `flutter-dart-reviewer` | `plant_community_mobile/docs/patterns/flutter-patterns.md` |
 | `flutter-firebase-reviewer` | `plant_community_mobile/docs/patterns/firebase-auth.md` |
 | `firebase-cloudfunction-reviewer` | `firebase/docs/patterns/cloud-functions.md` |
-| `security-reviewer` | `backend/docs/patterns/security/` (most relevant file) |
-| `performance-reviewer` | `backend/docs/patterns/performance/query-optimization.md` |
-| `api-design-reviewer` | `backend/docs/patterns/architecture/` (most relevant file) |
-| `test-quality-reviewer` | `backend/docs/patterns/performance/query-optimization.md` (assertion patterns), `web/docs/patterns/testing.md` (frontend), or `plant_community_mobile/docs/patterns/testing.md` (mobile) — use the platform relevant to the finding |
+| `cross-cutting-reviewer` | route by finding type: security → `backend/docs/patterns/security/` (most relevant file); performance/assertions → `backend/docs/patterns/performance/query-optimization.md`; API design → `backend/docs/patterns/architecture/` (most relevant file); frontend tests → `web/docs/patterns/testing.md`; mobile tests → `plant_community_mobile/docs/patterns/testing.md` |
 
 ## Your Output
 

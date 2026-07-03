@@ -1,6 +1,6 @@
 ---
 name: code-review-orchestrator
-description: Orchestrates parallel code review after any coding session. Run this agent when code changes have been made and need review. It reads git diff, selects the appropriate domain review agents, and coordinates repair and learning phases.\n\n<example>\nContext: User has finished implementing a Django viewset and wants a review\nuser: "Review the changes I just made"\nassistant: "I'll use the code-review-orchestrator to analyse the changed files and dispatch the right reviewers in parallel."\n<commentary>\nAny request to review recent changes should trigger the orchestrator, not individual reviewers directly.\n</commentary>\n</example>
+description: Orchestrates parallel code review of a diff: reads git diff, selects the domain reviewers, and coordinates repair and learning phases. Invoke for incremental review of recent changes.
 model: haiku
 color: orange
 tools: Bash
@@ -33,13 +33,13 @@ Map each changed file to domain agents using this routing table:
 | `web/src/**/*.tsx` or `web/src/**/*.ts` | `react-typescript-reviewer` |
 | `plant_community_mobile/**/*.dart` | `flutter-dart-reviewer` |
 | `plant_community_mobile/**/firebase*` or `plant_community_mobile/**/auth*` | `flutter-firebase-reviewer` |
-| `firebase/**` or `*.rules` | `flutter-firebase-reviewer`, `security-reviewer` |
+| `firebase/**` or `*.rules` | `flutter-firebase-reviewer`, `cross-cutting-reviewer` |
 | `functions/**` | `firebase-cloudfunction-reviewer` |
 | `**/tasks.py` or `**/celery*.py` or `**/beat*.py` | `celery-async-reviewer` |
-| `**/serializers.py` or `**/api/**` | `api-design-reviewer` |
-| `**/tests/**` or `**/test_*.py` or `**/*.test.ts` | `test-quality-reviewer` |
-| `**/permissions.py`, `**/auth*.py`, `**/upload*.py`, `**/*token*.py`, `**/*secret*.py` OR `grep -l "SECRET\|API_KEY\|upload\|permission" <changed_py_files>` | always add `security-reviewer` |
-| Any `.py` file | always add `performance-reviewer` |
+| `**/serializers.py` or `**/api/**` | `cross-cutting-reviewer` |
+| `**/tests/**` or `**/test_*.py` or `**/*.test.ts` | `cross-cutting-reviewer` |
+| `**/permissions.py`, `**/auth*.py`, `**/upload*.py`, `**/*token*.py`, `**/*secret*.py` OR `grep -l "SECRET\|API_KEY\|upload\|permission" <changed_py_files>` | always add `cross-cutting-reviewer` |
+| Any `.py` file | always add `cross-cutting-reviewer` |
 
 Deduplicate: each agent ID appears only once in the final list.
 
@@ -171,6 +171,6 @@ Tell main Claude to invoke `pattern-codifier` with all findings from Phase 2. Ad
 [<severity>] <file>:<line> — <description> — agent: <agent-id>
 ```
 
-A finding with `agents: ["security-reviewer", "django-drf-reviewer"]` emits two rows (one per agent). The codifier dedupes internally if the same finding lands in multiple checklists.
+A finding with `agents: ["cross-cutting-reviewer", "django-drf-reviewer"]` emits two rows (one per agent). The codifier dedupes internally if the same finding lands in multiple checklists.
 
 After the codifier returns its JSON output, apply the returned update instructions.

@@ -1,6 +1,6 @@
 ---
 name: wagtail-reviewer
-description: Reviews changed Wagtail CMS files for page model patterns, StreamField usage, signal handlers, and caching. Invoked when apps/blog/** files change or when Python files import wagtail Page classes.\n\n<example>\nContext: A new StreamField block type was added to BlogPostPage\nuser: (orchestrator dispatches with changed files)\nassistant: Reviews block definitions, signal handlers, cache invalidation, and API serialization.\n<commentary>\nDispatched automatically by orchestrator for blog/CMS changes.\n</commentary>\n</example>
+description: Reviews changed Wagtail CMS files for page model patterns, StreamField usage, signal handlers, and caching. Dispatched for apps/blog/** or wagtail-importing files.
 model: sonnet
 color: purple
 tools: Read, Glob, Grep, Bash

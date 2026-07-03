@@ -161,7 +161,19 @@ Previously, findings were converted to todos and completed without any trace in 
 
 ## Code Review Agents
 
-Trigger a review: ask Claude to invoke `.claude/agents/code-review-orchestrator.md`. It reads `git diff`, dispatches only the agents relevant to changed files in parallel, deduplicates findings, and returns results by severity.
+### Which review tool when
+
+| Tool | Use for | Doesn't do |
+|------|---------|------------|
+| Bundled `/code-review` | Correctness bugs + cleanup on the working diff — the deep pass (multi-angle finders + adversarial verify; scales with effort) | Checklist compliance: coverage prescriptions, OpenAPI completeness, project conventions |
+| Bundled `/security-review` | Security-focused pass over pending branch changes | Project-specific rules (upload constants, CORS ports) |
+| `code-review-orchestrator` | Project-checklist review of a diff: routes changed files to the domain reviewers below, dedups, repairs, captures triggers | Deep correctness hunting — the todo-244 trial showed 0/9 real bugs found vs bundled |
+| `full-review-orchestrator` | Whole-repository sweep in waves with a persistent report under `docs/reviews/` | Incremental diffs (use the orchestrator above) |
+| `/audit [scope]` | Structured 8-phase audit with manifest tracking and doc-research validation | Quick reviews |
+
+Both passes are complementary (trial evidence, todo 244): run bundled `/code-review` for bugs AND the orchestrator for checklist compliance on substantial diffs.
+
+Trigger a checklist review: ask Claude to invoke `.claude/agents/code-review-orchestrator.md`. It reads `git diff`, dispatches only the agents relevant to changed files in parallel, deduplicates findings, and returns results by severity.
 
 | Agent | Covers |
 |-------|--------|
@@ -170,10 +182,7 @@ Trigger a review: ask Claude to invoke `.claude/agents/code-review-orchestrator.
 | `react-typescript-reviewer.md` | React 19, TypeScript, Tailwind, Vitest, Playwright |
 | `flutter-dart-reviewer.md` | Flutter, Riverpod, go_router, Material 3 |
 | `flutter-firebase-reviewer.md` | Firebase Auth, JWT exchange, secure storage, GDPR |
-| `security-reviewer.md` | File upload, CSRF, secrets, XSS, SQL injection |
-| `performance-reviewer.md` | N+1 queries, Redis caching, query count assertions |
-| `api-design-reviewer.md` | Serializers, versioning, OpenAPI, error shapes |
-| `test-quality-reviewer.md` | No DB mocks, strict assertions, coverage |
+| `cross-cutting-reviewer.md` | Consolidated checklist auditor: tests, performance, API design, security. Reads `docs/rules/*.md` at runtime + residue checks. Replaced the retired test-quality/performance/api-design/security reviewers (todo 244) |
 | `celery-async-reviewer.md` | Celery tasks, retry config, beat schedules |
 | `firebase-cloudfunction-reviewer.md` | Cloud Functions architecture, idempotency, cold starts |
 | `pattern-codifier.md` | Extracts new patterns after each review |

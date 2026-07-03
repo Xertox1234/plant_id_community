@@ -15,7 +15,7 @@
     "    Reordering changes behavior — see test-inject-patterns.sh firebase regression.",
     "",
     "Globs use fnmatch semantics (matched case-sensitively, '*' spans '/'), matching",
-    "bash [[ == ]] in the original hooks. A deferred 'agents'/'exclusions' routing may be added by todo 244 (reviewer-fleet rationalization) if agents are retired.",
+    "bash [[ == ]] in the original hooks. Todo 244 (2026-07-02) resolved the deferred 'agents'/'exclusions' question: agent routing stays in the two orchestrator files (.claude/agents/*-orchestrator.md), NOT here — the fleet shrank to 8 reviewers (4 generics consolidated into cross-cutting-reviewer) and the orchestrators' tables carry primary/secondary semantics this flat path->domain format can't express.",
     "",
     "Consequence of the testing-rule-before-ts-fallback order: a web non-.tsx test",
     "file (e.g. web/src/App.spec.ts) resolves to 'testing' only — the *.ts fallback",

@@ -19,15 +19,15 @@ subagents during Phase 2 discovery.
 
 | Audit Domain      | Agent(s)                                                       |
 | ----------------- | -------------------------------------------------------------- |
-| `security`        | `security-reviewer`                                            |
-| `performance`     | `performance-reviewer`                                         |
-| `django-drf`      | `django-drf-reviewer`, `api-design-reviewer`                   |
+| `security`        | `cross-cutting-reviewer`                                       |
+| `performance`     | `cross-cutting-reviewer`                                       |
+| `django-drf`      | `django-drf-reviewer`, `cross-cutting-reviewer`                |
 | `wagtail`         | `wagtail-reviewer`                                             |
 | `react-typescript`| `react-typescript-reviewer`                                    |
 | `flutter`         | `flutter-dart-reviewer`, `flutter-firebase-reviewer`           |
 | `firebase`        | `firebase-cloudfunction-reviewer`                              |
 | `celery`          | `celery-async-reviewer`                                        |
-| `testing`         | `test-quality-reviewer`                                        |
+| `testing`         | `cross-cutting-reviewer`                                       |
 
 **`full` scope:** launch every agent above whose domain has changed/relevant
 files. Batch in groups of ~4 to avoid overwhelming context.

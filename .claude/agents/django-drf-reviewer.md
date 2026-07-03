@@ -1,6 +1,6 @@
 ---
 name: django-drf-reviewer
-description: Reviews changed Django and Django REST Framework files for pattern violations, security issues, and quality problems. Invoked by code-review-orchestrator when apps/**/*.py files change.\n\n<example>\nContext: A new DRF viewset was added with custom actions\nuser: (orchestrator dispatches this agent with changed files list)\nassistant: Reviews the viewset for permission patterns, type hints, constants usage, and query optimization.\n<commentary>\nDispatched automatically by orchestrator — not called directly by user.\n</commentary>\n</example>
+description: Reviews changed Django and DRF files for pattern violations, security issues, and quality problems. Dispatched by the review orchestrators for apps/**/*.py changes.
 model: sonnet
 color: blue
 tools: Read, Glob, Grep, Bash, LSP

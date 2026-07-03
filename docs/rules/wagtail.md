@@ -37,6 +37,16 @@ Compact checklist auto-injected before edits. Long-form:
   `save_revision().publish()` bypasses an assigned moderation workflow entirely.
   Anything user-visible that publishes programmatically (titles!) must be
   screened by the code doing the publish.
+- **Only ONE active `WorkflowState` (IN_PROGRESS *or* NEEDS_CHANGES) may exist
+  per object.** `WorkflowState.save()` calls `full_clean()`, which raises
+  `ValidationError` if you call `workflow.start()` again while a prior state is
+  still active. A rejected task (e.g. `SpamCheckTask` reject) leaves
+  NEEDS_CHANGES, which counts as active — so a naive "re-submit on every edit"
+  path raises on the second submission, and a blanket `except` around it wedges
+  the object at a silent, unrecoverable "pending". Before re-submitting, resume
+  or cancel the existing state (`obj.current_workflow_state.resume()/cancel()`),
+  mirroring Wagtail's own resubmit flow. Verified vs Wagtail 7.4; fix tracked in
+  todo 250.
 - **Filtering a Wagtail search queryset on a RELATED model's field needs
   `index.RelatedFields`.** `backend.search(q, Post.objects.filter(topic__live=True,
   topic__board__in=...))` raises `FilterFieldError` at query-compile unless
