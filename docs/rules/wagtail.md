@@ -45,8 +45,16 @@ Compact checklist auto-injected before edits. Long-form:
   path raises on the second submission, and a blanket `except` around it wedges
   the object at a silent, unrecoverable "pending". Before re-submitting, resume
   or cancel the existing state (`obj.current_workflow_state.resume()/cancel()`),
-  mirroring Wagtail's own resubmit flow. Verified vs Wagtail 7.4; fix tracked in
-  todo 250.
+  mirroring Wagtail's own resubmit flow. Verified vs Wagtail 7.4; reference
+  implementation is `wagtail_forum.workflow.submit_edit_for_moderation` (cancel
+  the stale state before `start()`) — todo 250.
+- **`save_revision()` calls `full_clean()`, so a `null=True` FK needs `blank=True`
+  too when the row is ever re-saved with that FK NULL.** A
+  `ForeignKey(null=True, on_delete=SET_NULL)` with `blank` unset (`=False`) makes
+  `save_revision`/`full_clean` raise `{'field': ['This field cannot be blank.']}`
+  on a row the DB happily holds NULL (e.g. an account-deleted author's post →
+  moderator edit is rejected/lost). Add `blank=True` (state-only migration, no
+  SQL). See `docs/LEARNINGS.md` 2026-07-03.
 - **Filtering a Wagtail search queryset on a RELATED model's field needs
   `index.RelatedFields`.** `backend.search(q, Post.objects.filter(topic__live=True,
   topic__board__in=...))` raises `FilterFieldError` at query-compile unless

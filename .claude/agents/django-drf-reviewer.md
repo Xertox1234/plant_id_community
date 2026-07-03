@@ -27,6 +27,10 @@ Work through each item for every changed file. Emit findings in the structured f
   on all deletes project-wide; `isinstance()` inside the handler does not help.
 - Idempotency-Key endpoints: original-status replay, payload+route fingerprint,
   hashed/scoped cache key, in-flight `cache.add()` sentinel after validation?
+- `select_for_update()` race guards: is the mutation (`save`/`unpublish`/`publish`)
+  run on the LOCKED instance, not an earlier unlocked read (a stale read clobbers
+  concurrent writes)? Is the gating value re-read from the locked row? Is the
+  `except` OUTSIDE the `atomic()` (a caught DB error inside poisons the connection)?
 
 ## Output Format (Review Mode)" below — do not write prose
 
