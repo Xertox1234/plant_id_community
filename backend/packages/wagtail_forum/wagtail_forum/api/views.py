@@ -408,12 +408,18 @@ class PostWriteView(APIView):
         # caught there and reported truthfully as pending. Do NOT re-wrap it in a
         # blanket `except -> pending`, which would re-introduce the lie (finding #3).
         # acting_as_moderator only affects an account-deleted (author=None) post.
-        moderation_status = submit_edit_for_moderation(
-            post,
-            request.user,
-            acting_as_moderator=request.user.has_perm("wagtail_forum.change_post"),
-        )
-        post.refresh_from_db()
+        # A hard delete (topic CASCADE from the admin) racing this edit makes the
+        # helper's lock re-fetch raise DoesNotExist — map it to 404, not a 500.
+        try:
+            moderation_status = submit_edit_for_moderation(
+                post,
+                request.user,
+                acting_as_moderator=request.user.has_perm("wagtail_forum.change_post"),
+            )
+        except Post.DoesNotExist:
+            raise NotFound()
+        # submit_edit_for_moderation already refresh_from_db()'d `post` (the same
+        # instance), so it is current here — no extra round-trip needed.
         data = PostSerializer(
             post,
             context={
@@ -440,7 +446,10 @@ class PostWriteView(APIView):
         # the lock so a concurrent trusted edit's publish() cannot resurrect this
         # post after we take it down (finding #13, mirrors submit_edit_for_moderation).
         with transaction.atomic():
-            locked = Post.objects.select_for_update().get(pk=post.pk)
+            try:
+                locked = Post.objects.select_for_update().get(pk=post.pk)
+            except Post.DoesNotExist:
+                raise NotFound()  # hard-deleted (topic CASCADE) between fetch and lock
             if not locked.live:
                 raise NotFound()  # already taken down by a concurrent delete
             # unpublish() fires Wagtail's `unpublished` signal -> the forum's

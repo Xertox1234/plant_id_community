@@ -646,10 +646,14 @@ revision, then publish-or-screen it without taking approved content dark):
    resurrect. Mutate the LOCKED instance (`locked.unpublish()`), never the earlier
    unlocked read whose fields may be stale (a repair the code review caught).
 
-**Deferred (out of scope for todo 250, kimi WARNINGs)**: the
-`select_for_update().get(pk=…)` re-fetch can raise `DoesNotExist` if the row is
-HARD-deleted (topic CASCADE) between the first fetch and the lock → 500 instead of
-404; and `acting_as_moderator` is computed before the `atomic()` (a permission
-revocation racing the request could still autopublish). Only the soft-delete race
-was in scope; both edges are astronomically rare and untriaged.
+**Follow-up (PR #435 review)**: the `select_for_update().get(pk=…)` re-fetch could
+raise `DoesNotExist` if the row is HARD-deleted (topic CASCADE, admin-only — no API
+path hard-deletes) between the first fetch and the lock → previously a 500. **Fixed**
+in PR #435: the helper lets `Post.DoesNotExist` propagate (not swallowed by the broad
+`except`) and both `PostWriteView.patch`/`delete` map it to 404. Two edges remain
+**deferred, low-severity → todo 256**: (a) `acting_as_moderator` is computed before
+the `atomic()` (a permission revocation racing the request — a non-issue, request-time
+perm state is standard); (b) the Post row lock is held while the counter signals write
+Topic/Board/Profile, so a concurrent admin topic-hard-delete (Topic→Post) could
+deadlock (PG auto-aborts one txn).
 **Agent**: django-drf-reviewer / wagtail-reviewer.

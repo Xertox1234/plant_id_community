@@ -186,3 +186,25 @@ def test_author_deleted_untrusted_edit_is_screened_not_crash():
     fresh = Post.objects.get(pk=post.pk)
     assert status == "pending"  # screened as untrusted, not autopublished
     assert "original kept" in fresh.body[0].value.source
+
+
+def test_edit_of_hard_deleted_post_propagates_does_not_exist(monkeypatch):
+    """If the row is hard-deleted (topic CASCADE) between save_revision and the
+    lock re-fetch, the edit propagates DoesNotExist (the view maps it to 404)
+    rather than swallowing it as a fake 'pending' then crashing on
+    refresh_from_db (review PR #435 finding #1). Simulate the take-down landing
+    right after save_revision — the actual race window."""
+    ensure_default_workflow()
+    author = _author("ghost", TrustLevel.MEMBER)
+    post = _live_post(_board(), author)
+    real_save = Post.save_revision
+
+    def save_then_vanish(self, *args, **kwargs):
+        revision = real_save(self, *args, **kwargs)
+        Post.objects.filter(pk=self.pk).delete()  # concurrent hard delete lands here
+        return revision
+
+    monkeypatch.setattr(Post, "save_revision", save_then_vanish)
+    post.body = _body("<p>edit into the void</p>")
+    with pytest.raises(Post.DoesNotExist):
+        submit_edit_for_moderation(post, author)

@@ -1,5 +1,6 @@
 import logging
 
+from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from wagtail.models import Workflow, WorkflowContentType, WorkflowTask
@@ -107,7 +108,7 @@ def _edit_is_trusted(obj: Post, acting_as_moderator: bool) -> bool:
 
 
 def submit_edit_for_moderation(
-    obj: Post, user, *, acting_as_moderator: bool = False
+    obj: Post, user: AbstractBaseUser | None, *, acting_as_moderator: bool = False
 ) -> str:
     """Re-screen an EDITED post WITHOUT unpublishing live content (Spec 2 Q2).
 
@@ -170,6 +171,12 @@ def submit_edit_for_moderation(
                         current_state.cancel(user=None)
                     workflow.start(obj, None)
                 # else fail closed: no workflow -> the edit stays a pending revision.
+    except Post.DoesNotExist:
+        # The row was hard-deleted (e.g. topic CASCADE from the Wagtail admin)
+        # between save_revision and the lock. There is nothing to publish or
+        # resurrect — let it propagate so the view maps it to 404, instead of
+        # swallowing it as a fake 'pending' and then crashing on refresh_from_db.
+        raise
     except Exception:
         # The revision IS saved and the live row keeps serving its last-approved
         # body, so 'pending' below is truthful (finding #3). Only a moderation-
