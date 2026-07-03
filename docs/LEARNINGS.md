@@ -657,3 +657,25 @@ perm state is standard); (b) the Post row lock is held while the counter signals
 Topic/Board/Profile, so a concurrent admin topic-hard-delete (Topic→Post) could
 deadlock (PG auto-aborts one txn).
 **Agent**: django-drf-reviewer / wagtail-reviewer.
+
+### [2026-07-03] Deleting a RevisionMixin row cascades its revisions, so a later `save_revision()` on the stale instance fails full_clean — not DoesNotExist
+
+**Symptom**: Writing a test for the "row hard-deleted mid-edit" race, I deleted the
+Post row up front then called `submit_edit_for_moderation(post, …)`, expecting the
+`select_for_update().get()` to raise `Post.DoesNotExist`. Instead `save_revision()`
+(which runs first) raised
+`ValidationError: {'latest_revision': ['revision instance with id 1 is not a valid
+choice.'], 'live_revision': [...]}`.
+
+**Root cause**: `Post.objects.filter(pk=…).delete()` CASCADEs the model's
+`revisions`/`workflow_states` GenericRelations, deleting the revision rows too. The
+stale in-memory instance still carries `latest_revision_id`/`live_revision_id`
+pointing at the now-deleted revision, and `save_revision()` → `full_clean()`
+validates those FKs → rejects the dangling reference. The failure surfaces at
+`save_revision`, before the lock re-fetch is ever reached.
+
+**Fix / testing rule**: to simulate a row vanishing *mid-operation*, delete it AFTER
+the operation's own `save_revision` (e.g. monkeypatch `save_revision` to run the
+real one then delete the row), not before — otherwise you test a different failure
+(full_clean on a dangling revision FK) than the one you intend (the lock re-fetch's
+`DoesNotExist`). **Agent**: wagtail-reviewer.
