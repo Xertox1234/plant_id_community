@@ -53,6 +53,7 @@ jobs:
           # PYSEC-2024-277 (joblib 1.5.2):   supplier-disputed; not imported by app code.
           # PYSEC-2025-183 (PyJWT 2.13.0):   supplier-disputed; mitigated by JWT_SECRET_KEY (the SIMPLE_JWT SIGNING_KEY PyJWT signs with), validated >=50 chars fail-fast at settings import in ALL environments (settings.py:658).
           # CVE-2026-31236 (llm 0.27.1):     no upstream fix per OSV/PyPI advisory; llm is a wagtail-ai transitive dep, not imported directly by app code. Remove when a patched llm release ships.
+          # PYSEC-2026-400 (llm 0.27.1):     same unpatched llm 0.27.1 (distinct advisory id from CVE-2026-31236 above); no fix version per OSV; wagtail-ai transitive dep, zero llm imports in apps/, packages/, plant_community_backend/. Remove when a patched llm release ships.
           pip-audit -r requirements.txt \
             --ignore-vuln CVE-2026-42304 \
             --ignore-vuln PYSEC-2026-89 \
@@ -60,7 +61,8 @@ jobs:
             --ignore-vuln PYSEC-2026-597 \
             --ignore-vuln PYSEC-2024-277 \
             --ignore-vuln PYSEC-2025-183 \
-            --ignore-vuln CVE-2026-31236
+            --ignore-vuln CVE-2026-31236 \
+            --ignore-vuln PYSEC-2026-400
         continue-on-error: false
 
       - name: Upload pip-audit report
