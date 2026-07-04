@@ -268,7 +268,9 @@ service firebase.storage {
 - [ ] **Verify cache warming** still works
 
   ```bash
-  python manage.py warm_moderation_cache
+  # Forum moderation cache retired with django-machina (PR #362) — no forum cache
+  # to warm. Only the blog AI cache is warmable (optional):
+  python manage.py warm_ai_cache --force
   ```
 
 - [ ] **Add performance test** with `assertNumQueries(2)`
@@ -460,10 +462,12 @@ service firebase.storage {
   ```
 
 - [ ] **Redis password** set (if production)
-- [ ] **Cache warming** runs on deployment
+- [ ] **Cache warming** (optional, manual — not part of the Railway deploy)
 
   ```bash
-  python manage.py warm_moderation_cache
+  # Forum moderation cache retired with django-machina (PR #362) — no forum cache
+  # to warm. Only the blog AI cache is warmable (optional):
+  python manage.py warm_ai_cache --force
   ```
 
 ### API Keys
@@ -569,7 +573,9 @@ service firebase.storage {
 - [ ] **Cache warmed**
 
   ```bash
-  python manage.py warm_moderation_cache
+  # Forum moderation cache retired with django-machina (PR #362) — no forum cache
+  # to warm. Only the blog AI cache is warmable (optional):
+  python manage.py warm_ai_cache --force
   ```
 
 - [ ] **Gunicorn/Daphne** configured with workers

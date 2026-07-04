@@ -24,9 +24,9 @@ python manage.py test apps.forum --keepdb
 python manage.py test apps.garden_calendar --keepdb
 python manage.py test apps.users --keepdb
 
-# Cache warming (run after deploy to eliminate cold start penalty)
-python manage.py warm_moderation_cache
-python manage.py warm_moderation_cache --force
+# Optional cache warming — blog AI cache only (the forum moderation cache was
+# retired with django-machina, PR #362; there is no forum cache to warm)
+python manage.py warm_ai_cache --force
 
 python manage.py seed_default_forum    # ensure the forum has a default board (idempotent)
 

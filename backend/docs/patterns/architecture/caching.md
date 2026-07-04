@@ -2,12 +2,22 @@
 
 **Last Updated**: November 13, 2025
 **Consolidated From**:
+
 - `docs/development/BLOG_CACHING_PATTERNS_REFERENCE.md` (blog caching)
 - `SPAM_DETECTION_PATTERNS_CODIFIED.md` (spam detection caching)
 - `TRUST_LEVEL_PATTERNS_CODIFIED.md` (trust level caching)
 - Forum caching patterns (Phase 4 implementation)
 
-**Status**: ✅ Production-Tested
+**Status**: ✅ Production-Tested (blog sections). ⚠️ Forum sections are historical.
+
+> ⚠️ **The FORUM caching sections in this doc are historical.** The **blog**
+> caching patterns are live. The **forum** sections — `ForumCacheService`
+> (`apps/forum/services/…`), `ModerationCacheService`, the moderation-dashboard
+> cache, `Post.flagged`, and the forum performance metrics — document the
+> **django-machina** forum, retired in PR #362. Those services and paths no longer
+> exist; the Wagtail-native `wagtail_forum` maintains denormalized counters in
+> `wagtail_forum/signals.py`, not these cache services. Treat every forum example
+> below as a pattern illustration only, not runnable code.
 
 ---
 
@@ -30,6 +40,7 @@
 **Design Decision**: Use static methods class (not singleton, not instance-based) for zero overhead and simple API.
 
 **Benefits**:
+
 - No instantiation required
 - All methods accessible via class name
 - Thread-safe by design (no shared instance state)
@@ -42,6 +53,7 @@
 **Location**: `apps/blog/services/blog_cache_service.py`
 
 **Implementation**:
+
 ```python
 import hashlib
 import json
@@ -174,14 +186,19 @@ class BlogCacheService:
 
 ### Pattern: Forum Cache Service
 
+> **Retired (machina, PR #362).** `apps/forum/services/forum_cache_service.py` and
+> `ForumCacheService` no longer exist — pattern illustration only.
+
 **Location**: `apps/forum/services/forum_cache_service.py`
 
 **Key Differences from Blog**:
+
 - Shorter TTL (1-6 hours vs 24 hours)
 - More complex keys (category hierarchy)
 - Higher invalidation frequency (user interactions)
 
 **Implementation**:
+
 ```python
 class ForumCacheService:
     """Caching service for forum threads, posts, and categories."""
@@ -233,6 +250,7 @@ class ForumCacheService:
 **Format**: `{prefix}:{slug}`
 
 **Examples**:
+
 ```python
 # Blog post
 cache_key = f"{CACHE_PREFIX_BLOG_POST}:{slug}"
@@ -254,6 +272,7 @@ cache_key = f"{CACHE_PREFIX_FORUM_CATEGORY}:{slug}"
 **Use Case**: List views with multiple filter combinations
 
 **Problem**: Simple concatenation creates collision risk
+
 ```python
 # ❌ COLLISION RISK - Different filters, same concatenation
 filters1 = {"category": "plants", "tag": "care"}
@@ -262,6 +281,7 @@ filters2 = {"category": "plantstag", "tag": "care"}
 ```
 
 **Solution**: SHA-256 hash of JSON-serialized filters
+
 ```python
 import hashlib
 import json
@@ -289,6 +309,7 @@ cache_key = f"{CACHE_PREFIX_BLOG_LIST}:{page}:{limit}:{filters_hash}"
 ```
 
 **Why sort_keys=True**:
+
 ```python
 # Without sort_keys - different hashes for same filters
 hash1 = hash(json.dumps({"a": 1, "b": 2}))  # {"a": 1, "b": 2}
@@ -308,6 +329,7 @@ hash2 = hash(json.dumps({"b": 2, "a": 1}, sort_keys=True))  # {"a": 1, "b": 2} -
 **Format**: `{prefix}:{parent}:{child}:{filters_hash}`
 
 **Implementation**:
+
 ```python
 # Thread list in category
 cache_key = f"{CACHE_PREFIX_FORUM_LIST}:{category_slug}:{page}:{limit}:{filters_hash}"
@@ -319,6 +341,7 @@ cache_key = f"{CACHE_PREFIX_FORUM_POSTS}:{thread_slug}:{page}:{limit}"
 ```
 
 **Benefits**:
+
 - Easy invalidation by parent (delete all threads in category)
 - Clear hierarchy in Redis inspection
 - Supports wildcard pattern matching
@@ -332,6 +355,7 @@ cache_key = f"{CACHE_PREFIX_FORUM_POSTS}:{thread_slug}:{page}:{limit}"
 **Format**: `{prefix}:{user_id}` or `{prefix}:{username}`
 
 **Examples**:
+
 ```python
 # Trust level limits cache
 cache_key = f"trust_limits:user:{user.id}"
@@ -361,6 +385,7 @@ cache_key = f"ratelimit:{group}:{user.id}"
 ### Pattern: Redis Pattern Matching
 
 **Implementation**:
+
 ```python
 @staticmethod
 def invalidate_all_blog_lists() -> None:
@@ -376,6 +401,7 @@ def invalidate_all_blog_lists() -> None:
 ```
 
 **Why hasattr() Check**:
+
 - Django's default cache (memory/database) doesn't support pattern matching
 - Redis backend adds delete_pattern() method
 - Check prevents AttributeError in development
@@ -387,6 +413,7 @@ def invalidate_all_blog_lists() -> None:
 **Use Case**: When Redis pattern matching is unavailable (development, testing).
 
 **Implementation**:
+
 ```python
 class BlogCacheService:
     # Class-level tracking for non-Redis backends
@@ -433,6 +460,7 @@ class BlogCacheService:
 ```
 
 **Why Thread-Safe**:
+
 - Multiple requests may cache/invalidate simultaneously
 - Lock prevents race conditions in set operations
 - Ensures consistent tracking state
@@ -446,6 +474,7 @@ class BlogCacheService:
 **Location**: `apps/blog/signals.py`
 
 **Implementation**:
+
 ```python
 from django.db.models.signals import post_save, post_delete
 from wagtail.signals import page_published, page_unpublished
@@ -508,6 +537,7 @@ def invalidate_blog_post_cache_on_delete(sender, instance, **kwargs):
 ```
 
 **Why Lazy Import**:
+
 ```python
 # ❌ BAD - Circular dependency
 from apps.blog.services import BlogCacheService  # Top of file
@@ -519,6 +549,7 @@ def invalidate_cache(sender, **kwargs):
 ```
 
 **Why isinstance() Not hasattr()**:
+
 ```python
 # ❌ BAD - hasattr fails with Wagtail multi-table inheritance
 if hasattr(instance, 'slug'):  # Many models have 'slug'
@@ -533,9 +564,13 @@ if isinstance(instance, BlogPostPage):  # Only BlogPostPage
 
 ### Pattern: Forum Post Invalidation
 
+> **Retired (machina, PR #362).** `ForumCacheService.invalidate_moderation_dashboard()`
+> and the `Post.flagged` field do not exist — pattern illustration only.
+
 **Complexity**: Posts affect multiple cache levels (thread, category, moderation dashboard).
 
 **Implementation**:
+
 ```python
 @receiver(post_save, sender=Post)
 def invalidate_post_caches(sender, instance, created, **kwargs):
@@ -571,67 +606,56 @@ def invalidate_post_caches(sender, instance, created, **kwargs):
 
 ### Pattern: Management Command Cache Warming
 
-**Use Case**: Pre-populate cache on deployment to eliminate cold start penalty.
+**Use Case**: Pre-populate cache on deployment to eliminate a cold-start penalty.
 
-**Performance Impact**:
-- **Cold start**: 500ms first request
-- **Warmed**: <50ms all requests
+> **Retired forum example.** The original example here (`warm_moderation_cache` /
+> `apps.forum.services.ModerationCacheService`) belonged to the django-machina
+> forum, retired in PR #362. Neither the command nor the service exists anymore,
+> and the Wagtail-native `wagtail_forum` has no moderation-dashboard cache to warm.
+> The live instance of this pattern is the **blog AI cache** below.
 
-**Location**: `apps/forum/management/commands/warm_moderation_cache.py`
+**Location (live)**: `apps/blog/management/commands/warm_ai_cache.py`
 
-**Implementation**:
+**Shape**:
+
 ```python
 from django.core.management.base import BaseCommand
-from apps.forum.services import ModerationCacheService
 
 class Command(BaseCommand):
-    help = 'Warm moderation dashboard cache on deployment'
+    help = "Pre-populate AI cache on deployment to eliminate cold-start penalty"
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--force',
-            action='store_true',
-            help='Force refresh even if cache exists'
+            "--force", action="store_true", help="Force cache regeneration even if already cached"
         )
 
     def handle(self, *args, **options):
-        force = options.get('force', False)
-
-        self.stdout.write('Warming moderation dashboard cache...')
-
-        # Check if already cached
-        if not force and ModerationCacheService.is_cached():
-            self.stdout.write(
-                self.style.SUCCESS('Cache already warm - skipping (use --force to refresh)')
-            )
-            return
-
-        # Warm the cache
-        start_time = time.time()
-        ModerationCacheService.warm_dashboard_cache()
-        elapsed = time.time() - start_time
-
-        self.stdout.write(
-            self.style.SUCCESS(f'Cache warmed successfully in {elapsed:.2f}s')
-        )
+        # Warm the blog AI response cache; skip already-warm entries unless --force.
+        ...
 ```
 
 **Usage**:
-```bash
-# On deployment (post-deploy hook)
-python manage.py warm_moderation_cache
 
-# Force refresh
-python manage.py warm_moderation_cache --force
+```bash
+# Optional, post-deploy (NOT part of the Railway preDeployCommand)
+python manage.py warm_ai_cache
+
+# Force regeneration
+python manage.py warm_ai_cache --force
 ```
 
 ---
 
 ### Pattern: Lazy Cache Warming
 
+> **Retired forum example (machina, PR #362).** The `get_moderation_dashboard()`
+> moderation-dashboard cache does not exist in `wagtail_forum` — the lazy-warming
+> pattern itself is valid, but this specific example is illustration only.
+
 **Use Case**: Warm cache on first access, not on every deployment.
 
 **Implementation**:
+
 ```python
 @staticmethod
 def get_moderation_dashboard() -> Dict[str, Any]:
@@ -665,12 +689,14 @@ def get_moderation_dashboard() -> Dict[str, Any]:
 ### Blog Caching Performance
 
 **Measured Results** (production):
+
 - **Cache Hit Rate**: 40% (target: 35%+)
 - **Cached Response Time**: <50ms (target: <100ms)
 - **Uncached Response Time**: ~300ms (cold, 3-5 queries)
 - **TTL Strategy**: 24 hours (86400 seconds)
 
 **Why It Works**:
+
 - Blog content is relatively static (infrequent updates)
 - Aggressive signal-based invalidation ensures freshness
 - Dual-strategy invalidation handles all cache backends
@@ -680,12 +706,14 @@ def get_moderation_dashboard() -> Dict[str, Any]:
 ### Forum Caching Performance
 
 **Measured Results**:
+
 - **Cache Hit Rate**: 30% (target: >25%) - Lower due to user interactions
 - **Cached Response Time**: <50ms
 - **Uncached Response Time**: ~500ms (cold, 5-8 queries)
 - **TTL Strategy**: 1-6 hours - Shorter due to dynamic nature
 
 **Why Lower Hit Rate**:
+
 - Forum threads update more frequently (new posts, reactions)
 - User interactions (views, reactions) trigger invalidation
 - Higher query complexity (post counts, reaction aggregates)
@@ -695,12 +723,14 @@ def get_moderation_dashboard() -> Dict[str, Any]:
 ### Spam Detection Caching
 
 **Measured Results**:
+
 - **Cache Hit Rate**: 80% during spam attacks
 - **Cached Response Time**: <10ms
 - **Uncached Response Time**: ~150ms (duplicate checks, similarity)
 - **TTL Strategy**: 5 minutes
 
 **Why High Hit Rate**:
+
 - Spammers often retry same content
 - Short TTL prevents stale data
 - Targeted for attack scenarios
@@ -710,12 +740,14 @@ def get_moderation_dashboard() -> Dict[str, Any]:
 ### Trust Level Caching
 
 **Measured Results**:
+
 - **Cache Hit Rate**: 80% (target: >75%)
 - **Cached Response Time**: <10ms
 - **Uncached Response Time**: ~50ms (database query + calculation)
 - **TTL Strategy**: 1 hour
 
 **Why High Hit Rate**:
+
 - Trust levels change infrequently (automatic promotion daily)
 - Users perform multiple actions per session
 - Permissions checked on every request
@@ -727,6 +759,7 @@ def get_moderation_dashboard() -> Dict[str, Any]:
 ### Pitfall 1: Not Using Lazy Imports in Signals
 
 **Problem**:
+
 ```python
 # ❌ Circular import at module level
 from apps.blog.services import BlogCacheService
@@ -737,6 +770,7 @@ def invalidate_cache(sender, **kwargs):
 ```
 
 **Solution**:
+
 ```python
 # ✅ Lazy import inside signal handler
 @receiver(page_published)
@@ -750,6 +784,7 @@ def invalidate_cache(sender, **kwargs):
 ### Pitfall 2: Using hasattr() Instead of isinstance()
 
 **Problem**:
+
 ```python
 # ❌ BAD - hasattr matches multiple types
 if hasattr(instance, 'slug'):
@@ -757,6 +792,7 @@ if hasattr(instance, 'slug'):
 ```
 
 **Solution**:
+
 ```python
 # ✅ GOOD - isinstance checks exact type
 if isinstance(instance, BlogPostPage):
@@ -768,12 +804,14 @@ if isinstance(instance, BlogPostPage):
 ### Pitfall 3: Forgetting Tracked Keys
 
 **Problem**:
+
 ```python
 # ❌ No tracking - can't invalidate in development
 cache.set(cache_key, data, timeout)
 ```
 
 **Solution**:
+
 ```python
 # ✅ Track key for non-Redis backends
 cache.set(cache_key, data, timeout)
@@ -785,6 +823,7 @@ BlogCacheService._track_cache_key(cache_key)
 ### Pitfall 4: Filter Hash Without sort_keys
 
 **Problem**:
+
 ```python
 # ❌ Different hashes for same filters
 hash1 = hash(json.dumps({"a": 1, "b": 2}))
@@ -793,6 +832,7 @@ hash2 = hash(json.dumps({"b": 2, "a": 1}))
 ```
 
 **Solution**:
+
 ```python
 # ✅ Consistent hashes with sort_keys
 hash1 = hash(json.dumps({"a": 1, "b": 2}, sort_keys=True))
@@ -814,4 +854,3 @@ hash2 = hash(json.dumps({"b": 2, "a": 1}, sort_keys=True))
 **Pattern Count**: 15 caching patterns
 **Status**: ✅ Production-validated
 **Performance**: 30-80% cache hit rates, <50ms cached responses
-
