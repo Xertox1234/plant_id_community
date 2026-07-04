@@ -8,7 +8,16 @@
 - `TRUST_LEVEL_PATTERNS_CODIFIED.md` (trust level caching)
 - Forum caching patterns (Phase 4 implementation)
 
-**Status**: ✅ Production-Tested
+**Status**: ✅ Production-Tested (blog sections). ⚠️ Forum sections are historical.
+
+> ⚠️ **The FORUM caching sections in this doc are historical.** The **blog**
+> caching patterns are live. The **forum** sections — `ForumCacheService`
+> (`apps/forum/services/…`), `ModerationCacheService`, the moderation-dashboard
+> cache, `Post.flagged`, and the forum performance metrics — document the
+> **django-machina** forum, retired in PR #362. Those services and paths no longer
+> exist; the Wagtail-native `wagtail_forum` maintains denormalized counters in
+> `wagtail_forum/signals.py`, not these cache services. Treat every forum example
+> below as a pattern illustration only, not runnable code.
 
 ---
 
@@ -176,6 +185,9 @@ class BlogCacheService:
 ---
 
 ### Pattern: Forum Cache Service
+
+> **Retired (machina, PR #362).** `apps/forum/services/forum_cache_service.py` and
+> `ForumCacheService` no longer exist — pattern illustration only.
 
 **Location**: `apps/forum/services/forum_cache_service.py`
 
@@ -552,6 +564,9 @@ if isinstance(instance, BlogPostPage):  # Only BlogPostPage
 
 ### Pattern: Forum Post Invalidation
 
+> **Retired (machina, PR #362).** `ForumCacheService.invalidate_moderation_dashboard()`
+> and the `Post.flagged` field do not exist — pattern illustration only.
+
 **Complexity**: Posts affect multiple cache levels (thread, category, moderation dashboard).
 
 **Implementation**:
@@ -611,7 +626,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--force", action="store_true", help="Force regeneration"
+            "--force", action="store_true", help="Force cache regeneration even if already cached"
         )
 
     def handle(self, *args, **options):
@@ -632,6 +647,10 @@ python manage.py warm_ai_cache --force
 ---
 
 ### Pattern: Lazy Cache Warming
+
+> **Retired forum example (machina, PR #362).** The `get_moderation_dashboard()`
+> moderation-dashboard cache does not exist in `wagtail_forum` — the lazy-warming
+> pattern itself is valid, but this specific example is illustration only.
 
 **Use Case**: Warm cache on first access, not on every deployment.
 
