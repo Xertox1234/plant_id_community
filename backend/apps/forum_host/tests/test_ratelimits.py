@@ -110,6 +110,36 @@ def test_wrapped_routes_use_the_throttled_views():
         assert by_name[name] is view_class
 
 
+def test_every_unsafe_handler_is_throttled():
+    """Class-identity parity (above) still passes if a NEW unsafe handler is added
+    to a wrapped view without a rate. Assert every unsafe method the view actually
+    defines a handler for is in _forum_throttled_methods (todo 255, using the 254
+    marker). search/sync throttle a safe method (GET) and have no unsafe handler,
+    so they satisfy this trivially — but gain protection if one is ever added."""
+    from apps.forum_host import api as throttled
+
+    safe = {"GET", "HEAD", "OPTIONS", "TRACE"}
+    wrappers = [
+        throttled.TopicListView,
+        throttled.PostListView,
+        throttled.PostWriteView,
+        throttled.PostImageUploadView,
+        throttled.ReactionToggleView,
+        throttled.MeProfileView,
+        throttled.SearchView,
+        throttled.SyncView,
+    ]
+    for view in wrappers:
+        marked = getattr(view, "_forum_throttled_methods", set())
+        handled = {
+            m.upper() for m in view.http_method_names if hasattr(view, m.lower())
+        }
+        unthrottled_unsafe = (handled - safe) - marked
+        assert (
+            not unthrottled_unsafe
+        ), f"{view.__name__} has unthrottled unsafe handler(s): {unthrottled_unsafe}"
+
+
 @override_settings(FORUM_RATELIMITS={"topic_create": "1/h"})
 @pytest.mark.django_db
 def test_throttle_is_per_user_not_global():

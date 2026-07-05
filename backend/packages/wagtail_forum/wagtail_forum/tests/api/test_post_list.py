@@ -129,3 +129,105 @@ def test_post_list_hides_posts_on_hidden_topic():
     topic.live = False
     topic.save()
     assert APIClient().get(f"/forum/topics/{topic.id}/posts/").status_code == 404
+
+
+def _moderator(username):
+    from django.contrib.auth.models import Permission
+
+    user = User.objects.create_user(username=username, password="x")
+    user.user_permissions.add(
+        Permission.objects.get(
+            content_type__app_label="wagtail_forum", codename="change_post"
+        )
+    )
+    return User.objects.get(pk=user.pk)  # re-fetch to clear the permission cache
+
+
+@pytest.mark.django_db
+def test_author_affordances_reflect_write_rules():
+    # Affordance parity (todo 252): the opening post is not deletable (DELETE
+    # 409), so its author sees can_delete=false while a reply stays true; both
+    # stay editable in an open topic.
+    topic = _topic_with_posts(2)  # post 0 = opening, post 1 = reply
+    author = User.objects.get(username="ada")
+    client = APIClient()
+    client.force_authenticate(author)
+    resp = client.get(f"/forum/topics/{topic.id}/posts/")
+    assert resp.status_code == 200
+    by_opening = {p["is_opening_post"]: p for p in resp.data["results"]}
+    assert by_opening[True]["can_edit"] is True
+    assert by_opening[True]["can_delete"] is False  # opening post: not deletable
+    assert by_opening[False]["can_edit"] is True
+    assert by_opening[False]["can_delete"] is True  # reply: deletable
+
+
+@pytest.mark.django_db
+def test_author_can_edit_false_in_closed_topic():
+    # Operand isolation: is_closed=True alone (topic.locked stays False). A frozen
+    # topic makes the author's edit 409, so can_edit/can_delete must both be false.
+    topic = _topic_with_posts(2)
+    Topic.objects.filter(id=topic.id).update(is_closed=True)
+    author = User.objects.get(username="ada")
+    client = APIClient()
+    client.force_authenticate(author)
+    resp = client.get(f"/forum/topics/{topic.id}/posts/")
+    assert resp.status_code == 200
+    for p in resp.data["results"]:
+        assert p["can_edit"] is False
+        assert p["can_delete"] is False
+
+
+@pytest.mark.django_db
+def test_author_can_edit_false_in_locked_topic():
+    # Operand isolation: topic.locked=True alone (is_closed stays False).
+    topic = _topic_with_posts(2)
+    Topic.objects.filter(id=topic.id).update(locked=True)
+    author = User.objects.get(username="ada")
+    client = APIClient()
+    client.force_authenticate(author)
+    resp = client.get(f"/forum/topics/{topic.id}/posts/")
+    assert resp.status_code == 200
+    for p in resp.data["results"]:
+        assert p["can_edit"] is False
+
+
+@pytest.mark.django_db
+def test_moderator_affordance_bypasses_post_lock():
+    # A moderator bypasses the per-post lock (Wagtail privileged-user semantics),
+    # so they see can_edit=true on a locked post where the author sees false —
+    # the affordance carries the same bypass as the write path.
+    topic = _topic_with_posts(2)
+    Post.objects.filter(topic=topic).update(locked=True)
+    author = User.objects.get(username="ada")
+    mod = _moderator("mod")
+
+    author_client = APIClient()
+    author_client.force_authenticate(author)
+    author_resp = author_client.get(f"/forum/topics/{topic.id}/posts/")
+    assert len(author_resp.data["results"]) == 2
+    assert all(p["can_edit"] is False for p in author_resp.data["results"])
+
+    mod_client = APIClient()
+    mod_client.force_authenticate(mod)
+    mod_resp = mod_client.get(f"/forum/topics/{topic.id}/posts/")
+    assert all(p["can_edit"] is True for p in mod_resp.data["results"])
+
+
+@pytest.mark.django_db
+def test_post_list_affordances_add_no_per_post_queries():
+    # The shared can_edit/can_delete predicate reads obj.topic; select_related
+    # ("topic") folds that into the posts query, so the authenticated count stays
+    # FLAT as posts grow — no N+1 from the affordance flags (todo 252). The author
+    # path never calls has_perm (owner short-circuit). Pinned EXACTLY; explain any
+    # change to this number (docs/rules/testing.md).
+    topic = _topic_with_posts(20)  # one full page
+    author = User.objects.get(username="ada")
+    client = APIClient()
+    client.force_authenticate(author)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get(f"/forum/topics/{topic.id}/posts/")
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 20
+    # Q1 visibility prefetch, Q2 topic lookup, Q3 posts page (select_related
+    # author+topic). Same 3 as the anonymous pin — the predicate adds no query.
+    assert len(ctx.captured_queries) == 3

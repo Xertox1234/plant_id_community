@@ -110,8 +110,8 @@ the doc renames to `-COMPLETED`. Match the lead token WITH its trailing space
 (`#1 `, not `#1`) so it doesn't also hit `#11`/`#12`.
 
 - [x] #1 edit-moderation failure cluster (covers #2, #3, #4, #13) → todo 250 (completed 2026-07-03)
-- [ ] #5 write-path guard gaps (covers #6, #7) → todo 251
-- [ ] #8 can-edit-delete-affordance-parity → todo 252
-- [ ] #9 write-endpoint test gaps (covers #10) → todo 253
-- [ ] #11 429-undocumented-in-openapi → todo 254
-- [ ] #12 write-path-duplication-cluster → todo 255
+- [x] #5 write-path guard gaps (covers #6, #7) → todo 251 (completed 2026-07-04)
+- [x] #8 can-edit-delete-affordance-parity → todo 252 (completed 2026-07-04)
+- [x] #9 write-endpoint test gaps (covers #10) → todo 253 (completed 2026-07-04)
+- [x] #11 429-undocumented-in-openapi → todo 254 (completed 2026-07-04)
+- [x] #12 write-path-duplication-cluster → todo 255 (completed 2026-07-04)

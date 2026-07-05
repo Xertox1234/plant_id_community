@@ -9,7 +9,7 @@ from rest_framework import generics
 from rest_framework import status as http_status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from wagtail.images import get_image_model
@@ -62,6 +62,22 @@ def _visible_boards():
     Restricted boards are conservatively invisible to the whole API.
     """
     return ForumBoard.objects.live().public()
+
+
+def _get_visible_post(post_id):
+    """Fetch a live, visible post or 404 in a SINGLE query.
+
+    Folds the no-existence-leak visibility guard (audit M6/M7) into the lookup:
+    a hidden post, a post on a non-live topic, or a post on a hidden/restricted
+    board is 404, never 403. Shared by PostWriteView (edit/delete) and
+    ReactionToggleView so the predicate has one shape, not three.
+    """
+    return get_object_or_404(
+        Post.objects.filter(
+            live=True, topic__live=True, topic__board__in=_visible_boards()
+        ).select_related("topic", "author"),
+        id=post_id,
+    )
 
 
 def _get_board(slug):
@@ -130,12 +146,9 @@ class TopicListView(generics.ListAPIView):
     serializer_class = TopicListSerializer
     pagination_class = TopicCursorPagination
     versioning_class = None
-
-    def get_permissions(self):
-        # POST (create) needs auth; GET (list) stays public like the read path.
-        if self.request.method == "POST":
-            return [IsAuthenticated()]
-        return super().get_permissions()
+    # GET (list) is public; only the merged POST (create) needs auth — exactly
+    # IsAuthenticatedOrReadOnly (also the project default), declared explicitly.
+    permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
         # Suppress drf-spectacular's "Failed to obtain model" warning: during
@@ -267,12 +280,9 @@ class PostListView(generics.ListAPIView):
     serializer_class = PostSerializer
     pagination_class = PostCursorPagination
     versioning_class = None
-
-    def get_permissions(self):
-        # POST (reply) needs auth; GET (list) stays public like the read path.
-        if self.request.method == "POST":
-            return [IsAuthenticated()]
-        return super().get_permissions()
+    # GET (list) is public; only the merged POST (reply) needs auth — exactly
+    # IsAuthenticatedOrReadOnly (also the project default), declared explicitly.
+    permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
@@ -281,7 +291,10 @@ class PostListView(generics.ListAPIView):
             Topic.objects.filter(live=True, board__in=_visible_boards()),
             id=self.kwargs["topic_id"],
         )
-        return topic.posts.filter(live=True).select_related("author")
+        # select_related("topic") so PostSerializer.can_edit/can_delete
+        # (Post.edit_block reads obj.topic) adds no per-post query — flat, no N+1
+        # for authenticated listers (todo 252).
+        return topic.posts.filter(live=True).select_related("author", "topic")
 
     def list(self, request, *args, **kwargs):
         # Build the page's image map ONCE (one batched query) and feed it to the
@@ -365,25 +378,27 @@ class PostWriteView(APIView):
     versioning_class = None
 
     def _get_editable(self, request, post_id):
-        # Hide non-live posts / posts on non-live topics / hidden boards (404),
-        # never 403 — no existence leak (mirrors ReplyCreateView, audit M6/M7).
-        post = get_object_or_404(
-            Post.objects.select_related("topic", "author"), id=post_id
-        )
-        if (
-            not post.live
-            or not post.topic.live
-            or not _visible_boards().filter(pk=post.topic.board_id).exists()
-        ):
-            raise NotFound()
-        # Trust the author OR a moderator (the change_post perm). can_edit/
-        # can_delete in PostSerializer compute the same predicate for the client.
-        if not (
-            request.user == post.author
-            or request.user.has_perm("wagtail_forum.change_post")
-        ):
+        # Existence gate only (single-query _get_visible_post; no existence leak,
+        # audit M6/M7). The write POLICY (owner-or-mod, per-post lock, frozen
+        # topic, opening-post) lives in Post.edit_block/delete_block, single-
+        # sourced with PostSerializer's can_edit/can_delete (todo 252);
+        # patch()/delete() enforce it via _enforce_writable.
+        return _get_visible_post(post_id)
+
+    @staticmethod
+    def _enforce_writable(block):
+        """Map a ``Post.edit_block``/``delete_block`` result to an HTTP rejection.
+
+        ``None`` means allowed. ``("forbidden", None)`` → 403 (not owner/mod, no
+        existence leak beyond the 404 gate); every other code carries a message
+        and is a 409 state conflict (locked post / frozen topic / opening post).
+        """
+        if block is None:
+            return
+        code, message = block
+        if code == "forbidden":
             raise PermissionDenied()
-        return post
+        raise Conflict(message)
 
     @extend_schema(
         request=PostEditSerializer,
@@ -398,8 +413,7 @@ class PostWriteView(APIView):
     )
     def patch(self, request, post_id):
         post = self._get_editable(request, post_id)
-        if post.topic.is_closed or post.topic.locked:
-            raise Conflict("Topic is closed to edits.")
+        self._enforce_writable(post.edit_block(request.user))
         serializer = PostEditSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         post.body = ForumBodyBlock().to_python(serializer.validated_data["body"])
@@ -434,14 +448,19 @@ class PostWriteView(APIView):
         responses={204: None, 403: dict, 404: dict, 409: dict},
         description=(
             "Soft-delete a post (author or moderator) by unpublishing it; the "
-            "topic's reply_count recounts via the unpublish signal. Deleting an "
-            "opening post returns 409 (delete the topic instead)."
+            "topic's reply_count recounts via the unpublish signal. 409 if the "
+            "topic is closed/locked. Opening posts cannot be deleted via the "
+            "API (409)."
         ),
     )
     def delete(self, request, post_id):
         post = self._get_editable(request, post_id)
-        if post.is_opening_post:
-            raise Conflict("Cannot delete the opening post; delete the topic.")
+        # Policy is single-sourced in Post.delete_block: frozen-topic 409 (no
+        # moderator bypass — mirrors PATCH; a delete mutating a closed/locked
+        # topic's reply_count/last_post_at would desync it, finding #5) plus the
+        # opening-post 409 (no topic-delete endpoint exists, finding #7).
+        # PostSerializer.can_delete reads the same predicate for the client.
+        self._enforce_writable(post.delete_block(request.user))
         # Serialize against a racing PATCH: lock the row and re-read liveness under
         # the lock so a concurrent trusted edit's publish() cannot resurrect this
         # post after we take it down (finding #13, mirrors submit_edit_for_moderation).
@@ -528,15 +547,7 @@ class ReactionToggleView(APIView):
         if replayed is not None:
             return replayed
 
-        post = get_object_or_404(Post.objects.select_related("topic"), id=post_id)
-        # SECURITY: hide non-live posts / posts on non-live topics / hidden
-        # boards (404) — mirrors the reply guard (audit M6/M7).
-        if (
-            not post.live
-            or not post.topic.live
-            or not _visible_boards().filter(pk=post.topic.board_id).exists()
-        ):
-            raise NotFound()
+        post = _get_visible_post(post_id)  # 404s hidden posts/topics/boards (M6/M7)
         serializer = ReactionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)

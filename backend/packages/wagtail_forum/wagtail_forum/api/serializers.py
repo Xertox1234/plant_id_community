@@ -225,7 +225,7 @@ class PostAuthorSerializer(serializers.Serializer):
 class PostSerializer(serializers.ModelSerializer):
     author = serializers.SerializerMethodField()
     body = serializers.SerializerMethodField()
-    topic_id = serializers.IntegerField()
+    topic_id = serializers.IntegerField(read_only=True)
     edited_at = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
     can_edit = serializers.SerializerMethodField()
@@ -274,42 +274,48 @@ class PostSerializer(serializers.ModelSerializer):
     def get_status(self, obj):
         return "live" if obj.live else "pending"
 
-    def _is_owner_or_mod(self, obj):
-        user = self.context.get("request").user if self.context.get("request") else None
-        if not user or not user.is_authenticated:
-            return False
-        return user == obj.author or user.has_perm("wagtail_forum.change_post")
+    def _request_user(self):
+        request = self.context.get("request")
+        return request.user if request else None
 
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_can_edit(self, obj):
-        return self._is_owner_or_mod(obj)
+        # Full edit policy (owner-or-mod + per-post lock + frozen topic), single-
+        # sourced on the model so this button affordance matches PostWriteView's
+        # write guard exactly (todo 252). obj.topic is select_related in the list
+        # queryset, so this adds no per-post query.
+        return obj.can_be_edited_by(self._request_user())
 
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_can_delete(self, obj):
-        return self._is_owner_or_mod(obj)
+        # Same policy as can_edit plus the opening-post rule.
+        return obj.can_be_deleted_by(self._request_user())
 
 
-class TopicCreateSerializer(serializers.Serializer):
+class _ForumBodyContract(serializers.Serializer):
+    """Shared write-body field + validation, so the body contract
+    (`validate_forum_body`) is declared ONCE across the create/edit serializers
+    instead of byte-copied into three."""
+
+    body = serializers.JSONField()
+
+    def validate_body(self, value):
+        return validate_forum_body(value)
+
+
+class TopicCreateSerializer(_ForumBodyContract):
     title = serializers.CharField(max_length=255)
     slug = serializers.SlugField(max_length=255)
-    body = serializers.JSONField()
-
-    def validate_body(self, value):
-        return validate_forum_body(value)
 
 
-class ReplyCreateSerializer(serializers.Serializer):
-    body = serializers.JSONField()
-
-    def validate_body(self, value):
-        return validate_forum_body(value)
+class ReplyCreateSerializer(_ForumBodyContract):
+    pass
 
 
-class PostEditSerializer(serializers.Serializer):
-    body = serializers.JSONField()
-
-    def validate_body(self, value):
-        return validate_forum_body(value)
+class PostEditSerializer(ReplyCreateSerializer):
+    # Distinct OpenAPI component name for the edit operation; the body contract is
+    # identical to a reply create, so subclass rather than re-declare.
+    pass
 
 
 class ReactionSerializer(serializers.Serializer):
