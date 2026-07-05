@@ -312,9 +312,10 @@ class ReplyCreateSerializer(_ForumBodyContract):
     pass
 
 
-class PostEditSerializer(ReplyCreateSerializer):
-    # Distinct OpenAPI component name for the edit operation; the body contract is
-    # identical to a reply create, so subclass rather than re-declare.
+class PostEditSerializer(_ForumBodyContract):
+    # Distinct OpenAPI component name for the edit operation; a PEER of
+    # ReplyCreateSerializer off the shared body contract, not chained through it —
+    # so a future reply-only field can't leak into the edit request/component.
     pass
 
 

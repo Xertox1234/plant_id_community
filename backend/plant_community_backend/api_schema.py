@@ -4,7 +4,11 @@ drf-spectacular schema customization hooks.
 This module provides preprocessing hooks for customizing the OpenAPI schema generation.
 """
 
+import copy
 import re
+import threading
+
+from django.conf import settings
 
 
 def preprocess_exclude_wagtail(endpoints):
@@ -52,7 +56,8 @@ def preprocess_exclude_wagtail(endpoints):
 # a 429 there — and only there, so unthrottled GETs stay clean. A new throttled
 # wrapper is documented automatically ("survives new wrappers").
 
-# One OpenAPI response object reused for every rate-limited operation.
+# One OpenAPI 429 response, deep-copied per operation (below) so a later per-op
+# schema tweak can't mutate every throttled endpoint at once.
 RATE_LIMIT_429_RESPONSE = {
     "description": (
         "Rate limit exceeded. Retry after the window given in the Retry-After "
@@ -66,13 +71,25 @@ RATE_LIMIT_429_RESPONSE = {
     },
 }
 
-# Filled by record_throttled_operations (preprocessing) and read by
-# document_throttle_429 (postprocessing) within a single schema generation. Keyed
-# by the SCHEMA path — SCHEMA_PATH_PREFIX_TRIM strips the /api/v1 prefix, so we
-# strip it here too to match the postprocessing result's `paths` keys.
-_THROTTLED_OPERATIONS = set()
+# Throttled (schema_path, method) pairs, recorded by the preprocessing hook and
+# read by the postprocessing hook. Thread-LOCAL, not a module global:
+# SpectacularAPIView regenerates the schema per request, so concurrent generations
+# on different threads must not share this — a plain global would race
+# clear()/add() against another thread's read (missing 429s, or a "set changed
+# size during iteration" 500). Pre- and post-processing for ONE generation run on
+# the same thread, so thread-local isolation is both correct and sufficient.
+_state = threading.local()
 
-_SCHEMA_PATH_PREFIX = re.compile(r"^/api/v[0-9]")
+
+def _trim_schema_prefix(path):
+    """Strip SCHEMA_PATH_PREFIX (when TRIM is on) so recorded paths match the
+    trimmed keys in the generated schema's ``paths`` — derived from the SAME
+    settings drf-spectacular uses, so the two cannot drift on a version bump."""
+    spec = settings.SPECTACULAR_SETTINGS
+    prefix = spec.get("SCHEMA_PATH_PREFIX") or ""
+    if not (prefix and spec.get("SCHEMA_PATH_PREFIX_TRIM")):
+        return path
+    return re.sub("^" + prefix, "", path)
 
 
 def record_throttled_operations(endpoints):
@@ -84,15 +101,14 @@ def record_throttled_operations(endpoints):
     notes the throttled operations so ``document_throttle_429`` can add a 429.
     Returns ``endpoints`` unchanged.
     """
-    _THROTTLED_OPERATIONS.clear()
+    throttled_ops = set()
     for path, path_regex, method, callback in endpoints:
         # DRF's as_view() sets `.cls`; Django's plain views set `.view_class`.
         view = getattr(callback, "cls", None) or getattr(callback, "view_class", None)
         throttled = getattr(view, "_forum_throttled_methods", ()) if view else ()
         if method.upper() in throttled:
-            _THROTTLED_OPERATIONS.add(
-                (_SCHEMA_PATH_PREFIX.sub("", path), method.lower())
-            )
+            throttled_ops.add((_trim_schema_prefix(path), method.lower()))
+    _state.throttled_operations = throttled_ops
     return endpoints
 
 
@@ -100,10 +116,10 @@ def document_throttle_429(result, generator, request, public):
     """Postprocessing hook: add a 429 response to every rate-limited operation
     recorded by :func:`record_throttled_operations`."""
     paths = result.get("paths", {})
-    for path, method in _THROTTLED_OPERATIONS:
+    for path, method in getattr(_state, "throttled_operations", set()):
         operation = paths.get(path, {}).get(method)
         if operation is not None:
             operation.setdefault("responses", {}).setdefault(
-                "429", RATE_LIMIT_429_RESPONSE
+                "429", copy.deepcopy(RATE_LIMIT_429_RESPONSE)
             )
     return result

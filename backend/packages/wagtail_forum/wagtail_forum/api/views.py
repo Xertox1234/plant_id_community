@@ -29,6 +29,7 @@ except ImportError:  # pragma: no cover
 from ..blocks import ForumBodyBlock
 from ..collections import get_forum_image_collection
 from ..models import ForumBoard, Post, Reaction, Topic
+from ..models.posts import BLOCK_FORBIDDEN
 from ..workflow import submit_edit_for_moderation, submit_for_moderation
 from .exceptions import Conflict, UnprocessableEntity
 from .idempotency import fingerprint, idempotency_cache_key, remember, replay, reserve
@@ -389,14 +390,14 @@ class PostWriteView(APIView):
     def _enforce_writable(block):
         """Map a ``Post.edit_block``/``delete_block`` result to an HTTP rejection.
 
-        ``None`` means allowed. ``("forbidden", None)`` → 403 (not owner/mod, no
-        existence leak beyond the 404 gate); every other code carries a message
+        ``None`` means allowed. ``(BLOCK_FORBIDDEN, None)`` → 403 (not owner/mod,
+        no existence leak beyond the 404 gate); every other code carries a message
         and is a 409 state conflict (locked post / frozen topic / opening post).
         """
         if block is None:
             return
         code, message = block
-        if code == "forbidden":
+        if code == BLOCK_FORBIDDEN:
             raise PermissionDenied()
         raise Conflict(message)
 
@@ -456,10 +457,12 @@ class PostWriteView(APIView):
     def delete(self, request, post_id):
         post = self._get_editable(request, post_id)
         # Policy is single-sourced in Post.delete_block: frozen-topic 409 (no
-        # moderator bypass — mirrors PATCH; a delete mutating a closed/locked
-        # topic's reply_count/last_post_at would desync it, finding #5) plus the
+        # moderator bypass — DELIBERATELY mirrors PATCH's frozen guard, so a topic
+        # must be reopened before editing OR deleting in it; finding #5) plus the
         # opening-post 409 (no topic-delete endpoint exists, finding #7).
-        # PostSerializer.can_delete reads the same predicate for the client.
+        # (The count stays correct either way — unpublish()'s recount signal is
+        # topic-state-independent — so this guard is a consistency choice, not a
+        # data-integrity one.) PostSerializer.can_delete reads the same predicate.
         self._enforce_writable(post.delete_block(request.user))
         # Serialize against a racing PATCH: lock the row and re-read liveness under
         # the lock so a concurrent trusted edit's publish() cannot resurrect this

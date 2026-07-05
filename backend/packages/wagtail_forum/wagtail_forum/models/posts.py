@@ -9,6 +9,12 @@ from wagtail.search import index
 
 from ..blocks import ForumBodyBlock
 
+# Block-reason code returned by edit_block/delete_block that PostWriteView maps to
+# 403 (not owner/moderator), vs the message-carrying codes that map to 409. A
+# shared constant so the model producer and the view consumer (api/views.py
+# _enforce_writable) can't drift a rename into a 403-leaks-as-409 bug.
+BLOCK_FORBIDDEN = "forbidden"
+
 
 class Post(
     WorkflowMixin,
@@ -110,13 +116,13 @@ class Post(
         N+1).
         """
         if user is None or not user.is_authenticated:
-            return ("forbidden", None)
+            return (BLOCK_FORBIDDEN, None)
         # Short-circuit like the write path: an owner never triggers the
         # permission lookup, so the post-list query count stays flat for authors.
         if not (
             user.pk == self.author_id or user.has_perm("wagtail_forum.change_post")
         ):
-            return ("forbidden", None)
+            return (BLOCK_FORBIDDEN, None)
         if self.locked and not user.has_perm("wagtail_forum.change_post"):
             return ("locked", "Post is locked.")
         if self.topic.is_closed or self.topic.locked:
