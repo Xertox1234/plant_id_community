@@ -505,7 +505,14 @@ SPECTACULAR_SETTINGS = {
     },
     # Exclude Wagtail API endpoints that don't use DRF versioning
     "PREPROCESSING_HOOKS": [
-        "plant_community_backend.api_schema.preprocess_exclude_wagtail"
+        "plant_community_backend.api_schema.preprocess_exclude_wagtail",
+        "plant_community_backend.api_schema.record_throttled_operations",
+    ],
+    "POSTPROCESSING_HOOKS": [
+        # Setting this key overrides drf-spectacular's default, so keep its enum
+        # postprocessor, then document a 429 on every rate-limited forum op (254).
+        "drf_spectacular.hooks.postprocess_schema_enums",
+        "plant_community_backend.api_schema.document_throttle_429",
     ],
 }
 

@@ -9,6 +9,12 @@ from wagtail.search import index
 
 from ..blocks import ForumBodyBlock
 
+# Block-reason code returned by edit_block/delete_block that PostWriteView maps to
+# 403 (not owner/moderator), vs the message-carrying codes that map to 409. A
+# shared constant so the model producer and the view consumer (api/views.py
+# _enforce_writable) can't drift a rename into a 403-leaks-as-409 bug.
+BLOCK_FORBIDDEN = "forbidden"
+
 
 class Post(
     WorkflowMixin,
@@ -97,3 +103,49 @@ class Post(
 
     def __str__(self):
         return f"Post #{self.pk} in {self.topic_id}"
+
+    def edit_block(self, user):
+        """Why ``user`` may not edit (PATCH) this post, or ``None`` if they may.
+
+        The single source of the edit policy: owner-or-moderator, then the
+        per-post lock, then the frozen (closed/locked) topic. ``PostWriteView``
+        maps the returned code to an HTTP status and ``PostSerializer`` reads the
+        boolean form (:meth:`can_be_edited_by`), so the button affordance and the
+        write path cannot diverge (todo 252). Reads ``self.topic`` — callers that
+        serialize a list must ``select_related("topic")`` to keep this flat (no
+        N+1).
+        """
+        if user is None or not user.is_authenticated:
+            return (BLOCK_FORBIDDEN, None)
+        # Short-circuit like the write path: an owner never triggers the
+        # permission lookup, so the post-list query count stays flat for authors.
+        if not (
+            user.pk == self.author_id or user.has_perm("wagtail_forum.change_post")
+        ):
+            return (BLOCK_FORBIDDEN, None)
+        if self.locked and not user.has_perm("wagtail_forum.change_post"):
+            return ("locked", "Post is locked.")
+        if self.topic.is_closed or self.topic.locked:
+            return ("frozen", "Topic is closed or locked.")
+        return None
+
+    def delete_block(self, user):
+        """Why ``user`` may not delete (DELETE) this post, or ``None`` if they may.
+
+        Same policy as :meth:`edit_block` plus the opening-post rule (opening
+        posts are not deletable via the API).
+        """
+        blocked = self.edit_block(user)
+        if blocked is not None:
+            return blocked
+        if self.is_opening_post:
+            return ("opening", "Opening posts cannot be deleted via the API.")
+        return None
+
+    def can_be_edited_by(self, user):
+        """Boolean form of :meth:`edit_block` for the serializer's can_edit flag."""
+        return self.edit_block(user) is None
+
+    def can_be_deleted_by(self, user):
+        """Boolean form of :meth:`delete_block` for the serializer's can_delete flag."""
+        return self.delete_block(user) is None

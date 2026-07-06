@@ -169,6 +169,10 @@ def test_delete_opening_post_conflicts():
     resp = client.delete(f"/forum/posts/{opening.id}/")
     assert resp.status_code == 409
     assert Post.objects.get(id=opening.id).live is True
+    # finding #7: the message states the real constraint and no longer advertises
+    # a topic-delete endpoint that exists in neither URL config.
+    assert resp.data["message"] == "Opening posts cannot be deleted via the API."
+    assert "delete the topic" not in resp.data["message"].lower()
 
 
 def test_edit_hidden_post_is_404():
@@ -264,3 +268,230 @@ def test_delete_hard_deleted_post_is_404_not_500(monkeypatch):
     client.force_authenticate(author)
     resp = client.delete(f"/forum/posts/{reply.id}/")
     assert resp.status_code == 404
+
+
+def test_delete_on_closed_topic_conflicts():
+    # Per-operand isolation: is_closed=True alone (topic.locked stays False), so an
+    # or->and mutation of the DELETE topic guard fails exactly this test (finding #5).
+    board = _board()
+    author = _member("ada")
+    topic, _opening, reply = _topic_with_reply(board, author)
+    Topic.objects.filter(id=topic.id).update(is_closed=True)
+    client = APIClient()
+    client.force_authenticate(author)
+    resp = client.delete(f"/forum/posts/{reply.id}/")
+    assert resp.status_code == 409
+    assert Post.objects.get(id=reply.id).live is True  # not taken down
+
+
+def test_delete_on_locked_topic_conflicts():
+    # Per-operand isolation: topic.locked=True alone (is_closed stays False).
+    board = _board()
+    author = _member("ada")
+    topic, _opening, reply = _topic_with_reply(board, author)
+    Topic.objects.filter(id=topic.id).update(locked=True)
+    client = APIClient()
+    client.force_authenticate(author)
+    resp = client.delete(f"/forum/posts/{reply.id}/")
+    assert resp.status_code == 409
+    assert Post.objects.get(id=reply.id).live is True
+
+
+def test_edit_locked_post_rejected_for_author():
+    # A moderator-locked post blocks the author's edit (finding #6). The topic
+    # stays un-closed/un-locked, so this proves the POST lock fires — not the
+    # topic guard — and the message distinguishes the two 409s.
+    board = _board()
+    author = _member("ada")
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    Post.objects.filter(id=reply.id).update(locked=True)
+    client = APIClient()
+    client.force_authenticate(author)
+    resp = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {"body": [{"type": "paragraph", "value": "<p>edited</p>"}]},
+        format="json",
+    )
+    assert resp.status_code == 409
+    assert resp.data["message"] == "Post is locked."
+    assert "a reply" in Post.objects.get(id=reply.id).body[0].value.source  # unchanged
+
+
+def test_delete_locked_post_rejected_for_author():
+    board = _board()
+    author = _member("ada")
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    Post.objects.filter(id=reply.id).update(locked=True)
+    client = APIClient()
+    client.force_authenticate(author)
+    resp = client.delete(f"/forum/posts/{reply.id}/")
+    assert resp.status_code == 409
+    assert resp.data["message"] == "Post is locked."
+    assert Post.objects.get(id=reply.id).live is True  # not taken down
+
+
+def test_moderator_bypasses_post_lock():
+    # Wagtail semantics: privileged users (change_post) edit locked objects, so a
+    # moderator's edit of a locked post publishes (finding #6, the decided bypass).
+    board = _board()
+    author = _member("ada")
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    Post.objects.filter(id=reply.id).update(locked=True)
+    mod = _moderator("mod")
+    client = APIClient()
+    client.force_authenticate(mod)
+    resp = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {"body": [{"type": "paragraph", "value": "<p>mod edit</p>"}]},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["moderation_status"] == "published"
+
+
+def test_affordance_flags_match_write_outcomes():
+    # Parity acid test (todo 252): the can_edit/can_delete flags the LIST serves
+    # must match what the WRITE endpoints actually do — the shared predicate is
+    # only worth anything if the button and the write path agree. Drives both
+    # from the SAME posts, so a future divergence in either fails here.
+    board = _board()
+    author = _member("ada")
+    topic, opening, reply = _topic_with_reply(board, author)
+    client = APIClient()
+    client.force_authenticate(author)
+
+    listed = {
+        p["is_opening_post"]: p
+        for p in client.get(f"/forum/topics/{topic.id}/posts/").data["results"]
+    }
+    # Opening post: flags say editable but NOT deletable — the endpoints agree.
+    assert listed[True]["can_edit"] is True
+    assert listed[True]["can_delete"] is False
+    assert client.delete(f"/forum/posts/{opening.id}/").status_code == 409
+    # Reply: flags say editable AND deletable — the endpoints agree.
+    assert listed[False]["can_edit"] is True
+    assert listed[False]["can_delete"] is True
+    assert (
+        client.patch(
+            f"/forum/posts/{reply.id}/",
+            {"body": [{"type": "paragraph", "value": "<p>x</p>"}]},
+            format="json",
+        ).status_code
+        == 200
+    )
+    assert client.delete(f"/forum/posts/{reply.id}/").status_code == 204
+
+
+def test_affordance_flags_match_write_outcomes_in_closed_topic():
+    # Parity in a frozen topic: can_edit=false ⇔ PATCH 409 (finding #8 goal).
+    board = _board()
+    author = _member("ada")
+    topic, _opening, reply = _topic_with_reply(board, author)
+    Topic.objects.filter(id=topic.id).update(is_closed=True)
+    client = APIClient()
+    client.force_authenticate(author)
+
+    listed = {
+        p["is_opening_post"]: p
+        for p in client.get(f"/forum/topics/{topic.id}/posts/").data["results"]
+    }
+    assert listed[False]["can_edit"] is False
+    assert (
+        client.patch(
+            f"/forum/posts/{reply.id}/",
+            {"body": [{"type": "paragraph", "value": "<p>x</p>"}]},
+            format="json",
+        ).status_code
+        == 409
+    )
+
+
+def test_unauthenticated_patch_is_401():
+    # PostWriteView.permission_classes = [IsAuthenticated] must gate PATCH — every
+    # other edit test force_authenticates first, so a weakened permission gate
+    # would pass the suite silently (the silent-auth-hole class, finding #9). 401
+    # via the JWT authenticate header, mirroring test_unauthenticated_writes_are_
+    # rejected.
+    board = _board()
+    author = _member("ada")
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    client = APIClient()  # no credentials
+    resp = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {"body": [{"type": "paragraph", "value": "<p>x</p>"}]},
+        format="json",
+    )
+    assert resp.status_code == 401
+    assert "a reply" in Post.objects.get(id=reply.id).body[0].value.source  # unchanged
+
+
+def test_unauthenticated_delete_is_401():
+    # DELETE half of finding #9 — same silent-auth-hole class.
+    board = _board()
+    author = _member("ada")
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    client = APIClient()  # no credentials
+    resp = client.delete(f"/forum/posts/{reply.id}/")
+    assert resp.status_code == 401
+    assert Post.objects.get(id=reply.id).live is True  # not taken down
+
+
+def test_edit_on_locked_topic_conflicts():
+    # PATCH guard operand parity with test_edit_on_closed_topic_conflicts: the
+    # guard is `topic.is_closed or topic.locked`, but only is_closed was exercised
+    # on the edit path (finding #10). Isolate the locked operand (is_closed stays
+    # False) so removing `or topic.locked` fails exactly this test.
+    board = _board()
+    author = _member("ada")
+    topic, _opening, reply = _topic_with_reply(board, author)
+    Topic.objects.filter(id=topic.id).update(locked=True)
+    client = APIClient()
+    client.force_authenticate(author)
+    resp = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {"body": [{"type": "paragraph", "value": "<p>edited</p>"}]},
+        format="json",
+    )
+    assert resp.status_code == 409
+
+
+def test_delete_query_count_is_pinned():
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    board = _board()
+    author = _member("ada")
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    client = APIClient()
+    client.force_authenticate(author)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.delete(f"/forum/posts/{reply.id}/")
+    assert resp.status_code == 204
+    # Pinned EXACTLY (docs/rules/testing.md): the single-query _get_visible_post
+    # (todo 255) folds the visibility guard into the fetch, so re-introducing the
+    # separate _visible_boards().exists() check would bump this and fail here.
+    # The bulk is Wagtail's unpublish + counter-signal recount cascade (255 does
+    # not change that); the fold is the delta this pin protects.
+    assert len(ctx.captured_queries) == 32, len(ctx.captured_queries)
+
+
+def test_edit_query_count_is_pinned():
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    board = _board()
+    author = _member("ada")
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    client = APIClient()
+    client.force_authenticate(author)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.patch(
+            f"/forum/posts/{reply.id}/",
+            {"body": [{"type": "paragraph", "value": "<p>edited</p>"}]},
+            format="json",
+        )
+    assert resp.status_code == 200
+    # Pinned EXACTLY (docs/rules/testing.md): _get_visible_post is one query (was
+    # fetch + a separate visibility .exists()); todo 255. The bulk is Wagtail's
+    # revision save/publish + workflow finish + counter recount, unchanged by 255.
+    assert len(ctx.captured_queries) == 68, len(ctx.captured_queries)

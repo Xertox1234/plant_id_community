@@ -32,6 +32,35 @@ def ensure_default_workflow():
     return workflow
 
 
+def _route_revision_by_trust(obj, revision, trusted, *, cancel_stale=False):
+    """Publish a saved revision immediately when trusted, else route it through
+    moderation. Shared trust-routing core for the create and edit paths.
+
+    - Trusted (author trust >= autopublish, or a moderator redacting an
+      account-deleted post) -> publish now (as SYSTEM, user=None).
+    - Untrusted -> start the moderation workflow; FAIL CLOSED (leave the content
+      a draft) when no workflow is configured, never publish unscreened.
+
+    ``cancel_stale`` is the edit-path-only wedge fix (todo 250): a rejected prior
+    edit leaves an active NEEDS_CHANGES workflow state, and Wagtail forbids a
+    second active state per object, so cancel it before restarting. The create
+    path passes ``cancel_stale=False`` so it never reads
+    ``obj.current_workflow_state`` (a DB hit) — byte- AND query-identical to the
+    prior inline code.
+    """
+    if trusted:
+        revision.publish(user=None)
+        return
+    workflow = obj.get_workflow()
+    if workflow is None:
+        return  # fail closed: no workflow -> leave untrusted content as a draft
+    if cancel_stale:
+        current_state = obj.current_workflow_state
+        if current_state is not None:
+            current_state.cancel(user=None)
+    workflow.start(obj, None)
+
+
 def submit_for_moderation(obj, user):
     """Route a Post by trust. Returns 'published' or 'pending'.
 
@@ -60,15 +89,11 @@ def submit_for_moderation(obj, user):
     profile = ForumProfile.for_user(obj.author)
     revision = obj.save_revision(user=user)
 
-    if profile.trust_level >= get_setting("TRUST_AUTOPUBLISH_LEVEL"):
-        revision.publish(user=None)
-    else:
-        workflow = obj.get_workflow()
-        if workflow is None:
-            # Fail closed: no workflow -> leave untrusted content as a draft.
-            pass
-        else:
-            workflow.start(obj, None)
+    _route_revision_by_trust(
+        obj,
+        revision,
+        profile.trust_level >= get_setting("TRUST_AUTOPUBLISH_LEVEL"),
+    )
     obj.refresh_from_db()
 
     # Publish the topic only when its own author's opening post goes live.
@@ -156,21 +181,11 @@ def submit_edit_for_moderation(
                 # A concurrent take-down won; leave the edit as a draft revision
                 # rather than resurrecting the post.
                 pass
-            elif trusted:
-                revision.publish(user=None)
             else:
-                workflow = obj.get_workflow()
-                if workflow is not None:
-                    # A prior flagged edit leaves an active (NEEDS_CHANGES)
-                    # workflow state; Wagtail forbids two active states per
-                    # object, so a naive start() would raise ValidationError and
-                    # wedge the post at 'pending' forever. Cancel the stale state,
-                    # then screen the new revision from scratch (finding #1).
-                    current_state = obj.current_workflow_state
-                    if current_state is not None:
-                        current_state.cancel(user=None)
-                    workflow.start(obj, None)
-                # else fail closed: no workflow -> the edit stays a pending revision.
+                # cancel_stale: a prior flagged edit leaves an active
+                # NEEDS_CHANGES state; Wagtail forbids two active states, so the
+                # shared router cancels it before restarting (finding #1, todo 250).
+                _route_revision_by_trust(obj, revision, trusted, cancel_stale=True)
     except Post.DoesNotExist:
         # The row was hard-deleted (e.g. topic CASCADE from the Wagtail admin)
         # between save_revision and the lock. There is nothing to publish or

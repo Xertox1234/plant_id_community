@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "257"
 tags: [docs, caching, forum, wagtail, cleanup]
@@ -68,14 +68,14 @@ Redis-cached dashboards.
 
 ## Acceptance Criteria
 
-- [ ] No section in `caching.md` presents a non-existent service/path/field as live
+- [x] No section in `caching.md` presents a non-existent service/path/field as live
       (every referenced symbol verified to exist, or the section is deleted/marked
       illustrative with a live alternative named).
-- [ ] Forum caching reality (denormalized counters in `signals.py`) is either
+- [x] Forum caching reality (denormalized counters in `signals.py`) is either
       documented accurately or linked, not misrepresented as a `ForumCacheService`.
-- [ ] The PR #436 historical banner/markers are removed or reduced once the
+- [x] The PR #436 historical banner/markers are removed or reduced once the
       underlying sections are accurate.
-- [ ] `markdownlint` passes (pre-commit gate).
+- [x] `markdownlint` passes (pre-commit gate).
 
 ## Work Log
 
@@ -84,3 +84,46 @@ Redis-cached dashboards.
 - Filed from the PR #436 review. #436 stopped the doc contradicting itself
   (banner + markers); this finishes the job by rewriting/removing the retired
   forum cache sections.
+
+### 2026-07-04 - Started by completing-todos skill (run 2026-07-04-0200)
+
+- Picked up by automated workflow (docs-only todo).
+
+### 2026-07-04 - Implemented + verified (run 2026-07-04-0200)
+
+Cross-checked every flagged symbol against the codebase FIRST: `CACHE_PREFIX_FORUM_*`
+absent, `apps/forum/services/` gone, no `Post.flagged` field, no
+`ForumCacheService`/`ModerationCacheService`. Live reality = `_refresh_topic_counters`
+/`_refresh_board_counters`/`_refresh_profile` in `wagtail_forum/signals.py`.
+
+Edits to `backend/docs/patterns/architecture/caching.md` (856 → 729 lines):
+- **Deleted** the dead `### Pattern: Forum Cache Service` class → replaced with
+  `### Forum: denormalized counters, not a cache service` (names signals.py
+  receivers + the ONE-UPDATE recount, `.public()`/`live` filtering, `raw_data`
+  N+1 guard; links docs/rules/database.md + caching.md).
+- **Deleted** `### Pattern: Forum Post Invalidation` (dead `ForumCacheService`/
+  `Post.flagged`; the generic Signal-Based Invalidation pattern already covers the
+  reusable half) and `### Forum Caching Performance` (retired metrics).
+- **Regrounded** the reusable generic patterns off dead constants: Simple
+  Slug-Based Keys → blog-only example; Hierarchical Keys → generic literal-string
+  illustration (no `CACHE_PREFIX_FORUM_*`); Lazy Cache Warming → generic
+  cache-aside example (not the dead `get_moderation_dashboard()`).
+- **Removed** the inline PR #436 retired-markers (Management Command warming is now
+  just the live blog example) and **reduced** the top banner to a concise "forum =
+  counters in signals.py, no cache service" pointer.
+
+Verification:
+- Dead-symbol grep: the only remaining `ForumCacheService`/`Post.flagged` mentions
+  are in the two retired-CONTEXT notes (banner + the counter section), never
+  presented as live.
+- `markdownlint -c .markdownlint.json backend/docs/patterns/architecture/caching.md`
+  → **EXIT=0** (the project config disables MD013; the default-config MD013 errors
+  seen first were false positives, and flagged pre-existing untouched lines).
+- Structure check: no orphaned `---`, TOC's 5 `##` sections all intact.
+
+### 2026-07-04 - Completed by completing-todos skill (run 2026-07-04-0200)
+
+- Verification: all 4 acceptance criteria passed (dead-symbol grep clean,
+  markdownlint EXIT=0 with project config, structure intact).
+- Review: code-review-orchestrator skipped — no production-code diff (docs only:
+  caching.md + this todo).

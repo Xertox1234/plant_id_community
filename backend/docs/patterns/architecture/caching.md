@@ -1,6 +1,6 @@
 # Caching Patterns
 
-**Last Updated**: November 13, 2025
+**Last Updated**: July 4, 2026
 **Consolidated From**:
 
 - `docs/development/BLOG_CACHING_PATTERNS_REFERENCE.md` (blog caching)
@@ -8,16 +8,15 @@
 - `TRUST_LEVEL_PATTERNS_CODIFIED.md` (trust level caching)
 - Forum caching patterns (Phase 4 implementation)
 
-**Status**: ✅ Production-Tested (blog sections). ⚠️ Forum sections are historical.
+**Status**: ✅ Production-Tested (blog caching).
 
-> ⚠️ **The FORUM caching sections in this doc are historical.** The **blog**
-> caching patterns are live. The **forum** sections — `ForumCacheService`
-> (`apps/forum/services/…`), `ModerationCacheService`, the moderation-dashboard
-> cache, `Post.flagged`, and the forum performance metrics — document the
-> **django-machina** forum, retired in PR #362. Those services and paths no longer
-> exist; the Wagtail-native `wagtail_forum` maintains denormalized counters in
-> `wagtail_forum/signals.py`, not these cache services. Treat every forum example
-> below as a pattern illustration only, not runnable code.
+> **Forum note.** This doc covers the **blog** caching layer. The forum
+> (Wagtail-native `wagtail_forum`) has **no cache service** — its performance comes
+> from denormalized counters in `wagtail_forum/signals.py` (see "Forum:
+> denormalized counters, not a cache service" below), not Redis-cached responses.
+> The retired django-machina forum cache (`ForumCacheService`, the
+> moderation-dashboard cache, `Post.flagged`; PR #362) has been removed from this
+> doc rather than left as illustration.
 
 ---
 
@@ -184,60 +183,19 @@ class BlogCacheService:
 
 ---
 
-### Pattern: Forum Cache Service
+### Forum: denormalized counters, not a cache service
 
-> **Retired (machina, PR #362).** `apps/forum/services/forum_cache_service.py` and
-> `ForumCacheService` no longer exist — pattern illustration only.
-
-**Location**: `apps/forum/services/forum_cache_service.py`
-
-**Key Differences from Blog**:
-
-- Shorter TTL (1-6 hours vs 24 hours)
-- More complex keys (category hierarchy)
-- Higher invalidation frequency (user interactions)
-
-**Implementation**:
-
-```python
-class ForumCacheService:
-    """Caching service for forum threads, posts, and categories."""
-
-    @staticmethod
-    def get_thread(slug: str) -> Optional[Dict[str, Any]]:
-        """Retrieve cached thread by slug."""
-        cache_key = f"{CACHE_PREFIX_FORUM_THREAD}:{slug}"
-        cached = cache.get(cache_key)
-
-        if cached:
-            logger.info(f"[CACHE] HIT for thread {slug}")
-            return cached
-
-        logger.info(f"[CACHE] MISS for thread {slug}")
-        return None
-
-    @staticmethod
-    def set_thread(slug: str, data: Dict[str, Any], timeout: int = CACHE_TIMEOUT_1_HOUR) -> None:
-        """Cache thread data (shorter TTL than blog)."""
-        cache_key = f"{CACHE_PREFIX_FORUM_THREAD}:{slug}"
-        cache.set(cache_key, data, timeout)
-        logger.info(f"[CACHE] SET thread {slug} (TTL: {timeout}s)")
-
-    @staticmethod
-    def invalidate_thread(slug: str) -> None:
-        """Invalidate cached thread."""
-        cache_key = f"{CACHE_PREFIX_FORUM_THREAD}:{slug}"
-        cache.delete(cache_key)
-        logger.info(f"[CACHE] DELETE thread {slug}")
-
-    @staticmethod
-    def invalidate_category_threads(category_slug: str) -> None:
-        """Invalidate all threads in a category."""
-        if hasattr(cache, 'delete_pattern'):
-            pattern = f"{CACHE_PREFIX_FORUM_LIST}:{category_slug}:*"
-            deleted = cache.delete_pattern(pattern)
-            logger.info(f"[CACHE] DELETE category threads {category_slug} ({deleted} keys)")
-```
+The Wagtail-native `wagtail_forum` has **no cache service** (the machina
+`ForumCacheService` was retired with the forum in PR #362). Its read-path
+performance comes from **denormalized counters** kept correct by signal receivers
+in `backend/packages/wagtail_forum/wagtail_forum/signals.py`
+(`_refresh_topic_counters`, `_refresh_board_counters`, `_refresh_profile`) — each
+recomputes its counts in **one `UPDATE`** whose `Subquery(...Count...)` evaluates
+inside the write, so concurrent writers cannot persist a stale read. Post-list
+performance additionally relies on `.public()`/`live` queryset filtering and
+`raw_data` StreamField serialization (which avoids a per-image N+1), not on cached
+responses. See `docs/rules/database.md` ("Denormalized counters: recount in ONE
+UPDATE") and `docs/rules/caching.md`.
 
 ---
 
@@ -245,24 +203,16 @@ class ForumCacheService:
 
 ### Pattern: Simple Slug-Based Keys
 
-**Use Case**: Single-object retrieval (blog post, thread, category)
+**Use Case**: Single-object retrieval (e.g. a blog post)
 
 **Format**: `{prefix}:{slug}`
 
-**Examples**:
+**Example**:
 
 ```python
 # Blog post
 cache_key = f"{CACHE_PREFIX_BLOG_POST}:{slug}"
 # Result: "blog:post:10-best-houseplants-for-beginners"
-
-# Forum thread
-cache_key = f"{CACHE_PREFIX_FORUM_THREAD}:{slug}"
-# Result: "forum:thread:why-are-my-leaves-yellowing-a1b2c3"
-
-# Category
-cache_key = f"{CACHE_PREFIX_FORUM_CATEGORY}:{slug}"
-# Result: "forum:category:plant-care"
 ```
 
 ---
@@ -324,25 +274,26 @@ hash2 = hash(json.dumps({"b": 2, "a": 1}, sort_keys=True))  # {"a": 1, "b": 2} -
 
 ### Pattern: Hierarchical Keys
 
-**Use Case**: Nested resources (category → threads → posts)
+**Use Case**: Nested resources whose parent-scoped lists are cached together.
 
 **Format**: `{prefix}:{parent}:{child}:{filters_hash}`
 
-**Implementation**:
+**Implementation** (generic illustration — no live subsystem currently caches a
+hierarchy this deep; the forum uses denormalized counters, not cached lists):
 
 ```python
-# Thread list in category
-cache_key = f"{CACHE_PREFIX_FORUM_LIST}:{category_slug}:{page}:{limit}:{filters_hash}"
-# Result: "forum:list:plant-care:1:20:b4e7f3a9c1d2e5f8"
+# A parent-scoped list page
+cache_key = f"list:{parent_slug}:{page}:{limit}:{filters_hash}"
+# Result: "list:plant-care:1:20:b4e7f3a9c1d2e5f8"
 
-# Posts in thread
-cache_key = f"{CACHE_PREFIX_FORUM_POSTS}:{thread_slug}:{page}:{limit}"
-# Result: "forum:posts:yellowing-leaves-a1b2c3:1:50"
+# A child collection under that parent
+cache_key = f"items:{parent_slug}:{child_slug}:{page}:{limit}"
+# Result: "items:plant-care:yellowing-leaves:1:50"
 ```
 
 **Benefits**:
 
-- Easy invalidation by parent (delete all threads in category)
+- Easy invalidation by parent (delete every child list under one parent)
 - Clear hierarchy in Redis inspection
 - Supports wildcard pattern matching
 
@@ -562,59 +513,13 @@ if isinstance(instance, BlogPostPage):  # Only BlogPostPage
 
 ---
 
-### Pattern: Forum Post Invalidation
-
-> **Retired (machina, PR #362).** `ForumCacheService.invalidate_moderation_dashboard()`
-> and the `Post.flagged` field do not exist — pattern illustration only.
-
-**Complexity**: Posts affect multiple cache levels (thread, category, moderation dashboard).
-
-**Implementation**:
-
-```python
-@receiver(post_save, sender=Post)
-def invalidate_post_caches(sender, instance, created, **kwargs):
-    """
-    Invalidate caches when post is created or updated.
-
-    Affected caches:
-    - Thread detail (post count changed)
-    - Thread list in category (last post time changed)
-    - Moderation dashboard (if post is flagged)
-    """
-    from apps.forum.services import ForumCacheService
-
-    thread = instance.thread
-    category = thread.category
-
-    # Invalidate thread (post count, last post changed)
-    ForumCacheService.invalidate_thread(thread.slug)
-
-    # Invalidate category thread lists (thread order may change)
-    ForumCacheService.invalidate_category_threads(category.slug)
-
-    # Invalidate moderation dashboard if flagged
-    if instance.flagged:
-        ForumCacheService.invalidate_moderation_dashboard()
-
-    logger.info(f"[CACHE] Invalidated caches for post in thread {thread.slug}")
-```
-
----
-
 ## Cache Warming
 
 ### Pattern: Management Command Cache Warming
 
 **Use Case**: Pre-populate cache on deployment to eliminate a cold-start penalty.
 
-> **Retired forum example.** The original example here (`warm_moderation_cache` /
-> `apps.forum.services.ModerationCacheService`) belonged to the django-machina
-> forum, retired in PR #362. Neither the command nor the service exists anymore,
-> and the Wagtail-native `wagtail_forum` has no moderation-dashboard cache to warm.
-> The live instance of this pattern is the **blog AI cache** below.
-
-**Location (live)**: `apps/blog/management/commands/warm_ai_cache.py`
+**Location**: `apps/blog/management/commands/warm_ai_cache.py`
 
 **Shape**:
 
@@ -648,38 +553,23 @@ python manage.py warm_ai_cache --force
 
 ### Pattern: Lazy Cache Warming
 
-> **Retired forum example (machina, PR #362).** The `get_moderation_dashboard()`
-> moderation-dashboard cache does not exist in `wagtail_forum` — the lazy-warming
-> pattern itself is valid, but this specific example is illustration only.
+**Use Case**: Warm cache on first access (cache-aside), not on every deployment.
 
-**Use Case**: Warm cache on first access, not on every deployment.
-
-**Implementation**:
+**Implementation** (generic cache-aside illustration):
 
 ```python
-@staticmethod
-def get_moderation_dashboard() -> Dict[str, Any]:
-    """
-    Get moderation dashboard with lazy cache warming.
-
-    Warms cache on first access if empty.
-    """
-    cache_key = CACHE_KEY_MODERATION_DASHBOARD
+def get_expensive_view(key_suffix: str) -> Dict[str, Any]:
+    """Return cached data, computing and caching it on the first miss."""
+    cache_key = f"expensive_view:{key_suffix}"
     cached = cache.get(cache_key)
-
     if cached:
-        logger.info("[CACHE] HIT moderation dashboard (instant response)")
+        logger.info(f"[CACHE] HIT {cache_key}")
         return cached
 
-    logger.info("[CACHE] MISS moderation dashboard - warming cache")
-
-    # Fetch fresh data
-    dashboard_data = ModerationService.get_dashboard_stats()
-
-    # Cache for 5 minutes
-    cache.set(cache_key, dashboard_data, CACHE_TIMEOUT_5_MINUTES)
-
-    return dashboard_data
+    logger.info(f"[CACHE] MISS {cache_key} - warming")
+    data = compute_expensive_view(key_suffix)  # the costly query/aggregation
+    cache.set(cache_key, data, CACHE_TIMEOUT_5_MINUTES)
+    return data
 ```
 
 ---
@@ -700,23 +590,6 @@ def get_moderation_dashboard() -> Dict[str, Any]:
 - Blog content is relatively static (infrequent updates)
 - Aggressive signal-based invalidation ensures freshness
 - Dual-strategy invalidation handles all cache backends
-
----
-
-### Forum Caching Performance
-
-**Measured Results**:
-
-- **Cache Hit Rate**: 30% (target: >25%) - Lower due to user interactions
-- **Cached Response Time**: <50ms
-- **Uncached Response Time**: ~500ms (cold, 5-8 queries)
-- **TTL Strategy**: 1-6 hours - Shorter due to dynamic nature
-
-**Why Lower Hit Rate**:
-
-- Forum threads update more frequently (new posts, reactions)
-- User interactions (views, reactions) trigger invalidation
-- Higher query complexity (post counts, reaction aggregates)
 
 ---
 

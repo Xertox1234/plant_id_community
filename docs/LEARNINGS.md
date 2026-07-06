@@ -656,6 +656,14 @@ the `atomic()` (a permission revocation racing the request — a non-issue, requ
 perm state is standard); (b) the Post row lock is held while the counter signals write
 Topic/Board/Profile, so a concurrent admin topic-hard-delete (Topic→Post) could
 deadlock (PG auto-aborts one txn).
+**Triaged 2026-07-04 (todo 256): both WON'T-FIX.** (a) Re-checking perm inside the
+atomic does not close the window (revocation can land 1ns later) and the only effect of
+a stale `True` is a moderator's account-deleted-author redaction going live — request-time
+perm state is the standard contract, so no code change. (b) Re-confirmed the reachability
+gate still holds — the ONLY `.delete()` in the forum API is on `Reaction`; Post/Topic are
+soft-deleted via `unpublish()`, so the CASCADE deadlock is admin-only. PG's deadlock
+detector aborts one txn (500 + retry → 404, never a hang or corruption); a retry/lock-order
+mitigation is disproportionate complexity for a self-healing, admin-only, microsecond race.
 **Agent**: django-drf-reviewer / wagtail-reviewer.
 
 ### [2026-07-03] Deleting a RevisionMixin row cascades its revisions, so a later `save_revision()` on the stale instance fails full_clean — not DoesNotExist

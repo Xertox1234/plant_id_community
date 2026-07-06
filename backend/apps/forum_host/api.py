@@ -23,62 +23,69 @@ def _rate(name):
     return resolve
 
 
-@method_decorator(
-    ratelimit(key="user", rate=_rate("topic_create"), method="POST"), name="post"
-)
+def _throttled(rate_name, http_method, *, key="user"):
+    """Rate-limit ONE HTTP method of a host forum view AND flag it for the schema.
+
+    Behaviourally identical to the prior inline
+    ``@method_decorator(ratelimit(...), name=<method>)`` — same key, rate and
+    method — it additionally records the method on ``_forum_throttled_methods`` so
+    the OpenAPI hooks (``api_schema.record_throttled_operations`` /
+    ``document_throttle_429``) document a 429 for exactly that operation, and only
+    those (todo 254). New throttled wrappers get their 429 documented for free.
+    """
+
+    def decorate(cls):
+        cls = method_decorator(
+            ratelimit(key=key, rate=_rate(rate_name), method=http_method),
+            name=http_method.lower(),
+        )(cls)
+        cls._forum_throttled_methods = {
+            *getattr(cls, "_forum_throttled_methods", ()),
+            http_method.upper(),
+        }
+        return cls
+
+    return decorate
+
+
+@_throttled("topic_create", "POST")
 class TopicListView(forum_views.TopicListView):
     # GET (list) is public + unthrottled; only the merged POST (create) is rated.
     pass
 
 
-@method_decorator(
-    ratelimit(key="user", rate=_rate("reply_create"), method="POST"), name="post"
-)
+@_throttled("reply_create", "POST")
 class PostListView(forum_views.PostListView):
     # GET (list) is public + unthrottled; only the merged POST (reply) is rated.
     pass
 
 
-@method_decorator(
-    ratelimit(key="user", rate=_rate("post_update"), method="PATCH"), name="patch"
-)
-@method_decorator(
-    ratelimit(key="user", rate=_rate("post_delete"), method="DELETE"), name="delete"
-)
+@_throttled("post_update", "PATCH")
+@_throttled("post_delete", "DELETE")
 class PostWriteView(forum_views.PostWriteView):
     pass
 
 
-@method_decorator(
-    ratelimit(key="user", rate=_rate("image_upload"), method="POST"), name="post"
-)
+@_throttled("image_upload", "POST")
 class PostImageUploadView(forum_views.PostImageUploadView):
     pass
 
 
-@method_decorator(
-    ratelimit(key="user", rate=_rate("reaction_toggle"), method="POST"), name="post"
-)
+@_throttled("reaction_toggle", "POST")
 class ReactionToggleView(forum_views.ReactionToggleView):
     pass
 
 
-@method_decorator(
-    ratelimit(key="user", rate=_rate("profile_update"), method="PATCH"), name="patch"
-)
+@_throttled("profile_update", "PATCH")
 class MeProfileView(forum_views.MeProfileView):
     pass
 
 
-@method_decorator(
-    ratelimit(key=client_ip_key, rate=_rate("search"), method="GET"), name="get"
-)
+@_throttled("search", "GET", key=client_ip_key)
 class SearchView(forum_views.SearchView):
     pass
 
 
-@method_decorator(
-    ratelimit(key=client_ip_key, rate=_rate("sync"), method="GET"), name="get"
-)
+@_throttled("sync", "GET", key=client_ip_key)
 class SyncView(forum_views.SyncView):
     pass
