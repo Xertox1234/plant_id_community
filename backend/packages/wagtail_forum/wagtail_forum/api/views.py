@@ -1,7 +1,8 @@
 import logging
 
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -268,6 +269,34 @@ class TopicDetailView(generics.RetrieveAPIView):
         return Topic.objects.filter(
             live=True, board__in=_visible_boards()
         ).select_related("board", "author", "last_post_author")
+
+    def retrieve(self, request, *args, **kwargs):
+        response = super().retrieve(request, *args, **kwargs)
+        # Increment view_count after a successful 200, deduplicated per viewer.
+        # Uses on_commit so the UPDATE runs outside the serialization transaction
+        # and does not inflate the pinned query count for the response itself.
+        # The cache key is scoped per (topic, viewer) — authenticated users key on
+        # their pk; anonymous requests key on the client IP so a single browser
+        # session doesn't multi-count. The TTL is host-configurable via
+        # WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS (default 15 min).
+        from ..conf import get_setting
+
+        topic_id = self.kwargs[self.lookup_url_kwarg]
+        viewer = (
+            request.user.pk
+            if request.user.is_authenticated
+            else request.META.get("REMOTE_ADDR", "anon")
+        )
+        dedup_key = f"forum:vc:{topic_id}:{viewer}"
+        ttl = get_setting("VIEW_COUNT_DEDUP_SECONDS")
+        if not cache.get(dedup_key):
+            cache.set(dedup_key, True, ttl)
+
+            def _increment():
+                Topic.objects.filter(pk=topic_id).update(view_count=F("view_count") + 1)
+
+            transaction.on_commit(_increment)
+        return response
 
 
 @extend_schema(
@@ -682,12 +711,22 @@ class SyncView(APIView):
             {"id": t.id, "slug": t.slug, "title": t.title, "updated_at": t.updated_at}
             for t in batch
         ]
-        # Tombstones (ids deleted since `since`) require a soft-delete log added in
-        # a later plan; return an empty list for now.
+        # Tombstones: topic ids deleted since the client's last poll. Only
+        # meaningful for a delta sync (since provided); a full resync
+        # (no since) rebuilds from scratch so there are no stale ids to evict.
+        deleted = []
+        if since:
+            from ..models.tombstones import TopicDeletedLog
+
+            deleted = list(
+                TopicDeletedLog.objects.filter(deleted_at__gt=since).values(
+                    "topic_id", "board_id"
+                )
+            )
         return Response(
             {
                 "topics": topics,
-                "deleted": [],
+                "deleted": deleted,
                 "has_more": has_more,
                 "next_since": batch[-1].updated_at if batch else raw_since or None,
                 "next_since_id": batch[-1].id if batch else (since_id or None),

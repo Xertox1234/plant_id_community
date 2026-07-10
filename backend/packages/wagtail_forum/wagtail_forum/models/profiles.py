@@ -28,6 +28,10 @@ class ForumProfile(models.Model):
     )
     bio = models.TextField(blank=True)
     signature = models.CharField(max_length=255, blank=True)
+    # FCM device token — registered by the mobile app on login. Used by
+    # forum_host/tasks.py to deliver push notifications. Nullable: a user
+    # who has never registered a token (web-only) simply receives no pushes.
+    fcm_token = models.CharField(max_length=255, blank=True, default="")
     # System-computed (read-only to members).
     trust_level = models.PositiveSmallIntegerField(
         choices=TrustLevel.choices, default=TrustLevel.NEW

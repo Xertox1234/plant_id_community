@@ -1,7 +1,8 @@
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.db import connection
-from django.test.utils import CaptureQueriesContext
+from django.test.utils import CaptureQueriesContext, override_settings
 from rest_framework.test import APIClient
 from wagtail.models import Page
 from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
@@ -56,3 +57,91 @@ def test_topic_detail_hides_topic_on_unpublished_board():
     board.save()
     topic = Topic.objects.create(board=board, title="X", slug="x", live=True)
     assert APIClient().get(f"/forum/topics/{topic.id}/").status_code == 404
+
+
+# ---- view_count tests -------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS=900)
+def test_view_count_increments_on_get():
+    cache.clear()
+    board = _board(slug="vc-board")
+    topic = Topic.objects.create(board=board, title="VC", slug="vc", live=True)
+    assert topic.view_count == 0
+
+    APIClient().get(f"/forum/topics/{topic.id}/")
+
+    topic.refresh_from_db()
+    assert topic.view_count == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS=900)
+def test_view_count_does_not_double_count_within_dedup_window():
+    cache.clear()
+    board = _board(slug="vc-board2")
+    topic = Topic.objects.create(board=board, title="VC2", slug="vc2", live=True)
+
+    client = APIClient()
+    client.get(f"/forum/topics/{topic.id}/")
+    client.get(f"/forum/topics/{topic.id}/")  # same viewer, same window
+
+    topic.refresh_from_db()
+    assert topic.view_count == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS=900)
+def test_view_count_counts_different_users_independently():
+    cache.clear()
+    board = _board(slug="vc-board3")
+    topic = Topic.objects.create(board=board, title="VC3", slug="vc3", live=True)
+    u1 = User.objects.create_user(username="v1", password="x")
+    u2 = User.objects.create_user(username="v2", password="x")
+
+    c1 = APIClient()
+    c1.force_authenticate(u1)
+    c1.get(f"/forum/topics/{topic.id}/")
+
+    c2 = APIClient()
+    c2.force_authenticate(u2)
+    c2.get(f"/forum/topics/{topic.id}/")
+
+    topic.refresh_from_db()
+    assert topic.view_count == 2
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS=0)
+def test_view_count_recounts_after_dedup_window_expires():
+    cache.clear()
+    board = _board(slug="vc-board4")
+    topic = Topic.objects.create(board=board, title="VC4", slug="vc4", live=True)
+
+    client = APIClient()
+    client.get(f"/forum/topics/{topic.id}/")
+    # TTL=0 means the cache entry expires immediately — next request is a new view.
+    client.get(f"/forum/topics/{topic.id}/")
+
+    topic.refresh_from_db()
+    assert topic.view_count == 2
+
+
+@pytest.mark.django_db
+def test_view_count_does_not_add_queries_to_response():
+    # on_commit fires AFTER the response transaction; the pinned query count
+    # for the response itself must be unchanged (still 4).
+    cache.clear()
+    board = _board(slug="vc-board5")
+    author = User.objects.create_user(username="vcq", password="x")
+    topic = Topic.objects.create(
+        board=board, title="VCQ", slug="vcq", author=author, live=True
+    )
+    Post.objects.create(topic=topic, author=author, is_opening_post=True, live=True)
+
+    with CaptureQueriesContext(connection) as ctx:
+        resp = APIClient().get(f"/forum/topics/{topic.id}/")
+
+    assert resp.status_code == 200
+    assert len(ctx.captured_queries) == 4
