@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.AddIndex(
-            model_name="topicdeleted_log",
+            model_name="topicdeletedlog",
             index=models.Index(
                 fields=["deleted_at"], name="wf_tombstone_deleted_at_idx"
             ),

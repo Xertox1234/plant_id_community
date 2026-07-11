@@ -62,67 +62,81 @@ def test_topic_detail_hides_topic_on_unpublished_board():
 # ---- view_count tests -------------------------------------------------------
 
 
-@pytest.mark.django_db(transaction=True)
+# These tests must NOT use django_db(transaction=True): its teardown flush
+# deletes Wagtail's migration-seeded root page, breaking every later test that
+# calls _board(). django_capture_on_commit_callbacks runs the on_commit hook
+# without needing real commits.
+@pytest.mark.django_db
 @override_settings(WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS=900)
-def test_view_count_increments_on_get():
+def test_view_count_increments_on_get(django_capture_on_commit_callbacks):
     cache.clear()
     board = _board(slug="vc-board")
     topic = Topic.objects.create(board=board, title="VC", slug="vc", live=True)
     assert topic.view_count == 0
 
-    APIClient().get(f"/forum/topics/{topic.id}/")
+    with django_capture_on_commit_callbacks(execute=True):
+        APIClient().get(f"/forum/topics/{topic.id}/")
 
     topic.refresh_from_db()
     assert topic.view_count == 1
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @override_settings(WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS=900)
-def test_view_count_does_not_double_count_within_dedup_window():
+def test_view_count_does_not_double_count_within_dedup_window(
+    django_capture_on_commit_callbacks,
+):
     cache.clear()
     board = _board(slug="vc-board2")
     topic = Topic.objects.create(board=board, title="VC2", slug="vc2", live=True)
 
     client = APIClient()
-    client.get(f"/forum/topics/{topic.id}/")
-    client.get(f"/forum/topics/{topic.id}/")  # same viewer, same window
+    with django_capture_on_commit_callbacks(execute=True):
+        client.get(f"/forum/topics/{topic.id}/")
+        client.get(f"/forum/topics/{topic.id}/")  # same viewer, same window
 
     topic.refresh_from_db()
     assert topic.view_count == 1
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @override_settings(WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS=900)
-def test_view_count_counts_different_users_independently():
+def test_view_count_counts_different_users_independently(
+    django_capture_on_commit_callbacks,
+):
     cache.clear()
     board = _board(slug="vc-board3")
     topic = Topic.objects.create(board=board, title="VC3", slug="vc3", live=True)
     u1 = User.objects.create_user(username="v1", password="x")
     u2 = User.objects.create_user(username="v2", password="x")
 
-    c1 = APIClient()
-    c1.force_authenticate(u1)
-    c1.get(f"/forum/topics/{topic.id}/")
+    with django_capture_on_commit_callbacks(execute=True):
+        c1 = APIClient()
+        c1.force_authenticate(u1)
+        c1.get(f"/forum/topics/{topic.id}/")
 
-    c2 = APIClient()
-    c2.force_authenticate(u2)
-    c2.get(f"/forum/topics/{topic.id}/")
+        c2 = APIClient()
+        c2.force_authenticate(u2)
+        c2.get(f"/forum/topics/{topic.id}/")
 
     topic.refresh_from_db()
     assert topic.view_count == 2
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @override_settings(WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS=0)
-def test_view_count_recounts_after_dedup_window_expires():
+def test_view_count_recounts_after_dedup_window_expires(
+    django_capture_on_commit_callbacks,
+):
     cache.clear()
     board = _board(slug="vc-board4")
     topic = Topic.objects.create(board=board, title="VC4", slug="vc4", live=True)
 
     client = APIClient()
-    client.get(f"/forum/topics/{topic.id}/")
-    # TTL=0 means the cache entry expires immediately — next request is a new view.
-    client.get(f"/forum/topics/{topic.id}/")
+    with django_capture_on_commit_callbacks(execute=True):
+        client.get(f"/forum/topics/{topic.id}/")
+        # TTL=0 means the cache entry expires immediately — next request is a new view.
+        client.get(f"/forum/topics/{topic.id}/")
 
     topic.refresh_from_db()
     assert topic.view_count == 2
