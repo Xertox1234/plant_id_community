@@ -328,6 +328,11 @@ class MeProfileSerializer(serializers.ModelSerializer):
     bio = serializers.CharField(
         max_length=MAX_BIO_CHARS, required=False, allow_blank=True
     )
+    # Write-only: the mobile app PATCHes this on login to register its FCM
+    # device token. Never returned in responses — a token is a credential.
+    fcm_token = serializers.CharField(
+        max_length=255, required=False, allow_blank=True, write_only=True
+    )
 
     class Meta:
         model = ForumProfile
@@ -340,6 +345,7 @@ class MeProfileSerializer(serializers.ModelSerializer):
             "trust_level",
             "post_count",
             "capabilities",
+            "fcm_token",
         ]
         read_only_fields = ["trust_level", "post_count"]
 

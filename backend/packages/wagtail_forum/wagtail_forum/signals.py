@@ -257,6 +257,11 @@ def update_counters_on_topic_delete(sender, instance, **kwargs):
     _refresh_board_counters(instance.board_id)
     for author_id in author_ids:
         _refresh_profile(author_id)
+    # Record a tombstone so delta-sync clients can evict the deleted topic
+    # from their local cache without requiring a full resync (Issue 6).
+    from .models.tombstones import TopicDeletedLog
+
+    TopicDeletedLog.objects.create(topic_id=instance.pk, board_id=instance.board_id)
 
 
 @receiver(post_delete, sender="wagtail_forum.Post")

@@ -24,6 +24,13 @@ DEFAULTS = {
     "IMAGE_MAX_WIDTH": 5000,
     "IMAGE_MAX_HEIGHT": 5000,
     "IMAGE_COLLECTION_NAME": "Forum Images",
+    # view_count deduplication window (seconds). A topic detail GET from the same
+    # user (or anonymous IP) within this window counts as one view, not many.
+    "VIEW_COUNT_DEDUP_SECONDS": 15 * 60,  # 15 minutes
+    # How long tombstone rows (TopicDeletedLog) are retained before pruning.
+    # A mobile client that hasn't synced in longer than this window will miss
+    # some deletions and should fall back to a full resync.
+    "SYNC_TOMBSTONE_RETENTION_DAYS": 30,
 }
 
 

@@ -165,3 +165,75 @@ def test_sync_without_since_id_includes_exact_boundary_row():
         .data
     )
     assert [x["id"] for x in resp["topics"]] == [t.id]
+
+
+# ---- tombstone / delta-sync tests -------------------------------------------
+
+
+@pytest.mark.django_db
+def test_deleted_topic_appears_in_sync_deleted_list():
+    """A topic deleted after `since` must surface in the `deleted` list so
+    mobile clients can evict it from their local cache (Issue 6)."""
+    board = _board()
+    before = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    topic = Topic.objects.create(board=board, title="gone", slug="gone", live=True)
+    saved_id = topic.pk
+    saved_board_id = board.pk
+    topic.delete()
+
+    resp = APIClient().get(
+        "/forum/sync/", {"since": before.isoformat(), "board": board.slug}
+    )
+    assert resp.status_code == 200
+    deleted_ids = [d["topic_id"] for d in resp.data["deleted"]]
+    assert saved_id in deleted_ids
+    # board_id is also returned so clients can scope the eviction
+    deleted_board_ids = [d["board_id"] for d in resp.data["deleted"]]
+    assert saved_board_id in deleted_board_ids
+
+
+@pytest.mark.django_db
+def test_full_resync_without_since_returns_empty_deleted():
+    """A full resync (no `since`) always returns deleted=[] regardless of
+    how many tombstones exist — clients rebuild from the topics list."""
+    from wagtail_forum.models.tombstones import TopicDeletedLog
+
+    TopicDeletedLog.objects.create(topic_id=999, board_id=1)
+
+    resp = APIClient().get("/forum/sync/")
+    assert resp.status_code == 200
+    assert resp.data["deleted"] == []
+
+
+@pytest.mark.django_db
+def test_tombstone_not_returned_before_its_deleted_at():
+    """A deletion that happened before the client's `since` must NOT appear
+    in `deleted` — the client already knew about it (or never had it)."""
+    from wagtail_forum.models.tombstones import TopicDeletedLog
+
+    old_deletion = datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc)
+    TopicDeletedLog.objects.create(topic_id=42, board_id=1, deleted_at=old_deletion)
+    since = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)
+
+    resp = APIClient().get("/forum/sync/", {"since": since.isoformat()})
+    assert resp.status_code == 200
+    assert resp.data["deleted"] == []
+
+
+@pytest.mark.django_db
+def test_prune_tombstones_command_removes_old_rows(capsys):
+    """prune_forum_tombstones deletes rows older than --days and leaves
+    newer rows intact."""
+    from django.core.management import call_command
+    from wagtail_forum.models.tombstones import TopicDeletedLog
+
+    old = datetime.datetime(2000, 1, 1, tzinfo=datetime.timezone.utc)
+    TopicDeletedLog.objects.create(topic_id=1, board_id=1, deleted_at=old)
+    TopicDeletedLog.objects.create(topic_id=2, board_id=1)  # now — recent
+
+    call_command("prune_forum_tombstones", days=30)
+
+    assert not TopicDeletedLog.objects.filter(topic_id=1).exists()
+    assert TopicDeletedLog.objects.filter(topic_id=2).exists()
+    out = capsys.readouterr().out
+    assert "Pruned 1 tombstone row(s)" in out
