@@ -76,3 +76,16 @@ Compact checklist auto-injected before edits.
   controls share a label.** `{ name: /sign in/i }` matches both `"Sign in"` and
   `"Sign in with Google"` → "Found multiple elements". Use an exact string
   (`{ name: 'Sign in' }`) once a page has both.
+- **Pin a `swagger_fake_view` guard with a direct `view.get_queryset()` unit
+  test.** Schema-content tests can't detect the guard's removal —
+  drf-spectacular resolves the model from `serializer_class` and never calls
+  `get_queryset`. Instantiate the view, set `view.swagger_fake_view = True`,
+  call `get_queryset()` with no request/kwargs wired: it only survives if the
+  guard short-circuits (guard missing → `KeyError` on `self.kwargs` → red).
+  See `wagtail_forum/tests/api/test_schema.py`.
+- **"Comment out `permission_classes`" can be a NO-OP mutation.** With
+  `DEFAULT_PERMISSION_CLASSES = IsAuthenticatedOrReadOnly`, a view with its
+  `permission_classes` removed still blocks anonymous writes — the 401 test
+  keeps passing and proves nothing. To verify an auth test is non-vacuous,
+  mutate to `permission_classes = [AllowAny]`, and check the DRF default
+  before trusting any mutation-based verification.
