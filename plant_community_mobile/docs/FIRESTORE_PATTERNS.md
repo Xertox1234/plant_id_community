@@ -44,12 +44,14 @@ class FirestoreService extends _$FirestoreService {
 ### Key Points
 
 **DO**:
+
 - ✅ Enable `persistenceEnabled: true` for offline support
 - ✅ Use `CACHE_SIZE_UNLIMITED` for mobile apps (no storage constraints)
 - ✅ Initialize settings in service build() method
 - ✅ Log initialization for debugging
 
 **DON'T**:
+
 - ❌ Disable offline persistence (breaks offline functionality)
 - ❌ Set cache size too small (<40MB) - causes data eviction
 - ❌ Re-initialize settings multiple times
@@ -106,12 +108,14 @@ match /users/{userId}/{document=**} {
 ### Key Points
 
 **DO**:
+
 - ✅ Always use `/users/{userId}/...` structure
 - ✅ Get userId from Firebase Auth (`FirebaseAuth.instance.currentUser?.uid`)
 - ✅ Enforce same rules in client and security rules
 - ✅ Test with multiple users to verify isolation
 
 **DON'T**:
+
 - ❌ Use global collections for user data
 - ❌ Hardcode user IDs
 - ❌ Trust client-side auth checks only
@@ -194,6 +198,7 @@ ref.watch(plantsStreamProvider(userId)).when(
 ### Key Points
 
 **DO**:
+
 - ✅ Handle parsing errors for each document
 - ✅ Use `.handleError()` to catch stream errors
 - ✅ Log errors for debugging
@@ -201,6 +206,7 @@ ref.watch(plantsStreamProvider(userId)).when(
 - ✅ Use Riverpod's `.when()` for loading/error states
 
 **DON'T**:
+
 - ❌ Let stream errors crash the app
 - ❌ Assume all documents are valid
 - ❌ Ignore malformed data
@@ -265,12 +271,14 @@ Future<Plant?> getPlant(String userId, String plantId) async {
 ### Key Points
 
 **DO**:
+
 - ✅ Check `snapshot.metadata.isFromCache` to identify source
 - ✅ Log cache hits for performance debugging
 - ✅ Use `kDebugMode` to disable logs in production
 - ✅ Include operation type in log prefix (`[FIRESTORE]`)
 
 **DON'T**:
+
 - ❌ Leave debug logs enabled in production
 - ❌ Log sensitive user data
 - ❌ Spam logs with every document
@@ -354,6 +362,7 @@ class Plant {
 ### Key Points
 
 **DO**:
+
 - ✅ Use explicit type casts (`as String`, `as List<dynamic>`)
 - ✅ Handle null values with `?` operator
 - ✅ Store timestamps as ISO 8601 strings
@@ -361,6 +370,7 @@ class Plant {
 - ✅ Validate all required fields are present
 
 **DON'T**:
+
 - ❌ Use dynamic types without validation
 - ❌ Store DateTime as milliseconds (harder to query)
 - ❌ Assume lists are already typed
@@ -442,12 +452,14 @@ ref.watch(plantsStreamProvider(userId)).when(
 ### Key Points
 
 **DO**:
+
 - ✅ Show success feedback immediately
 - ✅ Trust Firestore's offline queue
 - ✅ Use streams for real-time updates
 - ✅ Handle errors gracefully
 
 **DON'T**:
+
 - ❌ Wait for server confirmation to update UI
 - ❌ Show loading spinner for writes (instant on cache)
 - ❌ Manually track pending writes
@@ -503,12 +515,14 @@ Future<void> clearAllPlants(String userId) async {
 ### Key Points
 
 **DO**:
+
 - ✅ Use batches for multiple related operations
 - ✅ Batch up to 500 operations (Firestore limit)
 - ✅ Commit batch to execute atomically
 - ✅ Log operation count for debugging
 
 **DON'T**:
+
 - ❌ Use batches for single operations (overhead)
 - ❌ Exceed 500 operations per batch
 - ❌ Mix batch and non-batch operations
@@ -590,12 +604,14 @@ try {
 ### Key Points
 
 **DO**:
+
 - ✅ Create domain-specific exception classes
 - ✅ Include operation context in message
 - ✅ Preserve original error details for debugging
 - ✅ Use custom exceptions in catch blocks
 
 **DON'T**:
+
 - ❌ Let generic Firebase exceptions reach UI
 - ❌ Lose original error information
 - ❌ Show technical error codes to users
@@ -668,12 +684,14 @@ class PlantsList extends ConsumerWidget {
 ### Key Points
 
 **DO**:
+
 - ✅ Use Riverpod providers for stream lifecycle
 - ✅ Pass userId as provider parameter
 - ✅ Use `.when()` for loading/error states
 - ✅ Let Riverpod handle disposal
 
 **DON'T**:
+
 - ❌ Manually manage stream subscriptions
 - ❌ Create StreamControllers in services
 - ❌ Forget to cancel subscriptions (memory leak)
@@ -757,12 +775,14 @@ void main() {
 ### Key Points
 
 **DO**:
+
 - ✅ Use emulator for all integration tests
 - ✅ Clear data between tests (isolation)
 - ✅ Test offline scenarios (disconnect emulator)
 - ✅ Verify security rules in emulator
 
 **DON'T**:
+
 - ❌ Test against production Firestore
 - ❌ Skip emulator setup (costs money, slow)
 - ❌ Share test data between tests
@@ -774,6 +794,39 @@ void main() {
 - Free (no Firestore costs)
 - Isolated test environment
 - Offline testing support
+
+### Hard-won specifics for ON-DEVICE emulator tests (2026-07)
+
+The generic setup above works host-side. For a real `integration_test/` run on
+a device/simulator, five specifics matter — reference implementation:
+`integration_test/firestore_emulator_roundtrip_test.dart` +
+`scripts/run_firestore_emulator_test.sh`:
+
+1. **Adopt the native `[DEFAULT]` app.** iOS/Android auto-configure it from the
+   bundled `GoogleService-Info.plist` / `google-services.json`. Call
+   `Firebase.initializeApp()` with **no options** — passing options collides
+   with the native app (`[core/duplicate-app]`). Run the emulator with the same
+   project id (`firebase emulators:exec --project plant-community-prod`) so the
+   redirected traffic lands in the right namespace and prod is never touched.
+2. **Mount the service before connecting the emulator.**
+   `FirestoreService.build()` assigns
+   `_firestore.settings = Settings(persistenceEnabled: true)` with no host — if
+   it runs after `useFirestoreEmulator()`, that assignment clobbers the
+   emulator host and traffic goes to prod. Read/listen the provider first, then
+   call `useFirestoreEmulator`.
+3. **Gate with `String.fromEnvironment`, not `Platform.environment`.** The test
+   executes ON the device, where the host shell's environment is invisible;
+   `--dart-define` values are compiled in. An unset define ⇒ clean skip, so
+   plain `flutter test` (which never scans `integration_test/`) and define-less
+   device runs both stay green.
+4. **Forward the env vars `emulators:exec` injects.** It exports
+   `FIRESTORE_EMULATOR_HOST` / `FIREBASE_AUTH_EMULATOR_HOST` matching the ports
+   in `firebase.json` — pass those straight through as `--dart-define`s instead
+   of hardcoding ports, so `firebase.json` stays the single source of truth.
+5. **Overall `timeout:` on `testWidgets`.** Per-step `.timeout()`s don't cover
+   `initializeApp` / `signInAnonymously` / `enableNetwork`, so an unreachable
+   emulator hangs the run forever without one. The round-trip test uses
+   `Timeout(Duration(minutes: 2))`.
 
 ---
 
@@ -899,10 +952,10 @@ Before deploying Firestore to production:
 
 ## References
 
-- **Firestore Documentation**: https://firebase.google.com/docs/firestore
-- **Offline Persistence**: https://firebase.google.com/docs/firestore/manage-data/enable-offline
-- **Security Rules**: https://firebase.google.com/docs/firestore/security/get-started
-- **Riverpod**: https://riverpod.dev/docs/introduction/getting_started
+- **Firestore Documentation**: <https://firebase.google.com/docs/firestore>
+- **Offline Persistence**: <https://firebase.google.com/docs/firestore/manage-data/enable-offline>
+- **Security Rules**: <https://firebase.google.com/docs/firestore/security/get-started>
+- **Riverpod**: <https://riverpod.dev/docs/introduction/getting_started>
 
 ---
 

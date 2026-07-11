@@ -25,3 +25,10 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   `class Ratelimited(PermissionDenied): pass` with no `.rate` attribute. Use the
   `apps/core/ratelimit.py` wrapper that catches `Ratelimited` and re-raises `RatelimitedWithRate(rate)`
   so the exception handler can derive the real `Retry-After` window instead of hardcoding a constant.
+- **The frozen-topic guard is deliberately symmetric**: PATCH and DELETE are both
+  blocked (409) on a closed/locked topic **including for moderators** — a product
+  decision for mirror-PATCH predictability, not a bug; a moderator reopens the
+  topic to remove content. Don't add a moderator bypass without a new product
+  decision. (The earlier "reply_count desync" justification was wrong —
+  `unpublish()`'s recount is state-independent.) Policy is single-sourced in
+  `Post.edit_block`/`delete_block` (`wagtail_forum/models/posts.py`).

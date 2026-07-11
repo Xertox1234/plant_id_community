@@ -13,7 +13,52 @@ so cross-site cookie auth must be configured (see env vars below).
 3. **Add PostgreSQL** and **Add Redis** (New → Database). Railway exposes
    `DATABASE_URL` and `REDIS_URL` — reference them from the web service (see below).
 4. Set the **environment variables** (Settings → Variables).
-5. Deploy. The start command runs migrations + `collectstatic`, then `gunicorn`.
+5. Deploy. The Docker build bakes `collectstatic`; `preDeployCommand` runs
+   migrations + the forum seed; the start command is gunicorn-only (see below).
+
+## How a deploy works (DOCKERFILE builder — todo 241)
+
+`backend/railway.json` sets `"builder": "DOCKERFILE"`, so Railway builds
+`backend/Dockerfile` instead of auto-generating one. Deploys auto-trigger from
+GitHub `main` (Railway's GitHub connection — no Actions workflow, no staging
+environment): **merging to `main` IS deploying**. Each piece below was placed
+where it is for a reason — moving it breaks prod in a way local testing won't
+show:
+
+- **Why not Nixpacks/Railpack**: Nixpacks generates a Dockerfile with
+  `ARG`+`ENV` lines for every service variable, baking secrets into image
+  layers (BuildKit's `SecretsUsedInArgOrEnv` lint flagged 9). Railpack copies
+  only `requirements.txt` before `pip install`, which breaks the editable
+  `-e ./packages/wagtail_forum` requirement. The hand-written Dockerfile
+  declares NO `ARG`s and `COPY . .`s before installing — see its header
+  comments.
+- **Python version** is pinned by `backend/.python-version` (canonical) and
+  must stay in sync with the Dockerfile's `FROM python:3.13-slim`.
+- **`collectstatic` runs at BUILD time** (a `RUN` step), never at container
+  start: on the slim runtime image the filesystem copies ~3 s/file (262 files
+  ≈ 13 min), which eats the whole healthcheck window so gunicorn never starts.
+  Build infra does it in ~1.5 s. It also can't move to `preDeployCommand` —
+  that container's filesystem is separate from the serving container, so its
+  output never reaches gunicorn. (Django 6 note: `STATICFILES_STORAGE` in
+  settings.py is deprecated-and-ignored — removed in Django 5.1, superseded by
+  `STORAGES` — so collectstatic is plain file copying, no manifest; the
+  setting is vestigial.)
+- **Migrations run in `preDeployCommand`** (`migrate --noinput` +
+  `seed_default_forum`). If it fails, Railway halts the deploy and the
+  previous deployment keeps serving — zero-downtime failure, unlike a
+  migration wedged inside the start command.
+- **`startCommand` is wrapped in `sh -c`**: with a DOCKERFILE builder the
+  command is exec'd with no shell, so a bare `$PORT` reaches gunicorn as the
+  literal string `$PORT` ("Error: '$PORT' is not a valid port number"). The
+  old Nixpacks command only worked because `collectstatic && gunicorn` forced
+  a shell via `&&`.
+- **The healthcheck is load-bearing**: Railway marks a deploy SUCCESS when the
+  container *starts*, not when it serves. `healthcheckPath` makes Railway wait
+  for a 200 before swapping traffic; on timeout (300 s) the old deployment
+  stays live. Railway probes with `Host: healthcheck.railway.app` over plain
+  HTTP, so settings.py appends that host to `ALLOWED_HOSTS` and exempts the
+  health path from the SSL redirect (`SECURE_REDIRECT_EXEMPT`) — removing
+  either fails every future deploy at the healthcheck.
 
 ## Required environment variables (web service)
 

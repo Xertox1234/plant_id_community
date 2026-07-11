@@ -23,3 +23,16 @@ Compact checklist auto-injected before edits. Long-form:
   (`_$xHash`), so *any* edit (even deleting an unrelated method) makes it stale. CI's
   "Ensure generated code is committed" gate (`build_runner` + `git diff
   --exit-code`) blocks the merge; local `flutter analyze`/`test` will NOT catch it.
+- **Firebase-emulator integration tests** (`integration_test/`): adopt the
+  native `[DEFAULT]` app — `Firebase.initializeApp()` with NO options (passing
+  options throws `[core/duplicate-app]`) and run the emulator with the same
+  `--project` as the native `projectId`. Gate on
+  `String.fromEnvironment('FIRESTORE_EMULATOR_HOST')` — `Platform.environment`
+  is invisible on-device; an unset define is a clean skip. Mount the service
+  provider BEFORE `useFirestoreEmulator()` (its `build()` assigns
+  `_firestore.settings`, which would clobber the emulator host and send traffic
+  to prod). Give `testWidgets` an overall `timeout:` — per-step `.timeout()`s
+  don't cover init/sign-in, so an unreachable emulator hangs forever. Reference:
+  `integration_test/firestore_emulator_roundtrip_test.dart` +
+  `scripts/run_firestore_emulator_test.sh`; details in
+  `docs/FIRESTORE_PATTERNS.md` Pattern 10.

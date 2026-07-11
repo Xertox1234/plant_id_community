@@ -37,3 +37,18 @@ Compact checklist auto-injected before edits. Long-form:
   request host). Clients fetch them verbatim — do NOT re-prefix the API base
   (double-prefixing 404s). The page-fetch helper must accept either a relative
   path (first page) or an absolute cursor URL (subsequent pages).
+- **Never name a custom OpenAPI auth scheme `cookieAuth`** — drf-spectacular's
+  built-in SessionAuthentication scheme already claims that name (the
+  `sessionid` cookie); a second identity under it triggers "2 components with
+  identical names … different identities" and an incorrect schema. Name it for
+  the actual cookie (`jwtCookieAuth` for `access_token`) — see
+  `apps/users/schema.py`.
+- **drf-spectacular pre/post-processing hooks must not share module-global
+  state.** Two concurrent `SpectacularAPIView` regenerations interleave
+  `.clear()`/`.add()` with iteration → silently missing schema entries or "Set
+  changed size during iteration". Keep cross-hook state in `threading.local()`
+  (reference: `plant_community_backend/api_schema.py`), import
+  `django.conf.settings` inside the hook body (a top-level import added before
+  its first use gets stripped by the formatter), and derive the path prefix
+  from `SPECTACULAR_SETTINGS["SCHEMA_PATH_PREFIX"]` rather than re-hardcoding
+  a regex that can drift.

@@ -687,3 +687,46 @@ the operation's own `save_revision` (e.g. monkeypatch `save_revision` to run the
 real one then delete the row), not before — otherwise you test a different failure
 (full_clean on a dangling revision FK) than the one you intend (the lock re-fetch's
 `DoesNotExist`). **Agent**: wagtail-reviewer.
+
+## Railway Dockerfile-builder migration (todo 241, 2026-07-01)
+
+### [2026-07-01] Nixpacks baked secrets into image layers; the DOCKERFILE rebuild took four prod-only fixes to go live
+
+**Mistake**: The legacy `NIXPACKS` builder generates a Dockerfile with `ARG`+`ENV`
+lines for EVERY service variable, so all 9 secret-named vars (SECRET_KEY, API
+keys, …) were baked into image layers (BuildKit's `SecretsUsedInArgOrEnv` lint;
+Railway docs confirm sealed variables still inject into Nixpacks builds).
+Switching to a hand-written Dockerfile (zero `ARG`s; `COPY . .` before
+`pip install` so the editable `wagtail_forum` package resolves) fixed the leak
+but surfaced four failures observable ONLY in prod, each caught by a guarded
+deploy:
+
+1. **No healthcheck = blind traffic swap.** Railway marks a deploy SUCCESS when
+   the container *starts*, not when it serves. `healthcheckPath` in
+   `railway.json` makes Railway hold traffic until a 200 (old deploy keeps
+   serving on timeout) — every later fix was diagnosed through it.
+2. **`collectstatic` at container start**: on the `python:3.13-slim` runtime
+   filesystem ~3 s/file × 262 files ≈ 13 min — ate the 300 s healthcheck window
+   so gunicorn never started. Baked into the Docker build (build infra: ~1.5 s).
+   It can't go in `preDeployCommand` either — that container's filesystem is
+   separate from the serving one. (Same debugging confirmed Django 6 IGNORES the
+   deprecated `STATICFILES_STORAGE` setting — removed in 5.1, superseded by
+   `STORAGES` — so settings.py:388 is vestigial and collectstatic emits no
+   manifest.)
+3. **`$PORT` unexpanded**: a DOCKERFILE `startCommand` is exec'd with NO shell,
+   so gunicorn received the literal string `$PORT`. Fix: wrap in `sh -c '…'`.
+   (The Nixpacks-era command only worked because `collectstatic && gunicorn`
+   forced a shell via `&&`.)
+4. **Healthcheck host/scheme rejected**: Railway probes with
+   `Host: healthcheck.railway.app` over plain HTTP → Django 400 `DisallowedHost`,
+   then `SECURE_SSL_REDIRECT` 301'd the probe. settings.py now appends that host
+   to `ALLOWED_HOSTS` and lists the health path in `SECURE_REDIRECT_EXEMPT`.
+
+**Rule**: On Railway always set `healthcheckPath` (SUCCESS ≠ serving). Migrations
+belong in `preDeployCommand` (failure = old deploy stays live); `collectstatic`
+belongs in the image build (never the start path, never pre-deploy — separate
+filesystem); `sh -c`-wrap any `startCommand` that references `$VARS`; keep
+`healthcheck.railway.app` + the SSL-exempt health path in settings. Deploys
+auto-trigger from `main` (no staging) — merging IS deploying. Operational detail:
+`backend/docs/deployment/railway.md` + `backend/Dockerfile` header comments.
+**Agent**: (process/deployment — codified in railway.md; no diff-reviewable signature)
