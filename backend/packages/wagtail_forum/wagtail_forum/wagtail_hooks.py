@@ -1,8 +1,14 @@
 from django.contrib.contenttypes.models import ContentType
+from django.utils.translation import gettext_lazy as _
+from django.utils.translation import ngettext
 from wagtail import hooks
+from wagtail.actions.unpublish import UnpublishAction
+from wagtail.admin.search import SearchArea
 from wagtail.admin.site_summary import SummaryItem
 from wagtail.models import WorkflowState
+from wagtail.snippets.bulk_actions.snippet_bulk_action import SnippetBulkAction
 from wagtail.snippets.models import register_snippet
+from wagtail.snippets.permissions import get_permission_name
 from wagtail.snippets.views.snippets import SnippetViewSet, SnippetViewSetGroup
 
 from .models import ForumProfile, Post, Report, Topic
@@ -29,6 +35,11 @@ class PostViewSet(SnippetViewSet):
     menu_label = "Posts"
     list_display = ["__str__", "topic", "author", "live"]
     list_filter = ["live"]
+    # Post is index.Indexed with one SearchField ("body"); this list is passed
+    # through to the search backend as the `fields` filter, not a separate ORM
+    # icontains mechanism (audit M20; wagtail/admin/views/generic/base.py
+    # search_queryset()).
+    search_fields = ["body"]
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -43,6 +54,9 @@ class ForumProfileViewSet(SnippetViewSet):
     menu_label = "Profiles"
     list_display = ["__str__", "trust_level", "post_count"]
     list_filter = ["trust_level"]
+    # ForumProfile is a plain model (not index.Indexed), so this list drives a
+    # direct ORM icontains filter, not the search backend (audit M20).
+    search_fields = ["user__username"]
 
     def get_queryset(self, request):
         # __str__ falls back to user.get_username() — N+1 without this.
@@ -124,3 +138,70 @@ def add_forum_moderation_summary_item(request, items):
         return  # graceful degradation if forum models aren't ready
     if count > 0:
         items.append(ForumModerationSummaryItem(request, count))
+
+
+@hooks.register("register_admin_search_area")
+def register_forum_search_area():
+    """Makes the forum visible in Wagtail's global admin search picker (audit
+    M20) — mirrors the blog's register_blog_search (apps/blog/wagtail_hooks.py).
+    SearchArea is a plain positional-args class (confirmed via
+    wagtail.admin.search.SearchArea) — not the Component-style trap
+    ForumModerationSummaryItem's docstring above warns about."""
+    return SearchArea(
+        "Forum",
+        "/cms/snippets/wagtail_forum/topic/",
+        name="forum",
+        icon_name="group",
+        order=300,
+    )
+
+
+class ForumUnpublishBulkAction(SnippetBulkAction):
+    """Bulk-unpublish selected Topics/Posts from the admin snippet list, for
+    spam-wave cleanup (audit M20). Reuses the same UnpublishAction(...).execute(
+    skip_permission_checks=True) call the single-object DELETE view and the
+    report auto-hide threshold use (api/views.py, models/reports.py) — one
+    unpublish mechanism, so the `unpublished` signal's counter/trust recount
+    fires identically regardless of which path triggered it.
+    """
+
+    models = [Post, Topic]
+    display_name = _("Unpublish")
+    action_type = "unpublish"
+    aria_label = _("Unpublish selected forum items")
+    template_name = "wagtail_forum/admin/bulk_actions/confirm_bulk_unpublish.html"
+    action_priority = 40
+    classes = {"serious"}
+
+    def check_perm(self, obj):
+        # Snippet permissions aren't per-object, so (like the built-in
+        # DeleteBulkAction) check once per model per request rather than once
+        # per selected row.
+        if getattr(self, "_can_change", None) is None:
+            self._can_change = self.request.user.has_perm(
+                get_permission_name("change", self.model)
+            )
+        return self._can_change
+
+    def get_execution_context(self):
+        # SnippetBulkAction.get_execution_context() supplies {"self": self}
+        # only — no user — so a copy-paste of the Page bulk-unpublish action
+        # would silently attribute every take-down to the system instead of
+        # the acting moderator (audit M20 follow-up).
+        return {**super().get_execution_context(), "user": self.request.user}
+
+    @classmethod
+    def execute_action(cls, objects, user=None, **kwargs):
+        for obj in objects:
+            UnpublishAction(obj, user=user).execute(skip_permission_checks=True)
+        return len(objects), 0
+
+    def get_success_message(self, num_parent_objects, num_child_objects):
+        return ngettext(
+            "%(count)d item has been unpublished",
+            "%(count)d items have been unpublished",
+            num_parent_objects,
+        ) % {"count": num_parent_objects}
+
+
+hooks.register("register_bulk_action", ForumUnpublishBulkAction)

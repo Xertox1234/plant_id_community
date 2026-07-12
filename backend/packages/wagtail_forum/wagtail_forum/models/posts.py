@@ -4,7 +4,13 @@ from django.db import models
 from django.db.models import Q
 from wagtail.admin.panels import FieldPanel
 from wagtail.fields import StreamField
-from wagtail.models import DraftStateMixin, LockableMixin, RevisionMixin, WorkflowMixin
+from wagtail.models import (
+    DraftStateMixin,
+    LockableMixin,
+    PreviewableMixin,
+    RevisionMixin,
+    WorkflowMixin,
+)
 from wagtail.search import index
 
 from ..blocks import ForumBodyBlock
@@ -21,6 +27,7 @@ class Post(
     DraftStateMixin,
     LockableMixin,
     RevisionMixin,
+    PreviewableMixin,
     index.Indexed,
     models.Model,
 ):
@@ -103,6 +110,14 @@ class Post(
 
     def __str__(self):
         return f"Post #{self.pk} in {self.topic_id}"
+
+    def get_preview_template(self, request, mode_name):
+        """Lets a moderator preview a NEEDS_CHANGES post's rendered body from
+        the snippet edit view (audit M16) — the workflow "Awaiting my review"
+        dashboard never surfaces SpamCheckTask items (see wagtail_hooks.py's
+        `_pending_moderation_count` docstring), so the edit view opened from
+        the live=False filtered list is the reachable path this serves."""
+        return "wagtail_forum/admin/post_preview.html"
 
     def edit_block(self, user):
         """Why ``user`` may not edit (PATCH) this post, or ``None`` if they may.
