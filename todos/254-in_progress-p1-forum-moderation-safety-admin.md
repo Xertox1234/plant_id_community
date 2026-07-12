@@ -58,6 +58,13 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `H` = `bac
   required shape is a custom board-scoped permission check (group↔board mapping
   consulted via `post.topic.board_id`) (`W/models/posts.py:107-143`,
   `H/bootstrap.py:20-46`).
+  **Decision (2026-07-12, Slice 4):** stays global-only, deliberately — one
+  seed board exists, no product signal calls for delegated per-board
+  moderators, and the retrofit is high-blast-radius (a new mapping model
+  consulted from every permission-check site: `edit_block`/`delete_block`,
+  `_edit_is_trusted`, the bulk-unpublish action, the SnippetViewSet gate) for
+  zero current benefit (YAGNI). Rationale + revisit trigger recorded in
+  `backend/docs/patterns/domain/forum.md`.
 - **M20** — Admin polish cluster: no `register_admin_search_area` (forum
   invisible in global admin search; blog registers one), `search_fields`
   missing on Post/Profile viewsets, no bulk actions for spam-wave cleanup
@@ -113,9 +120,15 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `H` = `bac
       automated/synchronous with no persistent state for a human to act on;
       building `get_task_states_user_can_moderate` for it would be dead code.
 - [x] Wagtail homepage shows an awaiting-moderation count for forum content
-- [ ] A moderator can preview a pending revision's rendered body
-- [ ] Board-scoped moderation is possible, or global-only is explicitly
-      documented with rationale (M19 decision recorded)
+- [x] A moderator can preview a pending revision's rendered body — Post gained
+      `PreviewableMixin` + a preview template; verified via
+      `make_preview_request()` (the same call Wagtail's own moderation UI
+      uses) rendering a real NEEDS_CHANGES post's body (Slice 4).
+- [x] Board-scoped moderation is possible, or global-only is explicitly
+      documented with rationale (M19 decision recorded) — decided global-only;
+      see the M19 finding correction below and
+      `backend/docs/patterns/domain/forum.md`'s "Moderation permission scope
+      is global, deliberately" section (Slice 4).
 - [ ] L21 image-reuse stance recorded (docs or code change)
 
 ## Work Log
@@ -184,6 +197,77 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `H` = `bac
   assertion and docstring so it's a documented scope limit, not a silent gap.
 - Remaining slices (M16 preview, M19 board-scoped mod, M20 admin polish,
   L21 image-reuse stance) not started.
+
+### 2026-07-12 - Slice 4 (M16 preview, M19 decision, M20 admin polish) shipped
+
+- **M16**: `Post` gained `PreviewableMixin` (Topic deliberately excluded — it
+  has no body, so a preview surface would be near-empty; the AC only asks for
+  "a pending revision's rendered body", which only Post has) + a minimal
+  preview template rendering the StreamField body via `{% include_block %}`.
+  `PreviewableMixin` is fieldless (`makemigrations --check` confirmed no
+  migration). Verified two ways: `make_preview_request()` on a real
+  spam-rejected post's latest revision (the exact call Wagtail's own
+  moderation UI makes — its own docstring says "Used for previewing /
+  moderation") renders the body; the ordinary snippet edit view still 200s
+  with the mixin wired in. Deliberately did NOT try to drive
+  `PreviewOnEditView`'s GET/POST HTTP flow directly — a bare GET with no
+  prior form POST hits Wagtail's own "stale preview" error response (its
+  `FormState` mechanism, unrelated to this fix), so it would have tested
+  Wagtail's framework code, not the template/mixin wiring this slice added.
+  Branch `feat/forum-moderation-slice4-preview-admin`, cut fresh off
+  `origin/main` (learned from Slice 2's branch-staleness bug — verified with
+  `git log origin/main` before cutting, not repeated here).
+- **M19**: decided global-only, documented (see finding correction above and
+  `backend/docs/patterns/domain/forum.md`) rather than building a board-scoped
+  permission retrofit with no current product signal.
+- **M20**: `register_admin_search_area` hook ("Forum" → the Topic listing,
+  same `SearchArea` positional-args class the blog already uses safely — NOT
+  the `SummaryItem` Component trap from Slice 2); `search_fields` added to
+  `PostViewSet` (`["body"]`) and `ForumProfileViewSet` (`["user__username"]`);
+  a `ForumUnpublishBulkAction` (spam-wave cleanup) reusing the same
+  `UnpublishAction(...).execute(skip_permission_checks=True)` mechanism as the
+  single-object DELETE view and the report auto-hide threshold, so the
+  `unpublished` signal's counter/trust recount fires identically regardless of
+  which path triggered it.
+  - Research-before-coding surfaced two non-obvious API facts (read directly
+    from the installed Wagtail 7.4.2 source, not assumed): (1) a SnippetViewSet's
+    own `search_fields` list is passed to the search BACKEND as a `fields`
+    filter when the model is `index.Indexed` (Post's case) — it is only a
+    plain ORM `icontains` filter for a non-indexed model (ForumProfile's
+    case). Both viewsets' `search_fields` were tested against a real row, not
+    just asserted as present (the SummaryItem lesson generalized). (2) the
+    base `SnippetBulkAction.get_execution_context()` supplies `{"self": self}`
+    only, no `user` — copying the Wagtail core Page bulk-unpublish action's
+    shape verbatim would have silently attributed every take-down to the
+    system instead of the acting moderator; caught before writing the code
+    (advisor flagged it), not after.
+- 209 backend forum-package tests (was 203) + 46 forum_host tests passing.
+  `manage.py check` and `makemigrations --check --dry-run` both clean.
+- kimi-review (1 pass) flagged `check_perm`'s single `_can_change` cache
+  attribute as unsafe across `ForumUnpublishBulkAction`'s two `models`
+  (Post/Topic) — verified against `BulkAction.__init__`/the dispatcher
+  (`admin/views/bulk_action/dispatcher.py`) and found FALSE: one dispatched
+  instance is always bound to exactly one model (the URL encodes a single
+  `model_name`), so `self.model` never changes mid-instance — the same
+  single-cache-var shape the core `DeleteBulkAction.check_perm` already uses.
+  No fix applied (kimi's own pipeline had already tagged the finding
+  "unverified against code"). The finding's test-coverage half had a real
+  kernel though: nothing proved `check_perm` actually blocks a non-privileged
+  user — added `test_bulk_unpublish_action_blocks_user_without_change_permission`
+  (a staff user with `access_admin` but not `change_post` cannot unpublish).
+  210 tests passing after this follow-up.
+- Writing that permission test (a GET to the confirmation page, not just a
+  POST) caught a REAL bug the golden-path POST-only test had never exercised:
+  `confirm_bulk_unpublish.html` only `{% load i18n %}`, but its `titletag`
+  block uses `intcomma` — which lives in `wagtailadmin_tags`
+  (`wagtail.admin.templatetags.wagtailadmin_tags`), not `humanize` or
+  `wagtailusers_tags`. Every GET to the confirmation page 500'd, for ANY
+  user, privileged or not — the exact real-world flow a moderator uses
+  (click "Unpublish" -> see confirm page -> click "Yes"). Fixed the
+  `{% load %}` line; also added a GET-then-POST check to the golden-path
+  test so the confirmation-page render is covered there too, not just in the
+  permission-denial test that happened to catch it. 256 forum+forum_host
+  tests passing after this fix.
 
 ## Notes
 

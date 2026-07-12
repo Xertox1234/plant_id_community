@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+{# Moderator preview of a Post's rendered body (audit M16) — reached from the #}
+{# snippet edit view's preview pane, not a public-facing page: Post has no #}
+{# front-end route of its own (the React SPA owns that), so this exists only #}
+{# to let a moderator see what a NEEDS_CHANGES post's body actually renders to. #}
+{% load wagtailcore_tags wagtailuserbar %}
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Preview: post in {{ object.topic.title }}</title>
+  </head>
+  <body>
+    <main>
+      <p>
+        <strong>{{ object.author|default:"[deleted user]" }}</strong>
+        in <em>{{ object.topic.title }}</em>
+        &mdash; {{ object.created_at }}
+      </p>
+      {% include_block object.body %}
+    </main>
+    {% wagtailuserbar %}
+  </body>
+</html>

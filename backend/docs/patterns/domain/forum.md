@@ -51,3 +51,23 @@ The forum is a reusable, Wagtail-native package — no django-machina, no
 - **Visibility**: filter page querysets with `.live().public()`; gate child-object
   queries via the visible-board set (`PageViewRestriction` is not auto-enforced in
   custom views/APIs).
+
+## Moderation permission scope is global, deliberately (audit M19)
+
+Moderation is one flat `"Forum Moderators"` group (`apps/forum_host/bootstrap.py`)
+with `change_topic`/`change_post` etc. — there is no per-board moderator concept.
+This is a **deliberate decision, not an oversight**:
+
+- `Topic`/`Post` are snippets, not Pages — Wagtail's `GroupPagePermission` (which
+  `ForumBoard`, itself a Page, could otherwise use) has no snippet analog. A
+  board-scoped check would mean a new group↔board mapping model consulted from
+  every permission check site (`Post.edit_block`/`delete_block`,
+  `_edit_is_trusted`'s `acting_as_moderator`, the bulk-unpublish action's
+  `check_perm`, the SnippetViewSet permission gate) — high blast radius through
+  security-critical code.
+  - `seed_default_forum` creates exactly one board. There is no product signal
+    (no second board, no request for delegated moderators) that justifies that
+    blast radius today (YAGNI, root `CLAUDE.md`).
+- **Revisit trigger**: when a second board ships AND it needs a moderator distinct
+  from the global group, design the group↔board mapping then, against a real
+  requirement instead of a speculative one.
