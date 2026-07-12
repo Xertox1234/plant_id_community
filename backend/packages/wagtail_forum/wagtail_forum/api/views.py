@@ -673,7 +673,13 @@ class PostReportView(APIView):
         serializer = ReportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
-        Report.file(post, request.user, **serializer.validated_data)
+        try:
+            # A hard delete (topic CASCADE from the admin) racing this report
+            # makes Report.file's lock re-fetch raise DoesNotExist — map it to
+            # 404, not a 500 (mirrors PostWriteView.patch's identical guard).
+            Report.file(post, request.user, **serializer.validated_data)
+        except Post.DoesNotExist:
+            raise NotFound()
         result = {"reported": True}
         remember(cache_key, result, http_status.HTTP_200_OK, payload_fp)
         return Response(result, status=http_status.HTTP_200_OK)

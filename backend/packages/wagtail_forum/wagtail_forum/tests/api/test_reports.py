@@ -184,3 +184,31 @@ def test_report_retry_with_idempotency_key_does_not_duplicate():
     assert r1.status_code == r2.status_code == 200
     assert r2.data == r1.data
     assert Report.objects.filter(post=opening, reporter=user).count() == 1
+
+
+@pytest.mark.django_db
+def test_report_hard_deleted_between_create_and_lock_is_404_not_500(monkeypatch):
+    """A hard delete (topic CASCADE) landing between Report.file's own create()
+    savepoint and its auto-hide lock re-fetch returns 404, not a 500
+    (kimi-review, forum audit todo 254). The report row itself is still
+    created (it committed in its own savepoint before the delete), matching
+    the DELETE endpoint's identical race guard (test_post_edit_delete.py)."""
+    ensure_default_workflow()
+    _, opening = _live_topic()
+    real_create = Report.objects.create
+
+    def create_then_delete_post(**kwargs):
+        result = real_create(**kwargs)
+        Post.objects.filter(id=opening.id).delete()
+        return result
+
+    monkeypatch.setattr(Report.objects, "create", create_then_delete_post)
+    user = User.objects.create_user(username="r")
+    client = APIClient()
+    client.force_authenticate(user)
+
+    resp = client.post(
+        f"/forum/posts/{opening.id}/reports/", {"reason": "spam"}, format="json"
+    )
+
+    assert resp.status_code == 404
