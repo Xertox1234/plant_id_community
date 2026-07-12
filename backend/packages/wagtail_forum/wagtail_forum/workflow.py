@@ -89,6 +89,16 @@ def submit_for_moderation(obj, user):
       left as a draft rather than published unscreened.
     - The opening-post -> topic publish is guarded by an author match so one user
       can never force someone else's draft topic live (IDOR).
+    - A moderation-step failure (e.g. a spam-backend exception) is caught
+      HERE, not left to the view's own outer try/except: the caller's catch
+      already stops it 500ing the create request, but by the time it fires
+      the function has already exited past the moderation_decided notify()
+      below, so hosts silently miss the notification for a crashed-but-still-
+      pending post. Catching it here lets the function finish normally and
+      reach that notify() (audit H16). Note: Wagtail's own
+      AbstractWorkflow.start() is @transaction.atomic, so the crash itself
+      never orphans a TaskState/WorkflowState row — this wrap's only job is
+      restoring signal-firing consistency for the crash path.
     """
     if obj.live:  # API callers already create drafts; skip the redundant UPDATE
         obj.live = False
@@ -99,12 +109,21 @@ def submit_for_moderation(obj, user):
     profile = ForumProfile.for_user(obj.author)
     revision = obj.save_revision(user=user)
 
-    _route_revision_by_trust(
-        obj,
-        revision,
-        profile.trust_level >= get_setting("TRUST_AUTOPUBLISH_LEVEL"),
-        user=user,
-    )
+    try:
+        _route_revision_by_trust(
+            obj,
+            revision,
+            profile.trust_level >= get_setting("TRUST_AUTOPUBLISH_LEVEL"),
+            user=user,
+        )
+    except Exception:
+        # obj.live is still False (never set True yet on this path), so
+        # 'pending' below is truthful — the revision IS saved, only the
+        # moderation step failed (audit H16, mirrors submit_edit_for_moderation).
+        logger.exception(
+            "[ERROR] submit_for_moderation moderation step failed for post %s",
+            obj.pk,
+        )
     obj.refresh_from_db()
 
     # Publish the topic only when its own author's opening post goes live.
