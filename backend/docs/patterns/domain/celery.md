@@ -87,3 +87,32 @@ Periodic tasks that touch the DB must use `select_related`/`prefetch_related`.
 - Task names follow `module.task_name` format: `apps.garden_calendar.tasks.send_care_reminder`.
 - Tasks used only for side effects: `@shared_task(ignore_result=True)`.
 - Long-running tasks: use `celery.utils.functional.chunk` for large datasets to avoid blocking the worker pool.
+
+## Testing Retry Backoff (2026-07-11, forum audit)
+
+Three eager-mode traps when testing a `bind=True` retrying task:
+
+1. `self.retry()` with NO task context re-raises the ORIGINAL exception, not
+   `celery.exceptions.Retry` — a bare function-call test never observes `Retry`.
+2. `task.apply(args=…)` runs WITH a task context and re-executes retries
+   synchronously — assert attempt counts (`initial + max_retries` sends) and the
+   final `FAILURE` result carrying the transient error…
+3. …but `.apply()` IGNORES `countdown`, so backoff VALUES are structurally
+   invisible to it. Pin them by faking the retry counter:
+
+```python
+from celery.exceptions import Retry
+
+with patch.object(send_forum_push, "retry", side_effect=Retry("retried")) as mock_retry:
+    send_forum_push.push_request(retries=1)
+    try:
+        with pytest.raises(Retry):
+            send_forum_push.run("reply_added", user.pk, {"topic_id": "1"})
+    finally:
+        send_forum_push.pop_request()
+
+assert mock_retry.call_args.kwargs["countdown"] == 60  # 30 * 2**1
+```
+
+Reference: `backend/apps/forum_host/tests/test_tasks.py` (exhaustion via
+`.apply()` + countdown pins via `push_request`).

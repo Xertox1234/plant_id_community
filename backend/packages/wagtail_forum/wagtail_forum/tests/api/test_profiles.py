@@ -9,7 +9,7 @@ pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 @pytest.mark.django_db
 def test_me_profile_get_and_patch():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     ForumProfile.for_user(user)
     client = APIClient()
     client.force_authenticate(user)
@@ -26,7 +26,7 @@ def test_me_profile_get_and_patch():
 
 @pytest.mark.django_db
 def test_me_profile_rejects_system_field_edits():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     ForumProfile.for_user(user)
     client = APIClient()
     client.force_authenticate(user)

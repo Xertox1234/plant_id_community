@@ -52,3 +52,9 @@ Compact checklist auto-injected before edits. Long-form:
   its first use gets stripped by the formatter), and derive the path prefix
   from `SPECTACULAR_SETTINGS["SCHEMA_PATH_PREFIX"]` rather than re-hardcoding
   a regex that can drift.
+- **Pin `filter_backends = []` on DRF generics views in reusable packages.** They
+  inherit the host's `DEFAULT_FILTER_BACKENDS`; a global `OrderingFilter` lets any
+  client `?ordering=` REPLACE the cursor paginator's ordering (un-pinning
+  pinned-first lists) and 500 via dotted serializer sources
+  (`?ordering=author__get_username` → `FieldError`). List order is a package
+  contract, not client-selectable (audit 2026-07-11 Phase 6 R1).

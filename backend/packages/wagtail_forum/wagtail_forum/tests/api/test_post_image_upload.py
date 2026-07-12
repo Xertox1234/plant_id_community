@@ -37,7 +37,7 @@ def _upload(name="ok.jpg", content=None, content_type="image/jpeg"):
 
 def _auth_client():
     client = APIClient()
-    client.force_authenticate(User.objects.create_user(username="up", password="x"))
+    client.force_authenticate(User.objects.create_user(username="up"))
     return client
 
 
@@ -138,7 +138,7 @@ def test_image_round_trips_through_create_and_read():
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
     board = index.add_child(instance=ForumBoard(title="General", slug="general"))
-    author = User.objects.create_user(username="mem", password="x")
+    author = User.objects.create_user(username="mem")
     profile = ForumProfile.for_user(author)
     profile.trust_level = TrustLevel.MEMBER  # autopublish, so the reply goes live
     profile.save()

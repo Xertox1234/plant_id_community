@@ -32,6 +32,14 @@ Work through each item for every changed file. Emit findings in the structured f
   concurrent writes)? Is the gating value re-read from the locked row? Is the
   `except` OUTSIDE the `atomic()` (a caught DB error inside poisons the connection)?
 
+### Forum-audit additions (2026-07-11)
+
+- Reusable-package generics views (`backend/packages/**`): is `filter_backends`
+  pinned (normally `[]`)? Inherited host `OrderingFilter` lets a client
+  `?ordering=` replace cursor-pagination ordering (defeats pinned-first) and
+  500s via dotted serializer sources (`?ordering=author__get_username` →
+  `FieldError`). Both reproduced 2026-07-11.
+
 ## Output Format (Review Mode)" below — do not write prose
 
 ### LSP Workflow (run before the checklist)

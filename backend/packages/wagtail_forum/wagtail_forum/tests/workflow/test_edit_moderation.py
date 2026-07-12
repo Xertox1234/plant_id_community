@@ -32,7 +32,7 @@ def _board():
 
 
 def _author(username, trust):
-    u = User.objects.create_user(username=username, password="x")
+    u = User.objects.create_user(username=username)
     p = ForumProfile.for_user(u)
     p.trust_level = trust
     p.save()

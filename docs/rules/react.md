@@ -24,3 +24,7 @@ Compact checklist auto-injected before edits. Long-form:
   (`^3.22.5`) resolves to the newest 3.x (e.g. 3.27), whose `peer @tiptap/core` no
   longer matches the pinned core → `npm install` ERESOLVE. Install the exact
   matching version (`@tiptap/extension-image@3.22.5`); `npm ci` then honors the lock.
+- **Never `Array(n).fill(makeThing())` for fixtures** — `.fill()` evaluates its
+  argument ONCE, so all n slots share one object (duplicate React keys, cross-item
+  mutation, warning noise that buries real warnings). Use
+  `Array.from({ length: n }, (_, i) => makeThing({ id: i }))`.

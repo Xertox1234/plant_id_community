@@ -20,7 +20,7 @@ def _board(slug="general"):
 @pytest.mark.django_db
 def test_topic_detail_returns_live_topic():
     board = _board()
-    author = User.objects.create_user(username="ada", password="x")
+    author = User.objects.create_user(username="ada")
     topic = Topic.objects.create(
         board=board, title="Hello", slug="hello", author=author, live=True
     )
@@ -107,8 +107,8 @@ def test_view_count_counts_different_users_independently(
     cache.clear()
     board = _board(slug="vc-board3")
     topic = Topic.objects.create(board=board, title="VC3", slug="vc3", live=True)
-    u1 = User.objects.create_user(username="v1", password="x")
-    u2 = User.objects.create_user(username="v2", password="x")
+    u1 = User.objects.create_user(username="v1")
+    u2 = User.objects.create_user(username="v2")
 
     with django_capture_on_commit_callbacks(execute=True):
         c1 = APIClient()
@@ -148,7 +148,7 @@ def test_view_count_does_not_add_queries_to_response():
     # for the response itself must be unchanged (still 4).
     cache.clear()
     board = _board(slug="vc-board5")
-    author = User.objects.create_user(username="vcq", password="x")
+    author = User.objects.create_user(username="vcq")
     topic = Topic.objects.create(
         board=board, title="VCQ", slug="vcq", author=author, live=True
     )

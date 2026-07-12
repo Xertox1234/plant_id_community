@@ -1,0 +1,29 @@
+{% load wagtailcore_tags %}<!DOCTYPE html>
+{# Minimal server-rendered fallback (audit 2026-07-11 H17). The host SPA is the #}
+{# real forum UI; this page exists so direct serving (admin "View live", #}
+{# sitemaps, crawlers) renders instead of raising TemplateDoesNotExist. Hosts #}
+{# may override it at templates/wagtail_forum/forum_index.html. #}
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ page.title }}</title>
+    {% if page.search_description %}
+      <meta name="description" content="{{ page.search_description }}" />
+    {% endif %}
+  </head>
+  <body>
+    <main>
+      <h1>{{ page.title }}</h1>
+      {% if page.intro %}{{ page.intro|richtext }}{% endif %}
+      <ul>
+        {% for board in boards %}
+          <li>
+            <a href="{{ board.url|default:'#' }}">{{ board.title }}</a>
+            {% if board.description %}&mdash; {{ board.description }}{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </main>
+  </body>
+</html>

@@ -17,8 +17,8 @@ def _post(author):
 
 @pytest.mark.django_db
 def test_recount_updates_post_counts():
-    a = User.objects.create_user(username="a", password="x")
-    b = User.objects.create_user(username="b", password="x")
+    a = User.objects.create_user(username="a")
+    b = User.objects.create_user(username="b")
     post = _post(a)
 
     Reaction.objects.create(post=post, user=a, reaction_type=Reaction.LIKE)
@@ -32,7 +32,7 @@ def test_recount_updates_post_counts():
 
 @pytest.mark.django_db
 def test_one_reaction_per_user_per_type():
-    a = User.objects.create_user(username="a", password="x")
+    a = User.objects.create_user(username="a")
     post = _post(a)
     Reaction.objects.create(post=post, user=a, reaction_type=Reaction.LIKE)
     with pytest.raises(IntegrityError):

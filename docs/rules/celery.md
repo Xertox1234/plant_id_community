@@ -15,3 +15,9 @@ Compact checklist auto-injected before edits. Long-form:
   `reject_on_worker_lost=True`. The `task_`-prefixed names (`task_acks_late`,
   `task_reject_on_worker_lost`) are the *global* config settings; passed to
   `@shared_task(...)` they are silently accepted as inert kwargs and do nothing.
+- **`.apply()` proves retry attempt COUNTS but silently ignores `countdown`** —
+  eager mode re-executes immediately, so a broken backoff formula ships green. Pin
+  the values with `task.push_request(retries=N)` +
+  `patch.object(task, "retry", side_effect=Retry())`, asserting the captured
+  `countdown` kwarg. And `retry()` called with NO task context re-raises the
+  ORIGINAL exception, never `Retry`.

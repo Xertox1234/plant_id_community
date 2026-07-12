@@ -27,7 +27,7 @@ def _board():
 
 def _live_topic(closed=False):
     board = _board()
-    author = User.objects.create_user(username="op", password="x")
+    author = User.objects.create_user(username="op")
     topic = Topic.objects.create(
         board=board, title="T", slug="t", author=author, is_closed=closed
     )
@@ -40,7 +40,7 @@ def _live_topic(closed=False):
 def test_reply_blocked_on_closed_topic():
     ensure_default_workflow()
     topic, _ = _live_topic(closed=True)
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client = APIClient()
     client.force_authenticate(user)
     resp = client.post(
@@ -57,11 +57,11 @@ def test_reply_to_non_live_topic_returns_404():
     # reveal its existence — 404, checked BEFORE the closed/locked 409.
     ensure_default_workflow()
     board = _board()
-    author = User.objects.create_user(username="op", password="x")
+    author = User.objects.create_user(username="op")
     draft = Topic.objects.create(
         board=board, title="Hidden", slug="hidden", author=author, live=False
     )
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client = APIClient()
     client.force_authenticate(user)
     resp = client.post(
@@ -79,7 +79,7 @@ def test_reply_dangerous_body_is_sanitized():
     # stripped); the reply is accepted with clean content, not rejected.
     ensure_default_workflow()
     topic, _ = _live_topic()
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client = APIClient()
     client.force_authenticate(user)
     resp = client.post(
@@ -107,7 +107,7 @@ def test_reply_dangerous_body_is_sanitized():
 def test_reaction_toggle_returns_counts():
     ensure_default_workflow()
     _, opening = _live_topic()
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client = APIClient()
     client.force_authenticate(user)
 
@@ -128,7 +128,7 @@ def test_reaction_toggle_returns_counts():
 def test_reaction_rejects_invalid_type():
     ensure_default_workflow()
     _, opening = _live_topic()
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client = APIClient()
     client.force_authenticate(user)
     resp = client.post(
@@ -143,14 +143,14 @@ def test_reaction_on_non_live_topic_post_returns_404():
     # reveal its existence — 404, mirroring the reply non-live guard.
     ensure_default_workflow()
     board = _board()
-    author = User.objects.create_user(username="op", password="x")
+    author = User.objects.create_user(username="op")
     draft = Topic.objects.create(
         board=board, title="H", slug="h", author=author, live=False
     )
     hidden_post = Post.objects.create(
         topic=draft, author=author, is_opening_post=True, live=False
     )
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client = APIClient()
     client.force_authenticate(user)
     resp = client.post(
@@ -177,7 +177,7 @@ def _reply(client, topic, key=None):
 def test_reply_retry_with_idempotency_key_does_not_duplicate():
     ensure_default_workflow()
     topic, _ = _live_topic()
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client = APIClient()
     client.force_authenticate(user)
 
@@ -194,7 +194,7 @@ def test_reply_retry_with_idempotency_key_does_not_duplicate():
 def test_idempotency_key_reuse_with_different_payload_is_422():
     ensure_default_workflow()
     topic, _ = _live_topic()
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client = APIClient()
     client.force_authenticate(user)
 
@@ -215,8 +215,8 @@ def test_idempotency_keys_are_user_scoped():
     # replay of A's cached response.
     ensure_default_workflow()
     topic, _ = _live_topic()
-    a = User.objects.create_user(username="a", password="x")
-    b = User.objects.create_user(username="b", password="x")
+    a = User.objects.create_user(username="a")
+    b = User.objects.create_user(username="b")
     client = APIClient()
 
     client.force_authenticate(a)
@@ -233,7 +233,7 @@ def test_idempotency_keys_are_user_scoped():
 def test_reaction_retry_with_idempotency_key_replays_not_inverts():
     ensure_default_workflow()
     _, opening = _live_topic()
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client = APIClient()
     client.force_authenticate(user)
 
@@ -260,7 +260,7 @@ def test_reaction_retry_with_idempotency_key_replays_not_inverts():
 def test_reaction_response_reports_resulting_state():
     ensure_default_workflow()
     _, opening = _live_topic()
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client = APIClient()
     client.force_authenticate(user)
     url = f"/forum/posts/{opening.id}/reactions/"
@@ -283,7 +283,7 @@ def test_reply_blocked_on_locked_topic():
     topic, _ = _live_topic()
     topic.locked = True
     topic.save(update_fields=["locked"])
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client = APIClient()
     client.force_authenticate(user)
     resp = client.post(
@@ -303,7 +303,7 @@ def test_reaction_on_draft_post_of_live_topic_returns_404():
     draft_reply = Post.objects.create(
         topic=topic, author=author, is_opening_post=False, live=False
     )
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client = APIClient()
     client.force_authenticate(user)
     resp = client.post(
@@ -320,7 +320,7 @@ def test_reply_spam_backend_crash_leaves_pending_not_500(settings):
     )
     ensure_default_workflow()
     topic, _ = _live_topic()
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client = APIClient()
     client.force_authenticate(user)
 

@@ -300,6 +300,48 @@ describe('StreamFieldRenderer', () => {
       expect(screen.queryByText(/alert.*XSS/)).not.toBeInTheDocument();
     });
 
+    it('neutralizes script/onerror payloads in string-shaped quote blocks', async () => {
+      // Audit 2026-07-11 M32: quote blocks arrive VERBATIM from the backend
+      // (plain-text-by-contract; only paragraphs are nh3-cleaned server-side)
+      // and are reachable via direct API POST — the renderer's `<`-heuristic
+      // DOMPurify path is the only defense and was previously untested.
+      const blocks: StreamFieldBlock[] = [
+        {
+          id: 'q1',
+          type: 'quote',
+          value: '<script>alert(1)</script><img src="x" onerror="alert(2)">quoted text',
+        },
+      ];
+
+      const { container } = render(<StreamFieldRenderer blocks={blocks} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/quoted text/)).toBeInTheDocument();
+      });
+      expect(container.querySelector('script')).toBeNull();
+      expect(container.querySelector('[onerror]')).toBeNull();
+    });
+
+    it('renders heading and code payloads as inert escaped text', () => {
+      // Heading/code render as plain JSX children — React escapes them; pin it.
+      const blocks: StreamFieldBlock[] = [
+        { id: 'h1', type: 'heading', value: '<img src=x onerror=alert(4)>' },
+        {
+          id: 'c1',
+          type: 'code',
+          value: { language: 'html', code: '<script>alert(5)</script>' },
+        },
+      ];
+
+      const { container } = render(<StreamFieldRenderer blocks={blocks} />);
+
+      expect(container.querySelector('script')).toBeNull();
+      expect(container.querySelector('[onerror]')).toBeNull();
+      // The literal payload text is displayed (escaped), not executed.
+      expect(container.textContent).toContain('<img src=x onerror=alert(4)>');
+      expect(container.textContent).toContain('<script>alert(5)</script>');
+    });
+
     it('sanitizes malicious onclick attributes', async () => {
       const blocks: StreamFieldBlock[] = [
         {

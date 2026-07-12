@@ -48,7 +48,7 @@ def _assign_workflow():
 
 @pytest.mark.django_db
 def test_clean_post_is_published_by_workflow():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     post = _draft_post(user, "a totally normal first post")
 
     # Automated moderation runs as the system (user=None) so the finish-action
@@ -62,7 +62,7 @@ def test_clean_post_is_published_by_workflow():
 
 @pytest.mark.django_db
 def test_spammy_post_is_not_published():
-    user = User.objects.create_user(username="eve", password="x")
+    user = User.objects.create_user(username="eve")
     spam = "http://a.com http://b.com http://c.com http://d.com http://e.com"
     post = _draft_post(user, spam)
 
@@ -79,7 +79,7 @@ def test_spam_in_latest_revision_is_caught_not_db_row():
     # TOCTOU guard: the finish action publishes the LATEST REVISION, so the spam
     # check must inspect that revision, not the saved DB row. A post saved clean
     # whose latest revision was edited to spam must NOT publish.
-    user = User.objects.create_user(username="sneak", password="x")
+    user = User.objects.create_user(username="sneak")
     post = _draft_post(user, "a totally clean saved body")  # DB row stays clean
 
     spam = "http://a.com http://b.com http://c.com http://d.com http://e.com"

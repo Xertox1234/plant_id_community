@@ -82,3 +82,13 @@ Compact checklist auto-injected before edits. Long-form:
   collection (`get_image_model().objects.filter(id__in=ids, collection=…)`); reject
   any nonexistent or out-of-collection id. The `to_python` dry-run never resolves
   chooser PKs, so an unchecked id is an IDOR-by-reference.
+- **Never pass a user to `workflow.start()`.** On auto-approval workflows the
+  completion hook publishes AS `requested_by` WITHOUT skipping permission checks →
+  `PublishPermissionError` for non-moderator authors. Attribute at the action
+  instead: `revision.publish(user=…, skip_permission_checks=True)`; for unpublish
+  call `UnpublishAction(obj, user=…).execute(skip_permission_checks=True)` — the
+  `DraftStateMixin.unpublish()` method cannot skip the check. (`LogContext` only
+  attributes in the admin auth flow; DRF permissions are the real gate.)
+- **An attributed log write adds one `auth_user` existence-check query** — passing
+  `user=` into publish/unpublish shifts exact query pins by +1 per logged action;
+  update the pin WITH a comment explaining the new number.

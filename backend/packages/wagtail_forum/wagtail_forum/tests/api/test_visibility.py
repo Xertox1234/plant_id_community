@@ -26,7 +26,7 @@ def _board(slug="general"):
 
 
 def _live_topic(board, slug="t", body=None):
-    author = User.objects.create_user(username=f"op-{slug}", password="x")
+    author = User.objects.create_user(username=f"op-{slug}")
     topic = Topic.objects.create(board=board, title=slug, slug=slug, author=author)
     kwargs = {"topic": topic, "author": author, "is_opening_post": True}
     if body is not None:
@@ -40,7 +40,7 @@ def _live_topic(board, slug="t", body=None):
 def test_pending_topics_are_excluded_from_list_search_and_sync():
     board = _board()
     _live_topic(board, slug="visible")
-    author = User.objects.create_user(username="spammer", password="x")
+    author = User.objects.create_user(username="spammer")
     hidden_topic = Topic.objects.create(
         board=board, title="hidden spam", slug="hidden-spam", author=author, live=False
     )
@@ -77,7 +77,7 @@ def test_unpublished_board_takedown_is_effective():
     topic, post = _live_topic(board)
     board.unpublish()
     client = APIClient()
-    user = User.objects.create_user(username="r", password="x")
+    user = User.objects.create_user(username="r")
     client.force_authenticate(user)
 
     reply = client.post(

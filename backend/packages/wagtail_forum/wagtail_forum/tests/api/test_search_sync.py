@@ -90,7 +90,7 @@ def test_sync_truncation_sets_has_more_and_boundary_next_since(monkeypatch):
 @pytest.mark.django_db
 def test_search_returns_topics_and_posts():
     board = _board()
-    author = User.objects.create_user(username="ada", password="x")
+    author = User.objects.create_user(username="ada")
     topic = Topic.objects.create(
         board=board, title="Monstera care", slug="monstera", author=author, live=True
     )
@@ -108,6 +108,63 @@ def test_search_returns_topics_and_posts():
     assert "topics" in resp.data and "posts" in resp.data
     assert any(t["id"] == topic.id for t in resp.data["topics"])
     assert any(p["id"] == post.id for p in resp.data["posts"])
+
+
+@pytest.mark.django_db
+def test_search_post_excerpts_are_plain_text_with_flat_queries():
+    # Audit 2026-07-11 H24: the excerpt used body.render_as_block(), which
+    # resolves the StreamValue and bulk-fetches image blocks PER POST (+1 query
+    # per image-bearing hit) and could slice HTML mid-tag. The raw_data excerpt
+    # must keep the query count flat and emit plain text.
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+    from wagtail.images import get_image_model
+    from wagtail.images.tests.utils import get_test_image_file
+
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    image = get_image_model().objects.create(title="leaf", file=get_test_image_file())
+
+    def make(i):
+        topic = Topic.objects.create(
+            board=board,
+            title=f"Fern topic {i}",
+            slug=f"fern-{i}",
+            author=author,
+            live=True,
+        )
+        Post.objects.create(
+            topic=topic,
+            author=author,
+            is_opening_post=True,
+            live=True,
+            body=[
+                {"type": "paragraph", "value": "<p>My <b>fern</b> is wilting</p>"},
+                {"type": "image", "value": image.id},
+            ],
+        )
+
+    make(0)
+    client = APIClient()
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get("/forum/search/?q=fern")
+    assert resp.status_code == 200
+    assert len(resp.data["posts"]) == 1
+    queries_one_post = len(ctx.captured_queries)
+
+    for i in range(1, 5):
+        make(i)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get("/forum/search/?q=fern")
+    assert resp.status_code == 200
+    assert len(resp.data["posts"]) == 5
+    # Flat: 5 image-bearing hits must cost the same as 1 (no per-post
+    # chooser resolution). Pinned as equality per docs/rules/testing.md.
+    assert len(ctx.captured_queries) == queries_one_post
+
+    excerpt = resp.data["posts"][0]["excerpt"]
+    assert "My fern is wilting" in excerpt
+    assert "<" not in excerpt  # plain text — no tags, no dangling-slice risk
 
 
 @pytest.mark.django_db

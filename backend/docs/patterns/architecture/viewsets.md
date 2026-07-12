@@ -30,6 +30,7 @@
 When you override `get_permissions()` in a ViewSet, it's called for EVERY action. If you don't explicitly handle custom actions, DRF ignores the `permission_classes` specified in `@action` decorators.
 
 **The Inheritance Chain**:
+
 1. Request comes in for custom action (e.g., `upload_image`)
 2. DRF calls `self.get_permissions()`
 3. Your `get_permissions()` returns default permissions (e.g., `IsAuthenticatedOrReadOnly`)
@@ -66,6 +67,7 @@ class PostViewSet(viewsets.ModelViewSet):
 ```
 
 **What Happened**:
+
 - NEW users (trust level 0) could upload images
 - `CanUploadImages` permission was NEVER checked
 - Trust level restrictions were completely bypassed
@@ -78,6 +80,7 @@ class PostViewSet(viewsets.ModelViewSet):
 ### Pattern: Delegate to super() for Custom Actions
 
 **Anti-Pattern** ❌:
+
 ```python
 class MyViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticatedOrReadOnly]
@@ -95,6 +98,7 @@ class MyViewSet(viewsets.ModelViewSet):
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 class MyViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticatedOrReadOnly]
@@ -173,6 +177,7 @@ class PostViewSet(viewsets.ModelViewSet):
 ```
 
 **Key Points**:
+
 - ✅ List custom actions explicitly in `get_permissions()`
 - ✅ Call `super().get_permissions()` for those actions
 - ✅ Standard CRUD actions handled normally
@@ -185,12 +190,14 @@ class PostViewSet(viewsets.ModelViewSet):
 ### Why This Matters
 
 **Permission Bypass Vulnerability**:
+
 1. **Trust Level Bypass**: NEW users could upload images (requires BASIC+)
 2. **Authorization Bypass**: Non-authors could perform restricted actions
 3. **Silent Failure**: No error, no warning - permissions just ignored
 4. **Production Risk**: Could be exploited in production if not caught
 
 **Impact of Issue #131**:
+
 - **Severity**: HIGH (permission bypass)
 - **Affected Actions**: All custom actions with `@action` permissions
 - **Tests Passing**: 14/18 (false sense of security)
@@ -199,12 +206,14 @@ class PostViewSet(viewsets.ModelViewSet):
 ### How to Detect This Bug
 
 **Symptoms**:
+
 - Tests pass but feature doesn't work as expected
 - Users can perform actions they shouldn't
 - Permission classes in `@action` decorators seem to be ignored
 - Logs show permission checks skipped
 
 **Testing for This Bug**:
+
 ```python
 def test_new_user_cannot_upload_image(self):
     """
@@ -240,6 +249,7 @@ def test_new_user_cannot_upload_image(self):
 ### Integration Test Pattern
 
 **Test Coverage Required**:
+
 1. ✅ Standard CRUD permissions (list, retrieve, create, update, delete)
 2. ✅ Custom action permissions (upload_image, delete_image, flag_post)
 3. ✅ Permission class combinations (multiple permissions with AND logic)
@@ -247,6 +257,7 @@ def test_new_user_cannot_upload_image(self):
 5. ✅ Staff/superuser bypass behavior
 
 **Example Test Suite**:
+
 ```python
 # apps/forum/tests/test_post_viewset_permissions.py
 
@@ -346,6 +357,7 @@ class PostViewSetPermissionTests(TestCase):
 ```
 
 **Test Results**:
+
 - **Before Fix**: 14/18 passing (4 trust level tests failing)
 - **After Fix**: 17/17 passing (1 skipped for time-based rate limiting)
 
@@ -356,6 +368,7 @@ class PostViewSetPermissionTests(TestCase):
 ### Pitfall 1: Forgetting to List Custom Actions
 
 **Problem**:
+
 ```python
 def get_permissions(self):
     # ❌ BAD - upload_image not listed
@@ -380,6 +393,7 @@ def upload_image(self, request, pk=None):
 ### Pitfall 2: Using Placeholder None
 
 **Problem**:
+
 ```python
 def get_permissions(self):
     if self.action in ['upload_image']:
@@ -397,6 +411,7 @@ def get_permissions(self):
 ### Pitfall 3: Inconsistent Action Names
 
 **Problem**:
+
 ```python
 def get_permissions(self):
     # ❌ BAD - typo in action name
@@ -420,6 +435,7 @@ def upload_image(self, request, pk=None):  # Correct name
 ### Pitfall 4: Missing super() Call
 
 **Problem**:
+
 ```python
 def get_permissions(self):
     if self.action in ['upload_image']:
@@ -482,6 +498,7 @@ def test_new_user_cannot_upload_image(self):
 ### Pre-Deployment Verification
 
 **Code Review**:
+
 - [ ] All custom actions listed in `get_permissions()`
 - [ ] `super().get_permissions()` used for custom actions
 - [ ] Action names match exactly (no typos)
@@ -489,6 +506,7 @@ def test_new_user_cannot_upload_image(self):
 - [ ] Documentation updated with permission requirements
 
 **Testing**:
+
 - [ ] Integration tests cover all custom actions
 - [ ] Tests verify permission denial (not just success)
 - [ ] Trust level integration tested
@@ -496,6 +514,7 @@ def test_new_user_cannot_upload_image(self):
 - [ ] Multiple permission combinations tested
 
 **Security**:
+
 - [ ] Permission bypass vulnerability fixed
 - [ ] All tests passing (no skipped permission tests)
 - [ ] OpenAPI schema documents permission requirements
@@ -506,6 +525,7 @@ def test_new_user_cannot_upload_image(self):
 ## Summary
 
 **The Critical Pattern**:
+
 ```python
 def get_permissions(self):
     # ✅ ALWAYS list custom actions with @action permission_classes
@@ -520,6 +540,7 @@ def get_permissions(self):
 ```
 
 **Key Takeaways**:
+
 1. ✅ `get_permissions()` is called for EVERY action
 2. ✅ `@action` decorator permissions are ignored unless explicitly delegated
 3. ✅ Use `super().get_permissions()` to respect action-level permissions
@@ -552,6 +573,7 @@ def get_permissions(self):
 **Problem**: Rate limit strings hardcoded inline (e.g., `'5/m'`, `'10/h'`) are invisible to static analysis, easy to duplicate inconsistently, and impossible to audit without grepping every file.
 
 **Vulnerable Code** ❌:
+
 ```python
 @ratelimit(key='user', rate='5/m', method='POST')  # ❌ Magic string
 @action(detail=False, methods=['POST'])
@@ -560,6 +582,7 @@ def regenerate(self, request):
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # apps/myapp/constants.py
 RATE_LIMITS = {
@@ -579,7 +602,32 @@ def regenerate(self, request):
 ```
 
 **Rules**:
+
 1. All `@ratelimit` `rate=` values MUST reference a named constant from `constants.py`.
 2. Group related limits under a `RATE_LIMITS` dict keyed by user tier and action.
 3. Use flat `RATE_LIMIT_<ACTION>` constants for one-off endpoint rate limits.
 4. The constant name must describe the context (who, what), not the value.
+
+## Reusable-Package Views Must Pin `filter_backends` (2026-07-11, forum audit)
+
+DRF generics views inherit `DEFAULT_FILTER_BACKENDS` from the HOST project. With
+the project-wide `OrderingFilter`, any client `?ordering=` param REPLACES a
+cursor paginator's `ordering` tuple (`CursorPagination.get_ordering()` prefers
+the filter's answer) — silently defeating pinned-first ordering. Worse, the
+filter derives orderable fields from the SERIALIZER, so a field with a dotted
+`source` (`author.get_username` → `?ordering=author__get_username`) compiles
+into a non-column ORM lookup: `FieldError` → unauthenticated 500. Both were
+reproduced on the forum API (audit 2026-07-11 Phase 6 R1).
+
+In a reusable package, list order is part of the API contract:
+
+```python
+class TopicListView(generics.ListAPIView):
+    pagination_class = TopicCursorPagination
+    filter_backends = []  # host filter-backend opt-out — order is a contract
+```
+
+Regression-test shape: `?ordering=-title` returns the default order, and
+`?ordering=<dotted-source>` returns 200 (not 500). Reference:
+`wagtail_forum/api/views.py` (BoardListView comment),
+`wagtail_forum/tests/api/test_topics_list.py::test_ordering_query_param_is_inert`.

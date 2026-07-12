@@ -730,3 +730,37 @@ filesystem); `sh -c`-wrap any `startCommand` that references `$VARS`; keep
 auto-trigger from `main` (no staging) — merging IS deploying. Operational detail:
 `backend/docs/deployment/railway.md` + `backend/Dockerfile` header comments.
 **Agent**: (process/deployment — codified in railway.md; no diff-reviewable signature)
+
+## Worktree pytest imports the MAIN checkout via the editable install (audit 2026-07-11)
+
+### [2026-07-11] "import file mismatch" / stale-code test runs inside git worktrees
+
+**Mistake**: `wagtail_forum` is pip-installed editable; its `.pth` finder resolves
+the package from the MAIN checkout's absolute path. Inside a worktree, bare
+`pytest` therefore executes the MAIN checkout's package code — worktree edits are
+invisible to the tests (or collection dies with "import file mismatch"). **Fix**:
+prefix worktree runs with the repo-relative package dir, from `backend/`:
+`PYTHONPATH=packages/wagtail_forum python -m pytest …` — `sys.path` (PathFinder)
+precedes the appended editable finder, so the worktree copy wins. Verify with
+`python -c "import wagtail_forum; print(wagtail_forum.__file__)"`.
+**Agent**: (process/testing — no diff-reviewable signature; lives here + in the
+audit manifest)
+
+## Client ?ordering= overrode forum cursor ordering and 500'd unauthenticated (audit 2026-07-11 Phase 6)
+
+### [2026-07-11] Host-global OrderingFilter reaches into reusable-package generics views
+
+**Mistake**: the forum package's DRF generics views inherited the host's
+`DEFAULT_FILTER_BACKENDS` (includes `OrderingFilter`).
+`CursorPagination.get_ordering()` PREFERS an ordering filter when the view has
+one, so a client `?ordering=-title` replaced the pinned-first cursor tuple —
+silently defeating the same-day H5 fix — and `OrderingFilter` derives orderable
+fields from the SERIALIZER, so `?ordering=author__get_username` (a dotted
+`source`, not a DB column) compiled into `FieldError` → unauthenticated 500 on a
+public endpoint. Surfaced by the wagtail reviewer's source analysis in Phase 6
+review; escalated to HIGH after both halves reproduced empirically. **Fix**:
+`filter_backends = []` on all 5 package generics views + regression tests
+(ordering param inert; dotted source returns 200). **Rule**: `docs/rules/api.md`.
+**Pattern**: `backend/docs/patterns/architecture/viewsets.md`. **Trigger**:
+`drf-package-views-pin-filter-backends`.
+**Agent**: django-drf-reviewer — package generics views must pin `filter_backends`.

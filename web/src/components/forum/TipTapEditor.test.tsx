@@ -52,6 +52,18 @@ describe('TipTapEditor', () => {
     expect(screen.getByTitle('Insert image')).toBeInTheDocument();
   });
 
+  it('toolbar buttons expose accessible names, not just title attributes', async () => {
+    // getByTitle only checks the attribute; getByRole(name) checks what the
+    // accessibility tree exposes — glyph content would fail this (audit H19).
+    render(<TipTapEditor onChange={vi.fn()} editable={true} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Bold (Ctrl+B)' })).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'Italic (Ctrl+I)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Insert image' })).toBeInTheDocument();
+  });
+
   it('does not render toolbar when readonly', async () => {
     render(<TipTapEditor onChange={vi.fn()} editable={false} />);
 

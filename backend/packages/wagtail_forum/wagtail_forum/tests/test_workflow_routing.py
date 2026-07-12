@@ -29,7 +29,7 @@ def _post(author, text="hello world"):
 
 @pytest.mark.django_db
 def test_trusted_user_publishes_instantly():
-    user = User.objects.create_user(username="reg", password="x")
+    user = User.objects.create_user(username="reg")
     profile = ForumProfile.for_user(user)
     profile.trust_level = TrustLevel.MEMBER
     profile.save()
@@ -46,7 +46,7 @@ def test_trusted_user_publishes_instantly():
 
 @pytest.mark.django_db
 def test_new_user_clean_post_publishes_after_spam_check():
-    user = User.objects.create_user(username="new", password="x")
+    user = User.objects.create_user(username="new")
     ForumProfile.for_user(user)  # trust NEW
     ensure_default_workflow()
 
@@ -61,7 +61,7 @@ def test_new_user_clean_post_publishes_after_spam_check():
 
 @pytest.mark.django_db
 def test_new_user_spam_stays_pending():
-    user = User.objects.create_user(username="spammer", password="x")
+    user = User.objects.create_user(username="spammer")
     ForumProfile.for_user(user)
     ensure_default_workflow()
 
@@ -79,7 +79,7 @@ def test_new_user_spam_stays_pending():
 def test_untrusted_no_workflow_fails_closed():
     # SECURITY: with no moderation workflow configured, an untrusted user's
     # content must NOT publish unscreened — it stays a draft (fail closed).
-    user = User.objects.create_user(username="nowf", password="x")
+    user = User.objects.create_user(username="nowf")
     ForumProfile.for_user(user)  # trust NEW
     # Deliberately do NOT call ensure_default_workflow(). A host (apps.forum_host)
     # may bootstrap one into the shared test DB on post_migrate, so clear any
@@ -103,9 +103,9 @@ def test_untrusted_author_via_trusted_caller_is_screened():
     # SECURITY: trust is derived from the content's author, not the caller. An
     # untrusted author's spam must still be screened even when a trusted caller
     # submits it — no riding a privileged caller's trust level.
-    author = User.objects.create_user(username="newauthor", password="x")
+    author = User.objects.create_user(username="newauthor")
     ForumProfile.for_user(author)  # trust NEW
-    caller = User.objects.create_user(username="leadercaller", password="x")
+    caller = User.objects.create_user(username="leadercaller")
     caller_profile = ForumProfile.for_user(caller)
     caller_profile.trust_level = TrustLevel.LEADER
     caller_profile.save()
@@ -133,7 +133,7 @@ def test_moderation_decided_signal_fires_with_outcome():
 
     moderation_decided.connect(handler)
     try:
-        user = User.objects.create_user(username="sig", password="x")
+        user = User.objects.create_user(username="sig")
         profile = ForumProfile.for_user(user)
         profile.trust_level = TrustLevel.MEMBER
         profile.save()
@@ -154,8 +154,8 @@ def test_opening_post_by_another_author_cannot_publish_someone_elses_topic():
     """The IDOR author-guard in submit_for_moderation (audit M18): a trusted
     user's opening post must never force ANOTHER author's draft topic live."""
     ensure_default_workflow()
-    owner = User.objects.create_user(username="owner", password="x")
-    attacker = User.objects.create_user(username="attacker", password="x")
+    owner = User.objects.create_user(username="owner")
+    attacker = User.objects.create_user(username="attacker")
     p = ForumProfile.for_user(attacker)
     p.trust_level = TrustLevel.MEMBER  # autopublishes their own content
     p.save()

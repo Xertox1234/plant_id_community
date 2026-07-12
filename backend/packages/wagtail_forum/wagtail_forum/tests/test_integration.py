@@ -43,7 +43,7 @@ def _submit(topic, author, text, opening=False):
 
 @pytest.mark.django_db
 def test_new_user_grinds_through_workflow_to_member_then_autopublishes_spam():
-    user = User.objects.create_user(username="grind", password="x")
+    user = User.objects.create_user(username="grind")
     ForumProfile.for_user(user)  # trust NEW
     ensure_default_workflow()
     topic = Topic.objects.create(board=_board(), title="T", slug="t", author=user)
