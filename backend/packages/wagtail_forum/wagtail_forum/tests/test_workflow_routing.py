@@ -1,5 +1,6 @@
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from wagtail.models import Page
 from wagtail_forum.models import (
     ForumBoard,
@@ -147,6 +148,50 @@ def test_moderation_decided_signal_fires_with_outcome():
 
     assert status == "published"
     assert received == {"status": "published", "obj_pk": post.pk}
+
+
+@pytest.mark.django_db
+@override_settings(
+    WAGTAILFORUM_SPAM_BACKEND="wagtail_forum.tests.api.test_topic_create.RaisingSpamBackend"
+)
+def test_moderation_decided_signal_still_fires_when_spam_backend_crashes():
+    # The view layer already catches this to avoid a 500 (api/views.py); this
+    # pins the separate, easy-to-miss gap: without a wrap INSIDE
+    # submit_for_moderation, a spam-backend exception exits the function
+    # before it ever reaches notify(moderation_decided, ...), so hosts
+    # silently never hear about a crashed-but-pending post (audit H16).
+    from wagtail_forum.signals import moderation_decided
+
+    received = {}
+
+    def handler(sender, obj, status, **kwargs):
+        received["status"] = status
+        received["obj_pk"] = obj.pk
+
+    moderation_decided.connect(handler)
+    try:
+        user = User.objects.create_user(username="crash")  # NEW trust — untrusted
+        ensure_default_workflow()
+
+        post = _post(user)
+        post.save()
+        status = submit_for_moderation(post, user)
+    finally:
+        moderation_decided.disconnect(handler)
+
+    assert status == "pending"
+    assert post.live is False
+    assert received == {"status": "pending", "obj_pk": post.pk}
+
+    # Known scope limit, pinned deliberately (kimi-review, todo 254 follow-up):
+    # the crash rolled back the WorkflowState along with the TaskState (same
+    # @transaction.atomic as the orphan disproof above), so this crashed post
+    # has NO active WorkflowState and _pending_moderation_count() misses it.
+    # It stays findable via the admin's live=False snippet-list filter
+    # (wagtail_hooks.py list_filter) — just not on the homepage auto-count.
+    from wagtail_forum.wagtail_hooks import _pending_moderation_count
+
+    assert _pending_moderation_count() == 0
 
 
 @pytest.mark.django_db

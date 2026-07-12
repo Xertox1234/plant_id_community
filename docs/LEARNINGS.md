@@ -43,6 +43,31 @@ This file is append-only. New entries are added by main Claude after each code r
 **Rule**: Always use `isinstance()` for Wagtail page type checks in signal handlers. `hasattr()` on multi-table inheritance child attributes is unreliable.
 **Agent**: wagtail-reviewer
 
+### [2026-07-12] `SummaryItem` is a `Component` on Wagtail 7.4.2 — the positional-args constructor doesn't exist (audit H16, todo 254 Slice 2)
+
+**Mistake**: built a homepage "N awaiting moderation" panel using
+`SummaryItem(label, count, url_label, url, icon_name=..., order=...)` —
+copied verbatim from `apps/blog/wagtail_hooks.py`'s existing "Pending
+Comments" panel, which uses the same call shape. Both raise `TypeError:
+SummaryItem.__init__() got an unexpected keyword argument 'icon_name'` on
+every `/cms/` load: on Wagtail 7.4.2, `SummaryItem` is a `Component`
+subclass whose `__init__(self, request)` takes only the request, and
+rendering is template-driven (`get_context_data` + `template_name`), not
+constructor args. The blog's version is invisible because its whole hook
+body is `except Exception: pass` — it has been silently broken with no
+test ever hitting `/cms/` to catch it (see todo 264).
+**Fix**: subclass `SummaryItem`, set `template_name`, override
+`get_context_data(self, parent_context)` to return the template context,
+and add a small template. See `wagtail.images.wagtail_hooks.ImagesSummaryItem`
+plus its `site_summary_images.html` for the upstream precedent, or
+`backend/packages/wagtail_forum/wagtail_forum/wagtail_hooks.py`'s
+`ForumModerationSummaryItem` for the in-repo one this fix produced.
+**Rule**: Before wiring a new `construct_homepage_summary_items` hook, check
+the installed Wagtail version's actual `SummaryItem.__init__` signature —
+don't copy an existing in-repo call site on faith, it may already be stale
+against the pinned Wagtail version.
+**Agent**: wagtail-reviewer
+
 ---
 
 ## React/TypeScript

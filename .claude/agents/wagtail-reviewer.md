@@ -84,6 +84,19 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
   updated, including tests in OTHER files not in this diff? (Diff-scoped review
   can't see them — call out that a whole-suite run is required.)
 
+### Forum H16 additions (2026-07-12)
+
+- `construct_homepage_summary_items` hooks: does the `SummaryItem` usage match
+  the INSTALLED Wagtail version's actual `__init__` signature? On 7.4.2 it's a
+  `Component` subclass taking only `request` — no positional `label`/`count`/
+  `url`/`icon_name` constructor. A stale copy of an existing in-repo call site
+  (e.g. `apps/blog/wagtail_hooks.py`'s pre-existing panels) can be just as
+  broken as new code — verify against `wagtail.admin.site_summary.SummaryItem`
+  directly, don't trust an existing call site on faith.
+- Any `except Exception: pass`/`return` wrapping a hook body: does a test
+  actually exercise the wrapped code path (e.g. hit `/cms/` in a test), or
+  could the hook be silently broken with nothing surfacing the failure?
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
