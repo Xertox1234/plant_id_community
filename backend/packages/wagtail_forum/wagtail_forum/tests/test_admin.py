@@ -258,3 +258,51 @@ def test_bulk_unpublish_action_unpublishes_selected_posts(client):
     for p in posts:
         p.refresh_from_db()
         assert p.live is False
+
+
+@pytest.mark.django_db
+def test_bulk_unpublish_action_blocks_user_without_change_permission(client):
+    # check_perm gates on wagtail_forum.change_post — a staff user who can
+    # reach /cms/ (access_admin) but lacks that specific permission must not
+    # be able to unpublish via this action (kimi-review follow-up: the
+    # golden-path test alone never proved check_perm actually blocks anyone).
+    from django.contrib.auth.models import Permission
+    from django.urls import reverse
+    from wagtail.models import Page
+    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
+
+    author = User.objects.create_user(username="perm_test_author")
+    ForumProfile.for_user(author)
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="PermForum", slug="permforum"))
+    board = index.add_child(
+        instance=ForumBoard(title="PermGeneral", slug="permgeneral")
+    )
+    topic = Topic.objects.create(
+        board=board, title="PermT", slug="permt", author=author
+    )
+    post = Post(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        body=[{"type": "paragraph", "value": "<p>should stay live</p>"}],
+    )
+    post.save()
+    post.save_revision().publish()
+
+    # access_admin alone (no wagtail_forum.change_post) mirrors that
+    # forum_host/bootstrap.py's own "Forum Moderators" group needs BOTH —
+    # access_admin just to reach /cms/, change_post to actually moderate.
+    staff = User.objects.create_user(username="no_change_perm", is_staff=True)
+    staff.user_permissions.add(
+        Permission.objects.get(
+            content_type__app_label="wagtailadmin", codename="access_admin"
+        )
+    )
+    client.force_login(staff)
+
+    url = reverse("wagtail_bulk_action", args=("wagtail_forum", "post", "unpublish"))
+    client.post(f"{url}?id={post.pk}", data={})
+
+    post.refresh_from_db()
+    assert post.live is True
