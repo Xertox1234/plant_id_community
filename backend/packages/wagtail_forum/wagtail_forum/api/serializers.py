@@ -325,7 +325,20 @@ class _ForumBodyContract(serializers.Serializer):
     body = serializers.JSONField()
 
     def validate_body(self, value):
-        return validate_forum_body(value)
+        return validate_forum_body(value, self._allowed_uploader_ids())
+
+    def _allowed_uploader_ids(self):
+        # An image block may reference: (a) something the acting request user
+        # uploaded, and (b) on edit, whatever the post's PRE-EXISTING author
+        # already uploaded — PATCH resends the whole body, so a moderator
+        # editing someone else's post must not have the original author's
+        # existing image blocks rejected out from under them (audit L21).
+        # `existing_author_id` is only set by the edit call site.
+        request = self.context.get("request")
+        ids = {request.user.pk} if request else set()
+        if "existing_author_id" in self.context:
+            ids.add(self.context["existing_author_id"])
+        return ids
 
 
 class TopicCreateSerializer(_ForumBodyContract):

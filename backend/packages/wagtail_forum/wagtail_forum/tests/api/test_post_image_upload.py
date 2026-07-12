@@ -188,3 +188,41 @@ def test_image_round_trips_through_create_and_read():
     assert blocks["image"]["id"] == image_id
     assert blocks["image"]["url"].startswith("http://testserver")
     assert blocks["image"]["width"] > 0 and blocks["image"]["height"] > 0
+
+
+@pytest.mark.django_db
+def test_image_uploaded_by_another_member_cannot_be_referenced():
+    """audit L21: the forum image collection is shared, so collection
+    membership alone (audit L5) does not stop one member from embedding
+    another member's upload by PK. A different member's post referencing it
+    must be rejected."""
+    from wagtail.models import Page
+    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Topic
+    from wagtail_forum.workflow import ensure_default_workflow
+
+    ensure_default_workflow()
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
+    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    uploader = User.objects.create_user(username="uploader")
+    ForumProfile.for_user(uploader)
+    intruder = User.objects.create_user(username="intruder")
+    ForumProfile.for_user(intruder)
+    topic = Topic.objects.create(
+        board=board, title="T", slug="t", author=uploader, live=True
+    )
+
+    uploader_client = APIClient()
+    uploader_client.force_authenticate(uploader)
+    upload = uploader_client.post(URL, {"image": _upload()}, format="multipart")
+    assert upload.status_code == 201
+    image_id = upload.data["id"]
+
+    intruder_client = APIClient()
+    intruder_client.force_authenticate(intruder)
+    reply = intruder_client.post(
+        f"/forum/topics/{topic.id}/posts/",
+        {"body": [{"type": "image", "value": image_id}]},
+        format="json",
+    )
+    assert reply.status_code == 400
