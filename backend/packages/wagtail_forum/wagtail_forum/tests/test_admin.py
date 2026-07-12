@@ -252,6 +252,16 @@ def test_bulk_unpublish_action_unpublishes_selected_posts(client):
         args=("wagtail_forum", "post", "unpublish"),
     )
     query = "&".join(f"id={p.pk}" for p in posts)
+
+    # A real moderator always sees the GET confirmation page before POSTing
+    # (the snippet list's "Unpublish" button). Check it too, not just the
+    # POST — it renders a distinct template block (titletag) that a POST-only
+    # test never touches (kimi-review follow-up: this caught a real
+    # {% load %} bug, a missing wagtailadmin_tags for the intcomma filter,
+    # that 500'd this exact page for every user, privileged or not).
+    confirm_resp = client.get(f"{url}?{query}")
+    assert confirm_resp.status_code == 200
+
     resp = client.post(f"{url}?{query}", data={})
 
     assert resp.status_code == 302
@@ -302,6 +312,15 @@ def test_bulk_unpublish_action_blocks_user_without_change_permission(client):
     client.force_login(staff)
 
     url = reverse("wagtail_bulk_action", args=("wagtail_forum", "post", "unpublish"))
+
+    # GET the confirmation page first: proves check_perm was actually reached
+    # and returned False for THIS object (not just "nothing happened", which
+    # a negative-only assertion after POST can't distinguish from a broken
+    # request that never dispatched at all — kimi-review follow-up).
+    confirm_resp = client.get(f"{url}?id={post.pk}")
+    assert confirm_resp.status_code == 200
+    assert b"You don't have permission to unpublish this post" in confirm_resp.content
+
     client.post(f"{url}?id={post.pk}", data={})
 
     post.refresh_from_db()
