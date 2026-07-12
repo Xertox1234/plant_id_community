@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p1
 issue_id: "254"
 tags: [forum, moderation, wagtail, admin]
