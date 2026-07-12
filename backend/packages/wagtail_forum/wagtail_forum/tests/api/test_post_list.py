@@ -14,7 +14,7 @@ def _topic_with_posts(n):
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
     board = index.add_child(instance=ForumBoard(title="General", slug="general"))
-    author = User.objects.create_user(username="ada", password="x")
+    author = User.objects.create_user(username="ada")
     topic = Topic.objects.create(
         board=board, title="T", slug="t", author=author, live=True
     )
@@ -46,6 +46,24 @@ def test_post_list_serializes_streamfield_body():
 
 
 @pytest.mark.django_db
+def test_post_list_ordering_query_param_is_inert():
+    # Phase 6 review (2026-07-11 audit): PostListView.list() calls
+    # filter_queryset(), so the host's global OrderingFilter let ?ordering=
+    # reverse the reading order. filter_backends=[] pins oldest-first as a
+    # package contract (see the full rationale on BoardListView).
+    topic = _topic_with_posts(3)
+    client = APIClient()
+
+    default_ids = [
+        p["id"] for p in client.get(f"/forum/topics/{topic.id}/posts/").data["results"]
+    ]
+    resp = client.get(f"/forum/topics/{topic.id}/posts/", {"ordering": "-created_at"})
+
+    assert resp.status_code == 200
+    assert [p["id"] for p in resp.data["results"]] == default_ids  # param ignored
+
+
+@pytest.mark.django_db
 def test_post_list_is_cursor_paginated_with_bounded_queries():
     topic = _topic_with_posts(25)
     client = APIClient()
@@ -70,7 +88,7 @@ def _topic_with_image_posts(n):
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
     board = index.add_child(instance=ForumBoard(title="General", slug="general"))
-    author = User.objects.create_user(username="ada", password="x")
+    author = User.objects.create_user(username="ada")
     collection = get_forum_image_collection()
     topic = Topic.objects.create(
         board=board, title="T", slug="t", author=author, live=True
@@ -134,7 +152,7 @@ def test_post_list_hides_posts_on_hidden_topic():
 def _moderator(username):
     from django.contrib.auth.models import Permission
 
-    user = User.objects.create_user(username=username, password="x")
+    user = User.objects.create_user(username=username)
     user.user_permissions.add(
         Permission.objects.get(
             content_type__app_label="wagtail_forum", codename="change_post"

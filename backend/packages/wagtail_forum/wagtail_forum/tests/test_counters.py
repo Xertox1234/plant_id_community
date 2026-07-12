@@ -28,7 +28,7 @@ def _publish(topic, author, opening=False):
 
 @pytest.mark.django_db
 def test_reply_updates_topic_and_board_and_profile_counters():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     topic = _topic(user)
     _publish(topic, user, opening=True)
     _publish(topic, user)  # one reply
@@ -50,7 +50,7 @@ def test_reply_updates_topic_and_board_and_profile_counters():
 @pytest.mark.django_db
 def test_post_count_promotes_trust_level_to_member():
     # _maybe_promote: TRUST_THRESHOLDS {1:1, 2:5, ...} → 5 live posts == MEMBER.
-    user = User.objects.create_user(username="climber", password="x")
+    user = User.objects.create_user(username="climber")
     topic = _topic(user)
     _publish(topic, user, opening=True)
     for _ in range(4):

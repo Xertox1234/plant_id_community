@@ -14,7 +14,7 @@ def _board():
 
 @pytest.mark.django_db
 def test_topic_publishes_via_revision():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     topic = Topic(board=_board(), title="Pothos help", slug="pothos-help", author=user)
     topic.save()
 

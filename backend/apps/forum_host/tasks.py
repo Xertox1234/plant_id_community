@@ -13,6 +13,29 @@ from celery import shared_task
 logger = logging.getLogger("forum_host.tasks")
 
 
+def _is_permanent_fcm_error(exc: Exception) -> bool:
+    """Permanent FCM failures must not be retried (docs/patterns/domain/celery.md;
+    audit 2026-07-11 M33): a stale/invalid device token (UnregisteredError) or a
+    malformed message can never succeed on retry. firebase_admin is an optional,
+    lazily-imported dependency, so classification is best-effort — unclassifiable
+    errors stay retryable (transient by default).
+    """
+    try:
+        from firebase_admin import exceptions as fb_exceptions
+        from firebase_admin import messaging
+    except ImportError:  # pragma: no cover — Firebase not installed
+        return False
+    return isinstance(
+        exc,
+        (
+            messaging.UnregisteredError,
+            messaging.SenderIdMismatchError,
+            messaging.ThirdPartyAuthError,
+            fb_exceptions.InvalidArgumentError,
+        ),
+    )
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
     """Send a single FCM data message for a forum event.
@@ -72,10 +95,25 @@ def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
             "[FCM] forum.%s sent to user=%s: %s", event, recipient_user_id, response
         )
     except Exception as exc:
+        if _is_permanent_fcm_error(exc):
+            # e.g. the device token is stale — retrying can never succeed.
+            logger.warning(
+                "[FCM] forum.%s send failed permanently (user=%s, task_id=%s):"
+                " %s — not retrying",
+                event,
+                recipient_user_id,
+                self.request.id,
+                exc,
+            )
+            return
         logger.warning(
-            "[FCM] forum.%s send failed (user=%s): %s — retrying",
+            "[FCM] forum.%s send failed (user=%s, task_id=%s): %s — retrying",
             event,
             recipient_user_id,
+            self.request.id,
             exc,
         )
-        raise self.retry(exc=exc)
+        # Exponential backoff: 30s, 60s, 120s across max_retries=3.
+        raise self.retry(
+            exc=exc, countdown=self.default_retry_delay * (2**self.request.retries)
+        )

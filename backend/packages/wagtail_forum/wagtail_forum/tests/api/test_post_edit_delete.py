@@ -28,7 +28,7 @@ def _board():
 
 
 def _member(username):
-    u = User.objects.create_user(username=username, password="x")
+    u = User.objects.create_user(username=username)
     p = ForumProfile.for_user(u)
     p.trust_level = TrustLevel.MEMBER  # >= autopublish, so create+edit go live
     p.save()
@@ -36,7 +36,7 @@ def _member(username):
 
 
 def _moderator(username):
-    u = User.objects.create_user(username=username, password="x")
+    u = User.objects.create_user(username=username)
     ForumProfile.for_user(u)
     perm = Permission.objects.get(
         content_type__app_label="wagtail_forum", codename="change_post"
@@ -67,6 +67,41 @@ def _topic_with_reply(board, author, reply_html="<p>a reply</p>"):
     submit_for_moderation(reply, author)
     topic.refresh_from_db()
     return topic, opening, reply
+
+
+def test_pending_edit_response_carries_submitted_body(settings):
+    """Audit 2026-07-11 H23 (execution-proven in discovery): an untrusted
+    author's flagged edit must NOT echo the stale live body — the client would
+    render the user's edit "reverting" with nothing in the response signalling
+    it. The response body reflects the SUBMITTED revision; GET keeps serving
+    the last-approved live content until moderation clears."""
+    settings.WAGTAILFORUM_SPAM_BANNED_WORDS = ["casino"]
+    board = _board()
+    author = User.objects.create_user(username="newbie")
+    ForumProfile.for_user(author)  # trust 0 — below autopublish
+    topic, _opening, reply = _topic_with_reply(
+        board, author, reply_html="<p>original clean</p>"
+    )
+    assert reply.live  # clean content auto-approved at create
+
+    client = APIClient()
+    client.force_authenticate(author)
+    resp = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {"body": [{"type": "paragraph", "value": "<p>best casino deals</p>"}]},
+        format="json",
+    )
+
+    assert resp.status_code == 200
+    assert resp.data["moderation_status"] == "pending"
+    # The response echoes what the client SUBMITTED (the pending revision)...
+    assert "casino" in resp.data["body"][0]["value"]
+
+    # ...while reads keep serving the last-approved live body.
+    read = client.get(f"/forum/topics/{topic.id}/posts/")
+    live_bodies = {p["id"]: p["body"][0]["value"] for p in read.data["results"]}
+    assert "original clean" in live_bodies[reply.id]
+    assert "casino" not in live_bodies[reply.id]
 
 
 def test_author_edit_publishes_new_body():
@@ -472,7 +507,10 @@ def test_delete_query_count_is_pinned():
     # separate _visible_boards().exists() check would bump this and fail here.
     # The bulk is Wagtail's unpublish + counter-signal recount cascade (255 does
     # not change that); the fold is the delta this pin protects.
-    assert len(ctx.captured_queries) == 32, len(ctx.captured_queries)
+    # 32 -> 33 (audit 2026-07-11 M15): attributed unpublish (user=request.user)
+    # adds ONE `SELECT 1 FROM auth_user` existence check before the log-entry
+    # INSERT — Wagtail's log writer guards against deleted users.
+    assert len(ctx.captured_queries) == 33, len(ctx.captured_queries)
 
 
 def test_edit_query_count_is_pinned():
@@ -494,4 +532,6 @@ def test_edit_query_count_is_pinned():
     # Pinned EXACTLY (docs/rules/testing.md): _get_visible_post is one query (was
     # fetch + a separate visibility .exists()); todo 255. The bulk is Wagtail's
     # revision save/publish + workflow finish + counter recount, unchanged by 255.
-    assert len(ctx.captured_queries) == 68, len(ctx.captured_queries)
+    # 68 -> 69 (audit 2026-07-11 M15): attributed publish (user=<editor>) adds
+    # ONE `SELECT 1 FROM auth_user` existence check before the log-entry INSERT.
+    assert len(ctx.captured_queries) == 69, len(ctx.captured_queries)

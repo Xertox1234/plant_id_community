@@ -17,7 +17,7 @@ def test_publishing_a_reply_dispatches_a_host_notification(monkeypatch):
         notifications, "dispatch", lambda event, **kw: events.append(event)
     )
 
-    author = User.objects.create_user(username="ada", password="x")
+    author = User.objects.create_user(username="ada")
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
     board = index.add_child(instance=ForumBoard(title="General", slug="general"))
@@ -41,8 +41,8 @@ def test_publishing_a_reply_dispatches_a_host_notification(monkeypatch):
 @pytest.mark.django_db
 def test_reply_added_enqueues_push_for_topic_author():
     """reply_added must enqueue send_forum_push for the topic author."""
-    topic_author = User.objects.create_user(username="topicowner", password="x")
-    replier = User.objects.create_user(username="replier", password="x")
+    topic_author = User.objects.create_user(username="topicowner")
+    replier = User.objects.create_user(username="replier")
 
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum2", slug="forum2"))
@@ -66,7 +66,7 @@ def test_reply_added_enqueues_push_for_topic_author():
 @pytest.mark.django_db
 def test_reply_added_does_not_push_for_self_reply():
     """An author replying to their own topic must not receive a push."""
-    author = User.objects.create_user(username="selfie", password="x")
+    author = User.objects.create_user(username="selfie")
 
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum3", slug="forum3"))
@@ -85,7 +85,7 @@ def test_reply_added_does_not_push_for_self_reply():
 @pytest.mark.django_db
 def test_moderation_decided_enqueues_push_for_post_author():
     """moderation_decided must enqueue send_forum_push for the post's author."""
-    author = User.objects.create_user(username="modauthor", password="x")
+    author = User.objects.create_user(username="modauthor")
 
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum4", slug="forum4"))

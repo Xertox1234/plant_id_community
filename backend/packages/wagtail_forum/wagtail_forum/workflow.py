@@ -32,14 +32,24 @@ def ensure_default_workflow():
     return workflow
 
 
-def _route_revision_by_trust(obj, revision, trusted, *, cancel_stale=False):
+def _route_revision_by_trust(obj, revision, trusted, *, user=None, cancel_stale=False):
     """Publish a saved revision immediately when trusted, else route it through
     moderation. Shared trust-routing core for the create and edit paths.
 
     - Trusted (author trust >= autopublish, or a moderator redacting an
-      account-deleted post) -> publish now (as SYSTEM, user=None).
-    - Untrusted -> start the moderation workflow; FAIL CLOSED (leave the content
-      a draft) when no workflow is configured, never publish unscreened.
+      account-deleted post) -> publish now. ``user`` is the acting user, passed
+      for audit-log attribution only, with ``skip_permission_checks=True``: the
+      trust logic is the publish authority — forum authors are not Wagtail
+      editors, and a permission-checked ``publish(user=...)`` would raise
+      PublishPermissionError (audit 2026-07-11 M15).
+    - Untrusted -> start the moderation workflow with ``user=None`` — this is
+      load-bearing, not an attribution gap: Wagtail's workflow-completion hook
+      (``publish_workflow_state``) publishes as the passed user WITHOUT
+      ``skip_permission_checks``, so a non-editor author there raises
+      PublishPermissionError and 500s the auto-approve path. System attribution
+      is also semantically right: the spam check, not a human, approved it.
+      FAIL CLOSED (leave the content a draft) when no workflow is configured,
+      never publish unscreened.
 
     ``cancel_stale`` is the edit-path-only wedge fix (todo 250): a rejected prior
     edit leaves an active NEEDS_CHANGES workflow state, and Wagtail forbids a
@@ -49,7 +59,7 @@ def _route_revision_by_trust(obj, revision, trusted, *, cancel_stale=False):
     prior inline code.
     """
     if trusted:
-        revision.publish(user=None)
+        revision.publish(user=user, skip_permission_checks=True)
         return
     workflow = obj.get_workflow()
     if workflow is None:
@@ -57,8 +67,8 @@ def _route_revision_by_trust(obj, revision, trusted, *, cancel_stale=False):
     if cancel_stale:
         current_state = obj.current_workflow_state
         if current_state is not None:
-            current_state.cancel(user=None)
-    workflow.start(obj, None)
+            current_state.cancel(user=user)
+    workflow.start(obj, None)  # None is load-bearing — see docstring
 
 
 def submit_for_moderation(obj, user):
@@ -71,10 +81,10 @@ def submit_for_moderation(obj, user):
     publish; flagged content is rejected and stays a draft (status 'pending').
 
     Security:
-    - Publishing runs as the SYSTEM (user=None). Forum authors are not Wagtail
-      editors; the trust/spam logic is the publish authority. Passing a real user
-      to publish() would raise PublishPermissionError; passing None skips the
-      editor permission check by design.
+    - Publishing runs with the acting user for audit-log attribution and
+      skip_permission_checks=True. Forum authors are not Wagtail editors; the
+      trust/spam logic is the publish authority — a permission-checked
+      publish(user=...) would raise PublishPermissionError (audit M15).
     - Fail CLOSED: if no moderation workflow is configured, an untrusted post is
       left as a draft rather than published unscreened.
     - The opening-post -> topic publish is guarded by an author match so one user
@@ -93,6 +103,7 @@ def submit_for_moderation(obj, user):
         obj,
         revision,
         profile.trust_level >= get_setting("TRUST_AUTOPUBLISH_LEVEL"),
+        user=user,
     )
     obj.refresh_from_db()
 
@@ -104,7 +115,9 @@ def submit_for_moderation(obj, user):
         and not obj.topic.live
         and obj.topic.author_id == obj.author_id
     ):
-        obj.topic.save_revision(user=user).publish(user=None)
+        obj.topic.save_revision(user=user).publish(
+            user=user, skip_permission_checks=True
+        )
 
     # Notify hosts of the moderation outcome (e.g. to push-notify the author).
     from .signals import moderation_decided, notify
@@ -185,7 +198,9 @@ def submit_edit_for_moderation(
                 # cancel_stale: a prior flagged edit leaves an active
                 # NEEDS_CHANGES state; Wagtail forbids two active states, so the
                 # shared router cancels it before restarting (finding #1, todo 250).
-                _route_revision_by_trust(obj, revision, trusted, cancel_stale=True)
+                _route_revision_by_trust(
+                    obj, revision, trusted, user=user, cancel_stale=True
+                )
     except Post.DoesNotExist:
         # The row was hard-deleted (e.g. topic CASCADE from the Wagtail admin)
         # between save_revision and the lock. There is nothing to publish or

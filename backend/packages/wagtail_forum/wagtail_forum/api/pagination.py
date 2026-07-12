@@ -9,10 +9,14 @@ class ForumCursorPagination(CursorPagination):
 
 
 class TopicCursorPagination(ForumCursorPagination):
-    # Activity-first; -id is the unique tiebreak that keeps the cursor
-    # deterministic when last_post_at ties. The list filters live=True, and live
-    # topics always have a non-null last_post_at, so the cursor never orders on NULL.
-    ordering = ("-last_post_at", "-id")
+    # Pinned-first, then activity; -id is the unique tiebreak that keeps the
+    # cursor deterministic when last_post_at ties. The list filters live=True,
+    # and live topics always have a non-null last_post_at, so the cursor never
+    # orders on NULL. DRF tracks the cursor position by the FIRST field, so
+    # paging inside the (large) unpinned group falls back to DRF's
+    # offset-from-position mechanism — fine at forum scale; revisit if a board
+    # reaches tens of thousands of topics.
+    ordering = ("-is_pinned", "-last_post_at", "-id")
 
 
 class PostCursorPagination(ForumCursorPagination):

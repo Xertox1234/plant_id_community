@@ -15,7 +15,7 @@ def _topic(user):
 
 @pytest.mark.django_db
 def test_opening_post_has_body_and_flag():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     topic = _topic(user)
     post = Post.objects.create(
         topic=topic,
@@ -32,7 +32,7 @@ def test_opening_post_has_body_and_flag():
 
 @pytest.mark.django_db
 def test_post_publishes_via_revision():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     post = Post.objects.create(topic=_topic(user), author=user)
     revision = post.save_revision()
     revision.publish()

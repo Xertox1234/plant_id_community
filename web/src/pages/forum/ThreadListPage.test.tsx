@@ -271,7 +271,7 @@ describe('ThreadListPage', () => {
 
     vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
-      items: Array(20).fill(createMockThread()),
+      items: Array.from({ length: 20 }, (_, i) => createMockThread({ id: `thread-${i}` })),
       meta: { count: 0, next: 'http://api/next-cursor', previous: null },
     });
 
@@ -290,7 +290,7 @@ describe('ThreadListPage', () => {
     const fetchThreadsSpy = vi
       .spyOn(forumService, 'fetchThreads')
       .mockResolvedValueOnce({
-        items: Array(20).fill(createMockThread()),
+        items: Array.from({ length: 20 }, (_, i) => createMockThread({ id: `thread-${i}` })),
         meta: { count: 0, next: nextCursorUrl, previous: null },
       })
       .mockResolvedValueOnce({
@@ -319,7 +319,7 @@ describe('ThreadListPage', () => {
 
     vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
-      items: Array(20).fill(createMockThread()),
+      items: Array.from({ length: 20 }, (_, i) => createMockThread({ id: `thread-${i}` })),
       meta: { count: 0, next: null, previous: null },
     });
 

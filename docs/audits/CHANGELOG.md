@@ -190,3 +190,44 @@ links to the full audit manifest with detailed findings and resolutions.
 - **Tests:** forum suite 62 → 106 (+44); full backend suite green; spectacular:
   0 forum schema errors.
 - **Commit(s):** branch `chore/forum-audit-2026-06-10` (PR pending).
+
+### 2026-07-11 — Forum Modernization Audit (maturity + Wagtail + AI)
+
+- **Trigger:** User-invoked `/audit` after the write-path review cluster (todos
+  250–255): take the forum from "basic but correct" to professional-forum
+  parity. Focus: UX, social interactions, Wagtail integration (highest
+  importance), Wagtail AI for premium members. Maturity/gap audit — severity =
+  product impact, benchmarked against Wagtail docs + the Discourse/Flarum/NodeBB
+  baseline.
+- **Manifest:** [2026-07-11-forum-modernization.md](2026-07-11-forum-modernization.md)
+- **Findings:** 2 critical, 26 high, 43 medium, 21 low (92 total) from 6
+  specialist agents; Phase 2.5 doc research: 24 confirmed, 3 better-fix, 1
+  contradicted (H22 — closed false-positive after empirical check: the default
+  search backend IS PostgresSearchBackend with FTS + applied GIN migrations).
+- **Resolved:** 15 fixed & verified (user-triaged quick-win list), 76 deferred
+  to epic todos 253–263 (one todo per epic; p1 themes user-selected:
+  notifications/engagement, moderation/admin, AI+premium, Q&A/discovery/SEO),
+  1 false-positive, 0 open.
+- **Highlights (fixed):** H5 pinned topics actually pin (root cause was the
+  cursor paginator's ordering, not the view); H17 published board pages no
+  longer 500 when served (package fallback templates + `get_context`); H23
+  moderated-edit PATCH now echoes the submitted revision instead of the stale
+  live body; H24 search-excerpt image N+1 + dangling-HTML slice (raw_data
+  plain-text excerpts); M15 API moderation actions now attributed in Wagtail's
+  audit log (with the `workflow.start(obj, None)` load-bearing discovery); M33
+  FCM push no longer retries permanent errors + exponential backoff; M43
+  `WAGTAILADMIN_BASE_URL` env-overridable; plus a11y/contract fixes (H19 toolbar
+  accessible names, H20 focus-visible reveal, H25 OpenAPI body `value`, M32 XSS
+  contract tests, L3 `locked` in list payloads) and hygiene (M21 fixture
+  duplicate keys, L9 dead ForumPage.tsx, L15 101 dead `password=` kwargs).
+- **Phase 6:** 4 domain reviewers over the fix diff → 6 repairs, headline: the
+  wagtail reviewer's out-of-scope flag escalated on empirical check to a
+  pre-existing HIGH — the host's global `OrderingFilter` let any client
+  `?ordering=` override the forum cursor ordering (defeating the fresh H5
+  pinned-first fix) and 500 unauthenticated via dotted serializer sources;
+  fixed with `filter_backends = []` across the package's generics views +
+  regression tests. Also: backoff countdown values now pinned (30/60/120),
+  `FORUM_BODY_SCHEMA.value` nullable, FCM logs carry task_id.
+- **Close baseline:** backend full suite 906 passed / 8 skipped; web 588 passed,
+  `tsc` + eslint clean; `manage.py check` + `spectacular` clean.
+- **Commit(s):** branch `chore/forum-modernization-audit-2026-07-11` (PR pending).

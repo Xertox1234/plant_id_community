@@ -61,7 +61,7 @@ def test_search_is_throttled_with_429_and_retry_after():
 def test_topic_create_is_throttled_per_user():
     ensure_default_workflow()
     board = _board()
-    user = User.objects.create_user(username="reg", password="x")
+    user = User.objects.create_user(username="reg")
     p = ForumProfile.for_user(user)
     p.trust_level = TrustLevel.MEMBER
     p.save()
@@ -147,7 +147,7 @@ def test_throttle_is_per_user_not_global():
     board = _board()
     users = []
     for name in ("u1", "u2"):
-        u = User.objects.create_user(username=name, password="x")
+        u = User.objects.create_user(username=name)
         p = ForumProfile.for_user(u)
         p.trust_level = TrustLevel.MEMBER
         p.save()
@@ -198,7 +198,7 @@ def test_image_upload_is_throttled_per_user():
     from django.core.files.uploadedfile import SimpleUploadedFile
     from PIL import Image as PILImage
 
-    user = User.objects.create_user(username="up", password="x")
+    user = User.objects.create_user(username="up")
     client = APIClient()
     client.force_authenticate(user)
 
@@ -232,7 +232,7 @@ def test_post_update_is_throttled_per_user():
 
     ensure_default_workflow()
     board = _board()
-    author = User.objects.create_user(username="ed", password="x")
+    author = User.objects.create_user(username="ed")
     p = ForumProfile.for_user(author)
     p.trust_level = TrustLevel.MEMBER  # >= autopublish, so create+edit go live
     p.save()

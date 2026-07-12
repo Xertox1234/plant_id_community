@@ -223,6 +223,9 @@ function ToolbarButton({ onClick, isActive, title, children }: ToolbarButtonProp
       onClick={onClick}
       type="button"
       title={title}
+      // Glyph children ("B", "•") would otherwise BE the accessible name —
+      // title never wins name-from-content (AccName 1.2; audit 2026-07-11 H19).
+      aria-label={title}
       className={`
         px-3 py-1.5 rounded text-sm font-medium transition-colors
         ${isActive ? 'bg-primary/20 text-ink' : 'bg-surface-2 text-ink-2 hover:bg-surface-3'}

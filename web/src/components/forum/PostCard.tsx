@@ -99,9 +99,11 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
         </div>
 
         {/* Actions (edit/delete) — gated on the backend capability flags AND the
-            presence of a handler. Always visible on mobile, fade in on desktop hover. */}
+            presence of a handler. Always visible on mobile; on desktop they fade
+            in on hover AND on keyboard focus — opacity-0 keeps them tab-reachable,
+            so a focus reveal is required for WCAG 2.4.7 (audit 2026-07-11 H20). */}
         {(showEdit || showDelete) && (
-          <div className="flex gap-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+          <div className="flex gap-2 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
             {showEdit && (
               <button
                 onClick={() => onEdit!(post)}

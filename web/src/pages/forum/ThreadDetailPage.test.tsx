@@ -527,7 +527,9 @@ describe('ThreadDetailPage', () => {
   it('displays total post count in header from thread.post_count', async () => {
     const mockThread = createMockThread({ post_count: 150 });
     const mockPosts = {
-      items: Array(20).fill(createMockPost()),
+      // Array.from re-invokes the factory per slot — Array(n).fill(x) reuses ONE
+      // object (duplicate ids → React duplicate-key warnings; audit M21).
+      items: Array.from({ length: 20 }, (_, i) => createMockPost({ id: `post-${i}` })),
       // meta.count is hardcoded 0 by the service; page uses thread.post_count instead
       meta: { count: 0, next: null, previous: null },
     };

@@ -50,6 +50,19 @@ FORUM_BODY_SCHEMA = {
         "type": "object",
         "properties": {
             "type": {"type": "string"},
+            # The block content — the field codegen clients actually need
+            # (audit 2026-07-11 H25): HTML string (paragraph), plain string
+            # (heading/quote), {language, code} (code block), or the
+            # {id, url, alt, width, height} rendition dict (image).
+            "value": {
+                "oneOf": [
+                    {"type": "string"},
+                    {"type": "object", "additionalProperties": True},
+                ],
+                # null when an image block's Image row was deleted after
+                # publish (serialize_forum_body emits value=None) — mirrors id.
+                "nullable": True,
+            },
             "id": {"type": "string", "nullable": True},
         },
     },
@@ -75,6 +88,10 @@ class TopicListSerializer(serializers.ModelSerializer):
     last_post_author = serializers.CharField(
         source="last_post_author.get_username", default=None
     )
+    # LockableMixin field, same as the detail serializer: the write guard is
+    # `is_closed OR locked`, so list clients need both to render the lock badge
+    # and predict write-eligibility (audit 2026-07-11 L3).
+    locked = serializers.BooleanField()
 
     class Meta:
         model = Topic
@@ -85,6 +102,7 @@ class TopicListSerializer(serializers.ModelSerializer):
             "author",
             "is_pinned",
             "is_closed",
+            "locked",
             "reply_count",
             "view_count",
             "last_post_at",

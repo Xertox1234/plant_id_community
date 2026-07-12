@@ -11,7 +11,7 @@ def _topic():
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
     board = index.add_child(instance=ForumBoard(title="General", slug="general"))
-    author = User.objects.create_user(username="op", password="x")
+    author = User.objects.create_user(username="op")
     return Topic.objects.create(board=board, title="T", slug="t", author=author)
 
 

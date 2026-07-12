@@ -35,6 +35,7 @@ const backendTopicListItem = {
   author: 'jdoe',
   is_pinned: false,
   is_closed: false,
+  locked: false,
   reply_count: 4,
   view_count: 99,
   last_post_at: '2026-01-02T00:00:00Z',

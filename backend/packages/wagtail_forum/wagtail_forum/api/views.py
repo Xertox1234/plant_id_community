@@ -6,6 +6,7 @@ from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.html import strip_tags
 from rest_framework import generics
 from rest_framework import status as http_status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -13,6 +14,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from wagtail.actions.unpublish import UnpublishAction
 from wagtail.images import get_image_model
 from wagtail.search.backends import get_search_backend
 
@@ -128,6 +130,12 @@ class BoardListView(generics.ListAPIView):
     # Opt out of host versioning: the package may be mounted outside a version
     # namespace, where NamespaceVersioning would 404 every request.
     versioning_class = None
+    # Opt out of host-configured filter backends (DEFAULT_FILTER_BACKENDS): a
+    # global OrderingFilter lets any client ?ordering= replace the cursor
+    # pagination's pinned-first ordering, and 500s on dotted serializer sources
+    # like author__get_username (both verified) — list order is a package
+    # contract, not client-selectable.
+    filter_backends = []
 
     def get_queryset(self):
         return _visible_boards().order_by("path")
@@ -148,6 +156,7 @@ class TopicListView(generics.ListAPIView):
     serializer_class = TopicListSerializer
     pagination_class = TopicCursorPagination
     versioning_class = None
+    filter_backends = []  # host filter-backend opt-out — see BoardListView
     # GET (list) is public; only the merged POST (create) needs auth — exactly
     # IsAuthenticatedOrReadOnly (also the project default), declared explicitly.
     permission_classes = [IsAuthenticatedOrReadOnly]
@@ -159,9 +168,12 @@ class TopicListView(generics.ListAPIView):
             return Topic.objects.none()
         board = _get_board(self.kwargs["slug"])
         return (
-            Topic.objects.filter(board=board, live=True)
-            .select_related("author", "last_post_author")
-            .order_by("-last_post_at", "-id")
+            Topic.objects.filter(board=board, live=True).select_related(
+                "author", "last_post_author"
+            )
+            # Kept in sync with TopicCursorPagination.ordering — the paginator
+            # re-applies its own ordering, so this is what unpaginated callers see.
+            .order_by("-is_pinned", "-last_post_at", "-id")
         )
 
     @extend_schema(
@@ -261,6 +273,7 @@ class TopicListView(generics.ListAPIView):
 class TopicDetailView(generics.RetrieveAPIView):
     serializer_class = TopicDetailSerializer
     versioning_class = None
+    filter_backends = []  # host filter-backend opt-out — see BoardListView
     lookup_url_kwarg = "topic_id"
 
     def get_queryset(self):
@@ -310,6 +323,7 @@ class PostListView(generics.ListAPIView):
     serializer_class = PostSerializer
     pagination_class = PostCursorPagination
     versioning_class = None
+    filter_backends = []  # host filter-backend opt-out — see BoardListView
     # GET (list) is public; only the merged POST (reply) needs auth — exactly
     # IsAuthenticatedOrReadOnly (also the project default), declared explicitly.
     permission_classes = [IsAuthenticatedOrReadOnly]
@@ -437,8 +451,11 @@ class PostWriteView(APIView):
             "Edit a post (author or moderator). Re-screened by author trust: a "
             "trusted edit publishes immediately; an untrusted edit awaits "
             "moderation while the last-approved body keeps serving. Response is "
-            "the post plus moderation_status (published|pending). 409 if the "
-            "topic is closed/locked."
+            "the post plus moderation_status (published|pending). When "
+            "moderation_status is 'pending', the response body reflects the "
+            "SUBMITTED revision (what you sent) — reads (GET) keep returning "
+            "the last-approved live body until the edit clears moderation. "
+            "409 if the topic is closed/locked."
         ),
     )
     def patch(self, request, post_id):
@@ -464,11 +481,21 @@ class PostWriteView(APIView):
             raise NotFound()
         # submit_edit_for_moderation already refresh_from_db()'d `post` (the same
         # instance), so it is current here — no extra round-trip needed.
+        serialize_source = post
+        if moderation_status == "pending":
+            # The live row keeps serving the last-approved body while the edit
+            # awaits moderation — but echoing that stale body back to the editor
+            # renders their edit "reverting" with nothing in the response shape
+            # signalling it (audit 2026-07-11 H23, execution-proven). Serialize
+            # the SUBMITTED revision instead: the response reflects what the
+            # client sent, moderation_status carries the pending state, and GET
+            # keeps returning the live body.
+            serialize_source = post.latest_revision.as_object()
         data = PostSerializer(
-            post,
+            serialize_source,
             context={
                 "request": request,
-                "forum_image_map": build_forum_image_map([post]),
+                "forum_image_map": build_forum_image_map([serialize_source]),
             },
         ).data
         data["moderation_status"] = moderation_status
@@ -503,13 +530,18 @@ class PostWriteView(APIView):
                 raise NotFound()  # hard-deleted (topic CASCADE) between fetch and lock
             if not locked.live:
                 raise NotFound()  # already taken down by a concurrent delete
-            # unpublish() fires Wagtail's `unpublished` signal -> the forum's
+            # UnpublishAction fires Wagtail's `unpublished` signal -> the forum's
             # counter receivers recount reply_count/last_post_at/board/profile. Do
-            # NOT recount by hand (that double-processes). user=None: forum authors
-            # are not Wagtail editors, matching submit_for_moderation's publish().
-            # unpublish() SAVES the row, so act on `locked` (the fresh under-lock
-            # instance), never the pre-lock `post` read whose fields may be stale.
-            locked.unpublish(user=None)
+            # NOT recount by hand (that double-processes). The acting user is
+            # passed for audit-log attribution (snippet History) with
+            # skip_permission_checks=True — the view's own guards are the
+            # authority, and the DraftStateMixin.unpublish() convenience cannot
+            # skip the editor permission check (audit 2026-07-11 M15). It SAVES
+            # the row, so act on `locked` (the fresh under-lock instance), never
+            # the pre-lock `post` read whose fields may be stale.
+            UnpublishAction(locked, user=request.user).execute(
+                skip_permission_checks=True
+            )
         return Response(status=http_status.HTTP_204_NO_CONTENT)
 
 
@@ -612,6 +644,7 @@ class MeProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = MeProfileSerializer
     permission_classes = [IsAuthenticated]
     versioning_class = None
+    filter_backends = []  # host filter-backend opt-out — see BoardListView
     http_method_names = ["get", "patch", "head", "options"]
 
     def get_object(self):
@@ -620,11 +653,40 @@ class MeProfileView(generics.RetrieveUpdateAPIView):
         return ForumProfile.for_user(self.request.user)
 
 
+def _plain_text_excerpt(stream_value, limit: int) -> str:
+    """Plain-text excerpt from a post body via ``raw_data``.
+
+    Iterating the resolved StreamValue bulk-fetches image blocks PER POST —
+    the exact N+1 the ``serialize_forum_body`` raw_data path exists to avoid —
+    and slicing rendered HTML can cut a tag mid-attribute. Text-bearing block
+    values are strings (paragraph HTML, heading, quote) or a dict carrying a
+    ``code`` string; image blocks hold an int PK and are skipped.
+    """
+    parts: list[str] = []
+    total = 0
+    for raw in stream_value.raw_data:
+        value = raw.get("value")
+        if isinstance(value, str):
+            text = strip_tags(value).strip()
+        elif isinstance(value, dict) and isinstance(value.get("code"), str):
+            text = value["code"].strip()
+        else:
+            continue
+        if not text:
+            continue
+        parts.append(text)
+        total += len(text)
+        if total >= limit:
+            break
+    return " ".join(parts)[:limit]
+
+
 class SearchView(APIView):
     versioning_class = None
     MAX_RESULTS = (
         50  # bound the result set; a high-cardinality query won't blow up memory
     )
+    MAX_EXCERPT_CHARS = 200
 
     @extend_schema(
         responses={200: dict},
@@ -653,7 +715,11 @@ class SearchView(APIView):
                         "id": p.id,
                         "topic_id": p.topic_id,
                         "topic_title": p.topic.title,
-                        "excerpt": p.body.render_as_block()[:200] if p.body else "",
+                        "excerpt": (
+                            _plain_text_excerpt(p.body, self.MAX_EXCERPT_CHARS)
+                            if p.body
+                            else ""
+                        ),
                     }
                 )
         return Response({"topics": topics, "posts": posts})

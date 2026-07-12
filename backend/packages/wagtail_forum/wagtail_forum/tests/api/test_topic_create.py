@@ -43,7 +43,7 @@ def _board():
 def test_trusted_user_creates_published_topic_idempotently():
     ensure_default_workflow()
     board = _board()
-    user = User.objects.create_user(username="reg", password="x")
+    user = User.objects.create_user(username="reg")
     p = ForumProfile.for_user(user)
     p.trust_level = TrustLevel.MEMBER
     p.save()
@@ -73,12 +73,69 @@ def test_trusted_user_creates_published_topic_idempotently():
 
 
 @pytest.mark.django_db
+def test_plain_text_blocks_stored_verbatim_and_rich_text_sanitized():
+    """Audit 2026-07-11 M32: pins the sanitize CONTRACT (api/sanitize.py header):
+    rich-text (paragraph) is nh3-cleaned server-side; plain-text blocks
+    (quote/heading/code) pass through VERBATIM and consumers MUST escape them at
+    render time. The web renderer's handling of the string-shaped quote case is
+    pinned in StreamFieldRenderer.test.tsx. Reachable via direct API POST — the
+    composer never emits quote/heading/code, so no UI test covers this."""
+    ensure_default_workflow()
+    board = _board()
+    user = User.objects.create_user(username="xsscontract")
+    p = ForumProfile.for_user(user)
+    p.trust_level = TrustLevel.MEMBER
+    p.save()
+
+    client = APIClient()
+    client.force_authenticate(user)
+    payload = {
+        "title": "XSS contract",
+        "slug": "xss-contract",
+        "body": [
+            {
+                "type": "paragraph",
+                "value": "<p>hi <script>alert(1)</script><img src=x onerror=alert(2)></p>",
+            },
+            {"type": "quote", "value": "<script>alert(3)</script>quoted"},
+            {"type": "heading", "value": "<img src=x onerror=alert(4)>"},
+            {
+                "type": "code",
+                "value": {"language": "html", "code": "<script>alert(5)</script>"},
+            },
+        ],
+    }
+    r = client.post(
+        f"/forum/boards/{board.slug}/topics/",
+        payload,
+        format="json",
+        **{"HTTP_IDEMPOTENCY_KEY": "xss-contract-1"},
+    )
+    assert r.status_code == 201
+
+    # Read back through the public post-list path — what clients actually render.
+    topic = Topic.objects.get(slug="xss-contract")
+    resp = client.get(f"/forum/topics/{topic.id}/posts/")
+    assert resp.status_code == 200
+    by_type = {b["type"]: b["value"] for b in resp.data["results"][0]["body"]}
+
+    # Rich text: nh3-cleaned on write — script/handler payloads must be gone.
+    assert "<script>" not in by_type["paragraph"]
+    assert "onerror" not in by_type["paragraph"]
+    assert "hi" in by_type["paragraph"]
+    # Plain-text blocks: verbatim by contract — the CONSUMER escapes at render.
+    assert by_type["quote"] == "<script>alert(3)</script>quoted"
+    assert by_type["heading"] == "<img src=x onerror=alert(4)>"
+    assert by_type["code"]["code"] == "<script>alert(5)</script>"
+
+
+@pytest.mark.django_db
 def test_api_topic_create_publishes_topic_and_updates_board_counters():
     """The API creates topics live=False; the workflow must flip the TOPIC live
     (not just the post) and the board counters must include it (audit H2/H5)."""
     ensure_default_workflow()
     board = _board()
-    user = User.objects.create_user(username="reg", password="x")
+    user = User.objects.create_user(username="reg")
     p = ForumProfile.for_user(user)
     p.trust_level = TrustLevel.MEMBER
     p.save()
@@ -110,7 +167,7 @@ def test_spam_in_topic_title_is_screened():
     titles are the most visible surface (lists, search, sync) (audit M1)."""
     ensure_default_workflow()
     board = _board()
-    user = User.objects.create_user(username="newbie", password="x")  # trust NEW
+    user = User.objects.create_user(username="newbie")  # trust NEW
 
     client = APIClient()
     client.force_authenticate(user)
@@ -135,7 +192,7 @@ def test_spam_in_topic_title_is_screened():
 def test_duplicate_slug_is_auto_suffixed():
     ensure_default_workflow()
     board = _board()
-    user = User.objects.create_user(username="reg", password="x")
+    user = User.objects.create_user(username="reg")
     p = ForumProfile.for_user(user)
     p.trust_level = TrustLevel.MEMBER
     p.save()
@@ -174,7 +231,7 @@ def test_duplicate_slug_is_auto_suffixed():
 def test_spam_backend_exception_leaves_pending_not_500():
     ensure_default_workflow()
     board = _board()
-    user = User.objects.create_user(username="new", password="x")
+    user = User.objects.create_user(username="new")
     ForumProfile.for_user(
         user
     )  # trust NEW -> runs the moderation workflow -> spam check
@@ -204,7 +261,7 @@ def test_spam_backend_crash_replays_pending_on_retry():
     # second (suffixed) topic.
     ensure_default_workflow()
     board = _board()
-    user = User.objects.create_user(username="new", password="x")
+    user = User.objects.create_user(username="new")
     ForumProfile.for_user(user)
     client = APIClient()
     client.force_authenticate(user)
@@ -240,7 +297,7 @@ def test_dangerous_body_is_sanitized_on_write():
     # accepted (201) with clean content, not rejected.
     ensure_default_workflow()
     board = _board()
-    user = User.objects.create_user(username="x", password="x")
+    user = User.objects.create_user(username="x")
     ForumProfile.for_user(user)
     client = APIClient()
     client.force_authenticate(user)
@@ -274,7 +331,7 @@ def test_dangerous_body_is_sanitized_on_write():
 def test_safe_link_is_preserved():
     ensure_default_workflow()
     board = _board()
-    user = User.objects.create_user(username="x", password="x")
+    user = User.objects.create_user(username="x")
     ForumProfile.for_user(user)
     client = APIClient()
     client.force_authenticate(user)
@@ -301,7 +358,7 @@ def test_oversized_body_is_rejected():
     # DoS guard: a body exceeding MAX_BODY_BLOCKS is a 400, not a parse storm.
     ensure_default_workflow()
     board = _board()
-    user = User.objects.create_user(username="x", password="x")
+    user = User.objects.create_user(username="x")
     ForumProfile.for_user(user)
     client = APIClient()
     client.force_authenticate(user)
@@ -346,7 +403,7 @@ def test_slug_suffix_never_exceeds_max_length():
     Postgres raises DataError past SlugField(max_length=255) (review finding 5)."""
     ensure_default_workflow()
     board = _board()
-    user = User.objects.create_user(username="reg", password="x")
+    user = User.objects.create_user(username="reg")
     p = ForumProfile.for_user(user)
     p.trust_level = TrustLevel.MEMBER
     p.save()

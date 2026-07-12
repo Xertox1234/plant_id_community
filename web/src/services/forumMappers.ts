@@ -21,6 +21,7 @@ export interface BackendTopicListItem {
   author: string | null;
   is_pinned: boolean;
   is_closed: boolean;
+  locked: boolean;
   reply_count: number;
   view_count: number;
   last_post_at: string | null;
@@ -138,7 +139,8 @@ export function mapTopicListItemToThread(t: BackendTopicListItem): Thread {
     post_count: t.reply_count,
     view_count: t.view_count,
     is_pinned: t.is_pinned,
-    is_locked: t.is_closed,
+    // Same rule as the detail mapper: the write guard is is_closed OR locked.
+    is_locked: t.is_closed || t.locked,
     is_active: true,
   };
 }

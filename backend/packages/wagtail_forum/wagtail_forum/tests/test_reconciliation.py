@@ -43,7 +43,7 @@ def _publish(topic, author, opening=False):
 
 @pytest.mark.django_db
 def test_unpublish_reply_recounts_topic_board_and_profile():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     board = _board()
     topic = _topic(board, user)
     _publish(topic, user, opening=True)
@@ -61,7 +61,7 @@ def test_unpublish_reply_recounts_topic_board_and_profile():
 
 @pytest.mark.django_db
 def test_delete_reply_recounts_topic_board_and_profile():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     board = _board()
     topic = _topic(board, user)
     _publish(topic, user, opening=True)
@@ -79,7 +79,7 @@ def test_delete_reply_recounts_topic_board_and_profile():
 
 @pytest.mark.django_db
 def test_unpublish_topic_recounts_board_topic_count():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     board = _board()
     topic = _topic(board, user)
     _publish(topic, user, opening=True)
@@ -96,7 +96,7 @@ def test_unpublish_topic_recounts_board_topic_count():
 def test_removed_posts_demote_auto_earned_trust():
     # 5 live posts auto-earn MEMBER (autopublish). Removing them as spam must
     # revoke that trust, or the moderation gate is permanently defeated.
-    user = User.objects.create_user(username="spammer", password="x")
+    user = User.objects.create_user(username="spammer")
     board = _board()
     topic = _topic(board, user)
     posts = [_publish(topic, user, opening=True)]
@@ -116,7 +116,7 @@ def test_removed_posts_demote_auto_earned_trust():
 def test_manually_granted_trust_survives_post_removal():
     # An admin-granted level above what post_count earns must NOT be clawed
     # back by the automatic reconciliation.
-    user = User.objects.create_user(username="vip", password="x")
+    user = User.objects.create_user(username="vip")
     board = _board()
     topic = _topic(board, user)
     post = _publish(topic, user, opening=True)
@@ -132,7 +132,7 @@ def test_manually_granted_trust_survives_post_removal():
 
 @pytest.mark.django_db
 def test_republish_does_not_refire_notifications():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     board = _board()
     topic = _topic(board, user)
     _publish(topic, user, opening=True)
@@ -157,8 +157,8 @@ def test_republish_does_not_refire_notifications():
 
 @pytest.mark.django_db
 def test_republish_of_old_post_does_not_corrupt_topic_activity():
-    user = User.objects.create_user(username="ada", password="x")
-    other = User.objects.create_user(username="bob", password="x")
+    user = User.objects.create_user(username="ada")
+    other = User.objects.create_user(username="bob")
     board = _board()
     topic = _topic(board, user)
     old_post = _publish(topic, user, opening=True)
@@ -177,7 +177,7 @@ def test_republish_of_old_post_does_not_corrupt_topic_activity():
 
 @pytest.mark.django_db
 def test_topic_created_fires_once_and_only_when_topic_is_live():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     board = _board()
 
     fired = []
@@ -205,7 +205,7 @@ def test_topic_created_fires_once_and_only_when_topic_is_live():
 def test_removing_the_only_live_post_keeps_last_post_at_non_null():
     # Cursor-pagination invariant: a live topic NEVER has a null last_post_at
     # (NULLS FIRST floats it to the top; a None cursor position 500s).
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     board = _board()
     topic = _topic(board, user)
     only_post = _publish(topic, user, opening=True)
@@ -221,7 +221,7 @@ def test_removing_the_only_live_post_keeps_last_post_at_non_null():
 def test_topic_takedown_revokes_trust_and_board_post_count():
     # Unpublishing the TOPIC (not each post) must stop its posts funding
     # board.post_count and the author's autopublish trust (review finding 6).
-    user = User.objects.create_user(username="spammer", password="x")
+    user = User.objects.create_user(username="spammer")
     board = _board()
     topic = _topic(board, user)
     _publish(topic, user, opening=True)
@@ -241,7 +241,7 @@ def test_topic_takedown_revokes_trust_and_board_post_count():
 
 @pytest.mark.django_db
 def test_topic_delete_reconciles_board_and_trust():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     board = _board()
     topic = _topic(board, user)
     _publish(topic, user, opening=True)

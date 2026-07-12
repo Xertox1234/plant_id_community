@@ -408,7 +408,9 @@ WAGTAIL_FRONTEND_LOGIN_URL = "/accounts/login/"
 # WAGTAILIMAGES_IMAGE_MODEL = 'core.CustomImage'  # Uncomment after creating core app
 
 # Base URL to use when referring to full URLs within the Wagtail admin backend
-WAGTAILADMIN_BASE_URL = "http://localhost:8000"
+# (workflow-notification email links, user bar, preview). Must be the public
+# backend origin in production — a localhost fallback ships broken links.
+WAGTAILADMIN_BASE_URL = config("WAGTAILADMIN_BASE_URL", default="http://localhost:8000")
 # Frontend base URL (used for OAuth redirect targets)
 FRONTEND_BASE_URL = config("FRONTEND_BASE_URL", default="http://localhost:3000")
 

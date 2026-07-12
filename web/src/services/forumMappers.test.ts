@@ -50,6 +50,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       author: 'jdoe',
       is_pinned: false,
       is_closed: false,
+      locked: false,
       reply_count: 4,
       view_count: 99,
       last_post_at: '2026-01-02T00:00:00Z',
@@ -76,6 +77,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       author: null,
       is_pinned: false,
       is_closed: false,
+      locked: false,
       reply_count: 0,
       view_count: 0,
       last_post_at: null,
@@ -84,7 +86,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
     expect(t.author?.username).toBe('[deleted]');
   });
 
-  it('mapTopicListItemToThread maps is_closed → is_locked', () => {
+  it('mapTopicListItemToThread maps is_closed OR locked → is_locked', () => {
     const base = {
       id: 1,
       title: 'T',
@@ -92,13 +94,20 @@ describe('forumMappers (wagtail_forum contract)', () => {
       author: 'u',
       is_pinned: false,
       is_closed: true,
+      locked: false,
       reply_count: 0,
       view_count: 0,
       last_post_at: null,
       last_post_author: null,
     };
     expect(mapTopicListItemToThread(base).is_locked).toBe(true);
-    expect(mapTopicListItemToThread({ ...base, is_closed: false }).is_locked).toBe(false);
+    // Wagtail-locked but open: previously invisible in lists (audit 2026-07-11 L3)
+    expect(mapTopicListItemToThread({ ...base, is_closed: false, locked: true }).is_locked).toBe(
+      true
+    );
+    expect(mapTopicListItemToThread({ ...base, is_closed: false, locked: false }).is_locked).toBe(
+      false
+    );
     expect(mapTopicListItemToThread({ ...base, is_pinned: true }).is_pinned).toBe(true);
   });
 

@@ -8,7 +8,7 @@ User = get_user_model()
 
 @pytest.mark.django_db
 def test_for_user_creates_profile_once():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
 
     profile = ForumProfile.for_user(user)
     again = ForumProfile.for_user(user)
@@ -21,7 +21,7 @@ def test_for_user_creates_profile_once():
 
 @pytest.mark.django_db
 def test_str_prefers_display_name():
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     profile = ForumProfile.for_user(user)
     profile.display_name = "Ada L."
     assert str(profile) == "Ada L."
@@ -32,7 +32,7 @@ def test_for_user_falls_back_on_integrity_error(monkeypatch):
     """Simulate a lost create race: get_or_create raises IntegrityError because
     a concurrent request already inserted the profile; for_user must recover by
     returning the existing row rather than propagating the error."""
-    user = User.objects.create_user(username="ada", password="x")
+    user = User.objects.create_user(username="ada")
     existing = ForumProfile.objects.create(user=user)
 
     def _raise(**kwargs):

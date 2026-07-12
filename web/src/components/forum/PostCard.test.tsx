@@ -271,6 +271,14 @@ describe('PostCard', () => {
     // Buttons must be in the DOM regardless of hover state (CSS hides them on md+).
     expect(screen.getByTitle('Edit post')).toBeInTheDocument();
     expect(screen.getByTitle('Delete post')).toBeInTheDocument();
+    // Hidden-yet-focusable controls must reveal on keyboard focus, not just
+    // hover (WCAG 2.4.7; audit 2026-07-11 H20). jsdom can't compute CSS, so
+    // pin the class contract.
+    const actions = screen.getByTitle('Edit post').parentElement!;
+    expect(actions.className).toContain('md:group-focus-within:opacity-100');
+    // The variant only activates under an ancestor carrying the literal
+    // `group` class — pin that half of the contract too (Phase 6 review).
+    expect(actions.closest('.group')).not.toBeNull();
   });
 
   it('hides edit/delete buttons when the capability flags are false', () => {
