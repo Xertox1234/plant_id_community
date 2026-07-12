@@ -183,6 +183,16 @@ def test_moderation_decided_signal_still_fires_when_spam_backend_crashes():
     assert post.live is False
     assert received == {"status": "pending", "obj_pk": post.pk}
 
+    # Known scope limit, pinned deliberately (kimi-review, todo 254 follow-up):
+    # the crash rolled back the WorkflowState along with the TaskState (same
+    # @transaction.atomic as the orphan disproof above), so this crashed post
+    # has NO active WorkflowState and _pending_moderation_count() misses it.
+    # It stays findable via the admin's live=False snippet-list filter
+    # (wagtail_hooks.py list_filter) — just not on the homepage auto-count.
+    from wagtail_forum.wagtail_hooks import _pending_moderation_count
+
+    assert _pending_moderation_count() == 0
+
 
 @pytest.mark.django_db
 def test_opening_post_by_another_author_cannot_publish_someone_elses_topic():

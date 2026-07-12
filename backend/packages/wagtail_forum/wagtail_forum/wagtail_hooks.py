@@ -84,7 +84,13 @@ def _pending_moderation_count():
     @transaction.atomic, so a mid-check crash rolls the TaskState back too;
     it does not orphan one. What DOES persist is NEEDS_CHANGES: content the
     spam check rejected, which stays a draft for a moderator to review —
-    that's the "awaiting human review" signal H16 makes visible here."""
+    that's the "awaiting human review" signal H16 makes visible here.
+
+    Known scope limit: a spam-BACKEND crash (not a reject — the backend
+    itself raising) rolls back the WorkflowState too, so that post has no
+    active state and this count misses it. It stays findable via the admin
+    snippet list's live=False filter, just not in this auto-count (see
+    test_moderation_decided_signal_still_fires_when_spam_backend_crashes)."""
     content_types = ContentType.objects.get_for_models(Topic, Post).values()
     return WorkflowState.objects.active().filter(content_type__in=content_types).count()
 
