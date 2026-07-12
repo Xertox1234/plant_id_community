@@ -149,3 +149,12 @@ class Post(
     def can_be_deleted_by(self, user):
         """Boolean form of :meth:`delete_block` for the serializer's can_delete flag."""
         return self.delete_block(user) is None
+
+    def can_be_reported_by(self, user):
+        """Whether `user` may report this post: authenticated and not its own
+        author (self-report has no legitimate use). Single-sourced here so the
+        serializer's can_report flag and PostReportView's write guard cannot
+        diverge — same discipline as can_be_edited_by/can_be_deleted_by."""
+        if user is None or not user.is_authenticated:
+            return False
+        return user.pk != self.author_id

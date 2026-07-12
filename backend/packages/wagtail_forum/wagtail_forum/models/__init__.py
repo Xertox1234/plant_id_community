@@ -3,6 +3,7 @@ from .moderation import SpamCheckTask
 from .posts import Post
 from .profiles import ForumProfile, TrustLevel
 from .reactions import Reaction
+from .reports import Report
 from .tombstones import TopicDeletedLog
 from .topics import Topic
 
@@ -12,6 +13,7 @@ __all__ = [
     "ForumProfile",
     "Post",
     "Reaction",
+    "Report",
     "SpamCheckTask",
     "Topic",
     "TopicDeletedLog",

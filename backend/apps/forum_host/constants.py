@@ -10,6 +10,7 @@ DEFAULT_FORUM_RATELIMITS = {
     "post_update": "30/h",
     "post_delete": "20/h",
     "reaction_toggle": "60/m",
+    "report_create": "10/h",
     "profile_update": "10/h",
     "image_upload": "30/h",
     "search": "30/m",

@@ -101,6 +101,7 @@ def test_wrapped_routes_use_the_throttled_views():
         "post-detail": throttled.PostWriteView,
         "image-upload": throttled.PostImageUploadView,
         "reaction-toggle": throttled.ReactionToggleView,
+        "post-report": throttled.PostReportView,
         "me-profile": throttled.MeProfileView,
         "search": throttled.SearchView,
         "sync": throttled.SyncView,
@@ -125,6 +126,7 @@ def test_every_unsafe_handler_is_throttled():
         throttled.PostWriteView,
         throttled.PostImageUploadView,
         throttled.ReactionToggleView,
+        throttled.PostReportView,
         throttled.MeProfileView,
         throttled.SearchView,
         throttled.SyncView,
@@ -265,6 +267,38 @@ def test_post_update_is_throttled_per_user():
         blocked = client.patch(
             f"/api/v1/forum/posts/{reply.id}/", payload, format="json"
         )
+
+    assert first.status_code == 200
+    assert blocked.status_code == 429
+    assert "Retry-After" in blocked
+
+
+@override_settings(FORUM_RATELIMITS={"report_create": "1/h"})
+@pytest.mark.django_db
+def test_report_is_throttled_per_user():
+    from wagtail_forum.models import Post, Topic
+
+    ensure_default_workflow()
+    board = _board()
+    author = User.objects.create_user(username="op")
+    topic = Topic.objects.create(board=board, title="t", slug="t", author=author)
+    opening = Post.objects.create(topic=topic, author=author, is_opening_post=True)
+    opening.save_revision().publish()
+
+    reporter = User.objects.create_user(username="reporter")
+    client = APIClient()
+    client.force_authenticate(reporter)
+
+    def report(reason):
+        return client.post(
+            f"/api/v1/forum/posts/{opening.id}/reports/",
+            {"reason": reason},
+            format="json",
+        )
+
+    with freeze_time("2026-06-10 12:00:00"):
+        first = report("spam")
+        blocked = report("abuse")
 
     assert first.status_code == 200
     assert blocked.status_code == 429

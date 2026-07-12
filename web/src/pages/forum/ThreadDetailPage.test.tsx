@@ -414,6 +414,42 @@ describe('ThreadDetailPage', () => {
     expect(forumService.toggleReaction).toHaveBeenCalledWith('5', 'like');
   });
 
+  it('reports a post and shows a confirmation', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [createMockPost({ id: '5', can_report: true })],
+      meta: { count: 0, next: null, previous: null },
+    });
+    vi.spyOn(forumService, 'reportPost').mockResolvedValue(undefined);
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByTitle('Report post'));
+    await userEvent.click(screen.getByText('Submit'));
+
+    await waitFor(() => expect(screen.getByText('Reported')).toBeInTheDocument());
+    expect(forumService.reportPost).toHaveBeenCalledWith('5', 'spam');
+  });
+
+  it('shows an error notice and does not falsely confirm when reporting fails', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [createMockPost({ id: '5', can_report: true })],
+      meta: { count: 0, next: null, previous: null },
+    });
+    vi.spyOn(forumService, 'reportPost').mockRejectedValue(
+      new Error('You cannot report your own post.')
+    );
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByTitle('Report post'));
+    await userEvent.click(screen.getByText('Submit'));
+
+    await screen.findByText('You cannot report your own post.');
+    expect(screen.queryByText('Reported')).not.toBeInTheDocument();
+  });
+
   it('edits a post and shows the new body', async () => {
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
     vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({

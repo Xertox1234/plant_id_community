@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import StreamFieldRenderer from '../StreamFieldRenderer';
 import type { Post } from '@/types';
@@ -8,10 +8,19 @@ interface PostCardProps {
   onEdit?: (post: Post) => void;
   onDelete?: (post: Post) => void;
   onReact?: (postId: string, reactionType: string) => void;
+  onReport?: (postId: string, reason: string) => Promise<void>;
 }
 
 // The four reaction types the backend supports.
 const REACTION_TYPES = ['like', 'love', 'helpful', 'thanks'] as const;
+
+// Mirrors wagtail_forum Report.REASON_CHOICES.
+const REPORT_REASONS = [
+  { value: 'spam', label: 'Spam' },
+  { value: 'abuse', label: 'Abuse' },
+  { value: 'off_topic', label: 'Off topic' },
+  { value: 'other', label: 'Other' },
+] as const;
 
 // Helper function for reaction emojis
 function getReactionEmoji(type: string): string {
@@ -30,11 +39,35 @@ function getReactionEmoji(type: string): string {
  * Displays a single post in a thread.
  * Includes author info, content, reactions, and edit/delete options.
  */
-function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
-  // Edit/delete visibility is driven by the backend capability flags
-  // (PostSerializer.can_edit/can_delete) — the only authority on author-or-mod.
+function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) {
+  // Edit/delete/report visibility is driven by the backend capability flags
+  // (PostSerializer.can_edit/can_delete/can_report) — the only authority on
+  // author-or-mod (edit/delete) and not-the-author (report).
   const showEdit = !!post.can_edit && !!onEdit;
   const showDelete = !!post.can_delete && !!onDelete;
+  const showReport = !!post.can_report && !!onReport;
+  const [isReporting, setIsReporting] = useState(false);
+  const [reportReason, setReportReason] = useState<string>(REPORT_REASONS[0].value);
+  const [hasReported, setHasReported] = useState(false);
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+
+  // Only confirm "Reported" once the request actually succeeds — a network
+  // failure must leave the picker open (with the real error surfaced by the
+  // caller's onReport), not silently claim success like an optimistic update.
+  const submitReport = async () => {
+    if (!onReport) return;
+    setIsSubmittingReport(true);
+    try {
+      await onReport(post.id, reportReason);
+      setHasReported(true);
+      setIsReporting(false);
+    } catch {
+      // The caller (onReport) already surfaced the error to the user — leave
+      // the picker open so they can retry instead of falsely confirming.
+    } finally {
+      setIsSubmittingReport(false);
+    }
+  };
 
   // Memoize formatted date
   const formattedDate = useMemo(() => {
@@ -147,6 +180,59 @@ function PostCard({ post, onEdit, onDelete, onReact }: PostCardProps) {
               <span className="font-medium">{post.reaction_counts?.[type] ?? 0}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Report — never shown to the post's own author (can_report is the
+          backend authority; mirrors can_edit/can_delete). */}
+      {showReport && (
+        <div className="flex justify-end pt-3 border-t border-line">
+          {hasReported ? (
+            <span className="text-sm text-ink-3 italic">Reported</span>
+          ) : isReporting ? (
+            <div className="flex items-center gap-2">
+              <label htmlFor={`report-reason-${post.id}`} className="sr-only">
+                Report reason
+              </label>
+              <select
+                id={`report-reason-${post.id}`}
+                value={reportReason}
+                onChange={(e) => setReportReason(e.target.value)}
+                className="text-sm border border-line rounded px-2 py-1 bg-surface-1"
+              >
+                {REPORT_REASONS.map((r) => (
+                  <option key={r.value} value={r.value}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={submitReport}
+                disabled={isSubmittingReport}
+                className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded disabled:opacity-50"
+              >
+                Submit
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsReporting(false)}
+                disabled={isSubmittingReport}
+                className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-2 rounded disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsReporting(true)}
+              className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:text-error hover:bg-error/10 rounded inline-flex items-center gap-1"
+              title="Report post"
+            >
+              🚩 Report
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -76,6 +76,11 @@ class ReactionToggleView(forum_views.ReactionToggleView):
     pass
 
 
+@_throttled("report_create", "POST")
+class PostReportView(forum_views.PostReportView):
+    pass
+
+
 @_throttled("profile_update", "PATCH")
 class MeProfileView(forum_views.MeProfileView):
     pass

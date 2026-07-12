@@ -31,7 +31,7 @@ except ImportError:  # pragma: no cover
 
 from ..blocks import ForumBodyBlock
 from ..collections import get_forum_image_collection
-from ..models import ForumBoard, Post, Reaction, Topic
+from ..models import ForumBoard, Post, Reaction, Report, Topic
 from ..models.posts import BLOCK_FORBIDDEN
 from ..workflow import submit_edit_for_moderation, submit_for_moderation
 from .exceptions import Conflict, UnprocessableEntity
@@ -44,6 +44,7 @@ from .serializers import (
     PostSerializer,
     ReactionSerializer,
     ReplyCreateSerializer,
+    ReportSerializer,
     TopicCreateSerializer,
     TopicDetailSerializer,
     TopicListSerializer,
@@ -636,6 +637,44 @@ class ReactionToggleView(APIView):
             reacted = True
         counts = Reaction.recount(post)
         result = {"reaction_counts": counts, "reacted": reacted}
+        remember(cache_key, result, http_status.HTTP_200_OK, payload_fp)
+        return Response(result, status=http_status.HTTP_200_OK)
+
+
+class PostReportView(APIView):
+    permission_classes = [IsAuthenticated]
+    versioning_class = None
+
+    @extend_schema(
+        request=ReportSerializer,
+        responses={200: dict, 400: dict, 404: dict},
+        description=(
+            "Report a post for moderator review. Idempotent per (post, "
+            "reporter): reporting the same post again is a no-op, not an "
+            "error. Never echoes a flag/report count — that would signal "
+            "proximity to the auto-hide threshold (audit L12)."
+        ),
+    )
+    def post(self, request, post_id):
+        cache_key = idempotency_cache_key(request, "post-report")
+        payload_fp = (
+            fingerprint({"post": post_id, "body": request.data}) if cache_key else None
+        )
+        replayed = _replay_or_none(cache_key, payload_fp)
+        if replayed is not None:
+            return replayed
+
+        post = _get_visible_post(post_id)  # 404s hidden posts/topics/boards (M6/M7)
+        # Single-sourced on the model (can_be_reported_by) so this guard and the
+        # serializer's can_report affordance cannot diverge — same discipline as
+        # PostWriteView's edit_block/delete_block (todo 252).
+        if not post.can_be_reported_by(request.user):
+            raise ValidationError({"detail": "You cannot report your own post."})
+        serializer = ReportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
+        Report.file(post, request.user, **serializer.validated_data)
+        result = {"reported": True}
         remember(cache_key, result, http_status.HTTP_200_OK, payload_fp)
         return Response(result, status=http_status.HTTP_200_OK)
 

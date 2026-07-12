@@ -31,3 +31,12 @@ def test_profile_snippet_list_is_reachable_in_admin(client):
 
     resp = client.get("/cms/snippets/wagtail_forum/forumprofile/")
     assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_report_snippet_list_is_reachable_in_admin(client):
+    admin = User.objects.create_superuser(username="root", email="r@x.io")
+    client.force_login(admin)
+
+    resp = client.get("/cms/snippets/wagtail_forum/report/")
+    assert resp.status_code == 200

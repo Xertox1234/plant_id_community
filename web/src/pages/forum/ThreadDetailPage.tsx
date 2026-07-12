@@ -7,6 +7,7 @@ import {
   updatePost,
   deletePost,
   toggleReaction,
+  reportPost,
 } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
 import { bodyBlocksToHtml } from '../../utils/forumBody';
@@ -193,6 +194,23 @@ export default function ThreadDetailPage() {
     }
   }, []);
 
+  const handleReport = useCallback(async (postId: string, reason: string) => {
+    try {
+      await reportPost(postId, reason);
+    } catch (err) {
+      logger.error('Error reporting post', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { postId, reason },
+      });
+      setNotice(err instanceof Error ? err.message : 'Failed to report post');
+      // Rethrow so PostCard's picker stays open for a retry instead of
+      // showing a false "Reported" confirmation (unlike handleReact, whose
+      // confirmation is driven by reaction_counts and never lies on failure).
+      throw err;
+    }
+  }, []);
+
   const handleDelete = useCallback(async (post: Post) => {
     if (!window.confirm('Delete this post? This cannot be undone.')) return;
     try {
@@ -369,6 +387,7 @@ export default function ThreadDetailPage() {
                 onEdit={handleEdit}
                 onDelete={handleDelete}
                 onReact={isAuthenticated ? handleReact : undefined}
+                onReport={isAuthenticated ? handleReport : undefined}
               />
             </div>
           )

@@ -218,6 +218,22 @@ export async function toggleReaction(
 }
 
 // ---------------------------------------------------------------------------
+// Reports
+// ---------------------------------------------------------------------------
+
+/**
+ * Report a post for moderator review. Idempotent per (post, reporter); the
+ * backend never echoes a report/flag count, so there is nothing to return
+ * beyond success.
+ */
+export async function reportPost(postId: string, reason: string, detail?: string): Promise<void> {
+  await authenticatedFetch<{ reported: boolean }>(`${FORUM_BASE}/posts/${postId}/reports/`, {
+    method: 'POST',
+    body: JSON.stringify({ reason, detail: detail ?? '' }),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Images (inline post images — Spec 2 PR-3)
 // ---------------------------------------------------------------------------
 

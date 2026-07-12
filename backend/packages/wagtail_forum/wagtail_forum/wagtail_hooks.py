@@ -1,7 +1,7 @@
 from wagtail.snippets.models import register_snippet
 from wagtail.snippets.views.snippets import SnippetViewSet, SnippetViewSetGroup
 
-from .models import ForumProfile, Post, Topic
+from .models import ForumProfile, Post, Report, Topic
 
 
 class TopicViewSet(SnippetViewSet):
@@ -45,8 +45,22 @@ class ForumProfileViewSet(SnippetViewSet):
         return qs.select_related("user")
 
 
+class ReportViewSet(SnippetViewSet):
+    model = Report
+    icon = "warning"
+    menu_label = "Reports"
+    list_display = ["post", "reporter", "reason", "status", "created_at"]
+    list_filter = ["status", "reason"]
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if qs is None:
+            qs = self.model.objects.all()
+        return qs.select_related("post", "reporter", "resolved_by")
+
+
 class ForumViewSetGroup(SnippetViewSetGroup):
-    items = (TopicViewSet, PostViewSet, ForumProfileViewSet)
+    items = (TopicViewSet, PostViewSet, ForumProfileViewSet, ReportViewSet)
     menu_icon = "group"
     menu_label = "Forum"
     menu_name = "forum"

@@ -3,7 +3,7 @@ from wagtail.blocks import RichTextBlock
 from wagtail.images import get_image_model
 from wagtail.rich_text import expand_db_html
 
-from ..models import ForumBoard, ForumProfile, Post, Reaction, Topic
+from ..models import ForumBoard, ForumProfile, Post, Reaction, Report, Topic
 from .sanitize import validate_forum_body
 
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
@@ -248,6 +248,7 @@ class PostSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
     can_edit = serializers.SerializerMethodField()
     can_delete = serializers.SerializerMethodField()
+    can_report = serializers.SerializerMethodField()
 
     class Meta:
         model = Post
@@ -264,6 +265,7 @@ class PostSerializer(serializers.ModelSerializer):
             "reaction_counts",
             "can_edit",
             "can_delete",
+            "can_report",
         ]
 
     @extend_schema_field(AUTHOR_SCHEMA)
@@ -309,6 +311,11 @@ class PostSerializer(serializers.ModelSerializer):
         # Same policy as can_edit plus the opening-post rule.
         return obj.can_be_deleted_by(self._request_user())
 
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_can_report(self, obj):
+        # False for the post's own author and for anonymous viewers.
+        return obj.can_be_reported_by(self._request_user())
+
 
 class _ForumBodyContract(serializers.Serializer):
     """Shared write-body field + validation, so the body contract
@@ -339,6 +346,11 @@ class PostEditSerializer(_ForumBodyContract):
 
 class ReactionSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=Reaction.REACTION_CHOICES)
+
+
+class ReportSerializer(serializers.Serializer):
+    reason = serializers.ChoiceField(choices=Report.REASON_CHOICES)
+    detail = serializers.CharField(max_length=280, required=False, default="")
 
 
 class MeProfileSerializer(serializers.ModelSerializer):
