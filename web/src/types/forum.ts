@@ -75,6 +75,7 @@ export interface Post {
   /** Permission flags from the backend (wagtail_forum PostSerializer). */
   can_edit?: boolean;
   can_delete?: boolean;
+  can_report?: boolean;
 }
 
 /**

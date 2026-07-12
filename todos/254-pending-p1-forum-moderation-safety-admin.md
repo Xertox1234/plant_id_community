@@ -83,7 +83,7 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `H` = `bac
 
 ## Acceptance Criteria
 
-- [ ] A member can report a post; the report lands in an admin queue;
+- [x] A member can report a post; the report lands in an admin queue;
       `flags_received` increments; duplicate reports are idempotent
 - [ ] A spam-backend exception on create no longer strands an invisible
       IN_PROGRESS TaskState (regression test)
@@ -101,6 +101,25 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `H` = `bac
 
 - Epic groups 6 open findings per the manifest's Phase 4 grouping table
   (user-approved: moderation & Wagtail admin selected as a p1 theme).
+
+### 2026-07-12 - Slice 1 (C1 report/flag mechanism) shipped
+
+- Package `Report` model + migration, throttled idempotent
+  `POST /posts/{id}/reports/`, `can_report` capability flag (mirrors
+  can_edit/can_delete), `ReportViewSet` admin queue, PostCard reason-picker
+  wired through ThreadDetailPage. Reports crossing
+  `REPORT_AUTO_HIDE_THRESHOLD` (default 3) auto-unpublish the post
+  (`user=None`, system action) for moderator review.
+  Branch `feat/forum-moderation-safety-todo254`, 3 commits (b546550, 4c72249,
+  e070bd3) — PR opened for this slice. 247 backend / 596 web tests passing.
+- kimi-review (3 passes) caught and fixed: a savepoint gap on the
+  flags_received increment, and an uncaught `Post.DoesNotExist` race
+  (hard-delete between Report.file's create and its auto-hide lock re-fetch)
+  surfacing as 500 instead of 404. One suggested fix (assert the report row
+  survives) was verified WRONG against actual cascade-delete behavior
+  (`Report.post` is `on_delete=CASCADE`) before being corrected instead of
+  applied as-is.
+- Remaining slices (H16 queue fixes, M16/M19/M20 polish, L21) not started.
 
 ## Notes
 

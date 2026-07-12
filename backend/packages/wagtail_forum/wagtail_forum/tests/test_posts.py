@@ -39,3 +39,14 @@ def test_post_publishes_via_revision():
     post.refresh_from_db()
     assert post.live is True
     assert post.revisions.count() == 1
+
+
+@pytest.mark.django_db
+def test_can_be_reported_by_blocks_self_report_and_anonymous():
+    author = User.objects.create_user(username="ada")
+    other = User.objects.create_user(username="bea")
+    post = Post.objects.create(topic=_topic(author), author=author)
+
+    assert post.can_be_reported_by(author) is False  # self-report
+    assert post.can_be_reported_by(other) is True
+    assert post.can_be_reported_by(None) is False

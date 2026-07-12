@@ -67,6 +67,7 @@ export interface BackendPost {
   reaction_counts: Record<string, number>;
   can_edit: boolean;
   can_delete: boolean;
+  can_report: boolean;
 }
 
 export interface BackendSearchTopic {
@@ -185,6 +186,7 @@ export function mapPostToPost(p: BackendPost, threadId: string): Post {
     reaction_counts: p.reaction_counts ?? {},
     can_edit: p.can_edit,
     can_delete: p.can_delete,
+    can_report: p.can_report,
   };
 }
 
@@ -214,6 +216,7 @@ export function mapSearchPostToPost(p: BackendSearchPost): Post {
     reaction_counts: {},
     can_edit: false,
     can_delete: false,
+    can_report: false,
     topic_title: p.topic_title,
   };
 }

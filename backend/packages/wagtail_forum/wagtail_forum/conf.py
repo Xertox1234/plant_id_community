@@ -31,6 +31,9 @@ DEFAULTS = {
     # A mobile client that hasn't synced in longer than this window will miss
     # some deletions and should fall back to a full resync.
     "SYNC_TOMBSTONE_RETENTION_DAYS": 30,
+    # Distinct open reports on a single post before it is auto-unpublished
+    # pending moderator review (audit 2026-07-11 C1, todo 254).
+    "REPORT_AUTO_HIDE_THRESHOLD": 3,
 }
 
 

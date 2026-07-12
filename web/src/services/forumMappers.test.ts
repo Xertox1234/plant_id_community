@@ -185,6 +185,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
         reaction_counts: { like: 3 },
         can_edit: true,
         can_delete: false,
+        can_report: true,
       },
       '12'
     );
@@ -196,6 +197,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       reaction_counts: { like: 3 },
       can_edit: true,
       can_delete: false,
+      can_report: true,
     });
     expect(p.author?.username).toBe('jdoe');
     expect(p.author?.display_name).toBe('Jane Doe');
@@ -216,6 +218,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
         reaction_counts: {},
         can_edit: false,
         can_delete: false,
+        can_report: false,
       },
       '12'
     );
@@ -236,6 +239,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
         reaction_counts: {},
         can_edit: false,
         can_delete: false,
+        can_report: false,
       },
       '12'
     );

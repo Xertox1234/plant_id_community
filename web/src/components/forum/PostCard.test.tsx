@@ -320,4 +320,94 @@ describe('PostCard', () => {
     expect(onEdit).toHaveBeenCalledWith(post);
     expect(onDelete).toHaveBeenCalledWith(post);
   });
+
+  it('shows the report control when can_report is true and onReport is provided', () => {
+    const post = createMockPost({ can_report: true });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onReport={vi.fn()} />
+      </BrowserRouter>
+    );
+
+    expect(screen.getByTitle('Report post')).toBeInTheDocument();
+  });
+
+  it('hides the report control when can_report is false', () => {
+    const post = createMockPost({ can_report: false });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onReport={vi.fn()} />
+      </BrowserRouter>
+    );
+
+    expect(screen.queryByTitle('Report post')).not.toBeInTheDocument();
+  });
+
+  it('hides the report control when no onReport handler is provided even if capable', () => {
+    const post = createMockPost({ can_report: true });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} />
+      </BrowserRouter>
+    );
+
+    expect(screen.queryByTitle('Report post')).not.toBeInTheDocument();
+  });
+
+  it('submits the selected reason and shows a confirmation', async () => {
+    const onReport = vi.fn().mockResolvedValue(undefined);
+    const post = createMockPost({ id: 'post-9', can_report: true });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onReport={onReport} />
+      </BrowserRouter>
+    );
+
+    await userEvent.click(screen.getByTitle('Report post'));
+    await userEvent.selectOptions(screen.getByLabelText('Report reason'), 'abuse');
+    await userEvent.click(screen.getByText('Submit'));
+
+    expect(onReport).toHaveBeenCalledWith('post-9', 'abuse');
+    expect(screen.getByText('Reported')).toBeInTheDocument();
+    expect(screen.queryByTitle('Report post')).not.toBeInTheDocument();
+  });
+
+  it('leaves the picker open (no false confirmation) when the report request fails', async () => {
+    const onReport = vi.fn().mockRejectedValue(new Error('network error'));
+    const post = createMockPost({ can_report: true });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onReport={onReport} />
+      </BrowserRouter>
+    );
+
+    await userEvent.click(screen.getByTitle('Report post'));
+    await userEvent.click(screen.getByText('Submit'));
+
+    expect(onReport).toHaveBeenCalled();
+    expect(screen.queryByText('Reported')).not.toBeInTheDocument();
+    expect(screen.getByText('Submit')).toBeInTheDocument(); // picker still open for retry
+  });
+
+  it('cancels the reason picker without calling onReport', async () => {
+    const onReport = vi.fn();
+    const post = createMockPost({ can_report: true });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onReport={onReport} />
+      </BrowserRouter>
+    );
+
+    await userEvent.click(screen.getByTitle('Report post'));
+    await userEvent.click(screen.getByText('Cancel'));
+
+    expect(onReport).not.toHaveBeenCalled();
+    expect(screen.getByTitle('Report post')).toBeInTheDocument();
+  });
 });
