@@ -190,9 +190,12 @@ def test_report_retry_with_idempotency_key_does_not_duplicate():
 def test_report_hard_deleted_between_create_and_lock_is_404_not_500(monkeypatch):
     """A hard delete (topic CASCADE) landing between Report.file's own create()
     savepoint and its auto-hide lock re-fetch returns 404, not a 500
-    (kimi-review, forum audit todo 254). The report row itself is still
-    created (it committed in its own savepoint before the delete), matching
-    the DELETE endpoint's identical race guard (test_post_edit_delete.py)."""
+    (kimi-review, forum audit todo 254) — mirrors the DELETE endpoint's
+    identical race guard (test_post_edit_delete.py). Report.post is
+    on_delete=CASCADE, so the just-created report is cascade-deleted along
+    with the post in the same statement — verified empirically, not left as
+    an orphaned row, which is the harder case: the auto-hide block's lock
+    re-fetch must still 404 cleanly with nothing left to find."""
     ensure_default_workflow()
     _, opening = _live_topic()
     real_create = Report.objects.create
@@ -212,3 +215,6 @@ def test_report_hard_deleted_between_create_and_lock_is_404_not_500(monkeypatch)
     )
 
     assert resp.status_code == 404
+    # No orphaned report row survives the cascade — confirms the DB is left
+    # consistent, not just that the response happens to be 404.
+    assert not Report.objects.filter(post_id=opening.id).exists()
