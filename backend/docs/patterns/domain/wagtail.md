@@ -171,3 +171,36 @@ Caveats discovered the hard way:
   activity" and corrupts `-last_post_at` ordering.
 - **`objects.create()` is born `live=True`** for DraftStateMixin models — test
   fixtures built on it never exercise the draft→publish transitions.
+
+## Attributing API-Driven Publish/Unpublish in the Audit Log (2026-07-11, forum audit)
+
+Wagtail's `LogContext` picks up the acting user only in the admin auth flow —
+every publish/unpublish triggered from a DRF view logs `user=None` ("system")
+unless the user is passed explicitly at the action:
+
+```python
+# Publish (trusted path / moderator action) — attribute + skip the Wagtail
+# permission check (DRF permissions already gated this path):
+revision = post.save_revision(user=acting_user)
+revision.publish(user=acting_user, skip_permission_checks=True)
+
+# Unpublish — DraftStateMixin.unpublish() CANNOT skip permission checks;
+# call the action class directly:
+from wagtail.actions.unpublish import UnpublishAction
+UnpublishAction(post, user=acting_user).execute(skip_permission_checks=True)
+
+# Workflow start — the user must stay None (load-bearing):
+workflow.start(post, None)
+```
+
+Why `None` is load-bearing: on auto-approval workflows the completion hook
+(`publish_workflow_state`) publishes AS `requested_by` WITHOUT
+`skip_permission_checks` — passing the author makes every non-moderator publish
+raise `PublishPermissionError` (empirically hit: 7 test failures before revert).
+
+Cost: each attributed log write adds one `SELECT 1 FROM auth_user` existence
+check — exact query pins shift +1 per logged action; update them with a comment
+explaining the new number.
+
+Reference: `backend/packages/wagtail_forum/wagtail_forum/workflow.py`,
+`wagtail_forum/tests/test_actor_attribution.py`.

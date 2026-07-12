@@ -300,5 +300,67 @@
     "source": "codify: feat/web-google-signin",
     "added": "2026-06-27",
     "severity": "warn"
+  },
+  {
+    "id": "drf-package-views-pin-filter-backends",
+    "domains": [
+      "api"
+    ],
+    "path_glob": [
+      "backend/packages/*/api/*.py"
+    ],
+    "content_present": "class \\w+\\(generics\\.\\w*APIView\\)",
+    "content_absent": "filter_backends",
+    "message": "Package generics views inherit host DEFAULT_FILTER_BACKENDS: a client ?ordering= overrides cursor ordering and can 500 via dotted serializer sources. Pin filter_backends = [] (order is a package contract).",
+    "pattern_ref": "backend/docs/patterns/architecture/viewsets.md",
+    "source": "codify: chore/forum-modernization-audit-2026-07-11",
+    "added": "2026-07-11",
+    "severity": "warn"
+  },
+  {
+    "id": "wagtail-workflow-start-user-none",
+    "domains": [
+      "wagtail"
+    ],
+    "path_glob": [
+      "backend/*.py"
+    ],
+    "content_present": "workflow\\.start\\([^,)]+,\\s*(?!None\\b)\\S",
+    "message": "workflow.start(obj, user) makes the auto-approval completion hook publish permission-checked AS requested_by (PublishPermissionError for non-moderators). Pass None; attribute via revision.publish(user=..., skip_permission_checks=True).",
+    "pattern_ref": "backend/docs/patterns/domain/wagtail.md",
+    "source": "codify: chore/forum-modernization-audit-2026-07-11",
+    "added": "2026-07-11",
+    "severity": "warn"
+  },
+  {
+    "id": "wagtail-streamvalue-render-n-plus-one",
+    "domains": [
+      "wagtail"
+    ],
+    "path_glob": [
+      "backend/*.py"
+    ],
+    "content_present": "\\.render_as_block\\(\\)",
+    "message": "Rendering/iterating a resolved StreamValue bulk-fetches image blocks PER OBJECT (N+1, reintroduced twice) — build excerpts/text from stream_value.raw_data instead (docs/rules/wagtail.md).",
+    "pattern_ref": "backend/docs/patterns/performance/query-optimization.md",
+    "source": "codify: chore/forum-modernization-audit-2026-07-11",
+    "added": "2026-07-11",
+    "severity": "warn"
+  },
+  {
+    "id": "js-array-fill-shared-reference",
+    "domains": [
+      "react",
+      "typescript"
+    ],
+    "path_glob": [
+      "web/src/*.ts*"
+    ],
+    "content_present": "Array\\(\\d+\\)\\.fill\\([a-zA-Z_]\\w*\\(",
+    "message": "Array(n).fill(makeX()) puts ONE shared object in every slot (duplicate React keys, cross-item mutation). Use Array.from({length: n}, (_, i) => makeX({id: i})).",
+    "pattern_ref": "web/docs/patterns/testing.md",
+    "source": "codify: chore/forum-modernization-audit-2026-07-11",
+    "added": "2026-07-11",
+    "severity": "warn"
   }
 ]

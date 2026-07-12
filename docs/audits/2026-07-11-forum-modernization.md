@@ -401,4 +401,9 @@ Completed after fixes are committed. Each row links to the docs change.
 
 | Finding | Destination | Note |
 | ------- | ----------- | ---- |
-| —       | —           | —    |
+| M15 (+ the workflow.start regression it surfaced) | `docs/rules/wagtail.md` (2 bullets), `backend/docs/patterns/domain/wagtail.md` §Attributing API-Driven Publish/Unpublish, trigger `wagtail-workflow-start-user-none` | `workflow.start(obj, None)` load-bearing; UnpublishAction for attributed unpublish; +1 `auth_user` query per attributed log write |
+| Phase 6 R1 (?ordering override + 500) | `docs/rules/api.md`, `backend/docs/patterns/architecture/viewsets.md` §Reusable-Package Views Must Pin `filter_backends`, `docs/LEARNINGS.md`, `django-drf-reviewer` checklist, trigger `drf-package-views-pin-filter-backends` | full fan-out — rule + pattern + incident + review check + write-time trigger |
+| M33 + Phase 6 R2 (retry testing) | `docs/rules/celery.md`, `backend/docs/patterns/domain/celery.md` §Testing Retry Backoff | `.apply()` ignores `countdown`; `push_request(retries=N)` + mocked `retry` pins values |
+| M21 (fixture trap) | `docs/rules/react.md`, trigger `js-array-fill-shared-reference` | `.fill()` evaluates its argument once |
+| H24 (raw_data N+1 recurrence) | trigger `wagtail-streamvalue-render-n-plus-one` | the prose rule already existed (`docs/rules/wagtail.md`) and was violated anyway — now fires at write time on `render_as_block(` |
+| Session mechanics (worktree pytest) | `docs/LEARNINGS.md` | `PYTHONPATH=packages/wagtail_forum` beats the editable-install `.pth` pointing at the main checkout |
