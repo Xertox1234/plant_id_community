@@ -69,10 +69,17 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `H` = `bac
   invisible in global admin search; blog registers one), `search_fields`
   missing on Post/Profile viewsets, no bulk actions for spam-wave cleanup
   (`W/wagtail_hooks.py:12,21-45`).
-- **L21** — Product/privacy note: cross-user image reuse is by-design
-  (collection-scoped, sequential integer PKs — any member can embed another
-  member's uploaded image); deliberate per docstring — needs a roadmap-owner
-  decision, not a code fix (`W/api/sanitize.py:122-137`).
+- **L21** — Product/privacy note: cross-user image reuse was possible
+  (collection-scoped, sequential integer PKs — any member could embed another
+  member's uploaded image); a side effect of the L5 collection-membership
+  check, not an independently deliberate feature — needed a roadmap-owner
+  decision, not a unilateral code fix (`W/api/sanitize.py:122-137`).
+  **Decision (2026-07-12, Slice 5):** scope to uploader — closed in code, not
+  just documented. `validate_forum_body` now takes a required
+  `allowed_uploader_ids` set (request user, plus the post's existing author on
+  edit so a moderator resending the body doesn't lose the author's images).
+  See `backend/docs/patterns/domain/forum.md`'s "Image blocks are scoped to an
+  allowed-uploader set" section.
 
 ## Recommended Action
 
@@ -90,7 +97,8 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `H` = `bac
 4. **M16 preview** (PreviewableMixin + preview template), **M19 board-scoped
    checks**, **M20 polish** (search area, search_fields, bulk actions).
 5. **L21**: record the image-reuse stance (accept + document, or scope
-   collections per-user) — decision, then docs.
+   collections per-user) — decision, then docs. Decided: scope to uploader
+   (Slice 5) — see finding correction above.
 
 ## Technical Details
 
@@ -129,7 +137,9 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `H` = `bac
       see the M19 finding correction below and
       `backend/docs/patterns/domain/forum.md`'s "Moderation permission scope
       is global, deliberately" section (Slice 4).
-- [ ] L21 image-reuse stance recorded (docs or code change)
+- [x] L21 image-reuse stance recorded (docs or code change) — scoped to
+      uploader in code (`validate_forum_body`'s `allowed_uploader_ids`), not
+      just documented; see `backend/docs/patterns/domain/forum.md` (Slice 5).
 
 ## Work Log
 
@@ -268,6 +278,56 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `H` = `bac
   test so the confirmation-page render is covered there too, not just in the
   permission-denial test that happened to catch it. 256 forum+forum_host
   tests passing after this fix.
+
+### 2026-07-12 - Slice 5 (L21 image-reuse stance) shipped
+
+- **Decision**: asked the user to choose between "accept + document" and
+  "scope to uploader" (the todo's own two options), with the corrected cost
+  (cheap — `Image.uploaded_by_user` is already recorded at upload time,
+  `W/api/views.py:585` — no migration, no collection restructure) and the
+  concrete harm (a member's photo reusable by a stranger in a hostile/
+  unrelated post; a takedown of one shared image silently breaks rendering
+  in every other post referencing it). User chose **scope to uploader**.
+- **Implementation**: `validate_forum_body(value, allowed_uploader_ids)` gained
+  a required second parameter — an image block's referenced PK must now be in
+  the forum collection (L5, unchanged) AND uploaded by an allowed user id
+  (L21, new). `_ForumBodyContract._allowed_uploader_ids()` (api/serializers.py)
+  computes the set per request: `{request.user.pk}` on create, plus the post's
+  pre-existing `author_id` on edit (threaded via
+  `context={"existing_author_id": post.author_id}` at the `PostWriteView.patch`
+  call site) — a moderator resending an author's whole body (PATCH replaces it
+  entirely) must not lose the author's existing images just because the editor
+  changed. `None` is a legal set member: Wagtail's `Image.uploaded_by_user` and
+  `Post.author` both go `SET_NULL` together on account deletion, so a deleted
+  author's images grandfather in for free.
+- **Real bug caught by a test, not review**: the first cut used
+  `uploaded_by_user_id__in=allowed_uploader_ids` directly. A dedicated test for
+  the `None`-grandfather case (`test_image_block_with_null_uploader_matches_
+  none_in_allowed_ids`) failed — SQL's `IN (NULL)` is never true, even for a
+  row whose value actually is `NULL`. Fixed with an explicit
+  `Q(uploaded_by_user_id__isnull=True)` branch OR'd in only when `None` is in
+  the set. Without that test this would have shipped silently broken: any
+  moderator edit of a deleted-account author's post that had an existing image
+  would have had the image rejected on every subsequent edit.
+  - Also hit the project's known edit-time import-strip gotcha twice
+    (`project_dart_edittime_import_strip` memory) — adding the `django.db.models.Q`
+    import in a separate edit before its first usage let the formatter strip it
+    as unused; fixed by re-adding it in the same edit as the usage.
+- **Tests**: `test_blocks.py` — 4 new/rewritten unit tests on
+  `validate_forum_body` directly (accepted-by-allowed-uploader, rejected-by-
+  different-uploader, `None`-grandfather accepted, collection-rejection now
+  uploader-agnostic). `tests/api/test_post_image_upload.py` — one new
+  end-to-end test proving a second member's API POST referencing the first
+  member's uploaded image id 400s. `tests/api/test_post_edit_delete.py` — two
+  new tests: a moderator's edit keeps the author's pre-existing image (no
+  regression from the fix), and a moderator cannot smuggle in a *third*,
+  unrelated member's image while editing someone else's post (the carve-out
+  is narrow — grandfathered author only, not "any privileged edit").
+  261 forum+forum_host tests passing (was 256). `manage.py check` and
+  `makemigrations --check --dry-run` both clean (no model field changed —
+  `Image.uploaded_by_user` already existed).
+- Todo 254 acceptance criteria are now all met (C1/H16/M16/M19/M20/L21) —
+  epic complete pending final review + archival.
 
 ## Notes
 

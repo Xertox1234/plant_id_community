@@ -14,6 +14,7 @@ cost and storage in check.
 import json
 
 import nh3
+from django.db.models import Q
 from rest_framework import serializers
 from wagtail.blocks import ChooserBlock, RichTextBlock, StructBlock
 from wagtail.images import get_image_model
@@ -45,13 +46,23 @@ def sanitize_rich_text(html):
     )
 
 
-def validate_forum_body(value):
+def validate_forum_body(value, allowed_uploader_ids):
     """Validate + sanitize a forum post body (raw StreamField list-of-dicts).
 
     1. Reject an oversized body (block count / total size) — bounds parse cost.
     2. Reject a structurally malformed body (``to_python`` dry-run) — 400, not 500.
     3. Sanitize each rich-text ("paragraph") block's HTML, stripping scripts,
        event-handler attributes, and disallowed tags/schemes.
+
+    ``allowed_uploader_ids`` bounds which images an ``image`` block may
+    reference: an image must live in the forum collection (audit L5 IDOR-by-
+    reference) AND have been uploaded by one of these user ids (audit L21 —
+    collection membership alone lets any member embed any other member's
+    upload by guessing/observing its PK). Pass a set; ``None`` is a valid
+    member for an account-deleted author's grandfathered images — Wagtail's
+    ``Image.uploaded_by_user`` and ``Post.author`` both go ``SET_NULL`` on
+    account deletion in the same operation, so a deleted author's pre-existing
+    uploads carry ``uploaded_by_user_id=None`` right alongside the post.
 
     Returns the cleaned value so the caller stores the safe version.
     """
@@ -117,17 +128,30 @@ def validate_forum_body(value):
             )
 
     # Image blocks ARE allowed, but only when every referenced PK is an image in
-    # the forum collection — the to_python dry-run never resolves chooser PKs, so
-    # an unchecked id is an IDOR-by-reference (audit L5). One bulk query.
+    # the forum collection AND uploaded by an allowed user — the to_python
+    # dry-run never resolves chooser PKs, so an unchecked id is an IDOR-by-
+    # reference (audit L5); collection membership alone is not enough to stop
+    # cross-member reuse (audit L21). One bulk query.
     image_ids = [
         block["value"]
         for block in value
         if isinstance(block, dict) and block.get("type") in image_types
     ]
     if image_ids:
+        # `uploaded_by_user_id__in={..., None}` would silently match nothing for
+        # the None member — SQL's `IN (NULL)` is never true, even for a NULL
+        # column value. isnull=True is the only correct way to include it.
+        uploader_ids = {uid for uid in allowed_uploader_ids if uid is not None}
+        uploader_match = Q(uploaded_by_user_id__in=uploader_ids)
+        if None in allowed_uploader_ids:
+            uploader_match |= Q(uploaded_by_user_id__isnull=True)
         valid_ids = set(
             get_image_model()
-            .objects.filter(id__in=image_ids, collection=get_forum_image_collection())
+            .objects.filter(
+                uploader_match,
+                id__in=image_ids,
+                collection=get_forum_image_collection(),
+            )
             .values_list("id", flat=True)
         )
         if any(image_id not in valid_ids for image_id in image_ids):

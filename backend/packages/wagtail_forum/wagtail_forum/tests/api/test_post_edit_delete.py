@@ -261,6 +261,71 @@ def test_moderator_edit_author_deleted_post_persists():
     assert fresh.live and "[redacted]" in fresh.body[0].value.source
 
 
+def test_moderator_edit_keeps_original_authors_existing_image():
+    """audit L21: an image block must be uploaded by an allowed user, but a
+    moderator resending the AUTHOR's pre-existing image (PATCH replaces the
+    whole body) must not have it rejected just because the editor changed —
+    allowed_uploader_ids includes the post's existing author, not just the
+    acting request user."""
+    from wagtail.images import get_image_model
+    from wagtail.images.tests.utils import get_test_image_file
+    from wagtail_forum.collections import get_forum_image_collection
+
+    board = _board()
+    author = _member("ada")
+    image = get_image_model().objects.create(
+        title="seedling",
+        file=get_test_image_file(),
+        collection=get_forum_image_collection(),
+        uploaded_by_user=author,
+    )
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    mod = _moderator("mod")
+    client = APIClient()
+    client.force_authenticate(mod)
+    resp = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {
+            "body": [
+                {"type": "paragraph", "value": "<p>mod note</p>"},
+                {"type": "image", "value": image.id},
+            ]
+        },
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["moderation_status"] == "published"
+
+
+def test_moderator_edit_cannot_smuggle_in_a_different_members_image():
+    """audit L21: the moderator-edit carve-out grandfathers the POST's existing
+    author, not an arbitrary third member's upload — a moderator adding a
+    stranger's image while editing someone else's post is still rejected."""
+    from wagtail.images import get_image_model
+    from wagtail.images.tests.utils import get_test_image_file
+    from wagtail_forum.collections import get_forum_image_collection
+
+    board = _board()
+    author = _member("ada")
+    stranger = _member("carol")
+    image = get_image_model().objects.create(
+        title="private",
+        file=get_test_image_file(),
+        collection=get_forum_image_collection(),
+        uploaded_by_user=stranger,
+    )
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    mod = _moderator("mod")
+    client = APIClient()
+    client.force_authenticate(mod)
+    resp = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {"body": [{"type": "image", "value": image.id}]},
+        format="json",
+    )
+    assert resp.status_code == 400
+
+
 def test_edit_save_revision_failure_is_not_fake_pending(monkeypatch):
     """A failure BEFORE the revision is saved must surface as an error, not a
     fake 200 'pending' (finding #3) — nothing was persisted, so the old body

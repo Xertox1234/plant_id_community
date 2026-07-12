@@ -197,7 +197,9 @@ class TopicListView(generics.ListAPIView):
         if replayed is not None:
             return replayed
 
-        serializer = TopicCreateSerializer(data=request.data)
+        serializer = TopicCreateSerializer(
+            data=request.data, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
         board = _get_board(slug)
 
@@ -387,7 +389,9 @@ class PostListView(generics.ListAPIView):
         )
         if topic.is_closed or topic.locked:
             raise Conflict("Topic is closed to replies.")
-        serializer = ReplyCreateSerializer(data=request.data)
+        serializer = ReplyCreateSerializer(
+            data=request.data, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
 
         reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
@@ -462,7 +466,10 @@ class PostWriteView(APIView):
     def patch(self, request, post_id):
         post = self._get_editable(request, post_id)
         self._enforce_writable(post.edit_block(request.user))
-        serializer = PostEditSerializer(data=request.data)
+        serializer = PostEditSerializer(
+            data=request.data,
+            context={"request": request, "existing_author_id": post.author_id},
+        )
         serializer.is_valid(raise_exception=True)
         post.body = ForumBodyBlock().to_python(serializer.validated_data["body"])
         # submit_edit_for_moderation owns the persistence contract: a pre-revision

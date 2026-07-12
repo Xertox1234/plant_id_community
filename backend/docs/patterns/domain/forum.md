@@ -71,3 +71,40 @@ This is a **deliberate decision, not an oversight**:
 - **Revisit trigger**: when a second board ships AND it needs a moderator distinct
   from the global group, design the group↔board mapping then, against a real
   requirement instead of a speculative one.
+
+## Image blocks are scoped to an allowed-uploader set, not just collection membership (audit L21)
+
+The forum image collection (`collections.get_forum_image_collection()`) is a
+single shared collection across every member — collection-membership alone
+(audit L5's IDOR-by-reference fix) stops a body from referencing an image
+outside the forum entirely, but does **not** stop one member from embedding
+another member's upload, since Wagtail's own `Image.uploaded_by_user` was
+recorded at upload time but never checked.
+
+`api/sanitize.py::validate_forum_body(value, allowed_uploader_ids)` now takes
+a required second argument: the set of user ids (a `None` member is legal —
+see below) whose uploads may be referenced. The three write serializers
+(`_ForumBodyContract` in `api/serializers.py`) compute this per request:
+
+- **Create** (`TopicCreateSerializer`/`ReplyCreateSerializer`): just the
+  acting `request.user` — no post exists yet.
+- **Edit** (`PostEditSerializer`): `request.user` **plus** the post's
+  pre-existing `author_id` (passed via `context={"existing_author_id": ...}`
+  at the view call site). PATCH resends the *entire* body — a moderator
+  editing someone else's post while keeping the author's existing image
+  blocks must not have them rejected just because the editor changed.
+
+**`None` is a legal member of `allowed_uploader_ids`**, and it is handled with
+an explicit `Q(uploaded_by_user_id__isnull=True)` branch, *not*
+`uploaded_by_user_id__in={..., None}` — SQL's `IN (NULL)` is never true, even
+for a row whose value actually is `NULL` (caught by a test before this ever
+reached review). `None` matters because Wagtail's `Image.uploaded_by_user` and
+`Post.author` both go `SET_NULL` together on account deletion — a deleted
+author's pre-existing images grandfather in automatically without any special
+casing, since `existing_author_id` is already `None` in that case.
+
+The moderator-edit carve-out is intentionally narrow: it grandfathers the
+POST's existing author, not "any image a privileged user chooses" — a
+moderator cannot smuggle in a *different*, unrelated member's image while
+editing someone else's post (pinned by
+`test_moderator_edit_cannot_smuggle_in_a_different_members_image`).
