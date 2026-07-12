@@ -58,11 +58,10 @@ body is `except Exception: pass` — it has been silently broken with no
 test ever hitting `/cms/` to catch it (see todo 264).
 **Fix**: subclass `SummaryItem`, set `template_name`, override
 `get_context_data(self, parent_context)` to return the template context,
-and add a small template (see `wagtail.images.wagtail_hooks.ImagesSummaryItem`
-
-- `site_summary_images.html` for the upstream precedent, or
+and add a small template. See `wagtail.images.wagtail_hooks.ImagesSummaryItem`
+plus its `site_summary_images.html` for the upstream precedent, or
 `backend/packages/wagtail_forum/wagtail_forum/wagtail_hooks.py`'s
-`ForumModerationSummaryItem` for the in-repo one this fix produced).
+`ForumModerationSummaryItem` for the in-repo one this fix produced.
 **Rule**: Before wiring a new `construct_homepage_summary_items` hook, check
 the installed Wagtail version's actual `SummaryItem.__init__` signature —
 don't copy an existing in-repo call site on faith, it may already be stale
