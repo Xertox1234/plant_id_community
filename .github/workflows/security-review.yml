@@ -65,3 +65,36 @@ jobs:
         with:
           comment-pr: true
           claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # Soft-fail observation gate (todo 249 — groundwork only, see
+      # todos/249-in_progress-p4-security-review-fail-on-severity-gate.md).
+      # `continue-on-error: true` means this step's outcome can never fail the
+      # job; it exists only to surface, in the Actions UI, whether a
+      # HIGH-severity finding would trip a future blocking gate. Not yet
+      # promoted to a required branch-protection check — see the todo.
+      #
+      # The upstream action's own script (claudecode/github_action_audit.py)
+      # already computes a HIGH-severity exit code internally, but the
+      # action's composite step deliberately discards it
+      # (`|| CLAUDECODE_EXIT_CODE=$?`, never re-raised) and only emits a
+      # ::warning::. Severity field/enum confirmed from that same script and
+      # claudecode/prompts.py at our pinned SHA: findings carry
+      # severity HIGH|MEDIUM|LOW (no CRITICAL value is emitted today —
+      # matched defensively below in case that changes upstream).
+      - name: Evaluate severity gate (soft-fail observation, todo 249)
+        id: severity-gate
+        if: steps.check-key.outputs.enabled == 'true'
+        continue-on-error: true
+        run: |
+          RESULTS_FILE="${{ github.workspace }}/claudecode-results.json"
+          if [ ! -f "$RESULTS_FILE" ]; then
+            echo "::warning::claudecode-results.json not found — severity gate skipped, nothing to evaluate."
+            exit 0
+          fi
+          HIGH_COUNT=$(jq '[ (.findings // [])[] | select((.severity // "") | ascii_downcase | IN("high", "critical")) ] | length' "$RESULTS_FILE")
+          echo "At/above-HIGH-severity findings: $HIGH_COUNT"
+          if [ "$HIGH_COUNT" -gt 0 ]; then
+            echo "::error::$HIGH_COUNT HIGH-or-above severity finding(s) found — see PR review comments. Soft-fail observation window (todo 249): not yet merge-blocking."
+            exit 1
+          fi
+          echo "No HIGH-or-above severity findings — gate would not have tripped."
