@@ -305,8 +305,7 @@ class TopicDetailView(generics.RetrieveAPIView):
         )
         dedup_key = f"forum:vc:{topic_id}:{viewer}"
         ttl = get_setting("VIEW_COUNT_DEDUP_SECONDS")
-        if not cache.get(dedup_key):
-            cache.set(dedup_key, True, ttl)
+        if cache.add(dedup_key, True, ttl):
 
             def _increment():
                 Topic.objects.filter(pk=topic_id).update(view_count=F("view_count") + 1)

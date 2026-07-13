@@ -86,6 +86,8 @@ def test_view_count_increments_on_get(django_capture_on_commit_callbacks):
 def test_view_count_does_not_double_count_within_dedup_window(
     django_capture_on_commit_callbacks,
 ):
+    # Dedup uses cache.add() (atomic test-and-set), so concurrent same-viewer
+    # requests can't both win the race the way a get/set pair would.
     cache.clear()
     board = _board(slug="vc-board2")
     topic = Topic.objects.create(board=board, title="VC2", slug="vc2", live=True)
