@@ -44,6 +44,11 @@ Compact checklist auto-injected before edits. Long-form:
   read-modify-write `save()` can. And preserve every invariant other code relies
   on (e.g. a cursor-pagination "never NULL" ordering field needs `Coalesce` to a
   fallback in EVERY writer).
+- **`field__in={..., None}` never matches a NULL column value.** SQL's
+  `IN (NULL)` evaluates to unknown, not true, even for a row whose value
+  actually is `NULL`. When `None` is a legitimate member of an `__in` set
+  (e.g. grandfathering a nullable FK), split it out:
+  `Q(field__in=non_null_values) | Q(field__isnull=True)`.
 - **After `select_for_update().get(pk=…)`, mutate the LOCKED instance, never an
   earlier unlocked read.** `save()`/`unpublish()`/`publish()` on the pre-lock
   object writes fields back as they were at the stale read, clobbering a

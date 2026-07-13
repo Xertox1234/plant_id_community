@@ -37,6 +37,14 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   the email, the downstream user lookup MUST treat a missing email as a hard
   stop. Canonical: `backend/docs/patterns/security/authentication.md` → "Trust
   only provider-verified emails".
+- **A shared resource container (collection/bucket/folder) is not an ownership
+  check.** Validating that a referenced object lives in the right *container*
+  (e.g. an upload collection) closes an existence-guessing IDOR but does not
+  stop one user from referencing another user's object BY ID within that same
+  container. If the object records an owner/uploader, check it explicitly —
+  don't assume container membership implies ownership. Canonical:
+  `backend/docs/patterns/domain/forum.md` → "Image blocks are scoped to an
+  allowed-uploader set" (audit L21).
 - **Gate the drf-spectacular schema/docs endpoints.** `SpectacularAPIView`,
   `SpectacularSwaggerView`, and `SpectacularRedocView` default to
   `SERVE_PERMISSIONS = [AllowAny]`, so the full OpenAPI schema (every path,

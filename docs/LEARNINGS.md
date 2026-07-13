@@ -789,3 +789,53 @@ review; escalated to HIGH after both halves reproduced empirically. **Fix**:
 **Pattern**: `backend/docs/patterns/architecture/viewsets.md`. **Trigger**:
 `drf-package-views-pin-filter-backends`.
 **Agent**: django-drf-reviewer — package generics views must pin `filter_backends`.
+
+## Django/DRF (2026-07-12 additions)
+
+### [2026-07-12] `field__in={..., None}` silently matches nothing for the None member (todo 254 slice 5, audit L21)
+
+**Mistake**: closing a cross-user image-reuse IDOR (audit L21) required an
+`allowed_uploader_ids` set that legitimately includes `None` (an
+account-deleted author's images grandfather in, since Wagtail's
+`Image.uploaded_by_user` and `Post.author` both go `SET_NULL` together on
+account deletion). The first implementation filtered directly with
+`uploaded_by_user_id__in=allowed_uploader_ids`. A dedicated test for the
+`None`-grandfather case failed: SQL's `IN (NULL)` evaluates to unknown, not
+true, for ANY row — including one whose value actually is `NULL`. Django's
+ORM passes `None` through to the `IN (...)` list literally; it does not
+special-case it the way `field=None` (which Django DOES rewrite to
+`IS NULL`) does.
+**Fix**: split the set — `Q(field__in=non_null_values) | Q(field__isnull=True)`,
+OR'd in only when `None` is actually a member. See
+`backend/packages/wagtail_forum/wagtail_forum/api/sanitize.py::validate_forum_body`.
+**Rule**: `docs/rules/database.md`. **Pattern**:
+`backend/docs/patterns/domain/forum.md` → "Image blocks are scoped to an
+allowed-uploader set".
+**Agent**: django-drf-reviewer — flag `__in=` filters where the RHS set/list
+may contain `None`.
+
+## Tooling / Agents (2026-07-12 additions)
+
+### [2026-07-12] Edit-time import strip recurs when an import lands before its first usage
+
+**Mistake**: added `from django.db.models import Q` to `sanitize.py` in one
+Edit call, then used `Q(...)` in a *later* Edit call. The PostToolUse
+formatter hook runs between edits and reformats/lints the file as it stands
+at that moment — with no usage yet, it silently removed the "unused" import.
+The next edit then referenced `Q` without it being defined, surfacing as
+`NameError: name 'Q' is not defined` only when tests ran. This is the same
+class of bug already logged for Dart/Flutter (`project_dart_edittime_import_
+strip` memory, hit 2026-06-23) — confirmed here to also apply on the Python
+side within a single session, not just across sessions.
+**Fix**: re-added the import in the SAME Edit call as its first usage; the
+formatter had nothing to strip once the usage was already present.
+**Rule**: added to `docs/rules/_discipline.md` (auto-injected before every
+edit): add a new import in the same edit as its first usage, never a prior
+one.
+**Trigger**: none registered — the actual failure mode (an import added
+ahead of a *future* edit that hasn't happened yet) has no textual signature
+capturable from a single edit's diff; a trigger matching "any new import" on
+every Python/Dart file would be pure noise. Left as prose in
+`docs/rules/_discipline.md` + this entry.
+**Agent**: (process — no diff-reviewable signature; same as the worktree
+PYTHONPATH entry above).
