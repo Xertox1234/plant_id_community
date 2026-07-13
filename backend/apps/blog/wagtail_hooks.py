@@ -6,18 +6,15 @@ and plant-specific content suggestions for the blog system.
 """
 
 from django.contrib.auth import get_user_model
-from django.db.models import Count, Q
-from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from wagtail import hooks
 from wagtail.admin import widgets as wagtailadmin_widgets
-from wagtail.admin.menu import AdminOnlyMenuItem, MenuItem
+from wagtail.admin.menu import MenuItem
 from wagtail.admin.search import SearchArea
 from wagtail.admin.site_summary import SummaryItem
-from wagtail.snippets.models import register_snippet
 
-from .models import BlogCategory, BlogComment, BlogPostPage, BlogSeries
+from .models import BlogComment, BlogPostPage
 
 User = get_user_model()
 
@@ -158,53 +155,87 @@ def add_blog_stats_panel(request, panels):
         pass
 
 
+class BlogSummaryItem(SummaryItem):
+    """SummaryItem is a Component: __init__ only takes request, and rendering
+    is template-driven (get_context_data + template_name), NOT the
+    positional-args constructor this replaces — that older API doesn't exist
+    on this installed Wagtail version (confirmed via
+    wagtail.images.wagtail_hooks.ImagesSummaryItem, the in-tree precedent
+    this mirrors; see also
+    wagtail_forum.wagtail_hooks.ForumModerationSummaryItem, todo 264)."""
+
+    template_name = "wagtailadmin/home/site_summary_blog.html"
+
+    def __init__(self, request, *, label, count, url_label, url, icon_name, order):
+        super().__init__(request)
+        self.label = label
+        self.count = count
+        self.url_label = url_label
+        self.url = url
+        self.icon_name = icon_name
+        self.order = order
+
+    def get_context_data(self, parent_context):
+        return {
+            "label": self.label,
+            "count": self.count,
+            "url_label": self.url_label,
+            "url": self.url,
+            "icon_name": self.icon_name,
+        }
+
+
 @hooks.register("construct_homepage_summary_items")
 def add_blog_summary_items(request, items):
     """
     Add blog summary items to Wagtail homepage.
     """
     try:
-        items.append(
-            SummaryItem(
-                "Blog Posts",
-                BlogPostPage.objects.live().public().count(),
-                "View All Posts",
-                "/blog-admin/",
-                icon_name="doc-full",
-                order=200,
-            )
-        )
-
+        post_count = BlogPostPage.objects.live().public().count()
         featured_count = (
             BlogPostPage.objects.live().public().filter(is_featured=True).count()
         )
-        if featured_count > 0:
-            items.append(
-                SummaryItem(
-                    "Featured Posts",
-                    featured_count,
-                    "Manage Featured",
-                    "/blog-admin/featured/",
-                    icon_name="pick",
-                    order=201,
-                )
-            )
-
         pending_comments = BlogComment.objects.filter(is_approved=False).count()
-        if pending_comments > 0:
-            items.append(
-                SummaryItem(
-                    "Pending Comments",
-                    pending_comments,
-                    "Moderate",
-                    "/blog-admin/comments/",
-                    icon_name="warning",
-                    order=202,
-                )
-            )
-
     except Exception:
-        pass
+        return  # graceful degradation if blog models aren't ready
+
+    items.append(
+        BlogSummaryItem(
+            request,
+            label="Blog Posts",
+            count=post_count,
+            url_label="View All Posts",
+            url="/blog-admin/",
+            icon_name="doc-full",
+            order=200,
+        )
+    )
+
+    if featured_count > 0:
+        items.append(
+            BlogSummaryItem(
+                request,
+                label="Featured Posts",
+                count=featured_count,
+                url_label="Manage Featured",
+                url="/blog-admin/featured/",
+                icon_name="pick",
+                order=201,
+            )
+        )
+
+    if pending_comments > 0:
+        items.append(
+            BlogSummaryItem(
+                request,
+                label="Pending Comments",
+                count=pending_comments,
+                url_label="Moderate",
+                url="/blog-admin/comments/",
+                icon_name="warning",
+                order=202,
+            )
+        )
 
 
 @hooks.register("register_page_listing_buttons")
