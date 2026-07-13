@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p1
 issue_id: "254"
 tags: [forum, moderation, wagtail, admin]
@@ -343,6 +343,48 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `H` = `bac
   `docs/rules/_discipline.md`, and `docs/LEARNINGS.md` (Django/DRF + Tooling
   sections, both dated 2026-07-12) — see those for detail rather than
   duplicating here.
+
+### 2026-07-13 - Started by completing-todos skill (run 2026-07-13-0050)
+
+- Picked up by automated workflow to re-confirm and archive. All 5 slices
+  (PRs #442–445) plus the post-merge codify pass (PR #446) already merged to
+  `main` (`823299d`); local branch synced via fast-forward before this run
+  started. All 6 acceptance criteria already `[x]` — proceeding via the
+  verify-only path.
+
+### 2026-07-13 - Completed by completing-todos skill (run 2026-07-13-0050)
+
+- Re-verified all 6 acceptance criteria fresh on synced `main` (`823299d`), not
+  just trusting the per-slice Work Log evidence: `python -m pytest
+  packages/wagtail_forum apps/forum_host` → 261/261 passing (matches Slice 5's
+  count exactly, no regressions since merge); `manage.py check` → 0 issues;
+  `makemigrations --check --dry-run` → no changes detected. Verify-only path
+  (no uncommitted diff to implement against).
+- Retrospective `code-review-orchestrator` pass (checklist-compliance angle —
+  kimi-review already covered correctness per-slice) dispatched 4 domain
+  reviewers against the full epic diff (`986bc92^..823299d`, 34 files). 9
+  findings, 0 critical: 1 high, 1 medium, 7 low/info. Code is already merged
+  and CI-green (PR #445, 18 checks), so none repaired here — out of scope for
+  this archival. The two genuinely new + actionable gaps, named so they aren't
+  lost:
+  - HIGH (cross-cutting): `test_bulk_unpublish_action_unpublishes_selected_posts`
+    doesn't assert the acting moderator lands in `ModelLogEntry` — the
+    `get_execution_context()` attribution override is correct but has no
+    regression test (`test_actor_attribution.py` is the pattern to mirror).
+  - MEDIUM (cross-cutting): `PostReportView` (the new report endpoint) is
+    missing an unauthenticated-401 test, unlike every other unsafe-write
+    endpoint in the suite.
+  - LOW (wagtail): cross-slice note — the H16 homepage moderation count and
+    the C1 Report queue were never unified (a post with open reports below
+    the auto-hide threshold doesn't show in the homepage count). Reviewer's
+    own verdict: not a defect, reports stay reachable via the Reports list.
+  - Remaining 6 (3 low from django-drf; 2 low/info + 1 medium from
+    react-typescript; 1 low + 1 info from cross-cutting) are minor nits,
+    repeats of a pre-existing pattern, or already in pending todo 259's scope
+    (web-UX polish: report-`<select>` tap target, error-surfacing contract) —
+    no action needed here.
+- Findings recorded, none repaired — code already merged, out of scope for
+  this archival.
 
 ## Notes
 
