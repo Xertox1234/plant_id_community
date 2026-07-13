@@ -117,6 +117,18 @@ repos:
         always_run: true
 
   # ===================================
+  # Claude Code Harness Integrity
+  # ===================================
+  - repo: local
+    hooks:
+      - id: check-agent-frontmatter
+        name: Validate .claude/agents/*.md frontmatter is loadable
+        entry: python3 scripts/inject/check_agent_frontmatter.py
+        language: system
+        files: ^\.claude/agents/.*\.md$
+        pass_filenames: false
+
+  # ===================================
   # Python Code Quality
   # ===================================
   - repo: https://github.com/psf/black
@@ -230,7 +242,7 @@ repos:
 # 1. Secret detection (CRITICAL - blocks commit if secrets found)
 # 2. Custom secret rules (CRITICAL - Issue #1 specific checks)
 # 3. Git security checks (large files, merge conflicts, etc.)
-# 4. Code quality (formatting, linting)
+# 4. Code quality (formatting, linting, agent frontmatter validation)
 # 5. File cleanup (whitespace, line endings)
 # 6. kimi-review staged-diff gate (CRITICAL blocks; SKIP_KIMI_REVIEW=1 bypasses)
 
