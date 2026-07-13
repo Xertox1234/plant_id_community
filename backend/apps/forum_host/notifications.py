@@ -38,15 +38,22 @@ def dispatch(event, **kwargs):
         # Don't ping the author for their own replies.
         if post_author is not None and post_author.pk == topic_author.pk:
             return
-        send_forum_push.delay(
-            event,
-            topic_author.pk,
-            {
-                "topic_id": str(topic_id),
-                "topic_title": topic.title if topic else "",
-                "post_id": str(getattr(post, "id", "")),
-            },
-        )
+        try:
+            send_forum_push.delay(
+                event,
+                topic_author.pk,
+                {
+                    "topic_id": str(topic_id),
+                    "topic_title": topic.title if topic else "",
+                    "post_id": str(getattr(post, "id", "")),
+                },
+            )
+        except Exception:
+            logger.exception(
+                "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
+                event,
+                topic_author.pk,
+            )
 
     elif event == "moderation_decided":
         obj = kwargs.get("obj")
@@ -54,15 +61,32 @@ def dispatch(event, **kwargs):
         author = getattr(obj, "author", None)
         if author is None:
             return
-        send_forum_push.delay(
-            event,
-            author.pk,
-            {
-                "topic_id": str(topic_id),
-                "status": status,
-                "obj_id": str(getattr(obj, "id", "")),
-            },
-        )
+        # The moderation_decided signal never passes a `topic` kwarg — derive
+        # topic_id from obj instead (Post has .topic_id, Topic has .id itself).
+        from wagtail_forum.models import Post as ForumPost
+
+        if isinstance(obj, ForumPost):
+            resolved_topic_id = obj.topic_id
+        else:
+            resolved_topic_id = getattr(obj, "id", None)
+        try:
+            send_forum_push.delay(
+                event,
+                author.pk,
+                {
+                    "topic_id": (
+                        str(resolved_topic_id) if resolved_topic_id is not None else ""
+                    ),
+                    "status": status,
+                    "obj_id": str(getattr(obj, "id", "")),
+                },
+            )
+        except Exception:
+            logger.exception(
+                "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
+                event,
+                author.pk,
+            )
 
     elif event == "topic_created":
         # No subscriber model yet — log and return.
