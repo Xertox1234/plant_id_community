@@ -41,7 +41,8 @@ jobs:
           pip-audit -r requirements.txt --format json --output pip-audit-report.json || true
         continue-on-error: true
 
-      - name: Run pip-audit (fail on vulnerabilities)
+      - name: Run pip-audit (advisory on PR, blocking on schedule/main)
+        id: audit
         run: |
           cd backend
           # Suppressed advisories — each has no upstream fix and is not reachable through app code.
@@ -63,7 +64,21 @@ jobs:
             --ignore-vuln PYSEC-2025-183 \
             --ignore-vuln CVE-2026-31236 \
             --ignore-vuln PYSEC-2026-400
-        continue-on-error: false
+        continue-on-error: true
+
+      # PR runs are advisory-only: a fixable CVE with no code change yet shouldn't block
+      # every open branch at once (hit 3x: bleach, PyJWT, pillow). The weekly schedule run
+      # (and manual workflow_dispatch) still hard-fails so it's caught within a week either way.
+      - name: Enforce pip-audit result (blocking outside pull_request)
+        if: steps.audit.outcome == 'failure' && github.event_name != 'pull_request'
+        run: |
+          echo "pip-audit found vulnerabilities with available fixes on a ${{ github.event_name }} run — failing the gate."
+          exit 1
+
+      - name: Flag advisory-only pip-audit failure on PRs
+        if: steps.audit.outcome == 'failure' && github.event_name == 'pull_request'
+        run: |
+          echo "::warning::pip-audit found vulnerabilities with available fixes. Not blocking this PR (advisory-only on pull_request runs) — will hard-fail on the next scheduled scan against main."
 
       - name: Upload pip-audit report
         if: always()
@@ -74,7 +89,7 @@ jobs:
           retention-days: 30
 
       - name: Comment PR with vulnerabilities (if any)
-        if: failure() && github.event_name == 'pull_request'
+        if: steps.audit.outcome == 'failure' && github.event_name == 'pull_request'
         uses: actions/github-script@v8
         with:
           script: |
@@ -82,7 +97,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '⚠️ **Security vulnerabilities detected in Python dependencies**\n\nPlease check the pip-audit report in the workflow artifacts for details.\n\nRun locally: `cd backend && pip-audit -r requirements.txt`'
+              body: '⚠️ **Security vulnerabilities detected in Python dependencies (advisory only — not blocking this PR)**\n\nA dependency has a known vulnerability with an available fix. This does not block merge, but will start failing the weekly scheduled scan until resolved.\n\nPlease check the pip-audit report in the workflow artifacts for details.\n\nRun locally: `cd backend && pip-audit -r requirements.txt`'
             })
 
   frontend-security:
@@ -113,11 +128,26 @@ jobs:
           npm audit --json > npm-audit-report.json || true
         continue-on-error: true
 
-      - name: Run npm audit (fail on moderate+)
+      - name: Run npm audit (advisory on PR, blocking on schedule/main)
+        id: audit
         run: |
           cd web
           npm audit --audit-level=moderate
-        continue-on-error: false
+        continue-on-error: true
+
+      # PR runs are advisory-only: a fixable CVE with no code change yet shouldn't block
+      # every open branch at once (hit 3x: bleach, PyJWT, pillow). The weekly schedule run
+      # (and manual workflow_dispatch) still hard-fails so it's caught within a week either way.
+      - name: Enforce npm audit result (blocking outside pull_request)
+        if: steps.audit.outcome == 'failure' && github.event_name != 'pull_request'
+        run: |
+          echo "npm audit found moderate+ vulnerabilities on a ${{ github.event_name }} run — failing the gate."
+          exit 1
+
+      - name: Flag advisory-only npm audit failure on PRs
+        if: steps.audit.outcome == 'failure' && github.event_name == 'pull_request'
+        run: |
+          echo "::warning::npm audit found moderate+ vulnerabilities. Not blocking this PR (advisory-only on pull_request runs) — will hard-fail on the next scheduled scan against main."
 
       - name: Upload npm audit report
         if: always()
@@ -128,7 +158,7 @@ jobs:
           retention-days: 30
 
       - name: Comment PR with vulnerabilities (if any)
-        if: failure() && github.event_name == 'pull_request'
+        if: steps.audit.outcome == 'failure' && github.event_name == 'pull_request'
         uses: actions/github-script@v8
         with:
           script: |
@@ -136,7 +166,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '⚠️ **Security vulnerabilities detected in npm dependencies**\n\nPlease check the npm audit report in the workflow artifacts for details.\n\nRun locally: `cd web && npm audit`'
+              body: '⚠️ **Security vulnerabilities detected in npm dependencies (advisory only — not blocking this PR)**\n\nA dependency has a known vulnerability at moderate+ severity. This does not block merge, but will start failing the weekly scheduled scan until resolved.\n\nPlease check the npm audit report in the workflow artifacts for details.\n\nRun locally: `cd web && npm audit`'
             })
 
   mobile-security:
