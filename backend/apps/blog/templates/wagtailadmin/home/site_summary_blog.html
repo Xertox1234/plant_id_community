@@ -1,0 +1,8 @@
+{% load wagtailadmin_tags %}
+
+<li>
+    {% icon name=icon_name %}
+    <a href="{{ url }}">
+        {{ count }} {{ label }} — {{ url_label }}
+    </a>
+</li>
