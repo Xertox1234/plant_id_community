@@ -287,7 +287,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 `completing-todos` skill checks these off on archive). The 15 `verified` and
 1 `false-positive` findings were closed in this audit and have no todo.
 
-- [ ] #C1 report-flag-mechanism → todo 254
+- [x] #C1 report-flag-mechanism → todo 254 (completed 2026-07-13)
 - [ ] #C2 notifications-delivery-channel → todo 253
 - [ ] #H1 orphaned-email-notifications → todo 253
 - [ ] #H2 push-event-coverage → todo 253
@@ -303,7 +303,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #H13 llm-spam-prescreen → todo 255
 - [ ] #H14 ai-thread-summarization → todo 255
 - [ ] #H15 semantic-similar-topics → todo 255
-- [ ] #H16 admin-moderation-queue → todo 254
+- [x] #H16 admin-moderation-queue → todo 254 (completed 2026-07-13)
 - [ ] #H18 error-retry-affordance → todo 259
 - [ ] #H21 tombstone-prune-scheduling → todo 261
 - [ ] #H26 author-shape-inconsistency → todo 257
@@ -321,11 +321,11 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #M12 semantic-search-upgrade → todo 255
 - [ ] #M13 rag-plant-care → todo 255
 - [ ] #M14 ai-composer-assist → todo 255
-- [ ] #M16 preview-support → todo 254
+- [x] #M16 preview-support → todo 254 (completed 2026-07-13)
 - [ ] #M17 i18n → todo 262
 - [ ] #M18 package-readme → todo 262
-- [ ] #M19 per-board-moderation → todo 254
-- [ ] #M20 admin-polish-cluster → todo 254
+- [x] #M19 per-board-moderation → todo 254 (completed 2026-07-13)
+- [x] #M20 admin-polish-cluster → todo 254 (completed 2026-07-13)
 - [ ] #M22 fetch-race-guards → todo 259
 - [ ] #M23 reacted-state → todo 257
 - [ ] #M24 native-dialogs → todo 259
@@ -362,7 +362,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #L18 write-path-query-profiling → todo 258
 - [ ] #L19 location-header-201 → todo 258
 - [ ] #L20 versioning-comment → todo 258
-- [ ] #L21 image-reuse-privacy-decision → todo 254
+- [x] #L21 image-reuse-privacy-decision → todo 254 (completed 2026-07-13)
 
 ## Phase 6 code review (2026-07-11)
 
