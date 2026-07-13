@@ -53,3 +53,12 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   `SPECTACULAR_SETTINGS["SERVE_PERMISSIONS"] = ["rest_framework.permissions.IsAdminUser"]`
   — one knob covers all three views (and any future one). `SERVE_INCLUDE_SCHEMA=False`
   does NOT gate them (it only hides the schema's own path). Surfaced in prod (todo 248).
+- **Don't trust `claude-code-security-review`'s own `results-file`/`findings-count`
+  step outputs.** The action's composite step hardcodes `results-file` to a stale
+  relative-path string it never updates, and captures the script's own internal
+  severity exit code into a shell variable without ever re-raising it — the job
+  always exits success regardless of findings. Read
+  `${{ github.workspace }}/claudecode-results.json` directly (unconditionally
+  copied there) and parse `.findings[].severity` yourself — the enum is
+  `HIGH|MEDIUM|LOW` only, `CRITICAL` is never emitted. See `docs/LEARNINGS.md`
+  2026-07-13.

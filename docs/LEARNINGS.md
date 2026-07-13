@@ -839,3 +839,35 @@ every Python/Dart file would be pure noise. Left as prose in
 `docs/rules/_discipline.md` + this entry.
 **Agent**: (process — no diff-reviewable signature; same as the worktree
 PYTHONPATH entry above).
+
+## Security (2026-07-13 additions)
+
+### [2026-07-13] `claude-code-security-review`'s own step outputs can't be trusted for a real merge-gate (todo 249)
+
+**Mistake**: assumed, per the action's naming, that its `results-file` and
+`findings-count` step outputs were live values a downstream gate step could
+read directly. Reading the action's actual source at our pinned SHA
+(`0c6a49f1fa56a1d472575da86a94dbc1edb78eda`, via `gh api
+repos/anthropics/claude-code-security-review/contents/<path>?ref=<sha>`)
+showed both are unreliable: `results-file` is hardcoded near the top of the
+composite step to a literal relative-path string that is never updated to
+reflect where the file actually lands relative to a downstream step's
+`github.workspace`; and the script's own internally-computed HIGH-severity
+exit code is captured into a shell variable
+(`|| CLAUDECODE_EXIT_CODE=$?`) and only ever surfaced as an `::warning::`
+annotation, never re-raised — so the job exits success regardless of
+findings, by design.
+**Fix**: read `${{ github.workspace }}/claudecode-results.json` directly —
+the action unconditionally copies its results there regardless of outcome —
+and parse `.findings[].severity` yourself via `jq`. Confirmed enum (from
+`claudecode/prompts.py`'s REQUIRED OUTPUT FORMAT) is `HIGH|MEDIUM|LOW`
+only; `CRITICAL` is never emitted despite some docs implying a 4-tier scale.
+Implemented as a non-blocking (`continue-on-error: true`) observation step
+in `.github/workflows/security-review.yml` — see the todo for why a true
+blocking gate is still deferred.
+**Rule**: `docs/rules/security.md`. Don't trust a third-party GitHub
+Action's documented/named outputs without reading its actual source at the
+exact pinned SHA in use — a name like `results-file` implies "the current
+results file," not "a hardcoded stale string."
+**Agent**: n/a — CI/workflow finding, not a reviewable application-code
+pattern.

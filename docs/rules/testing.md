@@ -89,3 +89,10 @@ Compact checklist auto-injected before edits.
   keeps passing and proves nothing. To verify an auth test is non-vacuous,
   mutate to `permission_classes = [AllowAny]`, and check the DRF default
   before trusting any mutation-based verification.
+- **An unsaved Django model instance (`Model(fk=saved_obj)`, no `.save()`) has
+  FK attributes set correctly but `.pk`/`.id` stays `None`.** `topic_id` resolves
+  immediately because the FK is assigned at construction, so a test asserting
+  only on the FK looks fine — but any code in the same path that reads the
+  instance's OWN `.pk`/`.id` (e.g. serializing an id into a notification
+  payload) silently gets `None`/`"None"` instead of a real value. Save the
+  instance if anything downstream might read its own primary key.
