@@ -49,13 +49,13 @@ See the `lsp-intelligence` skill for the full operation catalogue.
 Seven non-obvious bugs that have already caused real failures:
 
 **1. ViewSet `get_permissions()` must call `super()` for `@action` endpoints**
-If you override `get_permissions()` without calling `super().get_permissions()` for custom actions, action-level `permission_classes` are silently ignored — a security hole. See `backend/docs/patterns/architecture/viewsets.md`.
+→ Enforced write-time by `docs/rules/triggers.json`; full detail in `backend/docs/patterns/architecture/viewsets.md`.
 
 **2. React Router: import from `react-router-dom`, not `react-router`**
 `import { useNavigate } from 'react-router'` causes a silent runtime failure (`Cannot read properties of undefined`). Always use `react-router-dom`. Hit 15+ files during TypeScript migration.
 
 **3. Raw SQL in migrations: never use f-strings for table/column names**
-Use `psycopg2.sql.Identifier()` + a whitelist. F-strings concatenate directly into SQL with no escaping. See `backend/docs/patterns/security/input-validation.md`.
+→ Enforced write-time by `docs/rules/triggers.json`; full detail in `backend/docs/patterns/security/input-validation.md`.
 
 **4. `django-ratelimit` raises `PermissionDenied` (returns 403, not 429)**
 `Ratelimited` inherits from `PermissionDenied`, so DRF returns 403 by default. A custom exception handler that checks `isinstance(exc, Ratelimited)` before DRF processing is required for RFC-compliant 429. See `backend/docs/patterns/architecture/rate-limiting.md`.

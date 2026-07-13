@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "246"
 tags: [harness, docs, housekeeping, claude-md]
@@ -79,13 +79,35 @@ let it sit as an unresolved "optional" item.
 
 ## Acceptance Criteria
 
-- [ ] A decision (Option 1 or Option 2) is recorded in this todo's Work Log.
-- [ ] If Option 1: gotchas #1 and #3 in `CLAUDE.md` are headline + one-line pointer
+- [x] A decision (Option 1 or Option 2) is recorded in this todo's Work Log.
+- [x] If Option 1: gotchas #1 and #3 in `CLAUDE.md` are headline + one-line pointer
       to `docs/rules/triggers.json` and their pattern docs; gotchas #2/#4/#5/#6/#7
       are unchanged; both referenced pattern-doc paths verified to exist.
-- [ ] If Option 2: the keep-as-is rationale is documented and the todo is closed.
+- [ ] If Option 2: N/A — Option 1 was chosen.
 
 ## Work Log
+
+### 2026-07-13 - Decided and implemented by completing-todos skill (run 2026-07-13-0237)
+
+- This is genuinely the repo owner's call (both options defensible per the
+  todo's own framing) — presented Option 1 vs Option 2 via AskUserQuestion.
+  **Decision: Option 1 (measured trim).**
+- Editing root `CLAUDE.md` trips the auto-mode harness self-mod guard per
+  this todo's own Technical Details note — asked the user to disable Auto
+  Mode first (per established project guidance: ask first, don't default to
+  `.proposed`/`cp` handoff gymnastics). User disabled it; confirmed via the
+  "Exited Auto Mode" system notice before proceeding.
+- Verified both pattern-doc paths exist before editing:
+  `backend/docs/patterns/architecture/viewsets.md`,
+  `backend/docs/patterns/security/input-validation.md` (both present).
+- Trimmed gotchas #1 and #3 in `CLAUDE.md` to headline + one-line pointer;
+  re-read the section afterward and confirmed gotchas #2/#4/#5/#6/#7 are
+  byte-for-byte unchanged.
+- Note for whoever integrates this: this todo's own Technical Details flags
+  it needs a feature branch + PR (branch protection on `main`) — this run
+  makes no commits (per the `completing-todos` skill's non-negotiable "never
+  auto-commit" rule), so that step is still pending regardless of this
+  todo's own completion.
 
 ### 2026-06-24 - Created
 
