@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "250"
 tags: [forum, cache, concurrency]
@@ -56,9 +56,9 @@ if cache.add(dedup_key, True, ttl):
 
 ## Acceptance Criteria
 
-- [ ] `cache.get` + `cache.set` replaced with `cache.add` in `retrieve()`.
-- [ ] Existing view_count tests still pass.
-- [ ] No new test is needed beyond updating the existing dedup test comment
+- [x] `cache.get` + `cache.set` replaced with `cache.add` in `retrieve()`.
+- [x] Existing view_count tests still pass.
+- [x] No new test is needed beyond updating the existing dedup test comment
       to note atomicity.
 
 ## Work Log
@@ -67,3 +67,32 @@ if cache.add(dedup_key, True, ttl):
 
 - Flagged by kimi-review gate on commit `335f01c`.
 - Todo filed by Cascade.
+
+### 2026-07-13 - Started by completing-todos skill (run 2026-07-13-0237)
+
+- Picked up by automated workflow.
+- Replaced `cache.get`/`cache.set` with atomic `cache.add(dedup_key, True, ttl)`
+  in `TopicDetailView.retrieve()` (`backend/packages/wagtail_forum/wagtail_forum/api/views.py:308`).
+- Added an atomicity note to the existing dedup-window comment in
+  `test_view_count_does_not_double_count_within_dedup_window`
+  (`.../tests/api/test_topic_detail.py`) — no new test, per acceptance criteria.
+- Verification: `pytest packages/wagtail_forum/wagtail_forum/tests/api/test_topic_detail.py -x` → 8 passed.
+- `grep -n "cache\.\(get\|set\|add\)" .../api/views.py` → only `cache.add` remains (line 308).
+
+### 2026-07-13 - Completed by completing-todos skill (run 2026-07-13-0237)
+
+- Verification: all 3 acceptance criteria passed (see above).
+- Review: code-review-orchestrator (wagtail-reviewer + cross-cutting-reviewer) → 1 medium, 1 info, both non-blocking.
+
+#### Known issues — accepted at completion
+
+- **[medium]** `test_topic_detail.py:86` — the dedup test issues its two requests
+  sequentially, so it would pass identically against the old racy `get()`/`set()`
+  code; the atomicity comment isn't backed by a test that exercises the actual
+  race. Suggested fix (not applied, out of scope per this todo's acceptance
+  criteria): mock `cache.add` to return `False` on the first call and assert
+  `view_count` stays unchanged.
+- **[info]** Same observation from wagtail-reviewer — correctness here rests on
+  `cache.add()`'s documented atomic semantics (verified independently against
+  both the django-redis and locmem backends), not on a concurrency-exercising
+  test. Explicitly not actionable per this todo's own acceptance criteria.
