@@ -362,5 +362,20 @@
     "source": "codify: chore/forum-modernization-audit-2026-07-11",
     "added": "2026-07-11",
     "severity": "warn"
+  },
+  {
+    "id": "security-review-action-untrusted-outputs",
+    "domains": [
+      "security"
+    ],
+    "path_glob": [
+      ".github/workflows/*.yml"
+    ],
+    "content_present": "\\.outputs\\.(results-file|findings-count)",
+    "message": "claude-code-security-review outputs are unreliable: results-file is a hardcoded stale path, findings-count discards the real exit code (job always succeeds). Read ${{ github.workspace }}/claudecode-results.json directly and parse .findings[].severity yourself. See docs/LEARNINGS.md 2026-07-13.",
+    "pattern_ref": "docs/rules/security.md",
+    "source": "codify: docs/codify-todo-sweep-2026-07-13",
+    "added": "2026-07-13",
+    "severity": "warn"
   }
 ]
