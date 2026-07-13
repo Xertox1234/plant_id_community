@@ -52,6 +52,22 @@ def test_report_returns_200_and_never_echoes_a_count():
 
 
 @pytest.mark.django_db
+def test_unauthenticated_report_is_rejected():
+    """PostReportView is the one unsafe-write endpoint todo-254 added without
+    this coverage (todo 265) — every other unsafe write (topic/reply create,
+    reaction toggle, post edit/delete, image upload) already has this case."""
+    ensure_default_workflow()
+    _, opening = _live_topic()
+    client = APIClient()  # no credentials
+
+    resp = client.post(
+        f"/forum/posts/{opening.id}/reports/", {"reason": "spam"}, format="json"
+    )
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.django_db
 def test_can_report_flag_is_false_for_author_true_for_others():
     ensure_default_workflow()
     topic, opening = _live_topic()

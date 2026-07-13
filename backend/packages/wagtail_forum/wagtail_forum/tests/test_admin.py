@@ -222,7 +222,7 @@ def test_bulk_unpublish_action_unpublishes_selected_posts(client):
     # .execute(skip_permission_checks=True) mechanism as the single-object
     # DELETE view, attributed to the acting moderator.
     from django.urls import reverse
-    from wagtail.models import Page
+    from wagtail.models import ModelLogEntry, Page
     from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
 
     author = User.objects.create_user(username="bulk_target_author")
@@ -268,6 +268,19 @@ def test_bulk_unpublish_action_unpublishes_selected_posts(client):
     for p in posts:
         p.refresh_from_db()
         assert p.live is False
+
+    # get_execution_context() overrides user=self.request.user specifically so
+    # takedowns attribute to the acting moderator, not "the system" (todo 265;
+    # mirrors test_actor_attribution.py::test_api_delete_unpublish_logs_acting_user).
+    entry = (
+        ModelLogEntry.objects.filter(
+            action="wagtail.unpublish", object_id=str(posts[0].pk)
+        )
+        .order_by("-timestamp")
+        .first()
+    )
+    assert entry is not None
+    assert entry.user == admin
 
 
 @pytest.mark.django_db
