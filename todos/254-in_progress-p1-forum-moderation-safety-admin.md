@@ -328,6 +328,21 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `H` = `bac
   `Image.uploaded_by_user` already existed).
 - Todo 254 acceptance criteria are now all met (C1/H16/M16/M19/M20/L21) —
   epic complete pending final review + archival.
+- PR #445 merged (`dec46f0`, all 18 CI checks green). Post-merge `/codify`
+  pass ran a fresh kimi-review on the merged diff (`2dca465..dec46f0`) —
+  flagged one WARNING: `_allowed_uploader_ids()` doesn't itself guard
+  `request.user` being anonymous. Verified against the call graph, not
+  applied: all three call sites (`TopicListView.post`/`PostListView.post` via
+  `IsAuthenticatedOrReadOnly` on write, `PostWriteView.patch` via
+  `IsAuthenticated`) already guarantee `request.user.is_authenticated` before
+  the serializer runs — DRF's permission check runs in `dispatch()`, before
+  the view method body. Even if reached anonymous, `AnonymousUser.pk` is
+  `None`, not a crash, and degrades fail-closed (rejects all real image refs,
+  doesn't open one). No fix; not a reachable gap. Codified two reusable
+  gotchas from this slice into `docs/rules/{database,security}.md`,
+  `docs/rules/_discipline.md`, and `docs/LEARNINGS.md` (Django/DRF + Tooling
+  sections, both dated 2026-07-12) — see those for detail rather than
+  duplicating here.
 
 ## Notes
 

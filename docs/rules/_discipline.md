@@ -4,3 +4,7 @@
 - Simplicity first. Write the minimum code that solves the problem. No speculative abstractions. No flexibility nobody asked for. The test: would a senior engineer call this overcomplicated.
 - Surgical changes. Touch only what the task requires. Do not improve neighboring code. Do not refactor what is not broken. Every changed line should trace back to the request.
 - Goal-driven execution. Turn vague instructions into verifiable targets before writing a line. "Add validation" becomes "write tests for invalid inputs, then make them pass."
+- Add a new import in the SAME edit as its first usage, not a prior one. The
+  formatter runs between edits and strips an import that's unused at that
+  moment — adding it ahead of the code that uses it gets it silently deleted,
+  surfacing later as `NameError`/`undefined_identifier`.
