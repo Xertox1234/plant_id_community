@@ -7,6 +7,7 @@ import ThreadDetailPage from './ThreadDetailPage';
 import { createMockThread, createMockPost } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
 import { useAuth } from '../../contexts/AuthContext';
+import { logger } from '../../utils/logger';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -282,6 +283,165 @@ describe('ThreadDetailPage', () => {
     await screen.findByText(/Log in/i);
     expect(screen.queryByRole('button', { name: /Post Reply/i })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('React like')).not.toBeInTheDocument();
+  });
+
+  it('shows a Follow button for an authenticated user on an unsubscribed thread', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_subscribed: false })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+
+    renderThreadDetailPage();
+
+    expect(await screen.findByRole('button', { name: /🔔 Follow/i })).toBeInTheDocument();
+  });
+
+  it('shows a Following button for an authenticated user on a subscribed thread', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_subscribed: true })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+
+    renderThreadDetailPage();
+
+    expect(await screen.findByRole('button', { name: /🔕 Following/i })).toBeInTheDocument();
+  });
+
+  it('hides the Follow button for a logged-out user', async () => {
+    vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_subscribed: false })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+
+    renderThreadDetailPage();
+
+    await screen.findByText(/Log in/i);
+    expect(screen.queryByRole('button', { name: /Follow/i })).not.toBeInTheDocument();
+  });
+
+  it('clicking Follow subscribes and flips the button to Following', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_subscribed: false })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    const subscribeSpy = vi.spyOn(forumService, 'subscribeToTopic').mockResolvedValue(undefined);
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /🔔 Follow/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /🔕 Following/i })).toBeInTheDocument();
+    });
+    expect(subscribeSpy).toHaveBeenCalledWith(12);
+  });
+
+  it('clicking Following unsubscribes and flips the button back to Follow', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_subscribed: true })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    const unsubscribeSpy = vi
+      .spyOn(forumService, 'unsubscribeFromTopic')
+      .mockResolvedValue(undefined);
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /🔕 Following/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /🔔 Follow/i })).toBeInTheDocument();
+    });
+    expect(unsubscribeSpy).toHaveBeenCalledWith(12);
+  });
+
+  it('rolls back the optimistic Follow toggle and shows a notice when the request fails', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_subscribed: false })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    vi.spyOn(forumService, 'subscribeToTopic').mockRejectedValue(new Error('Network error'));
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /🔔 Follow/i }));
+
+    await screen.findByText('Network error');
+    expect(screen.getByRole('button', { name: /🔔 Follow/i })).toBeInTheDocument();
+  });
+
+  it('does not leave the Follow button stuck loading after navigating to a different thread mid-request', async () => {
+    const threadA = createMockThread({ is_subscribed: false });
+    const threadB = createMockThread({ is_subscribed: false });
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    const fetchThreadSpy = vi
+      .spyOn(forumService, 'fetchThread')
+      .mockResolvedValueOnce(threadA)
+      .mockResolvedValueOnce(threadB);
+    // Thread A's request never settles in this test — simulates navigating
+    // away before a slow subscribe request resolves.
+    vi.spyOn(forumService, 'subscribeToTopic').mockReturnValue(new Promise(() => {}));
+
+    const { rerender } = renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /🔔 Follow/i }));
+    expect(screen.getByRole('button', { name: /🔕 Following/i })).toBeDisabled();
+
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '34-different-thread',
+    });
+    rerender(
+      <MemoryRouter initialEntries={['/forum/plant-care/34-different-thread']}>
+        <ThreadDetailPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchThreadSpy).toHaveBeenCalledWith(34));
+    expect(await screen.findByRole('button', { name: /🔔 Follow/i })).not.toBeDisabled();
+  });
+
+  it('a stale request failing after navigating away does not corrupt the new thread state', async () => {
+    const threadA = createMockThread({ is_subscribed: false });
+    const threadB = createMockThread({ is_subscribed: false });
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    const fetchThreadSpy = vi
+      .spyOn(forumService, 'fetchThread')
+      .mockResolvedValueOnce(threadA)
+      .mockResolvedValueOnce(threadB);
+
+    let rejectSubscribe!: (err: Error) => void;
+    vi.spyOn(forumService, 'subscribeToTopic').mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectSubscribe = reject;
+      })
+    );
+    const loggerErrorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+
+    const { rerender } = renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /🔔 Follow/i }));
+    expect(screen.getByRole('button', { name: /🔕 Following/i })).toBeInTheDocument();
+
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '34-different-thread',
+    });
+    rerender(
+      <MemoryRouter initialEntries={['/forum/plant-care/34-different-thread']}>
+        <ThreadDetailPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(fetchThreadSpy).toHaveBeenCalledWith(34));
+    expect(await screen.findByRole('button', { name: /🔔 Follow/i })).toBeInTheDocument();
+
+    // Thread A's request now fails — must not touch thread B's displayed state.
+    rejectSubscribe(new Error('Network error'));
+    await waitFor(() => expect(loggerErrorSpy).toHaveBeenCalled());
+
+    expect(screen.getByRole('button', { name: /🔔 Follow/i })).toBeInTheDocument();
+    expect(screen.queryByText('Network error')).not.toBeInTheDocument();
   });
 
   it('submits a published reply and shows it after refetch', async () => {

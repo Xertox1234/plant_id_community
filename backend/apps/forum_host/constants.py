@@ -19,6 +19,9 @@ DEFAULT_FORUM_RATELIMITS = {
     # bound a runaway/malicious client, not to constrain normal polling cadence.
     "notification_unread_count": "120/m",
     "notification_mark_read": "60/m",
+    # Same tier as reaction_toggle — an idempotent, low-stakes write.
+    "subscription_create": "60/m",
+    "subscription_delete": "60/m",
 }
 
 # Reply-notification email body excerpt length (todo 253 slice 2, H1).

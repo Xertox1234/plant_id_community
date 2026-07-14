@@ -37,10 +37,45 @@ def test_topic_detail_returns_live_topic():
     assert resp.data["board"]["slug"] == "general"
     assert resp.data["author"] == "ada"
     assert resp.data["opening_post_id"] == opening.id
+    # Anonymous is_subscribed short-circuits with zero extra queries (todo
+    # 253 slice 3) — the pin below stays 4, not 5, for this request.
+    assert resp.data["is_subscribed"] is False
     # Exactly 4: page-view-restriction check, topic fetch (select_related board/author),
     # opening-post id lookup, post refetch by id.
     # Pinned EXACTLY (docs/rules/testing.md) — if this changes, explain the new count here.
     assert len(ctx.captured_queries) == 4
+
+
+@pytest.mark.django_db
+def test_topic_detail_is_subscribed_for_authenticated_user():
+    """is_subscribed reflects the requesting user's TopicSubscription state
+    (todo 253 slice 3) and costs exactly one extra query over the anonymous
+    pin — the anonymous case (4, above) short-circuits before ever touching
+    TopicSubscription."""
+    from wagtail_forum.models import TopicSubscription
+
+    board = _board(slug="sub-board")
+    author = User.objects.create_user(username="sub-author")
+    subscriber = User.objects.create_user(username="sub-subscriber")
+    non_subscriber = User.objects.create_user(username="sub-nonsubscriber")
+    topic = Topic.objects.create(
+        board=board, title="Sub", slug="sub", author=author, live=True
+    )
+    Post.objects.create(topic=topic, author=author, is_opening_post=True, live=True)
+    TopicSubscription.subscribe(subscriber, topic)
+
+    client = APIClient()
+    client.force_authenticate(subscriber)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get(f"/forum/topics/{topic.id}/")
+    assert resp.data["is_subscribed"] is True
+    # Pinned EXACTLY (docs/rules/testing.md): the anonymous pin (4) + one
+    # TopicSubscription.objects.filter(...).exists() query.
+    assert len(ctx.captured_queries) == 5
+
+    client.force_authenticate(non_subscriber)
+    resp = client.get(f"/forum/topics/{topic.id}/")
+    assert resp.data["is_subscribed"] is False
 
 
 @pytest.mark.django_db

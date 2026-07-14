@@ -43,6 +43,7 @@ export interface BackendTopicDetail {
   last_post_at: string | null;
   last_post_author: string | null;
   opening_post_id: number | null;
+  is_subscribed: boolean;
 }
 
 // StreamFieldBlock re-exported for consumers that import backend shapes from this module.
@@ -166,6 +167,7 @@ export function mapTopicDetailToThread(t: BackendTopicDetail): Thread {
     is_pinned: t.is_pinned,
     is_locked: t.is_closed || t.locked,
     is_active: true,
+    is_subscribed: t.is_subscribed,
   };
 }
 

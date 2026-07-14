@@ -10,6 +10,7 @@ from wagtail_forum.models import (
     NotificationVerb,
     Post,
     Topic,
+    TopicSubscription,
 )
 
 User = get_user_model()
@@ -47,7 +48,10 @@ def test_publishing_a_reply_dispatches_a_host_notification(monkeypatch):
 
 @pytest.mark.django_db
 def test_reply_added_enqueues_push_for_topic_author(django_capture_on_commit_callbacks):
-    """reply_added must enqueue send_forum_push for the topic author."""
+    """reply_added must enqueue send_forum_push for a topic subscriber (todo
+    253 slice 3: fan-out is now subscription-driven, so the topic author only
+    gets pushed if subscribed — normally automatic via topic_created, made
+    explicit here since this test dispatches reply_added directly)."""
     topic_author = User.objects.create_user(username="topicowner")
     replier = User.objects.create_user(username="replier")
 
@@ -57,6 +61,7 @@ def test_reply_added_enqueues_push_for_topic_author(django_capture_on_commit_cal
     topic = Topic.objects.create(
         board=board, title="T2", slug="t2", author=topic_author
     )
+    TopicSubscription.subscribe(topic_author, topic)
 
     with (
         patch("apps.forum_host.tasks.send_forum_push.delay") as mock_delay,
@@ -85,11 +90,12 @@ def test_reply_added_enqueues_push_for_topic_author(django_capture_on_commit_cal
 def test_reply_added_enqueues_email_for_topic_author(
     django_capture_on_commit_callbacks,
 ):
-    """reply_added must enqueue send_forum_email for the topic author (todo
-    253 slice 2, H1) — mirrors test_reply_added_enqueues_push_for_topic_author.
-    Rendered-content correctness (the two latent bugs the wiring surfaced) is
-    covered separately by the task-level tests in test_tasks.py; this test
-    only proves the enqueue wiring itself."""
+    """reply_added must enqueue send_forum_email for a topic subscriber (todo
+    253 slice 2, H1 + slice 3 subscription-driven fan-out) — mirrors
+    test_reply_added_enqueues_push_for_topic_author. Rendered-content
+    correctness (the two latent bugs slice 2's wiring surfaced) is covered
+    separately by the task-level tests in test_tasks.py; this test only
+    proves the enqueue wiring itself."""
     topic_author = User.objects.create_user(username="topicowner12")
     replier = User.objects.create_user(username="replier12")
 
@@ -99,6 +105,7 @@ def test_reply_added_enqueues_email_for_topic_author(
     topic = Topic.objects.create(
         board=board, title="T12", slug="t12", author=topic_author
     )
+    TopicSubscription.subscribe(topic_author, topic)
 
     with (
         patch("apps.forum_host.tasks.send_forum_push.delay"),
@@ -118,23 +125,224 @@ def test_reply_added_enqueues_email_for_topic_author(
 
 
 @pytest.mark.django_db
-def test_reply_added_does_not_push_for_self_reply():
-    """An author replying to their own topic must not receive a push."""
+def test_reply_added_fans_out_to_all_subscribers_excluding_replier(
+    django_capture_on_commit_callbacks,
+):
+    """Todo 253 slice 3 (H2/H3): a reply notifies every topic subscriber, not
+    only the original author — the old author-only rule is gone. The replier
+    is a genuine subscriber too (from an earlier reply) but is excluded from
+    THEIR OWN reply's fan-out."""
+    topic_author = User.objects.create_user(username="fanout-author")
+    subscriber_b = User.objects.create_user(username="fanout-sub-b")
+    replier = User.objects.create_user(username="fanout-replier")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="ForumFO", slug="forum-fo"))
+    board = index.add_child(instance=ForumBoard(title="GeneralFO", slug="general-fo"))
+    topic = Topic.objects.create(
+        board=board, title="TFO", slug="t-fo", author=topic_author
+    )
+    TopicSubscription.subscribe(topic_author, topic)
+    TopicSubscription.subscribe(subscriber_b, topic)
+    TopicSubscription.subscribe(replier, topic)
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email.delay") as mock_email,
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(topic=topic, author=replier)
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    notified = set(
+        Notification.objects.filter(post=post).values_list("recipient_id", flat=True)
+    )
+    assert notified == {topic_author.pk, subscriber_b.pk}
+
+    pushed = {c.args[1] for c in mock_push.call_args_list}
+    emailed = {c.args[1] for c in mock_email.call_args_list}
+    assert pushed == {topic_author.pk, subscriber_b.pk}
+    assert emailed == {topic_author.pk, subscriber_b.pk}
+
+
+@pytest.mark.django_db
+def test_reply_added_notifies_subscribers_when_topic_author_is_deleted(
+    django_capture_on_commit_callbacks,
+):
+    """Topic.author is SET_NULL — a topic whose original author account was
+    deleted must still fan out to its remaining subscribers (todo 253 slice 3
+    removed the old `if topic_author is None: return` guard, which used to
+    silently drop ALL notifications for such a topic, subscribers included)."""
+    ghost_author = User.objects.create_user(username="fanout-ghost")
+    subscriber = User.objects.create_user(username="fanout-survivor")
+    replier = User.objects.create_user(username="fanout-replier2")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="ForumGH", slug="forum-gh"))
+    board = index.add_child(instance=ForumBoard(title="GeneralGH", slug="general-gh"))
+    topic = Topic.objects.create(
+        board=board, title="TGH", slug="t-gh", author=ghost_author
+    )
+    TopicSubscription.subscribe(subscriber, topic)
+    ghost_author.delete()
+    topic.refresh_from_db()
+    assert topic.author_id is None
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email.delay"),
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(topic=topic, author=replier)
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    assert Notification.objects.filter(recipient=subscriber, post=post).exists()
+    mock_push.assert_called_once()
+    assert mock_push.call_args.args[1] == subscriber.pk
+
+
+@pytest.mark.django_db
+def test_reply_added_auto_subscribes_the_replier(django_capture_on_commit_callbacks):
+    """Replying auto-subscribes you to the topic (todo 253 slice 3) — doesn't
+    affect THIS event (you're still excluded from your own reply's
+    notification), but a subsequent reply from someone else will notify you."""
+    topic_author = User.objects.create_user(username="autosub-author")
+    first_replier = User.objects.create_user(username="autosub-first")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="ForumAS", slug="forum-as"))
+    board = index.add_child(instance=ForumBoard(title="GeneralAS", slug="general-as"))
+    topic = Topic.objects.create(
+        board=board, title="TAS", slug="t-as", author=topic_author
+    )
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay"),
+        patch("apps.forum_host.tasks.send_forum_email.delay"),
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(topic=topic, author=first_replier)
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    assert TopicSubscription.objects.filter(user=first_replier, topic=topic).exists()
+    # Excluded from their own reply's notification despite the new subscription.
+    assert not Notification.objects.filter(recipient=first_replier, post=post).exists()
+
+
+@pytest.mark.django_db
+def test_topic_created_auto_subscribes_the_author():
+    author = User.objects.create_user(username="topiccreate-author")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="ForumTC", slug="forum-tc"))
+    board = index.add_child(instance=ForumBoard(title="GeneralTC", slug="general-tc"))
+    topic = Topic.objects.create(board=board, title="TTC", slug="t-tc", author=author)
+
+    from apps.forum_host.notifications import dispatch
+
+    dispatch("topic_created", topic=topic, post=None)
+
+    assert TopicSubscription.objects.filter(user=author, topic=topic).exists()
+
+
+@pytest.mark.django_db
+def test_topic_created_without_author_does_not_raise():
+    """An admin-created topic can have no author (Topic.author is nullable) —
+    there's nobody to auto-subscribe; dispatch must not raise."""
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="ForumTC2", slug="forum-tc2"))
+    board = index.add_child(instance=ForumBoard(title="GeneralTC2", slug="general-tc2"))
+    topic = Topic.objects.create(board=board, title="TTC2", slug="t-tc2", author=None)
+
+    from apps.forum_host.notifications import dispatch
+
+    dispatch("topic_created", topic=topic, post=None)  # must not raise
+
+    assert not TopicSubscription.objects.filter(topic=topic).exists()
+
+
+@pytest.mark.django_db
+def test_reply_added_write_path_query_count_is_independent_of_subscriber_count(
+    django_capture_on_commit_callbacks,
+):
+    """The DB write path (auto-subscribe the replier + one subscriber fetch +
+    one bulk_create) must not scale with subscriber count N — that's the
+    whole point of building recipients via a single query + a single
+    bulk_create instead of looping N .save() calls (todo 253 slice 3,
+    docs/rules/testing.md: pin fan-out writes with an exact query count).
+    Compares 1 vs. 5 subscribers rather than a hardcoded literal — the
+    invariant under test is "constant regardless of N", which a fixed number
+    can't express as precisely."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    def _dispatch_reply(n_subscribers, slug):
+        topic_author = User.objects.create_user(username=f"qc-author-{slug}")
+        root = Page.objects.get(id=1)
+        index = root.add_child(
+            instance=ForumIndex(title=f"ForumQC{slug}", slug=f"forum-qc-{slug}")
+        )
+        board = index.add_child(
+            instance=ForumBoard(title=f"GeneralQC{slug}", slug=f"general-qc-{slug}")
+        )
+        topic = Topic.objects.create(
+            board=board, title="T", slug=f"t-{slug}", author=topic_author
+        )
+        for i in range(n_subscribers):
+            sub = User.objects.create_user(username=f"qc-sub-{slug}-{i}")
+            TopicSubscription.subscribe(sub, topic)
+        replier = User.objects.create_user(username=f"qc-replier-{slug}")
+        post = Post.objects.create(topic=topic, author=replier)
+
+        with (
+            patch("apps.forum_host.tasks.send_forum_push.delay"),
+            patch("apps.forum_host.tasks.send_forum_email.delay"),
+        ):
+            from apps.forum_host.notifications import dispatch
+
+            with CaptureQueriesContext(connection) as ctx:
+                with django_capture_on_commit_callbacks(execute=True):
+                    dispatch("reply_added", topic=topic, post=post)
+        return len(ctx.captured_queries)
+
+    few = _dispatch_reply(1, "few")
+    many = _dispatch_reply(5, "many")
+
+    assert few == many
+
+
+@pytest.mark.django_db
+def test_reply_added_does_not_notify_for_self_reply(django_capture_on_commit_callbacks):
+    """An author replying to their own topic must not receive a push, email,
+    or in-app notification for it — even though they ARE a subscriber (todo
+    253 slice 3: exclusion is now enforced by filtering the recipient list,
+    not by an early-return on topic_author-equals-post_author)."""
     author = User.objects.create_user(username="selfie")
 
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum3", slug="forum3"))
     board = index.add_child(instance=ForumBoard(title="General3", slug="general3"))
     topic = Topic.objects.create(board=board, title="T3", slug="t3", author=author)
+    TopicSubscription.subscribe(author, topic)
 
-    with patch("apps.forum_host.tasks.send_forum_push.delay") as mock_delay:
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email.delay") as mock_email,
+    ):
         from apps.forum_host.notifications import dispatch
 
-        post = Post(topic=topic, author=author)
-        dispatch("reply_added", topic=topic, post=post)
+        post = Post.objects.create(topic=topic, author=author)
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
 
-    mock_delay.assert_not_called()
-    # A self-reply also must not persist an in-app notification (todo 253 slice 1).
+    mock_push.assert_not_called()
+    mock_email.assert_not_called()
     assert not Notification.objects.filter(recipient=author).exists()
 
 
@@ -199,6 +407,7 @@ def test_reply_added_swallows_push_delay_failure(
     topic = Topic.objects.create(
         board=board, title="T6", slug="t6", author=topic_author
     )
+    TopicSubscription.subscribe(topic_author, topic)
 
     with (
         patch(
@@ -225,7 +434,7 @@ def test_reply_added_swallows_push_delay_failure(
 
 @pytest.mark.django_db
 def test_reply_added_persists_notification_row(django_capture_on_commit_callbacks):
-    """reply_added must persist a Notification row for the topic author
+    """reply_added must persist a Notification row for a topic subscriber
     (todo 253 slice 1, audit C2) — independent of whether the push succeeds."""
     topic_author = User.objects.create_user(username="topicowner9")
     replier = User.objects.create_user(username="replier9")
@@ -236,6 +445,7 @@ def test_reply_added_persists_notification_row(django_capture_on_commit_callback
     topic = Topic.objects.create(
         board=board, title="T9", slug="t9", author=topic_author
     )
+    TopicSubscription.subscribe(topic_author, topic)
     post = Post.objects.create(topic=topic, author=replier)
 
     with (
@@ -275,6 +485,7 @@ def test_reply_added_notification_and_push_roll_back_together():
     topic = Topic.objects.create(
         board=board, title="T10", slug="t10", author=topic_author
     )
+    TopicSubscription.subscribe(topic_author, topic)
     post = Post.objects.create(topic=topic, author=replier)
 
     with patch("apps.forum_host.tasks.send_forum_push.delay") as mock_delay:
@@ -307,6 +518,7 @@ def test_reply_added_skips_push_when_notification_write_fails(
     topic = Topic.objects.create(
         board=board, title="T11", slug="t11", author=topic_author
     )
+    TopicSubscription.subscribe(topic_author, topic)
     post = Post.objects.create(topic=topic, author=replier)
 
     with (

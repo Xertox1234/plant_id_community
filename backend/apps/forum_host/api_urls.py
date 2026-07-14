@@ -28,6 +28,7 @@ from .api import (
     SearchView,
     SyncView,
     TopicListView,
+    TopicSubscriptionView,
 )
 
 app_name = "wagtail_forum_api"
@@ -36,6 +37,11 @@ urlpatterns = [
     path("boards/", BoardListView.as_view(), name="board-list"),
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
     path("topics/<int:topic_id>/", TopicDetailView.as_view(), name="topic-detail"),
+    path(
+        "topics/<int:topic_id>/subscription/",
+        TopicSubscriptionView.as_view(),
+        name="topic-subscription",
+    ),
     path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
     path("images/", PostImageUploadView.as_view(), name="image-upload"),
     path("posts/<int:post_id>/", PostWriteView.as_view(), name="post-detail"),

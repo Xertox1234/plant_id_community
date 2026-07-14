@@ -4,7 +4,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
-from wagtail.models import Page
+from wagtail.models import Page, PageViewRestriction
 from wagtail_forum.models import (
     ForumBoard,
     ForumIndex,
@@ -95,12 +95,15 @@ def test_notification_list_query_count_pinned():
         resp = client.get("/forum/notifications/")
 
     assert resp.status_code == 200
-    # Pinned EXACTLY (docs/rules/testing.md): ONE query — select_related
-    # (actor/topic/board) folds into the same SELECT, and DRF CursorPagination
-    # fetches page_size+1 rows instead of a separate COUNT. force_authenticate
+    # Pinned EXACTLY (docs/rules/testing.md): TWO queries — select_related
+    # (actor/topic/board) folds the notification fetch into one SELECT, plus
+    # one .public() PageViewRestriction lookup for board__in=_visible_boards()
+    # (todo 253 slice 3 — load-bearing now that fan-out reaches subscriber
+    # recipients beyond the topic's own author). DRF CursorPagination fetches
+    # page_size+1 rows instead of a separate COUNT. force_authenticate
     # bypasses session/cookie auth entirely, so there's no auth-lookup query
     # to account for. If this changes, explain the new count here.
-    assert len(ctx.captured_queries) == 1
+    assert len(ctx.captured_queries) == 2
 
 
 @pytest.mark.django_db
@@ -129,6 +132,31 @@ def test_notification_list_excludes_unpublished_topic():
     _notify(recipient, actor, topic, post)
     topic.live = False
     topic.save(update_fields=["live"])
+
+    client = APIClient()
+    client.force_authenticate(recipient)
+
+    list_resp = client.get("/forum/notifications/")
+    assert list_resp.data["results"] == []
+
+    count_resp = client.get("/forum/notifications/unread-count/")
+    assert count_resp.data == {"count": 0}
+
+
+@pytest.mark.django_db
+def test_notification_list_excludes_restricted_board_topic():
+    """A restricted board's PageViewRestriction is a real access boundary,
+    not just a fan-out edge case (todo 253 slice 3): a notification whose
+    topic sits on a board that later gained a PageViewRestriction must not
+    leak, exactly like an unpublished topic. Also proves the null-topic
+    OR-clause survived adding board__in=_visible_boards() as ONE combined Q
+    — a separately-chained .filter() would have dropped null-topic rows too."""
+    recipient = User.objects.create_user(username="recipient13")
+    actor = User.objects.create_user(username="actor13")
+    board = _board("general13")
+    topic, post = _topic_and_post(board, recipient, actor)
+    _notify(recipient, actor, topic, post)
+    PageViewRestriction.objects.create(page=board, restriction_type="login")
 
     client = APIClient()
     client.force_authenticate(recipient)

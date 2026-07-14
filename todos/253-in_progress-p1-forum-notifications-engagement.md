@@ -72,15 +72,24 @@ Sequenced so each step ships value alone:
 
 ## Acceptance Criteria
 
-- [ ] A reply to a subscribed topic produces an in-app notification visible via
-      bell UI; mark-read works
+- [x] A reply to a subscribed topic produces an in-app notification visible via
+      bell UI; mark-read works — satisfied since slice 3: every topic now has
+      a real subscriber list (auto-subscribed authors/repliers + explicit
+      Follow), and a reply notifies all of them, not just the topic author.
+      Bell UI + mark-read have worked since slice 1; slice 3 is what made
+      "subscribed topic" literally true.
 - [x] The `forum_notifications` preference actually gates deliveries (email and push)
       — satisfied for the reply vertical (the only wired one): push has
       gated on it since before slice 1; slice 2 wires the reply email
       through `EmailService._should_send_email`'s same
       `user.forum_notifications` check. Mention/digest/new-topic emails
       remain unwired (slices 3-4), so there's nothing to gate for those yet.
-- [ ] Reply/mention events fan out to subscribers/participants, not only the topic author
+- [x] Reply/mention events fan out to subscribers/participants, not only the
+      topic author — satisfied for the reply vertical (the only wired one):
+      slice 3 rewrote the fan-out to notify every `TopicSubscription`
+      holder (auto-subscribed on topic-create and on reply, plus explicit
+      Follow), excluding the replier. Mention fan-out remains unwired —
+      needs slice 4's @mention parsing first.
 - [ ] An @mention notifies the mentioned user and renders as a profile link
 - [ ] Topic lists show an unread/new indicator
 - [ ] At least one real client (web or mobile) registers an FCM token and
@@ -423,9 +432,178 @@ Sequenced so each step ships value alone:
 - Not archived — 4 slices remain (H3+H2, H4, H10, FCM residue). Todo stays
   `in_progress`.
 
+### 2026-07-14 - Slice 3 (H3 subscriptions + H2 fan-out beyond author-only) shipped
+
+- **Scope decision (user-approved via AskUserQuestion): full-stack.** Backend
+  (model, migration+backfill, API, auto-subscribe, fan-out rewrite) AND
+  frontend (`is_subscribed` type/field, service functions, Follow/Unfollow
+  button on the thread detail page) — not backend-only.
+- **Design decisions locked pre-implementation, followed as specified:**
+  1. Auto-subscribe at signal (publish) time, not API-write time — hooks the
+     existing `topic_created`/`reply_added` branches in `H/notifications.py`,
+     so a rejected/pending spam post never subscribes anyone.
+  2. Backfill is author-only and landed in this PR (migration `0014`,
+     `bulk_create(ignore_conflicts=True)`); deliberately did NOT backfill
+     past repliers (they were never notified before — retro-subscribing a
+     year-old participant to a necro-reply would be surprise-spam). Past
+     repliers get picked up going forward via auto-subscribe-on-reply.
+  3. Unfollow is "stop watching," but replying again re-subscribes you — no
+     persistent mute flag this slice (Discourse-style; matches how
+     `notifications.py:88-97`'s auto-subscribe-on-reply is now documented
+     inline after review, see below).
+- **Backend**: new `TopicSubscription` model (`W/models/subscriptions.py`,
+  migration `0014_topicsubscription.py` — schema + author-only backfill in
+  one file) with a `subscribe()`/`unsubscribe()` classmethod pair mirroring
+  `ForumProfile.for_user`'s get_or_create/IntegrityError race idiom. Rewrote
+  `H/notifications.py`'s `reply_added` branch: deleted both author-only
+  guards, fan-out now queries `TopicSubscription.objects.filter(topic=topic)`
+  (excluding the replier), auto-subscribes the replier inside the same
+  atomic block, and the push/email enqueue loops became N-per-recipient
+  (was 1). `topic_created` now auto-subscribes the topic's author. New
+  `TopicSubscriptionView` (POST subscribe / DELETE unsubscribe, both
+  idempotent), mounted + throttled (`subscription_create`/`subscription_delete`,
+  60/m each) in both urlconfs (route-parity test). `is_subscribed`
+  `SerializerMethodField` added to `TopicDetailSerializer`. Fixed
+  `_visible_notifications()`'s visibility filter (`api/notifications.py`) to
+  add `board__in=_visible_boards()`, null-safe via a combined `Q(...)`
+  expression per `docs/rules/testing.md`'s "IN (NULL)" lesson — now
+  load-bearing since fan-out reaches non-author recipients.
+- **Frontend**: `Thread.is_subscribed` type, mapper wiring, `subscribeToTopic`/
+  `unsubscribeFromTopic` service functions, and a Follow/Unfollow `Button` on
+  `ThreadDetailPage` (optimistic toggle, rollback-on-error, gated on
+  `isAuthenticated`).
+- **Verification (pre-review)**: Backend `pytest apps/forum_host/tests/
+  packages/wagtail_forum/wagtail_forum/tests/ -q --create-db` → `330 passed`
+  (was 302 at slice-2 baseline). Frontend `npx vitest run` → `616 passed`.
+  `manage.py check` clean, `makemigrations --check --dry-run` → "No changes
+  detected", `type-check`/`lint` clean. OpenAPI schema: the exact CI command
+  (`manage.py spectacular --file ...`, no `--fail-on-warn`) exits 0; the new
+  `/forum/topics/{topic_id}/subscription/` path verified present with
+  `post`/`delete` methods and `200`/`429` responses by parsing the generated
+  schema directly (drf-spectacular's local `--validate --fail-on-warn` run
+  looked alarming — 202 pre-existing, unrelated warnings — but that flag
+  isn't what CI actually runs).
+- **Code review** (code-review-orchestrator + bundled `/code-review --effort
+  high`, all 10 finder angles + the orchestrator run in parallel, 11 agents
+  total): the orchestrator self-reported degraded methodology (ran as a
+  single inline pass, not true parallel specialist dispatch) and found 0
+  findings at "moderate confidence" — treated as low-weight, not a checklist
+  all-clear. The bundled 10-angle pass found real, cross-corroborated
+  issues. Given the extent of independent convergence (3-4 angles hitting
+  the same line from different lenses) plus one finding with direct
+  empirical reproduction, Phase 2 (per-candidate verify agent)/Phase 3
+  (sweep) were not separately dispatched — treated the convergence +
+  reproduction itself as verification, confirmed via a second advisor
+  consult, rather than re-verifying already-reproduced findings. Fixed:
+  - **[bug, confirmed via reproduction, 2x independent]** `TopicSubscriptionView.delete()`
+    reused `post()`'s visibility-gated topic lookup (`live=True,
+    board__in=_visible_boards()`), so unsubscribing 404'd — and silently
+    no-op'd — once a subscriber's topic was unpublished or its board
+    restricted, stranding them subscribed with no self-service way out
+    until republish. One angle reproduced it directly (subscribed a user,
+    flipped `topic.live=False`, called DELETE, confirmed 404 + orphaned
+    row). Fixed: `delete()` is now a pure self-scoped
+    `TopicSubscription.objects.filter(user=request.user,
+    topic_id=topic_id).delete()` with no topic lookup at all — no
+    existence-leak risk the way `post()` has, since it only ever mutates
+    the caller's own row. Added 3 regression tests (unpublished topic,
+    restricted board, nonexistent topic_id — the last pinning that DELETE
+    is a no-op, unlike POST's 404, since there's no topic lookup to fail).
+  - **[bug, confirmed empirically, language-pitfall angle]** Two related
+    frontend state-leak bugs in `ThreadDetailPage.tsx`'s
+    `handleToggleSubscription`: (1) the failure-path rollback wasn't
+    guarded by topic identity, so a slow/failed request for thread A could
+    overwrite thread B's `is_subscribed` state and raise a spurious error
+    banner after the user navigated away; (2) `subscribing` was a
+    page-level boolean, so a slow request for thread A left thread B's
+    Follow button stuck disabled/spinning after navigating away — no
+    failure required, just slowness. Root cause both: nothing bound the
+    in-flight request to the topic it was issued for. Fixed with a
+    `currentTopicIdRef` (synced in the existing load-thread effect, not
+    during render — the `react-hooks/refs` lint rule forbids ref writes in
+    the render body; caught by `npm run lint`, not by any test) that
+    `handleToggleSubscription`'s catch/finally check before applying
+    `setThread`/`setNotice`/`setSubscribing`, plus resetting `subscribing`
+    to `false` unconditionally on every navigation so a stuck spinner can't
+    outlive the thread it belongs to. Added 2 regression tests
+    (navigate-away-while-pending doesn't leave the button stuck loading;
+    a stale failure after navigating away doesn't touch the new thread's
+    state or show its error).
+  - **[cleanup, cheap, reuse angle]** The drf-spectacular `extend_schema`
+    ImportError-fallback shim was tripled across the package (`views.py`,
+    `api/notifications.py`, `api/subscriptions.py`). Fixed in the new file
+    only: `subscriptions.py` now imports `extend_schema` from `.views`
+    (which already has the canonical copy) instead of redefining it.
+  - **[cleanup, reuse angle, advisor-endorsed]** `subscriptions.py`'s
+    `_get_topic()` reimplemented the exact visibility-gated-lookup shape
+    `_get_visible_post()` already establishes as this package's pattern for
+    "one predicate shape, not N" (its own docstring says so). Extracted
+    `_get_visible_topic()` into `views.py` alongside it (additive only —
+    did NOT retrofit the 3 pre-existing inline call sites in `views.py`
+    that predate this diff; that would be an unrelated-file DRY refactor
+    outside this slice's scope), used by `subscriptions.py`'s `post()`
+    only (`delete()` no longer needs a topic lookup at all, per the bug fix
+    above).
+  - **[doc-only, 2x independent]** Two angles independently flagged the
+    same ambiguity: `reply_added`'s auto-subscribe-on-reply
+    (`TopicSubscription.subscribe(post_author, topic)`) is unconditional,
+    so a user who explicitly unfollowed and then posts one more reply gets
+    silently re-subscribed. Both angles explicitly caveated this as
+    "likely intentional, flagging for confirmation" rather than a bug — it
+    is exactly design decision 3 above. No behavior change; added an
+    inline comment at the call site documenting the deliberate tradeoff so
+    a future reviewer doesn't re-flag it as a bug.
+  - **Deferred to todo 268 (not fixed here)**: three angles (Efficiency,
+    Altitude, Angle B) independently converged on the same finding — reply
+    fan-out now loops one synchronous `.delay()` per subscriber inside
+    `transaction.on_commit`, unbounded, blocking the HTTP response; 2N
+    broker round-trips for N subscribers with no cap or batching. Real at
+    scale, but the proper fix (batch Celery tasks that loop server-side)
+    means changing `send_forum_push`/`send_forum_email` signatures shared
+    with the untouched `moderation_decided` branch — out of proportion for
+    a slice scoped to fan-out *correctness*. A cap-with-warning band-aid
+    was considered and rejected (exactly the shallow special-case the
+    Altitude angle's own framing warns against).
+  - **Declined (with reasoning)**: closure duplication in
+    `_enqueue_push`/`_enqueue_email` (cosmetic, same call shape as slice
+    2's identical declined finding); `TopicSubscription.subscribe()`'s
+    IntegrityError-wrapper duplicating `ForumProfile.for_user()` (verified
+    against Django 6.0.7 source — `get_or_create` already handles the race
+    internally; removing the wrapper is a paired decision about a
+    deliberate house convention this diff extends, not a local oversight —
+    declining to keep the mirrored idiom intact, matching the existing
+    pattern rather than diverging from it); three new test files each
+    hand-rolling a near-identical 4-line board/topic fixture helper (right
+    at the "recurs 3x" bar, but each instance is ~4 lines and consolidating
+    would add a new shared test-utils file for marginal benefit —
+    "three similar lines is better than a premature abstraction"); a
+    weaker, explicitly-caveated concern about `get_is_subscribed` only
+    mattering if a future serializer reuses the same pattern.
+  - Re-verified after every fix: backend `333 passed` (was 330 pre-fix, +3
+    for the DELETE-visibility regression tests), frontend `618 passed` (was
+    616 pre-fix, +2 for the stale-navigation regression tests),
+    `manage.py check`/`makemigrations --check --dry-run` both clean,
+    `type-check` clean, `lint` → 0 errors (the `react-hooks/refs` violation
+    from the initial ref-in-render implementation, fixed above).
+  - Manual browser E2E not run this session — consistent with slices 1-2's
+    convention (no Playwright spec exists for the forum thread page; `web/CLAUDE.md`
+    excludes E2E from CI). Every test in this slice mocks one side of the
+    service boundary; "330+618 passing" proves logic and contract shape,
+    not a browser-verified feature.
+- **AC boxes**: AC1 flipped (bell UI/mark-read have worked since slice 1;
+  slice 3 is what made "subscribed topic" literally true) and AC3 flipped
+  for the reply vertical (mention fan-out awaits slice 4). AC4 (mentions)
+  and AC5 (unread indicators) still await slices 4-5; AC6 (FCM registration)
+  is the residue item.
+- Not archived — 3 slices remain (H4 mentions, H10 unread, FCM residue).
+  Todo stays `in_progress`.
+
 ## Notes
 
 p1 by user triage decision. C2 (one of only two Critical findings) anchors this
 epic. Related: todo 260 (mobile client) owns the Flutter FCM registration half.
-Related: todo 267 (filed 2026-07-14 from this slice's code review) tracks the
+Related: todo 267 (filed 2026-07-14 from slice 2's code review) tracks the
 `EmailService` systemic silent-failure modes found but out of scope here.
+Related: todo 268 (filed 2026-07-14 from slice 3's code review) tracks the
+reply fan-out's N-sequential-Celery-enqueue scaling gap, deferred rather than
+fixed inline.

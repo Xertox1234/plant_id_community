@@ -22,6 +22,7 @@ except ImportError:  # pragma: no cover
 from ..models import Notification
 from .pagination import ForumCursorPagination
 from .serializers import NotificationSerializer
+from .views import _visible_boards
 
 UNREAD_COUNT_SCHEMA = {
     "type": "object",
@@ -35,21 +36,22 @@ MARK_READ_SCHEMA = {
 
 def _visible_notifications(user):
     """A user's notifications, excluding ones whose topic has since been
-    unpublished. A notification with no topic (a future non-topic-scoped verb)
-    is never excluded by this clause — `topic__live=True` alone would silently
+    unpublished or hidden. A notification with no topic (a future
+    non-topic-scoped verb) is never excluded by this clause — chaining
+    `board__in=_visible_boards()` as a SEPARATE `.filter()` would silently
     drop null-topic rows too (a plain `__in`/lookup on a nullable FK never
-    matches NULL; docs/rules/testing.md's "IN (NULL)" lesson).
+    matches NULL; docs/rules/testing.md's "IN (NULL)" lesson) — it must stay
+    inside the same Q as `topic__live=True`, not alongside it.
 
-    Deliberately NOT the full `board__in=_visible_boards()` check
-    (api/views.py) that gates content-listing endpoints: that costs an extra
-    query (`.public()`'s PageViewRestriction lookup) on every call, including
-    this polled unread-count endpoint, and slice 1's only recipient is always
-    the topic's own author — a PageViewRestriction added after the fact isn't
-    a real leak for them. Add the full check here once slice 3's fan-out
-    reaches non-author recipients, who wouldn't have that same standing.
+    Now includes the full `board__in=_visible_boards()` check (api/views.py)
+    that gates content-listing endpoints, costing one extra query
+    (`.public()`'s PageViewRestriction lookup) on every call, including this
+    polled unread-count endpoint. Load-bearing since todo 253 slice 3: fan-out
+    now reaches subscriber recipients beyond the topic's own author, who
+    don't have slice 1's "I'm always allowed to see my own topic" standing.
     """
     return Notification.objects.filter(recipient=user).filter(
-        Q(topic__isnull=True) | Q(topic__live=True)
+        Q(topic__isnull=True) | Q(topic__live=True, topic__board__in=_visible_boards())
     )
 
 

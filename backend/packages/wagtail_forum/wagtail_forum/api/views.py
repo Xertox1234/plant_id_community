@@ -85,6 +85,19 @@ def _get_visible_post(post_id):
     )
 
 
+def _get_visible_topic(topic_id):
+    """Fetch a live, visible topic or 404 in a SINGLE query.
+
+    Same no-existence-leak visibility guard as _get_visible_post, scoped to
+    Topic. Shared by PostListView.post, TopicDetailView.get_queryset-style
+    lookups, and TopicSubscriptionView.post (audit M6/M7, todo 253 slice 3) —
+    so the predicate has one shape, not four.
+    """
+    return get_object_or_404(
+        Topic.objects.filter(live=True, board__in=_visible_boards()), id=topic_id
+    )
+
+
 def _get_board(slug):
     """Resolve a board by slug, 404ing hidden boards and 409ing ambiguity.
 

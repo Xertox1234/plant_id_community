@@ -11,6 +11,7 @@ from apps.core.ratelimit import client_ip_key, ratelimit
 from django.conf import settings
 from django.utils.decorators import method_decorator
 from wagtail_forum.api import notifications as forum_notification_views
+from wagtail_forum.api import subscriptions as forum_subscription_views
 from wagtail_forum.api import views as forum_views
 
 from .constants import DEFAULT_FORUM_RATELIMITS
@@ -109,4 +110,10 @@ class NotificationUnreadCountView(forum_notification_views.NotificationUnreadCou
 
 @_throttled("notification_mark_read", "POST")
 class NotificationMarkReadView(forum_notification_views.NotificationMarkReadView):
+    pass
+
+
+@_throttled("subscription_create", "POST")
+@_throttled("subscription_delete", "DELETE")
+class TopicSubscriptionView(forum_subscription_views.TopicSubscriptionView):
     pass

@@ -10,6 +10,8 @@ import {
   updatePost,
   deletePost,
   toggleReaction,
+  subscribeToTopic,
+  unsubscribeFromTopic,
   uploadPostImage,
   searchForum,
 } from './forumService';
@@ -57,6 +59,7 @@ const backendTopicDetail = {
   last_post_at: '2026-01-02T00:00:00Z',
   last_post_author: 'jdoe',
   opening_post_id: 50,
+  is_subscribed: true,
 };
 
 const backendPost = {
@@ -191,6 +194,7 @@ describe('forumService (wagtail_forum API contract)', () => {
       id: '12',
       title: 'Succulent help',
       post_count: 4,
+      is_subscribed: true,
     });
     expect(t.category).toMatchObject({ id: '3', slug: 'plant-care' });
     expect(fetchMock).toHaveBeenCalledWith(
@@ -324,6 +328,22 @@ describe('forumService (wagtail_forum API contract)', () => {
     expect(url).toContain('/posts/50/reactions/');
     expect(opts.method).toBe('POST');
     expect(JSON.parse(opts.body)).toEqual({ type: 'like' });
+  });
+
+  it('subscribeToTopic POSTs to /topics/{id}/subscription/', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ subscribed: true }));
+    await subscribeToTopic(12);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/topics/12/subscription/');
+    expect(opts.method).toBe('POST');
+  });
+
+  it('unsubscribeFromTopic DELETEs /topics/{id}/subscription/', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ subscribed: false }));
+    await unsubscribeFromTopic(12);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/topics/12/subscription/');
+    expect(opts.method).toBe('DELETE');
   });
 
   it('uploadPostImage POSTs FormData (field "image") to the topic-independent /images/ route', async () => {
