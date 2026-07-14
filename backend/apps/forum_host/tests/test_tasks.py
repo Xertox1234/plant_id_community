@@ -1,4 +1,5 @@
-"""Unit tests for forum_host.tasks.send_forum_push (Issue 14).
+"""Unit tests for forum_host.tasks.send_forum_push (Issue 14) and
+send_forum_email (todo 253 slice 2, H1).
 
 All tests mock the FCM client and Firebase availability check so they
 run without Firebase credentials in CI.
@@ -8,7 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
-from wagtail_forum.models import ForumProfile
+from wagtail.models import Page
+from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
 
 User = get_user_model()
 
@@ -234,3 +236,230 @@ def test_send_forum_push_backoff_countdown_values(prior_retries, expected_countd
             send_forum_push.pop_request()
 
     assert mock_retry.call_args.kwargs["countdown"] == expected_countdown
+
+
+# ---- send_forum_email tests (todo 253 slice 2, H1) ---------------------------
+#
+# Unlike push, these assert on RENDERED EMAIL CONTENT (mail.outbox[0].subject /
+# .body), not just "an email was sent" — this is the one thing that catches
+# both latent bugs the wiring surfaced: the missing forum_reply.txt template
+# (silent no-op, TemplateDoesNotExist swallowed to False) and the
+# author_name/post_excerpt context-key mismatch (Django renders an undefined
+# var as '', shipping a blank-author blank-excerpt email that a bare
+# len(mail.outbox) == 1 assertion would not catch).
+
+
+def _make_reply(slug_prefix, author=None):
+    """Real (saved) board/topic/reply fixture, mirroring test_signals.py's
+    inline-boilerplate convention. Returns (topic_author, topic, post)."""
+    # Real emails matter here, not just usernames: EmailMessage.recipients()
+    # filters out a blank address, so a blank-email fixture user would make
+    # send_email() silently no-op (0 recipients) while still logging success.
+    topic_author = User.objects.create_user(
+        username=f"{slug_prefix}-topicowner",
+        email=f"{slug_prefix}-topicowner@example.com",
+    )
+    replier = author or User.objects.create_user(
+        username=f"{slug_prefix}-replier", email=f"{slug_prefix}-replier@example.com"
+    )
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title=slug_prefix, slug=slug_prefix))
+    board = index.add_child(
+        instance=ForumBoard(title=f"{slug_prefix}-board", slug=f"{slug_prefix}-board")
+    )
+    topic = Topic.objects.create(
+        board=board,
+        title="How to care for succulents?",
+        slug="succulents",
+        author=topic_author,
+    )
+    post = Post.objects.create(
+        topic=topic,
+        author=replier,
+        body=[
+            {
+                "type": "paragraph",
+                # Literal apostrophe + ampersand deliberately included: they're
+                # what caught the forum_reply.txt autoescape bug (Django
+                # escapes template vars in .txt renders exactly like .html;
+                # without {% autoescape off %} this shipped as "I&#x27;ve
+                # grown ... & thanks").
+                "value": "<p>Great question! I've grown succulents for years & thanks!</p>",
+            }
+        ],
+    )
+    return topic_author, board, topic, post
+
+
+@pytest.mark.django_db
+def test_send_forum_email_sends_reply_notification():
+    from apps.forum_host.tasks import send_forum_email
+    from django.core import mail
+
+    topic_author, board, topic, post = _make_reply("emailok")
+
+    send_forum_email("reply_added", topic_author.pk, {"post_id": str(post.pk)})
+
+    assert len(mail.outbox) == 1
+    sent = mail.outbox[0]
+    assert sent.to == [topic_author.email]
+    expected_url_path = f"/forum/{board.id}-{board.slug}/{topic.id}-{topic.slug}"
+    # The actual replier's display name and post excerpt must appear in BOTH
+    # alternatives — proves the author_name/post_excerpt context-key fix (the
+    # .txt body) AND the forum_preferences_url->preferences_url template fix
+    # (only reachable via the .html alternative), not just that SOME email
+    # with the right subject line went out.
+    assert post.author.display_name in sent.body
+    assert "Great question" in sent.body
+    # The .txt alternative must NOT HTML-entity-escape the apostrophe/ampersand
+    # — Django's autoescaping applies to .txt renders exactly like .html, so
+    # without {% autoescape off %} this shipped as "I&#x27;ve ... &amp;
+    # thanks!" in a PLAIN TEXT email. This is the one assertion the original
+    # fixture (no apostrophe/ampersand) couldn't catch.
+    assert "I've grown succulents for years & thanks!" in sent.body
+    assert "&#x27;" not in sent.body and "&amp;" not in sent.body
+    # The topic URL must resolve using the SAME board_id/slug the frontend's
+    # threadPath() routes on (matches web/src/utils/forumUrls.ts).
+    assert expected_url_path in sent.body
+
+    html_body = sent.alternatives[0][0]
+    assert sent.alternatives[0][1] == "text/html"
+    assert post.author.display_name in html_body
+    assert "Great question" in html_body
+    assert expected_url_path in html_body
+
+
+@pytest.mark.django_db
+def test_send_forum_email_skips_when_forum_notifications_off():
+    from apps.forum_host.tasks import send_forum_email
+    from django.core import mail
+
+    topic_author, _, _, post = _make_reply("emailoptout")
+    topic_author.forum_notifications = False
+    topic_author.save()
+
+    send_forum_email("reply_added", topic_author.pk, {"post_id": str(post.pk)})
+
+    assert mail.outbox == []
+
+
+@pytest.mark.django_db
+def test_send_forum_email_skips_for_nonexistent_user():
+    from apps.forum_host.tasks import send_forum_email
+    from django.core import mail
+
+    _, _, _, post = _make_reply("emailnouser")
+
+    send_forum_email("reply_added", 999999, {"post_id": str(post.pk)})
+
+    assert mail.outbox == []
+
+
+@pytest.mark.django_db
+def test_send_forum_email_skips_when_recipient_has_no_email():
+    from apps.forum_host.tasks import send_forum_email
+    from django.core import mail
+
+    topic_author, _, _, post = _make_reply("emailnoaddr")
+    topic_author.email = ""
+    topic_author.save()
+
+    # Must not raise, and must not silently claim success (this is the exact
+    # case EmailService.send_email() itself gets wrong — recipients() filters
+    # the blank address to zero, email.send() returns 0, but the caller logs
+    # "sent successfully" anyway since it never checks the return value).
+    send_forum_email("reply_added", topic_author.pk, {"post_id": str(post.pk)})
+
+    assert mail.outbox == []
+
+
+@pytest.mark.django_db
+def test_send_forum_email_skips_when_post_not_found():
+    from apps.forum_host.tasks import send_forum_email
+    from django.core import mail
+
+    topic_author, _, _, _ = _make_reply("emailnopost")
+
+    send_forum_email("reply_added", topic_author.pk, {"post_id": "999999"})
+
+    assert mail.outbox == []
+
+
+@pytest.mark.django_db
+def test_send_forum_email_skips_when_post_id_invalid():
+    from apps.forum_host.tasks import send_forum_email
+    from django.core import mail
+
+    topic_author, _, _, _ = _make_reply("emailbadid")
+
+    # Must not raise on a missing/non-numeric post_id — this is the same
+    # payload shape shared with send_forum_push, which never guarantees
+    # post_id is present or numeric. Exercises BOTH branches of
+    # `except (TypeError, ValueError)`: a missing key defaults to "" ->
+    # int("") raises ValueError; a key present with value None -> int(None)
+    # raises TypeError (dict.get's default only applies when the key is
+    # ABSENT, not when its value is None).
+    send_forum_email("reply_added", topic_author.pk, {})
+    send_forum_email("reply_added", topic_author.pk, {"post_id": "not-a-number"})
+    send_forum_email("reply_added", topic_author.pk, {"post_id": None})
+
+    assert mail.outbox == []
+
+
+@pytest.mark.django_db
+def test_send_forum_email_skips_unimplemented_event():
+    from apps.forum_host.tasks import send_forum_email
+    from django.core import mail
+
+    topic_author, _, _, post = _make_reply("emailunimpl")
+
+    # mention/moderation/digest emails are later slices of todo 253 — the
+    # task must no-op, not crash, until they're wired.
+    send_forum_email("mention_added", topic_author.pk, {"post_id": str(post.pk)})
+
+    assert mail.outbox == []
+
+
+@pytest.mark.django_db
+def test_send_forum_email_deleted_author_renders_bracket_deleted():
+    from apps.forum_host.tasks import send_forum_email
+    from django.core import mail
+
+    topic_author, _, _, post = _make_reply("emaildeleted")
+    # Mirrors the forum API serializer's own null-author convention
+    # (wagtail_forum/api/serializers.py: "display_name": "[deleted]").
+    post.author = None
+    post.save()
+
+    send_forum_email("reply_added", topic_author.pk, {"post_id": str(post.pk)})
+
+    assert len(mail.outbox) == 1
+    assert "[deleted]" in mail.outbox[0].body
+
+
+@pytest.mark.django_db
+def test_send_forum_email_retries_on_transient_db_error():
+    """A transient OperationalError during the Post fetch must autoretry, not
+    silently drop the email (docs/rules/celery.md: every network-touching task
+    declares retry config). Mirrors
+    test_send_forum_push_retries_transient_errors_until_exhausted's .apply()
+    pattern — proves autoretry_for=(OperationalError,) actually fires and
+    isn't dead config, the exact gap flagged when the original broad
+    try/except/self.retry() wrapper (which only ever wrapped the swallow-all
+    send call) was removed as untested dead code."""
+    from apps.forum_host.tasks import send_forum_email
+    from django.db import OperationalError
+
+    topic_author, _, _, post = _make_reply("emaildberror")
+
+    with patch.object(
+        Post.objects, "select_related", side_effect=OperationalError("connection lost")
+    ) as mock_select_related:
+        result = send_forum_email.apply(
+            args=("reply_added", topic_author.pk, {"post_id": str(post.pk)})
+        )
+
+    assert mock_select_related.call_count == 4  # initial attempt + max_retries=3
+    assert result.status == "FAILURE"
+    assert isinstance(result.result, OperationalError)

@@ -58,7 +58,13 @@ def test_reply_added_enqueues_push_for_topic_author(django_capture_on_commit_cal
         board=board, title="T2", slug="t2", author=topic_author
     )
 
-    with patch("apps.forum_host.tasks.send_forum_push.delay") as mock_delay:
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_delay,
+        # The reply_added success path also enqueues an email (todo 253 slice
+        # 2, H1) via the same on_commit mechanism; mock it so this push-only
+        # test doesn't attempt a real broker publish.
+        patch("apps.forum_host.tasks.send_forum_email.delay"),
+    ):
         from apps.forum_host.notifications import dispatch
 
         # A real (saved) Post — the Notification fan-out (todo 253 slice 1)
@@ -73,6 +79,42 @@ def test_reply_added_enqueues_push_for_topic_author(django_capture_on_commit_cal
     call_args = mock_delay.call_args
     assert call_args.args[0] == "reply_added"
     assert call_args.args[1] == topic_author.pk
+
+
+@pytest.mark.django_db
+def test_reply_added_enqueues_email_for_topic_author(
+    django_capture_on_commit_callbacks,
+):
+    """reply_added must enqueue send_forum_email for the topic author (todo
+    253 slice 2, H1) — mirrors test_reply_added_enqueues_push_for_topic_author.
+    Rendered-content correctness (the two latent bugs the wiring surfaced) is
+    covered separately by the task-level tests in test_tasks.py; this test
+    only proves the enqueue wiring itself."""
+    topic_author = User.objects.create_user(username="topicowner12")
+    replier = User.objects.create_user(username="replier12")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum12", slug="forum12"))
+    board = index.add_child(instance=ForumBoard(title="General12", slug="general12"))
+    topic = Topic.objects.create(
+        board=board, title="T12", slug="t12", author=topic_author
+    )
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay"),
+        patch("apps.forum_host.tasks.send_forum_email.delay") as mock_delay,
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(topic=topic, author=replier)
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    mock_delay.assert_called_once()
+    call_args = mock_delay.call_args
+    assert call_args.args[0] == "reply_added"
+    assert call_args.args[1] == topic_author.pk
+    assert call_args.args[2]["post_id"] == str(post.pk)
 
 
 @pytest.mark.django_db
@@ -158,10 +200,16 @@ def test_reply_added_swallows_push_delay_failure(
         board=board, title="T6", slug="t6", author=topic_author
     )
 
-    with patch(
-        "apps.forum_host.tasks.send_forum_push.delay",
-        side_effect=RuntimeError("broker unavailable"),
-    ) as mock_delay:
+    with (
+        patch(
+            "apps.forum_host.tasks.send_forum_push.delay",
+            side_effect=RuntimeError("broker unavailable"),
+        ) as mock_delay,
+        # The reply_added success path also enqueues an email (todo 253 slice
+        # 2, H1) via the same on_commit mechanism; mock it so this push-only
+        # test doesn't attempt a real broker publish.
+        patch("apps.forum_host.tasks.send_forum_email.delay"),
+    ):
         from apps.forum_host.notifications import dispatch
 
         post = Post.objects.create(topic=topic, author=replier)
@@ -190,7 +238,13 @@ def test_reply_added_persists_notification_row(django_capture_on_commit_callback
     )
     post = Post.objects.create(topic=topic, author=replier)
 
-    with patch("apps.forum_host.tasks.send_forum_push.delay"):
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay"),
+        # The reply_added success path also enqueues an email (todo 253 slice
+        # 2, H1) via the same on_commit mechanism; mock it so this
+        # notification-row test doesn't attempt a real broker publish.
+        patch("apps.forum_host.tasks.send_forum_email.delay"),
+    ):
         from apps.forum_host.notifications import dispatch
 
         with django_capture_on_commit_callbacks(execute=True):

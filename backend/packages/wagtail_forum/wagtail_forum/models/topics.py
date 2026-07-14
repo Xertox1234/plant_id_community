@@ -100,3 +100,9 @@ class Topic(
 
     def __str__(self):
         return self.title
+
+    def get_absolute_url(self):
+        """Relative web route, matching web/src/utils/forumUrls.ts::threadPath
+        (/forum/{board.id}-{board.slug}/{topic.id}-{topic.slug}). Callers that
+        need an absolute link (e.g. an email) prepend settings.SITE_URL."""
+        return f"/forum/{self.board_id}-{self.board.slug}/{self.id}-{self.slug}"

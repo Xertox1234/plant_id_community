@@ -4,7 +4,7 @@ logger = logging.getLogger("forum_host.notifications")
 
 
 def dispatch(event, **kwargs):
-    """Route a forum signal event to FCM via a background Celery task.
+    """Route a forum signal event to FCM/email via background Celery tasks.
 
     Importing the task here (inside the function) keeps the module importable
     even before the Celery app is ready (e.g. during migrations).
@@ -16,9 +16,12 @@ def dispatch(event, **kwargs):
         thread.  kwargs: topic (Topic), post (Post). Persists a Notification
         row (todo 253 slice 1) synchronously in the ambient (publish)
         transaction — it rolls back cleanly if the publish does — and defers
-        the push enqueue to transaction.on_commit so a push can never fire for
-        a publish that later rolls back (fixes the pre-slice-253 bug where
-        .delay() ran synchronously inside the open publish transaction).
+        the push AND email enqueue to transaction.on_commit so neither can
+        ever fire for a publish that later rolls back (fixes the
+        pre-slice-253 bug where .delay() ran synchronously inside the open
+        publish transaction). The email (todo 253 slice 2, H1) reuses
+        NotificationService.send_forum_reply_notification, gated by the
+        recipient's forum_notifications preference inside that service.
 
     moderation_decided
         Notifies the post's author of their content's moderation outcome.
@@ -30,7 +33,7 @@ def dispatch(event, **kwargs):
     """
     from django.db import transaction
 
-    from .tasks import send_forum_push
+    from .tasks import send_forum_email, send_forum_push
 
     topic = kwargs.get("topic")
     topic_id = getattr(topic, "id", None)
@@ -65,6 +68,16 @@ def dispatch(event, **kwargs):
                     topic_author.pk,
                 )
 
+        def _enqueue_email():
+            try:
+                send_forum_email.delay(event, topic_author.pk, payload)
+            except Exception:
+                logger.exception(
+                    "[CELERY] forum_host: failed to enqueue email for event=%s user=%s",
+                    event,
+                    topic_author.pk,
+                )
+
         try:
             # A nested atomic() scopes any DB failure to a savepoint: this
             # dispatch runs inside the ambient Wagtail publish transaction, and
@@ -83,9 +96,11 @@ def dispatch(event, **kwargs):
                     post=post,
                 )
             # Only registered once the write above actually succeeds — a
-            # notification-write failure must not still deliver a push, or the
-            # user gets a push with no corresponding in-app notification.
+            # notification-write failure must not still deliver a push/email,
+            # or the user gets a delivery with no corresponding in-app
+            # notification.
             transaction.on_commit(_enqueue_push)
+            transaction.on_commit(_enqueue_email)
         except Exception:
             logger.exception(
                 "[ERROR] forum_host: failed to persist notification for event=%s user=%s",

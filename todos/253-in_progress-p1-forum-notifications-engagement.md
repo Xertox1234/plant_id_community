@@ -74,7 +74,12 @@ Sequenced so each step ships value alone:
 
 - [ ] A reply to a subscribed topic produces an in-app notification visible via
       bell UI; mark-read works
-- [ ] The `forum_notifications` preference actually gates deliveries (email and push)
+- [x] The `forum_notifications` preference actually gates deliveries (email and push)
+      — satisfied for the reply vertical (the only wired one): push has
+      gated on it since before slice 1; slice 2 wires the reply email
+      through `EmailService._should_send_email`'s same
+      `user.forum_notifications` check. Mention/digest/new-topic emails
+      remain unwired (slices 3-4), so there's nothing to gate for those yet.
 - [ ] Reply/mention events fan out to subscribers/participants, not only the topic author
 - [ ] An @mention notifies the mentioned user and renders as a profile link
 - [ ] Topic lists show an unread/new indicator
@@ -283,7 +288,144 @@ Sequenced so each step ships value alone:
   a per-slice gate this codebase's convention requires (no Playwright spec
   exists for the forum bell; `web/CLAUDE.md` excludes E2E from CI already).
 
+### 2026-07-14 - Slice 2 (H1: wire the orphaned reply-notification email) shipped
+
+- **Scope decision (user-approved).** The todo's slice-2 line named
+  "reply/mention/digest"; exploration showed only **reply** is wirable now —
+  mention needs slice 4's @mention parsing, new-topic needs slice 3's
+  subscriber list, and digest needs a `CELERY_BEAT_SCHEDULE` that doesn't
+  exist anywhere in the project. Reply-only ships value alone, matching the
+  epic's own staged design; the other three stay orphaned pending their
+  prerequisite slices.
+- **Two latent bugs found before any wiring, both fixed as part of this
+  slice** (the email path had zero callers, so was never integration-tested):
+  1. **Missing `.txt` template (app-wide gap, one instance fixed here).**
+     `EmailService.send_email` renders `.html` AND `.txt` unconditionally;
+     `TemplateDoesNotExist` is swallowed to a silent `return False`. The repo
+     had 13 `.html`, 0 `.txt` templates. Added `forum_reply.txt`; the other
+     10 templates' gap is now todo 267.
+  2. **Template context-variable mismatch.** `forum_reply.html` referenced
+     `{{ author_name }}`/`{{ post_excerpt }}`/`{{ forum_preferences_url }}`;
+     the sender's context dict supplied `reply_author`/`reply_excerpt` (base
+     context supplies `preferences_url`, not the `forum_`-prefixed name).
+     Django renders an undefined var as `''` — this shipped a
+     blank-author/blank-excerpt email that a bare outbox-count assertion
+     would not catch. Fixed both sides to match; verified a second instance
+     of the same bug class exists in `send_identification_result_notification`
+     (unrelated to forum, filed in todo 267, not fixed here).
+- **Delivery design**: mirrors slice 1's push pattern exactly — new
+  `send_forum_email` Celery task, enqueued via `transaction.on_commit`
+  alongside the existing `_enqueue_push` in `forum_host/notifications.py`'s
+  `reply_added` branch (both registered only after the Notification-row
+  write commits, per the existing "except must sit outside atomic()" forum
+  rule). The email is a parallel `EMAIL`-only channel — no second in-app
+  `Notification` row, no migration. Preference gating (`forum_notifications`)
+  is enforced once, inside `EmailService._should_send_email`, not
+  re-duplicated in the task (single source of truth, deliberate).
+- **Verification**:
+  - Backend: `pytest apps/forum_host/tests/ packages/wagtail_forum/wagtail_forum/tests/
+    -q --create-db` → `302 passed` (was 287 at slice-1 baseline; +15: 9 new
+    `send_forum_email` task tests, 1 new signal-level enqueue test, 3
+    existing push tests got a defensive `send_forum_email.delay` mock with
+    no new assertions — Celery `CELERY_TASK_ALWAYS_EAGER` defaults `False`
+    with no test override, so an unmocked `.delay()` in those tests'
+    `django_capture_on_commit_callbacks(execute=True)` blocks would have
+    attempted a real broker publish; 2 test-quality fixes from review).
+  - `manage.py check` → "System check identified no issues (0 silenced)."
+  - `manage.py makemigrations --check --dry-run` → "No changes detected."
+  - Content-level assertions (not just outbox length) on both the `.txt` AND
+    `.html` alternatives — the one test design that actually catches both
+    latent bugs above; a fixture with an apostrophe + ampersand was added
+    specifically to catch the autoescape bug found in review (below).
+- **Code review** (code-review-orchestrator + bundled `/code-review --effort
+  high`, 10 finder angles + verification + gap sweep, run in parallel): the
+  orchestrator found 0 critical/high/medium (2 low/info, one already
+  addressed). The deep pass surfaced ~24 raw candidates across 10 angles,
+  several independently corroborated 2-3x. Consulted the advisor to triage
+  scope before repairing (bar: fix real bugs and rule violations touching
+  code this diff introduced; defer pre-existing cross-cutting issues to a
+  todo; never drift into unrelated files). Fixed:
+  - **[bug, confirmed empirically]** `forum_reply.txt` had no
+    `{% autoescape off %}` — Django's autoescaping applies to `.txt` renders
+    identically to `.html` (not extension-aware), so a reply containing an
+    apostrophe or ampersand rendered as `O&#x27;Brien`/`Marks &amp; Spencer`
+    in a PLAIN TEXT email. Reproduced directly via `render_to_string` before
+    fixing. Fixed with `{% autoescape off %}` (safe — plain text, and the
+    excerpt is already `strip_tags`'d); strengthened the test fixture with a
+    real apostrophe + ampersand so a regression fails the content assertion.
+  - **[rule violation, docs/rules/celery.md]** The task shipped as a bare
+    `@shared_task` (retry wrapper removed as dead code — see below). A
+    conventions-focused reviewer pass correctly distinguished: the removal
+    was right for the *send* call (swallows everything internally, can't
+    raise) but wrong to leave the whole task with zero retry config, since
+    `User.objects.get()`/`Post.objects.get()` CAN raise `OperationalError` on
+    a transient DB blip and that would silently drop the notification with
+    no retry — a real, if narrow, gap the binding "every task declares retry
+    config" rule exists to prevent. Fixed with the declarative form
+    (`autoretry_for=(OperationalError,), retry_backoff=True, max_retries=3`)
+    — narrower and cleaner than hand-rolled `self.retry()`, and the inner
+    `DoesNotExist`/`ValueError`/`TypeError` branches return early first so
+    autoretry only ever fires on the one genuine transient class. Added a
+    dedicated test (mirrors `test_send_forum_push_retries_transient_errors_until_exhausted`'s
+    `.apply()` pattern) proving it isn't dead config.
+  - **[maintainability, 3x independent]** `_plain_text_excerpt` in
+    `wagtail_forum/api/views.py` is a leading-underscore "private" helper
+    that this task now imports across the package/host-app boundary — a
+    silent rename there would ImportError at Celery runtime with no
+    review-time signal. Promoted to `plain_text_excerpt` (public), updated
+    its one in-package caller.
+  - **[duplication, 2x independent, verified]** The `f"{SITE_URL}/forum/{board.id}-..."`
+    URL-building f-string duplicated a private closure already in
+    `apps/users/views.py` (`_forum_topic_url`, dashboard recent-activity
+    feed) — confirmed byte-for-byte identical path shape. Added
+    `Topic.get_absolute_url()` to the `wagtail_forum` package (the
+    idiomatic Django home for it) and used it here; did NOT touch
+    `apps/users/views.py` — the advisor's scope line was "touch another file
+    when your change creates a new dependency on it, not because it
+    duplicates something," and the dashboard closure works and is unrelated
+    to forum notifications. Future mention/digest slices needing the same
+    URL now have a canonical method to call instead of re-deriving the
+    f-string a third time.
+  - **[test-quality, cheap]** An invalid-`post_id` test exercised the same
+    `ValueError` branch twice (missing key, non-numeric string), leaving the
+    `except (TypeError, ValueError)` clause's `TypeError` half uncovered
+    (`{"post_id": None}` → `int(None)` raises `TypeError`, since `dict.get`'s
+    default only applies when the key is absent, not when its value is
+    `None`). Added the missing case. Also fixed 2 tests that unpacked
+    `board, topic` from the shared fixture but never used them, inconsistent
+    with the file's own `_`-discard convention.
+  - **Declined (with reasoning, matching the advisor's read)**: the
+    near-identical `_enqueue_push`/`_enqueue_email` closures in
+    `notifications.py` (3x independent flags) — a factory function for two
+    call sites is more indirection than two explicit closures, and
+    `moderation_decided`'s enqueue in the same file is already inline,
+    matching the file's own explicit-over-abstracted convention. The
+    preference-gate running after the Post fetch/excerpt render, not before
+    (2x independent flags) — deliberate single-source-of-truth design
+    (`EmailService._should_send_email` is the one place that decides "does
+    this user get a forum email"); re-checking in the task duplicates that
+    logic across two layers for a negligible cost (one indexed PK read +
+    in-memory string ops, not a network call). The stale
+    `backend/test_email_templates.py` manual script (3x independent flags,
+    now silently "passes" with blank content) and the broader `EmailService`
+    systemic issues (ignored `email.send()` return value, 10 more missing
+    `.txt` templates, a second context-key mismatch instance in
+    `send_identification_result_notification`) — all pre-existing,
+    cross-cutting, unrelated to this diff's own correctness; filed as todo
+    267 rather than expanding this slice's scope.
+  - Re-verified after every fix: `302 passed` (was 301 pre-fix, +1 for the
+    new retry test), `manage.py check`/`makemigrations --check` both clean.
+- **AC boxes**: AC2 flipped — `forum_notifications` now gates both push
+  (already true since before slice 1) and email (this slice) for the reply
+  vertical, the only wired one. AC1/AC3 (subscriptions) and AC4 (mentions)
+  still await slices 3-4; AC5 (unread indicators) awaits slice 5; AC6 (FCM
+  registration) is the residue item.
+- Not archived — 4 slices remain (H3+H2, H4, H10, FCM residue). Todo stays
+  `in_progress`.
+
 ## Notes
 
 p1 by user triage decision. C2 (one of only two Critical findings) anchors this
 epic. Related: todo 260 (mobile client) owns the Flutter FCM registration half.
+Related: todo 267 (filed 2026-07-14 from this slice's code review) tracks the
+`EmailService` systemic silent-failure modes found but out of scope here.

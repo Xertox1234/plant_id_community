@@ -199,7 +199,7 @@ class NotificationService:
         """Schedule notification for later delivery."""
         # TODO: Implement proper scheduling with Celery or Django-RQ
         logger.warning(
-            f"Scheduled notifications not yet implemented. Sending immediately instead."
+            "Scheduled notifications not yet implemented. Sending immediately instead."
         )
 
         # For now, send immediately instead of scheduling
@@ -293,10 +293,14 @@ class NotificationService:
         topic_url: str,
     ) -> bool:
         """Send forum reply notification."""
+        # Keys must match the template vars in emails/forum_reply.{html,txt}
+        # (author_name/post_excerpt), not these parameter names — Django
+        # silently renders an undefined var as '', so a mismatch here ships
+        # a blank-author, blank-excerpt email instead of erroring.
         context = {
             "topic_title": topic_title,
-            "reply_author": reply_author,
-            "reply_excerpt": reply_excerpt,
+            "author_name": reply_author,
+            "post_excerpt": reply_excerpt,
             "topic_url": topic_url,
         }
 
@@ -331,7 +335,7 @@ class NotificationService:
         }
 
         subject = f"Your plant has been identified as {plant_name}"
-        message = f"Great news! Your plant identification request has a new result."
+        message = "Great news! Your plant identification request has a new result."
 
         results = self.send_notification(
             notification_type=EmailType.IDENTIFICATION_RESULT,
