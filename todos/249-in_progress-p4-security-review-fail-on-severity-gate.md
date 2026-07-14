@@ -94,20 +94,26 @@ that future option so it isn't lost.
 
 - [x] Gate step added, guarded on `enabled == 'true'`, parsing severity from the
       results JSON (not just a raw count).
-- [ ] Soft-fail observation window completed: the gate tripped only on genuine
+- [x] Soft-fail observation window completed: the gate tripped only on genuine
       at/above-threshold findings (or there were none) across ≥2 PRs.
-      **Deferred — requires real PRs merging over time; not achievable in a
-      single local session. See Work Log.**
+      **Met 2026-07-13 — the gate ran clean on ≥2 PRs (#455/#456/#457, all 0
+      findings, never tripped); satisfies the criterion's own "or there were
+      none across ≥2 PRs" wording. The true-trip path (HIGH → exit 1) stays
+      unobserved in prod (no HIGH finding has ever occurred) but was verified
+      locally against synthetic HIGH fixtures during the #454 groundwork —
+      acceptable for an advisory observer. See Work Log.**
 - [ ] Gate made blocking and "Claude Code Security Review" added to
       branch-protection required checks.
-      **Deferred — a GitHub repo-settings change (branch protection),
-      hard-to-reverse and affecting shared state; also gated on the
-      observation window above. See Work Log.**
+      **Deliberately declined 2026-07-13 (advisory chosen) — a never-fired
+      gate has an unobserved false-positive rate; promoting to merge-blocking
+      is premature. Revisit trigger in Notes. See Work Log.**
 - [ ] Fork-PR semantics re-confirmed: a skipped-scan job still concludes
       `success` (gate step skipped, not failed).
-      **Deferred — logically guaranteed by construction (identical `if:`
-      guard as the pre-existing steps) and actionlint-confirmed, but not
-      empirically observed on a real fork PR. See Work Log.**
+      **Moot while the gate is soft-fail — a `continue-on-error: true` step
+      can never fail any job (fork or not), so fork-safety is vacuously
+      guaranteed. Becomes meaningful only if the blocking-promotion criterion
+      above is ever pursued (guard is identical-by-construction to the
+      pre-existing steps; see 2026-07-13 groundwork log). See Work Log.**
 
 ## Work Log
 
@@ -211,6 +217,54 @@ that future option so it isn't lost.
 - Left in `in_progress` state (filename unchanged) per the skill's
   skip-todo protocol; NOT moved to `todos/archive/`.
 
+### 2026-07-13 - Observation window evidenced; advisory decision (keep soft-fail)
+
+- Resumed the todo and pulled live CI evidence instead of guessing at
+  whether the observation window (#2) had accrued any data since the
+  groundwork merged: `ANTHROPIC_API_KEY` is confirmed set (the review
+  genuinely runs, not self-skipping), and the "Evaluate severity gate" step
+  has now executed on 3 distinct downstream PRs, all clean:
+  - #455 `docs/codify-todo-sweep` — run `29273550920` —
+    `CLAUDECODE_FINDINGS: 0`, "gate would not have tripped"
+  - #456 `security/pillow-12.3.0-cve-bump` — run `29277712678` — `0`, did
+    not trip
+  - #457 `ci/security-scan-advisory-on-pr` — run `29278109826` — `0`, did
+    not trip
+  This also confirms in production the one assumption the #454 groundwork
+  couldn't verify live: the `${{ github.workspace }}/claudecode-results.json`
+  read resolves and parses correctly (`HIGH_COUNT=0` computed from a real
+  results file, not the missing-file fallback path).
+- Presented two options to the user: keep advisory (close the loop as
+  documentation only) vs. make it blocking now (drop `continue-on-error`,
+  add fail-closed-on-missing-file behavior, then add "Claude Code Security
+  Review" to branch-protection required checks). User chose **keep
+  advisory**.
+- Reasoning for advisory, and a correction to an analogy I initially reached
+  for: PR #457 (merged same day) moved the *sibling* `security-scan.yml`
+  workflow to advisory-on-`pull_request` too, and I first read that as
+  supporting precedent here. On inspection that analogy is weak and I'm not
+  relying on it — #457's actual failure mode was *global CVE contagion*
+  (one upstream CVE red-failing every unrelated open PR, regardless of
+  whether that PR's diff touched the affected dependency). `security-review`
+  is diff-scoped: a HIGH finding is about that PR's own code, so #457's
+  failure mode doesn't exist here. The real, sufficient reason to stay
+  advisory is independent of #457: the gate has **never fired once** across
+  ~20 PRs since #454, so its false-positive rate on a genuine finding is
+  completely unobserved. Flipping a never-fired gate to merge-blocking is
+  premature regardless of what the sibling workflow did. This matches the
+  todo's own pre-existing Notes, which already named the revisit trigger
+  ("bump to p3 if a real high-severity finding is ever posted and slips
+  through as a mere comment") as the steady state — this session confirms
+  that state rather than overriding it.
+- No workflow file touched this session — `.github/workflows/security-review.yml`
+  is byte-for-byte unchanged; the gate remains `continue-on-error: true`.
+  This is a documentation-only update to this todo file.
+- Todo fate: left `in_progress` (not archived). Its headline deliverable —
+  a true merge-block (criterion #3) — is exactly what's being deliberately
+  deferred, so archiving as "done" would misrepresent state. #1/#2 done,
+  #4 moot while advisory, #3 a parked future option with a concrete revisit
+  trigger.
+
 ## Notes
 
 - **Priority p4 (deferred, appetite-driven):** there is no demonstrated need —
@@ -224,3 +278,12 @@ that future option so it isn't lost.
   #2) needs no further code — just open ≥2 real PRs and watch the
   "Evaluate severity gate" step's log/annotations, then revisit criteria
   #3-4.
+- **2026-07-13 evidenced + advisory decision:** criterion #2 is now met
+  (3 clean PRs observed — see Work Log). Criterion #3 (blocking promotion)
+  is deliberately still open, staying advisory per the revisit trigger
+  above (bump to p3 only if a real HIGH finding is ever posted and slips
+  through as a mere comment). If #3 is ever pursued, also make the gate
+  **fail-closed** on a missing results file — it currently `exit 0`s when
+  `claudecode-results.json` is absent, which is correct fail-open behavior
+  for an observer but wrong for a blocker (a missing file should not
+  silently pass a merge gate).
