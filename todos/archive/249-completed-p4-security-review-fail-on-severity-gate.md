@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p4
 issue_id: "249"
 tags: [security, ci, github-actions, review]
@@ -102,18 +102,27 @@ that future option so it isn't lost.
       unobserved in prod (no HIGH finding has ever occurred) but was verified
       locally against synthetic HIGH fixtures during the #454 groundwork —
       acceptable for an advisory observer. See Work Log.**
-- [ ] Gate made blocking and "Claude Code Security Review" added to
+- [x] Gate made blocking and "Claude Code Security Review" added to
       branch-protection required checks.
-      **Deliberately declined 2026-07-13 (advisory chosen) — a never-fired
-      gate has an unobserved false-positive rate; promoting to merge-blocking
-      is premature. Revisit trigger in Notes. See Work Log.**
-- [ ] Fork-PR semantics re-confirmed: a skipped-scan job still concludes
+      **Done 2026-07-14 — user reversed the 2026-07-13 advisory decision
+      with full knowledge of the unobserved-FP-rate tradeoff. PR #459
+      dropped `continue-on-error` and fixed a fail-closed consistency gap;
+      "Claude Code Security Review" added to branch-protection required
+      checks via the narrow contexts endpoint, verified `enforce_admins`
+      and the other 5 existing required checks were untouched. See Work
+      Log.**
+- [x] Fork-PR semantics re-confirmed: a skipped-scan job still concludes
       `success` (gate step skipped, not failed).
-      **Moot while the gate is soft-fail — a `continue-on-error: true` step
-      can never fail any job (fork or not), so fork-safety is vacuously
-      guaranteed. Becomes meaningful only if the blocking-promotion criterion
-      above is ever pursued (guard is identical-by-construction to the
-      pre-existing steps; see 2026-07-13 groundwork log). See Work Log.**
+      **Satisfied by construction, 2026-07-14 — not empirically observed
+      (no real fork PR exists to test against; same limitation todo 239's
+      own analogous AC accepted). The blocking gate step's `if:` guard is
+      unchanged by this promotion (`steps.check-key.outputs.enabled ==
+      'true'`, identical to the pre-existing "Run Claude Code security
+      review" step it already relies on): when the API-key secret is
+      absent (fork PR), `enabled` is `false`, both steps are skipped
+      outright, and a skipped step cannot fail a job — so the job still
+      concludes `success` regardless of severity-gate promotion. See Work
+      Log.**
 
 ## Work Log
 
@@ -265,8 +274,74 @@ that future option so it isn't lost.
   #4 moot while advisory, #3 a parked future option with a concrete revisit
   trigger.
 
+### 2026-07-14 - Promoted to blocking, branch protection updated, archived (user directive)
+
+- User asked whether making the gate blocking would stop unrelated failure
+  emails they'd been getting. Investigated before answering: those emails
+  traced to `security-scan.yml` (pip-audit/npm-audit dependency scanning,
+  a different workflow) hard-failing every open PR on a new upstream CVE
+  regardless of diff relevance — already fixed by PR #457. Confirmed
+  `security-review.yml` (this workflow) has never failed a single run in
+  its history, so it could not have been the source. After that
+  correction, user explicitly instructed: "make it blocking and complete
+  this todo" — a direct reversal of the 2026-07-13 advisory decision
+  above, made with full knowledge of the tradeoff (a never-fired gate has
+  an unobserved false-positive rate). Treated as explicit authorization
+  for the full scope of criterion #3 (gate blocking + branch-protection
+  required check), not re-litigated.
+- Pre-flight sanity check: zero open PRs at the time of the change, and
+  zero HIGH/CRITICAL findings across the entire observed run history — so
+  nothing was retroactively blocked by the promotion.
+- PR #459 (`ci/security-review-blocking-gate-todo-249`, merged 2026-07-14):
+  removed `continue-on-error: true` from the severity-gate step. Also
+  fixed a fail-closed inconsistency identified during execution planning:
+  the missing-results-file path already exited 1, but a results file
+  lacking a `findings` key (e.g. an `{"error": ...}` shape from an errored
+  scan) fell through `.findings // []` to an empty array and passed
+  silently — coherent for a soft-fail observer, incoherent for a blocking
+  gate. Added an explicit `jq -e 'has("findings")'` check so both "no
+  file" and "file present but unverifiable" fail closed. Renamed the step
+  to "Enforce severity gate (blocking, todo 249)" and updated its comment
+  block plus the workflow-level header comment, both of which described
+  the now-superseded advisory/soft-fail state.
+  - Verified: `actionlint` clean (exit 0). Re-extracted the shell gate
+    logic to a standalone script and re-ran the 6 synthetic fixtures from
+    the original #454 groundwork, with updated expectations for the two
+    changed paths — missing file and the `{"error": ...}` shape both now
+    exit 1 (previously 0) — all 6 passed.
+- Branch-protection change (applied directly via `gh api`, not through a
+  PR — GitHub repo settings aren't file-based): added "Claude Code
+  Security Review" to `required_status_checks.contexts` via the narrow
+  `POST .../protection/required_status_checks/contexts` endpoint (body
+  `["Claude Code Security Review"]`), deliberately avoiding a full `PATCH
+  .../protection`, which would silently clobber unspecified fields.
+  Verified via GET immediately after: all 6 contexts present (5
+  pre-existing + the new one), `enforce_admins.enabled` still `true`,
+  `required_pull_request_reviews`/`allow_force_pushes`/`allow_deletions`
+  all unchanged from their pre-change values.
+  - Noted for the record: `enforce_admins: true` means this check is
+    unbypassable by anyone, admins included, from the moment it was added.
+    The consequence is bounded per-PR (a tripped/false-positive gate
+    blocks only that PR's merge, not all of main) and reversible with a
+    single protection-settings edit if the false-positive rate turns out
+    to be a problem.
+- Criterion #3 flipped to done. Criterion #4 resolved "satisfied by
+  construction" — the same standard todo 239's own analogous AC accepted,
+  since no real fork PR exists this session to empirically test against;
+  not claiming empirical proof that doesn't exist.
+- Archiving now per "complete this todo" — the 2026-07-13 "keep
+  in_progress" call was explicitly contingent on staying advisory; that
+  contingency no longer holds now that the headline deliverable (a true
+  merge-block) is actually in place.
+
 ## Notes
 
+- **2026-07-14 promoted to blocking (supersedes the note below):** gate is
+  now blocking and fail-closed (including the `{"error": ...}` shape, not
+  just the missing-file case the note below flagged), and "Claude Code
+  Security Review" is a required branch-protection check. See the
+  2026-07-14 Work Log entry for full detail. The "priority p4,
+  appetite-driven" framing below no longer applies — the todo is complete.
 - **Priority p4 (deferred, appetite-driven):** there is no demonstrated need —
   0 findings over ~17 real PRs, and three other layers already provide blocking
   signal (kimi-review, code-review-orchestrator, CodeQL). Bump to p3 if a real
