@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, FormEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   fetchThread,
@@ -8,6 +8,8 @@ import {
   deletePost,
   toggleReaction,
   reportPost,
+  subscribeToTopic,
+  unsubscribeFromTopic,
 } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
 import { bodyBlocksToHtml } from '../../utils/forumBody';
@@ -76,11 +78,28 @@ export default function ThreadDetailPage() {
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editBody, setEditBody] = useState<string>('');
   const [editSubmitting, setEditSubmitting] = useState<boolean>(false);
+  const [subscribing, setSubscribing] = useState<boolean>(false);
   // A transient banner for write errors + moderation outcomes.
   const [notice, setNotice] = useState<string | null>(null);
 
+  // Tracks the topic currently on screen. handleToggleSubscription reads this
+  // after its await to detect that the user navigated to a different thread
+  // while its request was in flight, so a late success/failure for thread A
+  // can't clobber thread B's displayed state.
+  const currentTopicIdRef = useRef<number | null>(null);
+
   // Load thread and initial posts
   useEffect(() => {
+    // Refs must not be written during render (react-hooks/refs) — this
+    // effect already re-runs on every topicId change, so it doubles as the
+    // sync point.
+    currentTopicIdRef.current = topicId;
+    // A subscribe/unsubscribe request still in flight for the PREVIOUS
+    // thread must not leave this thread's Follow button stuck loading —
+    // reset unconditionally on every navigation (handleToggleSubscription's
+    // own finally guards against that stale request re-enabling it late).
+    setSubscribing(false);
+
     const loadData = async () => {
       if (topicId == null) {
         setError('Invalid thread URL');
@@ -193,6 +212,40 @@ export default function ThreadDetailPage() {
       setNotice(err instanceof Error ? err.message : 'Failed to react');
     }
   }, []);
+
+  const handleToggleSubscription = useCallback(async () => {
+    if (!thread || topicId == null) return;
+    const requestTopicId = topicId;
+    const wasSubscribed = thread.is_subscribed ?? false;
+    setSubscribing(true);
+    // Optimistic — reads instantly as the new state; rolled back on failure below.
+    setThread((prev) => (prev ? { ...prev, is_subscribed: !wasSubscribed } : prev));
+    try {
+      if (wasSubscribed) {
+        await unsubscribeFromTopic(requestTopicId);
+      } else {
+        await subscribeToTopic(requestTopicId);
+      }
+    } catch (err) {
+      logger.error('Error toggling topic subscription', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { threadId: thread.id },
+      });
+      // Only touch state if still viewing the thread this request was for —
+      // the user may have navigated to a different thread while it was in
+      // flight, and a late failure here must not roll back or flag THAT
+      // thread's subscription state (todo 253 slice 3 review finding).
+      if (currentTopicIdRef.current === requestTopicId) {
+        setThread((prev) => (prev ? { ...prev, is_subscribed: wasSubscribed } : prev));
+        setNotice(err instanceof Error ? err.message : 'Failed to update subscription');
+      }
+    } finally {
+      if (currentTopicIdRef.current === requestTopicId) {
+        setSubscribing(false);
+      }
+    }
+  }, [thread, topicId]);
 
   const handleReport = useCallback(async (postId: string, reason: string) => {
     try {
@@ -333,7 +386,7 @@ export default function ThreadDetailPage() {
           </div>
 
           {/* Badges */}
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             {thread.is_pinned && (
               <span className="px-3 py-1 bg-tertiary/20 text-ink text-sm font-semibold rounded">
                 📌 Pinned
@@ -343,6 +396,17 @@ export default function ThreadDetailPage() {
               <span className="px-3 py-1 bg-surface-3 text-ink-2 text-sm font-semibold rounded">
                 🔒 Locked
               </span>
+            )}
+            {isAuthenticated && (
+              <Button
+                onClick={handleToggleSubscription}
+                variant={thread.is_subscribed ? 'outline' : 'primary'}
+                loading={subscribing}
+                disabled={subscribing}
+                className="min-h-11"
+              >
+                {thread.is_subscribed ? '🔕 Following' : '🔔 Follow'}
+              </Button>
             )}
           </div>
         </div>

@@ -5,6 +5,7 @@ from .posts import Post
 from .profiles import ForumProfile, TrustLevel
 from .reactions import Reaction
 from .reports import Report
+from .subscriptions import TopicSubscription
 from .tombstones import TopicDeletedLog
 from .topics import Topic
 
@@ -20,5 +21,6 @@ __all__ = [
     "SpamCheckTask",
     "Topic",
     "TopicDeletedLog",
+    "TopicSubscription",
     "TrustLevel",
 ]

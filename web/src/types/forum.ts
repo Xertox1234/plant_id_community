@@ -38,6 +38,7 @@ export interface Thread {
   is_pinned?: boolean;
   is_locked?: boolean;
   is_active?: boolean;
+  is_subscribed?: boolean;
 }
 
 /**

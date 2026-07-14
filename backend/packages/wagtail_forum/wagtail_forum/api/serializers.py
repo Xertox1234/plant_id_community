@@ -11,6 +11,7 @@ from ..models import (
     Reaction,
     Report,
     Topic,
+    TopicSubscription,
 )
 from .sanitize import validate_forum_body
 
@@ -126,6 +127,7 @@ class TopicDetailSerializer(serializers.ModelSerializer):
     board = serializers.SerializerMethodField()
     opening_post_id = serializers.SerializerMethodField()
     locked = serializers.BooleanField()
+    is_subscribed = serializers.SerializerMethodField()
 
     class Meta:
         model = Topic
@@ -144,6 +146,7 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             "last_post_at",
             "last_post_author",
             "opening_post_id",
+            "is_subscribed",
         ]
 
     @extend_schema_field(BOARD_SCHEMA)
@@ -154,6 +157,15 @@ class TopicDetailSerializer(serializers.ModelSerializer):
     def get_opening_post_id(self, obj):
         post = obj.posts.filter(is_opening_post=True, live=True).only("id").first()
         return post.id if post else None
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_is_subscribed(self, obj):
+        # Anonymous short-circuits with zero queries — todo 253 slice 3.
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated:
+            return False
+        return TopicSubscription.objects.filter(user=user, topic=obj).exists()
 
 
 def serialize_image_for_api(image, request=None):

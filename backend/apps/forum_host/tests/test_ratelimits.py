@@ -105,6 +105,7 @@ def test_wrapped_routes_use_the_throttled_views():
         "me-profile": throttled.MeProfileView,
         "search": throttled.SearchView,
         "sync": throttled.SyncView,
+        "topic-subscription": throttled.TopicSubscriptionView,
     }
     by_name = {p.name: p.callback.view_class for p in host.urlpatterns}
     for name, view_class in wrapped.items():
@@ -130,6 +131,7 @@ def test_every_unsafe_handler_is_throttled():
         throttled.MeProfileView,
         throttled.SearchView,
         throttled.SyncView,
+        throttled.TopicSubscriptionView,
     ]
     for view in wrappers:
         marked = getattr(view, "_forum_throttled_methods", set())
@@ -302,4 +304,29 @@ def test_report_is_throttled_per_user():
 
     assert first.status_code == 200
     assert blocked.status_code == 429
+    assert "Retry-After" in blocked
+
+
+@override_settings(FORUM_RATELIMITS={"subscription_create": "1/h"})
+@pytest.mark.django_db
+def test_subscription_create_is_throttled_per_user():
+    """Proves the subscription_create/subscription_delete rate strings in
+    constants.py aren't dead config (todo 253 slice 3) — mirrors
+    test_report_is_throttled_per_user's shape for a POST-only rate."""
+    from wagtail_forum.models import Topic
+
+    board = _board()
+    topic = Topic.objects.create(board=board, title="t", slug="t", live=True)
+    other_topic = Topic.objects.create(board=board, title="t2", slug="t2", live=True)
+
+    user = User.objects.create_user(username="subscriber")
+    client = APIClient()
+    client.force_authenticate(user)
+
+    with freeze_time("2026-06-10 12:00:00"):
+        first = client.post(f"/api/v1/forum/topics/{topic.id}/subscription/")
+        blocked = client.post(f"/api/v1/forum/topics/{other_topic.id}/subscription/")
+
+    assert first.status_code == 200
+    assert blocked.status_code == 429  # NOT 403 — Ratelimited subclasses it
     assert "Retry-After" in blocked

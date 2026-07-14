@@ -12,24 +12,26 @@ def dispatch(event, **kwargs):
     Supported events
     ----------------
     reply_added
-        Notifies the topic's original author that someone replied to their
-        thread.  kwargs: topic (Topic), post (Post). Persists a Notification
-        row (todo 253 slice 1) synchronously in the ambient (publish)
-        transaction — it rolls back cleanly if the publish does — and defers
-        the push AND email enqueue to transaction.on_commit so neither can
-        ever fire for a publish that later rolls back (fixes the
-        pre-slice-253 bug where .delay() ran synchronously inside the open
-        publish transaction). The email (todo 253 slice 2, H1) reuses
-        NotificationService.send_forum_reply_notification, gated by the
-        recipient's forum_notifications preference inside that service.
+        Notifies every subscriber to the topic (todo 253 slice 3, H2/H3) —
+        auto-subscribes the reply's author for future replies, then fans out
+        to the topic's subscriber list, excluding the replying author
+        themselves. kwargs: topic (Topic), post (Post). Persists one
+        Notification row per recipient (todo 253 slice 1) synchronously in
+        the ambient (publish) transaction — it rolls back cleanly if the
+        publish does — and defers the push AND email enqueue (one per
+        recipient) to transaction.on_commit so neither can ever fire for a
+        publish that later rolls back. The email (todo 253 slice 2, H1)
+        reuses NotificationService.send_forum_reply_notification, gated by
+        each recipient's forum_notifications preference inside that service.
 
     moderation_decided
         Notifies the post's author of their content's moderation outcome.
         kwargs: obj (Post|Topic), status ("published"|"pending").
 
     topic_created
-        No push for now — there is no board-subscriber model yet.
-        Logged only so the seam is visible when that model is added.
+        Auto-subscribes the topic's own author (todo 253 slice 3) so future
+        replies fan out to them. No push/email of its own — just the
+        subscription row.
     """
     from django.db import transaction
 
@@ -40,16 +42,9 @@ def dispatch(event, **kwargs):
 
     if event == "reply_added":
         post = kwargs.get("post")
-        # Notify the topic author when someone else replies.
-        topic_author = getattr(topic, "author", None)
         post_author = getattr(post, "author", None)
-        if topic_author is None:
-            return
-        # Don't ping the author for their own replies.
-        if post_author is not None and post_author.pk == topic_author.pk:
-            return
 
-        from wagtail_forum.models import NotificationVerb
+        from wagtail_forum.models import NotificationVerb, TopicSubscription
         from wagtail_forum.notifications import create_notifications
 
         payload = {
@@ -59,24 +54,26 @@ def dispatch(event, **kwargs):
         }
 
         def _enqueue_push():
-            try:
-                send_forum_push.delay(event, topic_author.pk, payload)
-            except Exception:
-                logger.exception(
-                    "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
-                    event,
-                    topic_author.pk,
-                )
+            for recipient in recipients:
+                try:
+                    send_forum_push.delay(event, recipient.pk, payload)
+                except Exception:
+                    logger.exception(
+                        "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
+                        event,
+                        recipient.pk,
+                    )
 
         def _enqueue_email():
-            try:
-                send_forum_email.delay(event, topic_author.pk, payload)
-            except Exception:
-                logger.exception(
-                    "[CELERY] forum_host: failed to enqueue email for event=%s user=%s",
-                    event,
-                    topic_author.pk,
-                )
+            for recipient in recipients:
+                try:
+                    send_forum_email.delay(event, recipient.pk, payload)
+                except Exception:
+                    logger.exception(
+                        "[CELERY] forum_host: failed to enqueue email for event=%s user=%s",
+                        event,
+                        recipient.pk,
+                    )
 
         try:
             # A nested atomic() scopes any DB failure to a savepoint: this
@@ -88,8 +85,28 @@ def dispatch(event, **kwargs):
             # state, so the very next write in the same transaction
             # (_refresh_for_post) would otherwise raise too.
             with transaction.atomic():
+                # Auto-subscribe the replier so THEIR future replies fan out
+                # too (todo 253 slice 3) — doesn't affect this event, since
+                # the exclude() below always drops them from their own
+                # reply's recipient list. Deliberately unconditional: this
+                # re-subscribes even a user who explicitly unfollowed via
+                # TopicSubscriptionView.delete — there is no persistent-mute
+                # flag this slice, so replying is treated as a renewed
+                # follow (plan decision 3; confirmed intentional, not a bug,
+                # in the slice-3 review — two independent review angles
+                # flagged this exact interaction for a sanity check).
+                if post_author is not None and topic is not None:
+                    TopicSubscription.subscribe(post_author, topic)
+
+                subs = TopicSubscription.objects.filter(topic=topic).select_related(
+                    "user"
+                )
+                if post_author is not None:
+                    subs = subs.exclude(user_id=post_author.pk)
+                recipients = [sub.user for sub in subs]
+
                 create_notifications(
-                    recipients=[topic_author],
+                    recipients=recipients,
                     verb=NotificationVerb.REPLY,
                     actor=post_author,
                     topic=topic,
@@ -97,15 +114,16 @@ def dispatch(event, **kwargs):
                 )
             # Only registered once the write above actually succeeds — a
             # notification-write failure must not still deliver a push/email,
-            # or the user gets a delivery with no corresponding in-app
-            # notification.
+            # or a recipient gets a delivery with no corresponding in-app
+            # notification. A no-op (empty recipients) still safely registers
+            # — both closures loop zero times.
             transaction.on_commit(_enqueue_push)
             transaction.on_commit(_enqueue_email)
         except Exception:
             logger.exception(
-                "[ERROR] forum_host: failed to persist notification for event=%s user=%s",
+                "[ERROR] forum_host: failed to persist notification for event=%s topic=%s",
                 event,
-                topic_author.pk,
+                topic_id,
             )
 
     elif event == "moderation_decided":
@@ -142,8 +160,28 @@ def dispatch(event, **kwargs):
             )
 
     elif event == "topic_created":
-        # No subscriber model yet — log and return.
-        logger.info("forum.topic_created topic=%s (no push subscribers yet)", topic_id)
+        # Auto-subscribe the topic's own author (todo 253 slice 3) so
+        # replies fan out to them — no push/email of its own, just the row.
+        author = getattr(topic, "author", None)
+        if author is None:
+            logger.info(
+                "forum.topic_created topic=%s (no author to auto-subscribe)", topic_id
+            )
+            return
+
+        from wagtail_forum.models import TopicSubscription
+
+        try:
+            # Same nested-atomic/except-outside shape as reply_added above —
+            # this also runs inside the ambient publish transaction.
+            with transaction.atomic():
+                TopicSubscription.subscribe(author, topic)
+        except Exception:
+            logger.exception(
+                "[ERROR] forum_host: failed to auto-subscribe author for"
+                " topic_created topic=%s",
+                topic_id,
+            )
 
     else:
         logger.warning("forum_host.notifications: unknown event %r", event)

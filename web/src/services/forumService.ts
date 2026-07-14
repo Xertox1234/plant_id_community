@@ -151,6 +151,26 @@ export async function createThread(data: CreateTopicInput): Promise<CreateTopicR
   return { id: String(res.id), slug: res.slug, status: res.status };
 }
 
+/** Follow a topic — the user is notified of future replies. Idempotent. */
+export async function subscribeToTopic(topicId: number): Promise<void> {
+  await authenticatedFetch<{ subscribed: boolean }>(
+    `${FORUM_BASE}/topics/${topicId}/subscription/`,
+    {
+      method: 'POST',
+    }
+  );
+}
+
+/** Unfollow a topic. Idempotent. */
+export async function unsubscribeFromTopic(topicId: number): Promise<void> {
+  await authenticatedFetch<{ subscribed: boolean }>(
+    `${FORUM_BASE}/topics/${topicId}/subscription/`,
+    {
+      method: 'DELETE',
+    }
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Posts
 // ---------------------------------------------------------------------------

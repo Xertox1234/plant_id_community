@@ -19,6 +19,8 @@ THROTTLED_OPERATIONS = [
     ("/forum/sync/", "get"),
     ("/forum/notifications/unread-count/", "get"),
     ("/forum/notifications/mark-read/", "post"),
+    ("/forum/topics/{topic_id}/subscription/", "post"),
+    ("/forum/topics/{topic_id}/subscription/", "delete"),
 ]
 
 

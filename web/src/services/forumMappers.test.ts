@@ -131,6 +131,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       last_post_at: '2026-01-02T00:00:00Z',
       last_post_author: 'jdoe',
       opening_post_id: 50,
+      is_subscribed: true,
     });
     expect(t).toMatchObject({
       id: '12',
@@ -142,6 +143,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       view_count: 99,
       is_pinned: true,
       is_locked: false,
+      is_subscribed: true,
     });
     expect(t.category).toMatchObject({ id: '3', slug: 'plant-care', name: 'Plant Care' });
   });
@@ -162,6 +164,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       last_post_at: null,
       last_post_author: null,
       opening_post_id: null,
+      is_subscribed: false,
     });
     expect(t.is_locked).toBe(true);
   });
