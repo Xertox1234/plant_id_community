@@ -62,3 +62,15 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   copied there) and parse `.findings[].severity` yourself — the enum is
   `HIGH|MEDIUM|LOW` only, `CRITICAL` is never emitted. See `docs/LEARNINGS.md`
   2026-07-13.
+- **Promoting a soft-fail CI step to a blocking gate: audit every exit-0
+  "can't verify" branch, not just the one that prompted the change.** A
+  soft-fail gate's fail-open branches never get exercised by whatever
+  validated its trip condition — they're invisible until the step can
+  actually fail the job. See `docs/LEARNINGS.md` 2026-07-14.
+- **Never `PATCH` GitHub's branch-protection endpoint with a partial
+  payload** — omitted fields reset to default, silently clobbering
+  `enforce_admins`, existing required checks, and PR-review settings. Use
+  the narrow sub-resource endpoints (e.g.
+  `.../required_status_checks/contexts`) for additive changes, and `GET`
+  before AND after to diff the before/after state. See `docs/LEARNINGS.md`
+  2026-07-14.

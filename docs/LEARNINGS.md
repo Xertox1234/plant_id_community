@@ -871,3 +871,97 @@ exact pinned SHA in use — a name like `results-file` implies "the current
 results file," not "a hardcoded stale string."
 **Agent**: n/a — CI/workflow finding, not a reviewable application-code
 pattern.
+
+## Security (2026-07-14 additions)
+
+### [2026-07-14] Promoting a soft-fail CI gate to blocking requires auditing every "can't verify" branch, not just the one that prompted the promotion (todo 249)
+
+**Mistake**: when writing the original non-blocking severity-gate step
+(2026-07-13 entry above), a missing `claudecode-results.json` was made to
+fail closed (`exit 1`), but a results file present with no `findings` key —
+e.g. an `{"error": ...}` shape from an errored scan — fell through the jq
+filter's `.findings // []` default to an empty array and passed (`exit 0`).
+That inconsistency was invisible while `continue-on-error: true` made the
+whole step incapable of failing the job either way. It only became a real
+bug the moment `continue-on-error` was removed to make the gate blocking —
+a scan that errored out would now silently pass a required merge check.
+**Fix**: added an explicit `jq -e 'has("findings")'` check before computing
+severity, so both "file missing" and "file present but unverifiable" exit 1.
+Caught during execution planning by a second reviewing pass, not by the
+original implementation — a hint that "promote observer to blocking" diffs
+need an explicit checklist item, not just a mechanical `continue-on-error`
+deletion.
+**Rule**: `docs/rules/security.md`. When promoting any soft-fail/observation
+CI step to a real blocking gate, enumerate every branch that currently
+exits 0 because "there's nothing to check" and re-verify each one fails
+closed under the new blocking semantics — a soft-fail gate's fail-open
+branches are invisible by construction (they can't fail the job either way),
+so they never get exercised by whatever validated the original trip
+condition.
+**Trigger**: none registered — the failure mode is a structural/design
+omission across an edit (removing `continue-on-error` from step X without
+re-auditing step X's other exit-0 branches), not a single-fragment textual
+signature `capture_trigger.py` can match.
+**Agent**: n/a — CI/workflow finding, not a reviewable application-code
+pattern (same limitation as the 2026-07-13 entry above).
+
+### [2026-07-14] `PATCH .../branches/{branch}/protection` silently resets every unspecified field — use the narrow sub-resource endpoints instead (todo 249)
+
+**Mistake**: nearly reached for a full `PATCH
+repos/{owner}/{repo}/branches/{branch}/protection` to add a single new
+required status check. GitHub's branch-protection PATCH endpoint is not a
+merge-patch — omitted fields are treated as "set to their default/absent,"
+not "leave unchanged." A naive PATCH carrying only the intended
+`required_status_checks.contexts` change would have silently reset
+`enforce_admins` to `false`, dropped `required_pull_request_reviews`, and
+discarded the other pre-existing required contexts in the same call — a
+security regression (admin-bypassable branch protection) delivered by the
+very change meant to strengthen it.
+**Fix**: used the narrow, additive sub-resource endpoint instead — `POST
+.../branches/{branch}/protection/required_status_checks/contexts` with a
+bare JSON array body (`["Claude Code Security Review"]`) — which only adds
+to the existing `contexts` list and touches nothing else. Verified via a
+`GET` immediately after that `enforce_admins`, `required_pull_request_reviews`,
+`allow_force_pushes`, and `allow_deletions` all matched their pre-change
+values.
+**Rule**: `docs/rules/security.md`. Never `PATCH` GitHub's branch-protection
+endpoint with a partial payload. Use the dedicated sub-resource endpoints
+(`.../required_status_checks/contexts`, `.../required_pull_request_reviews`,
+etc.) for additive/single-field changes, and always `GET` the full
+protection object before AND after any protection change to diff the
+before/after state.
+**Trigger**: none registered — this is a Bash-invoked `gh api` action, not a
+file edit; the write-time trigger system only observes Edit/Write tool
+calls against repo files, so it has no mechanism to see this action at all.
+**Agent**: n/a — a repo-settings action, not a reviewable diff (branch
+protection isn't expressed as a file in the repository).
+
+## Tooling / Agents (2026-07-14 additions)
+
+### [2026-07-14] `git mv` of a file with unstaged edits stages the rename using the pre-edit content, not the current working tree
+
+**Mistake**: edited a todo markdown file in place (frontmatter, acceptance
+criteria, work log), then ran `git mv oldpath newpath` to archive it,
+without an intervening `git add`. `git diff --cached --stat` immediately
+after showed "1 file changed, 0 insertions(+), 0 deletions(-)" — a 100%
+"similarity index" pure rename — even though the working-tree file at the
+new path plainly had ~90 lines of new content (confirmed via `wc -l` and
+`grep`). `git status` showed the rename staged AND the same file separately
+listed as "modified" (unstaged): `git mv` had staged the rename using the
+old path's last-committed/indexed content, while the actual edits sat
+correctly on disk but uncaptured by the index.
+**Fix**: `git add <newpath>` again after the `git mv`, which pulled the
+current working-tree content into the index; `git diff --cached --stat`
+then correctly showed the real diff (86 insertions, 11 deletions). Caught
+only because the near-zero diff size looked implausible for the amount of
+editing done — a smaller, more plausible-looking bare-rename could pass
+unnoticed.
+**Rule**: `docs/rules/_discipline.md`. Before committing a `git mv` of a
+file you just edited, always re-`git add` the new path and re-check `git
+diff --cached --stat` for a diff size that matches what you actually
+changed. A rename that should carry real content changes but shows
+0 insertions/deletions is the tell.
+**Trigger**: none registered — a Bash-invoked `git mv`/`git add` sequence,
+not a file edit; outside the write-time trigger system's reach (same
+limitation as the branch-protection entry above).
+**Agent**: n/a — process/tooling mechanic, not an application-code pattern.
