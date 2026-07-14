@@ -5,9 +5,10 @@ name: Security Review
 # SKIP_KIMI_REVIEW=1), this runs server-side for every PR into main and cannot be
 # skipped by a contributor. Findings are posted as PR comments.
 #
-# Advisory (non-required) to start: keep it OFF the branch-protection required-checks
-# list for the first 2-3 PRs, then promote to required if signal/noise is acceptable.
-# Promotion is a repository-settings change, not a workflow change.
+# Required check (todo 249, promoted 2026-07-14): "Claude Code Security Review" is
+# a required branch-protection status check. A HIGH/CRITICAL-severity finding fails
+# the job via the "Enforce severity gate" step below and blocks merge; MEDIUM/LOW
+# findings stay advisory (PR comments only, non-blocking).
 #
 # Setup (user action): add an `ANTHROPIC_API_KEY` repository secret. The key must be
 # enabled for both the Claude API and Claude Code usage. Without it, the job skips
@@ -66,12 +67,12 @@ jobs:
           comment-pr: true
           claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 
-      # Soft-fail observation gate (todo 249 — groundwork only, see
-      # todos/249-in_progress-p4-security-review-fail-on-severity-gate.md).
-      # `continue-on-error: true` means this step's outcome can never fail the
-      # job; it exists only to surface, in the Actions UI, whether a
-      # HIGH-severity finding would trip a future blocking gate. Not yet
-      # promoted to a required branch-protection check — see the todo.
+      # Blocking severity gate (todo 249, promoted 2026-07-14). No
+      # `continue-on-error`: this step's exit code fails the job, and
+      # "Claude Code Security Review" is a required branch-protection status
+      # check, so a HIGH/CRITICAL finding blocks merge. Preceded by a
+      # soft-fail observation window (3 clean PRs, 0 findings) before
+      # promotion.
       #
       # The upstream action's own script (claudecode/github_action_audit.py)
       # already computes a HIGH-severity exit code internally, but the
@@ -81,20 +82,28 @@ jobs:
       # claudecode/prompts.py at our pinned SHA: findings carry
       # severity HIGH|MEDIUM|LOW (no CRITICAL value is emitted today —
       # matched defensively below in case that changes upstream).
-      - name: Evaluate severity gate (soft-fail observation, todo 249)
+      #
+      # Fails closed: a missing results file, or a results file without a
+      # `findings` array (e.g. an `{"error": ...}` shape from an errored
+      # scan), means severity can't be verified — both block rather than
+      # silently pass, since a blocking gate must not fail open.
+      - name: Enforce severity gate (blocking, todo 249)
         id: severity-gate
         if: steps.check-key.outputs.enabled == 'true'
-        continue-on-error: true
         run: |
           RESULTS_FILE="${{ github.workspace }}/claudecode-results.json"
           if [ ! -f "$RESULTS_FILE" ]; then
-            echo "::warning::claudecode-results.json not found — severity gate skipped, nothing to evaluate."
-            exit 0
-          fi
-          HIGH_COUNT=$(jq '[ (.findings // [])[] | select((.severity // "") | ascii_downcase | IN("high", "critical")) ] | length' "$RESULTS_FILE")
-          echo "At/above-HIGH-severity findings: $HIGH_COUNT"
-          if [ "$HIGH_COUNT" -gt 0 ]; then
-            echo "::error::$HIGH_COUNT HIGH-or-above severity finding(s) found — see PR review comments. Soft-fail observation window (todo 249): not yet merge-blocking."
+            echo "::error::claudecode-results.json not found — cannot verify severity, failing closed."
             exit 1
           fi
-          echo "No HIGH-or-above severity findings — gate would not have tripped."
+          if ! jq -e 'has("findings")' "$RESULTS_FILE" >/dev/null; then
+            echo "::error::claudecode-results.json has no 'findings' array (scan likely errored) — cannot verify severity, failing closed."
+            exit 1
+          fi
+          HIGH_COUNT=$(jq '[ .findings[] | select((.severity // "") | ascii_downcase | IN("high", "critical")) ] | length' "$RESULTS_FILE")
+          echo "At/above-HIGH-severity findings: $HIGH_COUNT"
+          if [ "$HIGH_COUNT" -gt 0 ]; then
+            echo "::error::$HIGH_COUNT HIGH-or-above severity finding(s) found — see PR review comments. This check is required and blocks merge."
+            exit 1
+          fi
+          echo "No HIGH-or-above severity findings — check passed."
