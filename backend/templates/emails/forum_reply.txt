@@ -1,0 +1,14 @@
+{% autoescape off %}{{ site_name }} - New Reply in Forum
+
+{{ author_name }} replied to a topic you're following:
+
+{{ topic_title }}
+
+{{ post_excerpt }}
+
+Read the full discussion: {{ topic_url }}
+
+---
+Manage forum notifications: {{ preferences_url }}
+{% if unsubscribe_url %}Unsubscribe: {{ unsubscribe_url }}
+{% endif %}{% endautoescape %}

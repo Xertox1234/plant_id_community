@@ -20,3 +20,8 @@ DEFAULT_FORUM_RATELIMITS = {
     "notification_unread_count": "120/m",
     "notification_mark_read": "60/m",
 }
+
+# Reply-notification email body excerpt length (todo 253 slice 2, H1).
+# Matches the package's own MAX_EXCERPT_CHARS precedent
+# (wagtail_forum/api/views.py) as an independent host-side choice.
+FORUM_EMAIL_EXCERPT_MAX_CHARS = 200

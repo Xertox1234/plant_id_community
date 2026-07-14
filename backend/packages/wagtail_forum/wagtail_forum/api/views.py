@@ -704,7 +704,7 @@ class MeProfileView(generics.RetrieveUpdateAPIView):
         return ForumProfile.for_user(self.request.user)
 
 
-def _plain_text_excerpt(stream_value, limit: int) -> str:
+def plain_text_excerpt(stream_value, limit: int) -> str:
     """Plain-text excerpt from a post body via ``raw_data``.
 
     Iterating the resolved StreamValue bulk-fetches image blocks PER POST —
@@ -767,7 +767,7 @@ class SearchView(APIView):
                         "topic_id": p.topic_id,
                         "topic_title": p.topic.title,
                         "excerpt": (
-                            _plain_text_excerpt(p.body, self.MAX_EXCERPT_CHARS)
+                            plain_text_excerpt(p.body, self.MAX_EXCERPT_CHARS)
                             if p.body
                             else ""
                         ),
