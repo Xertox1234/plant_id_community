@@ -8,3 +8,8 @@
   formatter runs between edits and strips an import that's unused at that
   moment — adding it ahead of the code that uses it gets it silently deleted,
   surfacing later as `NameError`/`undefined_identifier`.
+- Before committing a `git mv` of a file you just edited, re-`git add` the
+  new path. `git mv` stages the rename using the pre-edit index content, not
+  your working-tree edits — a rename that should carry a real diff but shows
+  `0 insertions(+), 0 deletions(-)` in `git diff --cached --stat` is the
+  tell. See `docs/LEARNINGS.md` 2026-07-14 (Tooling / Agents).
