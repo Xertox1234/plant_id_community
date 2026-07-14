@@ -10,6 +10,7 @@ override them without re-importing the decorators.
 from apps.core.ratelimit import client_ip_key, ratelimit
 from django.conf import settings
 from django.utils.decorators import method_decorator
+from wagtail_forum.api import notifications as forum_notification_views
 from wagtail_forum.api import views as forum_views
 
 from .constants import DEFAULT_FORUM_RATELIMITS
@@ -93,4 +94,19 @@ class SearchView(forum_views.SearchView):
 
 @_throttled("sync", "GET", key=client_ip_key)
 class SyncView(forum_views.SyncView):
+    pass
+
+
+# NotificationListView has no wrapper here — GET (list) is public-shape (auth
+# required, but not a polling target) and mounted straight from the package in
+# api_urls.py, same as BoardListView/TopicDetailView.
+
+
+@_throttled("notification_unread_count", "GET")
+class NotificationUnreadCountView(forum_notification_views.NotificationUnreadCountView):
+    pass
+
+
+@_throttled("notification_mark_read", "POST")
+class NotificationMarkReadView(forum_notification_views.NotificationMarkReadView):
     pass

@@ -17,6 +17,8 @@ THROTTLED_OPERATIONS = [
     ("/forum/me/profile/", "patch"),
     ("/forum/search/", "get"),
     ("/forum/sync/", "get"),
+    ("/forum/notifications/unread-count/", "get"),
+    ("/forum/notifications/mark-read/", "post"),
 ]
 
 

@@ -377,5 +377,91 @@
     "source": "codify: docs/codify-todo-sweep-2026-07-13",
     "added": "2026-07-13",
     "severity": "warn"
+  },
+  {
+    "id": "unguarded-db-write-in-signal-receiver",
+    "domains": [
+      "django",
+      "forum",
+      "transactions"
+    ],
+    "path_glob": [
+      "backend/apps/forum_host/notifications.py"
+    ],
+    "content_present": "create_notifications\\(",
+    "content_absent": "with transaction\\.atomic\\(\\):\\s*\\n\\s*create_notifications",
+    "message": "A DB-writing call added inside dispatch()'s signal-fired branches runs in an already-open ambient transaction — wrap it in its own `with transaction.atomic():` plus an outer try/except, or an unguarded DB error will abort the Postgres transaction underneath send_robust's swallow and break the next query in the same transaction.",
+    "pattern_ref": "backend/docs/patterns/architecture/services.md",
+    "source": "review: incremental-62f745c",
+    "added": "2026-07-14",
+    "severity": "candidate"
+  },
+  {
+    "id": "forum-api-queryset-missing-visibility-filter",
+    "domains": [
+      "wagtail",
+      "forum"
+    ],
+    "path_glob": [
+      "backend/packages/wagtail_forum/wagtail_forum/api/*.py"
+    ],
+    "content_present": "Notification\\.objects\\.filter\\(\\s*recipient=",
+    "content_absent": "(topic__live|_visible_boards|board__in)",
+    "message": "A queryset over a model with a topic/board FK filters only by recipient/owner — every other queryset in this package also gates on topic__live and board__in=_visible_boards() (PageViewRestriction is not auto-enforced); add the same visibility filter here.",
+    "pattern_ref": "backend/docs/patterns/domain/forum.md",
+    "source": "review: incremental-62f745c",
+    "added": "2026-07-14",
+    "severity": "candidate"
+  },
+  {
+    "id": "swagger-fake-view-guard-missing-pin-test",
+    "domains": [
+      "testing",
+      "api",
+      "wagtail"
+    ],
+    "path_glob": [
+      "backend/packages/wagtail_forum/wagtail_forum/api/*.py",
+      "backend/apps/*/api*.py"
+    ],
+    "content_present": "getattr\\(self,\\s*[\"']swagger_fake_view[\"']",
+    "message": "A new swagger_fake_view guard in get_queryset() needs a direct unit test (view.swagger_fake_view = True; view.get_queryset()) — drf-spectacular never calls get_queryset() for a ListAPIView's schema, so schema-content tests can't catch the guard's removal.",
+    "pattern_ref": "backend/packages/wagtail_forum/wagtail_forum/tests/api/test_schema.py",
+    "source": "review: incremental-62f745c",
+    "added": "2026-07-14",
+    "severity": "candidate"
+  },
+  {
+    "id": "loose-401-403-set-assertion",
+    "domains": [
+      "testing",
+      "api"
+    ],
+    "path_glob": [
+      "backend/packages/wagtail_forum/wagtail_forum/tests/**/*.py",
+      "backend/apps/*/tests/*.py"
+    ],
+    "content_present": "status_code in \\(401,\\s*403\\)",
+    "message": "Assert the exact status code, not a (401, 403) set — this project's DEFAULT_AUTHENTICATION_CLASSES (CookieJWTAuthentication first) makes anonymous-vs-IsAuthenticated outcomes deterministic per view.",
+    "pattern_ref": "docs/rules/testing.md",
+    "source": "review: incremental-62f745c",
+    "added": "2026-07-14",
+    "severity": "candidate"
+  },
+  {
+    "id": "extend-schema-bare-dict-response",
+    "domains": [
+      "api"
+    ],
+    "path_glob": [
+      "backend/packages/wagtail_forum/wagtail_forum/api/*.py",
+      "backend/apps/*/api*.py"
+    ],
+    "content_present": "responses=\\{[^}]*:\\s*dict\\b",
+    "message": "A bare `dict` in @extend_schema(responses=...) documents an opaque/untyped object — define an inline JSON-schema dict (see CAPABILITIES_SCHEMA/AUTHOR_SCHEMA in api/serializers.py) instead.",
+    "pattern_ref": "backend/packages/wagtail_forum/wagtail_forum/api/serializers.py",
+    "source": "review: incremental-62f745c",
+    "added": "2026-07-14",
+    "severity": "candidate"
   }
 ]

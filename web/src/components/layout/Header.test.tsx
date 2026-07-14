@@ -10,9 +10,13 @@ import { screen, fireEvent, waitFor } from '@testing-library/react';
 import Header from './Header';
 import { renderWithRouter } from '../../tests/utils';
 import * as authService from '../../services/authService';
+import * as notificationService from '../../services/notificationService';
 
 // Mock auth service
 vi.mock('../../services/authService');
+// The authenticated branch now mounts NotificationBell, which polls
+// unread-count on mount — mock it so these tests stay network-free.
+vi.mock('../../services/notificationService');
 
 // Mock logger
 vi.mock('../../utils/logger', () => ({
@@ -29,6 +33,7 @@ describe('Header', () => {
     localStorage.clear(); // reset persisted theme mode so each test starts at the light default
     vi.mocked(authService.getStoredUser).mockReturnValue(null);
     vi.mocked(authService.getCurrentUser).mockResolvedValue(null);
+    vi.mocked(notificationService.fetchUnreadCount).mockResolvedValue(0);
   });
 
   describe('Basic Rendering', () => {
@@ -151,6 +156,18 @@ describe('Header', () => {
       const loginLink = container.querySelector('a[href="/login"]');
       expect(loginLink).toBeInTheDocument();
     });
+
+    it('does not render the notification bell', async () => {
+      vi.mocked(authService.getStoredUser).mockReturnValue(null);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(null);
+
+      renderWithRouter(<Header />);
+
+      await screen.findByText('Log in');
+
+      expect(screen.queryByLabelText('Notifications')).not.toBeInTheDocument();
+      expect(notificationService.fetchUnreadCount).not.toHaveBeenCalled();
+    });
   });
 
   describe('Authenticated State', () => {
@@ -193,6 +210,21 @@ describe('Header', () => {
       // They might exist in mobile menu, so check they're not in desktop area
       expect(loginButtons.length).toBeLessThanOrEqual(1); // Mobile only if any
       expect(signupButtons.length).toBeLessThanOrEqual(1);
+    });
+
+    it('renders the notification bell and polls unread count', async () => {
+      const mockUser = { id: 1, email: 'test@example.com', username: 'Test User' };
+      vi.mocked(authService.getStoredUser).mockReturnValue(mockUser);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(mockUser);
+
+      renderWithRouter(<Header />);
+
+      await screen.findByText('Test User');
+
+      expect(screen.getAllByLabelText('Notifications').length).toBeGreaterThan(0);
+      await waitFor(() => {
+        expect(notificationService.fetchUnreadCount).toHaveBeenCalled();
+      });
     });
 
     it('shows user email when name is not available', async () => {

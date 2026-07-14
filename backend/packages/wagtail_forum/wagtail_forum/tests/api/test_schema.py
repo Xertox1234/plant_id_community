@@ -107,3 +107,16 @@ def test_topic_list_view_guards_schema_generation():
     view.swagger_fake_view = True
     view.kwargs = {}  # schema generation supplies no URL kwargs
     assert list(view.get_queryset()) == []
+
+
+@pytest.mark.django_db
+def test_notification_list_view_guards_schema_generation():
+    """NotificationListView.get_queryset returns an empty queryset under
+    `swagger_fake_view` instead of touching `self.request.user` (schema
+    generation supplies no real request) — same rationale as
+    test_topic_list_view_guards_schema_generation (todo 253 slice 1)."""
+    from wagtail_forum.api.notifications import NotificationListView
+
+    view = NotificationListView()
+    view.swagger_fake_view = True
+    assert list(view.get_queryset()) == []

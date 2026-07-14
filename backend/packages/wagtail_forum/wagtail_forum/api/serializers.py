@@ -3,7 +3,15 @@ from wagtail.blocks import RichTextBlock
 from wagtail.images import get_image_model
 from wagtail.rich_text import expand_db_html
 
-from ..models import ForumBoard, ForumProfile, Post, Reaction, Report, Topic
+from ..models import (
+    ForumBoard,
+    ForumProfile,
+    Notification,
+    Post,
+    Reaction,
+    Report,
+    Topic,
+)
 from .sanitize import validate_forum_body
 
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
@@ -315,6 +323,53 @@ class PostSerializer(serializers.ModelSerializer):
     def get_can_report(self, obj):
         # False for the post's own author and for anonymous viewers.
         return obj.can_be_reported_by(self._request_user())
+
+
+NOTIFICATION_TOPIC_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer"},
+        "slug": {"type": "string"},
+        "title": {"type": "string"},
+        "board_id": {"type": "integer"},
+        "board_slug": {"type": "string"},
+    },
+    "nullable": True,
+}
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    actor = serializers.SerializerMethodField()
+    topic = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Notification
+        fields = ["id", "verb", "actor", "topic", "created_at", "read_at"]
+
+    @extend_schema_field(AUTHOR_SCHEMA)
+    def get_actor(self, obj):
+        # Slice 1's only verb (reply) always sets an actor at creation; a null
+        # actor here means the acting user's account was deleted afterwards
+        # (SET_NULL) — same "[deleted]" placeholder as PostSerializer.get_author.
+        if obj.actor is None:
+            return {
+                "username": "[deleted]",
+                "display_name": "[deleted]",
+                "trust_level": None,
+            }
+        return PostAuthorSerializer(obj.actor).data
+
+    @extend_schema_field(NOTIFICATION_TOPIC_SCHEMA)
+    def get_topic(self, obj):
+        if obj.topic_id is None:
+            return None
+        return {
+            "id": obj.topic_id,
+            "slug": obj.topic.slug,
+            "title": obj.topic.title,
+            "board_id": obj.topic.board_id,
+            "board_slug": obj.topic.board.slug,
+        }
 
 
 class _ForumBodyContract(serializers.Serializer):

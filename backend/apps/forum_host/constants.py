@@ -15,4 +15,8 @@ DEFAULT_FORUM_RATELIMITS = {
     "image_upload": "30/h",
     "search": "30/m",
     "sync": "60/m",
+    # Generous — the bell polls this on an interval; the limit exists only to
+    # bound a runaway/malicious client, not to constrain normal polling cadence.
+    "notification_unread_count": "120/m",
+    "notification_mark_read": "60/m",
 }

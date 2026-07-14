@@ -1,5 +1,10 @@
 from django.urls import path
 
+from .notifications import (
+    NotificationListView,
+    NotificationMarkReadView,
+    NotificationUnreadCountView,
+)
 from .views import (
     BoardListView,
     MeProfileView,
@@ -36,4 +41,15 @@ urlpatterns = [
     path("me/profile/", MeProfileView.as_view(), name="me-profile"),
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
+    path("notifications/", NotificationListView.as_view(), name="notification-list"),
+    path(
+        "notifications/unread-count/",
+        NotificationUnreadCountView.as_view(),
+        name="notification-unread-count",
+    ),
+    path(
+        "notifications/mark-read/",
+        NotificationMarkReadView.as_view(),
+        name="notification-mark-read",
+    ),
 ]

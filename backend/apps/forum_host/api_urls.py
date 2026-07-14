@@ -8,12 +8,18 @@ package endpoint cannot silently ship unmounted or unthrottled.
 
 from django.urls import path
 
+# The notification list is auth-gated but not a polling target — mounted
+# straight from the package like BoardListView/TopicDetailView above.
+from wagtail_forum.api.notifications import NotificationListView
+
 # GET-only views are mounted straight from the package (no throttle); views with
 # a throttled write handler come from the host wrappers in .api.
 from wagtail_forum.api.views import BoardListView, TopicDetailView
 
 from .api import (
     MeProfileView,
+    NotificationMarkReadView,
+    NotificationUnreadCountView,
     PostImageUploadView,
     PostListView,
     PostReportView,
@@ -46,4 +52,15 @@ urlpatterns = [
     path("me/profile/", MeProfileView.as_view(), name="me-profile"),
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
+    path("notifications/", NotificationListView.as_view(), name="notification-list"),
+    path(
+        "notifications/unread-count/",
+        NotificationUnreadCountView.as_view(),
+        name="notification-unread-count",
+    ),
+    path(
+        "notifications/mark-read/",
+        NotificationMarkReadView.as_view(),
+        name="notification-mark-read",
+    ),
 ]

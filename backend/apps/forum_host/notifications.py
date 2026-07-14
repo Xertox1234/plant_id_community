@@ -13,7 +13,12 @@ def dispatch(event, **kwargs):
     ----------------
     reply_added
         Notifies the topic's original author that someone replied to their
-        thread.  kwargs: topic (Topic), post (Post).
+        thread.  kwargs: topic (Topic), post (Post). Persists a Notification
+        row (todo 253 slice 1) synchronously in the ambient (publish)
+        transaction — it rolls back cleanly if the publish does — and defers
+        the push enqueue to transaction.on_commit so a push can never fire for
+        a publish that later rolls back (fixes the pre-slice-253 bug where
+        .delay() ran synchronously inside the open publish transaction).
 
     moderation_decided
         Notifies the post's author of their content's moderation outcome.
@@ -23,6 +28,8 @@ def dispatch(event, **kwargs):
         No push for now — there is no board-subscriber model yet.
         Logged only so the seam is visible when that model is added.
     """
+    from django.db import transaction
+
     from .tasks import send_forum_push
 
     topic = kwargs.get("topic")
@@ -38,19 +45,50 @@ def dispatch(event, **kwargs):
         # Don't ping the author for their own replies.
         if post_author is not None and post_author.pk == topic_author.pk:
             return
+
+        from wagtail_forum.models import NotificationVerb
+        from wagtail_forum.notifications import create_notifications
+
+        payload = {
+            "topic_id": str(topic_id),
+            "topic_title": topic.title if topic else "",
+            "post_id": str(getattr(post, "id", "")),
+        }
+
+        def _enqueue_push():
+            try:
+                send_forum_push.delay(event, topic_author.pk, payload)
+            except Exception:
+                logger.exception(
+                    "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
+                    event,
+                    topic_author.pk,
+                )
+
         try:
-            send_forum_push.delay(
-                event,
-                topic_author.pk,
-                {
-                    "topic_id": str(topic_id),
-                    "topic_title": topic.title if topic else "",
-                    "post_id": str(getattr(post, "id", "")),
-                },
-            )
+            # A nested atomic() scopes any DB failure to a savepoint: this
+            # dispatch runs inside the ambient Wagtail publish transaction, and
+            # an uncaught error here would poison that whole transaction (the
+            # except must sit OUTSIDE the atomic() block, not inside it — see
+            # docs/rules/forum.md) — the receiver chain's send_robust() only
+            # swallows the PYTHON exception, not Postgres's aborted-transaction
+            # state, so the very next write in the same transaction
+            # (_refresh_for_post) would otherwise raise too.
+            with transaction.atomic():
+                create_notifications(
+                    recipients=[topic_author],
+                    verb=NotificationVerb.REPLY,
+                    actor=post_author,
+                    topic=topic,
+                    post=post,
+                )
+            # Only registered once the write above actually succeeds — a
+            # notification-write failure must not still deliver a push, or the
+            # user gets a push with no corresponding in-app notification.
+            transaction.on_commit(_enqueue_push)
         except Exception:
             logger.exception(
-                "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
+                "[ERROR] forum_host: failed to persist notification for event=%s user=%s",
                 event,
                 topic_author.pk,
             )
