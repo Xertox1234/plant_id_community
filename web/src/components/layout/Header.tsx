@@ -3,6 +3,7 @@ import { Link, NavLink } from 'react-router-dom';
 import { Menu, X, User, Settings as SettingsIcon, Sun, Moon, Leaf } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
+import NotificationBell from './NotificationBell';
 import UserMenu from './UserMenu';
 
 /**
@@ -89,47 +90,54 @@ export default function Header() {
             </NavLink>
           </div>
 
-          {/* Desktop Auth Actions */}
-          <div className="hidden md:flex items-center gap-4">
-            <button
-              type="button"
-              onClick={toggleMode}
-              aria-label={themeLabel}
-              aria-pressed={mode === 'dark'}
-              title={themeLabel}
-              className="p-2 rounded-lg text-ink-2 hover:text-primary hover:bg-surface transition-colors"
-            >
-              {mode === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            </button>
-            {isAuthenticated ? (
-              <UserMenu />
-            ) : (
-              <>
-                <Link
-                  to="/login"
-                  className="text-ink-2 hover:text-primary font-medium transition-colors"
-                >
-                  Log in
-                </Link>
-                <Link
-                  to="/signup"
-                  className="px-4 py-2 bg-clay text-on-clay rounded-lg font-medium hover:bg-clay/90 transition-colors"
-                >
-                  Sign up
-                </Link>
-              </>
-            )}
-          </div>
+          {/* Notification bell (shared across breakpoints — a SINGLE instance,
+              always visible, so it never double-mounts and double-polls
+              alongside the mobile drawer's own copy) + Desktop Auth Actions +
+              Mobile menu button, grouped so they sit together at the row's end. */}
+          <div className="flex items-center gap-2 md:gap-4">
+            {isAuthenticated && <NotificationBell />}
 
-          {/* Mobile menu button */}
-          <button
-            onClick={toggleMenu}
-            className="md:hidden p-2 rounded-lg text-ink-3 hover:bg-surface transition-colors"
-            aria-label="Toggle menu"
-            aria-expanded={isMenuOpen}
-          >
-            {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-          </button>
+            <div className="hidden md:flex items-center gap-4">
+              <button
+                type="button"
+                onClick={toggleMode}
+                aria-label={themeLabel}
+                aria-pressed={mode === 'dark'}
+                title={themeLabel}
+                className="p-2 rounded-lg text-ink-2 hover:text-primary hover:bg-surface transition-colors"
+              >
+                {mode === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              </button>
+              {isAuthenticated ? (
+                <UserMenu />
+              ) : (
+                <>
+                  <Link
+                    to="/login"
+                    className="text-ink-2 hover:text-primary font-medium transition-colors"
+                  >
+                    Log in
+                  </Link>
+                  <Link
+                    to="/signup"
+                    className="px-4 py-2 bg-clay text-on-clay rounded-lg font-medium hover:bg-clay/90 transition-colors"
+                  >
+                    Sign up
+                  </Link>
+                </>
+              )}
+            </div>
+
+            {/* Mobile menu button */}
+            <button
+              onClick={toggleMenu}
+              className="md:hidden p-2 rounded-lg text-ink-3 hover:bg-surface transition-colors"
+              aria-label="Toggle menu"
+              aria-expanded={isMenuOpen}
+            >
+              {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
+          </div>
         </div>
       </div>
 

@@ -1,5 +1,6 @@
 from .boards import ForumBoard, ForumIndex
 from .moderation import SpamCheckTask
+from .notifications import Notification, NotificationVerb
 from .posts import Post
 from .profiles import ForumProfile, TrustLevel
 from .reactions import Reaction
@@ -11,6 +12,8 @@ __all__ = [
     "ForumBoard",
     "ForumIndex",
     "ForumProfile",
+    "Notification",
+    "NotificationVerb",
     "Post",
     "Reaction",
     "Report",

@@ -32,3 +32,10 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   decision. (The earlier "reply_count desync" justification was wrong —
   `unpublish()`'s recount is state-independent.) Policy is single-sourced in
   `Post.edit_block`/`delete_block` (`wagtail_forum/models/posts.py`).
+- **Register a `transaction.on_commit(...)` side-effect only INSIDE the `try`
+  that guards its preceding write**, right after the write succeeds — never
+  after the whole `try/except` (unconditionally). A caught write failure must
+  not still deliver the side-effect (e.g. a push notification for a
+  `Notification` row that was never persisted). Caught by kimi-review, not the
+  domain reviewers, in `forum_host/notifications.py`'s `reply_added` branch
+  (todo 253 slice 1) — see `backend/docs/patterns/architecture/services.md`.
