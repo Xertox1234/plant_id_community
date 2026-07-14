@@ -40,6 +40,18 @@ Work through each item for every changed file. Emit findings in the structured f
   500s via dotted serializer sources (`?ordering=author__get_username` →
   `FieldError`). Both reproduced 2026-07-11.
 
+### Forum notifications slice 1 additions (2026-07-14)
+
+- A `try/except` guarding a DB write, with a `transaction.on_commit(...)` call
+  nearby: is the `on_commit(...)` call the LAST statement INSIDE the `try`
+  (after the write succeeds), or does it sit AFTER the whole `try/except`
+  (unconditional)? If unconditional, a caught write failure still delivers the
+  on_commit side-effect (e.g. a push notification for a row that was never
+  persisted). Missed by this reviewer once already — the pass ran before the
+  try/except existed in `forum_host/notifications.py`'s `reply_added` branch
+  (todo 253 slice 1); caught only by kimi-review's commit gate afterward. See
+  `backend/docs/patterns/architecture/services.md`.
+
 ## Output Format (Review Mode)" below — do not write prose
 
 ### LSP Workflow (run before the checklist)

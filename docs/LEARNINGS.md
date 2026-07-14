@@ -965,3 +965,49 @@ changed. A rename that should carry real content changes but shows
 not a file edit; outside the write-time trigger system's reach (same
 limitation as the branch-protection entry above).
 **Agent**: n/a — process/tooling mechanic, not an application-code pattern.
+
+## Forum notifications slice 1 (2026-07-14 additions)
+
+### [2026-07-14] `transaction.on_commit()` registered unconditionally after a guarded write, delivering a side-effect even when the write silently failed
+
+**Mistake**: an earlier code-review fix wrapped
+`create_notifications(...)` in `apps/forum_host/notifications.py`'s
+`reply_added` branch with `try: / with transaction.atomic(): ... / except
+Exception: logger.exception(...)`, to scope a DB failure to a savepoint
+instead of poisoning the ambient Wagtail publish transaction. But the
+existing `transaction.on_commit(_enqueue_push)` call stayed positioned
+AFTER that whole `try/except`, unconditionally — an `except` block only
+stops the exception from propagating, it does not skip the code that
+follows the `try/except` itself. So a DB error inside
+`create_notifications()` was caught and logged correctly, but execution
+still fell through to register the push-enqueue callback: a user could
+receive an FCM push saying "X replied to your topic" with no
+`Notification` row ever persisted for them to see in the bell. Four
+domain-reviewer agents (django-drf, wagtail, react-typescript,
+cross-cutting) all reviewed this file and missed it, because their pass
+ran against the version of the file that had just introduced the
+try/except — the bug is specifically about the try/except's *relationship*
+to a nearby statement, not the try/except in isolation. It was caught by
+`kimi-review`'s pre-commit gate on the first commit attempt for todo 253
+slice 1.
+**Fix**: moved `transaction.on_commit(_enqueue_push)` to be the last
+statement INSIDE the `try` block, right after `create_notifications(...)`
+succeeds, so a raised exception skips straight to `except` and never
+reaches the registration. Added
+`test_reply_added_skips_push_when_notification_write_fails`
+(`apps/forum_host/tests/test_signals.py`), which mocks
+`create_notifications` to raise and asserts `send_forum_push.delay` is
+never called.
+**Rule**: `docs/rules/forum.md` (one-line bullet) and
+`backend/docs/patterns/architecture/services.md` (new pattern section,
+"Gate `on_commit` Registration on the Preceding Write's Success").
+**Trigger**: none registered — the buggy shape depends on whether the
+`on_commit(...)` call sits at an indentation INSIDE the `try` block or
+OUTSIDE it after the `except`, a distinction plain-text regex can't
+reliably make (it isn't indentation-aware); a naive signature would false
+positive on correctly-ordered code reformatted differently. Left as prose
+in the rule, the pattern doc, and the reviewer checklist instead.
+**Agent**: `.claude/agents/django-drf-reviewer.md` — added a checklist
+item under "Forum notifications slice 1 additions (2026-07-14)" for this
+exact code shape, so a future review checks whether the on_commit
+registration sits inside or outside the guarded block.
