@@ -194,6 +194,24 @@ made it fail loudly instead of silently.
   the broader executing-actions-with-care guidance. Paused here to get the
   user's explicit go-ahead before pushing anything.
 
+### 2026-07-15 - PR #466 opened, first CI run observed
+
+- User approved pushing the branch and opening a standalone PR, with the
+  explicit constraint that merge stays a separate confirmation.
+- Pushed `fix/security-review-run-every-commit` (commit `59028af`), opened
+  <https://github.com/Xertox1234/plant_id_community/pull/466> against `main`.
+- First run (29386701402) completed: job "Claude Code Security Review"
+  passed in 54s. `gh run view 29386701402 --log` confirmed the baseline
+  path (expected for any PR's first commit, fix or no fix):
+
+  ```
+  ClaudeCode will run for PR #466 (first run)
+  ClaudeCode is enabled for this run
+  ```
+
+  This alone doesn't prove the fix works — a first run always scans. The
+  real test is the next commit.
+
 ## Notes
 
 - Priority p2: not urgent (the one-off unblock is done and #462 is merged),
