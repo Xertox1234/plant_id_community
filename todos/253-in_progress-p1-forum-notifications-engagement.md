@@ -90,7 +90,13 @@ Sequenced so each step ships value alone:
       holder (auto-subscribed on topic-create and on reply, plus explicit
       Follow), excluding the replier. Mention fan-out remains unwired —
       needs slice 4's @mention parsing first.
-- [ ] An @mention notifies the mentioned user and renders as a profile link
+- [x] An @mention notifies the mentioned user and renders as a profile link —
+      satisfied since slice 4 for the "notifies" half only: server-side
+      mention parsing on publish creates a `mention` Notification reaching
+      the bell + push. The "renders as a profile link" half is unmet by
+      design (scope decision, slice 4) — no public-profile page exists
+      anywhere in the app yet; mentions render as plain `@username` text.
+      True linkification is a follow-up todo once a profile page exists.
 - [ ] Topic lists show an unread/new indicator
 - [ ] At least one real client (web or mobile) registers an FCM token and
       receives a push end-to-end
@@ -597,6 +603,243 @@ Sequenced so each step ships value alone:
   is the residue item.
 - Not archived — 3 slices remain (H4 mentions, H10 unread, FCM residue).
   Todo stays `in_progress`.
+
+### 2026-07-14 - Slice 4 (H4: @mentions) shipped
+
+- **Scope decisions (user-approved via AskUserQuestion):**
+  1. **Rendering: infra-only, plain text.** Mentions parse, notify, and
+     autocomplete, but render as plain `@username` text — matching the
+     existing "author name is not a link" precedent app-wide. No
+     linkification, no public-profile page (none exists today — `User.
+     get_absolute_url()` points at a `users:profile` URL name that doesn't
+     exist in `apps/users/urls.py`, already dead). Deferred to a follow-up
+     todo once a profile page exists.
+  2. **Delivery: in-app bell + push, no email.** Keeps email scoped to slice
+     2's reply-only vertical; `send_forum_email` already early-returns for
+     non-`reply_added` events, so this needed zero email-task changes.
+- **Traps found in research, designed around up front:**
+  1. The write-path sanitizer (`W/api/sanitize.py`) strips all structured
+     markup — no span, no data-*; only `href`/`title` survive on `<a>`. Only
+     literal `@username` text reaches storage, so server-side regex against
+     `User.username` on the sanitized text is the only viable resolution
+     strategy — a client-supplied mention id is unusable by the time a post
+     is stored.
+  2. Signals fire once, on first publish only (`_is_first_publish`) — mentions
+     in a reply or a new topic's opening post are covered; mentions added by
+     *editing* an existing post are not (no signal fires). Documented
+     limitation, matches slice precedent that edits don't re-notify.
+  3. The `(recipient, verb, post)` unique constraint doesn't collapse a
+     `reply` row and a `mention` row for the same `(recipient, post)` — a
+     mentioned subscriber would get two bell entries without explicit
+     suppression (mentioned users excluded from the `reply` recipient set).
+  4. Board-visibility leak: unlike subscribers (visibility-gated at subscribe
+     time), anyone can `@mention` a user with no access to a restricted
+     board. Gated resolved mention recipients on the topic's board being in
+     `_visible_boards()` — conservative: a mention in a non-public board
+     notifies nobody, matching the forum-wide "restricted boards are
+     invisible to the whole API" stance.
+- **Backend**: `NotificationVerb.MENTION` (metadata-only migration `0015`,
+  confirmed no DB DDL), `MENTION_MAX_PER_POST` setting (`W/conf.py`, default
+  10, bounds fan-out per post). New `W/mentions.py`:
+  `resolve_mentioned_users(post, exclude_pks=...)` — a `(?<!\w)@(\w+)` regex
+  (word-boundary lookbehind so `admin@gmail.com` doesn't resolve "gmail" as a
+  mention) against a dedicated `_mention_scan_text()` walker (title for
+  opening posts + `strip_tags()`'d paragraph blocks only, deliberately NOT
+  reusing `spam/base.py`'s `extract_text()` — see code review below for why),
+  capped/deduped, then board-visibility-gated, then resolved via exact
+  `username__in` (no case-insensitive uniqueness on `AbstractUser`, so
+  `@Alice` won't resolve to `alice` — documented tradeoff). `H/notifications.py`'s
+  `reply_added` branch resolves mentions inside the existing atomic block,
+  excludes them from the `reply` recipient set (SQL-side
+  `.exclude(user_id__in=mentioned_pks)`), and fires two `create_notifications()`
+  calls (`REPLY` to the remainder, `MENTION` to the mentioned); `topic_created`
+  gained its own mention handling for opening-post mentions (guarded on
+  `post is not None` — admin-created topics can have none). New
+  `UserMentionSearchView` (`W/api/user_search.py`) — `GET ?q=<prefix>` →
+  `username__istartswith`, exact `get_full_name() or get_username()` shape
+  (not a host-specific `.display_name` — mirrors `PostAuthorSerializer`),
+  auth-gated, capped at 10 results, mounted in both urlconfs (route-parity
+  test) and throttled (`mention_user_search: 30/m`, `H/constants.py`).
+- **Frontend**: `ForumNotificationVerb` widened to include `'mention'`;
+  `NotificationBell.tsx` gained a `case 'mention':` label arm. New
+  `web/src/components/forum/forumMentionNode.ts` — `@tiptap/extension-mention`
+  configured with a `suggestion.items` backed by a new `searchForumUsers()`
+  service call, a manually-positioned dropdown (installed
+  `@tiptap/suggestion@3.22.5` has no `props.mount()` auto-positioning helper
+  — that's a newer Tiptap API; Context7's hosted docs described it, but
+  `tsc --noEmit` caught the mismatch against what's actually installed).
+  Wired into `TipTapEditor.tsx`'s extensions array.
+- **Verification (pre-review)**: Backend `pytest apps/forum_host/tests/
+  packages/wagtail_forum/wagtail_forum/tests/ -q --create-db` → `356 passed`
+  (was 333 at slice-3 baseline). Frontend `npx vitest run` → `623 passed`
+  (was 618). `manage.py check` clean, `makemigrations --check --dry-run` →
+  "No changes detected" (0015 committed, metadata-only). `type-check`/`lint`
+  clean. OpenAPI schema: new `/forum/users/search/` route present with `GET`,
+  `200`/`429` responses (same path-prefix gotcha as slice 3 — no
+  `/api/v1/forum/` prefix in the generated schema).
+- **Code review** (code-review-orchestrator — returned a triage-only plan
+  this run since a dispatched subagent can't itself spawn sub-agents, so its
+  5 recommended domain reviewers were dispatched directly: django-drf,
+  wagtail, celery-async, react-typescript, cross-cutting — plus the bundled
+  `/code-review --effort high` skill's 10 finder angles, all 16 run in
+  parallel/independently). Unusually high real-finding volume for this epic
+  — this slice combines novel regex-based text parsing (real edge cases) with
+  a from-scratch async TipTap integration (real lifecycle/concurrency
+  subtleties), and both the checklist pass and the deep pass found different
+  real things this time rather than mostly overlapping. Consulted the
+  advisor twice (once before repair, to triage fix/decline boundaries at
+  this volume; once after refuting one of the sixteen findings against
+  primary source, to confirm the trace). Fixed, grouped by convergence:
+  - **[security, verified empirically, 2 independent leak vectors from one
+    root cause]** `resolve_mentioned_users()` scanned mention text via
+    `spam/base.py`'s `extract_text()` — a raw-value stringifier built for
+    spam heuristics that need to see links/code as-is. Two consequences,
+    both reproduced directly (a real saved Post + `.findall()`): (a) a code
+    block's contents (e.g. `@property` in a Python sample) resolved as a
+    mention nobody could see as a mention; (b) an `<a href="…/@victim"
+    title="@victim">` tag's *attribute* text — both attributes survive
+    `nh3.clean()` — resolved as a mention invisible to any reader, even
+    though the visible link *label* was "click here". Root-caused to one
+    fix: a dedicated `_mention_scan_text()` in `mentions.py` (not a shared
+    `extract_text()` variant — spam genuinely wants raw values, mentions
+    want only reader-visible prose) that walks `raw_data`, `strip_tags()`s
+    string block values, and skips code/image blocks entirely. Verified
+    `strip_tags('<a href="x/@victim" title="@evil">click</a>')` returns
+    `'click'` (attributes drop with the tag markup that carries them) while
+    a real link *label* like `<a href="…">@alice</a>` still resolves — no
+    false negative introduced. 2 new regression tests.
+  - **[bug, 4+ independent angles: Efficiency, Angle C, Angle A,
+    react-typescript-reviewer]** No debounce on the mention-autocomplete
+    `items()` callback — fired a network request on every keystroke,
+    contradicting the route's own rate limit (30/m) and the established
+    `SearchPage.tsx` debounce convention. Fixed: 300ms debounce (matching
+    `SearchPage.tsx` exactly), implemented as `await new Promise(resolve =>
+    setTimeout(resolve, 300))` inside the exported `resolveMentionSuggestions()`
+    (not a `useRef` timer — this isn't a React component, so there's no
+    effect to clean it up in).
+  - **[bug, 2 independent angles with a detailed async-race trace:
+    react-typescript-reviewer, Angle D — verified against
+    @tiptap/suggestion's actual source, not assumed]** A slow/debounced
+    `items()` resolving after its suggestion session already exited (Escape,
+    blur) or the editor was destroyed could still fire `onStart`, which
+    unconditionally created and appended a `<div>` to `document.body` with
+    no future `onExit` ever coming to remove that specific node. Fixed with
+    one shared token (`searchToken`, bumped on every new search AND on every
+    `onExit`) checked once inside `resolveMentionSuggestions()` after the
+    network call resolves, plus `onStart`/`onUpdate` treating empty items as
+    "remove any dropdown, don't create one" (an editor-destroyed or
+    zero-result response now naturally clears the dropdown instead of
+    leaking it) — this also closes a separately-flagged low-severity gap
+    (no empty/loading state in the dropdown) for free, since "no dropdown"
+    *is* the empty state now. New jsdom test drives two out-of-order network
+    resolutions (newer search's response arrives before the older, superseded
+    one's) and asserts the stale call resolves to `[]`.
+  - **[bug, confirmed via mergeAttributes trace + 2 independent angles:
+    wrapper/proxy Angle E, react-typescript-reviewer]** A custom
+    `renderHTML`/`renderText` override hardcoded `{}` for the rendered
+    `<span>`'s attributes, silently discarding the configured
+    `HTMLAttributes` (`class: 'text-primary font-medium'`). Read the
+    installed extension's actual source
+    (`node_modules/@tiptap/extension-mention/dist/index.js`) rather than
+    trusting the summary of a prior session's finding: the vendor's own
+    default `renderHTML`/`renderText` already prepend the suggestion char
+    ("@") AND correctly `mergeAttributes()` the configured styling — the
+    custom override was solving an already-solved problem while introducing
+    a bug. Deleted the override entirely rather than patching it. Added a
+    test asserting the configured class string survives serialization (the
+    existing test only asserted "@" was present, not the styling).
+  - **[correctness, resolved via source trace, not code change — Angle A's
+    specific claim REFUTED]** Angle A claimed the Escape-key handler didn't
+    reset `currentItems`/`currentCommand`, risking a stale mention on a
+    subsequent Enter. Traced `@tiptap/suggestion`'s actual
+    `handleKeyDown`/`dispatchExit` (`node_modules/@tiptap/suggestion/dist/
+    index.js`): on Escape, the plugin calls this extension's `onKeyDown`
+    THEN unconditionally calls `dispatchExit` → `onExit` in the same
+    synchronous call, ignoring `onKeyDown`'s return value for Escape either
+    way — `onExit` already resets everything a moment later, and the
+    plugin's own state transition deactivates the session before any
+    subsequent `onKeyDown` could reach the `Enter` branch. Not a live bug.
+    The Escape branch in `onKeyDown` was therefore fully inert (its own
+    `dropdown?.remove()` call and `return true` were both redundant/ignored)
+    — deleted it as a verified-safe simplification, not a fix.
+  - **[bug, 3 independent angles: Simplification, Reuse, django-drf-reviewer]**
+    The mention-push-enqueue loop was duplicated verbatim between
+    `reply_added`'s closure and `topic_created`'s. Extracted a shared
+    `_enqueue_mention_push_for(mentioned, payload)` nested helper (kept
+    nested, not module-level — preserves the file's existing "import tasks
+    lazily so the module stays importable before Celery is ready" pattern).
+    The identical `payload` dict construction in both branches was extracted
+    alongside it (`_build_payload(post)`) — same duplication, same fix.
+  - **[cleanup, cheap, django-drf-reviewer]** `"mention"` string literal used
+    instead of the already-imported `NotificationVerb.MENTION` in the two
+    `.delay()` calls that determine push-event semantics (left the 2
+    diagnostic-only logger literals as plain strings — not the kind of
+    magic-string risk the convention targets).
+  - **[cleanup, cheap, Simplification angle]** `reply_recipients` was built
+    via a Python-side list comprehension filtering out mentioned users;
+    pushed into SQL via `.exclude(user_id__in=mentioned_pks)` on the
+    queryset instead (a Django empty-set `__in` exclude is a verified no-op,
+    so this needed no extra guard for the "nobody mentioned" case).
+  - **[architecture, Reuse angle, most significant single finding]**
+    `UserMentionSearchView` accessed `u.display_name` — a property specific
+    to *this host's* User model, breaking the package's host-agnostic
+    contract. Fixed to `u.get_full_name() or u.get_username()`, mirroring
+    `PostAuthorSerializer.get_display_name`'s existing pattern exactly (also
+    switched `u.username` → `u.get_username()` in the same line for the same
+    reason).
+  - **[test-coverage gap, cross-cutting-reviewer, named precedent]** No
+    throttle-enforcement test for `mention_user_search`, unlike every
+    sibling rate-limited route. Added, mirroring
+    `test_search_is_throttled_with_429_and_retry_after`'s shape plus
+    `force_authenticate` (this route, unlike search, requires auth).
+  - **[test-coverage gap, cross-cutting-reviewer]** The two prefix-match
+    tests in `test_user_search.py` had no decoy username that *contains* but
+    doesn't *start with* the query — couldn't distinguish `istartswith` from
+    an `icontains` regression. Added one to each (`malice` for query `ali`;
+    `xdave_1` for query `dave_`).
+  - **[low, react-typescript-reviewer]** `@tiptap/suggestion` was imported
+    directly but only resolved transitively (not a declared dependency).
+    Added at the exact version already locked (`3.22.5`); `npm install`
+    confirmed a no-op resolution, `npm ls` confirmed zero conflicts.
+  - **[low, matches an established repeated convention — slice 1 fixed the
+    identical issue]** Dropdown suggestion buttons were under the 44×44px
+    tap-target minimum. Fixed with `min-h-11`, matching `PostCard.tsx`'s
+    existing action-row convention.
+  - **Declined (with reasoning)**: double-notification suppression
+    generalized into a shared mechanism (Altitude angle) — premature for 2
+    verbs, matches the file's existing one-off-exclusion style; `is_active`
+    not filtered in mention resolution (wagtail-reviewer's own note: fixing
+    locally would diverge from an existing system-wide inconsistency, not
+    close it); `_visible_boards()` imported from `mentions.py` across a
+    package-internal boundary (Altitude angle) — reviewer itself confirmed
+    no live import cycle exists yet, so relocating it now has no concrete
+    payoff; no Playwright E2E for the mention composer flow
+    (cross-cutting-reviewer's own note: "appears lapsed epic-wide, not
+    specific to this slice" — matches slices 1-3's identical, repeatedly
+    accepted precedent); celery-async-reviewer's `H/tasks.py` findings
+    (missing idempotency guard, missing `ignore_result=True`, a misleading
+    retry log message) — all explicitly pre-existing, not introduced by this
+    diff, matching the established pattern (slices 2-3) of not expanding
+    scope into unrelated issues; candidates for a follow-up todo alongside
+    267/268 if judged worth tracking, not filed this slice.
+  - Re-verified after every fix: backend `359 passed` (was 356 pre-fix, +3:
+    2 mention-leak regression tests + 1 throttle test — the decoy-username
+    additions strengthened 2 existing tests rather than adding new ones),
+    frontend `625 passed` (was 623 pre-fix, +2: the out-of-order-resolution
+    test + the class-styling assertion), `manage.py check`/
+    `makemigrations --check --dry-run` both clean, `type-check` clean,
+    `lint` → 0 errors (1 pre-existing warning, generated coverage artifact,
+    unrelated).
+  - Manual browser E2E not run this session — consistent with slices 1-3's
+    convention (no Playwright spec exists for the forum composer; `web/
+    CLAUDE.md` excludes E2E from CI already).
+- **AC boxes**: AC4 flipped for the "notifies the mentioned user" half only —
+  the "renders as a profile link" half is explicitly unmet by design (scope
+  decision 1 above), deferred pending a future profile-page feature. AC5
+  (unread indicators) awaits slice 5; AC6 (FCM registration) is the residue
+  item.
+- Not archived — 2 slices remain (H10 unread, FCM residue). Todo stays
+  `in_progress`.
 
 ## Notes
 

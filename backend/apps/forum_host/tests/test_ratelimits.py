@@ -56,6 +56,26 @@ def test_search_is_throttled_with_429_and_retry_after():
     assert r["Retry-After"] == "60"  # derived from the 2/m window
 
 
+@override_settings(FORUM_RATELIMITS={"mention_user_search": "2/m"})
+@pytest.mark.django_db
+def test_mention_user_search_is_throttled_with_429_and_retry_after():
+    """Proves the mention_user_search rate string in constants.py isn't dead
+    config (todo 253 slice 4 review) — mirrors
+    test_search_is_throttled_with_429_and_retry_after's shape, plus auth
+    since this endpoint (unlike search) requires IsAuthenticated."""
+    user = User.objects.create_user(username="mentionsearcher")
+    client = APIClient()
+    client.force_authenticate(user)
+
+    with freeze_time("2026-06-10 12:00:00"):
+        for _ in range(2):
+            assert client.get("/api/v1/forum/users/search/?q=a").status_code == 200
+        r = client.get("/api/v1/forum/users/search/?q=a")
+
+    assert r.status_code == 429  # NOT 403 — Ratelimited subclasses PermissionDenied
+    assert r["Retry-After"] == "60"  # derived from the 2/m window
+
+
 @override_settings(FORUM_RATELIMITS={"topic_create": "2/h"})
 @pytest.mark.django_db
 def test_topic_create_is_throttled_per_user():

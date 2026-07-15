@@ -23,6 +23,8 @@
   },
   "dependencies": {
     "@tiptap/extension-image": "^3.22.5",
+    "@tiptap/extension-mention": "^3.22.5",
+    "@tiptap/suggestion": "^3.22.5",
     "axios": "^1.13.1",
     "date-fns": "^4.1.0",
     "dompurify": "^3.4.11",

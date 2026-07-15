@@ -18,6 +18,8 @@ function notificationLabel(notification: ForumNotification): string {
   const actorName = notification.actor?.display_name || notification.actor?.username || 'Someone';
   const topicTitle = notification.topic?.title || 'your topic';
   switch (notification.verb) {
+    case 'mention':
+      return `${actorName} mentioned you in "${topicTitle}"`;
     case 'reply':
     default:
       return `${actorName} replied to "${topicTitle}"`;

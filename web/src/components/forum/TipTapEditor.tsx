@@ -6,6 +6,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react';
 import { uploadPostImage } from '../../services/forumService';
 import { logger } from '../../utils/logger';
 import { ForumImage } from './forumImageNode';
+import { ForumMention } from './forumMentionNode';
 
 interface TipTapEditorProps {
   content?: string;
@@ -49,6 +50,7 @@ export default function TipTapEditor({
         placeholder,
       }),
       ForumImage,
+      ForumMention,
     ],
     content,
     editable,

@@ -17,8 +17,8 @@ export interface NotificationTopicRef {
   board_slug: string;
 }
 
-/** Only 'reply' exists in slice 1; later slices add mention/moderation/subscription. */
-export type ForumNotificationVerb = 'reply';
+/** 'mention' added in slice 4; later slices add moderation/subscription. */
+export type ForumNotificationVerb = 'reply' | 'mention';
 
 export interface ForumNotification {
   id: number;

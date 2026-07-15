@@ -6,6 +6,7 @@ from .notifications import (
     NotificationUnreadCountView,
 )
 from .subscriptions import TopicSubscriptionView
+from .user_search import UserMentionSearchView
 from .views import (
     BoardListView,
     MeProfileView,
@@ -47,6 +48,7 @@ urlpatterns = [
     path("me/profile/", MeProfileView.as_view(), name="me-profile"),
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
+    path("users/search/", UserMentionSearchView.as_view(), name="user-mention-search"),
     path("notifications/", NotificationListView.as_view(), name="notification-list"),
     path(
         "notifications/unread-count/",

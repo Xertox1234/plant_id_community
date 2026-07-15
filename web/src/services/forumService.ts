@@ -171,6 +171,18 @@ export async function unsubscribeFromTopic(topicId: number): Promise<void> {
   );
 }
 
+export interface ForumUserSearchResult {
+  username: string;
+  display_name: string;
+}
+
+/** Search usernames by prefix, for the @mention composer autocomplete (todo 253 slice 4). */
+export async function searchForumUsers(query: string): Promise<ForumUserSearchResult[]> {
+  return authenticatedFetch<ForumUserSearchResult[]>(
+    `${FORUM_BASE}/users/search/?q=${encodeURIComponent(query)}`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Posts
 // ---------------------------------------------------------------------------
