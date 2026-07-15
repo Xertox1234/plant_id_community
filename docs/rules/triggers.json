@@ -463,5 +463,39 @@
     "source": "review: incremental-62f745c",
     "added": "2026-07-14",
     "severity": "candidate"
+  },
+  {
+    "id": "escape-search-query-before-orm-wildcard-lookup",
+    "domains": [
+      "security",
+      "database"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "escape_search_query\\(",
+    "message": "Verify this is paired with a lookup that BYPASSES Django ORM pattern-lookups (raw SQL, .extra(), a custom Lookup) — icontains/istartswith/endswith/iendswith (and their non-i forms) already auto-escape %/_/\\\\ via PatternLookup.process_rhs(); stacking escape_search_query() on top double-escapes and silently breaks real matches.",
+    "pattern_ref": "backend/docs/patterns/security/input-validation.md",
+    "source": "codify: feat/forum-notifications-slice4-mentions",
+    "added": "2026-07-14",
+    "severity": "warn"
+  },
+  {
+    "id": "tiptap-custom-renderhtml-missing-mergeattributes",
+    "domains": [
+      "react",
+      "typescript"
+    ],
+    "path_glob": [
+      "web/src/components/forum/*.ts",
+      "web/src/components/forum/*.tsx"
+    ],
+    "content_present": "renderHTML\\s*\\(\\s*\\{",
+    "content_absent": "mergeAttributes",
+    "message": "A custom TipTap renderHTML override that never calls mergeAttributes() silently drops the configured HTMLAttributes (styling/data attrs) — check whether the vendor default (node_modules/@tiptap/<pkg>/dist/index.js) already does this correctly before writing an override at all.",
+    "pattern_ref": "web/docs/patterns/react-typescript.md",
+    "source": "codify: feat/forum-notifications-slice4-mentions",
+    "added": "2026-07-14",
+    "severity": "warn"
   }
 ]

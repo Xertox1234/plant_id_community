@@ -1,7 +1,9 @@
 # Input Validation & Sanitization Patterns
 
-**Last Updated**: November 13, 2025
+**Last Updated**: 2026-07-14 (SQL wildcard-escaping correction — see top of
+"SQL Wildcard Escaping (Backend)")
 **Consolidated From**:
+
 - `apps/core/utils/query_sanitization.py` (SQL wildcard escaping)
 - `apps/search/migrations/0003_simple_search_vectors.py` (SQL injection prevention)
 - `web/src/utils/sanitize.ts` (XSS prevention)
@@ -27,6 +29,34 @@
 
 ## SQL Wildcard Escaping (Backend)
 
+> **⚠️ Correction (2026-07-14, todo 253 slice 4 review)**: Django's ORM
+> **already auto-escapes** `%`, `_`, and `\` for `contains`/`icontains`/
+> `startswith`/`istartswith`/`endswith`/`iendswith` — verified by reading
+> `PatternLookup.process_rhs()` and `BaseDatabaseOperations.
+> prep_for_like_query()` directly (confirmed PostgreSQL does not override
+> it). Calling `escape_search_query()` and THEN passing the result into one
+> of these six lookups **double-escapes and breaks real matches** — e.g.
+> `escape_search_query("dave_")` → `"dave\_"`; the ORM auto-escapes that
+> AGAIN into a pattern that requires a literal backslash in the matched
+> text, so `username__istartswith="dave\_"` no longer matches the real
+> username `"dave_1"`. This is not theoretical — it reproduces via a direct
+> `.query` introspection test and was caught by a failing test this
+> session. `escape_search_query()` is only correct for lookups that DON'T
+> go through `PatternLookup` (raw SQL, `.extra()`, a custom `Lookup`
+> subclass) — **verify which case you're in before calling it**; do not
+> assume every `__icontains`/`__istartswith` call site needs it. See
+> `docs/rules/security.md` and `docs/rules/database.md`.
+>
+> **Every `escape_search_query()` call site in this codebase as of
+> 2026-07-14 pairs it with `__icontains` and is therefore suspected
+> double-escaped** (`apps/blog/admin_views.py`, `apps/blog/api_views.py`,
+> `apps/blog/views.py`, `apps/blog/api/viewsets.py`,
+> `apps/plant_identification/views.py`,
+> `apps/plant_identification/api/endpoints.py`) — not verified/fixed as
+> part of this correction; each site needs its own audit, since this is a
+> silent-failure bug (empty result set, not an error) that a smoke test
+> without a `%`/`_`-containing fixture would never catch.
+
 ### Pattern: Escape SQL Wildcards in Django ORM
 
 **Problem**: Django ORM's `icontains`, `istartswith`, and `iendswith` use PostgreSQL's `ILIKE` operator, which treats `%` and `_` as wildcards. User input like `"test%"` would match `"test"`, `"testing"`, `"test123"`, etc., causing unintended data access.
@@ -34,10 +64,12 @@
 **Location**: `backend/apps/core/utils/query_sanitization.py`
 
 **SQL Wildcards**:
+
 - `%` - Matches zero or more characters
 - `_` - Matches exactly one character
 
 **Correct Implementation**:
+
 ```python
 from apps.core.utils.query_sanitization import escape_search_query
 
@@ -52,6 +84,7 @@ results = Thread.objects.filter(title__icontains=safe_query)
 ```
 
 **Utility Function Implementation**:
+
 ```python
 def escape_search_query(query: str) -> str:
     """
@@ -131,12 +164,15 @@ def escape_search_query_optional(query: Optional[str]) -> Optional[str]:
 
 ### Pattern: Forum Thread Search with Multiple Fields
 
-**Location**: `apps/forum/viewsets/thread_viewset.py`
+**Location**: historical example — the machina-based `apps/forum/` this path
+referenced was retired (PR #362); current forum search lives in
+`backend/packages/wagtail_forum/wagtail_forum/api/views.py::SearchView`.
 
-**Implementation**:
+**Implementation** (escaping removed — `icontains` already auto-escapes,
+see the correction at the top of this document):
+
 ```python
 from django.db.models import Q
-from apps.core.utils.query_sanitization import escape_search_query
 
 class ThreadViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['GET'])
@@ -154,14 +190,12 @@ class ThreadViewSet(viewsets.ModelViewSet):
         # Search by title
         query = request.query_params.get('q', '').strip()
         if query:
-            safe_query = escape_search_query(query)
-            queryset = queryset.filter(Q(title__icontains=safe_query))
+            queryset = queryset.filter(Q(title__icontains=query))
 
         # Filter by author username
         author_username = request.query_params.get('author', '').strip()
         if author_username:
-            safe_author = escape_search_query(author_username)
-            queryset = queryset.filter(Q(author__username__icontains=safe_author))
+            queryset = queryset.filter(Q(author__username__icontains=author_username))
 
         # Filter by category
         category_slug = request.query_params.get('category', '').strip()
@@ -175,6 +209,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
 ```
 
 **Why This Matters**:
+
 - User searches for `"50% off"` → Should match exactly `"50% off"`, NOT `"50 off"`, `"50x off"`, etc.
 - User searches for `"C++"` → Should match exactly `"C++"`, NOT any string containing `"C"`
 - User searches for `"test_file.txt"` → Should match exactly `"test_file.txt"`, NOT `"test-file.txt"` or `"testXfile.txt"`
@@ -192,6 +227,7 @@ class ThreadViewSet(viewsets.ModelViewSet):
 **Location**: `backend/apps/search/migrations/0003_simple_search_vectors.py`
 
 **❌ VULNERABLE - Never use f-strings for table/column names:**
+
 ```python
 def add_search_vectors(apps, schema_editor):
     with connection.cursor() as cursor:
@@ -201,6 +237,7 @@ def add_search_vectors(apps, schema_editor):
 ```
 
 **✅ SECURE - Use psycopg2.sql.Identifier + Whitelist Validation:**
+
 ```python
 from psycopg2 import sql
 from django.db import migrations, connection
@@ -265,10 +302,12 @@ def add_simple_search_vectors(apps, schema_editor):
 ### Pattern: Defense in Depth - Both sql.Identifier AND Whitelist
 
 **Why Both?**:
+
 1. **`sql.Identifier()`** - Prevents SQL injection by properly quoting and escaping identifiers
 2. **Whitelist Validation** - Fails loudly if table list is modified incorrectly, defense against logic errors
 
 **Anti-Pattern** ❌:
+
 ```python
 # Only using sql.Identifier without whitelist
 cursor.execute(
@@ -279,6 +318,7 @@ cursor.execute(
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # Both sql.Identifier AND whitelist validation
 if table not in ALLOWED_TABLES:
@@ -298,6 +338,7 @@ cursor.execute(
 **Location**: `apps/search/migrations/0003_simple_search_vectors.py:62-95`
 
 **Rollback functions must use the SAME security patterns:**
+
 ```python
 def remove_simple_search_vectors(apps, schema_editor):
     """Remove search vector fields."""
@@ -346,6 +387,7 @@ def remove_simple_search_vectors(apps, schema_editor):
 **Location**: `web/src/utils/sanitize.ts`
 
 **Sanitization Strategy**:
+
 - **Client-side**: Defense-in-depth using DOMPurify (prevents XSS if backend fails)
 - **Server-side**: Primary defense (validate and sanitize all user input)
 
@@ -354,11 +396,13 @@ def remove_simple_search_vectors(apps, schema_editor):
 ### Pattern: Preset-Based Sanitization
 
 **Why Presets?**
+
 - **Consistency**: Same security policies across all components
 - **Maintainability**: Update one preset, all usages benefit
 - **Least Privilege**: Use most restrictive preset that meets needs
 
 **Available Presets**:
+
 ```typescript
 export const SANITIZE_PRESETS = {
   // MINIMAL: Only basic inline formatting
@@ -425,6 +469,7 @@ export const SANITIZE_PRESETS = {
 **Function**: `sanitizeHtml(html, options?)`
 
 **Usage Examples**:
+
 ```typescript
 import { sanitizeHtml, SANITIZE_PRESETS } from '../utils/sanitize';
 
@@ -442,6 +487,7 @@ const safeContent = sanitizeHtml(content, {
 ```
 
 **React Integration**:
+
 ```typescript
 import { createSafeMarkup, SANITIZE_PRESETS } from '../utils/sanitize';
 
@@ -465,12 +511,14 @@ function BlogCard({ post }) {
 **Function**: `stripHtml(html)`
 
 **Use Cases**:
+
 - Search indexing (plain text only)
 - Meta descriptions (no HTML in SEO tags)
 - Form inputs (email, username, etc.)
 - Excerpts where HTML is not needed
 
 **Implementation**:
+
 ```typescript
 import { stripHtml } from '../utils/sanitize';
 
@@ -492,11 +540,13 @@ const searchableText = stripHtml(post.content);
 **Function**: `sanitizeInput(input)`
 
 **Use Cases**:
+
 - Email fields
 - Username/name fields
 - Any text input where HTML is not expected
 
 **Implementation**:
+
 ```typescript
 import { sanitizeInput } from '../utils/sanitize';
 
@@ -513,6 +563,7 @@ function handleSubmit(formData) {
 ```
 
 **Why Strip HTML from Form Inputs?**
+
 - Prevents XSS if backend doesn't validate
 - Users should not enter HTML in email/username fields
 - Better UX (no accidental HTML tags in display names)
@@ -524,11 +575,13 @@ function handleSubmit(formData) {
 **Function**: `isSafeHtml(html)`
 
 **Use Cases**:
+
 - Pre-validation before sanitization
 - Logging suspicious content
 - Security monitoring
 
 **Implementation**:
+
 ```typescript
 import { isSafeHtml, sanitizeHtml } from '../utils/sanitize';
 
@@ -547,6 +600,7 @@ function processUserContent(content) {
 ```
 
 **Detected Patterns**:
+
 - `<script>` tags
 - `javascript:` URLs
 - `vbscript:` URLs
@@ -564,12 +618,14 @@ function processUserContent(content) {
 **Location**: `web/src/utils/validation.ts`
 
 **Security Checks**:
+
 1. Type and length validation
 2. Path traversal prevention (`..`, `/`, `\`)
 3. Suspicious pattern detection (`---`, `___`)
 4. Format validation (alphanumeric, hyphens, underscores only)
 
 **Implementation**:
+
 ```typescript
 export function validateSlug(slug: unknown): string {
   // Null/undefined/empty check
@@ -602,6 +658,7 @@ export function validateSlug(slug: unknown): string {
 ```
 
 **Usage**:
+
 ```typescript
 import { validateSlug } from '../utils/validation';
 
@@ -624,10 +681,12 @@ function BlogDetailPage() {
 ### Pattern: Validate UUID Tokens
 
 **Security Checks**:
+
 1. Type and empty validation
 2. UUID v4 format validation (strict regex)
 
 **Implementation**:
+
 ```typescript
 export function validateToken(token: unknown): string {
   // Null/undefined/empty check
@@ -646,6 +705,7 @@ export function validateToken(token: unknown): string {
 ```
 
 **Usage**:
+
 ```typescript
 import { validateToken } from '../utils/validation';
 
@@ -667,11 +727,13 @@ function usePasswordReset() {
 ### Pattern: Validate Content Types (Wagtail)
 
 **Security Checks**:
+
 1. Type and length validation
 2. Path traversal prevention
 3. Format validation (`app.Model` pattern)
 
 **Implementation**:
+
 ```typescript
 export function validateContentType(contentType: unknown): string {
   // Null/undefined/empty check
@@ -712,12 +774,14 @@ export function validateContentType(contentType: unknown): string {
 **Function**: `sanitizeSearchQuery(query)`
 
 **Sanitization Steps**:
+
 1. Type validation (must be string)
 2. Trim whitespace
 3. Remove null bytes (`\x00`) and control characters
 4. Enforce max length (200 characters)
 
 **Implementation**:
+
 ```typescript
 export function sanitizeSearchQuery(query: unknown): string {
   // Type check
@@ -741,11 +805,13 @@ export function sanitizeSearchQuery(query: unknown): string {
 ```
 
 **Why Not Strip Special Characters?**
+
 - Users may search for `"50% off"`, `"C++"`, `"test@example.com"` legitimately
 - Backend handles SQL wildcard escaping separately
 - Frontend sanitization focuses on: null bytes, control characters, length
 
 **Usage**:
+
 ```typescript
 import { sanitizeSearchQuery } from '../utils/validation';
 
@@ -779,21 +845,21 @@ function SearchBar() {
 
 ### Pattern: Backend Search Query Sanitization
 
-**Location**: `backend/apps/core/utils/query_sanitization.py`
+**Location**: `backend/apps/core/utils/query_sanitization.py` (escaping
+utility — see the top-of-document correction for when it's actually needed)
 
-**Backend receives sanitized query from frontend and escapes SQL wildcards:**
+**Backend receives the frontend's sanitized query; `icontains` handles
+wildcard-escaping itself:**
+
 ```python
-from apps.core.utils.query_sanitization import escape_search_query
-
 def search_threads(request):
     # Frontend already sanitized (removed null bytes, trimmed, limited length)
     query = request.query_params.get('q', '').strip()
 
-    # Backend escapes SQL wildcards (%, _)
-    safe_query = escape_search_query(query)
-
-    # Now safe for Django ORM icontains
-    threads = Thread.objects.filter(title__icontains=safe_query)
+    # No escape_search_query() call — Django's icontains already
+    # auto-escapes %/_/\ (PatternLookup.process_rhs); calling it here would
+    # double-escape and silently drop real matches.
+    threads = Thread.objects.filter(title__icontains=query)
 
     return Response(ThreadSerializer(threads, many=True).data)
 ```
@@ -807,6 +873,7 @@ def search_threads(request):
 **Location**: `backend/apps/core/tests/test_query_sanitization.py`
 
 **Test Cases**:
+
 ```python
 from apps.core.utils.query_sanitization import escape_search_query
 
@@ -863,6 +930,7 @@ class QuerySanitizationTestCase(TestCase):
 **Location**: `web/src/utils/sanitize.test.ts`
 
 **Test Cases**:
+
 ```typescript
 import { sanitizeHtml, stripHtml, isSafeHtml, SANITIZE_PRESETS } from './sanitize';
 
@@ -921,6 +989,7 @@ describe('XSS attack vectors', () => {
 **Location**: `web/src/utils/validation.test.ts`
 
 **Test Cases**:
+
 ```typescript
 import { validateSlug, validateToken, sanitizeSearchQuery } from './validation';
 
@@ -986,7 +1055,17 @@ describe('sanitizeSearchQuery', () => {
 
 ### Pitfall 1: Forgetting to Escape SQL Wildcards
 
+> **Superseded (2026-07-14)** — see the correction at the top of "SQL
+> Wildcard Escaping (Backend)" above. `Thread.objects.filter(title__icontains=…)`
+> is one of the six `PatternLookup` lookups Django's ORM already
+> auto-escapes; `escape_search_query()` ahead of it double-escapes and
+> breaks matches containing a literal `%`/`_`. This pitfall's "BAD" example
+> is still bad (unescaped wildcards act as wildcards), but its "GOOD"
+> example below is now itself a pitfall — kept for historical context, not
+> as guidance to copy.
+
 **Problem**:
+
 ```python
 # ❌ BAD - User input "test%" matches unintended results
 query = request.query_params.get('q')
@@ -995,14 +1074,14 @@ threads = Thread.objects.filter(title__icontains=query)
 ```
 
 **Solution**:
-```python
-# ✅ GOOD - Escape wildcards before Django ORM
-from apps.core.utils.query_sanitization import escape_search_query
 
-query = request.query_params.get('q', '').strip()
-safe_query = escape_search_query(query)
-threads = Thread.objects.filter(title__icontains=safe_query)
-# User searches "50%" → matches ONLY "50%"
+```python
+# ⚠️ Was "✅ GOOD" — now known to double-escape, see the correction above.
+# Django's own icontains auto-escaping already does this; DON'T also call
+# escape_search_query() here.
+threads = Thread.objects.filter(title__icontains=query.strip())
+# User searches "50%" → matches ONLY "50%"; searches "dave_" → matches
+# ONLY "dave_", not "daveX" (Django's ILIKE-escaping handles both).
 ```
 
 ---
@@ -1010,6 +1089,7 @@ threads = Thread.objects.filter(title__icontains=safe_query)
 ### Pitfall 2: Using F-Strings in Raw SQL
 
 **Problem**:
+
 ```python
 # ❌ VULNERABLE - SQL injection risk
 table_name = get_table_name()
@@ -1017,6 +1097,7 @@ cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN ...")
 ```
 
 **Solution**:
+
 ```python
 # ✅ SECURE - Use sql.Identifier
 from psycopg2 import sql
@@ -1034,6 +1115,7 @@ cursor.execute(
 ### Pitfall 3: Client-Side Sanitization Only
 
 **Problem**:
+
 ```typescript
 // ❌ INSECURE - Client-side only (can be bypassed)
 const safeContent = sanitizeHtml(userInput);
@@ -1041,6 +1123,7 @@ await api.createPost(safeContent);
 ```
 
 **Solution**:
+
 ```typescript
 // ✅ DEFENSE IN DEPTH - Sanitize on both client and server
 // Client-side (UX + defense-in-depth)
@@ -1052,6 +1135,7 @@ await api.createPost(safeContent);
 ```
 
 **Backend Must Validate**:
+
 ```python
 from django.utils.html import strip_tags
 
@@ -1074,6 +1158,7 @@ def create_post(request):
 ### Pitfall 4: Wrong DOMPurify Preset
 
 **Problem**:
+
 ```typescript
 // ❌ BAD - Using FULL preset for user comments (too permissive)
 const safeComment = sanitizeHtml(userComment, SANITIZE_PRESETS.FULL);
@@ -1081,6 +1166,7 @@ const safeComment = sanitizeHtml(userComment, SANITIZE_PRESETS.FULL);
 ```
 
 **Solution**:
+
 ```typescript
 // ✅ GOOD - Use most restrictive preset that meets needs
 const safeComment = sanitizeHtml(userComment, SANITIZE_PRESETS.MINIMAL);
@@ -1088,6 +1174,7 @@ const safeComment = sanitizeHtml(userComment, SANITIZE_PRESETS.MINIMAL);
 ```
 
 **Preset Selection Guide**:
+
 - User comments → `MINIMAL`
 - Blog excerpts → `BASIC`
 - Blog introductions → `STANDARD`
@@ -1099,6 +1186,7 @@ const safeComment = sanitizeHtml(userComment, SANITIZE_PRESETS.MINIMAL);
 ### Pitfall 5: Not Validating URL Parameters
 
 **Problem**:
+
 ```typescript
 // ❌ INSECURE - Using URL params directly
 function BlogDetailPage() {
@@ -1110,6 +1198,7 @@ function BlogDetailPage() {
 ```
 
 **Solution**:
+
 ```typescript
 // ✅ SECURE - Validate before use
 import { validateSlug } from '../utils/validation';
@@ -1128,44 +1217,122 @@ function BlogDetailPage() {
 
 ---
 
-### Pitfall 6: Assuming Django ORM Prevents All SQL Issues
+### Pitfall 6: Assuming Django ORM Doesn't Escape SQL Wildcards
+
+> **Rewritten (2026-07-14)** — this pitfall previously asserted the
+> opposite of what's actually true; see the correction at the top of "SQL
+> Wildcard Escaping (Backend)". Kept at this heading so old links/searches
+> still land somewhere accurate.
 
 **Problem**:
+
 ```python
 # ❌ INCORRECT ASSUMPTION
-# "Django ORM prevents all SQL issues, I don't need to escape wildcards"
+# "Django ORM doesn't escape wildcards, I must call escape_search_query()
+# myself before every icontains/istartswith/iendswith"
 query = request.query_params.get('q')
-results = Model.objects.filter(field__icontains=query)
-# User searches "test%" → unintended pattern matching
+safe_query = escape_search_query(query)
+results = Model.objects.filter(field__icontains=safe_query)
+# User searches "dave_1" (a literal username) → matches NOTHING, because
+# escape_search_query() already escaped the "_", then Django's OWN
+# icontains auto-escaping escaped it AGAIN — the resulting LIKE pattern
+# now requires a literal backslash in the matched text that isn't there.
 ```
 
-**Clarification**:
+**Clarification** (verified 2026-07-14 by reading Django 6.0.7's
+`django.db.models.lookups.PatternLookup.process_rhs()` and
+`django.db.backends.base.operations.BaseDatabaseOperations.
+prep_for_like_query()` directly — PostgreSQL does not override it):
+
 - ✅ Django ORM **DOES** prevent SQL injection (parameterized queries)
-- ❌ Django ORM **DOES NOT** escape SQL wildcards (%, _) in `icontains`
-- ✅ You **MUST** escape wildcards yourself using `escape_search_query()`
+- ✅ Django ORM **DOES** auto-escape `%`, `_`, and `\` for all six
+  `contains`/`icontains`/`startswith`/`istartswith`/`endswith`/`iendswith`
+  lookups — unconditionally, for any literal filter value
+- ❌ Calling `escape_search_query()` before one of those six lookups does
+  **NOT** add safety — it double-escapes and breaks matches on any query
+  containing a literal `%`, `_`, or `\`
 
 **Solution**:
-```python
-# ✅ CORRECT
-from apps.core.utils.query_sanitization import escape_search_query
 
+```python
+# ✅ CORRECT — no manual escaping needed for these six lookup types
 query = request.query_params.get('q', '').strip()
-safe_query = escape_search_query(query)  # Escape % and _
-results = Model.objects.filter(field__icontains=safe_query)
+results = Model.objects.filter(field__icontains=query)
+# User searches "dave_1" → matches "dave_1" correctly; "test%" matches
+# ONLY a literal "test%", not "testing"/"test123" — both handled by
+# Django's own auto-escaping, no library call needed.
 ```
+
+`escape_search_query()` is still correct for a lookup that bypasses
+`PatternLookup` entirely — raw SQL, `.extra()`, a custom `Lookup`
+subclass. Verify which case you're in before reaching for it.
+
+---
+
+### Pitfall 7: Reusing a Rendering-Oriented HTML Walker for a Second, Security-Sensitive Parser
+
+**Problem** (todo 253 slice 4 review — @mention parsing): a sanitizer that
+allows a tag's attributes (e.g. `nh3` allowing `href`/`title` on `<a>`,
+`api/sanitize.py`) is safe FOR RENDERING — the browser only shows attribute
+values if something explicitly reads and displays them. But a second
+consumer that walks the same stored content for a DIFFERENT purpose (a
+regex scanner, a keyword extractor, a mention resolver) can accidentally
+treat attribute text as if it were reader-visible prose:
+
+```python
+# ❌ BAD — a walker built for spam heuristics (wants to see links/code
+# as-is) reused for mention scanning (wants only what a reader sees)
+text = " ".join(str(block.value) for block in post.body)
+mentions = MENTION_RE.findall(text)
+# A post containing <a href="https://x.com/@victim">click</a> resolves
+# "victim" as a mention — invisible to any reader, since only "click" is
+# ever displayed. Likewise a code block's raw source text, or any other
+# block value not meant to be read as prose.
+```
+
+**Solution**: build the SECOND parser's own text extraction, scoped to
+what its purpose actually needs — don't assume an existing walker's
+scope generalizes:
+
+```python
+# ✅ GOOD — strip_tags() drops attribute VALUES along with the tag markup
+# that carries them (they're part of the tag syntax, not a text node), so
+# an href/title never survives; skip block types with no prose meaning
+# (code, image) entirely.
+from django.utils.html import strip_tags
+
+parts = []
+for raw in post.body.raw_data:
+    value = raw.get("value")
+    if isinstance(value, str):
+        text = strip_tags(value).strip()
+        if text:
+            parts.append(text)
+    # code (dict) / image (int) blocks: deliberately skipped — not prose.
+mentions = MENTION_RE.findall(" ".join(parts))
+```
+
+Verified: `strip_tags('<a href="x/@victim" title="@evil">click</a>')` ==
+`'click'` (both attributes gone), while a real link *label* like
+`'<a href="…">@alice</a>'` still yields `'@alice'` — no false negative.
 
 ---
 
 ## Security Checklist
 
 ### Backend Input Validation
-- [ ] All search queries use `escape_search_query()` before `icontains`/`istartswith`/`iendswith`
+
+- [ ] `escape_search_query()` is called ONLY for lookups that bypass Django's
+      `PatternLookup` (raw SQL, `.extra()`, a custom `Lookup`) — never stacked
+      in front of `icontains`/`istartswith`/`iendswith`/their non-`i` variants,
+      which already auto-escape and would double-escape (2026-07-14 correction)
 - [ ] Raw SQL migrations use `psycopg2.sql.Identifier()` for dynamic identifiers
 - [ ] Whitelist validation added for all raw SQL table/column names
 - [ ] No f-strings or string concatenation in raw SQL
 - [ ] Django ORM used for all user input queries (not raw SQL)
 
 ### Frontend Input Validation
+
 - [ ] All HTML content sanitized with DOMPurify before rendering
 - [ ] Most restrictive DOMPurify preset used for each use case
 - [ ] URL parameters validated before use (slugs, tokens, content types)
@@ -1174,12 +1341,14 @@ results = Model.objects.filter(field__icontains=safe_query)
 - [ ] Error messages from API sanitized before display
 
 ### Defense in Depth
+
 - [ ] Client-side validation for UX (immediate feedback)
 - [ ] Server-side validation as PRIMARY defense (never trust client)
 - [ ] Input validation at multiple layers (frontend → API → database)
 - [ ] Logging of suspicious input patterns for monitoring
 
 ### Testing Coverage
+
 - [ ] SQL wildcard escaping tests (%, _, combinations)
 - [ ] XSS prevention tests (script tags, event handlers, javascript: URLs)
 - [ ] Path traversal tests (../, ..\, //, \\)
@@ -1211,6 +1380,7 @@ results = Model.objects.filter(field__icontains=safe_query)
 **Problem**: ICS (iCalendar) files use CRLF (`\r\n`) as a record separator. Embedding user-supplied strings (plant names, reminder types, descriptions) directly into an ICS f-string allows an attacker to inject arbitrary ICS fields or terminate the current field early, leading to calendar spoofing or data exfiltration via crafted calendar events.
 
 **Vulnerable Code** ❌:
+
 ```python
 def build_ics_event(plant_name, reminder_type, description):
     return (
@@ -1220,9 +1390,11 @@ def build_ics_event(plant_name, reminder_type, description):
         f"END:VEVENT\r\n"
     )
 ```
+
 An attacker can set `plant_name = "Cactus\r\nBEGIN:VEVENT\r\nSUMMARY:Injected event"` to insert a second synthetic calendar event.
 
 **Correct Pattern** ✅:
+
 ```python
 _ics_safe = lambda s: str(s).replace('\r', '').replace('\n', ' ')
 
@@ -1236,6 +1408,7 @@ def build_ics_event(plant_name, reminder_type, description):
 ```
 
 **Rules**:
+
 1. EVERY user-supplied value embedded in an ICS f-string MUST pass through `_ics_safe()`.
 2. Strip both `\r` and `\n` — a lone `\r` is enough to break field boundaries on some parsers.
 3. Apply to: SUMMARY, DESCRIPTION, LOCATION, COMMENT, and any custom properties.
@@ -1249,12 +1422,14 @@ def build_ics_event(plant_name, reminder_type, description):
 **Problem**: User-supplied integers passed directly to service methods without type conversion and range checking can cause logic errors, excessive resource consumption, or DoS (e.g., snoozing a reminder for 100,000 hours).
 
 **Vulnerable Code** ❌:
+
 ```python
 snooze_hours = request.data.get('snooze_hours')  # Could be a string, float, negative, or huge
 reminder.mark_snoozed(snooze_hours)  # ❌ No conversion or range check
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # constants.py
 SNOOZE_HOURS_MIN = 1
@@ -1275,8 +1450,8 @@ reminder.mark_snoozed(snooze_hours)
 ```
 
 **Rules**:
+
 1. Always call `int()` inside a `try/except` before using a user-supplied numeric value.
 2. Define min/max bounds as named constants in `constants.py`.
 3. Return HTTP 400 with a message naming both the field and the allowed range.
 4. Apply to ALL numeric parameters: hours, counts, page sizes, limits, offsets.
-

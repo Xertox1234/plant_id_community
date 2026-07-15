@@ -40,7 +40,7 @@ redis-cli ping   # should return PONG
 - **No magic numbers** — all config (timeouts, limits, cache keys, thresholds) in the app's `constants.py`. Every app has one at `apps/<app>/constants.py`. Import from there; never hardcode.
 - **Bracketed log prefixes** — use `[CACHE]`, `[PERF]`, `[ERROR]`, `[CIRCUIT]`, `[SECURITY]` so logs are greppable by category.
 - **Type hints on all service methods** — `def identify(self, file) -> Optional[Dict[str, Any]]:`. No bare `def`.
-- **Escape search wildcards** — before any `icontains` filter, escape `%` and `_`: `query.replace('%', r'\%').replace('_', r'\_')`. See `docs/patterns/security/input-validation.md`.
+- **Don't escape search wildcards before `icontains`/`istartswith`/etc.** — Django's ORM already auto-escapes `%`/`_`/`\` for these lookups (`PatternLookup.process_rhs()`); adding `query.replace('%', r'\%').replace('_', r'\_')` on top double-escapes and breaks real matches. Manual escaping is only for lookups that bypass the ORM's pattern-lookup machinery (raw SQL, `.extra()`). See `docs/patterns/security/input-validation.md`.
 - **Wagtail admin** — at `/cms/`, not `/admin/`.
 
 ## CI
