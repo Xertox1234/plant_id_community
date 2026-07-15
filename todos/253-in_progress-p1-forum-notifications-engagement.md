@@ -733,7 +733,15 @@ Sequenced so each step ships value alone:
     (no empty/loading state in the dropdown) for free, since "no dropdown"
     *is* the empty state now. New jsdom test drives two out-of-order network
     resolutions (newer search's response arrives before the older, superseded
-    one's) and asserts the stale call resolves to `[]`.
+    one's) and asserts the stale call resolves to `[]` — this covers
+    `resolveMentionSuggestions()`'s token logic exactly. The other half of
+    this fix, `onStart`/`onUpdate`'s `shouldRender` guard inside `render()`'s
+    closure (the actual dropdown-creation code the orphan was reported
+    against), is reasoning-verified via the `@tiptap/suggestion` source
+    trace above, not exercised by an automated test — driving it end-to-end
+    would need a mounted ProseMirror view, not just a headless `Editor`.
+    Flagging explicitly so a future reader doesn't assume the green suite
+    covers it.
   - **[bug, confirmed via mergeAttributes trace + 2 independent angles:
     wrapper/proxy Angle E, react-typescript-reviewer]** A custom
     `renderHTML`/`renderText` override hardcoded `{}` for the rendered
