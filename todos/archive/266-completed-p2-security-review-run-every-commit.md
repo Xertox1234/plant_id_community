@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "266"
 tags: [ci, security]
@@ -133,7 +133,7 @@ made it fail loudly instead of silently.
 
 - [x] `run-every-commit: true` set on the security-review action in
       `.github/workflows/security-review.yml`.
-- [ ] A test PR with 2+ commits shows a fresh, non-dedup-skipped scan log
+- [x] A test PR with 2+ commits shows a fresh, non-dedup-skipped scan log
       (`ClaudeCode is enabled for this run`) on the second commit's run.
 - [x] Workflow file's header/step comments updated to reflect the new
       per-commit scan behavior and reference this todo.
@@ -211,6 +211,46 @@ made it fail loudly instead of silently.
 
   This alone doesn't prove the fix works — a first run always scans. The
   real test is the next commit.
+
+### 2026-07-15 - AC2 verified: second commit's run confirms the dedup-skip branch is overridden
+
+- Pushed commit `b862a34` (Work Log update) to PR #466, triggering run
+  `29386805346` via the `synchronize` event.
+- `gh run view 29386805346 --log` — this is the exact evidence the
+  acceptance criterion asks for, and it's stronger than a plain "first run"
+  pass: the marker from commit 1 existed AND was correctly overridden,
+  which is the precise mechanism being fixed:
+
+  ```
+  ClaudeCode has already run on PR #466 but run-every-commit is enabled, running again
+  ClaudeCode is enabled for this run
+  ```
+
+  followed by the severity gate actually evaluating real results (not
+  failing closed on a missing file):
+
+  ```
+  At/above-HIGH-severity findings: 0
+  No HIGH-or-above severity findings — check passed.
+  ```
+
+- `gh run view 29386805346 --json conclusion,status` → `{"conclusion":
+  "success","status":"completed"}`.
+- AC2 flipped to `[x]`. All three acceptance criteria now satisfied with
+  quoted evidence. PR #466 left open, unmerged — merge is a separate
+  decision for the user per the earlier confirmation.
+
+### 2026-07-15 - Completed by completing-todos skill (run 2026-07-15-0310)
+
+- Verification: all 3 acceptance criteria passed with live evidence (2
+  quoted CI runs on PR #466, `run 29386805346` being the decisive one —
+  marker-found-but-overridden branch confirmed, not just a first-run pass).
+- Review: `code-review-orchestrator` dispatched against the 3-file diff;
+  returned 0 findings — correctly routed as CI-config/docs, no domain
+  reviewer applies (no Python/Wagtail/React/Dart/Firebase/Celery files
+  touched).
+- PR #466 (`fix/security-review-run-every-commit` → `main`) is open,
+  green, unmerged. Merging is intentionally left to the user.
 
 ## Notes
 
