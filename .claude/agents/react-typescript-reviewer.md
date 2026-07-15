@@ -74,6 +74,7 @@ Use Grep as fallback for any LSP call that returns an error or empty/inconclusiv
 - [ ] Loading and error states required for any component that fetches data
 - [ ] Error display must render `error.message` (a string), never the structured error object — `String(errorObj)` renders the literal `[object Object]`; `sanitize*` helpers that return non-strings unchanged do NOT prevent this (PR #381)
 - [ ] Responsive design: mobile-first Tailwind classes, minimum tap target 44x44px
+- [ ] A new/changed TipTap `suggestion.render()` (`onStart`/`onUpdate`/`onExit`) has real test coverage for its DOM lifecycle (Playwright, a mounted view), not just pure-logic unit tests — a headless `Editor` in Vitest cannot trigger these callbacks at all (`web/docs/patterns/testing.md`)
 
 ## Output Format (Review Mode)
 
@@ -114,6 +115,7 @@ If a checklist item does not apply to any file in the batch, do not emit a findi
 
 - `web/docs/patterns/react-typescript.md`
 - `web/docs/patterns/tailwind.md`
+- `web/docs/patterns/testing.md`
 
 ## Repair Mode
 

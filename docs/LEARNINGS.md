@@ -1104,3 +1104,33 @@ whether it's paired with an auto-escaping lookup before assuming it's needed.
 **Agent**: n/a — a documented-convention correction, not a reviewer
 checklist gap (the reviewers were following the same now-corrected
 convention, not missing a check).
+
+## Forum notifications slice 4 (2026-07-15 additions)
+
+### [2026-07-14] A host-agnostic package can still break its contract via a User INSTANCE attribute, even with the FK type done right (todo 253 slice 4, "most significant single finding")
+
+**Mistake**: `wagtail_forum/api/user_search.py`'s new `mention_user_search`
+endpoint (todo 253 slice 4) read `u.display_name` on each matched user to
+build the response payload. `display_name` is a property that exists only on
+THIS host's custom User model — not part of Django's `AbstractBaseUser`/
+`AbstractUser` contract — so the reusable `wagtail_forum` package would
+break for any other host whose User model lacks it. The package's existing
+convention (`settings.AUTH_USER_MODEL`, never a concrete user model) covers
+the FK *type* but doesn't by itself prevent this: the FK was declared
+correctly, and the bug was purely in which *attribute* got read off the
+resolved instance.
+**Fix**: replaced with `u.get_full_name() or u.get_username()` — both are
+part of the base contract, so they work for any host's User model. Mirrors
+the existing in-repo precedent, `PostAuthorSerializer.get_display_name`
+(`wagtail_forum/api/serializers.py`), which this endpoint should have
+matched from the start.
+**Rule**: `docs/rules/forum.md` — new bullet distinguishing "FK type is
+host-agnostic" from "instance attributes read off that FK must also be
+host-agnostic," with the explicit caveat that a package-OWNED model (e.g.
+`models/profiles.py`'s `Profile.display_name`) is a different, legitimate
+case — the check is about the *User* instance specifically, not the string
+"display_name."
+**Agent**: `.claude/agents/wagtail-reviewer.md` — added under "Forum slice 4
+additions (2026-07-15)": when reviewing `backend/packages/wagtail_forum/` (or
+any host-agnostic package), check that `User` instance attribute reads use
+only base-contract methods, not a host-specific property.
