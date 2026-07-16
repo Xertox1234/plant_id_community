@@ -10,6 +10,12 @@ name: Security Review
 # the job via the "Enforce severity gate" step below and blocks merge; MEDIUM/LOW
 # findings stay advisory (PR comments only, non-blocking).
 #
+# Every commit is scanned, not just the PR's first (todo 266, 2026-07-15): the
+# action's own per-PR dedup cache otherwise disables the scan on every push after
+# the first, which combined with the fail-closed gate above made every later
+# commit fail CI outright (missing results file) instead of actually being
+# scanned. `run-every-commit: true` on the scan step below closes that gap.
+#
 # Setup (user action): add an `ANTHROPIC_API_KEY` repository secret. The key must be
 # enabled for both the Claude API and Claude Code usage. Without it, the job skips
 # gracefully (and fork PRs never receive the secret — see Security note below).
@@ -66,6 +72,10 @@ jobs:
         with:
           comment-pr: true
           claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # todo 266: without this, the action's per-PR dedup cache skips the
+          # scan on every commit after the PR's first, which the fail-closed
+          # gate below then fails outright (missing results file).
+          run-every-commit: true
 
       # Blocking severity gate (todo 249, promoted 2026-07-14). No
       # `continue-on-error`: this step's exit code fails the job, and

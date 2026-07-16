@@ -1134,3 +1134,28 @@ case — the check is about the *User* instance specifically, not the string
 additions (2026-07-15)": when reviewing `backend/packages/wagtail_forum/` (or
 any host-agnostic package), check that `User` instance attribute reads use
 only base-contract methods, not a host-specific property.
+
+## Tooling / Agents (2026-07-15 additions)
+
+### [2026-07-15] A blocking CI gate can silently stop verifying anything after a PR's first commit (todo 266, follow-up to todo 249)
+
+**Mistake**: todo 249 promoted the Claude Code security-review severity gate
+to blocking + fail-closed-on-unverifiable-results, without accounting for the
+vendored `claude-code-security-review` action's own per-PR dedup cache: a
+cache marker restored via a PR-scoped key prefix (not an exact commit SHA)
+disables the actual scan on every push after a PR's first, by upstream design
+(to save API cost). Once the gate went fail-closed, every commit after the
+first hit a missing `claudecode-results.json` and failed the required check
+unconditionally — merge blocked with no real finding behind it. Live-hit on
+PR #462's second commit within a day of the promotion landing.
+**Fix**: set `run-every-commit: true` on the action (`with:` block in
+`.github/workflows/security-review.yml`), forcing a genuine scan on every
+push instead of relying on the action's own cache-based dedup.
+**Rule**: when promoting any advisory CI check to a blocking, fail-closed gate,
+audit whether the underlying tool has its own internal dedup/caching that
+skips real work on a subset of runs — a fail-closed gate turns a silent skip
+into a hard, unconditional block. "The check ran" does not imply "the check's
+actual work ran."
+**Trigger**: none registered — a design-review question about a vendored
+action's caching behavior, not a detectable code shape.
+**Agent**: n/a — CI/workflow-config mechanic, not an application-code pattern.
