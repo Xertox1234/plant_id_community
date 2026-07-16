@@ -194,7 +194,6 @@ playwright-mcp/
 
 # Test run artifacts (generated)
 test-results/
-planning/
 design-reference/
 
 # Old implementation for reference only (not part of project)

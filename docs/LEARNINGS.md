@@ -1159,3 +1159,50 @@ actual work ran."
 **Trigger**: none registered — a design-review question about a vendored
 action's caching behavior, not a detectable code shape.
 **Agent**: n/a — CI/workflow-config mechanic, not an application-code pattern.
+
+## Repo Hygiene (2026-07-16 additions)
+
+### [2026-07-16] A lowercase-only .gitignore rule can silently swallow a differently-cased TRACKED directory on macOS (case-insensitive filesystem)
+
+**Mistake**: `.gitignore` had a `planning/` rule (per its "Development
+planning and reference" comment block, apparently meant for some lowercase
+scratch/reference directory — no such directory was ever found in git
+history, unreachable/dangling commits, or the working tree). Because
+macOS/APFS is case-insensitive by default and this repo has
+`core.ignorecase=true`, the rule collaterally matched the actually-tracked
+`PLANNING/` docs directory. It did not untrack the 23 files already
+committed there (git doesn't retroactively untrack), but it silently
+ignored any *new* file dropped into `PLANNING/` going forward —
+`git status` / `git add .` never surfaced it. `PLANNING/20_FORUM_MOBILE_ROADMAP.md`
+(473 lines) sat on disk with zero git history for an unknown period,
+invisible to normal workflows, and would have been permanently deleted by
+a `git clean -dfx` with no recovery path.
+**Fix**: removed the `planning/` line from `.gitignore` and force-added
+(`git add -f`) the orphaned file (PR #467). Verified no real lowercase
+`planning/` target exists anywhere before deleting the rule outright rather
+than "fixing" it by anchoring — anchoring (`/planning/`) would not have
+helped, since the bug is case-insensitivity, not unanchored-path matching.
+Code review of the recovered file then found 6 more issues baked into its
+content: wrong file paths (`components/forum/` vs the real `pages/forum/`),
+a wrong line number, a dead todo reference, and two feature sections (Phase
+5.1 @mentions, 5.2 topic-watch) describing already-shipped work (todo 253
+slices 3-4) as still unbuilt. A doc invisible to git for months never went
+through normal review/update cycles — its concrete claims needed the same
+live-repo verification as any other stale-doc recovery, not just the
+mechanical git fix.
+**Rule**: when adding a `.gitignore` rule, check it against existing tracked
+directory names case-insensitively, not just case-sensitively — a rule that
+looks scoped to an unrelated lowercase path can still hit a real, tracked,
+differently-cased directory on any contributor's or CI's case-insensitive
+filesystem (macOS default; also possible on Windows). Prefer deleting a rule
+with no verifiable target over leaving it "just in case" — a dormant rule
+that later collides with a newly-created tracked directory of similar name
+is a worse failure mode (silent, delayed, easy to miss) than the small cost
+of re-adding the rule if a real target ever appears.
+**Trigger**: none registered — the failure mode depends on cross-referencing
+live git-tracked directory names against `.gitignore` patterns
+case-insensitively, which isn't expressible as a static regex over a new
+edit fragment (no decorator/import/function-call signature to match).
+**Agent**: n/a — general repo-hygiene/git-config gotcha, not an
+application-code review checklist item; none of the existing review agents
+are scoped to `.gitignore` correctness.
