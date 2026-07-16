@@ -26,6 +26,7 @@ export interface BackendTopicListItem {
   view_count: number;
   last_post_at: string | null;
   last_post_author: string | null;
+  is_unread: boolean;
 }
 
 export interface BackendTopicDetail {
@@ -144,6 +145,7 @@ export function mapTopicListItemToThread(t: BackendTopicListItem): Thread {
     // Same rule as the detail mapper: the write guard is is_closed OR locked.
     is_locked: t.is_closed || t.locked,
     is_active: true,
+    is_unread: t.is_unread,
   };
 }
 

@@ -74,6 +74,22 @@ describe('ThreadCard', () => {
     expect(screen.getByText(/🔒.*locked/i)).toBeInTheDocument();
   });
 
+  it('renders unread badge when thread is unread', () => {
+    const thread = createMockThread({ is_unread: true });
+
+    renderThreadCard(thread);
+
+    expect(screen.getByText('New')).toBeInTheDocument();
+  });
+
+  it('does not render unread badge when thread is read', () => {
+    const thread = createMockThread({ is_unread: false });
+
+    renderThreadCard(thread);
+
+    expect(screen.queryByText('New')).not.toBeInTheDocument();
+  });
+
   it('renders both pinned and locked badges when applicable', () => {
     const thread = createMockThread({
       is_pinned: true,

@@ -101,6 +101,10 @@ class TopicListSerializer(serializers.ModelSerializer):
     # `is_closed OR locked`, so list clients need both to render the lock badge
     # and predict write-eligibility (audit 2026-07-11 L3).
     locked = serializers.BooleanField()
+    # Always annotated by the view's queryset (_annotate_topic_unread), so a
+    # plain BooleanField needs no SerializerMethodField/default fallback
+    # (todo 253 slice 5, H10).
+    is_unread = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Topic
@@ -116,6 +120,7 @@ class TopicListSerializer(serializers.ModelSerializer):
             "view_count",
             "last_post_at",
             "last_post_author",
+            "is_unread",
         ]
 
 

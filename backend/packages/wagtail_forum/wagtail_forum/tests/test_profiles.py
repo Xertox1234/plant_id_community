@@ -1,6 +1,7 @@
 import pytest
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
+from django.utils import timezone
 from wagtail_forum.models import ForumProfile, TrustLevel
 
 User = get_user_model()
@@ -17,6 +18,19 @@ def test_for_user_creates_profile_once():
     assert profile.trust_level == TrustLevel.NEW
     assert profile.post_count == 0
     assert ForumProfile.objects.filter(user=user).count() == 1
+
+
+@pytest.mark.django_db
+def test_for_user_stamps_read_watermark_at_creation_time():
+    """Todo 253 slice 5 (H10): a profile created lazily, after this ships,
+    gets its own creation-time watermark — the host-agnostic proxy for "when
+    they showed up" this package uses instead of `user.date_joined`."""
+    before = timezone.now()
+
+    profile = ForumProfile.for_user(User.objects.create_user(username="ada-new"))
+
+    after = timezone.now()
+    assert before <= profile.read_watermark_at <= after
 
 
 @pytest.mark.django_db

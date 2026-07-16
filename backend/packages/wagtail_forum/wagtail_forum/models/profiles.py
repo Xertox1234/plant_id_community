@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import IntegrityError, models
+from django.utils import timezone
 from wagtail.images import get_image_model_string
 
 
@@ -40,6 +41,25 @@ class ForumProfile(models.Model):
     flags_received = models.PositiveIntegerField(default=0)
     joined_at = models.DateTimeField(auto_now_add=True)
     last_seen = models.DateTimeField(null=True, blank=True)
+    # Per-user fallback baseline for "unread" (todo 253 slice 5, H10): a
+    # topic is unread if its last_post_at is newer than this, UNLESS a more
+    # specific TopicRead row exists for that exact topic. Plain default (not
+    # auto_now_add) so a future "mark all read" action can advance it.
+    # Existing rows are backfilled to migration-apply time (see migration
+    # 0016) so an established member's whole history doesn't show unread on
+    # ship day; a profile created after that (lazily, via for_user()) gets
+    # its own creation-time stamp — a host-agnostic proxy for "when they
+    # showed up," since `user.date_joined` is off-limits here (AbstractUser-
+    # only, not part of the AbstractBaseUser contract this package assumes).
+    #
+    # Known gap (todo 271): for_user() is called from several trigger points
+    # beyond "this user opened a topic" — MeProfileView and the push-delivery
+    # task (forum_host/tasks.py) both create a profile as a side effect of
+    # unrelated actions. For a pre-ship "sleeper" account, whichever of these
+    # fires first stamps read_watermark_at=now and silently collapses that
+    # user's entire pre-existing unread backlog, not just the topic (if any)
+    # they were actually looking at. Not fixed here — see the todo.
+    read_watermark_at = models.DateTimeField(default=timezone.now)
 
     @classmethod
     def for_user(cls, user):

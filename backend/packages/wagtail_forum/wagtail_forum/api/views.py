@@ -1,8 +1,18 @@
 import logging
 
 from django.core.cache import cache
+from django.core.exceptions import ImproperlyConfigured
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q
+from django.db.models import (
+    BooleanField,
+    DateTimeField,
+    F,
+    OuterRef,
+    Q,
+    Subquery,
+    Value,
+)
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -31,7 +41,8 @@ except ImportError:  # pragma: no cover
 
 from ..blocks import ForumBodyBlock
 from ..collections import get_forum_image_collection
-from ..models import ForumBoard, Post, Reaction, Report, Topic
+from ..conf import get_setting
+from ..models import ForumBoard, ForumProfile, Post, Reaction, Report, Topic, TopicRead
 from ..models.posts import BLOCK_FORBIDDEN
 from ..workflow import submit_edit_for_moderation, submit_for_moderation
 from .exceptions import Conflict, UnprocessableEntity
@@ -115,6 +126,52 @@ def _get_board(slug):
     return boards[0]
 
 
+def _annotate_topic_unread(qs, user):
+    """Annotate `is_unread` on a Topic queryset (todo 253 slice 5, H10).
+
+    Always present — a constant for anonymous requests, the real chain for
+    authenticated ones — so the serializer field needs no special-casing.
+
+    A topic is unread when its `last_post_at` is newer than the most
+    specific baseline available: this user's explicit `TopicRead` for this
+    exact topic, else their `ForumProfile.read_watermark_at` (backfilled to
+    launch time for existing profiles; stamped at profile-creation time for
+    new ones), else the fixed `UNREAD_LAUNCH_AT` launch constant (only
+    reached for a user with no profile row at all).
+
+    Both `Subquery` lookups below fold into the single SELECT as correlated
+    scalar-subquery expressions — zero added Python-level queries, so this
+    does not change the endpoint's pinned query count (see
+    test_topics_list.py).
+
+    `UNREAD_LAUNCH_AT` must parse to a real datetime — a misconfigured value
+    would otherwise silently degrade `is_unread` to `False` for every
+    profile-less user, so this fails loud instead.
+    """
+    if not user.is_authenticated:
+        return qs.annotate(is_unread=Value(False, output_field=BooleanField()))
+    read_at = TopicRead.objects.filter(user=user, topic=OuterRef("pk")).values(
+        "last_read_at"
+    )[:1]
+    watermark = ForumProfile.objects.filter(user=user).values("read_watermark_at")[:1]
+    launch_setting = get_setting("UNREAD_LAUNCH_AT")
+    launch_at = parse_datetime(launch_setting)
+    if launch_at is None:
+        raise ImproperlyConfigured(
+            f"WAGTAILFORUM_UNREAD_LAUNCH_AT={launch_setting!r} is not a valid "
+            "ISO 8601 datetime (e.g. '2026-07-16T00:00:00Z')."
+        )
+    if timezone.is_naive(launch_at):
+        launch_at = timezone.make_aware(launch_at)
+    return qs.alias(
+        _read_baseline=Coalesce(
+            Subquery(read_at),
+            Subquery(watermark),
+            Value(launch_at, output_field=DateTimeField()),
+        ),
+    ).annotate(is_unread=Q(last_post_at__gt=F("_read_baseline")))
+
+
 def _replay_or_none(cache_key, payload_fingerprint):
     """Return a replayed Response for a remembered idempotent request.
 
@@ -181,14 +238,13 @@ class TopicListView(generics.ListAPIView):
         if getattr(self, "swagger_fake_view", False):
             return Topic.objects.none()
         board = _get_board(self.kwargs["slug"])
-        return (
-            Topic.objects.filter(board=board, live=True).select_related(
-                "author", "last_post_author"
-            )
-            # Kept in sync with TopicCursorPagination.ordering — the paginator
-            # re-applies its own ordering, so this is what unpaginated callers see.
-            .order_by("-is_pinned", "-last_post_at", "-id")
+        qs = Topic.objects.filter(board=board, live=True).select_related(
+            "author", "last_post_author"
         )
+        qs = _annotate_topic_unread(qs, self.request.user)
+        # Kept in sync with TopicCursorPagination.ordering — the paginator
+        # re-applies its own ordering, so this is what unpaginated callers see.
+        return qs.order_by("-is_pinned", "-last_post_at", "-id")
 
     @extend_schema(
         request=TopicCreateSerializer,
@@ -324,6 +380,34 @@ class TopicDetailView(generics.RetrieveAPIView):
                 Topic.objects.filter(pk=topic_id).update(view_count=F("view_count") + 1)
 
             transaction.on_commit(_increment)
+
+        # Record the read (todo 253 slice 5, H10). Deduplicated per (topic,
+        # viewer, last_post_at) rather than a plain TTL like view_count above:
+        # folding last_post_at into the key (free from the response already
+        # built above, no extra query) means a new reply naturally rotates
+        # the key instead of a same-TTL-window dedup silently swallowing it.
+        # Its own setting (TOPIC_READ_DEDUP_SECONDS) — gates a distinct
+        # concern from view_count's throttle above, even though the two
+        # currently default to the same value.
+        if request.user.is_authenticated:
+            user = request.user
+            read_dedup_key = (
+                f"forum:tr:{topic_id}:{user.pk}:{response.data.get('last_post_at')}"
+            )
+            read_ttl = get_setting("TOPIC_READ_DEDUP_SECONDS")
+            if cache.add(read_dedup_key, True, read_ttl):
+
+                def _mark_read():
+                    # Ensures the watermark-bearing profile row exists — the
+                    # first time this happens for a given user, their
+                    # read_watermark_at stamps "now", clearing the launch-
+                    # constant flood forest-wide, not just for this one topic.
+                    ForumProfile.for_user(user)
+                    TopicRead.mark_read(user, topic_id)
+
+                # robust=True: an exception here must not turn an
+                # already-successful 200 into a 500 (Angle E).
+                transaction.on_commit(_mark_read, robust=True)
         return response
 
 
