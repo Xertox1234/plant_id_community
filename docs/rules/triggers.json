@@ -497,5 +497,20 @@
     "source": "codify: feat/forum-notifications-slice4-mentions",
     "added": "2026-07-14",
     "severity": "warn"
+  },
+  {
+    "id": "redundant-integrityerror-fallback",
+    "domains": [
+      "database"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "(get_or_create|update_or_create)\\([\\s\\S]*?except\\s+IntegrityError",
+    "message": "except IntegrityError wrapping get_or_create/update_or_create — Django already retries its own .get() internally and only re-raises when that retry ALSO fails; a redundant wrapper masks a clean IntegrityError as a confusing DoesNotExist. Verify against requirements.txt Django version before assuming a fallback is needed.",
+    "pattern_ref": "backend/docs/patterns/architecture/services.md",
+    "source": "todo 253 slice 5 follow-up",
+    "added": "2026-07-16",
+    "severity": "warn"
   }
 ]
