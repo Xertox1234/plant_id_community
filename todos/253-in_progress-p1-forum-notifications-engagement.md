@@ -1061,6 +1061,70 @@ Sequenced so each step ships value alone:
 - Not archived — 1 slice remains (AC6, FCM residue, coordinates with todo
   260). Todo stays `in_progress`.
 
+### 2026-07-16 - Slice 5 follow-up: own-post-shows-unread fixed
+
+- The slice-5 review (above) found this real but deferred it to todo 271,
+  reasoning the fix meant opening an unfamiliar signal-handler file
+  (`apps/forum_host/notifications.py`) for a cosmetic, self-correcting
+  issue — not worth the added scope/risk on its own. Explicitly requested
+  as a follow-up the same day, so implemented after all.
+- Added `TopicRead.mark_read(post_author, topic_id,
+  when=post.first_published_at)` to both `reply_added` and `topic_created`
+  in `notifications.py`, placed inside the existing
+  `with transaction.atomic():` block right after `TopicSubscription.subscribe`
+  — a plain DB write that should roll back together with everything else in
+  that block, unlike the push/email enqueues a few lines later, which are
+  external side effects correctly deferred to `transaction.on_commit` so
+  they never fire for a publish that rolls back.
+- Read `signals.py`'s `update_counters_on_publish` before writing the fix,
+  per the plan's own instruction to match this file's exact conventions —
+  and found the originally-recommended `when=topic.last_post_at` (from
+  todo 271's Recommended Action) wouldn't actually have worked:
+  `notify(reply_added, ...)` fires *before* `_refresh_for_post(post)` (the
+  call that updates `last_post_at`), so `topic.last_post_at` is still stale
+  at the point `dispatch()` runs. Used `post.first_published_at` instead —
+  the exact value `_refresh_topic_counters` derives `last_post_at` from a
+  moment later — so the fix can never land a hair behind the unread rule's
+  strict `>`. Updated todo 271 to record the corrected mechanism rather than
+  leave the stale prescription in place.
+- `topic_created` mirrors the same fix, guarded by that branch's own
+  existing `if post is not None:` precedent (an admin-created topic can
+  have no opening post to derive a timestamp from).
+- 3 new tests in `apps/forum_host/tests/test_signals.py`, mirroring the
+  file's existing `test_reply_added_auto_subscribes_the_replier`/
+  `test_topic_created_auto_subscribes_the_author` shapes exactly.
+- `kimi-review`'s commit-gate found a real gap in those 3: all use the
+  file's own `Post.objects.create()`-then-`dispatch()`-directly shortcut,
+  which leaves `first_published_at` `None` (bypasses the real publish
+  action) — `mark_read`'s `when = when or timezone.now()` fallback makes
+  them pass regardless of whether `when=post.first_published_at` is even
+  present, so they'd stay green through a regression that silently deleted
+  that argument. One more test added,
+  `test_reply_added_read_marker_keeps_pace_with_real_publish_timing`, using
+  the real `.save_revision().publish()` chain end-to-end and asserting
+  `TopicRead.last_read_at >= topic.last_post_at` — the actual property the
+  fix (and the unread rule's strict `>`) depends on. (kimi's other 2
+  findings were false positives: `topic_id` is defined at module scope in
+  `dispatch()`, pre-existing, just outside the diff's visible context.)
+- Re-verified: backend full suite passes (`385 passed`, was 381), frontend
+  unaffected (`628 passed`, `type-check`/`lint` clean — this follow-up is
+  backend-only), `manage.py check` clean, `makemigrations --check --dry-run`
+  → "No changes detected" (notifications.py and its tests only — no model
+  changes this follow-up).
+- Contract spot-check (rolled-back `manage.py shell` probe, real Wagtail
+  publish chain + the production `/api/v1/forum/...` urlconf, not the
+  isolated test urlconf): author of a brand-new topic sees it as read
+  (`is_unread: False`); a different user who replies to it also sees it as
+  read afterward; an uninvolved bystander who never opened or posted still
+  correctly sees it as unread (`True`) — confirms the fix is scoped to the
+  actor, not a global side effect. First attempt at this script produced a
+  misleading `None` from an unrelated script-methodology bug (a stale
+  in-memory `topic` object across two `.publish()` calls clobbering the
+  counter refresh, not a product bug — see `docs/LEARNINGS.md` 2026-07-16,
+  Testing) before the corrected version confirmed all three outcomes above.
+- Todo 271's Acceptance Criteria: #3 flipped to done; #1 and #2 remain open
+  and deliberately deferred.
+
 ## Notes
 
 p1 by user triage decision. C2 (one of only two Critical findings) anchors this
@@ -1070,6 +1134,8 @@ Related: todo 267 (filed 2026-07-14 from slice 2's code review) tracks the
 Related: todo 268 (filed 2026-07-14 from slice 3's code review) tracks the
 reply fan-out's N-sequential-Celery-enqueue scaling gap, deferred rather than
 fixed inline.
-Related: todo 271 (filed 2026-07-16 from slice 5's code review) tracks three
-unread/read-state edge cases (watermark trigger-scope, on_commit-inline
-reality, own-post-shows-unread), none blocking AC5.
+Related: todo 271 (filed 2026-07-16 from slice 5's code review) tracks
+unread/read-state edge cases, none blocking AC5: watermark trigger-scope and
+on_commit-inline reality remain deliberately deferred; the third
+(own-post-shows-unread) was fixed same-day as a follow-up once requested —
+see the "Slice 5 follow-up" Work Log entry above for that fix.

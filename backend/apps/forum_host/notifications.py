@@ -17,7 +17,11 @@ def dispatch(event, **kwargs):
         to the topic's subscriber list, excluding the replying author
         themselves. Also resolves @mentions in the reply (todo 253 slice 4,
         H4): a mentioned subscriber gets a "mention" notification instead of
-        a "reply" one for this post, never both. kwargs: topic (Topic), post
+        a "reply" one for this post, never both. Also marks the reply as
+        already-read for its own author (todo 253 slice 5, H10) — otherwise
+        the topic's last_post_at, about to be bumped to this reply's own
+        timestamp, would outrun their prior TopicRead/watermark and badge
+        their own topic "unread" to themselves. kwargs: topic (Topic), post
         (Post). Persists one Notification row per recipient (todo 253 slice
         1) synchronously in the ambient (publish) transaction — it rolls
         back cleanly if the publish does — and defers the push AND email
@@ -36,9 +40,11 @@ def dispatch(event, **kwargs):
         Auto-subscribes the topic's own author (todo 253 slice 3) so future
         replies fan out to them, and resolves @mentions in the opening post
         (todo 253 slice 4, H4) — reply_added only sees replies, so a mention
-        in a new topic's first post needs its own handling here. No reply
-        push/email of its own — just the subscription row and any mention
-        notifications.
+        in a new topic's first post needs its own handling here. Also marks
+        the opening post as already-read for the topic's own author (todo
+        253 slice 5, H10), same reasoning as reply_added. No reply
+        push/email of its own — just the subscription row, the read marker,
+        and any mention notifications.
     """
     from django.db import transaction
 
@@ -72,7 +78,7 @@ def dispatch(event, **kwargs):
         post_author = getattr(post, "author", None)
 
         from wagtail_forum.mentions import resolve_mentioned_users
-        from wagtail_forum.models import NotificationVerb, TopicSubscription
+        from wagtail_forum.models import NotificationVerb, TopicRead, TopicSubscription
         from wagtail_forum.notifications import create_notifications
 
         payload = _build_payload(post)
@@ -124,6 +130,20 @@ def dispatch(event, **kwargs):
                 # flagged this exact interaction for a sanity check).
                 if post_author is not None and topic is not None:
                     TopicSubscription.subscribe(post_author, topic)
+                    # Marks the replier's own reply as already-read — otherwise
+                    # topic.last_post_at (about to be bumped to this reply's
+                    # timestamp by _refresh_for_post, right after this handler
+                    # returns) would be newer than any prior TopicRead/watermark
+                    # for this user, making their OWN topic show "unread" to
+                    # themselves (todo 253 slice 5 review, Angle A). Stamped
+                    # from post.first_published_at, not topic.last_post_at —
+                    # this notify() fires BEFORE _refresh_for_post below, so
+                    # topic.last_post_at is still stale here; first_published_at
+                    # is the exact value _refresh_topic_counters derives it
+                    # from a moment later, so this can never land a hair behind.
+                    TopicRead.mark_read(
+                        post_author, topic_id, when=post.first_published_at
+                    )
 
                 mentioned = resolve_mentioned_users(
                     post,
@@ -210,7 +230,7 @@ def dispatch(event, **kwargs):
         author = getattr(topic, "author", None)
 
         from wagtail_forum.mentions import resolve_mentioned_users
-        from wagtail_forum.models import NotificationVerb, TopicSubscription
+        from wagtail_forum.models import NotificationVerb, TopicRead, TopicSubscription
         from wagtail_forum.notifications import create_notifications
 
         payload = _build_payload(post)
@@ -227,6 +247,20 @@ def dispatch(event, **kwargs):
                 # the row.
                 if author is not None:
                     TopicSubscription.subscribe(author, topic)
+                    # Same reasoning as reply_added above — the topic's own
+                    # author already knows about the topic they just created;
+                    # without this they'd see their own brand-new topic as
+                    # "unread". Stamped from the opening post's
+                    # first_published_at (the same value _refresh_topic_counters
+                    # derives last_post_at from), not topic.last_post_at, which
+                    # may not reflect this in-memory instance's freshest DB
+                    # state. Skipped for an admin-created topic with no opening
+                    # post — matches this function's own existing precedent for
+                    # that edge case (the mention resolution below).
+                    if post is not None:
+                        TopicRead.mark_read(
+                            author, topic_id, when=post.first_published_at
+                        )
                 else:
                     logger.info(
                         "forum.topic_created topic=%s (no author to auto-subscribe)",

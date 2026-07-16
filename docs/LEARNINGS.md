@@ -1206,3 +1206,60 @@ edit fragment (no decorator/import/function-call signature to match).
 **Agent**: n/a — general repo-hygiene/git-config gotcha, not an
 application-code review checklist item; none of the existing review agents
 are scoped to `.gitignore` correctness.
+
+## Testing (2026-07-16 additions)
+
+### [2026-07-16] Holding a stale Python object across sequential `.publish()` calls can clobber a sibling counter refresh
+
+A `manage.py shell` contract-check for todo 253 slice 5's own-post-shows-
+unread fix (`apps/forum_host/notifications.py`) reproduced a confusing
+result: after publishing a topic's opening post then the topic itself
+(`opening.save_revision().publish(); topic.save_revision().publish()` — the
+exact pattern `wagtail_forum/tests/test_signals.py`'s
+`test_publishing_a_reply_dispatches_a_host_notification` already uses),
+`topic.last_post_at` came back `None` even though `_refresh_topic_counters`
+(triggered by the opening post's own publish, via `_refresh_for_post`) had
+correctly set it moments earlier — confirmed with a fresh `Topic.objects.get()`
+query showing the real timestamp *before* the topic's own `.publish()` call,
+and `None` again immediately after. The cause: `topic` was the same
+in-memory Python object created earlier via `Topic.objects.create(...)`,
+never refreshed — `_refresh_topic_counters`'s `.update()` is a raw SQL
+statement invisible to that object's in-memory field cache. Wagtail's own
+`RevisionMixin.publish()` action does a full-row `.save()` on `topic` as
+part of publishing it, which re-persisted every field's *stale* in-memory
+value — including `last_post_at=None` — clobbering the just-set DB value.
+Adding `topic.refresh_from_db()` between the two `.publish()` calls fixed it
+immediately (confirmed via the same fresh-query check).
+
+Not a product bug: the real API creation flow
+(`wagtail_forum/workflow.py::submit_for_moderation`) is structurally safe
+from this, because it calls `obj.refresh_from_db()` on the *post* right
+before accessing `obj.topic.save_revision(...).publish(...)` — `refresh_from_db()`
+clears Django's FK related-object cache, so `obj.topic` is a fresh query at
+that point, not a stale held reference. The existing `test_signals.py` test
+using this exact chained-publish pattern never caught it because it only
+asserts which *events* fired, never reads `last_post_at` afterward.
+
+**Fix**: none needed in product code — this was a verification-script
+methodology gap, not a shipped bug. Documented here since it's a real trap
+for the *next* test/script written in this same chained-publish style.
+
+**Rule**: when a test or script holds a Python model instance across more
+than one `.save_revision().publish()` call on *related* objects (e.g.
+publish a child, then publish its parent), `refresh_from_db()` the parent
+object between calls if anything upstream of the parent's publish signal
+recomputes one of the parent's own fields via a bulk `.update()` — a bare
+`.save()` inside the second `.publish()` will otherwise silently re-persist
+the parent's stale pre-refresh field values, undoing the update. This is a
+general Django/Wagtail hazard, not specific to this package — the same
+shape would bite a two-level publish chain anywhere `.update()` and
+`.save()` interleave on the same row within one script/test.
+
+**Trigger**: none registered — the failure mode depends on tracing whether
+a held object's fields were changed by someone else's `.update()` between
+two `.publish()` calls on related objects, which isn't expressible as a
+static regex over a new edit fragment.
+
+**Agent**: n/a — a test/script-authoring methodology gotcha (reproducible in
+`manage.py shell` and in hand-written pytest fixtures alike), not an
+application-code review checklist item.

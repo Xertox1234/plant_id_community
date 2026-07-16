@@ -10,6 +10,7 @@ from wagtail_forum.models import (
     NotificationVerb,
     Post,
     Topic,
+    TopicRead,
     TopicSubscription,
 )
 
@@ -265,6 +266,130 @@ def test_topic_created_without_author_does_not_raise():
     dispatch("topic_created", topic=topic, post=None)  # must not raise
 
     assert not TopicSubscription.objects.filter(topic=topic).exists()
+
+
+@pytest.mark.django_db
+def test_reply_added_marks_the_repliers_own_topic_as_read(
+    django_capture_on_commit_callbacks,
+):
+    """Replying marks the topic as already-read for the replier (todo 253
+    slice 5 review, Angle A) — otherwise their own reply would make their own
+    topic show 'unread' to themselves."""
+    topic_author = User.objects.create_user(username="ownread-author")
+    replier = User.objects.create_user(username="ownread-replier")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="ForumOR", slug="forum-or"))
+    board = index.add_child(instance=ForumBoard(title="GeneralOR", slug="general-or"))
+    topic = Topic.objects.create(
+        board=board, title="TOR", slug="t-or", author=topic_author
+    )
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay"),
+        patch("apps.forum_host.tasks.send_forum_email.delay"),
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(topic=topic, author=replier)
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    assert TopicRead.objects.filter(user=replier, topic=topic).exists()
+
+
+@pytest.mark.django_db
+def test_topic_created_marks_the_authors_own_topic_as_read():
+    """Creating a topic marks it as already-read for its own author (todo
+    253 slice 5 review, Angle A) — mirrors the reply_added fix above."""
+    author = User.objects.create_user(username="ownread-tc-author")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="ForumORTC", slug="forum-ortc"))
+    board = index.add_child(
+        instance=ForumBoard(title="GeneralORTC", slug="general-ortc")
+    )
+    topic = Topic.objects.create(
+        board=board, title="TORTC", slug="t-ortc", author=author
+    )
+    opening = Post.objects.create(topic=topic, author=author, is_opening_post=True)
+
+    from apps.forum_host.notifications import dispatch
+
+    dispatch("topic_created", topic=topic, post=opening)
+
+    assert TopicRead.objects.filter(user=author, topic=topic).exists()
+
+
+@pytest.mark.django_db
+def test_topic_created_with_no_opening_post_does_not_mark_read():
+    """An admin-created topic with no opening post has no timestamp to stamp
+    from — matches this function's own existing precedent (mention
+    resolution above) of skipping post-dependent behavior when post is None."""
+    author = User.objects.create_user(username="ownread-tc-noauthor")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="ForumORTC2", slug="forum-ortc2"))
+    board = index.add_child(
+        instance=ForumBoard(title="GeneralORTC2", slug="general-ortc2")
+    )
+    topic = Topic.objects.create(
+        board=board, title="TORTC2", slug="t-ortc2", author=author
+    )
+
+    from apps.forum_host.notifications import dispatch
+
+    dispatch("topic_created", topic=topic, post=None)  # must not raise
+
+    assert not TopicRead.objects.filter(topic=topic).exists()
+
+
+@pytest.mark.django_db
+def test_reply_added_read_marker_keeps_pace_with_real_publish_timing(
+    django_capture_on_commit_callbacks,
+):
+    """Integration-level proof of the fix's actual timing property, through a
+    REAL Wagtail publish chain rather than the Post.objects.create() shortcut
+    the tests above use (which leaves first_published_at None, so `when`
+    silently falls back to timezone.now() and never exercises the real
+    value the fix relies on). Confirms TopicRead.last_read_at ends up
+    strictly >= topic.last_post_at — the property the unread rule's strict
+    `>` comparison depends on, and the reason post.first_published_at was
+    used instead of topic.last_post_at (stale at dispatch-time)."""
+    topic_author = User.objects.create_user(username="timing-author")
+    replier = User.objects.create_user(username="timing-replier")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(
+        instance=ForumIndex(title="ForumTiming", slug="forum-timing")
+    )
+    board = index.add_child(
+        instance=ForumBoard(title="GeneralTiming", slug="general-timing")
+    )
+    topic = Topic.objects.create(
+        board=board, title="TTiming", slug="t-timing", author=topic_author
+    )
+    opening = Post.objects.create(
+        topic=topic, author=topic_author, is_opening_post=True
+    )
+    opening.save_revision().publish()
+    # A stale in-memory `topic` here would clobber the last_post_at
+    # _refresh_for_post just set, via topic.save_revision().publish()'s own
+    # full-row save — see docs/LEARNINGS.md 2026-07-16 (Testing).
+    topic.refresh_from_db()
+    topic.save_revision().publish()
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay"),
+        patch("apps.forum_host.tasks.send_forum_email.delay"),
+    ):
+        reply = Post.objects.create(topic=topic, author=replier)
+        with django_capture_on_commit_callbacks(execute=True):
+            reply.save_revision().publish()
+
+    topic.refresh_from_db()
+    read = TopicRead.objects.get(user=replier, topic=topic)
+    assert read.last_read_at >= topic.last_post_at
 
 
 @pytest.mark.django_db
