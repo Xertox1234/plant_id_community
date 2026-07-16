@@ -3,7 +3,8 @@
 **Version**: 1.0  
 **Last Updated**: May 23, 2026  
 **Scope**: Web forum frontend (React + Tailwind) — mobile browser + Flutter UI translation readiness  
-**Owner**: Frontend/Forum team
+**Owner**: Frontend/Forum team  
+**Corrected**: Jul 16, 2026 — stale file paths/line refs fixed (this doc predates a filesystem-case-insensitivity gitignore bug that kept it out of git); Phase 5.1 (@Mentions) and 5.2 (Topic Following) marked shipped. The rest reflects the original May 23 plan and has not been re-validated end-to-end — Phase 1.4 and 2.2 show signs of partial completion worth a quick look before starting them.
 
 ---
 
@@ -57,7 +58,6 @@ The existing web forum works on desktop but has multiple features that are broke
 - `@/web/src/components/forum/PostCard.tsx` — Individual post display
 - `@/web/src/components/forum/ThreadCard.tsx` — Thread preview card
 - `@/web/src/components/forum/TipTapEditor.tsx` — Rich text composer
-- `@/web/src/components/forum/ImageUploadWidget.tsx` — Image upload UI
 - `@/web/src/services/forumService.ts` — API service layer
 - `@/web/src/types/forum.ts` — TypeScript interfaces
 
@@ -115,7 +115,7 @@ A forum that feels native on a phone: large tap targets, no hover dependencies, 
 
 ### 1.4 ThreadDetailPage: Responsive Header
 
-**Problem**: `@/web/src/components/forum/ThreadDetailPage.tsx:222-260` uses `flex items-start gap-4` with `text-3xl` title and badges. Wraps poorly on mobile.
+**Problem**: `@/web/src/pages/forum/ThreadDetailPage.tsx:372` (corrected — was cited as `components/forum/...:222-260`, which doesn't exist) uses `flex items-start gap-4` with `text-3xl` title and badges. Wraps poorly on mobile. Note: the title is already `text-xl sm:text-3xl`, so the responsive-sizing part of this fix may be done — check before starting.
 
 **Fix**:
 - Stack vertically on mobile: icon + title on top line, metadata second, badges third.
@@ -127,7 +127,7 @@ A forum that feels native on a phone: large tap targets, no hover dependencies, 
 
 ### 1.5 Breadcrumb: Collapsible on Mobile
 
-**Problem**: `@/web/src/components/forum/ThreadDetailPage.tsx:201-219` and `@/web/src/components/forum/ThreadListPage.tsx:153-165` show full breadcrumb trail that wraps.
+**Problem**: `@/web/src/pages/forum/ThreadDetailPage.tsx:341-342` and `@/web/src/pages/forum/ThreadListPage.tsx:153-165` (corrected — were cited under `components/forum/...`, which doesn't exist) show full breadcrumb trail that wraps.
 
 **Fix**:
 - On mobile (`< 640px`): show only parent link + current page label. Replace intermediate items with a single "Back to Forums" link.
@@ -145,7 +145,7 @@ A forum that feels native on a phone: large tap targets, no hover dependencies, 
 
 ### 2.1 ThreadListPage: Stacked Toolbar
 
-**Problem**: `@/web/src/components/forum/ThreadListPage.tsx:182-217` search form + sort dropdown + new thread button compete horizontally.
+**Problem**: `@/web/src/pages/forum/ThreadListPage.tsx:182-217` (corrected — was cited under `components/forum/...`, which doesn't exist) search form + sort dropdown + new thread button compete horizontally.
 
 **Fix**:
 - On mobile: stack search input (full width) on top of a row with sort dropdown (flex) + new thread button (fixed width).
@@ -154,7 +154,7 @@ A forum that feels native on a phone: large tap targets, no hover dependencies, 
 
 ### 2.2 ThreadListPage: Infinite Scroll
 
-**Problem**: `@/web/src/components/forum/ThreadListPage.tsx:260-278` pagination uses "Previous / Page N / Next" buttons. On mobile this requires precision tapping and loses scroll position.
+**Problem**: `@/web/src/pages/forum/ThreadListPage.tsx` (corrected — was cited as `components/forum/...:260-278`, which doesn't exist) originally used "Previous / Page N / Next" buttons; pagination is now cursor-based with a "Load More" button (`handleLoadMore`, line 265) instead — better, but still manual rather than auto-triggered. Re-check relevance before starting.
 
 **Fix**:
 - Replace with an IntersectionObserver-based infinite scroll.
@@ -168,7 +168,7 @@ A forum that feels native on a phone: large tap targets, no hover dependencies, 
 
 ### 2.3 ThreadDetailPage: Infinite Scroll for Posts
 
-**Problem**: `@/web/src/components/forum/ThreadDetailPage.tsx:152` uses a manual "Load More" button.
+**Problem**: `@/web/src/pages/forum/ThreadDetailPage.tsx:140` (corrected — was cited as `components/forum/...:152`, which doesn't exist) uses a manual "Load More" button.
 
 **Fix**:
 - Same IntersectionObserver pattern as thread list.
@@ -258,7 +258,7 @@ A forum that feels native on a phone: large tap targets, no hover dependencies, 
 
 ### 3.5 Image Gallery / Lightbox
 
-**Problem**: `@/web/src/components/forum/ImageUploadWidget.tsx` handles upload, but post display has no image viewer.
+**Problem**: Image upload is handled inline in `TipTapEditor.tsx` (via a `forumService.ts` call) rather than a dedicated widget — this doc's original `ImageUploadWidget.tsx` reference doesn't exist. Post display still has no full-screen image viewer/lightbox.
 
 **Fix**:
 - In `PostCard`: render post images in a responsive grid (1 col mobile, 2 col tablet, 3 col desktop).
@@ -335,27 +335,33 @@ A forum that feels native on a phone: large tap targets, no hover dependencies, 
 
 **Priority**: P3
 
-### 5.1 @Mentions
+### 5.1 @Mentions — ✅ Shipped (todo 253 slice 4)
 
-**Problem**: No way to notify a specific user in a post.
+~~**Problem**: No way to notify a specific user in a post.~~ Done: mention parsing (`wagtail_forum/mentions.py`), the `Notification` model (`wagtail_forum/models/notifications.py`), the `send_forum_mention_notification` call (`@/backend/apps/core/services/notification_service.py:411` — corrected, was cited at line 376), and composer autocomplete (`ForumMention` TipTap node in `TipTapEditor.tsx`) are all live.
 
-**Fix**:
+<details><summary>Original fix plan (kept for reference)</summary>
+
 - In `TipTapEditor`: detect `@` + typing, show a user autocomplete dropdown.
 - Backend: parse `content_raw` for `@username` patterns on post creation.
-- Call `send_forum_mention_notification` from `@/backend/apps/core/services/notification_service.py:376`.
+- Call `send_forum_mention_notification` from `@/backend/apps/core/services/notification_service.py`.
 - Render `@username` as a styled link to the user's profile.
 
 **Backend impact**: Add mention parsing in `CreatePostSerializer.create`. Add `Notification` model for in-app persistence.
 
-### 5.2 Topic Following / Watch Thread
+</details>
 
-**Problem**: No way to track a thread without posting in it.
+### 5.2 Topic Following / Watch Thread — ✅ Shipped (todo 253 slice 3)
 
-**Fix**:
+~~**Problem**: No way to track a thread without posting in it.~~ Done: `TopicSubscription` model (`wagtail_forum/models/subscriptions.py`), subscribe/unsubscribe API (`wagtail_forum/api/subscriptions.py`), wired at `topics/<id>/subscription/` (`backend/apps/forum_host/api_urls.py`).
+
+<details><summary>Original fix plan (kept for reference)</summary>
+
 - Add a "Watch" / "Unwatch" toggle in the thread header.
 - Backend: create `TopicSubscription` model (user FK + topic FK + created_at).
 - Endpoints: `POST /api/v1/forum/topics/{id}/watch/`, `DELETE .../unwatch/`.
 - Notifications: email or in-app when new posts arrive.
+
+</details>
 
 ### 5.3 Post Voting (Upvote / Downvote)
 
@@ -455,8 +461,8 @@ Every phase in this roadmap was chosen because the UI patterns have direct Flutt
 - [ ] Images use lazy loading and responsive srcset
 
 ### Phase 5 Complete When
-- [ ] @mentions autocomplete in composer
-- [ ] Watch/unwatch threads with notification support
+- [x] @mentions autocomplete in composer
+- [x] Watch/unwatch threads with notification support
 - [ ] Post upvote/downvote with score display
 - [ ] Accepted answer marking and visual prominence
 
@@ -469,5 +475,5 @@ Every phase in this roadmap was chosen because the UI patterns have direct Flutt
 | TipTap mobile toolbar may require new extensions | Evaluate `@tiptap/extension-bubble-menu` or custom floating menu |
 | Infinite scroll can cause memory bloat | Implement virtualized list with `react-window` or manual DOM recycling |
 | Bottom-sheet keyboard handling is brittle | Use `visualViewport` API; test on iOS Safari and Android Chrome |
-| Backend lacks `TopicSubscription` / `PostVote` models | Backend team to deliver Phase 5 APIs before frontend starts Phase 5 |
-| E2E tests currently failing | Resolve `todos/092-pending-p2-fix-frontend-test-failures.md` first |
+| Backend lacks `PostVote` model (`TopicSubscription` now exists — 5.2 shipped) | Backend team to deliver the Phase 5.3/5.4 APIs before frontend starts those sub-phases |
+| E2E test status unverified — the `todos/092-...` reference this doc cited doesn't exist (that number belongs to an unrelated, already-completed backend ticket) | Re-check current E2E status and file a fresh todo if still failing |
