@@ -41,9 +41,13 @@ Phased to ship value early:
 3. **Write path**: create/reply/edit/delete/react with Idempotency-Key retry
    semantics; surface pending-moderation state (web PR-2b's notify-and-return
    pattern is the reference).
-4. **FCM registration**: populate `ForumProfile.fcm_token` via the existing
-   `/me/profile` endpoint — this unlocks the whole push pipeline (coordinates
-   with todo 253).
+4. **FCM registration**: ~~populate `ForumProfile.fcm_token` via the existing
+   `/me/profile` endpoint~~ — DONE by todo 253 slice 6 (2026-07-16):
+   `lib/services/push_registration_service.dart` registers/rotates/clears the
+   token through the auth flow, live-verified on an Android emulator against
+   the dev backend (`integration_test/fcm_registration_e2e_test.dart`). What
+   remains for THIS todo: deep-linking a push tap into the native forum UI
+   once it exists, and the iOS APNs provisioning residue (todo 272 item 1).
 5. **Image upload** against `POST /forum/images/`.
 
 ## Technical Details
@@ -64,6 +68,9 @@ Phased to ship value early:
       fake backend fixtures)
 - [ ] Reply/create retries are idempotent; pending-moderation surfaced in UI
 - [ ] Device registers an FCM token and receives a forum push end-to-end
+      — registration half DONE by todo 253 slice 6 (live-verified); the
+      receives-a-push half is gated on the Firebase service-account key
+      (runbook in todo 253's slice-6 work log)
 - [ ] `flutter analyze` + `flutter test` green including regenerated codegen
 
 ## Work Log

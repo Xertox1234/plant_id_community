@@ -512,5 +512,54 @@
     "source": "todo 253 slice 5 follow-up",
     "added": "2026-07-16",
     "severity": "warn"
+  },
+  {
+    "id": "firebase-initialize-app-no-valueerror-adoption",
+    "domains": [
+      "firebase"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "firebase_admin\\.initialize_app\\(",
+    "content_absent": "except\\s+ValueError",
+    "message": "firebase_admin.initialize_app() without a ValueError catch — under threaded runserver two concurrent first-touch requests can both miss get_app() and both initialize; the loser raises 'default app already exists'. Catch ValueError and adopt via firebase_admin.get_app() (todo 253 slice 6 review).",
+    "pattern_ref": "backend/apps/garden/firebase_config.py",
+    "source": "review: todo 253 slice 6 review",
+    "added": "2026-07-16",
+    "severity": "candidate"
+  },
+  {
+    "id": "fcm-notification-block-unscoped-events",
+    "domains": [
+      "celery"
+    ],
+    "path_glob": [
+      "backend/**/tasks.py"
+    ],
+    "content_present": "\\.Notification\\(title=",
+    "content_absent": "return\\s+None",
+    "message": "A tray-visible FCM Notification block in a multi-event task must WHITELIST events (helper returns None for the rest): moderation/publish signals fire on every routine autopublish, so an unscoped block pops 'Your post was published' at users for their own ordinary posts (todo 253 slice 6 review, cross-file tracer).",
+    "pattern_ref": "backend/apps/forum_host/tasks.py",
+    "source": "review: todo 253 slice 6 review",
+    "added": "2026-07-16",
+    "severity": "candidate"
+  },
+  {
+    "id": "eager-certificate-parse-unguarded",
+    "domains": [
+      "firebase",
+      "security"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "credentials\\.Certificate\\(",
+    "content_absent": "except",
+    "message": "credentials.Certificate(path) reads/parses the file EAGERLY and raises at call time (unlike lazy ApplicationDefault). On a request path, guard it so a missing/malformed key file degrades to a handled auth failure, not a 500 on every login (todo 253 slice 6 review, removed-behavior auditor).",
+    "pattern_ref": "backend/apps/users/firebase_auth_views.py",
+    "source": "review: todo 253 slice 6 review",
+    "added": "2026-07-16",
+    "severity": "candidate"
   }
 ]

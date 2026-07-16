@@ -39,6 +39,46 @@ def _is_permanent_fcm_error(exc: Exception) -> bool:
     )
 
 
+def _notification_content(event: str, data: dict) -> tuple[str, str] | None:
+    """Human-readable (title, body) for an FCM tray notification (todo 253
+    slice 6, AC6), or None for events that must stay tray-silent.
+
+    Sent alongside the unchanged data payload as a notification+data hybrid:
+    the OS renders the tray entry itself when the app is backgrounded, so a
+    client needs zero display code; the data payload still rides along for
+    richer in-app handling. Every field is optional — a missing/empty value
+    degrades to generic wording, never an error (a push must not fail over
+    cosmetics). Event values arrive as plain strings (Celery JSON-serializes
+    NotificationVerb.MENTION to "mention" through the broker).
+
+    Only reply_added and mention render a tray entry. moderation_decided is
+    deliberately None: workflow.py fires it with status="published" on EVERY
+    routine trust-autopublished post/reply/edit, so a visible block would
+    tray-popup "Your post was published" at users for their own ordinary
+    posts (slice-6 review, cross-file tracer) — it keeps the pre-slice
+    data-only behavior. Unknown/future events also stay data-only until
+    someone designs their copy.
+    """
+    from .constants import PUSH_TITLE_TOPIC_MAX_CHARS
+
+    topic_title = str(data.get("topic_title") or "").strip()
+    if len(topic_title) > PUSH_TITLE_TOPIC_MAX_CHARS:
+        topic_title = topic_title[: PUSH_TITLE_TOPIC_MAX_CHARS - 1] + "…"
+    actor = str(data.get("actor_name") or "").strip() or "Someone"
+
+    if event == "reply_added":
+        title = f'New reply in "{topic_title}"' if topic_title else "New forum reply"
+        return title, f"{actor} replied"
+    if event == "mention":
+        title = (
+            f'You were mentioned in "{topic_title}"'
+            if topic_title
+            else "You were mentioned on the forum"
+        )
+        return title, f"{actor} mentioned you"
+    return None
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
     """Send a single FCM data message for a forum event.
@@ -94,8 +134,28 @@ def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
     str_data = {k: str(v) for k, v in data.items()}
     str_data["event"] = event
 
+    content = _notification_content(event, data)
+
     try:
-        message = fcm.Message(data=str_data, token=token)
+        message_kwargs = {"data": str_data, "token": token}
+        if content is not None:
+            title, body = content
+            # Stable collapse key: a retry after an accepted-but-timed-out
+            # send REPLACES the tray entry instead of stacking a duplicate
+            # visible notification (idempotency, docs/rules/celery.md).
+            # Deliberately per-EVENT-TYPE, not per-post: FCM keeps at most 4
+            # distinct collapse keys pending per offline device, so unique
+            # per-post keys would silently drop all but 4 notifications
+            # accumulated overnight (review sweep). Collapsing multiple
+            # replies into the latest tray entry is the standard tradeoff —
+            # the bell remains the complete record.
+            collapse_key = f"forum-{event}"
+            message_kwargs["notification"] = fcm.Notification(title=title, body=body)
+            message_kwargs["android"] = fcm.AndroidConfig(collapse_key=collapse_key)
+            message_kwargs["apns"] = fcm.APNSConfig(
+                headers={"apns-collapse-id": collapse_key}
+            )
+        message = fcm.Message(**message_kwargs)
         response = fcm.send(message)
         logger.info(
             "[FCM] forum.%s sent to user=%s: %s", event, recipient_user_id, response

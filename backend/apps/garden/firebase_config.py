@@ -50,9 +50,29 @@ def initialize_firebase() -> bool:
         import firebase_admin
         from firebase_admin import credentials
 
+        # Another code path may have initialized the default app already
+        # (apps/users' Firebase ID-token exchange does) — initialize_app()
+        # raises ValueError on a second call, so reuse it. Log the project id
+        # so a credential-source divergence is diagnosable from logs.
+        try:
+            _firebase_app = firebase_admin.get_app()
+            logger.info(
+                "[FIREBASE] Reusing already-initialized default app (project=%s)",
+                _firebase_app.project_id,
+            )
+            return True
+        except ValueError:
+            pass
+
         # Initialize Firebase app
         cred = credentials.Certificate(credentials_path)
-        _firebase_app = firebase_admin.initialize_app(cred)
+        try:
+            _firebase_app = firebase_admin.initialize_app(cred)
+        except ValueError:
+            # Lost a concurrent first-touch race (threaded runserver: two
+            # first requests can both miss get_app() above) — adopt the
+            # winner's app instead of reporting Firebase unavailable.
+            _firebase_app = firebase_admin.get_app()
 
         logger.info("[FIREBASE] ✅ Firebase Admin SDK initialized successfully")
         return True
@@ -144,10 +164,12 @@ def reset_firebase():
     try:
         import firebase_admin
 
-        if firebase_admin._apps:
-            for app in firebase_admin._apps.values():
-                firebase_admin.delete_app(app)
-    except:
+        # list(): delete_app() mutates _apps during iteration — with 2+ apps
+        # the raw dict view raises RuntimeError (swallowed below) and later
+        # apps would survive the "reset".
+        for app in list(firebase_admin._apps.values()):
+            firebase_admin.delete_app(app)
+    except Exception:
         pass
 
     logger.info("[FIREBASE] Firebase reset complete")

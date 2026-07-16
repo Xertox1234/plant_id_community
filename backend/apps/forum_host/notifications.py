@@ -54,10 +54,20 @@ def dispatch(event, **kwargs):
     topic_id = getattr(topic, "id", None)
 
     def _build_payload(post):
+        # actor_name feeds the FCM tray notification's body line (todo 253
+        # slice 6). This is HOST-app code, so the host User model's
+        # display_name property is the right source — the same naming policy
+        # the email channel already uses (send_forum_email reads
+        # post.author.display_name); the package-side host-agnostic rule
+        # (slice 4) applies to wagtail_forum code, not here.
+        author = getattr(post, "author", None)
         return {
             "topic_id": str(topic_id),
             "topic_title": topic.title if topic else "",
             "post_id": str(getattr(post, "id", "")),
+            "actor_name": (
+                getattr(author, "display_name", "") if author is not None else ""
+            ),
         }
 
     def _enqueue_mention_push_for(mentioned, payload):

@@ -42,6 +42,26 @@ def test_send_forum_push_sends_when_token_present():
     call_kwargs = mock_fcm.Message.call_args.kwargs
     assert call_kwargs["data"]["event"] == "reply_added"
     assert call_kwargs["token"] == "device-token-abc"
+    # Notification+data hybrid (todo 253 slice 6, AC6): the tray-visible
+    # notification block rides alongside the unchanged data payload, built
+    # via the client module's Notification factory. This payload has no
+    # actor_name, so the body exercises the "Someone" fallback.
+    assert call_kwargs["notification"] is mock_fcm.Notification.return_value
+    assert mock_fcm.Notification.call_args.kwargs == {
+        "title": 'New reply in "Hello"',
+        "body": "Someone replied",
+    }
+    # Stable collapse key on both platforms: a retried send after an
+    # accepted-but-timed-out response must REPLACE the tray entry, not stack
+    # a duplicate visible notification (slice-6 review, celery checklist).
+    # Per-EVENT-TYPE, not per-post — FCM retains at most 4 distinct collapse
+    # keys per offline device (review sweep).
+    assert mock_fcm.AndroidConfig.call_args.kwargs == {
+        "collapse_key": "forum-reply_added"
+    }
+    assert mock_fcm.APNSConfig.call_args.kwargs == {
+        "headers": {"apns-collapse-id": "forum-reply_added"}
+    }
 
 
 @pytest.mark.django_db
@@ -133,6 +153,78 @@ def test_send_forum_push_all_data_values_coerced_to_str():
     data = mock_fcm.Message.call_args.kwargs["data"]
     for v in data.values():
         assert isinstance(v, str), f"FCM data value {v!r} is not a string"
+    # moderation_decided must stay tray-silent (data-only): workflow.py fires
+    # it on every routine autopublished post, so a visible block would popup
+    # "Your post was published" for users' own ordinary posts (slice-6
+    # review, cross-file tracer).
+    assert "notification" not in mock_fcm.Message.call_args.kwargs
+
+
+# ---- _notification_content (todo 253 slice 6, AC6) ---------------------------
+#
+# Pure-function tests, no DB: the tray title/body derivation must degrade
+# gracefully on any missing field — a push may look generic but must never
+# fail over cosmetics.
+
+
+def test_notification_content_reply_uses_topic_title_and_actor():
+    from apps.forum_host.tasks import _notification_content
+
+    title, body = _notification_content(
+        "reply_added", {"topic_title": "How to repot?", "actor_name": "Alice Chen"}
+    )
+    assert title == 'New reply in "How to repot?"'
+    assert body == "Alice Chen replied"
+
+
+def test_notification_content_mention():
+    from apps.forum_host.tasks import _notification_content
+
+    title, body = _notification_content(
+        "mention", {"topic_title": "Propagation tips", "actor_name": "bob"}
+    )
+    assert title == 'You were mentioned in "Propagation tips"'
+    assert body == "bob mentioned you"
+
+
+@pytest.mark.parametrize(
+    "event,data",
+    [
+        # Fires on EVERY routine autopublish — a visible block would tray-spam
+        # users for their own posts (slice-6 review). Both statuses silent.
+        ("moderation_decided", {"status": "published"}),
+        ("moderation_decided", {"status": "pending"}),
+        # Unknown/future events stay data-only until their copy is designed.
+        ("some_future_event", {}),
+    ],
+)
+def test_notification_content_is_none_for_tray_silent_events(event, data):
+    from apps.forum_host.tasks import _notification_content
+
+    assert _notification_content(event, data) is None
+
+
+def test_notification_content_degrades_gracefully_on_missing_fields():
+    from apps.forum_host.tasks import _notification_content
+
+    title, body = _notification_content("reply_added", {})
+    assert title == "New forum reply"
+    assert body == "Someone replied"
+
+    title, body = _notification_content("mention", {"actor_name": None})
+    assert title == "You were mentioned on the forum"
+    assert body == "Someone mentioned you"
+
+
+def test_notification_content_caps_runaway_topic_title():
+    from apps.forum_host.constants import PUSH_TITLE_TOPIC_MAX_CHARS
+    from apps.forum_host.tasks import _notification_content
+
+    long_title = "x" * (PUSH_TITLE_TOPIC_MAX_CHARS * 2)
+    title, _body = _notification_content("reply_added", {"topic_title": long_title})
+    embedded = title[len('New reply in "') : -1]
+    assert len(embedded) == PUSH_TITLE_TOPIC_MAX_CHARS
+    assert embedded.endswith("…")
 
 
 def _permanent_fcm_errors():

@@ -464,6 +464,27 @@ class MeProfileSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["trust_level", "post_count"]
 
+    def update(self, instance, validated_data):
+        from django.db import transaction
+
+        token = validated_data.get("fcm_token")
+        if not token:
+            return super().update(instance, validated_data)
+        # An FCM token identifies a DEVICE, so exactly one profile may hold
+        # it: registering it here releases it from any other profile.
+        # Otherwise a previous account on a shared device keeps receiving
+        # this device's pushes after someone else signs in (todo 253 slice 6
+        # review) — and a best-effort logout clear that failed offline would
+        # leave that stale claim in place forever. Release FIRST, then save:
+        # under two concurrent same-token registrations, release-then-save
+        # converges on last-writer-holds, whereas save-then-release could
+        # blank the token on BOTH profiles (review sweep).
+        with transaction.atomic():
+            ForumProfile.objects.filter(fcm_token=token).exclude(pk=instance.pk).update(
+                fcm_token=""
+            )
+            return super().update(instance, validated_data)
+
     @extend_schema_field(CAPABILITIES_SCHEMA)
     def get_capabilities(self, obj):
         # v1: static all-True. Trust/lock-aware gating (e.g. can_react only at

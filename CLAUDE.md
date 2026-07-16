@@ -253,7 +253,8 @@ never commit it).
 | `PLANT_ID_API_KEY` | `backend/.env` | Plant.id API v3 |
 | `PLANTNET_API_KEY` | `backend/.env` | PlantNet fallback API |
 | `CORS_ALLOWED_ORIGINS` | `backend/.env` | Set to `http://localhost:5174` in dev |
-| `GOOGLE_APPLICATION_CREDENTIALS` | `backend/.env` | Path to Firebase service account JSON |
+| `GOOGLE_APPLICATION_CREDENTIALS` | `backend/.env` | Path to Firebase service account JSON (ADC — users-app token exchange) |
+| `FIREBASE_CREDENTIALS_PATH` | `backend/.env` | Same JSON, read by `apps/garden/firebase_config.py` — gates FCM push; unset = push disabled |
 | `VITE_API_URL` | `web/.env` | Backend URL for React app |
 
 ## Cheap-Worker Delegation (Kimi K2.6)
