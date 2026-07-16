@@ -417,6 +417,28 @@ class TestRealIndexFiresOnKnownBugs(unittest.TestCase):
             "escape-search-query-before-orm-wildcard-lookup", self.fires(tn, ti)
         )
 
+    def test_redundant_integrityerror_fallback_fires(self):
+        tn, ti = write(
+            "backend/apps/forum_integration/models.py",
+            "try:\n"
+            "    obj, _ = cls.objects.update_or_create(\n"
+            "        user=user, topic_id=topic_id, defaults={'last_read_at': when}\n"
+            "    )\n"
+            "except IntegrityError:\n"
+            "    obj = cls.objects.get(user=user, topic_id=topic_id)\n",
+        )
+        self.assertIn("redundant-integrityerror-fallback", self.fires(tn, ti))
+
+    def test_get_or_create_with_no_fallback_silent(self):
+        # No except IntegrityError at all — nothing to double-check.
+        tn, ti = write(
+            "backend/apps/forum_integration/models.py",
+            "obj, created = cls.objects.get_or_create(\n"
+            "    user=user, topic_id=topic_id, defaults={'last_read_at': when}\n"
+            ")\n",
+        )
+        self.assertNotIn("redundant-integrityerror-fallback", self.fires(tn, ti))
+
     def test_tiptap_renderhtml_without_mergeattributes_fires(self):
         tn, ti = write(
             "web/src/components/forum/forumMentionNode.ts",

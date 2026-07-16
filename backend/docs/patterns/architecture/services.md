@@ -807,3 +807,70 @@ after the `try/except`. Test it directly — mock the write to raise and assert
 the side-effect's `.delay()`/callable was never called (see
 `test_reply_added_skips_push_when_notification_write_fails` in
 `apps/forum_host/tests/test_signals.py`).
+
+---
+
+### Pattern: Don't Re-Wrap `get_or_create`/`update_or_create`'s Own Race Recovery
+
+**Problem**: this package's house convention (`ForumProfile.for_user`,
+`TopicSubscription.subscribe`/`unsubscribe`) wraps `update_or_create`/
+`get_or_create` in an explicit `except IntegrityError: cls.objects.get(...)`
+fallback, on the assumption that a concurrent duplicate-insert race needs
+manual recovery. In Django 6 (verified against `QuerySet.get_or_create`/
+`_create_object_from_params`/`update_or_create` source, todo 253 slice 5
+follow-up), this is already handled internally: `get_or_create` catches its
+own `create()`'s `IntegrityError`, retries its own `.get()`, and only
+re-raises the *original* `IntegrityError` if that retry ALSO finds nothing.
+`update_or_create` delegates to `get_or_create`, so it inherits the same
+behavior. A caller-added fallback on top can therefore only ever run in the
+case Django has already determined is unrecoverable (not a race — e.g. a
+stale FK reference) — and in that case its own `.get()` finds nothing either,
+turning an already-correctly-typed `IntegrityError` into a confusing masked
+`DoesNotExist`.
+
+**Incorrect** ❌ (the pre-fix shape of `TopicRead.mark_read`,
+`wagtail_forum/models/topic_reads.py`):
+
+```python
+try:
+    obj, _ = cls.objects.update_or_create(
+        user=user, topic_id=topic_id, defaults={"last_read_at": when}
+    )
+except IntegrityError:
+    # Only ever reached when Django's OWN internal retry already failed —
+    # this .get() finds nothing either, raising DoesNotExist chained onto
+    # the original IntegrityError instead of just letting it propagate.
+    obj = cls.objects.get(user=user, topic_id=topic_id)
+    obj.last_read_at = when
+    obj.save(update_fields=["last_read_at"])
+```
+
+**Correct** ✅:
+
+```python
+obj, created = cls.objects.get_or_create(
+    user=user, topic_id=topic_id, defaults={"last_read_at": when}
+)
+# A genuine failure (e.g. a hard-deleted topic_id) now surfaces as the
+# original, correctly-typed IntegrityError — no masking.
+```
+
+**Verification trap**: the first attempt to reproduce the "unrecoverable"
+case wrapped the probe in its own outer `transaction.atomic()` + a savepoint
+rolled back afterward (this repo's usual safe-manual-check convention) and
+observed **no exception at all**. This project's FK constraints are
+`DEFERRABLE INITIALLY DEFERRED` (`pg_constraint.condeferred = True`) — the
+check runs at the enclosing transaction's real **commit**, and a savepoint
+rollback never commits. The same blind spot means an ordinary
+`@pytest.mark.django_db` test (itself one big rolled-back transaction)
+**cannot observe a deferred FK violation raising mid-test either** — verify
+this kind of "does this raise immediately" question with a probe that has no
+outer atomic of its own (letting `get_or_create`'s internal `atomic()` be
+the real top-level transaction), not a wrapped-and-rolled-back one.
+
+**Rule**: before adding (or keeping) a defensive `except IntegrityError:`
+retry around `get_or_create`/`update_or_create`, check whether the exact
+pinned Django version already retries internally — re-implementing that
+recovery outside it doesn't add safety, it adds a second layer that only
+ever activates in the unrecoverable case and actively degrades the
+exception's clarity. Full trail: `docs/LEARNINGS.md` (2026-07-16).

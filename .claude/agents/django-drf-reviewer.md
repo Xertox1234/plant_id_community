@@ -52,6 +52,18 @@ Work through each item for every changed file. Emit findings in the structured f
   (todo 253 slice 1); caught only by kimi-review's commit gate afterward. See
   `backend/docs/patterns/architecture/services.md`.
 
+### Forum notifications slice 5 additions (2026-07-16)
+
+- A hand-rolled `except IntegrityError: cls.objects.get(...)` fallback around
+  `get_or_create`/`update_or_create`: check whether it duplicates Django's own
+  internal retry (verified in Django 6 — `get_or_create` already retries its
+  own `.get()` after a failed `create()` and only re-raises when that retry
+  ALSO fails) rather than assuming the fallback is always needed. A redundant
+  wrapper only ever fires in the already-unrecoverable case, converting a
+  clean `IntegrityError` into a confusing masked `DoesNotExist`
+  (`wagtail_forum/models/topic_reads.py`, todo 253 slice 5 follow-up). See
+  `backend/docs/patterns/architecture/services.md` and `docs/rules/database.md`.
+
 ## Output Format (Review Mode)" below — do not write prose
 
 ### LSP Workflow (run before the checklist)

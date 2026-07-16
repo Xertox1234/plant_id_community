@@ -57,6 +57,18 @@ Compact checklist auto-injected before edits. Long-form:
   is what makes the check-then-write atomic (e.g. stops an edit's `publish()` from
   resurrecting a concurrently-unpublished row). Catch the exception OUTSIDE the
   `atomic()`, not inside (a caught DB error inside poisons the connection).
+- **Don't wrap `get_or_create`/`update_or_create` in your own
+  `except IntegrityError: .get()` fallback without checking Django's own
+  internals first.** Both already retry their own internal `.get()` once
+  after a failed `create()` and only let `IntegrityError` propagate when that
+  retry ALSO finds nothing — i.e. a genuinely unrecoverable failure (FK
+  violation, etc.), not a lost create-race. A caller-added fallback on top
+  only ever fires in that unrecoverable case, converting an already
+  correctly-typed `IntegrityError` into a confusing masked `DoesNotExist`
+  instead of a safety net. Verify against the exact Django version in
+  `requirements.txt` before assuming — don't take this file's word for it
+  either. See `backend/docs/patterns/architecture/services.md` and
+  `docs/LEARNINGS.md` (2026-07-16) for the full empirical trail.
 - **A `select_for_update().get(pk=…)` re-fetch can itself raise `DoesNotExist`** if
   the row was hard-deleted (e.g. a CASCADE) between the first fetch and the lock.
   In a request handler, catch it and return 404 — do NOT let a blanket
