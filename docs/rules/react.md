@@ -24,6 +24,17 @@ Compact checklist auto-injected before edits. Long-form:
   (`^3.22.5`) resolves to the newest 3.x (e.g. 3.27), whose `peer @tiptap/core` no
   longer matches the pinned core → `npm install` ERESOLVE. Install the exact
   matching version (`@tiptap/extension-image@3.22.5`); `npm ci` then honors the lock.
+- **Read the installed TipTap source before trusting hosted docs or writing a
+  custom `renderHTML`/`renderText` override.** Context7's `/ueberdosis/tiptap-docs`
+  can describe a newer API than what's pinned (`SuggestionProps.mount()` doesn't
+  exist in the installed `@tiptap/suggestion@3.22.5` — only `tsc --noEmit` caught
+  it). A vendor node's own default `renderHTML`/`renderText` frequently already
+  does what you're about to reimplement (e.g. `@tiptap/extension-mention`'s
+  default already prepends the suggestion char AND `mergeAttributes()`s
+  configured `HTMLAttributes` correctly) — check
+  `node_modules/@tiptap/<pkg>/dist/index.js` directly before adding an override;
+  a hand-written one can silently drop configured attrs (hardcoding `{}` instead
+  of merging).
 - **Never `Array(n).fill(makeThing())` for fixtures** — `.fill()` evaluates its
   argument ONCE, so all n slots share one object (duplicate React keys, cross-item
   mutation, warning noise that buries real warnings). Use

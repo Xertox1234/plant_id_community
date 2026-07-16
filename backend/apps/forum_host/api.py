@@ -12,6 +12,7 @@ from django.conf import settings
 from django.utils.decorators import method_decorator
 from wagtail_forum.api import notifications as forum_notification_views
 from wagtail_forum.api import subscriptions as forum_subscription_views
+from wagtail_forum.api import user_search as forum_user_search_views
 from wagtail_forum.api import views as forum_views
 
 from .constants import DEFAULT_FORUM_RATELIMITS
@@ -116,4 +117,9 @@ class NotificationMarkReadView(forum_notification_views.NotificationMarkReadView
 @_throttled("subscription_create", "POST")
 @_throttled("subscription_delete", "DELETE")
 class TopicSubscriptionView(forum_subscription_views.TopicSubscriptionView):
+    pass
+
+
+@_throttled("mention_user_search", "GET", key="user")
+class UserMentionSearchView(forum_user_search_views.UserMentionSearchView):
     pass

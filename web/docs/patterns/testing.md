@@ -185,3 +185,47 @@ screen.getByRole('button', { name: /sign in/i });
 
 This bit `LoginPage.test.tsx` the moment the Google button landed next to the
 password submit. The `/regex/` form is still fine when only one control matches.
+
+---
+
+## TipTap `suggestion.render()`'s DOM Lifecycle Isn't Exercised by a Headless Editor Test
+
+A TipTap `suggestion.render()` factory returns `onStart`/`onUpdate`/`onExit`
+callbacks that ProseMirror's suggestion plugin calls directly against a real,
+mounted `EditorView` (triggered by actual cursor movement). A Vitest test that
+constructs a headless `new Editor({...})` — no mounted view, no real
+selection — can exercise the extension's pure-logic helpers just fine, but
+never triggers `onStart`/`onUpdate` at all: there's no attached view for the
+suggestion plugin to call them against.
+
+```typescript
+// Exercised by a headless Editor test — pure logic, no DOM/view needed:
+resolveMentionSuggestions('foo'); // debounce/token logic testable in isolation
+editor.getHTML(); // renderHTML/renderText output
+
+// NOT exercised by the same test file — needs a mounted view:
+suggestion: {
+  render: () => ({
+    onStart: (props) => {
+      if (!shouldRender(props)) return; // orphan-dropdown guard — untested
+      dropdown = document.createElement('div');
+      document.body.appendChild(dropdown); // ProseMirror calls this directly
+    },
+  }),
+}
+```
+
+Gotchas:
+
+- Don't assume a green `*.test.ts` file for a TipTap extension covers its
+  `render()` lifecycle just because the file has `describe` blocks for that
+  extension — check whether any test actually drives `onStart`/`onUpdate`, or
+  only the extension's pure-logic helpers.
+- To actually exercise `onStart`/`onUpdate`/`onExit`, use Playwright against a
+  real mounted editor — a headless `Editor` in Vitest structurally can't reach
+  them.
+- When a lifecycle guard like this is only reasoning-verified (traced against
+  the library's own source) rather than test-exercised, say so explicitly in
+  the PR/todo Work Log — a passing suite shouldn't imply coverage it doesn't
+  have. See `forumMentionNode.ts`'s `shouldRender` guard and todo 253 slice
+  4's Work Log for the precedent.

@@ -96,3 +96,11 @@ Compact checklist auto-injected before edits.
   instance's OWN `.pk`/`.id` (e.g. serializing an id into a notification
   payload) silently gets `None`/`"None"` instead of a real value. Save the
   instance if anything downstream might read its own primary key.
+- **A TipTap `suggestion.render()`'s `onStart`/`onUpdate` DOM lifecycle isn't
+  exercised by a headless `Editor` test.** Those callbacks fire only when a
+  real ProseMirror view is mounted (actual cursor movement); a Vitest test
+  that only drives pure-logic helpers (item resolution, `renderHTML`/
+  `renderText`) gives false confidence that the whole extension is covered.
+  Verify DOM-lifecycle guards (e.g. an orphan-dropdown `shouldRender` check)
+  via Playwright, or flag explicitly in the Work Log that it's
+  reasoning-verified, not test-exercised. See `web/docs/patterns/testing.md`.

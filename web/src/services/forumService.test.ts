@@ -14,6 +14,7 @@ import {
   unsubscribeFromTopic,
   uploadPostImage,
   searchForum,
+  searchForumUsers,
 } from './forumService';
 import { clearCsrfToken } from '../utils/csrf';
 
@@ -344,6 +345,22 @@ describe('forumService (wagtail_forum API contract)', () => {
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toContain('/topics/12/subscription/');
     expect(opts.method).toBe('DELETE');
+  });
+
+  it('searchForumUsers GETs /users/search/?q=<query>', async () => {
+    fetchMock.mockResolvedValueOnce(okJson([{ username: 'alice', display_name: 'Alice' }]));
+    const results = await searchForumUsers('ali');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/users/search/?q=ali');
+    expect(opts.method ?? 'GET').toBe('GET');
+    expect(results).toEqual([{ username: 'alice', display_name: 'Alice' }]);
+  });
+
+  it('searchForumUsers URL-encodes the query', async () => {
+    fetchMock.mockResolvedValueOnce(okJson([]));
+    await searchForumUsers('a b');
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain('q=a%20b');
   });
 
   it('uploadPostImage POSTs FormData (field "image") to the topic-independent /images/ route', async () => {

@@ -34,6 +34,9 @@ DEFAULTS = {
     # Distinct open reports on a single post before it is auto-unpublished
     # pending moderator review (audit 2026-07-11 C1, todo 254).
     "REPORT_AUTO_HIDE_THRESHOLD": 3,
+    # Max distinct @mentions resolved per post (todo 253 slice 4, H4) — bounds
+    # both parse cost and notification fan-out on a mass-mention post.
+    "MENTION_MAX_PER_POST": 10,
 }
 
 

@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
-from wagtail.models import Page
+from wagtail.models import Page, PageViewRestriction
 from wagtail_forum.models import (
     ForumBoard,
     ForumIndex,
@@ -562,3 +562,262 @@ def test_moderation_decided_swallows_push_delay_failure(caplog):
 
     mock_delay.assert_called_once()
     assert "failed to enqueue push" in caplog.text
+
+
+# ---- mention notifications (todo 253 slice 4, H4) ----------------------------
+
+
+@pytest.mark.django_db
+def test_reply_mentioning_a_user_creates_mention_notification(
+    django_capture_on_commit_callbacks,
+):
+    topic_author = User.objects.create_user(username="mention-author")
+    mentioned = User.objects.create_user(username="mentionbob")
+    replier = User.objects.create_user(username="mention-replier")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="ForumM1", slug="forum-m1"))
+    board = index.add_child(instance=ForumBoard(title="GeneralM1", slug="general-m1"))
+    topic = Topic.objects.create(
+        board=board, title="TM1", slug="t-m1", author=topic_author
+    )
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email.delay") as mock_email,
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(
+            topic=topic,
+            author=replier,
+            body=[{"type": "paragraph", "value": "<p>hi @mentionbob</p>"}],
+        )
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    notification = Notification.objects.get(recipient=mentioned, post=post)
+    assert notification.verb == NotificationVerb.MENTION
+
+    mention_pushes = [c for c in mock_push.call_args_list if c.args[1] == mentioned.pk]
+    assert len(mention_pushes) == 1
+    assert mention_pushes[0].args[0] == "mention"
+    # No other subscribers exist in this fixture, and mentioned users get
+    # bell + push only, never email, this slice — email must not fire at all.
+    mock_email.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_reply_mention_suppresses_duplicate_subscriber_notification(
+    django_capture_on_commit_callbacks,
+):
+    """A user who is both a topic subscriber AND @mentioned in the same reply
+    gets exactly ONE notification — the more-specific "mention", not a
+    second "reply" for the same post (todo 253 slice 4 review, Trap 3). A
+    SEPARATE, non-mentioned subscriber must still get the normal reply
+    notification + email — proving suppression is targeted at the mentioned
+    user, not that email/reply delivery is broken outright."""
+    topic_author = User.objects.create_user(username="mention-sub-author")
+    both = User.objects.create_user(username="mentionsubboth")
+    plain_subscriber = User.objects.create_user(username="mention-sub-plain")
+    replier = User.objects.create_user(username="mention-sub-replier")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="ForumM2", slug="forum-m2"))
+    board = index.add_child(instance=ForumBoard(title="GeneralM2", slug="general-m2"))
+    topic = Topic.objects.create(
+        board=board, title="TM2", slug="t-m2", author=topic_author
+    )
+    TopicSubscription.subscribe(both, topic)
+    TopicSubscription.subscribe(plain_subscriber, topic)
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email.delay") as mock_email,
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(
+            topic=topic,
+            author=replier,
+            body=[{"type": "paragraph", "value": "<p>@mentionsubboth check this</p>"}],
+        )
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    rows = Notification.objects.filter(recipient=both, post=post)
+    assert rows.count() == 1
+    assert rows.get().verb == NotificationVerb.MENTION
+    assert (
+        Notification.objects.get(recipient=plain_subscriber, post=post).verb
+        == NotificationVerb.REPLY
+    )
+
+    pushes_to_both = [c for c in mock_push.call_args_list if c.args[1] == both.pk]
+    assert len(pushes_to_both) == 1
+    assert pushes_to_both[0].args[0] == "mention"
+    # `both` is suppressed into the mention-only path (no email); the plain
+    # subscriber is untouched by suppression and still gets emailed.
+    emailed = {c.args[1] for c in mock_email.call_args_list}
+    assert emailed == {plain_subscriber.pk}
+
+
+@pytest.mark.django_db
+def test_reply_mention_excludes_self_mention(django_capture_on_commit_callbacks):
+    topic_author = User.objects.create_user(username="mentionselfauthor")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="ForumM3", slug="forum-m3"))
+    board = index.add_child(instance=ForumBoard(title="GeneralM3", slug="general-m3"))
+    topic = Topic.objects.create(
+        board=board, title="TM3", slug="t-m3", author=topic_author
+    )
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay"),
+        patch("apps.forum_host.tasks.send_forum_email.delay"),
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(
+            topic=topic,
+            author=topic_author,
+            body=[
+                {
+                    "type": "paragraph",
+                    "value": "<p>@mentionselfauthor note to self</p>",
+                }
+            ],
+        )
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    assert not Notification.objects.filter(
+        recipient=topic_author, post=post, verb=NotificationVerb.MENTION
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_reply_mention_on_restricted_board_does_not_notify(
+    django_capture_on_commit_callbacks,
+):
+    topic_author = User.objects.create_user(username="mention-restricted-author")
+    mentioned = User.objects.create_user(username="mentionrestrictedbob")
+    replier = User.objects.create_user(username="mention-restricted-replier")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="ForumM4", slug="forum-m4"))
+    board = index.add_child(instance=ForumBoard(title="GeneralM4", slug="general-m4"))
+    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    topic = Topic.objects.create(
+        board=board, title="TM4", slug="t-m4", author=topic_author
+    )
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email.delay"),
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(
+            topic=topic,
+            author=replier,
+            body=[{"type": "paragraph", "value": "<p>@mentionrestrictedbob</p>"}],
+        )
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    assert not Notification.objects.filter(
+        recipient=mentioned, post=post, verb=NotificationVerb.MENTION
+    ).exists()
+    assert all(c.args[1] != mentioned.pk for c in mock_push.call_args_list)
+
+
+@pytest.mark.django_db
+def test_topic_created_mentioning_a_user_notifies_via_opening_post(
+    django_capture_on_commit_callbacks,
+):
+    """reply_added only ever sees replies — a mention in a new topic's
+    opening post needs topic_created's own handling (todo 253 slice 4)."""
+    topic_author = User.objects.create_user(username="mention-topic-author")
+    mentioned = User.objects.create_user(username="mentiontopicbob")
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="ForumM5", slug="forum-m5"))
+    board = index.add_child(instance=ForumBoard(title="GeneralM5", slug="general-m5"))
+    topic = Topic.objects.create(
+        board=board, title="TM5", slug="t-m5", author=topic_author
+    )
+
+    with patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push:
+        from apps.forum_host.notifications import dispatch
+
+        opening = Post.objects.create(
+            topic=topic,
+            author=topic_author,
+            is_opening_post=True,
+            body=[{"type": "paragraph", "value": "<p>welcome @mentiontopicbob</p>"}],
+        )
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("topic_created", topic=topic, post=opening)
+
+    notification = Notification.objects.get(recipient=mentioned, post=opening)
+    assert notification.verb == NotificationVerb.MENTION
+    mention_pushes = [c for c in mock_push.call_args_list if c.args[1] == mentioned.pk]
+    assert len(mention_pushes) == 1
+    assert mention_pushes[0].args[0] == "mention"
+
+
+@pytest.mark.django_db
+def test_mention_resolution_query_count_is_independent_of_mention_count(
+    django_capture_on_commit_callbacks,
+):
+    """Mirrors test_reply_added_write_path_query_count_is_independent_of_subscriber_count
+    for the mention path — 1 vs 5 mentions in the same post must cost the same
+    number of queries (a single username__in fetch, not one query per name)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    def _dispatch_mentions(n_mentions, slug):
+        topic_author = User.objects.create_user(username=f"mqc-author-{slug}")
+        root = Page.objects.get(id=1)
+        index = root.add_child(
+            instance=ForumIndex(title=f"ForumMQC{slug}", slug=f"forum-mqc-{slug}")
+        )
+        board = index.add_child(
+            instance=ForumBoard(title=f"GeneralMQC{slug}", slug=f"general-mqc-{slug}")
+        )
+        topic = Topic.objects.create(
+            board=board, title="T", slug=f"t-{slug}", author=topic_author
+        )
+        # No hyphens — the mention regex (@(\w+)) deliberately stops at
+        # sentence punctuation, hyphens included, so a hyphenated username
+        # here would truncate to the same partial match for every i and
+        # collapse this test's N distinct mentions into 1 after dedup.
+        clean_slug = slug.replace("-", "")
+        mentioned_users = [
+            User.objects.create_user(username=f"mqctarget{clean_slug}{i}")
+            for i in range(n_mentions)
+        ]
+        replier = User.objects.create_user(username=f"mqc-replier-{slug}")
+        text = " ".join(f"@{u.username}" for u in mentioned_users)
+        post = Post.objects.create(
+            topic=topic,
+            author=replier,
+            body=[{"type": "paragraph", "value": f"<p>{text}</p>"}],
+        )
+
+        with (
+            patch("apps.forum_host.tasks.send_forum_push.delay"),
+            patch("apps.forum_host.tasks.send_forum_email.delay"),
+        ):
+            from apps.forum_host.notifications import dispatch
+
+            with CaptureQueriesContext(connection) as ctx:
+                with django_capture_on_commit_callbacks(execute=True):
+                    dispatch("reply_added", topic=topic, post=post)
+        return len(ctx.captured_queries)
+
+    few = _dispatch_mentions(1, "mqc-few")
+    many = _dispatch_mentions(5, "mqc-many")
+    assert few == many

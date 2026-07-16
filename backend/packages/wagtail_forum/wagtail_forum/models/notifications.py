@@ -12,8 +12,8 @@ from django.db import models
 
 class NotificationVerb(models.TextChoices):
     REPLY = "reply", "Reply"
-    # mention/moderation/subscription verbs are added by later slices of
-    # todo 253 (H4, H2/H3).
+    MENTION = "mention", "Mention"
+    # moderation/subscription verbs are added by later slices of todo 253.
 
 
 class Notification(models.Model):

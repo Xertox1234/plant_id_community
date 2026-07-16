@@ -9,6 +9,18 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   integration app `backend/apps/forum_host/`, and management commands in
   `backend/apps/forum/management/`. The package core must import nothing
   host-specific — use `settings.AUTH_USER_MODEL`, never a concrete user model.
+- **Host-agnostic also covers instance attributes, not just the FK type.**
+  `settings.AUTH_USER_MODEL` avoids a hardcoded FK, but package code (e.g.
+  `wagtail_forum/api/`) can still break the contract by reading a property
+  that only exists on THIS host's custom User model (e.g. `.display_name`).
+  Use `user.get_full_name() or user.get_username()` instead — both are part
+  of Django's base `AbstractBaseUser`/`AbstractUser` contract, so they work
+  for any host. Mirrors `PostAuthorSerializer.get_display_name`; see the fix
+  in `wagtail_forum/api/user_search.py` (todo 253 slice 4 review, "most
+  significant single finding"). Note: a package-OWNED model can legitimately
+  have its own `display_name` field (e.g. `models/profiles.py`'s `Profile`) —
+  the rule is about reading a *host User model's* attributes, not about the
+  string "display_name" itself.
 - **The forum is always-on — there is no `ENABLE_FORUM` flag.** It was a dead
   no-op after the machina retirement (defined but used nowhere) and was removed
   2026-06-10. Do not re-introduce a gate without wiring it to `INSTALLED_APPS`

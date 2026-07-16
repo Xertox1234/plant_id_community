@@ -97,6 +97,19 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
   actually exercise the wrapped code path (e.g. hit `/cms/` in a test), or
   could the hook be silently broken with nothing surfacing the failure?
 
+### Forum slice 4 additions (2026-07-15)
+
+- In `backend/packages/wagtail_forum/` (or any other host-agnostic package):
+  does code reading a `User` instance's attributes use only
+  `AbstractBaseUser`/`AbstractUser` contract methods (`get_full_name()`,
+  `get_username()`), not a property specific to one host's custom User model
+  (e.g. `.display_name`)? Using `settings.AUTH_USER_MODEL` for the FK type is
+  not sufficient on its own — an instance-attribute read can still break the
+  host-agnostic contract even when the FK type is correct. A package's OWN
+  model legitimately having a `display_name` field (e.g. a `Profile` model)
+  is not the same thing — the check is about attributes read off the *User*
+  instance specifically.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

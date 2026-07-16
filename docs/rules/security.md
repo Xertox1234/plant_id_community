@@ -7,8 +7,14 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   `permission_classes` — a real auth hole. See `architecture/viewsets.md`.
 - **Never f-string table/column names into raw SQL** (migrations included). Use
   `psycopg2.sql.Identifier()` plus an explicit whitelist of allowed names.
-- **Escape SQL `LIKE` wildcards** (`%`, `_`, `\`) in user-supplied search terms
-  before passing to `__icontains`/`__contains` queries.
+- **Don't manually escape SQL `LIKE` wildcards before `__icontains`/`__startswith`/
+  `__endswith` (or their `i`-prefixed forms)** — Django's ORM already
+  auto-escapes `%`/`_`/`\` for all six (`PatternLookup.process_rhs()`,
+  verified against this project's PostgreSQL backend). Stacking
+  `escape_search_query()` on top double-escapes and silently breaks matches
+  containing a literal `%`/`_`/`\`. Reserve manual escaping for lookups that
+  bypass `PatternLookup` (raw SQL, `.extra()`, a custom `Lookup`). See
+  `backend/docs/patterns/security/input-validation.md`.
 - **File uploads: all 4 validation layers** — extension, MIME type, size, and a
   PIL/Pillow decode check. Never trust the client-sent content type alone.
 - **No secrets in code, logs, or commits.** API keys and `SECRET_KEY` come from

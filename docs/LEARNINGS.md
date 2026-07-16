@@ -1012,6 +1012,129 @@ item under "Forum notifications slice 1 additions (2026-07-14)" for this
 exact code shape, so a future review checks whether the on_commit
 registration sits inside or outside the guarded block.
 
+## Forum notifications slice 4 (2026-07-14 additions)
+
+### [2026-07-14] @mention resolution reused a spam-heuristics text walker, resolving invisible mentions from code blocks and link attributes
+
+**Mistake**: the initial implementation of `resolve_mentioned_users()`
+(`wagtail_forum/mentions.py`, todo 253 slice 4, H4) scanned a post's text
+for `@username` tokens via `spam/base.py`'s `extract_text()` — a walker
+built for spam heuristics, which need to see a post's links and code AS
+WRITTEN (raw HTML, unstripped) to detect spam patterns like link floods.
+Mention scanning has the opposite requirement: only text a *reader* can
+see should be able to trigger a mention. Reusing the spam walker meant (1)
+a code block's raw source (e.g. a Python `@property` decorator) resolved
+as a mention nobody could see as one, and (2) an `<a href="…/@victim"
+title="@victim">` tag's *attribute* text resolved as a mention — both
+attributes survive the write-path sanitizer's `nh3` allowlist
+(`api/sanitize.py` permits `href`/`title` on `<a>`), even though only the
+link's visible label ("click here") is ever rendered. Neither leak was
+caught by the initial test suite (all fixtures used plain paragraph text);
+both were found and reproduced during code review (Altitude angle for the
+code-block leak, Angle A for the href leak), then independently confirmed
+by directly constructing a real saved Post and calling `.findall()` on
+the extracted text.
+**Fix**: wrote a dedicated `_mention_scan_text()` in `mentions.py`,
+walking `post.body.raw_data` and calling `django.utils.html.strip_tags()`
+on string block values (paragraph HTML) — `strip_tags()` drops attribute
+VALUES along with the tag markup that carries them, since they were never
+a text node, only tag syntax (verified:
+`strip_tags('<a href="x/@victim" title="@evil">click</a>')` returns
+`'click'`, no attributes survive; a real link label like
+`'<a href="…">@alice</a>'` still yields `'@alice'` — no false negative).
+Code/image blocks (dict/int values) are skipped entirely — not prose a
+mention could plausibly appear in. `spam/base.py`'s `extract_text()` was
+left untouched — it correctly needs the raw values for its own purpose;
+the two consumers' requirements are genuinely different, not a
+duplication to consolidate.
+**Rule**: `backend/docs/patterns/security/input-validation.md` → new
+Pitfall 7, "Reusing a Rendering-Oriented HTML Walker for a Second,
+Security-Sensitive Parser".
+**Trigger**: none registered — the bug is an *omission* (missing
+`strip_tags()`/block-type filtering in a new text-extraction function),
+not a matchable bad-code-shape; a regex trigger broad enough to catch a
+missing safeguard would false-positive on `extract_text()` itself
+(which deliberately doesn't strip tags, for a different, valid reason).
+Left as prose in the pattern doc.
+**Agent**: n/a — no existing reviewer checklist item fits this specific
+StreamField-block-type nuance narrowly enough to add without overfitting
+to this one case; the Altitude/Angle-A angles that caught it are already
+part of the bundled `/code-review` skill's general-purpose finder set.
+
+### [2026-07-14] Documented SQL-wildcard-escaping convention was actively wrong for Django's own auto-escaping lookups
+
+**Mistake**: `backend/CLAUDE.md`, `docs/rules/security.md`, and
+`backend/docs/patterns/security/input-validation.md` all documented
+"escape `%`/`_` with `escape_search_query()` before any `icontains` filter"
+as the correct, required pattern — copied into a new `user_search.py`
+view (todo 253 slice 4, H4) during initial implementation, following the
+documented convention exactly. The view's own test
+(`test_search_escapes_sql_wildcards`) failed:
+`assert set() == {'dave_1'}` — searching for the literal username prefix
+`"dave_"` matched nothing. Root cause, found via `manage.py shell` `.query`
+introspection: Django's `PatternLookup.process_rhs()` (the shared base for
+`contains`/`icontains`/`startswith`/`istartswith`/`endswith`/`iendswith`)
+already calls `prep_for_like_query()` on the raw filter value, auto-escaping
+`%`/`_`/`\` — confirmed this project's PostgreSQL backend does not override
+it. `escape_search_query("dave_")` produces `"dave\_"`; the ORM then
+auto-escapes THAT again into a pattern requiring a literal backslash in the
+matched text, which the real value `"dave_1"` doesn't have — zero matches,
+silently, no error. This is not new/version-specific behavior worth
+hedging on — it's `PatternLookup`'s literal implementation, applicable
+everywhere it's the lookup type in this codebase (confirmed at least 8
+other production call sites follow the same now-known-wrong pattern:
+`apps/blog/{admin_views,api_views,views}.py`,
+`apps/blog/api/viewsets.py`, `apps/plant_identification/views.py`,
+`apps/plant_identification/api/endpoints.py` — NOT audited/fixed as part
+of this slice; flagged for a follow-up todo).
+**Fix**: removed the manual escaping from `user_search.py`, filtering
+directly with the raw (stripped) query. Corrected all three documentation
+sources (CLAUDE.md convention line, the rules bullet, and the pattern doc
+— including its "Pitfall 1"/"Pitfall 6" worked examples, which had
+demonstrated the double-escaping pattern as the "✅ GOOD"/"✅ CORRECT"
+answer) to state the verified behavior and reserve `escape_search_query()`
+for lookups that bypass `PatternLookup` (raw SQL, `.extra()`, a custom
+`Lookup`).
+**Rule**: `docs/rules/security.md`, `backend/CLAUDE.md`,
+`backend/docs/patterns/security/input-validation.md` (all corrected
+2026-07-14 as part of this entry, not left for a future pass).
+**Trigger**: `escape-search-query-before-orm-wildcard-lookup` (severity
+`warn`) — fires on a new `escape_search_query(` call, prompting a check of
+whether it's paired with an auto-escaping lookup before assuming it's needed.
+**Agent**: n/a — a documented-convention correction, not a reviewer
+checklist gap (the reviewers were following the same now-corrected
+convention, not missing a check).
+
+## Forum notifications slice 4 (2026-07-15 additions)
+
+### [2026-07-14] A host-agnostic package can still break its contract via a User INSTANCE attribute, even with the FK type done right (todo 253 slice 4, "most significant single finding")
+
+**Mistake**: `wagtail_forum/api/user_search.py`'s new `mention_user_search`
+endpoint (todo 253 slice 4) read `u.display_name` on each matched user to
+build the response payload. `display_name` is a property that exists only on
+THIS host's custom User model — not part of Django's `AbstractBaseUser`/
+`AbstractUser` contract — so the reusable `wagtail_forum` package would
+break for any other host whose User model lacks it. The package's existing
+convention (`settings.AUTH_USER_MODEL`, never a concrete user model) covers
+the FK *type* but doesn't by itself prevent this: the FK was declared
+correctly, and the bug was purely in which *attribute* got read off the
+resolved instance.
+**Fix**: replaced with `u.get_full_name() or u.get_username()` — both are
+part of the base contract, so they work for any host's User model. Mirrors
+the existing in-repo precedent, `PostAuthorSerializer.get_display_name`
+(`wagtail_forum/api/serializers.py`), which this endpoint should have
+matched from the start.
+**Rule**: `docs/rules/forum.md` — new bullet distinguishing "FK type is
+host-agnostic" from "instance attributes read off that FK must also be
+host-agnostic," with the explicit caveat that a package-OWNED model (e.g.
+`models/profiles.py`'s `Profile.display_name`) is a different, legitimate
+case — the check is about the *User* instance specifically, not the string
+"display_name."
+**Agent**: `.claude/agents/wagtail-reviewer.md` — added under "Forum slice 4
+additions (2026-07-15)": when reviewing `backend/packages/wagtail_forum/` (or
+any host-agnostic package), check that `User` instance attribute reads use
+only base-contract methods, not a host-specific property.
+
 ## Tooling / Agents (2026-07-15 additions)
 
 ### [2026-07-15] A blocking CI gate can silently stop verifying anything after a PR's first commit (todo 266, follow-up to todo 249)

@@ -22,6 +22,8 @@ DEFAULT_FORUM_RATELIMITS = {
     # Same tier as reaction_toggle — an idempotent, low-stakes write.
     "subscription_create": "60/m",
     "subscription_delete": "60/m",
+    # Same tier as `search` — a debounced live-search-as-you-type box.
+    "mention_user_search": "30/m",
 }
 
 # Reply-notification email body excerpt length (todo 253 slice 2, H1).

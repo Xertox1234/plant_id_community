@@ -44,7 +44,10 @@ def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
     """Send a single FCM data message for a forum event.
 
     Args:
-        event: one of "reply_added", "moderation_decided", "topic_created".
+        event: one of "reply_added", "moderation_decided", "topic_created",
+               "mention" (todo 253 slice 4, H4 — dispatched from both
+               reply_added and topic_created's mention handling, not a
+               signal name of its own).
         recipient_user_id: pk of the User whose FCM token to look up.
         data: dict of string key/value pairs to include in the FCM data payload.
               All values are coerced to strings (FCM requirement).

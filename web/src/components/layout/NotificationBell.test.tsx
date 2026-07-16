@@ -100,6 +100,21 @@ describe('NotificationBell', () => {
     expect(await screen.findByText('Ada replied to "Watering Tips"')).toBeInTheDocument();
   });
 
+  it('renders a distinct label for a "mention" notification (todo 253 slice 4)', async () => {
+    vi.mocked(notificationService.fetchUnreadCount).mockResolvedValue(1);
+    vi.mocked(notificationService.fetchNotifications).mockResolvedValue({
+      results: [makeNotification({ verb: 'mention' })],
+      next: null,
+      previous: null,
+    });
+    renderBell();
+
+    await userEvent.click(await screen.findByLabelText(/notifications/i));
+
+    expect(await screen.findByText('Ada mentioned you in "Watering Tips"')).toBeInTheDocument();
+    expect(screen.queryByText('Ada replied to "Watering Tips"')).not.toBeInTheDocument();
+  });
+
   it('shows an empty state when there are no notifications', async () => {
     renderBell();
 

@@ -397,6 +397,52 @@ class TestRealIndexFiresOnKnownBugs(unittest.TestCase):
                        "    error_count += 1\n")
         self.assertNotIn("drf-nonatomic-counter", self.fires(tn, ti))
 
+    def test_escape_search_query_call_fires(self):
+        tn, ti = write(
+            "backend/apps/forum_integration/api_views.py",
+            "safe_query = escape_search_query(query)\n"
+            "qs = qs.filter(title__icontains=safe_query)\n",
+        )
+        self.assertIn(
+            "escape-search-query-before-orm-wildcard-lookup", self.fires(tn, ti)
+        )
+
+    def test_plain_icontains_no_escape_call_silent(self):
+        # No escape_search_query() call at all — nothing to double-check.
+        tn, ti = write(
+            "backend/apps/forum_integration/api_views.py",
+            "qs = qs.filter(title__icontains=query)\n",
+        )
+        self.assertNotIn(
+            "escape-search-query-before-orm-wildcard-lookup", self.fires(tn, ti)
+        )
+
+    def test_tiptap_renderhtml_without_mergeattributes_fires(self):
+        tn, ti = write(
+            "web/src/components/forum/forumMentionNode.ts",
+            "export const X = Mention.configure({\n"
+            "  renderHTML({ options, node }) {\n"
+            "    return ['span', {}, node.attrs.label];\n"
+            "  },\n"
+            "});\n",
+        )
+        self.assertIn(
+            "tiptap-custom-renderhtml-missing-mergeattributes", self.fires(tn, ti)
+        )
+
+    def test_tiptap_renderhtml_with_mergeattributes_silent(self):
+        tn, ti = write(
+            "web/src/components/forum/forumMentionNode.ts",
+            "export const X = Mention.configure({\n"
+            "  renderHTML({ options, node, HTMLAttributes }) {\n"
+            "    return ['span', mergeAttributes(HTMLAttributes), node.attrs.label];\n"
+            "  },\n"
+            "});\n",
+        )
+        self.assertNotIn(
+            "tiptap-custom-renderhtml-missing-mergeattributes", self.fires(tn, ti)
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

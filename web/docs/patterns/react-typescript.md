@@ -139,3 +139,117 @@ Rule of thumb: pass the **string** you intend to display into a `sanitize*`/tran
 helper, never a structured object. This bit both `LoginPage` and `SignupPage`: the
 auth `error.message` was already a clean, readable string (the service layer even
 flattens DRF field errors into it); only the render call was wrong.
+
+---
+
+## TipTap: Verify Installed Source Before Trusting Docs or Writing an Override
+
+A pinned TipTap version (see `docs/rules/react.md`'s exact-version-pin rule) can
+lag behind what Context7's hosted docs describe, and a vendor extension's own
+default `renderHTML`/`renderText` frequently already does what a custom override
+is about to reimplement — check `node_modules/@tiptap/<pkg>/dist/index.js`
+directly before writing one (todo 253 slice 4 review).
+
+**Docs-vs-installed mismatch** (`@tiptap/suggestion@3.22.5`): the hosted
+`SuggestionProps` docs describe a `props.mount(el)` auto-positioning helper.
+The installed version's actual type only has `clientRect`:
+
+```typescript
+// ❌ Compiles against the docs, fails tsc --noEmit against what's installed
+onStart: (props: SuggestionProps) => {
+  props.mount(dropdown); // Property 'mount' does not exist on type 'SuggestionProps<...>'
+},
+
+// ✅ What 3.22.5 actually supports — position manually from clientRect()
+onStart: (props: SuggestionProps) => {
+  const rect = props.clientRect?.();
+  if (rect) {
+    dropdown.style.position = 'fixed';
+    dropdown.style.top = `${rect.bottom + 4}px`;
+    dropdown.style.left = `${rect.left}px`;
+  }
+},
+```
+
+**Reimplementing an already-correct default** (`@tiptap/extension-mention`):
+the vendor's own default `renderHTML`/`renderText` already prepend the
+suggestion char and correctly `mergeAttributes()` the configured
+`HTMLAttributes` — read directly from
+`node_modules/@tiptap/extension-mention/dist/index.js`:
+
+```javascript
+// The vendor default (already correct, don't reimplement this):
+renderHTML({ options, node, suggestion }) {
+  return [
+    'span',
+    mergeAttributes(this.HTMLAttributes, options.HTMLAttributes),
+    `${suggestion?.char ?? '@'}${node.attrs.label ?? node.attrs.id}`,
+  ];
+}
+```
+
+A custom override that skips `mergeAttributes()` silently drops the
+configured styling while LOOKING correct (the "@" prefix still renders,
+since that part's easy to get right by hand — the attribute merge is the
+part that's easy to get wrong):
+
+```typescript
+// ❌ Hardcodes {} for attrs — the configured `class` never reaches the DOM
+renderHTML({ options, node }) {
+  return ['span', {}, `${options.suggestion.char}${node.attrs.label ?? node.attrs.id}`];
+},
+```
+
+If the vendor default already does what you need, delete the override
+entirely rather than patching it — don't maintain a parallel reimplementation
+of code the library ships.
+
+---
+
+## Debounce + Stale-Response Guard Outside a Component
+
+`docs/rules/react.md`'s `useRef`-for-timers rule covers debounce **inside** a
+React component (an effect can clean up the ref on unmount). A plain TS module
+— e.g. a TipTap `suggestion.items` callback, not a component — has no
+lifecycle to hook a cleanup into, and a debounce timer alone doesn't protect
+against **out-of-order network responses**: once two debounced calls both
+survive their wait and reach the network, response order isn't guaranteed by
+request order. A slow-but-earlier response arriving after a fast-but-later one
+can overwrite fresher results with stale ones (todo 253 slice 4 review — this
+is exactly how a TipTap mention-autocomplete dropdown could resurrect itself
+after the user already dismissed it).
+
+A single shared token, bumped on every new call and checked after the network
+response resolves, covers both the debounce-cancellation case (the token check
+is almost always moot there — clearing the pending timer already stops the
+superseded call from ever reaching the network) and the genuine race (both
+calls survive debounce, the token catches whichever one is stale once they
+both resolve):
+
+```typescript
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let requestToken = 0;
+
+export async function search(query: string): Promise<Result[]> {
+  if (!query) return [];
+  const myToken = ++requestToken;
+  if (debounceTimer) clearTimeout(debounceTimer);
+  await new Promise<void>((resolve) => {
+    debounceTimer = setTimeout(resolve, 300); // matches SearchPage.tsx's window
+  });
+  try {
+    const results = await api.search(query);
+    if (myToken !== requestToken) return []; // a newer call has since started
+    return results;
+  } catch {
+    return [];
+  }
+}
+```
+
+The superseded call's `await new Promise(...)` (cancelled via `clearTimeout`)
+never resumes — that's fine; nothing calls its `resolve`, so it just never
+completes rather than resolving with stale data. Test the race directly by
+mocking the network call with two manually-resolvable promises and resolving
+them out of order — a debounce-only test (single call, fake-timers advance)
+doesn't exercise this path at all.
