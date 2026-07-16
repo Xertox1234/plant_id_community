@@ -97,7 +97,10 @@ Sequenced so each step ships value alone:
       design (scope decision, slice 4) — no public-profile page exists
       anywhere in the app yet; mentions render as plain `@username` text.
       True linkification is a follow-up todo once a profile page exists.
-- [ ] Topic lists show an unread/new indicator
+- [x] Topic lists show an unread/new indicator — satisfied since slice 5:
+      server-side read-state (`TopicRead` + `ForumProfile.read_watermark_at`)
+      badges both never-opened and previously-read-but-newly-replied topics,
+      via a zero-added-query queryset annotation.
 - [ ] At least one real client (web or mobile) registers an FCM token and
       receives a push end-to-end
 
@@ -849,6 +852,215 @@ Sequenced so each step ships value alone:
 - Not archived — 2 slices remain (H10 unread, FCM residue). Todo stays
   `in_progress`.
 
+### 2026-07-16 - Slice 5 (H10: unread/new topic indicators) shipped
+
+- **Scope decisions (user-approved via AskUserQuestion):**
+  1. **Server-side read-state, not localStorage** — the todo's own text
+     sanctioned a "cheap localStorage first pass" as an acceptable v1, but the
+     user chose the more durable option because mobile is this project's
+     primary platform (root `CLAUDE.md`): todo 260's future mobile client
+     needs the same read-state a web-only localStorage hack wouldn't provide.
+  2. **Badge unseen/brand-new topics too**, not only previously-read topics
+     with a new reply since.
+  3. **Slice 5 only** — AC6/slice 6 (FCM residue) stays untouched.
+- **Design substitution, transparently documented and user-confirmed before
+  implementation**: the user's framing ("baseline unseen on your account-join
+  date") doesn't map onto a host-agnostic field — `user.date_joined` is
+  `AbstractUser`-only, off-limits to this package (same constraint that
+  rejected a host-specific `display_name` in slice 4). Substituted a new
+  `ForumProfile.read_watermark_at` field, which delivers the same product
+  outcome (new-since-you-showed-up topics are "new") through a host-agnostic
+  mechanism, and additionally bounds the "everything since a possibly-old
+  join date is unread on ship day" flood for already-caught-up existing
+  members via the migration's backfill.
+- **The unread rule** — a 3-level `Coalesce` fallback per topic per user:
+  `TopicRead.last_read_at` (this exact topic, explicitly opened) →
+  `ForumProfile.read_watermark_at` (this user's general "caught up as of"
+  baseline; backfilled to migration-apply time for existing profiles,
+  stamped at creation time for new ones) → `WAGTAILFORUM_UNREAD_LAUNCH_AT`
+  (a fixed launch-day constant, the last resort for a user with no profile
+  row at all). A topic is unread when `last_post_at` is newer than whichever
+  baseline applies.
+- **Backend**: new `TopicRead` model (`wagtail_forum/models/topic_reads.py`,
+  `(user, topic)` unique constraint, race-safe `mark_read()` upsert matching
+  the package's established `IntegrityError`-fallback house convention) +
+  `ForumProfile.read_watermark_at` (`default=timezone.now`, not
+  `auto_now_add`, so a future "mark all read" action can advance it) — both
+  in one migration (`0016_topicread.py`, Django combined the `CreateModel`
+  and the `AddField`, matching migration 0014's precedent of bundling
+  schema+data). New `WAGTAILFORUM_UNREAD_LAUNCH_AT` setting (`conf.py`).
+  `_annotate_topic_unread()` (`api/views.py`) annotates `is_unread` on
+  `TopicListView`'s queryset unconditionally (a `Value(False)` constant for
+  anonymous, the real `Coalesce` chain for authenticated) via correlated
+  `Subquery` expressions folded into the single SELECT — zero added
+  Python-level queries, confirmed by an authenticated-request variant of the
+  existing pinned query-count test (still exactly 3).
+  `TopicDetailView.retrieve()` gained a second `on_commit`-registered
+  callback (`_mark_read`, alongside the pre-existing `view_count` one) that
+  upserts the `TopicRead` row and ensures a `ForumProfile` row exists on every
+  authenticated GET.
+- **Frontend**: `is_unread` threaded through `BackendTopicListItem` →
+  `Thread` → `ThreadCard.tsx` (a "New" badge pill, matching the existing
+  Pinned/Locked badge recipe exactly) — small and additive, mirroring the
+  `is_subscribed` precedent from slice 3.
+- **Code review** (`code-review-orchestrator` — 4 domain reviewers: django-drf,
+  wagtail, react-typescript, cross-cutting — dispatched directly since the
+  orchestrator can't itself spawn sub-agents, a known limitation from slices
+  3-4; cross-cutting's retry failed twice on API stream stalls with no
+  findings recovered either time, not re-retried a third time — past
+  diminishing returns per the advisor, and every other angle had already
+  converged) + the bundled `/code-review --effort high` skill (10 finder
+  angles + 1-vote verify + a gap sweep) — 14 dispatches total, unusually heavy
+  convergence (one doc typo alone was independently caught 7+ times). Fixed,
+  grouped by theme:
+  - **[correctness, empirically confirmed — Angle E]** `transaction.on_commit()`
+    does not defer in this project's runtime: verified directly via a real
+    `APIClient` GET wrapped in `CaptureQueriesContext` against the production
+    urlconf (`manage.py shell`, `connection.in_atomic_block` confirmed
+    `False`, no ambient `atomic()` anywhere around this view) — both the
+    pre-existing `view_count` UPDATE and this slice's new writes fired
+    inline, immediately, as part of the same request. Advisor-reviewed
+    disposition: this is Django's documented autocommit behavior, not a
+    regression — the writes always ran during the request either way, with
+    or without `on_commit`, so there's nothing to "fix" in this slice, and
+    re-litigating the pre-existing `view_count` feature (slice 1) from here
+    would be scope creep chasing a non-bug. The one genuinely actionable
+    consequence, applied: `robust=True` on the new `_mark_read` callback, so
+    an exception inside it (verified against Django 6.0.7's actual
+    `captureOnCommitCallbacks` source: `robust=True` callbacks are caught and
+    logged, not propagated) can never turn an already-successful 200 into a
+    500. New test (`test_topic_read_failure_does_not_5xx_the_response`)
+    monkeypatches `TopicRead.mark_read` to raise and confirms the response
+    still comes back 200. Documented the broader finding (affects the
+    pre-existing `view_count` feature too, not just this slice) in the new
+    follow-up todo below rather than touching slice 1's code.
+  - **[efficiency + correctness, Efficiency angle, disposition corrected
+    after review]** `TopicRead.mark_read`/`ForumProfile.for_user` fired on
+    every authenticated GET with no dedup. A naive copy of `view_count`'s
+    plain TTL-keyed `cache.add()` dedup would have been a correctness
+    regression — it would silently swallow a legitimate new-reply write
+    inside the TTL window. Fixed with a dedup key that folds in
+    `last_post_at` (free from the response already built, zero extra query),
+    so a new reply naturally rotates the key instead of being suppressed.
+    This changes an existing test's real semantics — the old
+    `test_topic_read_updates_same_row_on_repeat_visit` assumed every repeat
+    visit advances `last_read_at`, which is no longer true within the same
+    epoch — split honestly into two tests:
+    `test_topic_read_dedup_suppresses_redundant_write_in_same_epoch` (same
+    `last_post_at`, timestamp genuinely unchanged, not just tolerant `>=`)
+    and `test_topic_read_updates_after_new_reply_since_last_visit` (proves
+    the dedup doesn't also swallow a visit that legitimately should record a
+    fresh read).
+  - **[correctness/security, 6+ independent reviewers converged]**
+    `parse_datetime(get_setting("UNREAD_LAUNCH_AT"))` had no validation — a
+    malformed setting would silently degrade `is_unread` to `False` for
+    every profile-less user rather than surfacing the misconfiguration.
+    Fixed to raise `ImproperlyConfigured` on an unparseable value (and
+    `make_aware()` a naive one) — which the project's existing custom
+    exception handler (`apps/core/exceptions.py`) converts into a loud,
+    logged 500, not a silently-wrong 200. New test confirms the 500 (not a
+    raised Python exception — the handler catches and converts it, learned
+    empirically when the first version of this test asserted the wrong
+    thing and failed with "DID NOT RAISE").
+  - **[test-coverage gap, django-drf-reviewer]** No test proved
+    `TopicRead.last_read_at` actually wins the `Coalesce` over
+    `ForumProfile.read_watermark_at` when they disagree — swapping the
+    argument order would have passed every existing test. Added
+    `test_is_unread_prefers_topic_read_over_profile_watermark_when_they_disagree`
+    (watermark says unread, a specific `TopicRead` after the last post says
+    read; asserts the specific signal wins).
+  - **[test-coverage gap, django-drf-reviewer]** No test drove the real loop
+    end-to-end through both live endpoints (only hand-seeded rows). Added
+    `test_ac5_end_to_end_open_detail_then_list_reflects_read`: list shows
+    unread → open detail → list shows read → simulate a new reply → list
+    shows unread again.
+  - **[simplification, verified against actual SQL — Simplification angle]**
+    `ExpressionWrapper(Q(...), output_field=BooleanField())` simplified to a
+    bare `Q(last_post_at__gt=F("_read_baseline"))` — confirmed bare `Q`
+    already resolves `output_field=BooleanField` via `WhereNode` internals on
+    this Django version.
+  - **[efficiency, Efficiency angle]** `_read_baseline` changed from
+    `.annotate()` to `.alias()` — a pure intermediate the serializer never
+    reads (Django 3.2+, zero risk on this project's Django 6.0).
+  - **[simplification, Simplification angle]** Hoisted this slice's own new
+    local imports (`get_setting`, `ForumProfile`, `TopicRead`, inside
+    `_annotate_topic_unread` and the new `_mark_read` closure) to module
+    level. Left two pre-existing local imports elsewhere in the same file
+    (the `view_count` TTL lookup, `MeProfileView.get_object()`) untouched —
+    out of scope, not introduced by this slice.
+  - **[correctness, advisor-flagged]** `TopicListSerializer.is_unread` gained
+    `read_only=True`, matching the field's inherently-read-only nature (the
+    view's queryset annotation is the only writer).
+  - **[doc accuracy, 7+ independent reviewers on one line]** `profiles.py`'s
+    `read_watermark_at` comment cited "migration 0017" — the real migration
+    is `0016` (Django bundled the `TopicRead` `CreateModel` and this
+    `AddField` into one file). Fixed.
+  - **[doc accuracy, wagtail-reviewer + django-drf-reviewer]**
+    `topic_reads.py`'s module docstring pointed at "`apps/forum_host`'s API
+    views" for the unread computation — wrong; it's
+    `wagtail_forum/api/views.py`'s `_annotate_topic_unread`, a host-agnostic
+    package file. Fixed.
+  - **[doc accuracy, wagtail-reviewer]** `conf.py`'s `UNREAD_LAUNCH_AT`
+    comment had leftover todo-file shorthand ("W/models/profiles.py") that
+    doesn't parse as a real path outside planning docs. Fixed to a real
+    module path.
+  - **[low, react-typescript-reviewer]** `ThreadCard.tsx`'s badges container
+    gained `flex-wrap` (max simultaneous badges rises from 2 to 3 with "New"
+    added).
+  - **[documented + follow-up todo 271, not fixed inline]** Three related
+    edge cases, none blocking AC5: (1) **watermark trigger-scope**
+    (Altitude/Angle C/Efficiency convergence) — `ForumProfile.for_user()` is
+    also called from `MeProfileView` and the push-delivery task, so an
+    unrelated action can prematurely collapse a pre-ship sleeper account's
+    entire unread backlog, not just the topic they were looking at (if any);
+    no clean fix exists under the package's host-agnostic, single-purpose
+    `for_user()` design, so documented accurately in the field's code
+    comment rather than silently left as "self-heals on next topic open" (a
+    claim proven incomplete). (2) **The on_commit-inline-execution reality**
+    above — pre-existing (slice 1), not this slice's to fix. (3) **A user's
+    own reply shows their own topic as "unread" to themselves** (Angle A) —
+    confirmed real, not masked, via a direct code trace: `ThreadDetailPage.
+    tsx`'s `handleReply` re-fetches only the posts sub-list after posting,
+    never the thread/topic detail itself, so `TopicRead.mark_read` never
+    fires again after replying, and the reply's own timestamp becomes the
+    topic's new `last_post_at`. Cosmetic and self-correcting (clears the next
+    time anyone re-opens that topic), but the fix means opening
+    `apps/forum_host/notifications.py` — an unfamiliar file with its own
+    transaction conventions — for a non-blocking polish item, so deferred
+    rather than expanding this slice's diff into a file otherwise untouched.
+  - Also independently verified and ruled out (no code change, no test
+    needed): whether a topic could ever reach the list endpoint with a null
+    `last_post_at` (which would make `is_unread` resolve to SQL `NULL`
+    instead of a boolean, via 3-valued-logic comparison) — traced
+    `workflow.py`'s `submit_for_moderation` (~line 129: "Publish the topic
+    only when its own author's opening post goes live"), confirming a
+    `Topic.live=True` transition is structurally always paired with its
+    opening post also being live, which the pre-existing counters signal
+    always resolves to a non-null `last_post_at` first. Surfaced only
+    because a contract-spot-check script created a topic directly
+    (bypassing the moderation flow, unlike any real topic) — a test/script
+    artifact, not a reachable production state.
+  - Re-verified after every fix: backend `381 passed`
+    (`apps/forum_host/tests/ packages/wagtail_forum/wagtail_forum/tests/`),
+    frontend `628 passed`, `manage.py check` clean, `makemigrations --check
+    --dry-run` → "No changes detected", `type-check` clean, `lint` → 0
+    errors (1 pre-existing warning, generated coverage artifact, unrelated).
+    Contract spot-check (rolled-back `manage.py shell` probe against the real
+    `/api/v1/forum/...` production urlconf, not the isolated test urlconf):
+    confirmed `is_unread` is a genuine JSON boolean (not `0`/`1`/`null`) on
+    the list endpoint, absent from the detail endpoint's response (by
+    design — AC5 is list-only), and correctly flips `True` → `False` after a
+    real `TopicRead` row exists.
+  - Manual browser E2E not run this session — consistent with slices 1-4's
+    convention (no Playwright spec exists for the forum list/detail flow;
+    `web/CLAUDE.md` excludes E2E from CI already).
+- **AC boxes**: AC5 flipped — topic lists show a "New" badge for both
+  never-opened topics (relative to the user's watermark or the launch
+  constant) and previously-read topics with a new reply since. AC6 (FCM
+  registration) remains the sole residue item.
+- Not archived — 1 slice remains (AC6, FCM residue, coordinates with todo
+  260). Todo stays `in_progress`.
+
 ## Notes
 
 p1 by user triage decision. C2 (one of only two Critical findings) anchors this
@@ -858,3 +1070,6 @@ Related: todo 267 (filed 2026-07-14 from slice 2's code review) tracks the
 Related: todo 268 (filed 2026-07-14 from slice 3's code review) tracks the
 reply fan-out's N-sequential-Celery-enqueue scaling gap, deferred rather than
 fixed inline.
+Related: todo 271 (filed 2026-07-16 from slice 5's code review) tracks three
+unread/read-state edge cases (watermark trigger-scope, on_commit-inline
+reality, own-post-shows-unread), none blocking AC5.

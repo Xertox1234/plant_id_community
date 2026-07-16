@@ -3,9 +3,17 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import (
+    ForumBoard,
+    ForumIndex,
+    ForumProfile,
+    Post,
+    Topic,
+    TopicRead,
+)
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
@@ -196,3 +204,168 @@ def test_view_count_does_not_add_queries_to_response():
 
     assert resp.status_code == 200
     assert len(ctx.captured_queries) == 4
+
+
+# ---- read-recording (todo 253 slice 5, H10) ---------------------------------
+
+
+@pytest.mark.django_db
+def test_topic_read_recorded_on_get(django_capture_on_commit_callbacks):
+    board = _board(slug="tr-board")
+    reader = User.objects.create_user(username="tr-reader")
+    topic = Topic.objects.create(board=board, title="TR", slug="tr", live=True)
+    assert not TopicRead.objects.filter(user=reader, topic=topic).exists()
+
+    client = APIClient()
+    client.force_authenticate(reader)
+    with django_capture_on_commit_callbacks(execute=True):
+        client.get(f"/forum/topics/{topic.id}/")
+
+    assert TopicRead.objects.filter(user=reader, topic=topic).exists()
+
+
+@pytest.mark.django_db
+def test_topic_read_ensures_forum_profile_exists(django_capture_on_commit_callbacks):
+    board = _board(slug="tr-board2")
+    reader = User.objects.create_user(username="tr-reader2")
+    topic = Topic.objects.create(board=board, title="TR2", slug="tr2", live=True)
+    assert not ForumProfile.objects.filter(user=reader).exists()
+
+    client = APIClient()
+    client.force_authenticate(reader)
+    with django_capture_on_commit_callbacks(execute=True):
+        client.get(f"/forum/topics/{topic.id}/")
+
+    assert ForumProfile.objects.filter(user=reader).exists()
+
+
+@pytest.mark.django_db
+def test_topic_read_dedup_suppresses_redundant_write_in_same_epoch(
+    django_capture_on_commit_callbacks,
+):
+    # Keyed on (topic, viewer, last_post_at) — a second visit with no new
+    # activity in between is a no-op: the row already correctly reflects
+    # "read as of the first visit," so re-writing it would be wasted work.
+    board = _board(slug="tr-board3")
+    reader = User.objects.create_user(username="tr-reader3")
+    topic = Topic.objects.create(board=board, title="TR3", slug="tr3", live=True)
+
+    client = APIClient()
+    client.force_authenticate(reader)
+    # Each on_commit callback only fires when ITS OWN capture block exits, not
+    # incrementally — two separate blocks so the intermediate state is real.
+    with django_capture_on_commit_callbacks(execute=True):
+        client.get(f"/forum/topics/{topic.id}/")
+    first_read_at = TopicRead.objects.get(user=reader, topic=topic).last_read_at
+
+    with django_capture_on_commit_callbacks(execute=True):
+        client.get(f"/forum/topics/{topic.id}/")
+
+    assert TopicRead.objects.filter(user=reader, topic=topic).count() == 1
+    second_read_at = TopicRead.objects.get(user=reader, topic=topic).last_read_at
+    assert second_read_at == first_read_at
+
+
+@pytest.mark.django_db
+def test_topic_read_updates_after_new_reply_since_last_visit(
+    django_capture_on_commit_callbacks,
+):
+    # A new reply changes last_post_at, which rotates the dedup key — proving
+    # the dedup above doesn't also swallow a visit that legitimately should
+    # record a fresh read (the Efficiency-angle correctness concern).
+    board = _board(slug="tr-board6")
+    reader = User.objects.create_user(username="tr-reader6")
+    topic = Topic.objects.create(board=board, title="TR6", slug="tr6", live=True)
+
+    client = APIClient()
+    client.force_authenticate(reader)
+    with django_capture_on_commit_callbacks(execute=True):
+        client.get(f"/forum/topics/{topic.id}/")
+    first_read_at = TopicRead.objects.get(user=reader, topic=topic).last_read_at
+
+    topic.last_post_at = timezone.now()
+    topic.save(update_fields=["last_post_at"])
+
+    with django_capture_on_commit_callbacks(execute=True):
+        client.get(f"/forum/topics/{topic.id}/")
+
+    assert TopicRead.objects.filter(user=reader, topic=topic).count() == 1
+    second_read_at = TopicRead.objects.get(user=reader, topic=topic).last_read_at
+    assert second_read_at > first_read_at
+
+
+@pytest.mark.django_db
+def test_topic_read_not_recorded_for_anonymous(django_capture_on_commit_callbacks):
+    board = _board(slug="tr-board4")
+    topic = Topic.objects.create(board=board, title="TR4", slug="tr4", live=True)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        APIClient().get(f"/forum/topics/{topic.id}/")
+
+    assert not TopicRead.objects.filter(topic=topic).exists()
+
+
+@pytest.mark.django_db
+def test_topic_read_failure_does_not_5xx_the_response(
+    django_capture_on_commit_callbacks, monkeypatch
+):
+    """robust=True (Angle E): a broken read-marking callback logs and is
+    swallowed — it must never turn an already-successful 200 into a 500."""
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated failure")
+
+    monkeypatch.setattr(TopicRead, "mark_read", _boom)
+
+    board = _board(slug="tr-board5")
+    reader = User.objects.create_user(username="tr-reader5")
+    topic = Topic.objects.create(board=board, title="TR5", slug="tr5", live=True)
+
+    client = APIClient()
+    client.force_authenticate(reader)
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client.get(f"/forum/topics/{topic.id}/")
+
+    assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_UNREAD_LAUNCH_AT="2020-01-01T00:00:00Z")
+def test_ac5_end_to_end_open_detail_then_list_reflects_read(
+    django_capture_on_commit_callbacks,
+):
+    """AC5 loop through both real endpoints, not hand-seeded TopicRead/
+    ForumProfile rows: a topic is unread in the list, opening it via the
+    detail endpoint clears that, and a new reply since re-flags it."""
+    board = _board(slug="ac5-board")
+    author = User.objects.create_user(username="ac5-author")
+    reader = User.objects.create_user(username="ac5-reader")
+    topic = Topic.objects.create(
+        board=board,
+        title="AC5",
+        slug="ac5-topic",
+        author=author,
+        live=True,
+        last_post_at=timezone.now(),
+    )
+    client = APIClient()
+    client.force_authenticate(reader)
+
+    list_before = client.get(f"/forum/boards/{board.slug}/topics/")
+    assert list_before.data["results"][0]["is_unread"] is True
+
+    with django_capture_on_commit_callbacks(execute=True):
+        detail = client.get(f"/forum/topics/{topic.id}/")
+    assert detail.status_code == 200
+
+    list_after = client.get(f"/forum/boards/{board.slug}/topics/")
+    assert list_after.data["results"][0]["is_unread"] is False
+
+    # Simulate a new reply the same way the rest of this suite does — bump
+    # the activity signal directly rather than re-deriving Wagtail's publish
+    # chain, which this test isn't meant to exercise.
+    topic.last_post_at = timezone.now()
+    topic.save(update_fields=["last_post_at"])
+
+    list_after_reply = client.get(f"/forum/boards/{board.slug}/topics/")
+    assert list_after_reply.data["results"][0]["is_unread"] is True

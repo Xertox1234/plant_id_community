@@ -48,7 +48,7 @@ function ThreadCard({ thread, compact = false, hideAuthor = false }: ThreadCardP
     >
       <Link to={threadUrl} className="block">
         {/* Badges */}
-        <div className="flex gap-2 mb-2">
+        <div className="flex flex-wrap gap-2 mb-2">
           {thread.is_pinned && (
             <span className="px-2 py-1 bg-tertiary/20 text-ink text-xs font-semibold rounded">
               📌 Pinned
@@ -57,6 +57,11 @@ function ThreadCard({ thread, compact = false, hideAuthor = false }: ThreadCardP
           {thread.is_locked && (
             <span className="px-2 py-1 bg-surface-3 text-ink-2 text-xs font-semibold rounded">
               🔒 Locked
+            </span>
+          )}
+          {thread.is_unread && (
+            <span className="px-2 py-1 bg-primary/10 text-primary text-xs font-semibold rounded">
+              New
             </span>
           )}
         </div>

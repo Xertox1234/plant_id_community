@@ -7,6 +7,7 @@ from .reactions import Reaction
 from .reports import Report
 from .subscriptions import TopicSubscription
 from .tombstones import TopicDeletedLog
+from .topic_reads import TopicRead
 from .topics import Topic
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "SpamCheckTask",
     "Topic",
     "TopicDeletedLog",
+    "TopicRead",
     "TopicSubscription",
     "TrustLevel",
 ]

@@ -55,6 +55,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       view_count: 99,
       last_post_at: '2026-01-02T00:00:00Z',
       last_post_author: 'jdoe',
+      is_unread: false,
     });
     expect(t).toMatchObject({
       id: '12',
@@ -82,8 +83,27 @@ describe('forumMappers (wagtail_forum contract)', () => {
       view_count: 0,
       last_post_at: null,
       last_post_author: null,
+      is_unread: false,
     });
     expect(t.author?.username).toBe('[deleted]');
+  });
+
+  it('mapTopicListItemToThread passes through is_unread', () => {
+    const base = {
+      id: 1,
+      title: 'T',
+      slug: 't',
+      author: 'u',
+      is_pinned: false,
+      is_closed: false,
+      locked: false,
+      reply_count: 0,
+      view_count: 0,
+      last_post_at: null,
+      last_post_author: null,
+    };
+    expect(mapTopicListItemToThread({ ...base, is_unread: true }).is_unread).toBe(true);
+    expect(mapTopicListItemToThread({ ...base, is_unread: false }).is_unread).toBe(false);
   });
 
   it('mapTopicListItemToThread maps is_closed OR locked → is_locked', () => {
@@ -99,6 +119,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       view_count: 0,
       last_post_at: null,
       last_post_author: null,
+      is_unread: false,
     };
     expect(mapTopicListItemToThread(base).is_locked).toBe(true);
     // Wagtail-locked but open: previously invisible in lists (audit 2026-07-11 L3)

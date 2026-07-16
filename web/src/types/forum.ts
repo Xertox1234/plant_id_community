@@ -39,6 +39,7 @@ export interface Thread {
   is_locked?: boolean;
   is_active?: boolean;
   is_subscribed?: boolean;
+  is_unread?: boolean;
 }
 
 /**

@@ -43,6 +43,7 @@ const backendTopicListItem = {
   view_count: 99,
   last_post_at: '2026-01-02T00:00:00Z',
   last_post_author: 'jdoe',
+  is_unread: false,
 };
 
 const backendTopicDetail = {

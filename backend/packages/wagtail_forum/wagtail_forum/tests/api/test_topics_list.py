@@ -3,11 +3,11 @@ import datetime
 import pytest
 from django.contrib.auth import get_user_model
 from django.db import connection
-from django.test.utils import CaptureQueriesContext
+from django.test.utils import CaptureQueriesContext, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Topic
+from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Topic, TopicRead
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
@@ -188,3 +188,222 @@ def test_pinned_ordering_is_cursor_stable_across_pages():
 
     assert len(slugs) == 26
     assert len(set(slugs)) == 26  # no duplicates, no omissions across pages
+
+
+# ---- is_unread (todo 253 slice 5, H10) -------------------------------------
+
+
+@pytest.mark.django_db
+def test_topics_list_authenticated_query_count_is_still_pinned_at_3():
+    """The is_unread annotation (_annotate_topic_unread) adds two correlated
+    Subquery lookups, but they fold into the single topics-page SELECT as
+    scalar subquery expressions — zero added Python-level round-trips. Same
+    pin as the anonymous case above, not a new number."""
+    board = _board()
+    author = User.objects.create_user(username="ada-auth")
+    viewer = User.objects.create_user(username="viewer-auth")
+    for i in range(25):
+        Topic.objects.create(
+            board=board,
+            title=f"T{i}",
+            slug=f"auth-t{i}",
+            author=author,
+            live=True,
+            last_post_at=timezone.now() - datetime.timedelta(minutes=i),
+        )
+
+    client = APIClient()
+    client.force_authenticate(viewer)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get(f"/forum/boards/{board.slug}/topics/")
+
+    assert resp.status_code == 200
+    # Pinned EXACTLY (docs/rules/testing.md) — same 3 as the anonymous pin;
+    # if this changes, explain the new number here.
+    assert len(ctx.captured_queries) == 3
+
+
+@pytest.mark.django_db
+def test_is_unread_false_for_anonymous_request():
+    board = _board()
+    Topic.objects.create(
+        board=board,
+        title="New",
+        slug="anon-new",
+        live=True,
+        last_post_at=timezone.now(),
+    )
+
+    resp = APIClient().get(f"/forum/boards/{board.slug}/topics/")
+
+    assert resp.data["results"][0]["is_unread"] is False
+
+
+@pytest.mark.django_db
+def test_is_unread_false_for_topic_older_than_watermark():
+    board = _board()
+    user = User.objects.create_user(username="caught-up")
+    profile = ForumProfile.for_user(user)
+    profile.read_watermark_at = timezone.now() - datetime.timedelta(days=1)
+    profile.save(update_fields=["read_watermark_at"])
+    Topic.objects.create(
+        board=board,
+        title="Old",
+        slug="old-topic",
+        live=True,
+        last_post_at=timezone.now() - datetime.timedelta(days=30),
+    )
+
+    client = APIClient()
+    client.force_authenticate(user)
+    resp = client.get(f"/forum/boards/{board.slug}/topics/")
+
+    assert resp.data["results"][0]["is_unread"] is False
+
+
+@pytest.mark.django_db
+def test_is_unread_true_for_never_read_topic_newer_than_watermark():
+    board = _board()
+    user = User.objects.create_user(username="behind")
+    profile = ForumProfile.for_user(user)
+    profile.read_watermark_at = timezone.now() - datetime.timedelta(days=1)
+    profile.save(update_fields=["read_watermark_at"])
+    Topic.objects.create(
+        board=board,
+        title="Fresh",
+        slug="fresh-topic",
+        live=True,
+        last_post_at=timezone.now(),
+    )
+
+    client = APIClient()
+    client.force_authenticate(user)
+    resp = client.get(f"/forum/boards/{board.slug}/topics/")
+
+    assert resp.data["results"][0]["is_unread"] is True
+
+
+@pytest.mark.django_db
+def test_is_unread_false_after_read_with_no_new_reply():
+    board = _board()
+    user = User.objects.create_user(username="reader1")
+    topic = Topic.objects.create(
+        board=board,
+        title="Read",
+        slug="read-topic",
+        live=True,
+        last_post_at=timezone.now() - datetime.timedelta(hours=2),
+    )
+    TopicRead.mark_read(
+        user, topic.id, when=timezone.now() - datetime.timedelta(hours=1)
+    )
+
+    client = APIClient()
+    client.force_authenticate(user)
+    resp = client.get(f"/forum/boards/{board.slug}/topics/")
+
+    assert resp.data["results"][0]["is_unread"] is False
+
+
+@pytest.mark.django_db
+def test_is_unread_true_after_new_reply_since_last_read():
+    board = _board()
+    user = User.objects.create_user(username="reader2")
+    topic = Topic.objects.create(
+        board=board,
+        title="Replied",
+        slug="replied-topic",
+        live=True,
+        last_post_at=timezone.now() - datetime.timedelta(hours=2),
+    )
+    TopicRead.mark_read(
+        user, topic.id, when=timezone.now() - datetime.timedelta(hours=3)
+    )
+
+    client = APIClient()
+    client.force_authenticate(user)
+    resp = client.get(f"/forum/boards/{board.slug}/topics/")
+
+    assert resp.data["results"][0]["is_unread"] is True
+
+
+@pytest.mark.django_db
+def test_is_unread_prefers_topic_read_over_profile_watermark_when_they_disagree():
+    """TopicRead is the more specific signal and must win the COALESCE even
+    when the profile watermark alone would say the opposite — proves the
+    Coalesce argument order, not just that either baseline works alone."""
+    board = _board()
+    user = User.objects.create_user(username="conflicting")
+    now = timezone.now()
+    topic = Topic.objects.create(
+        board=board,
+        title="Conflict",
+        slug="conflict-topic",
+        live=True,
+        last_post_at=now,
+    )
+    # Watermark alone would say unread (it predates the last post)...
+    profile = ForumProfile.for_user(user)
+    profile.read_watermark_at = now - datetime.timedelta(days=2)
+    profile.save(update_fields=["read_watermark_at"])
+    # ...but a specific TopicRead after the last post says read. TopicRead
+    # must win: if the Coalesce args were ever swapped, this would flip to True.
+    TopicRead.mark_read(user, topic.id, when=now + datetime.timedelta(hours=1))
+
+    client = APIClient()
+    client.force_authenticate(user)
+    resp = client.get(f"/forum/boards/{board.slug}/topics/")
+
+    assert resp.data["results"][0]["is_unread"] is False
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_UNREAD_LAUNCH_AT="2020-06-15T00:00:00Z")
+def test_is_unread_uses_launch_constant_for_profile_less_user():
+    """A user with no ForumProfile row at all (never opened a topic, never
+    hit /me/profile/, never received a push) falls all the way to the fixed
+    launch constant — bounded to "unread only for topics active since
+    launch," not the entire back-catalog."""
+    board = _board()
+    stranger = User.objects.create_user(username="stranger")
+    assert not ForumProfile.objects.filter(user=stranger).exists()
+    Topic.objects.create(
+        board=board,
+        title="Ancient",
+        slug="ancient-topic",
+        live=True,
+        last_post_at=timezone.datetime(2019, 1, 1, tzinfo=datetime.timezone.utc),
+    )
+    Topic.objects.create(
+        board=board,
+        title="PostLaunch",
+        slug="post-launch-topic",
+        live=True,
+        last_post_at=timezone.datetime(2021, 1, 1, tzinfo=datetime.timezone.utc),
+    )
+
+    client = APIClient()
+    client.force_authenticate(stranger)
+    resp = client.get(f"/forum/boards/{board.slug}/topics/")
+
+    by_slug = {t["slug"]: t["is_unread"] for t in resp.data["results"]}
+    assert by_slug["ancient-topic"] is False
+    assert by_slug["post-launch-topic"] is True
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_UNREAD_LAUNCH_AT="not-a-real-datetime")
+def test_is_unread_fails_loud_on_malformed_launch_setting():
+    """A malformed WAGTAILFORUM_UNREAD_LAUNCH_AT must surface as a loud 500
+    (via the project's custom exception handler, which logs and converts the
+    raised ImproperlyConfigured), not silently degrade is_unread to False for
+    every profile-less user."""
+    board = _board()
+    stranger = User.objects.create_user(username="stranger2")
+    Topic.objects.create(board=board, title="X", slug="x-topic", live=True)
+
+    client = APIClient()
+    client.force_authenticate(stranger)
+    resp = client.get(f"/forum/boards/{board.slug}/topics/")
+
+    assert resp.status_code == 500
