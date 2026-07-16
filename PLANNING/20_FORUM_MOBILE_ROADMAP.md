@@ -4,7 +4,10 @@
 **Last Updated**: May 23, 2026  
 **Scope**: Web forum frontend (React + Tailwind) — mobile browser + Flutter UI translation readiness  
 **Owner**: Frontend/Forum team  
-**Corrected**: Jul 16, 2026 — stale file paths/line refs fixed (this doc predates a filesystem-case-insensitivity gitignore bug that kept it out of git); Phase 5.1 (@Mentions) and 5.2 (Topic Following) marked shipped. The rest reflects the original May 23 plan and has not been re-validated end-to-end — Phase 1.4 and 2.2 show signs of partial completion worth a quick look before starting them.
+**Corrected**: Jul 16, 2026 — recovered from a `.gitignore` bug that kept this doc untracked for months (root cause in `docs/LEARNINGS.md`). Applied in that pass:
+- Stale file paths/line numbers fixed throughout.
+- Phase 5.1 (@Mentions) and 5.2 (Topic Following) marked shipped.
+- Everything else is unvalidated since May 23 — Phase 1.4/2.2 show signs of partial completion. Full re-audit tracked in todo 270.
 
 ---
 
