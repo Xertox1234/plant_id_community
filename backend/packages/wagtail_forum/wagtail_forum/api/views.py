@@ -386,12 +386,16 @@ class TopicDetailView(generics.RetrieveAPIView):
         # folding last_post_at into the key (free from the response already
         # built above, no extra query) means a new reply naturally rotates
         # the key instead of a same-TTL-window dedup silently swallowing it.
+        # Its own setting (TOPIC_READ_DEDUP_SECONDS) — gates a distinct
+        # concern from view_count's throttle above, even though the two
+        # currently default to the same value.
         if request.user.is_authenticated:
             user = request.user
             read_dedup_key = (
                 f"forum:tr:{topic_id}:{user.pk}:{response.data.get('last_post_at')}"
             )
-            if cache.add(read_dedup_key, True, ttl):
+            read_ttl = get_setting("TOPIC_READ_DEDUP_SECONDS")
+            if cache.add(read_dedup_key, True, read_ttl):
 
                 def _mark_read():
                     # Ensures the watermark-bearing profile row exists — the

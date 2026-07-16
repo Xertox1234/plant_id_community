@@ -8,7 +8,9 @@ combine into the unread computation on the topic-list endpoint.
 """
 
 from django.conf import settings
-from django.db import IntegrityError, models
+from django.db import models
+from django.db.models import DateTimeField, Value
+from django.db.models.functions import Greatest
 from django.utils import timezone
 
 
@@ -47,19 +49,45 @@ class TopicRead(models.Model):
         the neighboring view_count update, and this mirrors that same
         id-only economy.
 
-        update_or_create's own IntegrityError handling is defensive, not
-        relied on bare — matches this package's house convention
-        (ForumProfile.for_user, TopicSubscription.subscribe/unsubscribe) of
-        keeping the explicit fallback so this stays safe if ever called from
-        inside an ambient transaction.atomic() block.
+        Monotonic under real concurrency, not just per-caller: a call with an
+        earlier `when` than what is already stored never regresses it, even
+        if two calls race (e.g. this method's two real callers — a
+        detail-view visit stamped at on_commit time via timezone.now(), and
+        a notifications.py signal-time write stamped from a reply's own
+        post.first_published_at — landing out of chronological order). The
+        update uses an atomic SQL `GREATEST(last_read_at, %s)` rather than a
+        read-then-conditionally-write in Python: the latter has its own
+        TOCTOU window (two concurrent callers can both read the same stale
+        value, both decide to write, and whichever commits last wins with
+        its own `when` even if that is the earlier of the two) — the atomic
+        form serializes on the row's UPDATE lock instead, so the stored
+        value is always the true max of every `when` ever passed in,
+        regardless of interleaving.
+
+        Deliberately has NO custom IntegrityError recovery (unlike this
+        package's usual house convention in ForumProfile.for_user /
+        TopicSubscription.subscribe, which keep one): empirically confirmed
+        (docs/LEARNINGS.md, 2026-07-16) that in this Django version,
+        get_or_create already retries its own internal `.get()` once after a
+        failed `create()`, so a lost create-race is recovered silently
+        inside get_or_create and never reaches here as an exception. The
+        only way an IntegrityError escapes get_or_create is when that
+        internal retry ALSO found nothing (e.g. topic_id's Topic was hard-
+        deleted out from under a stale caller) — Django already re-raises
+        the original, correctly-typed error for that case. A caller-added
+        `except IntegrityError: .get()` here would only ever fire in that
+        unrecoverable case, converting a clean IntegrityError into a
+        confusing masked DoesNotExist instead of surfacing it as-is.
         """
         when = when or timezone.now()
-        try:
-            obj, _ = cls.objects.update_or_create(
-                user=user, topic_id=topic_id, defaults={"last_read_at": when}
+        obj, created = cls.objects.get_or_create(
+            user=user, topic_id=topic_id, defaults={"last_read_at": when}
+        )
+        if not created:
+            cls.objects.filter(pk=obj.pk).update(
+                last_read_at=Greatest(
+                    "last_read_at", Value(when, output_field=DateTimeField())
+                )
             )
-        except IntegrityError:
-            obj = cls.objects.get(user=user, topic_id=topic_id)
-            obj.last_read_at = when
-            obj.save(update_fields=["last_read_at"])
+            obj.refresh_from_db(fields=["last_read_at"])
         return obj

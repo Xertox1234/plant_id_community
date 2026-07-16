@@ -67,26 +67,39 @@ def test_unique_constraint_prevents_duplicate_row():
 
 
 @pytest.mark.django_db
-def test_mark_read_falls_back_on_integrity_error(monkeypatch):
-    """Mirrors TopicSubscription's identical race test: simulate a lost
-    create race where update_or_create raises IntegrityError because a
-    concurrent request already inserted the row — mark_read must recover by
-    updating the existing row rather than propagating the error (load-bearing
-    for callers inside an ambient transaction, though this one only ever runs
-    from transaction.on_commit today)."""
+def test_mark_read_lets_integrity_error_propagate_uncorrupted(monkeypatch):
+    """Django's own get_or_create already retries its internal `.get()` once
+    after a failed create() before giving up (empirically confirmed against
+    this Django version, docs/LEARNINGS.md 2026-07-16) — a caller only ever
+    sees IntegrityError when that retry ALSO failed, i.e. a genuinely
+    unrecoverable case (e.g. a stale topic_id whose Topic no longer exists),
+    not a lost create race. mark_read must let this surface as-is rather
+    than following up with its own `.get()`, which would instead raise a
+    confusing masked DoesNotExist (the pre-fix behavior)."""
     user = User.objects.create_user(username="ada5")
-    topic = _topic(slug="t5")
-    existing = TopicRead.objects.create(
-        user=user, topic=topic, last_read_at=timezone.now() - datetime.timedelta(days=1)
-    )
 
     def _raise(**kwargs):
-        raise IntegrityError("duplicate key")
+        raise IntegrityError("simulated unrecoverable failure")
 
-    monkeypatch.setattr(TopicRead.objects, "update_or_create", _raise)
-    when = timezone.now()
+    monkeypatch.setattr(TopicRead.objects, "get_or_create", _raise)
 
-    recovered = TopicRead.mark_read(user, topic.id, when=when)
+    with pytest.raises(IntegrityError):
+        TopicRead.mark_read(user, topic_id=999999999)
 
-    assert recovered.pk == existing.pk
-    assert recovered.last_read_at == when
+
+@pytest.mark.django_db
+def test_mark_read_is_monotonic_and_never_moves_last_read_at_backward():
+    """A later mark_read call with an EARLIER `when` (e.g. a delayed
+    notifications.py signal write landing after a fresher detail-view visit
+    already recorded a later read) must not regress last_read_at."""
+    user = User.objects.create_user(username="ada7")
+    topic = _topic(slug="t7")
+    later = timezone.now()
+    earlier = later - datetime.timedelta(hours=1)
+
+    first = TopicRead.mark_read(user, topic.id, when=later)
+    second = TopicRead.mark_read(user, topic.id, when=earlier)
+
+    assert first.pk == second.pk
+    second.refresh_from_db()
+    assert second.last_read_at == later  # not regressed to `earlier`

@@ -47,6 +47,13 @@ DEFAULTS = {
     # wagtail_forum/models/profiles.py's ForumProfile. ISO 8601, parsed once
     # per query via django.utils.dateparse.parse_datetime.
     "UNREAD_LAUNCH_AT": "2026-07-16T00:00:00Z",
+    # Read-marker dedup window (seconds) for TopicDetailView.retrieve's
+    # TopicRead.mark_read on_commit hook (todo 253 slice 5, H10). Deliberately
+    # its OWN setting, not a reuse of VIEW_COUNT_DEDUP_SECONDS above — the two
+    # gate unrelated concerns (view-count throttling vs. read-marking dedup)
+    # that only happen to share a default; a host tuning one must not
+    # silently retune the other.
+    "TOPIC_READ_DEDUP_SECONDS": 15 * 60,  # 15 minutes
 }
 
 

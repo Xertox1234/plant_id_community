@@ -1125,6 +1125,80 @@ Sequenced so each step ships value alone:
 - Todo 271's Acceptance Criteria: #3 flipped to done; #1 and #2 remain open
   and deliberately deferred.
 
+### 2026-07-16 - Slice 5 follow-up: self-review (`/review` on PR #468) fix batch
+
+A `/review` pass against the live PR #468 diff (not local `git diff`) surfaced
+4 items; user asked for all of them addressed, including the ones framed as
+low-priority "considerations," not just the top-billed suggestions.
+
+- **Untested naive-datetime branch**: `_annotate_topic_unread`'s
+  `timezone.is_naive(launch_at)` coercion had zero coverage — every existing
+  `WAGTAILFORUM_UNREAD_LAUNCH_AT` override was either already-aware
+  (`...Z`) or deliberately malformed. Added
+  `test_is_unread_uses_launch_constant_when_naive_datetime_configured`
+  (`test_topics_list.py`), mirroring the existing aware-constant test with an
+  offset-less setting value — confirmed `parse_datetime` returns a naive
+  `datetime` for that input before writing the test.
+- **Read-dedup TTL reused `VIEW_COUNT_DEDUP_SECONDS`**: conflated two
+  unrelated concerns (view-count throttling vs. read-marking dedup) under one
+  setting. Added a dedicated `TOPIC_READ_DEDUP_SECONDS` (`conf.py`, same
+  default, own comment explaining why it's separate), wired into
+  `TopicDetailView.retrieve()` as its own `read_ttl` read. Added
+  `test_topic_read_dedup_ttl_is_independent_of_view_count_dedup_ttl` proving
+  the two are now independently tunable (view_count deduped at TTL=900 while
+  the read-mark isn't, at TTL=0, in the same two-request exchange).
+- **`mark_read`'s `IntegrityError` fallback conflated two failure modes** —
+  planned as "add a nested `except DoesNotExist: raise`," but investigating
+  it properly (reading Django 6.0.7's actual `get_or_create`/
+  `update_or_create` source, then confirming empirically via a real Postgres
+  probe) found the opposite fix was correct: Django's `get_or_create` already
+  retries its own `.get()` internally after a failed `create()` and only
+  re-raises the *original* `IntegrityError` when that retry also comes up
+  empty — this package's own outer `except IntegrityError: obj = cls.objects.get(...)`
+  wrapper could therefore only ever fire in the already-unrecoverable case,
+  where it then converted a clean `IntegrityError` into a confusing masked
+  `TopicRead.DoesNotExist`. Removed the wrapper; `mark_read` now calls
+  `get_or_create` directly and lets a genuine failure surface uncorrupted.
+  Full empirical trail (including a first attempt that gave a false negative
+  by wrapping the probe in its own rollback-only savepoint, which suppressed
+  this project's `DEFERRABLE INITIALLY DEFERRED` FK constraints from ever
+  checking) is in `docs/LEARNINGS.md` (Testing, 2026-07-16, second entry).
+- **`mark_read` non-monotonic**: no guard against `last_read_at` moving
+  backward if its two callers (the immediate on_commit write from a
+  detail-view visit, and the signal-time write from
+  `notifications.py`, stamped from `post.first_published_at`) land out of
+  chronological order. Fixed in the same edit as the `IntegrityError` change
+  above (both touch the same method). First cut used `get_or_create`'s
+  `created` flag to drive a conditional `if not created and obj.last_read_at
+  < when:` read-then-write in Python — this repo's own `kimi-review` commit
+  gate (WARNING tier) caught a real TOCTOU gap in that: two genuinely
+  concurrent callers can both read the same stale value and both decide to
+  write, and whichever commits last wins even if its own `when` is the
+  earlier of the two. Upgraded to a single atomic
+  `UPDATE ... SET last_read_at = GREATEST(last_read_at, %s)` instead
+  (`django.db.models.functions.Greatest`) — the row's UPDATE lock serializes
+  concurrent writers, so the stored value is always the true max of every
+  `when` ever passed in, not just non-regressing relative to what one caller
+  happened to read. Added
+  `test_mark_read_is_monotonic_and_never_moves_last_read_at_backward` and
+  `test_mark_read_lets_integrity_error_propagate_uncorrupted` (the latter
+  replaces `test_mark_read_falls_back_on_integrity_error`, whose own premise
+  — that `mark_read` needs to recover from a race itself — no longer holds
+  now that Django's own internals own that recovery).
+- kimi-review's other 3 findings on this batch (`assertNumQueries` missing
+  on the 3 new tests) were evaluated and dismissed: each new test mirrors an
+  existing test in the same file that also doesn't pin query counts (this
+  package centralizes the query-count pin in one dedicated test per
+  endpoint, not every behavioral variant), and none of the 3 new code paths
+  (naive-datetime coercion, a swapped TTL setting value, the monotonic
+  guard) can plausibly change a query count — they're pure-Python or
+  cache-key operations, not new DB access.
+- Re-verified: backend full suite `388 passed` (was 385; net +3 across the
+  4 items — item 3's fix replaced 1 test with 2). `manage.py check` clean,
+  `makemigrations --check --dry-run` → "No changes detected" (no model
+  changes this batch, only a new conf.py setting). Frontend untouched by any
+  of these 4 items — not re-run.
+
 ## Notes
 
 p1 by user triage decision. C2 (one of only two Critical findings) anchors this

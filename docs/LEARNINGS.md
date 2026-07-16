@@ -1263,3 +1263,83 @@ static regex over a new edit fragment.
 **Agent**: n/a — a test/script-authoring methodology gotcha (reproducible in
 `manage.py shell` and in hand-written pytest fixtures alike), not an
 application-code review checklist item.
+
+### [2026-07-16] `get_or_create`/`update_or_create` already retry-and-recover from IntegrityError in Django 6 — a caller-side `except IntegrityError: .get()` wrapper can make things worse, not safer
+
+A self-review of todo 253 slice 5's `TopicRead.mark_read` (PR #468) flagged
+its `except IntegrityError: obj = cls.objects.get(...)` fallback as
+ambiguous: a lost create-race (concurrent insert wins) and an unrecoverable
+failure (the referenced `topic_id` no longer exists — an FK violation) both
+raise `IntegrityError`, but only the race case is safe to recover from a bare
+`.get()`. Reading Django 6.0.7's actual source
+(`QuerySet.get_or_create`/`_create_object_from_params`/`update_or_create`)
+showed this disambiguation is now already built into Django itself:
+`get_or_create` catches its own internal `create()`'s `IntegrityError`,
+retries its own `.get()`, and only re-raises the *original* `IntegrityError`
+if that retry ALSO comes up empty — i.e. Django already tells the two cases
+apart and already recovers the race case silently, with no exception ever
+reaching caller code. `update_or_create` delegates to `get_or_create`
+internally, so it inherits the same behavior.
+
+This means `mark_read`'s own outer `except IntegrityError: obj = cls.objects.get(...)`
+could only ever fire in the case Django had ALREADY determined was
+unrecoverable — and its own `.get()` in that case finds nothing either,
+raising `TopicRead.DoesNotExist` chained onto the original `IntegrityError`.
+The package's own defensive wrapper was converting an already-correctly-typed
+`IntegrityError` into a *more* confusing exception, not a safety net.
+Confirmed empirically end-to-end (`manage.py shell`, real Postgres, a
+`topic_id` with no matching row):
+`TopicRead.objects.update_or_create(...)` → `django.db.utils.IntegrityError`
+(clean FK-violation message) — but `TopicRead.mark_read(...)` (the
+then-current code, wrapping it) → `TopicRead.DoesNotExist`, with the real
+`IntegrityError` demoted to `__context__`.
+
+A second trap while verifying this: the very first attempt to reproduce the
+FK violation wrapped the probe in its own outer `transaction.atomic()` +
+`savepoint_rollback()` (this repo's usual safe-manual-check convention) and
+saw **no exception at all**. Cause: `pg_constraint` shows this project's FKs
+are `DEFERRABLE INITIALLY DEFERRED` (`condeferred = True` for both FKs on
+`wagtail_forum_topicread` — this appears to be a Django/Postgres-backend
+default for this Django version, not a per-model opt-in). A deferred
+constraint is checked at the enclosing transaction's real **commit**, not at
+the statement that violates it — and a savepoint rollback, by design, never
+commits. The same blind spot applies to the normal pytest suite:
+`@pytest.mark.django_db`'s per-test isolation is itself one big outer
+transaction that's rolled back at teardown, so **no ordinary
+`@pytest.mark.django_db` test can ever observe a deferred FK violation
+raising mid-test** — only a real commit surfaces it. (`transaction=True`
+would force a real commit, but this repo's own forum test suite already
+documents that as unsafe here — its `TransactionTestCase`-style flush wipes
+Wagtail's migration-seeded root page for every later test, see
+`test_topic_detail.py`'s comment above its view_count tests.)
+
+**Fix**: removed `mark_read`'s custom `except IntegrityError` fallback
+entirely and switched it to call `get_or_create` directly, trusting Django's
+now-built-in recovery. Verified the FK-violation case is still surfaced
+correctly (not swallowed) via a monkeypatch-based test
+(`test_mark_read_lets_integrity_error_propagate_uncorrupted`) rather than
+trying to trigger a real deferred constraint inside a rollback-isolated
+test.
+
+**Rule**: before adding (or keeping) a defensive `except IntegrityError:` /
+`except IntegrityError: retry-the-get()` wrapper around
+`get_or_create`/`update_or_create` in a Django 4+ codebase, check whether
+Django's own implementation already retries internally — re-implementing
+that recovery outside it doesn't add safety, it adds a second layer that
+only ever activates in the *unrecoverable* case and actively degrades the
+exception's clarity. Separately: never assume a DB constraint raises at the
+statement that violates it — check `pg_constraint.condeferred` (or the
+equivalent for your backend) before designing a test or manual verification
+around "this bad write should raise immediately," and never wrap that kind
+of check in your own outer atomic()/savepoint you intend to roll back — the
+rollback prevents the deferred check from ever running.
+
+**Trigger**: none registered — this is a judgment call about whether a
+specific defensive wrapper is redundant given a specific Django version's
+internals, not a mechanical pattern a static regex over an edit fragment
+could reliably flag.
+
+**Agent**: `django-drf-reviewer` — when reviewing a hand-rolled
+`except IntegrityError:` fallback around `get_or_create`/`update_or_create`,
+check whether it duplicates Django's own internal retry rather than assuming
+it's always needed.

@@ -295,6 +295,42 @@ def test_topic_read_updates_after_new_reply_since_last_visit(
 
 
 @pytest.mark.django_db
+@override_settings(
+    WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS=900, WAGTAILFORUM_TOPIC_READ_DEDUP_SECONDS=0
+)
+def test_topic_read_dedup_ttl_is_independent_of_view_count_dedup_ttl(
+    django_capture_on_commit_callbacks,
+):
+    """TOPIC_READ_DEDUP_SECONDS and VIEW_COUNT_DEDUP_SECONDS gate unrelated
+    concerns and must be independently tunable. Same two requests, same
+    (topic, viewer) key ingredients as the view_count dedup tests above, but
+    a repeat visit stays deduped for view_count (TTL=900) while the repeat
+    TopicRead write is NOT deduped (TTL=0, expires instantly, same technique
+    as test_view_count_recounts_after_dedup_window_expires) — proving the
+    two no longer share one variable."""
+    cache.clear()
+    board = _board(slug="tr-board7")
+    reader = User.objects.create_user(username="tr-reader7")
+    topic = Topic.objects.create(board=board, title="TR7", slug="tr7", live=True)
+
+    client = APIClient()
+    client.force_authenticate(reader)
+    with django_capture_on_commit_callbacks(execute=True):
+        client.get(f"/forum/topics/{topic.id}/")
+    first_read_at = TopicRead.objects.get(user=reader, topic=topic).last_read_at
+
+    with django_capture_on_commit_callbacks(execute=True):
+        client.get(f"/forum/topics/{topic.id}/")
+
+    topic.refresh_from_db()
+    assert topic.view_count == 1  # deduped — VIEW_COUNT_DEDUP_SECONDS=900 still holds
+    second_read_at = TopicRead.objects.get(user=reader, topic=topic).last_read_at
+    assert (
+        second_read_at > first_read_at
+    )  # not deduped — its own TTL=0 expired instantly
+
+
+@pytest.mark.django_db
 def test_topic_read_not_recorded_for_anonymous(django_capture_on_commit_callbacks):
     board = _board(slug="tr-board4")
     topic = Topic.objects.create(board=board, title="TR4", slug="tr4", live=True)

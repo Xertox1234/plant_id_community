@@ -392,6 +392,43 @@ def test_is_unread_uses_launch_constant_for_profile_less_user():
 
 
 @pytest.mark.django_db
+@override_settings(WAGTAILFORUM_UNREAD_LAUNCH_AT="2020-06-15T00:00:00")
+def test_is_unread_uses_launch_constant_when_naive_datetime_configured():
+    """WAGTAILFORUM_UNREAD_LAUNCH_AT with no UTC offset parses (via
+    parse_datetime) to a NAIVE datetime — _annotate_topic_unread must coerce
+    it aware (timezone.make_aware) before comparing against the aware
+    last_post_at column, rather than raising or silently miscomparing.
+    Otherwise-identical to test_is_unread_uses_launch_constant_for_profile_less_user
+    above, just with an offset-less setting value."""
+    board = _board()
+    stranger = User.objects.create_user(username="stranger-naive")
+    assert not ForumProfile.objects.filter(user=stranger).exists()
+    Topic.objects.create(
+        board=board,
+        title="Ancient",
+        slug="ancient-topic-naive",
+        live=True,
+        last_post_at=timezone.datetime(2019, 1, 1, tzinfo=datetime.timezone.utc),
+    )
+    Topic.objects.create(
+        board=board,
+        title="PostLaunch",
+        slug="post-launch-topic-naive",
+        live=True,
+        last_post_at=timezone.datetime(2021, 1, 1, tzinfo=datetime.timezone.utc),
+    )
+
+    client = APIClient()
+    client.force_authenticate(stranger)
+    resp = client.get(f"/forum/boards/{board.slug}/topics/")
+
+    assert resp.status_code == 200
+    by_slug = {t["slug"]: t["is_unread"] for t in resp.data["results"]}
+    assert by_slug["ancient-topic-naive"] is False
+    assert by_slug["post-launch-topic-naive"] is True
+
+
+@pytest.mark.django_db
 @override_settings(WAGTAILFORUM_UNREAD_LAUNCH_AT="not-a-real-datetime")
 def test_is_unread_fails_loud_on_malformed_launch_setting():
     """A malformed WAGTAILFORUM_UNREAD_LAUNCH_AT must surface as a loud 500
