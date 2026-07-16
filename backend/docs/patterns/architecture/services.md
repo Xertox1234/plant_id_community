@@ -845,14 +845,18 @@ except IntegrityError:
     obj.save(update_fields=["last_read_at"])
 ```
 
-**Correct** ✅:
+**Correct** ✅ (this snippet shows only the IntegrityError fix in isolation —
+`get_or_create` alone does NOT update `last_read_at` on an existing row, so
+the real method still needs its own follow-up update for a repeat read; see
+`wagtail_forum/models/topic_reads.py` for the full monotonic version):
 
 ```python
 obj, created = cls.objects.get_or_create(
     user=user, topic_id=topic_id, defaults={"last_read_at": when}
 )
 # A genuine failure (e.g. a hard-deleted topic_id) now surfaces as the
-# original, correctly-typed IntegrityError — no masking.
+# original, correctly-typed IntegrityError — no masking. `created` still
+# needs handling for the update case (omitted here — see the real file).
 ```
 
 **Verification trap**: the first attempt to reproduce the "unrecoverable"
