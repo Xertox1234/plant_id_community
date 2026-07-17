@@ -358,10 +358,13 @@ NOTIFICATION_TOPIC_SCHEMA = {
 class NotificationSerializer(serializers.ModelSerializer):
     actor = serializers.SerializerMethodField()
     topic = serializers.SerializerMethodField()
+    # Deep-link target for clients (wave 1.3): the post this notification is
+    # about, or null for a post-less verb.
+    post_id = serializers.IntegerField(read_only=True, allow_null=True)
 
     class Meta:
         model = Notification
-        fields = ["id", "verb", "actor", "topic", "created_at", "read_at"]
+        fields = ["id", "verb", "actor", "topic", "post_id", "created_at", "read_at"]
 
     @extend_schema_field(AUTHOR_SCHEMA)
     def get_actor(self, obj):
