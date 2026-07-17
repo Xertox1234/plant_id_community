@@ -31,3 +31,8 @@ export function threadPath(
   const tSlug = thread.slug || slugifyTitle(thread.title);
   return `${categoryPath(category)}/${thread.id}-${tSlug}`;
 }
+
+/** Fragment identifier for a specific post inside a thread page. */
+export function postAnchor(postId: number | string): string {
+  return `#post-${postId}`;
+}

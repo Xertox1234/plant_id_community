@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import PostCard from './PostCard';
@@ -409,5 +409,23 @@ describe('PostCard', () => {
 
     expect(onReport).not.toHaveBeenCalled();
     expect(screen.getByTitle('Report post')).toBeInTheDocument();
+  });
+
+  it('copies a permalink to the clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const post = createMockPost({ id: '21' });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} />
+      </BrowserRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /copy link/i }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining('#post-21'))
+    );
+    expect(await screen.findByText(/copied/i)).toBeInTheDocument();
   });
 });

@@ -50,6 +50,18 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
   const [reportReason, setReportReason] = useState<string>(REPORT_REASONS[0].value);
   const [hasReported, setHasReported] = useState(false);
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const handleCopyLink = async () => {
+    const url = `${window.location.origin}${window.location.pathname}#post-${post.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    } catch {
+      window.prompt('Copy link:', url); // clipboard API unavailable (http, old browser)
+    }
+  };
 
   // Only confirm "Reported" once the request actually succeeds — a network
   // failure must leave the picker open (with the real error surfaced by the
@@ -131,32 +143,39 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
           </div>
         </div>
 
-        {/* Actions (edit/delete) — gated on the backend capability flags AND the
-            presence of a handler. Always visible on mobile; on desktop they fade
-            in on hover AND on keyboard focus — opacity-0 keeps them tab-reachable,
-            so a focus reveal is required for WCAG 2.4.7 (audit 2026-07-11 H20). */}
-        {(showEdit || showDelete) && (
-          <div className="flex gap-2 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
-            {showEdit && (
-              <button
-                onClick={() => onEdit!(post)}
-                className="min-h-11 px-3 py-1 text-sm text-sky hover:bg-sky/10 rounded inline-flex items-center"
-                title="Edit post"
-              >
-                ✏️ Edit
-              </button>
-            )}
-            {showDelete && (
-              <button
-                onClick={() => onDelete!(post)}
-                className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded inline-flex items-center"
-                title="Delete post"
-              >
-                🗑️ Delete
-              </button>
-            )}
-          </div>
-        )}
+        {/* Actions — copy-link is available to every post; edit/delete are gated
+            on the backend capability flags AND the presence of a handler. Always
+            visible on mobile; on desktop they fade in on hover AND on keyboard
+            focus — opacity-0 keeps them tab-reachable, so a focus reveal is
+            required for WCAG 2.4.7 (audit 2026-07-11 H20). */}
+        <div className="flex gap-2 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
+          <button
+            onClick={handleCopyLink}
+            className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-3 rounded inline-flex items-center"
+            title="Copy link to this post"
+            aria-label="Copy link to this post"
+          >
+            {copiedLink ? 'Copied ✓' : '🔗 Copy link'}
+          </button>
+          {showEdit && (
+            <button
+              onClick={() => onEdit!(post)}
+              className="min-h-11 px-3 py-1 text-sm text-sky hover:bg-sky/10 rounded inline-flex items-center"
+              title="Edit post"
+            >
+              ✏️ Edit
+            </button>
+          )}
+          {showDelete && (
+            <button
+              onClick={() => onDelete!(post)}
+              className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded inline-flex items-center"
+              title="Delete post"
+            >
+              🗑️ Delete
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Post Content */}

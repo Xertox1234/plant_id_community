@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import {
   fetchThread,
   fetchPosts,
@@ -54,6 +54,7 @@ async function collectAllPosts(threadId: number): Promise<{ items: Post[]; next:
 export default function ThreadDetailPage() {
   const { categorySlug, threadSlug } = useParams<{ categorySlug: string; threadSlug: string }>();
   const { isAuthenticated } = useAuth();
+  const location = useLocation();
 
   // The route param is a hybrid "id-slug"; lookups use the leading topic id.
   const topicId = parseLeadingId(threadSlug);
@@ -135,6 +136,23 @@ export default function ThreadDetailPage() {
 
     loadData();
   }, [topicId, threadSlug, categorySlug]);
+
+  // Deep-link arrival: scroll to and briefly highlight #post-N once posts render.
+  // If the target is on a later cursor page it simply isn't found — no error.
+  useEffect(() => {
+    if (loading) return;
+    const match = /^#post-(\d+)$/.exec(location.hash);
+    if (!match) return;
+    const el = document.getElementById(`post-${match[1]}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('ring-2', 'ring-primary', 'rounded-lg');
+    const timer = setTimeout(
+      () => el.classList.remove('ring-2', 'ring-primary', 'rounded-lg'),
+      2500
+    );
+    return () => clearTimeout(timer);
+  }, [loading, posts, location.hash]);
 
   // Load more posts (cursor pagination)
   const handleLoadMore = useCallback(async () => {

@@ -7,7 +7,7 @@ import {
   fetchUnreadCount,
   markNotificationsRead,
 } from '../../services/notificationService';
-import { threadPath } from '../../utils/forumUrls';
+import { threadPath, postAnchor } from '../../utils/forumUrls';
 import type { ForumNotification } from '../../types/notifications';
 
 // Generous relative to the backend's 120/m rate limit on this endpoint — this
@@ -132,7 +132,7 @@ export default function NotificationBell() {
         threadPath(
           { id: String(topic.board_id), slug: topic.board_slug, name: topic.board_slug },
           { id: String(topic.id), slug: topic.slug, title: topic.title }
-        )
+        ) + (notification.post_id != null ? postAnchor(notification.post_id) : '')
       );
     }
   };
