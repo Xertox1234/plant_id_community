@@ -576,5 +576,51 @@
     "source": "codify: feat/forum-notifications-slice6-fcm-registration",
     "added": "2026-07-16",
     "severity": "warn"
+  },
+  {
+    "id": "wagtail-seed-under-treebeard-root",
+    "domains": [
+      "wagtail"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "Page\\.objects\\.filter\\(depth=1\\)",
+    "content_absent": "is_default_site",
+    "message": "Page.objects.filter(depth=1) is the UNROUTABLE treebeard root, not the site root — pages attached there get url=None and route() never reaches them. Resolve Site.objects.get(is_default_site=True).root_page instead (audit 2026-07-17 H1).",
+    "pattern_ref": "backend/docs/patterns/domain/wagtail.md",
+    "source": "codify: chore/forum-wagtail-audit-2026-07-17",
+    "added": "2026-07-17",
+    "severity": "warn"
+  },
+  {
+    "id": "pytest-transaction-true-wagtail-flush",
+    "domains": [
+      "testing"
+    ],
+    "path_glob": [
+      "backend/**/test*.py"
+    ],
+    "content_present": "django_db\\(transaction=True\\)",
+    "message": "django_db(transaction=True) teardown-flushes Wagtail migration-seeded rows (root page/collection/Site) — passes standalone, breaks in-suite, and breaks later tests. Simulate the interleaving deterministically instead (monkeypatch the fast-path check; see wagtail_forum/tests/test_collections.py).",
+    "pattern_ref": "docs/rules/testing.md",
+    "source": "codify: chore/forum-wagtail-audit-2026-07-17",
+    "added": "2026-07-17",
+    "severity": "warn"
+  },
+  {
+    "id": "wagtail-hooks-hardcoded-admin-url",
+    "domains": [
+      "wagtail"
+    ],
+    "path_glob": [
+      "backend/**/wagtail_hooks.py"
+    ],
+    "content_present": "[\"']/(cms|blog-admin)/",
+    "message": "Hardcoded admin-mount URL in a wagtail hook — resolves to a silent 404 if the mount changes or the package is reused. Use reverse(Model.snippet_viewset.get_url_name(...)) / reverse(\"blog_admin:<name>\") inside the hook function body (audit 2026-07-17 M1/M2).",
+    "pattern_ref": "backend/docs/patterns/domain/wagtail.md",
+    "source": "codify: chore/forum-wagtail-audit-2026-07-17",
+    "added": "2026-07-17",
+    "severity": "warn"
   }
 ]

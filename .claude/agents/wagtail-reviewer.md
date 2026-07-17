@@ -110,6 +110,24 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
   is not the same thing — the check is about attributes read off the *User*
   instance specifically.
 
+### Forum-wagtail audit additions (2026-07-17)
+
+- Programmatic page creation (seed/management commands, data migrations):
+  is the parent resolved from `Site.root_page` (default Site, with
+  `DoesNotExist`/`MultipleObjectsReturned` handled)? A parent from
+  `Page.objects.filter(depth=1)` is the unroutable treebeard root — the page
+  gets `url = None` and `route()` never reaches it. Does the code follow
+  `add_child()` with `save_revision().publish()`? And do the tests assert
+  routability (`get_url() is not None` / `is_descendant_of(site_root)`), not
+  just counts and `live`?
+- Hardcoded admin-mount URLs (`/cms/...`, `/blog-admin/...`) in
+  `wagtail_hooks.py`, admin templates, `SearchArea`/`MenuItem`/`SummaryItem`
+  constructions, or listing-button hooks: flag them — the fix is `reverse()`
+  via `Model.snippet_viewset.get_url_name(...)` or the app URL namespace,
+  called inside the hook function body. Also check the converted URL names
+  are exercised by at least one admin render test (explorer listing for
+  listing-button hooks) so a rename fails as `NoReverseMatch` in CI.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

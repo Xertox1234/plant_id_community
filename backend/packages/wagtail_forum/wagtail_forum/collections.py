@@ -7,16 +7,28 @@ idempotently so neither the upload view nor body validation depends on a
 separate seeding step.
 """
 
+from django.db import transaction
 from wagtail.models import Collection
 
 from .conf import get_setting
 
 
 def get_forum_image_collection():
-    """Return the forum image collection, creating it under root if absent."""
+    """Return the forum image collection, creating it under root if absent.
+
+    Collection.name has no unique constraint, so bare check-then-create can
+    race two concurrent first callers into duplicate collections (audit
+    2026-07-17 L2). Double-checked locking: the steady-state read stays
+    lock-free; only the create path serializes on the root collection row.
+    """
     name = get_setting("IMAGE_COLLECTION_NAME")
     root = Collection.get_first_root_node()
     existing = root.get_children().filter(name=name).first()
     if existing is not None:
         return existing
-    return root.add_child(name=name)
+    with transaction.atomic():
+        locked_root = Collection.objects.select_for_update().get(pk=root.pk)
+        existing = locked_root.get_children().filter(name=name).first()
+        if existing is not None:
+            return existing
+        return locked_root.add_child(name=name)

@@ -2,7 +2,7 @@
 
 <li>
     {% icon name="warning" %}
-    <a href="/cms/snippets/wagtail_forum/topic/?live=false">
+    <a href="{{ moderation_url }}?live=false">
         {{ count }} Forum post{{ count|pluralize }} awaiting moderation
     </a>
 </li>

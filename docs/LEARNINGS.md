@@ -1412,3 +1412,55 @@ guards outside the hunk. A same-session captured trigger reviewing the very
 diff that spawned it is the highest-risk case. Bypass only with the
 refutation written into the commit message; never bypass an unevaluated
 CRITICAL.
+
+## Forum Wagtail-integration audit (2026-07-17 additions)
+
+### [2026-07-17] `seed_default_forum` planted the forum outside the routable page tree
+
+The seed command (wired into `railway.json` preDeployCommand) resolved its
+parent with `Page.objects.filter(depth=1).first()` — the invisible treebeard
+tree root — and `add_child`ed the ForumIndex there, making it a *sibling* of
+the homepage instead of a descendant. Wagtail routing only walks descendants
+of `Site.root_page` (`Page._get_relevant_site_root_paths()` requires
+`url_path.startswith(site_root_path)`), so `page.url`/`full_url` were `None`,
+`route()` never reached the forum, and admin "View live"/sitemaps were dead —
+empirically confirmed against a live DB. The forum had never been deployed, so
+this would have shipped broken on the FIRST production deploy. Root cause:
+conflating "tree root" (depth 1) with "site root page" (depth 2, what
+`Site.root_page` points at). Fix: resolve the default Site's `root_page`
+(guarding `DoesNotExist`/`MultipleObjectsReturned`), add a `Page.move` repair
+branch for already-mis-seeded DBs (with revision backfill), and make the seed
+test assert **routability** (`get_url() is not None`,
+`is_descendant_of(site_root)`) — count/liveness assertions alone can't catch a
+tree-placement bug. Note `Page.move()` leaves the in-memory instance stale
+(treebeard); the post-move refetch is required, not defensive.
+
+### [2026-07-17] `django_db(transaction=True)` passes standalone, fails in-suite (and is itself a flush hazard)
+
+A threaded concurrency test for the collection get-or-create race used
+`django_db(transaction=True)` and passed in isolation, then failed in the full
+suite: `Collection.get_first_root_node()` returned `None` because
+transactional-test teardown flush (plus blog's `TransactionTestCase` in
+`test_analytics.py`, which runs earlier via `testpaths = apps packages`
+ordering) had deleted Wagtail's migration-seeded rows — and the new test's own
+teardown flush would equally break later tests. The repo already documented
+this ban in a code comment (`wagtail_forum/tests/api/test_topic_detail.py`)
+but not in `docs/rules/testing.md`, so it recurred. Replaced with a
+deterministic simulation: monkeypatch the unlocked fast-path check to miss
+once, assert the `select_for_update` re-check reuses the existing row and the
+miss actually happened. Cross-connection serialization itself is
+reasoning-verified from `SELECT ... FOR UPDATE` semantics, flagged as such.
+
+### [2026-07-17] Worktree test runs silently exercise the MAIN checkout's package code
+
+The backend venv installs `wagtail_forum` as a modern editable install whose
+finder hardcodes the main checkout path. In an audit worktree, `import
+wagtail_forum` therefore resolves to main's copy: worktree edits to the
+package are NOT under test unless `PYTHONPATH=<worktree>/backend/packages/
+wagtail_forum` is prepended (plain `sys.path` entries beat the appended
+editable meta-path finder). The visible symptom is pytest's "import file
+mismatch" collection error; the invisible one is green tests against
+unpatched code. Related: two pytest sessions run concurrently (main checkout +
+worktree) share the single `test_plant_community` Postgres DB and destroy each
+other — one baseline run produced 900+ phantom `OperationalError`s. Serialize
+all backend test runs, and re-derive baselines when a run overlapped another.

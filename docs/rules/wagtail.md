@@ -92,3 +92,19 @@ Compact checklist auto-injected before edits. Long-form:
 - **An attributed log write adds one `auth_user` existence-check query** — passing
   `user=` into publish/unpublish shifts exact query pins by +1 per logged action;
   update the pin WITH a comment explaining the new number.
+- **Seed/create pages under `Site.root_page`, never `Page.objects.filter(depth=1)`.**
+  The depth-1 treebeard root is NOT the routable site root — a page attached
+  there is a sibling of Home: `page.url` is `None` and `serve()`/`route()` never
+  reach it (shipped-unroutable-forum near-miss, audit 2026-07-17 H1). Resolve
+  `Site.objects.get(is_default_site=True).root_page` (handle `DoesNotExist` and
+  `MultipleObjectsReturned` with a clear error in commands), and follow
+  `add_child()` with `save_revision().publish()` so seeded pages have revision
+  parity (`first_published_at`, `page_published`) with admin-created ones.
+- **Never hardcode the admin mount in hooks or admin templates** (`/cms/...`,
+  `/blog-admin/...`). Resolve inside the hook function body:
+  `reverse(Model.snippet_viewset.get_url_name("list"))` for snippet views,
+  `reverse("blog_admin:<name>")` for app admin URLs, `{% url %}` via a context
+  var in templates. Hook registries are lazy (`cached_property`, first admin
+  request), so `reverse()` in the function body is URLconf-safe; a hardcoded
+  path silently 404s when the mount changes or a reusable package lands in
+  another host (audit 2026-07-17 M1/M2 — the forum copied the blog's bug).

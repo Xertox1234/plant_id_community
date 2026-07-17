@@ -104,3 +104,17 @@ Compact checklist auto-injected before edits.
   Verify DOM-lifecycle guards (e.g. an orphan-dropdown `shouldRender` check)
   via Playwright, or flag explicitly in the Work Log that it's
   reasoning-verified, not test-exercised. See `web/docs/patterns/testing.md`.
+- **Never mark a test `django_db(transaction=True)`** — its teardown flush (and
+  any Django `TransactionTestCase`, e.g. blog `test_analytics.py`) deletes
+  Wagtail's migration-seeded root page/collection/Site rows, so the test passes
+  standalone but fails (or breaks LATER tests) in the full suite. For
+  concurrency-shaped logic, simulate the interleaving deterministically instead
+  — monkeypatch the fast-path check to miss once and assert the locked re-check
+  reuses the existing row (see `wagtail_forum/tests/test_collections.py`).
+- **Running backend tests from a git worktree needs two guards:** (1) the venv's
+  `wagtail_forum` is an *editable install pointing at the main checkout* — prepend
+  `PYTHONPATH=<worktree>/backend/packages/wagtail_forum` or the worktree's package
+  edits are silently NOT under test (import-file-mismatch collection errors are
+  the tell); (2) never run two pytest sessions concurrently — they share the one
+  `test_plant_community` Postgres DB and cross-kill with phantom connection
+  errors/DuplicateDatabase. See `docs/LEARNINGS.md` 2026-07-17.

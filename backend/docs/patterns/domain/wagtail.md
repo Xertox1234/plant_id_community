@@ -204,3 +204,32 @@ explaining the new number.
 
 Reference: `backend/packages/wagtail_forum/wagtail_forum/workflow.py`,
 `wagtail_forum/tests/test_actor_attribution.py`.
+
+## Concurrency-safe lazy get-or-create for shared Wagtail rows (double-checked locking)
+
+`Collection.name` (like several Wagtail models) has no unique constraint, so a
+bare check-then-create helper can race two concurrent first callers into
+duplicates. Keep the steady-state read lock-free and serialize only the create
+path on the parent row (audit 2026-07-17 L2, `wagtail_forum/collections.py`):
+
+```python
+def get_forum_image_collection():
+    name = get_setting("IMAGE_COLLECTION_NAME")
+    root = Collection.get_first_root_node()
+    existing = root.get_children().filter(name=name).first()
+    if existing is not None:
+        return existing                      # hot path: no lock, no txn
+    with transaction.atomic():
+        locked_root = Collection.objects.select_for_update().get(pk=root.pk)
+        existing = locked_root.get_children().filter(name=name).first()
+        if existing is not None:
+            return existing                  # lost the race — reuse
+        return locked_root.add_child(name=name)
+```
+
+Why the shape matters: locking on *every* call would serialize all image
+operations on one row; the re-check after acquiring the lock is what closes the
+race (READ COMMITTED re-reads committed rows post-lock); and `add_child()`s
+treebeard path/numchild math happens safely under the held parent lock. Test
+the race branch deterministically (monkeypatch the fast path to miss once) —
+NOT with threads + `transaction=True` (see docs/rules/testing.md).
