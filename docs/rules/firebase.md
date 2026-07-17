@@ -14,3 +14,11 @@ Compact checklist auto-injected before edits. Long-form:
   read/write rules scoped to the owner.
 - IAM follows least privilege — no broad `Editor`/`Owner` service accounts.
 - Secrets via Secret Manager / env, never committed to the repo.
+- **One canonical Firebase credentials setting** — every module (auth exchange,
+  FCM sender, availability gates) reads `settings.FIREBASE_CREDENTIALS_PATH`;
+  it absorbs `GOOGLE_APPLICATION_CREDENTIALS` in settings.py, set-but-empty
+  disables. Two knobs read by different modules = push silently dead on the
+  config half the docs describe (todo 253 slice 6). Never create a
+  credential-less default firebase_admin app when a credentials path IS
+  configured but failed — the FCM sender's get_app() reuse would adopt it and
+  burn retries instead of skipping cleanly.

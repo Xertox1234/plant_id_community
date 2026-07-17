@@ -878,3 +878,46 @@ pinned Django version already retries internally — re-implementing that
 recovery outside it doesn't add safety, it adds a second layer that only
 ever activates in the unrecoverable case and actively degrades the
 exception's clarity. Full trail: `docs/LEARNINGS.md` (2026-07-16).
+
+## Firebase Admin Default-App Arbitration (Shared Process-Global SDK Singleton)
+
+**Context** (todo 253 slice 6): two apps initialize the same `firebase_admin`
+default app — `apps/users` (ID-token verification on login) and `apps/garden`
+(FCM sending, also used by `apps/forum_host` push). `initialize_app()` raises
+`ValueError` on a second call, and whichever side runs first decides the
+app's credentials for the whole process. Before arbitration, an auth-first
+process silently killed every forum push.
+
+**The pattern** — for any third-party SDK with a process-global default
+instance shared across Django apps:
+
+1. **One canonical settings knob.** `settings.FIREBASE_CREDENTIALS_PATH`
+   absorbs the legacy env var (`GOOGLE_APPLICATION_CREDENTIALS`) at settings
+   load; set-but-empty explicitly disables and never falls through. Every
+   consumer — init, availability gates, docs — reads the one setting.
+2. **The SDK registry is the source of truth, not a module flag.** Check
+   `firebase_admin.get_app()` (try/except `ValueError`) instead of a
+   `_initialized` boolean — test utilities that delete apps
+   (`reset_firebase()`) can't reset your flag, leaving it `True` with no app.
+3. **Single-home the credentialed init.** One bootstrap function
+   (`apps/garden/firebase_config.initialize_firebase()`) owns
+   `credentials.Certificate(path)`; other modules delegate to it so the
+   shared app is fully credentialed whichever side runs first.
+4. **Adopt on init races.** Under threaded runserver two first-touch requests
+   can both miss `get_app()` and both call `initialize_app()`; the loser
+   catches `ValueError` and adopts via `get_app()` — inside its own guard so
+   the adoption can't itself raise out of the handler.
+5. **Never substitute a credential-less app when credentials are configured
+   but broken.** A projectId-only fallback app created after a failed
+   `Certificate()` gets ADOPTED by the sender's reuse branch: every push then
+   burns a send + full retry backoff on credential errors, with the reuse log
+   masking the root cause. Refuse the fallback and degrade loudly (handled
+   401 on the auth path; clean unavailable-skip on the send path).
+6. **The bootstrap never raises on a request path.** `Certificate()` parses
+   the key file EAGERLY — an unguarded call turns a typo'd path into a 500 on
+   every login (write-time trigger `eager-certificate-parse-unguarded`).
+
+Reference implementation: `backend/apps/garden/firebase_config.py` +
+`backend/apps/users/firebase_auth_views.py::_ensure_firebase_initialized`
+(tests: `apps/garden/tests/test_firebase_config.py`,
+`apps/users/tests/test_firebase_auth.py::FirebaseInitFailureTestCase`).

@@ -52,6 +52,11 @@ Review only the files passed to you. Do not read the full repo.
 - [ ] Tasks that return results used by callers must configure result backend
 - [ ] Tasks used only for side effects should have `ignore_result=True`
 
+**Push Notification Tasks (FCM)**
+
+- [ ] A tray-visible `Notification(...)` block in a multi-event task WHITELISTS events (content helper returns `None` for the rest) — moderation/publish signals fire on every routine autopublish, so an unscoped block self-notifies users for their own posts (todo 253 slice 6)
+- [ ] Collapse keys are per-EVENT-TYPE, never per-object — FCM retains max 4 distinct collapse keys per offline device; unique per-post keys silently drop the rest of an offline backlog
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

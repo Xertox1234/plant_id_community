@@ -21,3 +21,11 @@ Compact checklist auto-injected before edits. Long-form:
   `patch.object(task, "retry", side_effect=Retry())`, asserting the captured
   `countdown` kwarg. And `retry()` called with NO task context re-raises the
   ORIGINAL exception, never `Retry`.
+- **A tray-visible FCM `Notification(...)` block in a multi-event task must
+  WHITELIST events** (content helper returns `None` for the rest): moderation/
+  publish signals fire on every routine autopublish, so an unscoped block pops
+  "Your post was published" at users for their own ordinary posts.
+- **FCM collapse keys are per-EVENT-TYPE, never per-object** — FCM retains at
+  most 4 distinct collapse keys per offline device, so unique per-post keys
+  silently drop all but 4 notifications accumulated offline; a fixed
+  per-event key still dedupes the retry-after-timeout case it exists for.

@@ -561,5 +561,20 @@
     "source": "review: todo 253 slice 6 review",
     "added": "2026-07-16",
     "severity": "candidate"
+  },
+  {
+    "id": "fcm-collapse-key-per-object",
+    "domains": [
+      "celery"
+    ],
+    "path_glob": [
+      "backend/**/tasks.py"
+    ],
+    "content_present": "collapse[_-]?key[^\\n]*(post_id|topic_id|obj_id)",
+    "message": "Per-object FCM collapse key — FCM retains at most 4 distinct collapse keys per offline device, so unique per-post/topic keys silently drop the rest of an offline backlog. Use a per-EVENT-TYPE key (still dedupes retry-after-timeout); the bell/in-app list is the complete record (todo 253 slice 6).",
+    "pattern_ref": "backend/docs/patterns/architecture/services.md",
+    "source": "codify: feat/forum-notifications-slice6-fcm-registration",
+    "added": "2026-07-16",
+    "severity": "warn"
   }
 ]

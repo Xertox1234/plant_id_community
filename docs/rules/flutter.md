@@ -36,3 +36,11 @@ Compact checklist auto-injected before edits. Long-form:
   `integration_test/firestore_emulator_roundtrip_test.dart` +
   `scripts/run_firestore_emulator_test.sh`; details in
   `docs/FIRESTORE_PATTERNS.md` Pattern 10.
+- **Epoch-guard async lifecycle services** (anything a sign-out must cancel):
+  capture `_epoch` at method entry, re-check after EVERY `await` — including
+  `subscription.cancel()` — and bump it in `detach()`. A stale continuation
+  otherwise re-registers state after logout (confirmed empirically, todo 253
+  slice 6). And never suppress an interceptor side effect with a boolean flag
+  around an awaited call — a timed-out request keeps running after the flag
+  resets; put the opt-out ON THE REQUEST (`Options(extra: {...})`, checked in
+  the interceptor). See `plant_community_mobile/docs/patterns/flutter-patterns.md`.

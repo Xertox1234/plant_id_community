@@ -1387,3 +1387,28 @@ file at all (verified by the flutter-firebase reviewer).
 error while Dart HTTP to the same host works, the fix is the debug source-set
 network-security-config — not `usesCleartextTraffic="true"` on the main
 manifest (which would ship to release).
+
+### [2026-07-16] A freshly captured write-time trigger can block your own commit via hunk-scoped review
+
+**Context** (todo 253 slice 6): the session's code review produced 3 candidate
+triggers via `capture_from_review.py`, including `eager-certificate-parse-unguarded`
+("guard `credentials.Certificate()` on request paths"). The very next `git
+commit` was blocked by the kimi-review gate citing that trigger as a
+`[CRITICAL]` against `firebase_config.py:68` — but the flagged call was
+ALREADY inside the function's outer `try/except Exception → return False`,
+the exact degradation the rule demands. kimi loads trigger MESSAGES as review
+rules and judges diff hunks without the enclosing function, so a guard that
+sits more than a few lines above the call is invisible to it. (The trigger's
+own regex would NOT have fired — its `content_absent: "except"` matches the
+file — only the prose rule misfired.)
+
+**Fix**: verified the enclosing function, fixed the separate REAL finding from
+the same gate run, and bypassed with `SKIP_KIMI_REVIEW=1` + the refutation
+recorded in the commit message.
+
+**Rule**: when the kimi gate cites a rule against a specific line, read the
+ENCLOSING FUNCTION before treating it as real — hunk-scoped review cannot see
+guards outside the hunk. A same-session captured trigger reviewing the very
+diff that spawned it is the highest-risk case. Bypass only with the
+refutation written into the commit message; never bypass an unevaluated
+CRITICAL.
