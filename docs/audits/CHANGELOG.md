@@ -231,3 +231,38 @@ links to the full audit manifest with detailed findings and resolutions.
 - **Close baseline:** backend full suite 906 passed / 8 skipped; web 588 passed,
   `tsc` + eslint clean; `manage.py check` + `spectacular` clean.
 - **Commit(s):** branch `chore/forum-modernization-audit-2026-07-11` (PR pending).
+
+### 2026-07-17 — Forum Wagtail-Integration Correctness Audit
+
+- **Trigger:** User-invoked `/audit` after the forum notifications epic work
+  (todo 253 slices 1–6): does the forum package use Wagtail 7.4 APIs the way
+  current documentation says to? Security explicitly out of scope this round.
+- **Manifest:** [2026-07-17-forum-wagtail.md](2026-07-17-forum-wagtail.md)
+- **Findings:** 1 high, 2 medium, 2 low (5 total) from 3 scoped wagtail-reviewer
+  agents; Phase 2.5 Context7 doc research: 4 confirmed, 1 not-applicable, plus
+  1 incidental new finding (M2). Model/data layer and admin integration came
+  back clean — verified against installed Wagtail 7.4.2 source (mixin MRO,
+  GenericRelation overrides, custom Task recursion guard, bulk action contract,
+  workflow API signatures, migrations).
+- **Resolved:** 5 fixed & verified (user selected all), 0 deferred, 0 open.
+- **Headline (H1):** `seed_default_forum` attached ForumIndex under the depth-1
+  treebeard root instead of `Site.root_page` — forum pages were siblings of
+  Home, outside every site's routable tree (`page.url` = None, `route()` never
+  reached them). Wired into `railway.json` preDeployCommand, so it would have
+  shipped an unroutable forum on first prod deploy. Fixed with default-Site
+  resolution + a `Page.move` repair branch for already-mis-seeded DBs, and the
+  seed test now asserts routability.
+- **Also fixed:** L1 seeded pages get `save_revision().publish()` parity;
+  M1 forum admin SearchArea/summary-template URLs resolved via
+  `Topic.snippet_viewset.get_url_name("list")` instead of hardcoded `/cms/`;
+  M2 the blog source of that copied anti-pattern (11 hardcoded `/blog-admin/`
+  URLs → `reverse("blog_admin:*")`); L2 image-collection get-or-create made
+  concurrency-safe via double-checked `select_for_update`.
+- **Process finding:** a threaded `django_db(transaction=True)` concurrency test
+  passed standalone but broke in-suite (teardown flush + blog's
+  `TransactionTestCase` wipe migration-seeded Wagtail root rows) — reworked as
+  a deterministic locked-recheck simulation per the documented convention in
+  `wagtail_forum/tests/api/test_topic_detail.py`.
+- **Close baseline:** full worktree pytest suite 1088 passed / 8 skipped;
+  `manage.py check` clean; kimi-review clean on all four fix diffs.
+- **Commit(s):** branch `chore/forum-wagtail-audit-2026-07-17` (PR pending).

@@ -123,3 +123,54 @@ class WagtailAdminRenderSmokeTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"1 Featured Posts", response.content)
         self.assertIn(b"1 Pending Comments", response.content)
+
+    def test_page_listing_renders_blog_post_buttons_with_resolved_urls(self):
+        """The page explorer listing renders BlogPostPage rows through
+        blog_page_listing_buttons/more_buttons — all five reverse()'d
+        blog_admin URL names execute here, so a renamed or removed route
+        fails as NoReverseMatch instead of shipping a dead admin button
+        (audit 2026-07-17 M2, Phase 6)."""
+        author = User.objects.create_user(username="blog-author-3")
+        index = self._blog_index()
+        featured = BlogPostPage(
+            title="Featured Listed",
+            slug="featured-listed",
+            author=author,
+            publish_date=date.today(),
+            introduction="<p>Intro.</p>",
+            is_featured=True,
+            reading_time=1,  # < 3 → "AI Suggestions" button branch
+        )
+        index.add_child(instance=featured)
+        featured.save_revision().publish()
+        BlogComment.objects.create(
+            post=featured, author=author, content="ok", is_approved=True
+        )
+        plain = BlogPostPage(
+            title="Plain Listed",
+            slug="plain-listed",
+            author=author,
+            publish_date=date.today(),
+            introduction="<p>Intro.</p>",
+        )
+        index.add_child(instance=plain)
+        plain.save_revision().publish()
+
+        admin = User.objects.create_superuser(username="root3", email="r3@x.io")
+        self.client.force_login(admin)
+        response = self.client.get(
+            reverse("wagtailadmin_explore", args=(index.id,)), secure=True
+        )
+
+        self.assertEqual(response.status_code, 200)
+        for name, page in (
+            ("post_comments", featured),
+            ("post_ai_suggestions", featured),
+            ("unfeature_post", featured),
+            ("feature_post", plain),
+            ("tag_plants", featured),
+        ):
+            self.assertIn(
+                reverse(f"blog_admin:{name}", args=(page.id,)).encode(),
+                response.content,
+            )

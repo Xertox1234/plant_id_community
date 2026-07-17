@@ -82,6 +82,13 @@ def test_moderation_summary_item_counts_spam_rejected_post(client):
     assert resp.status_code == 200
     assert b"1 Forum post awaiting moderation" in resp.content
 
+    # Audit 2026-07-17 M1: the panel link is resolved via the snippet
+    # viewset's URL name, not hardcoded to the /cms/ mount.
+    from django.urls import reverse
+
+    expected_url = reverse(Topic.snippet_viewset.get_url_name("list"))
+    assert f'href="{expected_url}?live=false"'.encode() in resp.content
+
 
 @pytest.mark.django_db
 def test_forum_search_area_appears_on_admin_pages_search(client):
@@ -98,6 +105,13 @@ def test_forum_search_area_appears_on_admin_pages_search(client):
 
     assert resp.status_code == 200
     assert b"Forum" in resp.content
+
+    # Audit 2026-07-17 M1: the search area's target is resolved via the
+    # snippet viewset's URL name, not hardcoded to the /cms/ mount.
+    from wagtail_forum.models import Topic
+
+    expected_url = reverse(Topic.snippet_viewset.get_url_name("list"))
+    assert expected_url.encode() in resp.content
 
 
 @pytest.mark.django_db

@@ -124,7 +124,14 @@ class ForumModerationSummaryItem(SummaryItem):
         self.count = count
 
     def get_context_data(self, parent_context):
-        return {"count": self.count}
+        from django.urls import reverse
+
+        return {
+            "count": self.count,
+            # Resolved, not hardcoded: the admin mount (/cms/ here) is host
+            # config, and this package is reusable (audit 2026-07-17 M1).
+            "moderation_url": reverse(Topic.snippet_viewset.get_url_name("list")),
+        }
 
 
 @hooks.register("construct_homepage_summary_items")
@@ -147,9 +154,11 @@ def register_forum_search_area():
     SearchArea is a plain positional-args class (confirmed via
     wagtail.admin.search.SearchArea) — not the Component-style trap
     ForumModerationSummaryItem's docstring above warns about."""
+    from django.urls import reverse
+
     return SearchArea(
         "Forum",
-        "/cms/snippets/wagtail_forum/topic/",
+        reverse(Topic.snippet_viewset.get_url_name("list")),
         name="forum",
         icon_name="group",
         order=300,

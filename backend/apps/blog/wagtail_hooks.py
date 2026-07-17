@@ -6,8 +6,8 @@ and plant-specific content suggestions for the blog system.
 """
 
 from django.contrib.auth import get_user_model
+from django.urls import reverse
 from django.utils.html import format_html
-from django.utils.safestring import mark_safe
 from wagtail import hooks
 from wagtail.admin import widgets as wagtailadmin_widgets
 from wagtail.admin.menu import MenuItem
@@ -17,6 +17,10 @@ from wagtail.admin.site_summary import SummaryItem
 from .models import BlogComment, BlogPostPage
 
 User = get_user_model()
+
+# Admin URLs are resolved via the blog_admin namespace (apps/blog/admin_urls.py),
+# never hardcoded to the /blog-admin/ mount (audit 2026-07-17 M2). All reverse()
+# calls stay inside hook functions — hooks fire per-request, after URLconf load.
 
 
 @hooks.register("register_rich_text_features")
@@ -34,7 +38,10 @@ def register_blog_menu():
     Add blog management menu items to Wagtail admin.
     """
     return MenuItem(
-        "Blog Management", "/blog-admin/", icon_name="doc-full-inverse", order=200
+        "Blog Management",
+        reverse("blog_admin:dashboard"),
+        icon_name="doc-full-inverse",
+        order=200,
     )
 
 
@@ -124,8 +131,9 @@ def add_blog_stats_panel(request, panels):
                 else ""
             ),
             moderate_html=(
-                mark_safe(
-                    '<a href="/blog-admin/comments/" class="button warning">Moderate Comments</a>'
+                format_html(
+                    '<a href="{}" class="button warning">Moderate Comments</a>',
+                    reverse("blog_admin:moderate_comments"),
                 )
                 if pending_comments > 0
                 else ""
@@ -205,7 +213,7 @@ def add_blog_summary_items(request, items):
             label="Blog Posts",
             count=post_count,
             url_label="View All Posts",
-            url="/blog-admin/",
+            url=reverse("blog_admin:dashboard"),
             icon_name="doc-full",
             order=200,
         )
@@ -218,7 +226,7 @@ def add_blog_summary_items(request, items):
                 label="Featured Posts",
                 count=featured_count,
                 url_label="Manage Featured",
-                url="/blog-admin/featured/",
+                url=reverse("blog_admin:featured_posts"),
                 icon_name="pick",
                 order=201,
             )
@@ -231,7 +239,7 @@ def add_blog_summary_items(request, items):
                 label="Pending Comments",
                 count=pending_comments,
                 url_label="Moderate",
-                url="/blog-admin/comments/",
+                url=reverse("blog_admin:moderate_comments"),
                 icon_name="warning",
                 order=202,
             )
@@ -256,7 +264,7 @@ def blog_page_listing_buttons(
         if page.view_count > 0:
             yield wagtailadmin_widgets.ListingButton(
                 f"{page.view_count:,} views",
-                f"#",  # Could link to detailed analytics
+                "#",  # Could link to detailed analytics
                 icon_name="view",
                 priority=15,
                 attrs={"title": f"{page.view_count:,} total views"},
@@ -267,7 +275,7 @@ def blog_page_listing_buttons(
         if comment_count > 0:
             yield wagtailadmin_widgets.ListingButton(
                 f"Comments ({comment_count})",
-                f"/blog-admin/posts/{page.id}/comments/",
+                reverse("blog_admin:post_comments", args=(page.id,)),
                 icon_name="comment",
                 priority=20,
             )
@@ -276,7 +284,7 @@ def blog_page_listing_buttons(
         if page.reading_time and page.reading_time < 3:
             yield wagtailadmin_widgets.ListingButton(
                 "AI Suggestions",
-                f"/blog-admin/posts/{page.id}/ai-suggestions/",
+                reverse("blog_admin:post_ai_suggestions", args=(page.id,)),
                 icon_name="help",
                 priority=30,
             )
@@ -294,14 +302,14 @@ def blog_page_listing_more_buttons(
         if page.is_featured:
             yield wagtailadmin_widgets.Button(
                 "Unfeature",
-                f"/blog-admin/posts/{page.id}/unfeature/",
+                reverse("blog_admin:unfeature_post", args=(page.id,)),
                 icon_name="cross",
                 priority=10,
             )
         else:
             yield wagtailadmin_widgets.Button(
                 "Feature",
-                f"/blog-admin/posts/{page.id}/feature/",
+                reverse("blog_admin:feature_post", args=(page.id,)),
                 icon_name="pick",
                 priority=10,
             )
@@ -309,7 +317,7 @@ def blog_page_listing_more_buttons(
         # Plant species tagging
         yield wagtailadmin_widgets.Button(
             "Tag Plants",
-            f"/blog-admin/posts/{page.id}/tag-plants/",
+            reverse("blog_admin:tag_plants", args=(page.id,)),
             icon_name="tag",
             priority=20,
         )
@@ -345,7 +353,7 @@ def register_blog_settings_menu_item():
     Add blog settings to the Wagtail admin settings menu.
     """
     return MenuItem(
-        "Blog Settings", "/blog-admin/settings/", icon_name="cog", order=400
+        "Blog Settings", reverse("blog_admin:settings"), icon_name="cog", order=400
     )
 
 
@@ -356,7 +364,7 @@ def register_blog_search():
     """
     return SearchArea(
         "Blog Content",
-        "/blog-admin/search/",
+        reverse("blog_admin:search"),
         name="blog",
         icon_name="doc-full",
         order=300,
@@ -410,7 +418,7 @@ def register_blog_permissions():
                 "delete_blogpostpage",
             ],
         )
-    except:
+    except Exception:
         return []
 
 
