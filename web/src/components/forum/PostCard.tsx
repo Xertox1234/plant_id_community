@@ -51,6 +51,8 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
   const [hasReported, setHasReported] = useState(false);
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const nonZeroReactions = REACTION_TYPES.filter((t) => (post.reaction_counts?.[t] ?? 0) > 0);
 
   const handleCopyLink = async () => {
     const url = `${window.location.origin}${window.location.pathname}#post-${post.id}`;
@@ -183,22 +185,50 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
         <StreamFieldRenderer blocks={post.body} mentionHighlight />
       </div>
 
-      {/* Reactions — shown only when an onReact handler is provided (Phase 2 write UI). */}
-      {onReact && (
-        <div className="flex gap-3 pt-4 border-t border-line">
-          {REACTION_TYPES.map((type) => (
+      {(onReact || nonZeroReactions.length > 0) && (
+        <div className="flex flex-wrap items-center gap-2 pt-4 border-t border-line">
+          {nonZeroReactions.map((type) => (
             <button
               key={type}
               type="button"
-              onClick={() => onReact(post.id, type)}
-              className="inline-flex items-center gap-1 min-h-11 px-3 py-1 bg-surface-2 hover:bg-surface-3 rounded-full text-sm transition-colors"
-              aria-label={`React ${type}`}
-              title={`React ${type}`}
+              onClick={onReact ? () => onReact(post.id, type) : undefined}
+              disabled={!onReact}
+              className="inline-flex items-center gap-1 min-h-11 px-3 py-1 bg-surface-2 hover:bg-surface-3 rounded-full text-sm transition-colors disabled:cursor-default disabled:hover:bg-surface-2"
+              aria-label={onReact ? `React ${type}` : `${post.reaction_counts?.[type]} ${type}`}
+              title={onReact ? `React ${type}` : type}
             >
               <span>{getReactionEmoji(type)}</span>
-              <span className="font-medium">{post.reaction_counts?.[type] ?? 0}</span>
+              <span className="font-medium">{post.reaction_counts?.[type]}</span>
             </button>
           ))}
+          {onReact && !showReactionPicker && (
+            <button
+              type="button"
+              onClick={() => setShowReactionPicker(true)}
+              className="inline-flex items-center min-h-11 px-3 py-1 text-ink-3 hover:bg-surface-3 rounded-full text-sm transition-colors"
+              aria-label="Add reaction"
+              title="Add reaction"
+            >
+              +🙂
+            </button>
+          )}
+          {onReact &&
+            showReactionPicker &&
+            REACTION_TYPES.filter((t) => !nonZeroReactions.includes(t)).map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => {
+                  onReact(post.id, type);
+                  setShowReactionPicker(false);
+                }}
+                className="inline-flex items-center min-h-11 px-3 py-1 bg-surface-2 hover:bg-surface-3 rounded-full text-sm transition-colors"
+                aria-label={`React ${type}`}
+                title={`React ${type}`}
+              >
+                {getReactionEmoji(type)}
+              </button>
+            ))}
         </div>
       )}
 
