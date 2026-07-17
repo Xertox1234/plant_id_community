@@ -253,3 +253,38 @@ completes rather than resolving with stale data. Test the race directly by
 mocking the network call with two manually-resolvable promises and resolving
 them out of order — a debounce-only test (single call, fake-timers advance)
 doesn't exercise this path at all.
+
+## One-Shot Side Effects in a List-Dependent Effect
+
+An effect that lists a **growing collection** in its deps (`posts`, `messages`,
+`rows`) re-runs on every append. That's correct when the effect's job *is* to
+react to the new items — but any **one-shot side effect** in the same effect
+(scroll-into-view, autofocus, a fire-once analytics ping) then fires again on
+every append, not just the first time. In the forum thread deep-link, the
+arrival effect had `posts` in its deps so it could pull later cursor pages until
+the `#post-N` target mounted — but the same effect also called
+`el.scrollIntoView()`, so posting a reply or clicking "Load More" (with the hash
+still in the URL) yanked the viewport back to the anchor on every list change.
+
+Gate the one-shot part on a `useRef` keyed by the effect's *trigger identity*
+(here, the hash), and reset it when a fresh trigger arrives:
+
+```typescript
+const scrolledHashRef = useRef<string | null>(null);
+// reset on navigation (new thread): scrolledHashRef.current = null;
+
+useEffect(() => {
+  const el = document.getElementById(targetId);
+  if (!el) { /* keep loading pages… */ return; }
+  if (scrolledHashRef.current === location.hash) return; // already scrolled to this anchor
+  scrolledHashRef.current = location.hash;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}, [loading, posts, location.hash /* …loaders… */]);
+```
+
+Same shape guards the auto-loader itself: advance **once per cursor** via a
+`chaseCursorRef` so a failed page-fetch (which leaves `nextCursor` unchanged)
+can't retry forever. And any request fired automatically from such an effect
+needs a **stale-thread guard** — capture the id before the `await` and skip the
+`setState` if `currentIdRef.current` moved on, or a late page for thread A
+appends to thread B (see `ThreadDetailPage.tsx`).

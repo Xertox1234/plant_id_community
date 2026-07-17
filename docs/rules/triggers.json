@@ -622,5 +622,21 @@
     "source": "codify: chore/forum-wagtail-audit-2026-07-17",
     "added": "2026-07-17",
     "severity": "warn"
+  },
+  {
+    "id": "jsdom-scrollintoview-prototype",
+    "domains": [
+      "testing",
+      "react"
+    ],
+    "path_glob": [
+      "web/src/**/*.test.tsx"
+    ],
+    "content_present": "(?<![A-Za-z])Element\\.prototype\\.scrollIntoView",
+    "message": "jsdom implements scrollIntoView on HTMLElement.prototype — a spy on Element.prototype is shadowed (records 0 calls). Spy on HTMLElement.prototype.scrollIntoView instead.",
+    "pattern_ref": "web/docs/patterns/testing.md",
+    "source": "codify: feat/forum-wave1-honesty-polish",
+    "added": "2026-07-17",
+    "severity": "warn"
   }
 ]

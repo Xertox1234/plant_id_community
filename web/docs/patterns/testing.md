@@ -229,3 +229,12 @@ Gotchas:
   the PR/todo Work Log — a passing suite shouldn't imply coverage it doesn't
   have. See `forumMentionNode.ts`'s `shouldRender` guard and todo 253 slice
   4's Work Log for the precedent.
+- jsdom implements `scrollIntoView` on **`HTMLElement.prototype`**, not
+  `Element.prototype`. A test that stubs/spies `Element.prototype.scrollIntoView`
+  gets **silently shadowed** — the real call resolves to jsdom's own
+  `HTMLElement.prototype` no-op, so the spy records 0 calls and an assertion like
+  `toHaveBeenCalledTimes(1)` fails even though the component scrolled correctly.
+  Spy on `HTMLElement.prototype.scrollIntoView` (post-card wrappers are
+  `HTMLElement`s). Cost a green-looking arrival-scroll test a full debug loop in
+  the forum Wave 1 deep-link work — the production code was right, the spy target
+  was wrong.
