@@ -1,5 +1,5 @@
 ---
-status: pending
+status: superseded
 priority: p2
 issue_id: "061"
 tags: [forum, backend, content-sanitization, security, phase-3, enhancement]
@@ -10,9 +10,12 @@ estimated_effort: "34-40 hours (3-4 weeks)"
 
 # Forum Phase 3: Rich Content & Advanced Features
 
+> **Archived 2026-07-16**: Superseded. Written for the django-machina-era `apps/forum`, which was retired (PR #362) and rebuilt as `packages/wagtail_forum/`. The current forum roadmap, including content features, is tracked in the repo-root `todos/` (253–264).
+
 ## Problem Statement
 
 Phase 3 adds rich content capabilities and advanced features to the forum:
+
 1. **Content Sanitization** - Prevent XSS attacks while allowing rich HTML
 2. **Markdown Support** - Convert markdown to safe HTML
 3. **AI Assistance Tracking** - Track when users use AI tools to write posts
@@ -22,6 +25,7 @@ Phase 3 adds rich content capabilities and advanced features to the forum:
 7. **Reaction Aggregation** - Most helpful posts, top contributors leaderboard
 
 **Impact**:
+
 - Without sanitization: XSS vulnerabilities (CRITICAL security issue)
 - Without markdown: Users forced to write raw HTML (poor UX)
 - Without templates: New users struggle to write effective posts
@@ -33,6 +37,7 @@ Phase 3 adds rich content capabilities and advanced features to the forum:
 ## Findings
 
 **Current State**:
+
 - ✅ Phase 1: Core models and API complete (96 tests passing)
 - ✅ Phase 2: Caching and performance optimized (40% hit rate, <50ms)
 - ✅ Phase 6: React frontend 85% complete (image upload + search in progress)
@@ -42,12 +47,14 @@ Phase 3 adds rich content capabilities and advanced features to the forum:
 - ❌ No plant integration (posts isolated from plant database)
 
 **Security Analysis**:
+
 - **XSS Risk**: Users can inject `<script>` tags in post content
 - **OWASP Top 10**: A03:2021 - Injection (XSS is #3)
 - **Impact**: Session hijacking, credential theft, malware distribution
 - **Mitigation**: Content sanitization with whitelist approach (Bleach library)
 
 **User Experience Gaps**:
+
 - New users don't know how to format posts effectively
 - No standard format for common scenarios (plant ID help, pest problems)
 - Markdown users have to write HTML manually
@@ -56,15 +63,18 @@ Phase 3 adds rich content capabilities and advanced features to the forum:
 ## Proposed Solutions
 
 ### Option 1: Full Phase 3 Implementation (Recommended)
+
 Implement all 11 tasks across 3-4 weeks.
 
 **Pros**:
+
 - Complete feature set
 - Strong security posture (XSS prevention)
 - Best user experience (templates, markdown, plant mentions)
 - Quality content surfacing (aggregation)
 
 **Cons**:
+
 - Significant time investment (34-40 hours)
 - More complex testing requirements
 - Larger deployment scope
@@ -73,14 +83,17 @@ Implement all 11 tasks across 3-4 weeks.
 **Risk**: Medium (scope creep possible)
 
 ### Option 2: Security-First Minimal (Alternative)
+
 Only implement content sanitization and image validation.
 
 **Pros**:
+
 - Addresses critical security issues
 - Minimal scope
 - Fast deployment
 
 **Cons**:
+
 - Poor user experience (no templates, markdown, plant links)
 - No quality content surfacing
 - Users complain about missing features
@@ -89,15 +102,18 @@ Only implement content sanitization and image validation.
 **Risk**: High (user dissatisfaction)
 
 ### Option 3: Phased Rollout
+
 Week 1-2: Security (sanitization, validation)
 Week 3-4: Features (markdown, templates, mentions)
 
 **Pros**:
+
 - Security addressed first
 - Incremental value delivery
 - Easier testing and deployment
 
 **Cons**:
+
 - Two deployments needed
 - Features delayed
 
@@ -117,11 +133,13 @@ Week 3-4: Features (markdown, templates, mentions)
 **Security Issue**: XSS vulnerability in post content.
 
 **Files**:
+
 - `backend/apps/forum/services/content_sanitization_service.py` - Sanitization service
 - `backend/apps/forum/models.py` - Update Post model with sanitization
 - `backend/apps/forum/tests/test_content_sanitization.py` - XSS prevention tests
 
 **Implementation**:
+
 ```python
 import bleach
 
@@ -155,6 +173,7 @@ class ContentSanitizationService:
 ```
 
 **Model Update**:
+
 ```python
 class Post(models.Model):
     content_raw = models.TextField(help_text='Raw user input')
@@ -167,6 +186,7 @@ class Post(models.Model):
 ```
 
 **Security Tests** (OWASP XSS examples):
+
 ```python
 def test_strips_script_tags(self):
     html = '<script>alert("XSS")</script><p>Hello</p>'
@@ -191,6 +211,7 @@ def test_allows_safe_html(self):
 ```
 
 **Acceptance Criteria**:
+
 - [ ] XSS attacks prevented (6+ OWASP test cases passing)
 - [ ] Safe HTML tags preserved (p, strong, em, ul, ol, li, a, img)
 - [ ] Dangerous attributes stripped (onclick, onerror, javascript:)
@@ -200,12 +221,14 @@ def test_allows_safe_html(self):
 - [ ] 6+ security tests passing
 
 **Migration**:
+
 ```bash
 python manage.py makemigrations forum --name add_content_raw_field
 python manage.py migrate
 ```
 
 **Verification**:
+
 ```bash
 cd backend
 python manage.py test apps.forum.tests.test_content_sanitization --keepdb -v 2
@@ -222,11 +245,13 @@ python manage.py shell
 ### Task 3.2: Markdown Support (3 hours, Priority: MEDIUM)
 
 **Files**:
+
 - `backend/apps/forum/services/content_sanitization_service.py` - Add sanitize_markdown()
 - `backend/apps/forum/serializers.py` - Add content_format field
 - `backend/apps/forum/tests/test_markdown_conversion.py` - Markdown tests
 
 **Implementation**:
+
 ```python
 class ContentSanitizationService:
     @classmethod
@@ -240,6 +265,7 @@ class ContentSanitizationService:
 ```
 
 **Serializer Update**:
+
 ```python
 class PostCreateSerializer(serializers.ModelSerializer):
     content_format = serializers.ChoiceField(
@@ -258,6 +284,7 @@ class PostCreateSerializer(serializers.ModelSerializer):
 ```
 
 **Acceptance Criteria**:
+
 - [ ] Markdown converted to HTML (headings, lists, bold, italic, links, code blocks)
 - [ ] Syntax highlighting for code blocks
 - [ ] Newlines converted to `<br>` tags
@@ -269,12 +296,14 @@ class PostCreateSerializer(serializers.ModelSerializer):
 ### Task 3.3: AI Assistance Tracking (3 hours, Priority: LOW)
 
 **Files**:
+
 - `backend/apps/forum/migrations/XXXX_add_ai_assistance_fields.py` - Migration
 - `backend/apps/forum/models.py` - Add ai_assisted, ai_prompts_used fields
 - `backend/apps/forum/serializers.py` - Include new fields
 - `web/src/components/forum/PostEditor.jsx` - Add AI checkbox
 
 **Migration**:
+
 ```python
 migrations.AddField(
     model_name='post',
@@ -289,6 +318,7 @@ migrations.AddField(
 ```
 
 **Frontend**:
+
 ```jsx
 <label>
   <input
@@ -309,6 +339,7 @@ migrations.AddField(
 ```
 
 **Acceptance Criteria**:
+
 - [ ] Database fields added (ai_assisted, ai_prompts_used)
 - [ ] Checkbox in post editor
 - [ ] Optional prompt text field when checked
@@ -321,12 +352,14 @@ migrations.AddField(
 ### Task 3.4: Post Templates (4 hours, Priority: MEDIUM)
 
 **Files**:
+
 - `backend/apps/forum/models.py` - PostTemplate model
 - `backend/apps/forum/viewsets/template_viewset.py` - ReadOnlyViewSet
 - `backend/apps/forum/management/commands/seed_post_templates.py` - Seed data
 - `web/src/components/forum/TemplateSelector.jsx` - Template picker
 
 **Model**:
+
 ```python
 class PostTemplate(models.Model):
     name = models.CharField(max_length=100)
@@ -341,6 +374,7 @@ class PostTemplate(models.Model):
 ```
 
 **Templates to Seed**:
+
 1. **Help Identify Plant**
    - Fields: Where found, plant characteristics, photos, notes
    - Category: Plant Identification
@@ -354,6 +388,7 @@ class PostTemplate(models.Model):
    - Category: Care Advice
 
 **ViewSet**:
+
 ```python
 class PostTemplateViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = PostTemplate.objects.filter(is_active=True)
@@ -368,6 +403,7 @@ class PostTemplateViewSet(viewsets.ReadOnlyModelViewSet):
 ```
 
 **Acceptance Criteria**:
+
 - [ ] 3+ post templates seeded (plant ID, pest report, care advice)
 - [ ] Template selector in post editor
 - [ ] Template content pre-fills editor
@@ -382,10 +418,12 @@ class PostTemplateViewSet(viewsets.ReadOnlyModelViewSet):
 **Note**: Most validation covered in Phase 6 Task 13.2. This task adds additional backend validation layers.
 
 **Files**:
+
 - `backend/apps/forum/viewsets/post_viewset.py` - Enhanced validation
 - `backend/apps/forum/tests/test_image_validation.py` - Validation tests
 
 **Additional Validation**:
+
 ```python
 @action(detail=True, methods=['post'])
 def upload_image(self, request, uuid=None):
@@ -424,6 +462,7 @@ def upload_image(self, request, uuid=None):
 ```
 
 **Acceptance Criteria**:
+
 - [ ] Max 6 images enforced
 - [ ] Max 5MB per image enforced
 - [ ] Total post size limit (50MB) enforced
@@ -439,12 +478,14 @@ def upload_image(self, request, uuid=None):
 ### Task 3.6: Plant Mention System (6 hours, Priority: MEDIUM)
 
 **Files**:
+
 - `backend/apps/forum/models.py` - PlantMention model
 - `backend/apps/forum/viewsets/post_viewset.py` - Autocomplete endpoint
 - `web/src/components/forum/PlantMentionExtension.jsx` - TipTap extension
 - `backend/apps/forum/tests/test_plant_mentions.py` - Mention tests
 
 **Model**:
+
 ```python
 class PlantMention(models.Model):
     post = models.ForeignKey('Post', on_delete=models.CASCADE, related_name='plant_mentions')
@@ -464,6 +505,7 @@ class PlantMention(models.Model):
 ```
 
 **Autocomplete Endpoint**:
+
 ```python
 @action(detail=False, methods=['get'])
 def autocomplete_plants(self, request):
@@ -481,6 +523,7 @@ def autocomplete_plants(self, request):
 ```
 
 **TipTap Extension** (Frontend):
+
 ```javascript
 import { Node } from '@tiptap/core'
 import { ReactRenderer } from '@tiptap/react'
@@ -525,6 +568,7 @@ export const PlantMention = Node.create({
 ```
 
 **Acceptance Criteria**:
+
 - [ ] Typing "@aloe" triggers autocomplete
 - [ ] Autocomplete shows top 10 matching plants
 - [ ] Selecting plant inserts mention with thumbnail
@@ -538,6 +582,7 @@ export const PlantMention = Node.create({
 ### Task 3.7: Reaction Aggregation Endpoints (4 hours, Priority: LOW)
 
 **Files**:
+
 - `backend/apps/forum/viewsets/post_viewset.py` - Aggregation endpoints
 - `web/src/pages/forum/TopPostsPage.jsx` - Top posts page
 - `web/src/pages/forum/LeaderboardPage.jsx` - Contributors leaderboard
@@ -546,6 +591,7 @@ export const PlantMention = Node.create({
 **Endpoints**:
 
 1. **Most Helpful Posts**:
+
 ```python
 @action(detail=False, methods=['get'])
 def most_helpful(self, request):
@@ -558,7 +604,8 @@ def most_helpful(self, request):
     return Response(serializer.data)
 ```
 
-2. **Top Contributors**:
+1. **Top Contributors**:
+
 ```python
 @action(detail=False, methods=['get'])
 def top_contributors(self, request):
@@ -581,6 +628,7 @@ def top_contributors(self, request):
 ```
 
 **Acceptance Criteria**:
+
 - [ ] Most helpful posts endpoint returns top 20
 - [ ] Top contributors endpoint returns top 50
 - [ ] Leaderboard sorted by helpful reactions, then post count
@@ -593,6 +641,7 @@ def top_contributors(self, request):
 ### Task 3.8: Phase 3 Testing (6 hours, Priority: HIGH)
 
 **Test Coverage Goals**:
+
 - Content sanitization: 6 tests (XSS prevention)
 - Markdown conversion: 3 tests (rendering accuracy)
 - AI tracking: 2 tests (data persistence)
@@ -606,6 +655,7 @@ def top_contributors(self, request):
 **Testing Strategy**:
 
 1. **Unit Tests** (Backend):
+
 ```bash
 cd backend
 python manage.py test apps.forum.tests.test_content_sanitization --keepdb -v 2
@@ -617,33 +667,38 @@ python manage.py test apps.forum.tests.test_plant_mentions --keepdb -v 2
 python manage.py test apps.forum.tests.test_aggregation --keepdb -v 2
 ```
 
-2. **Security Scanning**:
+1. **Security Scanning**:
+
 ```bash
 cd backend
 bandit -r apps/forum/
 safety check
 ```
 
-3. **Component Tests** (Frontend):
+1. **Component Tests** (Frontend):
+
 ```bash
 cd web
 npm run test TemplateSelector.test.jsx
 npm run test PlantMentionExtension.test.jsx
 ```
 
-4. **Integration Tests**:
+1. **Integration Tests**:
+
 - Post creation → sanitization → display
 - Markdown → HTML conversion → display
 - Template selection → pre-fill → submission
 - Plant mention → autocomplete → link
 
-5. **E2E Tests** (Playwright):
+1. **E2E Tests** (Playwright):
+
 ```bash
 cd web
 npm run test:e2e -- forum-phase-3
 ```
 
 **Manual Testing Checklist**:
+
 - [ ] Try XSS attack: `<script>alert('XSS')</script>` (should strip)
 - [ ] Create post with markdown (should convert)
 - [ ] Use "Help Identify" template (should pre-fill)
@@ -654,6 +709,7 @@ npm run test:e2e -- forum-phase-3
 - [ ] Upload 6MB image (should error)
 
 **Acceptance Criteria**:
+
 - [ ] 29+ new tests passing (100%)
 - [ ] Test coverage >90% for new code
 - [ ] Zero security vulnerabilities (Bandit clean)
@@ -668,12 +724,14 @@ npm run test:e2e -- forum-phase-3
 ### Security Architecture
 
 **Defense in Depth**:
+
 1. **Input Validation**: Client-side validation for UX
 2. **Content Sanitization**: Server-side with Bleach (whitelist approach)
 3. **Output Encoding**: Django templates auto-escape by default
 4. **CSP Headers**: Content Security Policy prevents inline scripts
 
 **Bleach Configuration**:
+
 - **Whitelist**: Only safe tags allowed (no script, iframe, object)
 - **Attribute Filtering**: Only safe attributes (no event handlers)
 - **Protocol Filtering**: Only http, https, mailto (no javascript:, data:)
@@ -682,6 +740,7 @@ npm run test:e2e -- forum-phase-3
 ### Database Schema
 
 **New Tables**:
+
 ```sql
 -- Post content split
 ALTER TABLE forum_post ADD COLUMN content_raw TEXT;
@@ -717,21 +776,25 @@ CREATE INDEX idx_post_ai_assisted ON forum_post(ai_assisted);
 ### Performance Considerations
 
 **Sanitization**:
+
 - Bleach is fast (~50ms for 10KB content)
 - Cache sanitized content (don't re-sanitize on every read)
 - Sanitize only on save, not on display
 
 **Markdown**:
+
 - Markdown library is slower (~100ms for 10KB)
 - Cache converted HTML
 - Syntax highlighting adds overhead (use Pygments with cache)
 
 **Plant Autocomplete**:
+
 - Limit to 10 results
 - Index on scientific_name and common_name (GIN trigram)
 - Debounce client-side (300ms)
 
 **Aggregation**:
+
 - Cache most helpful posts (15 minutes)
 - Cache leaderboard (15 minutes)
 - Use database-level aggregation (not Python)
@@ -739,17 +802,20 @@ CREATE INDEX idx_post_ai_assisted ON forum_post(ai_assisted);
 ## Resources
 
 **Documentation**:
-- Bleach: https://bleach.readthedocs.io/
-- Python Markdown: https://python-markdown.github.io/
-- OWASP XSS Prevention: https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html
-- TipTap Mentions: https://tiptap.dev/experiments/mentions
+
+- Bleach: <https://bleach.readthedocs.io/>
+- Python Markdown: <https://python-markdown.github.io/>
+- OWASP XSS Prevention: <https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html>
+- TipTap Mentions: <https://tiptap.dev/experiments/mentions>
 
 **Internal Docs**:
+
 - `/backend/docs/forum/PHASE_2C_RECOMMENDATIONS.md` - Implementation template
 - `/backend/docs/development/SECURITY_PATTERNS_CODIFIED.md` - Security patterns
 - `/backend/DIAGNOSIS_API_PATTERNS_CODIFIED.md` - DRF patterns
 
 **Code Examples**:
+
 - `/backend/apps/plant_identification/services/plant_id_service.py` - Service pattern
 - `/backend/apps/blog/models.py` - Content sanitization (Wagtail uses similar)
 - `/web/src/components/forum/TipTapEditor.jsx` - Rich editor
@@ -757,6 +823,7 @@ CREATE INDEX idx_post_ai_assisted ON forum_post(ai_assisted);
 ## Acceptance Criteria
 
 ### Week 1-2: Rich Content
+
 - [ ] Content sanitization prevents all XSS attacks (6+ tests)
 - [ ] Markdown converts to safe HTML (3+ tests)
 - [ ] AI assistance tracking works (2+ tests)
@@ -765,12 +832,14 @@ CREATE INDEX idx_post_ai_assisted ON forum_post(ai_assisted);
 - [ ] Security scan clean (Bandit, Safety)
 
 ### Week 3-4: Plant Integration
+
 - [ ] Plant mention autocomplete works (5+ tests)
 - [ ] Most helpful posts endpoint works (2+ tests)
 - [ ] Top contributors leaderboard works (2+ tests)
 - [ ] All aggregations cached (15 min TTL)
 
 ### Overall Phase 3 Success
+
 - [ ] 29+ new tests passing (100%)
 - [ ] Test coverage >90% backend, >80% frontend
 - [ ] Zero XSS vulnerabilities (OWASP test suite)
@@ -783,8 +852,10 @@ CREATE INDEX idx_post_ai_assisted ON forum_post(ai_assisted);
 ## Work Log
 
 ### 2025-11-02 - TODO Created
+
 **By:** Claude Code Work Planning System
 **Actions:**
+
 - Created Phase 3 work plan (11 tasks, 34-40 hours)
 - Prioritized security (content sanitization) first
 - Organized into 2 sprints (rich content + plant integration)
@@ -792,15 +863,18 @@ CREATE INDEX idx_post_ai_assisted ON forum_post(ai_assisted);
 - Established success metrics (usage, performance, security)
 
 **Dependencies**:
+
 - Phase 6 must be 100% complete before starting
 - Blocks Phase 4 (Moderation & Trust System)
 
 **Timeline**:
+
 - Week 1-2: Rich content (Tasks 3.1-3.5, 18 hours)
 - Week 3-4: Plant integration (Tasks 3.6-3.8, 16-22 hours)
 - Target: Phase 3 complete by November 30, 2025
 
 **Next Steps**:
+
 1. Wait for Phase 6 completion
 2. Start with Task 3.1 (Content Sanitization) - CRITICAL
 3. Run security tests after each task
@@ -809,23 +883,27 @@ CREATE INDEX idx_post_ai_assisted ON forum_post(ai_assisted);
 ## Notes
 
 **Why Option 1 (Full Implementation)?**
+
 - Security is critical (XSS prevention non-negotiable)
 - User experience features drive engagement (templates, markdown)
 - Plant integration ties forum to core product (plant database)
 - Aggregation surfaces quality content (community building)
 
 **Security Priority**:
+
 - Task 3.1 (Content Sanitization) is CRITICAL priority
 - Must pass OWASP XSS test suite before proceeding
 - Bandit and Safety scans required before deployment
 
 **User Experience Focus**:
+
 - Templates reduce friction for new users
 - Markdown improves content quality
 - Plant mentions create connections to plant database
 - Aggregation rewards quality contributors
 
 **Success Metrics**:
+
 - **Security**: Zero XSS vulnerabilities
 - **Usage**: 20%+ posts use templates within 1 month
 - **Engagement**: 10%+ posts mention plants within 1 month
