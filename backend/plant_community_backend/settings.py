@@ -112,6 +112,12 @@ ALLOWED_HOSTS = config(
     cast=lambda v: [s.strip() for s in v.split(",")],
 )
 
+# The Android emulator reaches the host machine's loopback as 10.0.2.2, so the
+# mobile dev loop (README's documented `flutter run -d android` command) sends
+# Host: 10.0.2.2:8000. Dev-only — never appended when DEBUG is off.
+if DEBUG and "10.0.2.2" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("10.0.2.2")
+
 # Railway's platform healthcheck probes the container with Host: healthcheck.railway.app.
 # Django's ALLOWED_HOSTS check (get_host) rejects unknown hosts with a 400 before the view
 # runs, which fails the healthcheck (it requires a 200). Always allow that internal host —
@@ -771,6 +777,25 @@ PLANT_HEALTH_API_BASE_URL = "https://api.plant.id"
 
 # OpenAI API key for Wagtail AI
 OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
+
+# Firebase Admin SDK service-account JSON path — the CANONICAL credentials
+# setting: both the auth token exchange (apps/users) and the FCM sender
+# (apps/garden/firebase_config.py) read this. Falls back to the
+# GOOGLE_APPLICATION_CREDENTIALS env var so a deployment configured for ADC
+# alone gets push too (review 2026-07-16: a path-only gate left push silently
+# dead on ADC-only configs). Set-but-EMPTY explicitly disables (and does NOT
+# fall through to the env var — an operator's FIREBASE_CREDENTIALS_PATH=""
+# must win over GAC set for other GCP tooling); empty normalizes to None so
+# availability checks stay unambiguous. Unset/None → forum push disabled.
+_firebase_credentials_path = config("FIREBASE_CREDENTIALS_PATH", default=None)
+if _firebase_credentials_path is None:
+    _firebase_credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+FIREBASE_CREDENTIALS_PATH = _firebase_credentials_path or None
+
+# Firebase project id — used by the auth exchange's projectId-only init tier
+# (Auth-emulator dev loop / ADC-resolvable environments). FCM sending always
+# needs FIREBASE_CREDENTIALS_PATH above.
+FIREBASE_PROJECT_ID = config("FIREBASE_PROJECT_ID", default=None)
 
 # Image API settings
 UNSPLASH_ACCESS_KEY = config("UNSPLASH_ACCESS_KEY", default="")

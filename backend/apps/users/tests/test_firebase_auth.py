@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from freezegun import freeze_time
 from rest_framework import status
@@ -649,3 +649,38 @@ class FirebaseTokenExchangeRateLimitTestCase(TestCase):
             )
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+
+class FirebaseInitFailureTestCase(TestCase):
+    """A broken Firebase bootstrap must degrade to a handled 401, never a 500.
+
+    todo 253 slice 6 review: credentials.Certificate() raises eagerly on a
+    missing/malformed file, and _ensure_firebase_initialized() runs outside
+    the view's try block — before the never-raises guard, a typo'd
+    FIREBASE_CREDENTIALS_PATH meant an unhandled 500 on every login.
+    """
+
+    def setUp(self):
+        from apps.garden.firebase_config import reset_firebase
+
+        self.client = APIClient()
+        self.url = reverse("v1:users:firebase_token_exchange")
+        cache.clear()
+        # Force the next request through a REAL re-init (delete any default
+        # app another test left registered) so the bogus path is exercised.
+        reset_firebase()
+
+    def tearDown(self):
+        from apps.garden.firebase_config import reset_firebase
+
+        reset_firebase()
+
+    @override_settings(FIREBASE_CREDENTIALS_PATH="/nonexistent/creds.json")
+    def test_bad_credentials_path_yields_401_not_500(self):
+        response = self.client.post(
+            self.url, {"firebase_token": "some-token"}, format="json"
+        )
+
+        # Verification legitimately fails (no usable credentials), but as the
+        # endpoint's own handled auth error — not a server error.
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

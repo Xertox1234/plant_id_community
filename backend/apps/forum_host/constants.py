@@ -30,3 +30,8 @@ DEFAULT_FORUM_RATELIMITS = {
 # Matches the package's own MAX_EXCERPT_CHARS precedent
 # (wagtail_forum/api/views.py) as an independent host-side choice.
 FORUM_EMAIL_EXCERPT_MAX_CHARS = 200
+
+# Cap on the topic title embedded in an FCM tray notification's title line
+# (todo 253 slice 6). OS trays truncate long titles anyway; this keeps the
+# payload tidy and deterministic.
+PUSH_TITLE_TOPIC_MAX_CHARS = 80

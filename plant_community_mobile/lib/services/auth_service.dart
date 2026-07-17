@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../core/utils/log_redaction.dart';
 import 'api_service.dart';
+import 'push_registration_service.dart';
 
 part 'auth_service.g.dart';
 
@@ -114,6 +115,10 @@ class AuthService extends _$AuthService {
         await _exchangeFirebaseTokenForJWT(user);
       } else {
         // User signed out → clear JWT
+        // Stop FCM token-rotation re-registration on every signed-out path
+        // (covers session expiry and external sign-outs; idempotent after
+        // signOut()'s own clearOnLogout). No network call (todo 253 slice 6).
+        ref.read(pushRegistrationServiceProvider).detach();
         _authGeneration++;
         await _clearJWT();
         ref.read(apiServiceProvider).setAuthToken(null);
@@ -229,7 +234,16 @@ class AuthService extends _$AuthService {
         debugPrint('[AUTH] Signing out user');
       }
 
+      // Bump FIRST: an in-flight token exchange must die at its next
+      // generation check, or it could complete during the clear below and
+      // fire a fresh push registration that undoes it (slice-6 review).
       _authGeneration++;
+
+      // Clear the FCM token server-side BEFORE Firebase sign-out — the PATCH
+      // needs the still-valid JWT. Best-effort with an internal timeout; it
+      // never throws, so it cannot block or fail sign-out (todo 253 slice 6).
+      await ref.read(pushRegistrationServiceProvider).clearOnLogout();
+
       await _firebaseAuth.signOut();
       await _clearJWT();
 
@@ -324,6 +338,11 @@ class AuthService extends _$AuthService {
       // Update state
       state = state.copyWith(firebaseUser: user, jwtToken: jwtToken);
 
+      // Register this device's FCM token with the forum profile — fire-and-
+      // forget: syncAfterLogin catches everything internally, so a push-
+      // registration failure can never break login (todo 253 slice 6).
+      unawaited(ref.read(pushRegistrationServiceProvider).syncAfterLogin());
+
       if (kDebugMode) {
         debugPrint('[AUTH] JWT token exchange successful');
       }
@@ -397,6 +416,9 @@ class AuthService extends _$AuthService {
   }
 
   /// Clear authentication state after an unrecoverable API 401 response.
+  /// (signOut()'s own FCM-clear PATCH is exempt request-side via
+  /// ApiService.skipSessionExpiryKey — a flag here couldn't cover a 401
+  /// arriving after the clear's timeout abandoned the request.)
   Future<void> _handleSessionExpired() async {
     if (kDebugMode) {
       debugPrint('[AUTH] Session expired; signing out user');

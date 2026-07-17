@@ -102,7 +102,15 @@ Sequenced so each step ships value alone:
       badges both never-opened and previously-read-but-newly-replied topics,
       via a zero-added-query queryset annotation.
 - [ ] At least one real client (web or mobile) registers an FCM token and
-      receives a push end-to-end
+      receives a push end-to-end — REGISTRATION half done and live-verified
+      since slice 6 (Android emulator → real FCM token → real dev backend →
+      `ForumProfile.fcm_token` row; repeatable via
+      `integration_test/fcm_registration_e2e_test.dart`). The
+      "receives a push" half is gated on the one input only the user can
+      provide: the Firebase service-account JSON (drop at
+      `firebase/firebase-adminsdk-credentials.json`, set
+      `FIREBASE_CREDENTIALS_PATH` in backend/.env, then the slice-6 work
+      log's 5-step delivery runbook).
 
 ## Work Log
 
@@ -1198,6 +1206,170 @@ low-priority "considerations," not just the top-billed suggestions.
   `makemigrations --check --dry-run` → "No changes detected" (no model
   changes this batch, only a new conf.py setting). Frontend untouched by any
   of these 4 items — not re-run.
+
+### 2026-07-16 - Slice 6 (AC6: FCM registration + push end-to-end) shipped
+
+- **Scope decisions (user-approved via AskUserQuestion):** full slice here
+  (todo 260's FCM item now satisfied by cross-reference); server-side
+  `notification` block on FCM sends (tray display with zero client display
+  code); iOS groundwork landed explicitly unverified (no APNs provisioning);
+  credentials handled conditionally — the user pointed at existing docs/mock
+  setup; discovery confirmed the instructions exist (`firebase/README.md` →
+  drop key at `firebase/firebase-adminsdk-credentials.json`, gitignored), the
+  key itself is on no machine path, and the "mock firebase setup" is the
+  Emulator Suite (auth 9099/firestore 8080) which has NO FCM emulator —
+  delivery always goes through real FCM.
+- **Key discovery (planning):** the registration endpoint already existed —
+  `PATCH /forum/me/profile/` with write-only `fcm_token`, throttled
+  `profile_update: 10/h`. Actually missing: server credentials wiring
+  (`FIREBASE_CREDENTIALS_PATH` read by garden's `firebase_config.py`, never
+  defined anywhere), any client registering a token, and a visible payload
+  (data-only messages show nothing in a backgrounded app's tray).
+- **Backend:** `settings.py` gains `FIREBASE_CREDENTIALS_PATH` (canonical —
+  absorbs `GOOGLE_APPLICATION_CREDENTIALS` env so ADC-only deploys get push
+  too; review fix) + `FIREBASE_PROJECT_ID`; DEBUG-gated `ALLOWED_HOSTS`
+  append of `10.0.2.2` (the README's documented Android-emulator dev loop was
+  never actually servable). `firebase_auth_views._ensure_firebase_initialized`
+  rewritten: registry-as-truth (module flag removed), certificate init
+  delegated to garden's `initialize_firebase()` (one home), projectId-only
+  fallback honestly scoped to the Auth-emulator dev loop (live-verified:
+  firebase_admin 7.4.0 resolves credentials eagerly, so key-less PROD verify
+  still 401s), never-raises guard (a typo'd key path degraded to 500-every-
+  login before), ValueError race adoption. Garden `initialize_firebase()`:
+  get_app() reuse (logs project id), init-race adoption, `reset_firebase()`
+  list() iteration fix. `send_forum_push`: notification+data hybrid VIA
+  `_notification_content()` — tray copy ONLY for reply_added/mention;
+  moderation_decided stays data-only by design (fires on every routine
+  autopublish — a visible block would tray-spam users for their own posts;
+  review, 3× convergence) — plus a stable collapse key
+  (AndroidConfig/APNSConfig) so a retried send replaces, not stacks, the
+  tray entry. `_build_payload` gains `actor_name` via the host User's
+  `display_name` (same policy as the email channel).
+  `MeProfileSerializer.update`: registering a token RELEASES it from any
+  other profile (an FCM token identifies a device — closes the shared-device
+  stale-push leak the client's best-effort logout clear can't).
+- **Mobile:** new `lib/services/push_registration_service.dart` — epoch-
+  guarded (`detach()` bumps; every await re-checks: an in-flight sync parked
+  on the permission dialog/getToken can't re-register after sign-out —
+  review-confirmed race), rotation listener attached BEFORE the token fetch
+  (null token on iOS APNS warm-up or a failed first PATCH heals on the next
+  rotation event instead of silencing the session), `onError` on the stream,
+  `registerToken` swallows internally + skips unchanged tokens (FCM emits an
+  onTokenRefresh for the FIRST generation too — observed live), in-memory
+  `_lastSyncedToken` dedupe (deliberately NOT persisted: a persisted marker
+  would re-introduce the cross-user skip hazard on shared devices),
+  `clearOnLogout` (3s-bounded, never throws, skipped when the session never
+  registered), `detach()` = full local reset incl. the marker (session-
+  expiry path: a different user on the same device must not be dedupe-
+  skipped). Manual `Provider` (the `apiServiceProvider`/riverpod.md DI
+  precedent). `auth_service.dart`: `_authGeneration++` moved to signOut()'s
+  first line (kills in-flight exchanges before the clear window), fire-and-
+  forget `syncAfterLogin()` after exchange success, `clearOnLogout()` before
+  `firebaseAuth.signOut()` (needs the still-valid JWT), `detach()` in the
+  signed-out listener branch, and a `_signingOut` flag so the clear PATCH
+  401ing on an expired JWT can't reentrantly fire the session-expired
+  handler and stamp a spurious error on an intentional sign-out. Platform:
+  Android `POST_NOTIFICATIONS`; debug-only `network_security_config`
+  (Dart/dio bypasses Android's cleartext policy but the Firebase SDK's
+  native stack enforces it — see LEARNINGS 2026-07-16); iOS
+  `Runner.entitlements` (aps-environment=development) + `UIBackgroundModes`
+  - `CODE_SIGN_ENTITLEMENTS` in all 3 configs (plutil-linted; MUST flip to
+  production before any distribution archive — todo 272 item 1). `minSdk`:
+  the flutter tool auto-migrated 23→`flutter.minSdkVersion` (=24 on 3.41.9)
+  and RE-APPLIES it every build — pinning back is futile (tried, reverted by
+  the next build); documented in-file + LEARNINGS; Android 6 floor cut is
+  now a toolchain fact to revisit deliberately.
+- **Registration E2E — VERIFIED live, repeatable.** New define-gated
+  `integration_test/fcm_registration_e2e_test.dart` (mirrors the firestore-
+  emulator test's gating): pumps the REAL app widget, signs in via
+  FirebaseAuth against the local Auth emulator (`E2E_AUTH_EMULATOR_HOST`,
+  emulator admin API flips `emailVerified` — the backend correctly fails
+  closed on unverified emails), and the production chain does the rest
+  untouched; polls the service's `lastSyncedToken` (no blind waits). Proof:
+  `[PUSH] FCM token registered (142 chars)` app-side, `PATCH
+  /api/v1/forum/me/profile/ 200` server-side, `ForumProfile.fcm_token`
+  len=142 in the dev DB — re-proven after every repair round. Four real
+  gaps found en route, each fixed: ALLOWED_HOSTS (DisallowedHost 400),
+  firebase_admin's eager credential resolution (→ projectId tier +
+  emulator mode), Android cleartext ban on the native SDK leg, unverified-
+  email 403 (by design → emulator flip). Runbook detail: `flutter test`
+  reinstalls the APK and wipes `pm grant` — pre-grant POST_NOTIFICATIONS
+  with a granter loop racing the install.
+- **Delivery E2E — GATED on the service-account key** (searched repo +
+  documented locations + common dirs; not present). Everything else is in
+  place; the 5-step runbook: (1) drop the key at
+  `firebase/firebase-adminsdk-credentials.json`, (2) backend/.env
+  `FIREBASE_CREDENTIALS_PATH=<abs path>`, (3) restart backend + `celery -A
+  plant_community_backend worker -l info` (or CELERY_TASK_ALWAYS_EAGER=True),
+  (4) subscribe the E2E user (`fcm-e2e-slice6`, token already registered) to
+  a topic and reply as another user through the real publish chain, (5) tray
+  notification on the emulator + `[FCM] forum.reply_added sent` in the
+  worker log.
+- **Verification (final):** backend `pytest apps/forum_host packages/
+  wagtail_forum apps/garden/tests/test_firebase_config.py apps/users
+  --create-db` → `520 passed` (388 slice-start baseline; new: content/
+  collapse-key/tray-silence tests, fcm_token write-only roundtrip, token
+  device-uniqueness, firebase-init reuse/race/failure tests incl. the
+  bad-path→401-not-500 pin, actor_name payload pin). `manage.py check` +
+  `makemigrations --check` clean (NO model changes — the serializer rule is
+  an UPDATE over existing columns). Mobile: `flutter analyze` clean,
+  `flutter test` → `190 passed` (epoch/race/heal/dedupe/logout-skip tests),
+  codegen regenerated. On-device E2E green post-repair.
+- **Code review** (epic convention, heaviest yet: 5 domain reviewers +
+  bundled /code-review at high effort = 10 finder angles, all 15 in
+  parallel, + 1 post-repair sweep agent): ~35 raw candidates → ~24 distinct,
+  most cross-corroborated 2-4×, several live-verified by the finders
+  themselves (firebase_admin probe, workflow.py trace, FlutterExtension.kt
+  read, scratch-test reproductions of both service races). All repaired
+  items above trace to findings. Notable **declines/deferrals with
+  reasoning**: google.oauth2.id_token rewrite of the verify path (real
+  alternative for credential-less PROD verify, but auth-code churn out of
+  slice scope — tier honestly re-scoped instead); persisted dedupe marker
+  (correctness-over-throttle tradeoff, documented); signOut concurrency
+  (race surface for marginal latency); shared ApiService test fake at 3rd
+  occurrence (slice-3 precedent; todo 260 is the natural extraction
+  trigger); `_splitHostPort` copy at 2 occurrences (repo convention; both
+  angles concurred); emulator-provisioning-via-REST test simplification
+  (verified-working choreography kept over re-verification cost); full
+  init-bootstrap single-homing + notification-copy consolidation +
+  AuthService harness + throttle-sharing → todo 272 (6 items, each with
+  disposition). Trigger capture: 3 new candidate write-time triggers
+  (initialize_app ValueError adoption, unscoped FCM notification blocks,
+  eager Certificate parse) → docs/rules/triggers.json (34 total). 2 new
+  LEARNINGS entries (flutter tool re-applies gradle migrations; Dart HTTP
+  bypasses Android cleartext policy).
+- **Post-repair sweep round** (1 fresh agent over the repairs themselves —
+  the one part of the diff no reviewer had seen): 6 findings, all fixed.
+  (1) The `_signingOut` boolean couldn't cover a clear-PATCH 401 arriving
+  AFTER its 3s timeout abandoned the request (Future.timeout abandons, Dio
+  keeps going ~27s) → replaced with a REQUEST-scoped exemption
+  (`ApiService.skipSessionExpiryKey` in request extra, checked by the 401
+  interceptor) — the flag rides the request, so timing can't outflank it.
+  (2) `await _refreshSubscription?.cancel()` is an async gap the epoch guard
+  skipped → re-check added. (3) Serializer token-release reordered to
+  release-then-save inside `transaction.atomic()` — save-then-release could
+  blank the token on BOTH profiles under a concurrent same-token
+  registration; release-then-save converges on last-writer-holds. (4) The
+  settings `or`-fallback normalized: set-but-EMPTY `FIREBASE_CREDENTIALS_PATH`
+  now explicitly disables (and doesn't fall through to
+  GOOGLE_APPLICATION_CREDENTIALS); empty never leaks into
+  `is_firebase_available()`'s `is not None` gate. (5) The projectId-only
+  tier now REFUSES to run when a credentials path IS configured but failed —
+  a credential-less default app would be adopted by the FCM sender's reuse
+  branch and burn send+3 retries per push with the reuse log masking the
+  root cause. (6) Collapse keys made per-EVENT-TYPE, not per-post — FCM
+  retains at most 4 distinct collapse keys per offline device, so unique
+  keys would silently drop all but 4 notifications accumulated offline.
+  Re-verified after the sweep round: backend `520 passed`, mobile `190
+  passed`, analyze clean, on-device E2E green.
+- **Residue for the user:** (1) the delivery-E2E key (runbook above — with
+  it, AC6 flips fully); (2) run 1 of the E2E (before the emulator switch)
+  created a throwaway `fcm-e2e-slice6@example.com` user in PROD Firebase
+  Auth — inert, deletable in the console (the local Django user of the same
+  name is useful for the delivery run); (3) the minSdk 23→24 toolchain
+  floor cut, flagged for a deliberate product decision.
+- Not archived — AC6's delivery half stays gated on the credentials only
+  the user can provide. Todo stays `in_progress` with that single residue.
 
 ## Notes
 

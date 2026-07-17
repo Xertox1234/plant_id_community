@@ -56,6 +56,13 @@ Review only the files passed to you. Do not read the full repo.
 - [ ] Image widgets must support both `File` (local) and network URL (`CachedNetworkImage`) sources
 - [ ] Network images must use `CachedNetworkImage` (not `Image.network`) for caching
 
+**Async Lifecycle (services a sign-out must cancel)**
+
+- [ ] Epoch/generation guard: captured at method entry, re-checked after EVERY `await` — including `subscription.cancel()` (the await most often missed); `detach()`/cleanup bumps it. A parked continuation otherwise re-registers state after logout (todo 253 slice 6, confirmed empirically)
+- [ ] `detach()`-style cleanup is a FULL local reset (subscriptions, epoch, dedupe markers) — the next account on the device must not inherit markers
+- [ ] Healing listeners (`onTokenRefresh` etc.) attached BEFORE the fallible first attempt, with an `onError:` handler (a platform error event is otherwise an unhandled zone error)
+- [ ] Interceptor side-effect suppression rides the REQUEST (`Options(extra:)` checked in the interceptor), never a boolean flag around an awaited call — `Future.timeout` abandons the Future but the request keeps running and its late response outlives the flag
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

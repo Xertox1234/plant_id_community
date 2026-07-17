@@ -21,7 +21,6 @@ from apps.users.signup import create_default_plant_collection
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from firebase_admin import auth as firebase_auth
-from firebase_admin import credentials
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -34,9 +33,6 @@ _TRUSTED_FIREBASE_PROVIDERS = frozenset({"google.com", "apple.com"})
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
-
-# Firebase initialization flag (lazy initialization)
-_firebase_initialized = False
 
 
 def redact_email(email: str) -> str:
@@ -64,32 +60,87 @@ def redact_email(email: str) -> str:
 
 def _ensure_firebase_initialized() -> None:
     """
-    Initialize Firebase Admin SDK if not already done.
+    Initialize the shared firebase_admin default app if not already done.
 
-    This is called lazily on first use, allowing:
-    - Tests to run without Firebase credentials (with mocking)
-    - CI/CD to skip Firebase initialization if not needed
-    - Local dev to work without Firebase setup
+    Lazy so tests/CI/dev run without Firebase credentials (with mocking).
+    Resolution order:
 
-    Initialization uses GOOGLE_APPLICATION_CREDENTIALS environment variable.
-    See FIREBASE_SETUP.md for configuration instructions.
+    1. An existing default app — initialized by any code path (e.g.
+       apps/garden/firebase_config.py's FCM bootstrap) — is reused as-is; the
+       firebase_admin app registry, not a module flag, is the source of truth
+       (a flag can't survive test-side ``reset_firebase()`` app deletion).
+    2. ``settings.FIREBASE_CREDENTIALS_PATH`` — the canonical service-account
+       setting (it also absorbs GOOGLE_APPLICATION_CREDENTIALS; settings.py),
+       initialized through the same apps/garden bootstrap the FCM sender
+       uses, so the shared app is fully credentialed whichever side runs
+       first.
+    3. projectId-only (``settings.FIREBASE_PROJECT_ID``): serves the Firebase
+       Auth *emulator* dev loop (FIREBASE_AUTH_EMULATOR_HOST — emulator mode
+       substitutes its own credentials) and ADC-resolvable environments.
+       Against production Firebase with no resolvable ADC, verification
+       still fails as a handled 401 — this tier does NOT make a key-less
+       machine verify production tokens (verified live: firebase_admin 7.4.0
+       resolves the app credential eagerly in its verifier).
+
+    Never raises: a broken credential file or a lost first-touch init race
+    must degrade to failed verification (handled 401), not 500 every login.
     """
-    global _firebase_initialized
-
-    if _firebase_initialized:
-        return
-
     try:
         firebase_admin.get_app()
         logger.info("[FIREBASE] Firebase Admin SDK already initialized")
+        return
     except ValueError:
-        # Initialize Firebase app if not already done
-        # This will use GOOGLE_APPLICATION_CREDENTIALS env variable
-        cred = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(cred)
-        logger.info("[FIREBASE] Firebase Admin SDK initialized")
+        pass
 
-    _firebase_initialized = True
+    from apps.garden.firebase_config import initialize_firebase
+    from django.conf import settings
+
+    try:
+        if initialize_firebase():
+            # Tier 2: certificate init via the shared bootstrap (it logs its
+            # own credential source).
+            return
+        if getattr(settings, "FIREBASE_CREDENTIALS_PATH", None):
+            # A credentials path IS configured but failed to initialize
+            # (bad/missing/wrong-type file). Do NOT substitute a
+            # credential-less default app: the FCM sender's reuse branch
+            # would adopt it and burn send+3 retries per push on credential
+            # errors instead of its clean unavailable skip (review sweep).
+            # Verification fails as a handled 401; the bootstrap error was
+            # already logged by initialize_firebase.
+            logger.error(
+                "[FIREBASE AUTH ERROR] Credentials path configured but "
+                "initialization failed — refusing projectId-only fallback"
+            )
+            return
+        # Tier 3: projectId-only — auth-emulator dev loop / ADC envs. FCM
+        # sending stays disabled (it needs FIREBASE_CREDENTIALS_PATH).
+        project_id = getattr(settings, "FIREBASE_PROJECT_ID", None)
+        firebase_admin.initialize_app(
+            options={"projectId": project_id} if project_id else None
+        )
+        logger.info(
+            "[FIREBASE] Firebase Admin SDK initialized (projectId-only — "
+            "FCM sending disabled)"
+        )
+    except ValueError:
+        # Lost a concurrent first-touch race — adopt the winner's app. The
+        # adoption itself must honor the never-raises contract too (a
+        # ValueError raised INSIDE this handler would escape the sibling
+        # except below): if no winner exists after all, log and degrade.
+        try:
+            firebase_admin.get_app()
+            logger.info("[FIREBASE] Adopted concurrently-initialized default app")
+        except Exception:
+            logger.exception(
+                "[FIREBASE AUTH ERROR] Init raised ValueError with no "
+                "existing app to adopt"
+            )
+    except Exception:
+        # Surface loudly, but let verification fail as a handled 401 rather
+        # than 500ing every login over a bootstrap problem (e.g. a typo'd
+        # credentials path).
+        logger.exception("[FIREBASE AUTH ERROR] Firebase initialization failed")
 
 
 @api_view(["POST"])

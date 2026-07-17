@@ -1343,3 +1343,72 @@ could reliably flag.
 `except IntegrityError:` fallback around `get_or_create`/`update_or_create`,
 check whether it duplicates Django's own internal retry rather than assuming
 it's always needed.
+
+### [2026-07-16] Flutter tool re-applies build.gradle.kts migrations every build — pinning minSdk back is futile
+
+**Context** (todo 253 slice 6): a `flutter run` printed "Upgrading
+build.gradle.kts" and silently replaced the repo's pinned `minSdk = 23` with
+`minSdk = flutter.minSdkVersion` — which is **24** on the pinned Flutter
+3.41.9, an unannounced Android 6 support cut. Two review angles flagged it;
+the fix attempt (pin `23` back) was itself reverted by the NEXT `flutter
+test` build: the migration runs on every build, so the literal cannot win.
+
+**Fix**: accept `flutter.minSdkVersion` and document the effective floor in a
+comment beside it; treat any future floor change as a product decision to
+catch in review of `flutter upgrade` PRs (the floor now moves with the
+toolchain, with zero diff in this repo at upgrade time unless the comment is
+maintained).
+
+**Rule**: never fight a Flutter tool auto-migration by re-pinning the value it
+rewrites — it re-applies per build and each contributor's build would flip the
+line. Encode the intent in a comment + review practice instead.
+
+**Trigger**: none — the tool itself makes the edit; a write-time trigger can't
+intercept it.
+
+### [2026-07-16] Dart-level HTTP bypasses Android's cleartext policy; native SDK traffic does not
+
+**Context** (todo 253 slice 6 E2E): the app's Dio calls to
+`http://10.0.2.2:8000` (Django dev server) worked from the Android emulator,
+while the Firebase Auth SDK's call to the local Auth emulator
+(`http://10.0.2.2:9099`) failed with "Cleartext HTTP traffic to 10.0.2.2 not
+permitted". Dart's socket-level HttpClient never consults Android's
+NetworkSecurityPolicy; native stacks (OkHttp — everything inside the Firebase
+Android SDK) enforce it. The asymmetry makes half a dev loop work and the
+other half fail with no obvious cause.
+
+**Fix**: a debug-only source-set override —
+`android/app/src/debug/res/xml/network_security_config.xml` permitting
+cleartext to `10.0.2.2`/`localhost`/`127.0.0.1` only, referenced from
+`src/debug/AndroidManifest.xml`. Release/profile builds don't contain the
+file at all (verified by the flutter-firebase reviewer).
+
+**Rule**: when a native-SDK call to a local dev host fails with a cleartext
+error while Dart HTTP to the same host works, the fix is the debug source-set
+network-security-config — not `usesCleartextTraffic="true"` on the main
+manifest (which would ship to release).
+
+### [2026-07-16] A freshly captured write-time trigger can block your own commit via hunk-scoped review
+
+**Context** (todo 253 slice 6): the session's code review produced 3 candidate
+triggers via `capture_from_review.py`, including `eager-certificate-parse-unguarded`
+("guard `credentials.Certificate()` on request paths"). The very next `git
+commit` was blocked by the kimi-review gate citing that trigger as a
+`[CRITICAL]` against `firebase_config.py:68` — but the flagged call was
+ALREADY inside the function's outer `try/except Exception → return False`,
+the exact degradation the rule demands. kimi loads trigger MESSAGES as review
+rules and judges diff hunks without the enclosing function, so a guard that
+sits more than a few lines above the call is invisible to it. (The trigger's
+own regex would NOT have fired — its `content_absent: "except"` matches the
+file — only the prose rule misfired.)
+
+**Fix**: verified the enclosing function, fixed the separate REAL finding from
+the same gate run, and bypassed with `SKIP_KIMI_REVIEW=1` + the refutation
+recorded in the commit message.
+
+**Rule**: when the kimi gate cites a rule against a specific line, read the
+ENCLOSING FUNCTION before treating it as real — hunk-scoped review cannot see
+guards outside the hunk. A same-session captured trigger reviewing the very
+diff that spawned it is the highest-risk case. Bypass only with the
+refutation written into the commit message; never bypass an unevaluated
+CRITICAL.

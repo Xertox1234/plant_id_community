@@ -24,6 +24,10 @@ class ApiService {
   static const String _retryAttemptKey = 'api_retry_attempt';
   static const String retryUnsafeRequestKey = 'retry_unsafe_request';
 
+  /// Request-extra flag: a 401 on this request must NOT trigger the
+  /// session-expired flow (used by sign-out's own best-effort FCM clear).
+  static const String skipSessionExpiryKey = 'skip_session_expiry';
+
   final Dio _dio;
   final String baseUrl;
   String? _authToken;
@@ -90,6 +94,20 @@ class ApiService {
           // Handle specific error cases
           switch (statusCode) {
             case 401:
+              // Requests that opt out (e.g. sign-out's own best-effort FCM
+              // clear on an already-expired JWT) must not convert an
+              // intentional sign-out into a "session expired" flow — the
+              // opt-out rides the REQUEST, so it also covers a response
+              // arriving after the caller's timeout abandoned it (todo 253
+              // slice 6 review sweep).
+              if (error.requestOptions.extra[skipSessionExpiryKey] == true) {
+                if (kDebugMode) {
+                  debugPrint(
+                    '[API ERROR] 401 on session-expiry-exempt request - ignored',
+                  );
+                }
+                break;
+              }
               if (kDebugMode) {
                 debugPrint('[API ERROR] 401 Unauthorized - session expired');
               }

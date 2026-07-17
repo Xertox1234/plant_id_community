@@ -85,6 +85,10 @@ def test_reply_added_enqueues_push_for_topic_author(django_capture_on_commit_cal
     call_args = mock_delay.call_args
     assert call_args.args[0] == "reply_added"
     assert call_args.args[1] == topic_author.pk
+    # actor_name feeds the FCM tray body line (todo 253 slice 6), resolved
+    # via the host User model's display_name — the same naming policy the
+    # email channel already uses.
+    assert call_args.args[2]["actor_name"] == replier.display_name
 
 
 @pytest.mark.django_db
