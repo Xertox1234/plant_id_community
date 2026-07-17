@@ -13,6 +13,7 @@ import {
 } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
 import { bodyBlocksToHtml } from '../../utils/forumBody';
+import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import PostCard from '../../components/forum/PostCard';
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -95,6 +96,10 @@ export default function ThreadDetailPage() {
     // effect already re-runs on every topicId change, so it doubles as the
     // sync point.
     currentTopicIdRef.current = topicId;
+    // Restore this topic's reply draft (per-topic key); remount the composer
+    // so TipTap's init-only content picks it up.
+    setReplyBody(topicId != null ? (loadDraft(draftKey('reply', String(topicId))) ?? '') : '');
+    setComposerKey((k) => k + 1);
     // A subscribe/unsubscribe request still in flight for the PREVIOUS
     // thread must not leave this thread's Follow button stuck loading —
     // reset unconditionally on every navigation (handleToggleSubscription's
@@ -191,6 +196,7 @@ export default function ThreadDetailPage() {
         setReplySubmitting(true);
         setNotice(null);
         const res = await createPost({ thread: topicId, content: replyBody });
+        if (topicId != null) clearDraft(draftKey('reply', String(topicId)));
         setReplyBody('');
         setComposerKey((k) => k + 1); // remount the editor so it visibly clears
         if (res.status === 'published') {
@@ -521,7 +527,12 @@ export default function ThreadDetailPage() {
           <TipTapEditor
             key={composerKey}
             content={replyBody}
-            onChange={setReplyBody}
+            onChange={(html) => {
+              setReplyBody(html);
+              if (topicId != null) {
+                saveDraft(draftKey('reply', String(topicId)), isBlankHtml(html) ? '' : html);
+              }
+            }}
             placeholder="Write a reply..."
           />
           <Button
