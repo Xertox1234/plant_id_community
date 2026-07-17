@@ -838,24 +838,49 @@ class SearchView(APIView):
 
     @extend_schema(
         responses={200: dict},
-        description="Search live topic titles and post bodies. Query param: q.",
+        description=(
+            "Search live topic titles and post bodies. Query params: q "
+            "(required), board (optional board slug filter)."
+        ),
     )
     def get(self, request):
         query = request.query_params.get("q", "").strip()
+        board_slug = request.query_params.get("board", "").strip()
         topics, posts = [], []
         if query:
             backend = get_search_backend()
             boards = _visible_boards()
-            topic_hits = backend.search(
-                query, Topic.objects.filter(live=True, board__in=boards)
+            topic_qs = Topic.objects.filter(live=True, board__in=boards)
+            post_qs = Post.objects.filter(
+                live=True, topic__live=True, topic__board__in=boards
             )
+            if board_slug:
+                # Filter on board_id (declared in search_fields), not
+                # board__slug — the modelsearch DB backend raises
+                # FilterFieldError on an undeclared related-field lookup.
+                board_ids = list(
+                    boards.filter(slug=board_slug).values_list("id", flat=True)
+                )
+                topic_qs = topic_qs.filter(board_id__in=board_ids)
+                post_qs = post_qs.filter(topic__board_id__in=board_ids)
+            topic_hits = backend.search(query, topic_qs.select_related("board"))
             for t in topic_hits[: self.MAX_RESULTS]:
-                topics.append({"id": t.id, "slug": t.slug, "title": t.title})
+                topics.append(
+                    {
+                        "id": t.id,
+                        "slug": t.slug,
+                        "title": t.title,
+                        "reply_count": t.reply_count,
+                        "view_count": t.view_count,
+                        "last_post_at": (
+                            t.last_post_at.isoformat() if t.last_post_at else None
+                        ),
+                        "board_id": t.board_id,
+                        "board_slug": t.board.slug,
+                    }
+                )
             post_hits = backend.search(
-                query,
-                Post.objects.filter(
-                    live=True, topic__live=True, topic__board__in=boards
-                ).select_related("topic"),
+                query, post_qs.select_related("topic", "topic__board")
             )
             for p in post_hits[: self.MAX_RESULTS]:
                 posts.append(
@@ -863,6 +888,9 @@ class SearchView(APIView):
                         "id": p.id,
                         "topic_id": p.topic_id,
                         "topic_title": p.topic.title,
+                        "topic_slug": p.topic.slug,
+                        "board_id": p.topic.board_id,
+                        "board_slug": p.topic.board.slug,
                         "excerpt": (
                             plain_text_excerpt(p.body, self.MAX_EXCERPT_CHARS)
                             if p.body
