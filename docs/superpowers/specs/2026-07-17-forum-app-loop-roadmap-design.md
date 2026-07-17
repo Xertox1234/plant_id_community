@@ -61,6 +61,9 @@ show real counts; a notification click lands on the specific post.
 - Serializers expose `is_solved` / `solved_post_id`; topic lists show a Solved badge;
   thread view highlights the accepted post with a "mark as answer" affordance.
 - Accepted-answer author gets a notification via the existing pipeline.
+- **Clearing rule (advisor):** unpublishing or deleting the accepted post clears the
+  topic's solved state (`SET_NULL` + signal, or liveness check at serialize) — no
+  dangling Solved badge pointing at a hidden post.
 
 ### Identification embed
 
@@ -73,16 +76,30 @@ show real counts; a notification click lands on the specific post.
   without breaking public forum content — consistent with the app's GDPR posture), and
   no schema-in-body migration pain later.
 - Rendered as a card above the opening post.
+- **Advisor amendments:** the source `identification_result_id` is retained as a plain
+  non-FK field (correlation/analytics later without coupling to private history); the
+  attachment's image FK is `SET_NULL` with a graceful no-photo card fallback; when the
+  topic is solved, the card links to the accepted answer so the snapshot never reads
+  as the final word.
 - v1 is display + compose only. Writing a "confirmed species" back into the ID system
   is **out of scope**.
 - Web entry point: the identify results page gets an "Ask the community" button that
   pre-fills the new-thread composer with the attachment.
+
+### Author display fix (pulled forward from Wave 4 — advisor)
+
+- `PostAuthorSerializer` returns the real `trust_level` (currently hardcoded `None`)
+  and `display_name`. Serializer-only; profiles, avatars, and profile pages stay in
+  Wave 4. Rationale: the mobile client should not launch with faceless authors, and
+  solved-answer badges are hollow without visible reputation.
 
 ### Mobile-gating API hardening (subset of todo 258)
 
 - Idempotency for `PATCH /posts/{id}/` and image upload (audit M35/M36 — flagged
   "land before mobile writes").
 - OpenAPI response-code completeness for every endpoint the mobile client consumes.
+- **Error-envelope consistency (advisor):** normalize error response shapes across
+  the endpoints the mobile client consumes, so mobile error handling is written once.
 - Nothing else from 258 in this wave.
 
 **Acceptance:** solved + embed exercised end-to-end from the web UI; idempotent
@@ -95,7 +112,9 @@ Four slices, one PR each:
 1. **Read-only client** — boards → topic list (cursor pagination, unread badges) →
    thread (posts, reactions, solved highlight, ID-attachment card).
 2. **Auth + writes** — topics/replies/reactions with `Idempotency-Key`, mention
-   autocomplete, image upload.
+   autocomplete, image upload. Composer drafts persist locally (advisor: a
+   background-kill or network blip must not eat a half-written post — the mobile
+   analogue of Wave 1's web autosave).
 3. **Flagship flow** — camera/ID result → "Ask the community" → prefilled composer;
    solved-marking in-thread.
 4. **Push deep links** — notification tap opens the thread at the right post.
@@ -105,7 +124,9 @@ Constraints and fold-ins:
 - Online-first; the `/sync/` delta endpoint enables offline later (**not v1**).
 - The prod Celery topology check and `prune_forum_tombstones` scheduling (todo 261
   items) fold in here — push delivery E2E depends on the first, traffic hygiene on
-  the second.
+  the second. **Explicit gate (advisor):** prod Firebase service-account credentials
+  and the Celery topology check are prerequisites for slice 4 — verify push delivery
+  works before building deep links on top of it.
 - Riverpod 3 + existing app conventions; state/API details resolved in the
   implementation plan, not here.
 - **Editorial gate:** before the app announces the forum, production needs real seed
@@ -133,6 +154,8 @@ Constraints and fold-ins:
 - **SEO:** reduced to meta/OG tags, done opportunistically.
 - **Todo 259 (modal/a11y hardening) and 262 (package docs):** unchanged in backlog.
 - **Quote-reply, tags, threading, polls, DMs, offline forum:** not in these waves.
+  Revisit trigger for tags: topic volume makes browse painful (order of a few
+  hundred topics) — premature taxonomy on a near-empty forum helps nobody.
 
 ## Todo bookkeeping
 
