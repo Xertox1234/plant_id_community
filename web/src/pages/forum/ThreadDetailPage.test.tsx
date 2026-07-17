@@ -566,8 +566,9 @@ describe('ThreadDetailPage', () => {
 
     renderThreadDetailPage();
 
-    await screen.findByLabelText('React like');
-    expect(screen.getByLabelText('React like')).toHaveTextContent('0');
+    // Zero-count reactions are hidden at rest (de-cluttered row), so expand the
+    // picker before the 'like' control is available.
+    await userEvent.click(await screen.findByLabelText('Add reaction'));
     await userEvent.click(screen.getByLabelText('React like'));
 
     await waitFor(() => expect(screen.getByLabelText('React like')).toHaveTextContent('1'));
