@@ -275,7 +275,16 @@ describe('forumMappers (wagtail_forum contract)', () => {
   // -------------------------------------------------------------------------
 
   it('mapSearchTopicToThread maps id, title, slug', () => {
-    const t = mapSearchTopicToThread({ id: 7, slug: 'my-topic', title: 'My Topic' });
+    const t = mapSearchTopicToThread({
+      id: 7,
+      slug: 'my-topic',
+      title: 'My Topic',
+      reply_count: 0,
+      view_count: 0,
+      last_post_at: null,
+      board_id: 1,
+      board_slug: 'general',
+    });
     expect(t).toMatchObject({ id: '7', title: 'My Topic', slug: 'my-topic' });
   });
 
@@ -284,8 +293,46 @@ describe('forumMappers (wagtail_forum contract)', () => {
       id: 99,
       topic_id: 7,
       topic_title: 'My Topic',
+      topic_slug: 'my-topic',
+      board_id: 1,
+      board_slug: 'general',
       excerpt: 'Some excerpt',
     });
     expect(p).toMatchObject({ id: '99', thread: '7', content_raw: 'Some excerpt' });
+  });
+
+  const backendSearchTopic = {
+    id: 31,
+    slug: 'tomato-blight',
+    title: 'Blight-resistant tomatoes',
+    reply_count: 3,
+    view_count: 12,
+    last_post_at: '2026-07-01T10:00:00Z',
+    board_id: 54,
+    board_slug: 'general-discussion',
+  };
+
+  it('mapSearchTopicToThread carries real metadata and board identity', () => {
+    const thread = mapSearchTopicToThread(backendSearchTopic);
+    expect(thread.post_count).toBe(3);
+    expect(thread.view_count).toBe(12);
+    expect(thread.last_activity_at).toBe('2026-07-01T10:00:00Z');
+    expect(thread.category.id).toBe('54');
+    expect(thread.category.slug).toBe('general-discussion');
+  });
+
+  it('mapSearchPostToPost carries topic and board identity for links', () => {
+    const post = mapSearchPostToPost({
+      id: 9,
+      topic_id: 31,
+      topic_title: 'Blight-resistant tomatoes',
+      topic_slug: 'tomato-blight',
+      board_id: 54,
+      board_slug: 'general-discussion',
+      excerpt: 'Mountain Magic is the real answer',
+    });
+    expect(post.topic_slug).toBe('tomato-blight');
+    expect(post.board_id).toBe(54);
+    expect(post.board_slug).toBe('general-discussion');
   });
 });

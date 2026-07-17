@@ -63,6 +63,10 @@ export interface Post {
    * The topic title is carried so SearchPage can render a link without a PostCard.
    */
   topic_title?: string;
+  /** Search-result-only link identity (mapSearchPostToPost). */
+  topic_slug?: string;
+  board_id?: number;
+  board_slug?: string;
   created_at: string;
   updated_at?: string;
   edited_at?: string;
@@ -214,12 +218,8 @@ export interface Reaction {
  */
 export interface SearchForumOptions {
   q: string;
+  /** Board slug — sent to the backend as ?board= */
   category?: string;
-  author?: string;
-  date_from?: string;
-  date_to?: string;
-  page?: number;
-  page_size?: number;
 }
 
 export interface SearchForumResponse {
@@ -228,10 +228,6 @@ export interface SearchForumResponse {
   posts: Post[];
   total_threads: number;
   total_posts: number;
-  page: number;
-  page_size: number;
-  has_next_threads: boolean;
-  has_next_posts: boolean;
 }
 
 /** Result of toggling a reaction on a post (backend toggle endpoint). */
