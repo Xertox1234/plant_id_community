@@ -112,6 +112,9 @@ export default function ThreadDetailPage() {
     // reset unconditionally on every navigation (handleToggleSubscription's
     // own finally guards against that stale request re-enabling it late).
     setSubscribing(false);
+    // Same for an in-flight load-more (the deep-link chase can start one) —
+    // its finally is thread-guarded, so clear the flag here for the new thread.
+    setLoadingMore(false);
 
     const loadData = async () => {
       if (topicId == null) {
@@ -152,14 +155,20 @@ export default function ThreadDetailPage() {
   // Load more posts (cursor pagination)
   const handleLoadMore = useCallback(async () => {
     if (topicId == null || !nextCursor) return;
+    // The deep-link chase fires this automatically, so a response can arrive
+    // after the user has navigated to another thread. Guard state writes on the
+    // thread this request was for, or a late page for thread A would append to
+    // thread B's list (mirrors handleToggleSubscription).
+    const requestTopicId = topicId;
 
     try {
       setLoadingMore(true);
       const postsData = (await fetchPosts({
-        thread: topicId,
+        thread: requestTopicId,
         cursor: nextCursor,
       })) as PaginatedResponse<Post>;
 
+      if (currentTopicIdRef.current !== requestTopicId) return;
       setPosts((prev) => [...prev, ...postsData.items]);
       setNextCursor(postsData.meta.next ?? null);
     } catch (err) {
@@ -168,11 +177,15 @@ export default function ThreadDetailPage() {
         error: err,
         context: { threadId: thread?.id },
       });
-      setNotice(
-        `Failed to load more posts: ${err instanceof Error ? err.message : 'Unknown error'}`
-      );
+      if (currentTopicIdRef.current === requestTopicId) {
+        setNotice(
+          `Failed to load more posts: ${err instanceof Error ? err.message : 'Unknown error'}`
+        );
+      }
     } finally {
-      setLoadingMore(false);
+      if (currentTopicIdRef.current === requestTopicId) {
+        setLoadingMore(false);
+      }
     }
   }, [nextCursor, topicId, thread?.id]);
 
