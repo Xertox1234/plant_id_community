@@ -721,6 +721,33 @@ describe('ThreadDetailPage', () => {
     });
   });
 
+  it('deep-link to a post on a later cursor page pulls pages until it renders', async () => {
+    // jsdom has no layout engine; the arrival effect calls scrollIntoView.
+    Element.prototype.scrollIntoView = vi.fn();
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 21 }));
+    const fetchPostsSpy = vi
+      .spyOn(forumService, 'fetchPosts')
+      .mockResolvedValueOnce({
+        items: [createMockPost({ id: '1' })],
+        meta: { count: 0, next: 'cursor-page-2', previous: null },
+      })
+      .mockResolvedValueOnce({
+        items: [createMockPost({ id: '21' })],
+        meta: { count: 0, next: null, previous: null },
+      });
+
+    render(
+      <MemoryRouter initialEntries={['/forum/3-plant-care/12-watering-tips#post-21']}>
+        <ThreadDetailPage />
+      </MemoryRouter>
+    );
+
+    // post-21 lives on page 2, absent from the first load — the arrival effect
+    // must pull the next page for it to mount (it silently no-op'd before).
+    await waitFor(() => expect(document.getElementById('post-21')).toBeInTheDocument());
+    expect(fetchPostsSpy).toHaveBeenCalledWith({ thread: 12, cursor: 'cursor-page-2' });
+  });
+
   it('displays total post count in header from thread.post_count', async () => {
     const mockThread = createMockThread({ post_count: 150 });
     const mockPosts = {

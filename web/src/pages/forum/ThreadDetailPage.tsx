@@ -142,23 +142,6 @@ export default function ThreadDetailPage() {
     loadData();
   }, [topicId, threadSlug, categorySlug]);
 
-  // Deep-link arrival: scroll to and briefly highlight #post-N once posts render.
-  // If the target is on a later cursor page it simply isn't found — no error.
-  useEffect(() => {
-    if (loading) return;
-    const match = /^#post-(\d+)$/.exec(location.hash);
-    if (!match) return;
-    const el = document.getElementById(`post-${match[1]}`);
-    if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    el.classList.add('ring-2', 'ring-primary', 'rounded-lg');
-    const timer = setTimeout(
-      () => el.classList.remove('ring-2', 'ring-primary', 'rounded-lg'),
-      2500
-    );
-    return () => clearTimeout(timer);
-  }, [loading, posts, location.hash]);
-
   // Load more posts (cursor pagination)
   const handleLoadMore = useCallback(async () => {
     if (topicId == null || !nextCursor) return;
@@ -185,6 +168,27 @@ export default function ThreadDetailPage() {
       setLoadingMore(false);
     }
   }, [nextCursor, topicId, thread?.id]);
+
+  // Deep-link arrival: scroll to and briefly highlight #post-N once posts render.
+  // If the target sits on a later cursor page, pull pages until it appears (this
+  // effect re-runs as `posts` grows), then stop when there is nothing left to load.
+  useEffect(() => {
+    if (loading) return;
+    const match = /^#post-(\d+)$/.exec(location.hash);
+    if (!match) return;
+    const el = document.getElementById(`post-${match[1]}`);
+    if (!el) {
+      if (nextCursor && !loadingMore) handleLoadMore();
+      return;
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('ring-2', 'ring-primary', 'rounded-lg');
+    const timer = setTimeout(
+      () => el.classList.remove('ring-2', 'ring-primary', 'rounded-lg'),
+      2500
+    );
+    return () => clearTimeout(timer);
+  }, [loading, posts, location.hash, nextCursor, loadingMore, handleLoadMore]);
 
   // Submit a reply. A published reply is refetched into the list; a pending reply
   // (untrusted author) is unlisted, so we only confirm it was submitted.
