@@ -209,7 +209,9 @@ export function mapSearchTopicToThread(t: BackendSearchTopic): Thread {
     slug: t.slug,
     category: { id: String(t.board_id), name: '', slug: t.board_slug, created_at: '' },
     author: authorFromString(null),
-    created_at: t.last_post_at || '',
+    // Search payload carries no creation time; only last activity. Don't alias
+    // last_post_at as created_at (that misrepresents it downstream).
+    created_at: '',
     last_activity_at: t.last_post_at || '',
     post_count: t.reply_count,
     view_count: t.view_count,

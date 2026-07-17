@@ -56,6 +56,7 @@ const mockAuth = (isAuthenticated: boolean) =>
 describe('ThreadDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
 
     // Mock useParams to return hybrid id-slug params; lookups use the leading id.
     vi.mocked(ReactRouter.useParams).mockReturnValue({
@@ -773,6 +774,37 @@ describe('ThreadDetailPage', () => {
       (c) => (c[0] as { cursor?: string })?.cursor === 'cursor-page-2'
     );
     expect(page2Calls).toHaveLength(1);
+  });
+
+  it('scrolls to the anchored post once, not again when the post list changes', async () => {
+    // jsdom defines scrollIntoView on HTMLElement.prototype; spy there so the
+    // real call is captured (an Element.prototype assignment gets shadowed).
+    const scrollSpy = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollSpy;
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 25 }));
+    vi.spyOn(forumService, 'fetchPosts')
+      .mockResolvedValueOnce({
+        items: [createMockPost({ id: '5' })],
+        meta: { count: 0, next: 'cursor-page-2', previous: null },
+      })
+      .mockResolvedValueOnce({
+        items: [createMockPost({ id: '6' })],
+        meta: { count: 0, next: null, previous: null },
+      });
+
+    render(
+      <MemoryRouter initialEntries={['/forum/3-plant-care/12-watering-tips#post-5']}>
+        <ThreadDetailPage />
+      </MemoryRouter>
+    );
+
+    // post-5 is on page 1 → found and scrolled once on arrival.
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalledTimes(1));
+
+    // Loading more changes `posts`; the anchor must NOT be re-scrolled.
+    await userEvent.click(screen.getByText(/Load More Posts/i));
+    await waitFor(() => expect(document.getElementById('post-6')).toBeInTheDocument());
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
   });
 
   it('displays total post count in header from thread.post_count', async () => {

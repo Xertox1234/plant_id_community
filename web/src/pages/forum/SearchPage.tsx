@@ -163,7 +163,6 @@ export default function SearchPage() {
           setSearchParams((prev) => {
             const newParams = new URLSearchParams(prev);
             newParams.set('q', value.trim());
-            newParams.set('page', '1'); // Reset to page 1
             return newParams;
           });
         } else {
@@ -189,7 +188,6 @@ export default function SearchPage() {
         } else {
           newParams.delete('category');
         }
-        newParams.set('page', '1');
         return newParams;
       });
     },

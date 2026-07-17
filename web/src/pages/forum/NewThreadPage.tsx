@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, FormEvent } from 'react';
+import { useState, useEffect, useCallback, useMemo, FormEvent } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { createThread, fetchCategory } from '../../services/forumService';
 import { parseLeadingId, threadPath, categoryPath } from '../../utils/forumUrls';
@@ -29,20 +29,16 @@ export default function NewThreadPage() {
 
   const [category, setCategory] = useState<Category | null>(null);
   const newThreadDraftKey = draftKey('new-thread', categoryParam ?? 'unknown');
-  const [title, setTitle] = useState(() => {
+  // Parse the saved draft once (per key), not once per field.
+  const initialDraft = useMemo<{ title?: string; body?: string }>(() => {
     try {
-      return JSON.parse(loadDraft(newThreadDraftKey) || '{}').title || '';
+      return JSON.parse(loadDraft(newThreadDraftKey) || '{}');
     } catch {
-      return '';
+      return {};
     }
-  });
-  const [body, setBody] = useState(() => {
-    try {
-      return JSON.parse(loadDraft(newThreadDraftKey) || '{}').body || '';
-    } catch {
-      return '';
-    }
-  });
+  }, [newThreadDraftKey]);
+  const [title, setTitle] = useState<string>(() => initialDraft.title || '');
+  const [body, setBody] = useState<string>(() => initialDraft.body || '');
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);

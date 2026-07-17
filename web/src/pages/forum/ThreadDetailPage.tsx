@@ -94,6 +94,10 @@ export default function ThreadDetailPage() {
   // changed" stops the chase after one attempt instead of retrying the same
   // failing request forever; the manual "Load More" button remains the retry.
   const chaseCursorRef = useRef<string | null>(null);
+  // The hash we've already scrolled to. The arrival effect re-runs on every
+  // `posts` change (the chase needs that), so without this it would re-scroll
+  // to the anchor on each reply/Load-More while the hash lingers in the URL.
+  const scrolledHashRef = useRef<string | null>(null);
 
   // Load thread and initial posts
   useEffect(() => {
@@ -101,8 +105,9 @@ export default function ThreadDetailPage() {
     // effect already re-runs on every topicId change, so it doubles as the
     // sync point.
     currentTopicIdRef.current = topicId;
-    // A new thread starts a fresh deep-link chase.
+    // A new thread starts a fresh deep-link chase and a fresh scroll target.
     chaseCursorRef.current = null;
+    scrolledHashRef.current = null;
     // Restore this topic's reply draft (per-topic key); remount the composer
     // so TipTap's init-only content picks it up.
     setReplyBody(topicId != null ? (loadDraft(draftKey('reply', String(topicId))) ?? '') : '');
@@ -206,6 +211,10 @@ export default function ThreadDetailPage() {
       }
       return;
     }
+    // Scroll to a given anchor only once — not again on later posts changes
+    // (a reply, a Load More) while the same hash sits in the URL.
+    if (scrolledHashRef.current === location.hash) return;
+    scrolledHashRef.current = location.hash;
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     el.classList.add('ring-2', 'ring-primary', 'rounded-lg');
     const timer = setTimeout(
