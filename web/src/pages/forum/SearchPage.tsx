@@ -3,10 +3,9 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { searchForum, fetchCategories } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import { Pagination } from '../../components/ui/Pagination';
-import { useHandlePageChange } from '../../hooks/useHandlePageChange';
 import { logger } from '../../utils/logger';
 import { sanitizeSearchQuery } from '../../utils/validation';
+import { threadPath } from '../../utils/forumUrls';
 import type { Category, SearchForumResponse } from '@/types';
 
 /** Strip HTML tags from a string, returning plain text. */
@@ -54,9 +53,8 @@ function hasSearchMatch(text: string | undefined, query: string): boolean {
  *
  * Features:
  * - Debounced search input (300ms)
- * - Category, author, date range filters
+ * - Category filter (board slug)
  * - Separate results for threads and posts
- * - Pagination
  * - Search term highlighting in results
  */
 export default function SearchPage() {
@@ -76,11 +74,6 @@ export default function SearchPage() {
   // ?q=... URL before it reaches state, the API, or the rendered "results for".
   const query = sanitizeSearchQuery(searchParams.get('q') || '');
   const category = searchParams.get('category') || '';
-  const author = searchParams.get('author') || '';
-  const dateFrom = searchParams.get('date_from') || '';
-  const dateTo = searchParams.get('date_to') || '';
-  const page = parseInt(searchParams.get('page') || '1', 10);
-  const pageSize = parseInt(searchParams.get('page_size') || '20', 10);
 
   // Initialize search input from URL
   useEffect(() => {
@@ -121,15 +114,7 @@ export default function SearchPage() {
         setLoading(true);
         setError(null);
 
-        const results = await searchForum({
-          q: query,
-          category,
-          author,
-          date_from: dateFrom,
-          date_to: dateTo,
-          page,
-          page_size: pageSize,
-        });
+        const results = await searchForum({ q: query, category });
 
         setSearchResults(results);
         logger.info('[SEARCH] Results loaded', {
@@ -141,7 +126,7 @@ export default function SearchPage() {
         logger.error('Error performing search', {
           component: 'SearchPage',
           error: err,
-          context: { query, category, author },
+          context: { query, category },
         });
         setError(err instanceof Error ? err.message : 'Search failed');
       } finally {
@@ -150,7 +135,7 @@ export default function SearchPage() {
     };
 
     performSearch();
-  }, [query, category, author, dateFrom, dateTo, page, pageSize]);
+  }, [query, category]);
 
   // Cleanup debounce timer on unmount
   useEffect(() => {
@@ -178,7 +163,6 @@ export default function SearchPage() {
           setSearchParams((prev) => {
             const newParams = new URLSearchParams(prev);
             newParams.set('q', value.trim());
-            newParams.set('page', '1'); // Reset to page 1
             return newParams;
           });
         } else {
@@ -204,48 +188,11 @@ export default function SearchPage() {
         } else {
           newParams.delete('category');
         }
-        newParams.set('page', '1');
         return newParams;
       });
     },
     [setSearchParams]
   );
-
-  const handleAuthorFilter = useCallback(
-    (e: ChangeEvent<HTMLInputElement>) => {
-      const value = e.target.value;
-      setSearchParams((prev) => {
-        const newParams = new URLSearchParams(prev);
-        if (value) {
-          newParams.set('author', value);
-        } else {
-          newParams.delete('author');
-        }
-        newParams.set('page', '1');
-        return newParams;
-      });
-    },
-    [setSearchParams]
-  );
-
-  const handleDateFilter = useCallback(
-    (key: 'date_from' | 'date_to', value: string) => {
-      setSearchParams((prev) => {
-        const newParams = new URLSearchParams(prev);
-        if (value) {
-          newParams.set(key, value);
-        } else {
-          newParams.delete(key);
-        }
-        newParams.set('page', '1');
-        return newParams;
-      });
-    },
-    [setSearchParams]
-  );
-
-  // Handle pagination (shared hook — todo 222 / M14)
-  const handlePageChange = useHandlePageChange(setSearchParams);
 
   // Clear all filters
   const handleClearFilters = useCallback(() => {
@@ -253,9 +200,7 @@ export default function SearchPage() {
   }, [query, setSearchParams]);
 
   // Check if any filters are active
-  const hasActiveFilters = useMemo(() => {
-    return !!(category || author || dateFrom || dateTo);
-  }, [category, author, dateFrom, dateTo]);
+  const hasActiveFilters = useMemo(() => !!category, [category]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -308,7 +253,7 @@ export default function SearchPage() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Category Filter */}
           <div>
             <label htmlFor="category-filter" className="block text-sm font-medium text-ink-2 mb-2">
@@ -327,49 +272,6 @@ export default function SearchPage() {
                 </option>
               ))}
             </select>
-          </div>
-
-          {/* Author Filter */}
-          <div>
-            <label htmlFor="author-filter" className="block text-sm font-medium text-ink-2 mb-2">
-              Author
-            </label>
-            <input
-              id="author-filter"
-              type="text"
-              value={author}
-              onChange={handleAuthorFilter}
-              placeholder="Username"
-              className="w-full px-3 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
-            />
-          </div>
-
-          {/* Date From Filter */}
-          <div>
-            <label htmlFor="date-from-filter" className="block text-sm font-medium text-ink-2 mb-2">
-              From
-            </label>
-            <input
-              id="date-from-filter"
-              type="date"
-              value={dateFrom}
-              onChange={(e) => handleDateFilter('date_from', e.target.value)}
-              className="w-full px-3 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
-            />
-          </div>
-
-          {/* Date To Filter */}
-          <div>
-            <label htmlFor="date-to-filter" className="block text-sm font-medium text-ink-2 mb-2">
-              To
-            </label>
-            <input
-              id="date-to-filter"
-              type="date"
-              value={dateTo}
-              onChange={(e) => handleDateFilter('date_to', e.target.value)}
-              className="w-full px-3 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
-            />
           </div>
         </div>
       </div>
@@ -455,9 +357,19 @@ export default function SearchPage() {
                   // content_raw holds the backend excerpt (may contain truncated HTML tags).
                   // Strip tags so we render plain text only — never dangerouslySetInnerHTML.
                   const plainExcerpt = stripTags(post.content_raw);
-                  // Build a link to the topic by id (topic_title is carried by mapSearchPostToPost).
-                  // topic_id is stored in post.thread; topic_title is carried through.
-                  const topicLink = `/forum/-topic/${post.thread}`;
+                  // Build a real thread link from the board/topic identity carried by
+                  // mapSearchPostToPost, deep-linked to the specific post.
+                  const topicLink =
+                    post.board_id != null && post.board_slug && post.topic_slug
+                      ? `${threadPath(
+                          {
+                            id: String(post.board_id),
+                            slug: post.board_slug,
+                            name: post.board_slug,
+                          },
+                          { id: post.thread, slug: post.topic_slug, title: post.topic_title || '' }
+                        )}#post-${post.id}`
+                      : `/forum`;
                   return (
                     <div key={post.id} className="bg-surface-2 rounded-lg border border-line-2 p-4">
                       <Link
@@ -499,17 +411,6 @@ export default function SearchPage() {
               <p className="text-ink-2 mb-2">No results found for "{query}"</p>
               <p className="text-ink-3 text-sm">Try different keywords or remove some filters</p>
             </div>
-          )}
-
-          {/* Pagination */}
-          {(searchResults.has_next_threads || searchResults.has_next_posts || page > 1) && (
-            <Pagination
-              page={page}
-              onPageChange={handlePageChange}
-              hasPrevious={page > 1}
-              hasNext={searchResults.has_next_threads || searchResults.has_next_posts}
-              variant="secondary"
-            />
           )}
         </div>
       )}

@@ -304,26 +304,22 @@ export async function uploadPostImage(imageFile: File): Promise<UploadedImage> {
 // ---------------------------------------------------------------------------
 
 export async function searchForum(options: SearchForumOptions): Promise<SearchForumResponse> {
-  // Note: SearchForumOptions includes category/author/date_from/date_to/page/page_size
-  // for backward compat with SearchPage; the backend only supports `q` currently.
-  const { q } = options;
+  const { q, category } = options;
   if (!q || q.trim() === '') throw new Error('Search query is required');
   const params = new URLSearchParams({ q: q.trim() });
+  if (category) params.set('board', category);
   const data = await authenticatedFetch<{
     topics: BackendSearchTopic[];
     posts: BackendSearchPost[];
   }>(`${FORUM_BASE}/search/?${params}`);
   const threads = (data.topics || []).map(mapSearchTopicToThread);
   const posts = (data.posts || []).map(mapSearchPostToPost);
+  // Result sets are server-capped at 50 each; lengths are the real totals up to that cap.
   return {
     query: q.trim(),
     threads,
     posts,
     total_threads: threads.length,
     total_posts: posts.length,
-    has_next_threads: false,
-    has_next_posts: false,
-    page: options.page ?? 1,
-    page_size: options.page_size ?? threads.length + posts.length,
   };
 }

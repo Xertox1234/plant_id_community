@@ -36,16 +36,6 @@ function createMockSearchResults(overrides = {}) {
     posts: [],
     total_threads: 0,
     total_posts: 0,
-    page: 1,
-    page_size: 20,
-    has_next_threads: false,
-    has_next_posts: false,
-    filters: {
-      category: null,
-      author: null,
-      date_from: null,
-      date_to: null,
-    },
     ...overrides,
   };
 }
@@ -213,12 +203,18 @@ describe('SearchPage', () => {
         id: 1,
         topic_id: 42,
         topic_title: 'Watering Guide',
+        topic_slug: 'watering-guide',
+        board_id: 1,
+        board_slug: 'plant-care',
         excerpt: 'Water your plants regularly',
       });
       const post2 = mapSearchPostToPost({
         id: 2,
         topic_id: 43,
         topic_title: 'Beginner Tips',
+        topic_slug: 'beginner-tips',
+        board_id: 1,
+        board_slug: 'plant-care',
         excerpt: 'Watering tips for beginners',
       });
       const mockResults = createMockSearchResults({
@@ -242,6 +238,35 @@ describe('SearchPage', () => {
       expect(screen.queryByText('[deleted]')).not.toBeInTheDocument();
       // No empty PostCard author block (PostCard renders author.display_name in a specific element)
       expect(screen.queryByText('Test User')).not.toBeInTheDocument();
+    });
+
+    it('renders real counts and no decorative filters', async () => {
+      const mockResults = createMockSearchResults({
+        query: 'tomato',
+        threads: [
+          createMockThread({
+            id: '31',
+            title: 'Blight-resistant tomatoes',
+            slug: 'tomato-blight',
+            category: { id: '54', name: '', slug: 'general-discussion', created_at: '' },
+            post_count: 3,
+            view_count: 12,
+          }),
+        ],
+        total_threads: 1,
+      });
+
+      vi.spyOn(forumService, 'searchForum').mockResolvedValue(mockResults);
+
+      renderSearchPage('/forum/search?q=tomato');
+
+      await waitFor(() =>
+        expect(screen.getByText(/Blight-resistant tomatoes/)).toBeInTheDocument()
+      );
+      expect(screen.getByTitle('3 replies')).toBeInTheDocument();
+      expect(screen.getByTitle('12 views')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Author')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('From')).not.toBeInTheDocument();
     });
 
     it('displays no results message when no matches found', async () => {
@@ -283,13 +308,6 @@ describe('SearchPage', () => {
       expect(within(categorySelect).getByText('Plant Care')).toBeInTheDocument();
     });
 
-    it('displays author filter input', () => {
-      renderSearchPage();
-
-      expect(screen.getByLabelText('Author')).toBeInTheDocument();
-      expect(screen.getByPlaceholderText('Username')).toBeInTheDocument();
-    });
-
     it('applies category filter when selected', async () => {
       const mockCategories = [
         createMockCategory({ id: '1', name: 'Plant Care', slug: 'plant-care' }),
@@ -325,7 +343,7 @@ describe('SearchPage', () => {
     });
 
     it('clears all filters when clear button clicked', async () => {
-      renderSearchPage('/forum/search?q=watering&category=plant-care&author=john');
+      renderSearchPage('/forum/search?q=watering&category=plant-care');
 
       await waitFor(() => {
         expect(screen.getByText('Clear filters')).toBeInTheDocument();
@@ -339,7 +357,6 @@ describe('SearchPage', () => {
           expect.objectContaining({
             q: 'watering',
             category: '',
-            author: '',
           })
         );
       });
@@ -349,121 +366,6 @@ describe('SearchPage', () => {
       renderSearchPage('/forum/search?q=watering');
 
       expect(screen.queryByText('Clear filters')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Pagination', () => {
-    it('displays pagination controls when there are more results', async () => {
-      const mockResults = createMockSearchResults({
-        query: 'watering',
-        threads: [createMockThread()],
-        has_next_threads: true,
-        page: 1,
-      });
-
-      vi.spyOn(forumService, 'searchForum').mockResolvedValue(mockResults);
-
-      renderSearchPage('/forum/search?q=watering');
-
-      await waitFor(() => {
-        expect(screen.getByText('Previous')).toBeInTheDocument();
-        expect(screen.getByText('Next')).toBeInTheDocument();
-        expect(screen.getByText('Page 1')).toBeInTheDocument();
-      });
-    });
-
-    it('disables previous button on first page', async () => {
-      const mockResults = createMockSearchResults({
-        query: 'watering',
-        threads: [createMockThread()],
-        page: 1,
-        has_next_threads: true, // Need this to show pagination controls
-      });
-
-      vi.mocked(forumService.searchForum).mockImplementation(() => Promise.resolve(mockResults));
-
-      renderSearchPage('/forum/search?q=watering');
-
-      await waitFor(() => {
-        const prevButton = screen.getByText('Previous');
-        expect(prevButton).toBeDisabled();
-      });
-    });
-
-    it('disables next button when no more results', async () => {
-      const mockResults = createMockSearchResults({
-        query: 'watering',
-        threads: [createMockThread()],
-        has_next_threads: false,
-        has_next_posts: false,
-        page: 2, // Set page > 1 to ensure pagination controls render
-      });
-
-      vi.mocked(forumService.searchForum).mockImplementation(() => Promise.resolve(mockResults));
-
-      renderSearchPage('/forum/search?q=watering&page=2');
-
-      await waitFor(() => {
-        const nextButton = screen.getByText('Next');
-        expect(nextButton).toBeDisabled();
-      });
-    });
-
-    it('navigates to next page when next button clicked', async () => {
-      const mockResults = createMockSearchResults({
-        query: 'watering',
-        threads: [createMockThread()],
-        has_next_threads: true,
-        page: 1,
-      });
-
-      vi.spyOn(forumService, 'searchForum').mockResolvedValue(mockResults);
-
-      renderSearchPage('/forum/search?q=watering');
-
-      await waitFor(() => {
-        expect(screen.getByText('Next')).toBeInTheDocument();
-      });
-
-      const nextButton = screen.getByText('Next');
-      await userEvent.click(nextButton);
-
-      await waitFor(() => {
-        expect(forumService.searchForum).toHaveBeenCalledWith(
-          expect.objectContaining({
-            q: 'watering',
-            page: 2,
-          })
-        );
-      });
-    });
-
-    it('navigates to previous page when previous button clicked', async () => {
-      const mockResults = createMockSearchResults({
-        query: 'watering',
-        threads: [createMockThread()],
-        page: 2,
-      });
-
-      vi.spyOn(forumService, 'searchForum').mockResolvedValue(mockResults);
-
-      renderSearchPage('/forum/search?q=watering&page=2');
-
-      await waitFor(() => {
-        expect(screen.getByText('Previous')).toBeInTheDocument();
-      });
-
-      const prevButton = screen.getByText('Previous');
-      await userEvent.click(prevButton);
-
-      await waitFor(() => {
-        expect(forumService.searchForum).toHaveBeenCalledWith(
-          expect.objectContaining({
-            q: 'watering',
-            page: 1,
-          })
-        );
-      });
     });
   });
 
@@ -488,11 +390,6 @@ describe('SearchPage', () => {
       const categorySelect = screen.getByLabelText('Category');
       expect(categoryLabel).toBeInTheDocument();
       expect(categorySelect).toHaveAttribute('id', 'category-filter');
-
-      const authorLabel = screen.getByText('Author');
-      const authorInput = screen.getByLabelText('Author');
-      expect(authorLabel).toBeInTheDocument();
-      expect(authorInput).toHaveAttribute('id', 'author-filter');
     });
   });
 });

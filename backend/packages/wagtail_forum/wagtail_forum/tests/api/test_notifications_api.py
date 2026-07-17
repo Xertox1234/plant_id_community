@@ -327,3 +327,22 @@ def test_mark_read_does_not_leak_other_users_notifications():
 def test_mark_read_requires_auth():
     resp = APIClient().post("/forum/notifications/mark-read/", {}, format="json")
     assert resp.status_code == 401
+
+
+# ---- post_id ---------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_notification_list_includes_post_id():
+    recipient = User.objects.create_user(username="postid_recipient")
+    actor = User.objects.create_user(username="postid_actor")
+    board = _board(slug="postid-board")
+    topic, post = _topic_and_post(board, recipient, actor, slug="postid-t")
+    _notify(recipient, actor, topic, post)
+
+    client = APIClient()
+    client.force_authenticate(recipient)
+    resp = client.get("/forum/notifications/")
+
+    assert resp.status_code == 200
+    assert resp.data["results"][0]["post_id"] == post.pk

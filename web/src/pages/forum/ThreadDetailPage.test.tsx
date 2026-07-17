@@ -56,6 +56,7 @@ const mockAuth = (isAuthenticated: boolean) =>
 describe('ThreadDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
 
     // Mock useParams to return hybrid id-slug params; lookups use the leading id.
     vi.mocked(ReactRouter.useParams).mockReturnValue({
@@ -566,8 +567,9 @@ describe('ThreadDetailPage', () => {
 
     renderThreadDetailPage();
 
-    await screen.findByLabelText('React like');
-    expect(screen.getByLabelText('React like')).toHaveTextContent('0');
+    // Zero-count reactions are hidden at rest (de-cluttered row), so expand the
+    // picker before the 'like' control is available.
+    await userEvent.click(await screen.findByLabelText('Add reaction'));
     await userEvent.click(screen.getByLabelText('React like'));
 
     await waitFor(() => expect(screen.getByLabelText('React like')).toHaveTextContent('1'));
@@ -718,6 +720,91 @@ describe('ThreadDetailPage', () => {
         cursor: nextCursorUrl,
       });
     });
+  });
+
+  it('deep-link to a post on a later cursor page pulls pages until it renders', async () => {
+    // jsdom has no layout engine; the arrival effect calls scrollIntoView.
+    Element.prototype.scrollIntoView = vi.fn();
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 21 }));
+    const fetchPostsSpy = vi
+      .spyOn(forumService, 'fetchPosts')
+      .mockResolvedValueOnce({
+        items: [createMockPost({ id: '1' })],
+        meta: { count: 0, next: 'cursor-page-2', previous: null },
+      })
+      .mockResolvedValueOnce({
+        items: [createMockPost({ id: '21' })],
+        meta: { count: 0, next: null, previous: null },
+      });
+
+    render(
+      <MemoryRouter initialEntries={['/forum/3-plant-care/12-watering-tips#post-21']}>
+        <ThreadDetailPage />
+      </MemoryRouter>
+    );
+
+    // post-21 lives on page 2, absent from the first load — the arrival effect
+    // must pull the next page for it to mount (it silently no-op'd before).
+    await waitFor(() => expect(document.getElementById('post-21')).toBeInTheDocument());
+    expect(fetchPostsSpy).toHaveBeenCalledWith({ thread: 12, cursor: 'cursor-page-2' });
+  });
+
+  it('deep-link chase does not retry forever when a later page keeps failing', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 21 }));
+    const fetchPostsSpy = vi
+      .spyOn(forumService, 'fetchPosts')
+      .mockResolvedValueOnce({
+        items: [createMockPost({ id: '1' })],
+        meta: { count: 0, next: 'cursor-page-2', previous: null },
+      })
+      .mockRejectedValue(new Error('page 2 keeps failing'));
+
+    render(
+      <MemoryRouter initialEntries={['/forum/3-plant-care/12-watering-tips#post-21']}>
+        <ThreadDetailPage />
+      </MemoryRouter>
+    );
+
+    // The failing page-2 fetch surfaces the error notice...
+    await screen.findByText(/Failed to load more posts/i);
+    // ...and is NOT retried in a loop: exactly one request for that cursor.
+    const page2Calls = fetchPostsSpy.mock.calls.filter(
+      (c) => (c[0] as { cursor?: string })?.cursor === 'cursor-page-2'
+    );
+    expect(page2Calls).toHaveLength(1);
+  });
+
+  it('scrolls to the anchored post once, not again when the post list changes', async () => {
+    // jsdom defines scrollIntoView on HTMLElement.prototype; spy there so the
+    // real call is captured (an Element.prototype assignment gets shadowed).
+    const scrollSpy = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollSpy;
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 25 }));
+    vi.spyOn(forumService, 'fetchPosts')
+      .mockResolvedValueOnce({
+        items: [createMockPost({ id: '5' })],
+        meta: { count: 0, next: 'cursor-page-2', previous: null },
+      })
+      .mockResolvedValueOnce({
+        items: [createMockPost({ id: '6' })],
+        meta: { count: 0, next: null, previous: null },
+      });
+
+    render(
+      <MemoryRouter initialEntries={['/forum/3-plant-care/12-watering-tips#post-5']}>
+        <ThreadDetailPage />
+      </MemoryRouter>
+    );
+
+    // post-5 is on page 1 → found and scrolled once on arrival.
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalledTimes(1));
+
+    // Loading more changes `posts`; the anchor must NOT be re-scrolled.
+    await userEvent.click(screen.getByText(/Load More Posts/i));
+    await waitFor(() => expect(document.getElementById('post-6')).toBeInTheDocument());
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
   });
 
   it('displays total post count in header from thread.post_count', async () => {

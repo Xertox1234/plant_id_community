@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import {
   fetchThread,
   fetchPosts,
@@ -13,6 +13,7 @@ import {
 } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
 import { bodyBlocksToHtml } from '../../utils/forumBody';
+import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import PostCard from '../../components/forum/PostCard';
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -54,6 +55,7 @@ async function collectAllPosts(threadId: number): Promise<{ items: Post[]; next:
 export default function ThreadDetailPage() {
   const { categorySlug, threadSlug } = useParams<{ categorySlug: string; threadSlug: string }>();
   const { isAuthenticated } = useAuth();
+  const location = useLocation();
 
   // The route param is a hybrid "id-slug"; lookups use the leading topic id.
   const topicId = parseLeadingId(threadSlug);
@@ -87,6 +89,15 @@ export default function ThreadDetailPage() {
   // while its request was in flight, so a late success/failure for thread A
   // can't clobber thread B's displayed state.
   const currentTopicIdRef = useRef<number | null>(null);
+  // Remembers the cursor the deep-link auto-chase last requested. A failed
+  // load-more leaves nextCursor unchanged, so gating on "cursor actually
+  // changed" stops the chase after one attempt instead of retrying the same
+  // failing request forever; the manual "Load More" button remains the retry.
+  const chaseCursorRef = useRef<string | null>(null);
+  // The hash we've already scrolled to. The arrival effect re-runs on every
+  // `posts` change (the chase needs that), so without this it would re-scroll
+  // to the anchor on each reply/Load-More while the hash lingers in the URL.
+  const scrolledHashRef = useRef<string | null>(null);
 
   // Load thread and initial posts
   useEffect(() => {
@@ -94,11 +105,21 @@ export default function ThreadDetailPage() {
     // effect already re-runs on every topicId change, so it doubles as the
     // sync point.
     currentTopicIdRef.current = topicId;
+    // A new thread starts a fresh deep-link chase and a fresh scroll target.
+    chaseCursorRef.current = null;
+    scrolledHashRef.current = null;
+    // Restore this topic's reply draft (per-topic key); remount the composer
+    // so TipTap's init-only content picks it up.
+    setReplyBody(topicId != null ? (loadDraft(draftKey('reply', String(topicId))) ?? '') : '');
+    setComposerKey((k) => k + 1);
     // A subscribe/unsubscribe request still in flight for the PREVIOUS
     // thread must not leave this thread's Follow button stuck loading —
     // reset unconditionally on every navigation (handleToggleSubscription's
     // own finally guards against that stale request re-enabling it late).
     setSubscribing(false);
+    // Same for an in-flight load-more (the deep-link chase can start one) —
+    // its finally is thread-guarded, so clear the flag here for the new thread.
+    setLoadingMore(false);
 
     const loadData = async () => {
       if (topicId == null) {
@@ -139,14 +160,20 @@ export default function ThreadDetailPage() {
   // Load more posts (cursor pagination)
   const handleLoadMore = useCallback(async () => {
     if (topicId == null || !nextCursor) return;
+    // The deep-link chase fires this automatically, so a response can arrive
+    // after the user has navigated to another thread. Guard state writes on the
+    // thread this request was for, or a late page for thread A would append to
+    // thread B's list (mirrors handleToggleSubscription).
+    const requestTopicId = topicId;
 
     try {
       setLoadingMore(true);
       const postsData = (await fetchPosts({
-        thread: topicId,
+        thread: requestTopicId,
         cursor: nextCursor,
       })) as PaginatedResponse<Post>;
 
+      if (currentTopicIdRef.current !== requestTopicId) return;
       setPosts((prev) => [...prev, ...postsData.items]);
       setNextCursor(postsData.meta.next ?? null);
     } catch (err) {
@@ -155,13 +182,47 @@ export default function ThreadDetailPage() {
         error: err,
         context: { threadId: thread?.id },
       });
-      setNotice(
-        `Failed to load more posts: ${err instanceof Error ? err.message : 'Unknown error'}`
-      );
+      if (currentTopicIdRef.current === requestTopicId) {
+        setNotice(
+          `Failed to load more posts: ${err instanceof Error ? err.message : 'Unknown error'}`
+        );
+      }
     } finally {
-      setLoadingMore(false);
+      if (currentTopicIdRef.current === requestTopicId) {
+        setLoadingMore(false);
+      }
     }
   }, [nextCursor, topicId, thread?.id]);
+
+  // Deep-link arrival: scroll to and briefly highlight #post-N once posts render.
+  // If the target sits on a later cursor page, pull pages until it appears (this
+  // effect re-runs as `posts` grows), then stop when there is nothing left to load.
+  useEffect(() => {
+    if (loading) return;
+    const match = /^#post-(\d+)$/.exec(location.hash);
+    if (!match) return;
+    const el = document.getElementById(`post-${match[1]}`);
+    if (!el) {
+      // Advance at most once per cursor: a failed load-more leaves nextCursor
+      // unchanged, so this stops the chase instead of retrying it forever.
+      if (nextCursor && !loadingMore && chaseCursorRef.current !== nextCursor) {
+        chaseCursorRef.current = nextCursor;
+        handleLoadMore();
+      }
+      return;
+    }
+    // Scroll to a given anchor only once — not again on later posts changes
+    // (a reply, a Load More) while the same hash sits in the URL.
+    if (scrolledHashRef.current === location.hash) return;
+    scrolledHashRef.current = location.hash;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('ring-2', 'ring-primary', 'rounded-lg');
+    const timer = setTimeout(
+      () => el.classList.remove('ring-2', 'ring-primary', 'rounded-lg'),
+      2500
+    );
+    return () => clearTimeout(timer);
+  }, [loading, posts, location.hash, nextCursor, loadingMore, handleLoadMore]);
 
   // Submit a reply. A published reply is refetched into the list; a pending reply
   // (untrusted author) is unlisted, so we only confirm it was submitted.
@@ -173,6 +234,7 @@ export default function ThreadDetailPage() {
         setReplySubmitting(true);
         setNotice(null);
         const res = await createPost({ thread: topicId, content: replyBody });
+        if (topicId != null) clearDraft(draftKey('reply', String(topicId)));
         setReplyBody('');
         setComposerKey((k) => k + 1); // remount the editor so it visibly clears
         if (res.status === 'published') {
@@ -503,7 +565,12 @@ export default function ThreadDetailPage() {
           <TipTapEditor
             key={composerKey}
             content={replyBody}
-            onChange={setReplyBody}
+            onChange={(html) => {
+              setReplyBody(html);
+              if (topicId != null) {
+                saveDraft(draftKey('reply', String(topicId)), isBlankHtml(html) ? '' : html);
+              }
+            }}
             placeholder="Write a reply..."
           />
           <Button

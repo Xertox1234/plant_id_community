@@ -33,6 +33,7 @@ function renderPage() {
 describe('NewThreadPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     mockNavigate = vi.fn();
     vi.mocked(ReactRouter.useNavigate).mockReturnValue(
       mockNavigate as unknown as ReturnType<typeof ReactRouter.useNavigate>

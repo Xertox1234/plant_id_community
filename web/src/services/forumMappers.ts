@@ -76,12 +76,20 @@ export interface BackendSearchTopic {
   id: number;
   slug: string;
   title: string;
+  reply_count: number;
+  view_count: number;
+  last_post_at: string | null;
+  board_id: number;
+  board_slug: string;
 }
 
 export interface BackendSearchPost {
   id: number;
   topic_id: number;
   topic_title: string;
+  topic_slug: string;
+  board_id: number;
+  board_slug: string;
   excerpt: string;
 }
 
@@ -199,10 +207,14 @@ export function mapSearchTopicToThread(t: BackendSearchTopic): Thread {
     id: String(t.id),
     title: t.title,
     slug: t.slug,
-    category: { id: '', name: '', slug: '', created_at: '' },
+    category: { id: String(t.board_id), name: '', slug: t.board_slug, created_at: '' },
     author: authorFromString(null),
+    // Search payload carries no creation time; only last activity. Don't alias
+    // last_post_at as created_at (that misrepresents it downstream).
     created_at: '',
-    last_activity_at: '',
+    last_activity_at: t.last_post_at || '',
+    post_count: t.reply_count,
+    view_count: t.view_count,
     is_active: true,
   };
 }
@@ -222,5 +234,8 @@ export function mapSearchPostToPost(p: BackendSearchPost): Post {
     can_delete: false,
     can_report: false,
     topic_title: p.topic_title,
+    topic_slug: p.topic_slug,
+    board_id: p.board_id,
+    board_slug: p.board_slug,
   };
 }

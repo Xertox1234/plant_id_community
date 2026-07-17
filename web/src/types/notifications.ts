@@ -25,6 +25,8 @@ export interface ForumNotification {
   verb: ForumNotificationVerb;
   actor: NotificationActor | null;
   topic: NotificationTopicRef | null;
+  /** The post this notification is about, for deep links; null for post-less verbs. */
+  post_id: number | null;
   created_at: string;
   read_at: string | null;
 }

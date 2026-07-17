@@ -34,6 +34,7 @@ function makeNotification(overrides: Partial<ForumNotification> = {}): ForumNoti
       board_id: 3,
       board_slug: 'plant-care',
     },
+    post_id: null,
     created_at: '2026-07-14T00:00:00Z',
     read_at: null,
     ...overrides,
@@ -175,6 +176,21 @@ describe('NotificationBell', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('notification-badge')).not.toBeInTheDocument();
     });
+  });
+
+  it('navigates to the specific post anchor when the notification has a post_id', async () => {
+    vi.mocked(notificationService.fetchUnreadCount).mockResolvedValue(1);
+    vi.mocked(notificationService.fetchNotifications).mockResolvedValue({
+      results: [makeNotification({ post_id: 77 })],
+      next: null,
+      previous: null,
+    });
+    renderBell();
+
+    await userEvent.click(await screen.findByLabelText(/notifications/i));
+    await userEvent.click(await screen.findByText('Ada replied to "Watering Tips"'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/forum/3-plant-care/10-watering-tips#post-77');
   });
 
   it('does not mark an already-read notification read again on click', async () => {

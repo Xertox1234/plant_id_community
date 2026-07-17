@@ -245,8 +245,29 @@ describe('forumService (wagtail_forum API contract)', () => {
   it('searchForum hits /search/?q= and maps topics→threads, posts→posts', async () => {
     fetchMock.mockResolvedValueOnce(
       okJson({
-        topics: [{ id: 12, slug: 'succulent-help', title: 'Succulent help' }],
-        posts: [{ id: 50, topic_id: 12, topic_title: 'Succulent help', excerpt: 'hello' }],
+        topics: [
+          {
+            id: 12,
+            slug: 'succulent-help',
+            title: 'Succulent help',
+            reply_count: 4,
+            view_count: 99,
+            last_post_at: '2026-01-02T00:00:00Z',
+            board_id: 3,
+            board_slug: 'plant-care',
+          },
+        ],
+        posts: [
+          {
+            id: 50,
+            topic_id: 12,
+            topic_title: 'Succulent help',
+            topic_slug: 'succulent-help',
+            board_id: 3,
+            board_slug: 'plant-care',
+            excerpt: 'hello',
+          },
+        ],
       })
     );
     const r = await searchForum({ q: 'succ' });
@@ -264,6 +285,33 @@ describe('forumService (wagtail_forum API contract)', () => {
 
   it('searchForum rejects empty queries', async () => {
     await expect(searchForum({ q: '   ' })).rejects.toThrow('Search query is required');
+  });
+
+  it('searchForum sends the category as ?board= and total_threads matches array length', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({
+        topics: [
+          {
+            id: 31,
+            slug: 'tomato-blight',
+            title: 'Blight-resistant tomatoes',
+            reply_count: 3,
+            view_count: 12,
+            last_post_at: '2026-07-01T10:00:00Z',
+            board_id: 54,
+            board_slug: 'general-discussion',
+          },
+        ],
+        posts: [],
+      })
+    );
+    const r = await searchForum({ q: 'tomato', category: 'general-discussion' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('board=general-discussion'),
+      expect.any(Object)
+    );
+    expect(r.total_threads).toBe(r.threads.length);
+    expect(r.total_threads).toBe(1);
   });
 
   // --- Write functions (structurally intact, Phase 2) -----------------------

@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, FormEvent } from 'react';
+import { useState, useEffect, useCallback, useMemo, FormEvent } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { createThread, fetchCategory } from '../../services/forumService';
 import { parseLeadingId, threadPath, categoryPath } from '../../utils/forumUrls';
+import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
@@ -27,8 +28,17 @@ export default function NewThreadPage() {
   const categoryParam = searchParams.get('category');
 
   const [category, setCategory] = useState<Category | null>(null);
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+  const newThreadDraftKey = draftKey('new-thread', categoryParam ?? 'unknown');
+  // Parse the saved draft once (per key), not once per field.
+  const initialDraft = useMemo<{ title?: string; body?: string }>(() => {
+    try {
+      return JSON.parse(loadDraft(newThreadDraftKey) || '{}');
+    } catch {
+      return {};
+    }
+  }, [newThreadDraftKey]);
+  const [title, setTitle] = useState<string>(() => initialDraft.title || '');
+  const [body, setBody] = useState<string>(() => initialDraft.body || '');
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +69,12 @@ export default function NewThreadPage() {
     load();
   }, [categoryParam]);
 
+  // Persist the draft on every change; an all-empty draft is removed.
+  useEffect(() => {
+    const isEmpty = title.trim() === '' && isBlankHtml(body);
+    saveDraft(newThreadDraftKey, isEmpty ? '' : JSON.stringify({ title, body }));
+  }, [title, body, newThreadDraftKey]);
+
   const canSubmit = !!category && title.trim() !== '' && !isBlankHtml(body);
 
   const handleSubmit = useCallback(
@@ -73,6 +89,7 @@ export default function NewThreadPage() {
           title: title.trim(),
           content: body,
         });
+        clearDraft(newThreadDraftKey);
         if (res.status === 'published') {
           navigate(threadPath(category, { id: res.id, slug: res.slug, title: title.trim() }));
         } else {
@@ -91,7 +108,7 @@ export default function NewThreadPage() {
         setSubmitting(false);
       }
     },
-    [category, title, body, navigate]
+    [category, title, body, navigate, newThreadDraftKey]
   );
 
   if (loading) {

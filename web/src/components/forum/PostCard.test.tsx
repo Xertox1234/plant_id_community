@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import PostCard from './PostCard';
@@ -161,22 +161,26 @@ describe('PostCard', () => {
     expect(screen.getByText('1')).toBeInTheDocument();
   });
 
-  it('renders the four reaction buttons when onReact is provided, defaulting counts to 0', () => {
+  it('shows all four reaction options in the picker when no reactions exist yet and onReact is provided', () => {
     const post = createMockPost({
       reaction_counts: {},
     });
 
     renderPostCard(post);
 
-    // All four reaction buttons render when handler is present.
+    // At rest, zero-count buttons are hidden — only "Add reaction" shows.
+    expect(screen.queryByLabelText('React like')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /add reaction/i }));
+
+    // Expanding the picker reveals all four reaction options.
     expect(screen.getByLabelText('React like')).toBeInTheDocument();
     expect(screen.getByLabelText('React love')).toBeInTheDocument();
     expect(screen.getByLabelText('React helpful')).toBeInTheDocument();
     expect(screen.getByLabelText('React thanks')).toBeInTheDocument();
-    expect(screen.getAllByText('0')).toHaveLength(4);
   });
 
-  it('shows each reaction type with its count (0 when absent) when onReact is provided', () => {
+  it('shows only the non-zero reaction as a pill at rest; the zero one appears in the picker', () => {
     const post = createMockPost({
       reaction_counts: {
         like: 0,
@@ -187,7 +191,11 @@ describe('PostCard', () => {
     renderPostCard(post);
 
     expect(screen.getByLabelText('React love')).toHaveTextContent('2');
-    expect(screen.getByLabelText('React like')).toHaveTextContent('0');
+    expect(screen.queryByLabelText('React like')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /add reaction/i }));
+
+    expect(screen.getByLabelText('React like')).toBeInTheDocument();
   });
 
   it('hides reaction buttons when onReact is not provided', () => {
@@ -215,6 +223,7 @@ describe('PostCard', () => {
       </BrowserRouter>
     );
 
+    await userEvent.click(screen.getByRole('button', { name: /add reaction/i }));
     await userEvent.click(screen.getByLabelText('React like'));
 
     expect(onReact).toHaveBeenCalledWith('post-9', 'like');
@@ -409,5 +418,66 @@ describe('PostCard', () => {
 
     expect(onReport).not.toHaveBeenCalled();
     expect(screen.getByTitle('Report post')).toBeInTheDocument();
+  });
+
+  it('copies a permalink to the clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const post = createMockPost({ id: '21' });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} />
+      </BrowserRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /copy link/i }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining('#post-21'))
+    );
+    expect(await screen.findByText(/copied/i)).toBeInTheDocument();
+  });
+
+  it('shows non-zero reaction counts read-only when logged out (no onReact)', () => {
+    const post = createMockPost({ reaction_counts: { like: 2, love: 0 } });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} />
+      </BrowserRouter>
+    );
+
+    expect(screen.getByText('2')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add reaction/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /react love/i })).not.toBeInTheDocument();
+  });
+
+  it('hides zero counts at rest and expands the picker on demand', () => {
+    const onReact = vi.fn();
+    const post = createMockPost({ id: '21', reaction_counts: { like: 1 } });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onReact={onReact} />
+      </BrowserRouter>
+    );
+
+    expect(screen.queryByRole('button', { name: /react love/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /add reaction/i }));
+    fireEvent.click(screen.getByRole('button', { name: /react love/i }));
+    expect(onReact).toHaveBeenCalledWith('21', 'love');
+  });
+
+  it('renders no reaction row at all for a zero-reaction post viewed logged out', () => {
+    const post = createMockPost({ reaction_counts: {} });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} />
+      </BrowserRouter>
+    );
+
+    expect(screen.queryByRole('button', { name: /add reaction/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('👍')).not.toBeInTheDocument();
   });
 });

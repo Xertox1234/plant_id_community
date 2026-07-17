@@ -2,6 +2,7 @@ import datetime
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework.test import APIClient
 from wagtail.models import Page
 from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
@@ -294,3 +295,57 @@ def test_prune_tombstones_command_removes_old_rows(capsys):
     assert TopicDeletedLog.objects.filter(topic_id=2).exists()
     out = capsys.readouterr().out
     assert "Pruned 1 tombstone row(s)" in out
+
+
+@pytest.mark.django_db
+def test_search_topics_include_metadata_and_board():
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum-meta"))
+    board = index.add_child(instance=ForumBoard(title="General", slug="general-meta"))
+    topic = Topic.objects.create(
+        board=board, title="Monstera propagation tips", slug="monstera-meta"
+    )
+    topic.reply_count = 3
+    topic.view_count = 7
+    topic.last_post_at = timezone.now()
+    topic.save()
+
+    resp = APIClient().get("/forum/search/", {"q": "Monstera"})
+
+    assert resp.status_code == 200
+    entry = next(t for t in resp.data["topics"] if t["id"] == topic.id)
+    assert entry["reply_count"] == 3
+    assert entry["view_count"] == 7
+    assert entry["last_post_at"] is not None
+    assert entry["board_id"] == board.id
+    assert entry["board_slug"] == "general-meta"
+
+
+@pytest.mark.django_db
+def test_search_board_filter_narrows_topics_and_posts():
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum-filter"))
+    board_a = index.add_child(instance=ForumBoard(title="A", slug="board-a"))
+    board_b = index.add_child(instance=ForumBoard(title="B", slug="board-b"))
+    topic_a = Topic.objects.create(board=board_a, title="Fern care", slug="fern-a")
+    topic_b = Topic.objects.create(board=board_b, title="Fern care", slug="fern-b")
+    author = User.objects.create_user(username="fern_author")
+    Post.objects.create(
+        topic=topic_a,
+        author=author,
+        body=[{"type": "paragraph", "value": "<p>Fern watering schedule</p>"}],
+    )
+    Post.objects.create(
+        topic=topic_b,
+        author=author,
+        body=[{"type": "paragraph", "value": "<p>Fern watering schedule</p>"}],
+    )
+
+    resp = APIClient().get("/forum/search/", {"q": "Fern", "board": "board-a"})
+
+    assert resp.status_code == 200
+    assert {t["id"] for t in resp.data["topics"]} == {topic_a.id}
+    assert all(p["board_slug"] == "board-a" for p in resp.data["posts"])
+    post_entry = resp.data["posts"][0]
+    assert post_entry["topic_slug"] == "fern-a"
+    assert post_entry["board_id"] == board_a.id

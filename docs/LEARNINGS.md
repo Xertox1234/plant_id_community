@@ -1464,3 +1464,39 @@ unpatched code. Related: two pytest sessions run concurrently (main checkout +
 worktree) share the single `test_plant_community` Postgres DB and destroy each
 other — one baseline run produced 900+ phantom `OperationalError`s. Serialize
 all backend test runs, and re-derive baselines when a run overlapped another.
+
+### [2026-07-17] Notification deep-link silently no-op'd for posts past the first cursor page
+
+**What broke:** The forum thread view loads only the first cursor page (20
+posts, oldest-first) on mount, but reply notifications carry the **newest**
+post's id — which lives on the *last* page. Clicking such a notification set
+`#post-N` in the URL, the arrival effect ran `getElementById('post-N')`, found
+nothing, and returned — no scroll, no highlight, no cue. Worked for every
+thread ≤20 posts, so it passed the live walkthrough and every per-task review
+(all mocked single-page). The plan had explicitly deferred it as out-of-scope,
+but a whole-branch review flagged it against the acceptance criterion.
+
+**Root cause + fix (three review-caught iterations, all in `ThreadDetailPage.tsx`):**
+
+1. Arrival effect pulls later pages (`handleLoadMore`) until the target mounts —
+   `posts` is in its deps so it re-runs as the list grows.
+2. That created an **unbounded retry loop**: `handleLoadMore`'s catch never
+   clears `nextCursor`, so a persistently-failing page re-fired on every
+   `loadingMore` flip. Fixed with a `chaseCursorRef` — advance at most once per
+   cursor (a failed load leaves `nextCursor` unchanged → guard stops it; manual
+   "Load More" stays the retry).
+3. The auto-chase fires `handleLoadMore` with no user action, which **amplified**
+   a pre-existing cross-thread race: a page resolving after the user navigated
+   away appended thread A's posts to thread B. Fixed by mirroring
+   `handleToggleSubscription`'s guard (capture `requestTopicId`, gate state
+   writes on `currentTopicIdRef.current === requestTopicId`).
+
+**Lessons:** (a) A change to a **shared component** must run the *integration*
+suites that consume it, not just the component's own file — Task 6's reaction
+de-clutter broke a `ThreadDetailPage` reaction test that only surfaced under the
+final full-suite gate because Task 6's gate ran `PostCard.test.tsx` alone.
+(b) An effect that lists a growing collection in its deps re-runs its one-shot
+side effects (scroll) on every append — gate them with a ref (see
+`web/docs/patterns/react-typescript.md` → "One-Shot Side Effects").
+(c) A cheap mocked review can't catch a defect that lives in the interaction of
+real pagination + real routing; the whole-branch review is where it surfaced.

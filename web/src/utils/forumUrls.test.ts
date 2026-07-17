@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slugifyTitle, parseLeadingId, categoryPath, threadPath } from './forumUrls';
+import { slugifyTitle, parseLeadingId, categoryPath, threadPath, postAnchor } from './forumUrls';
 import type { Category, Thread } from '../types/forum';
 
 describe('forumUrls', () => {
@@ -25,5 +25,10 @@ describe('forumUrls', () => {
     } as Thread;
     expect(categoryPath(category)).toBe('/forum/3-plant-care');
     expect(threadPath(category, thread)).toBe('/forum/3-plant-care/12-succulent-help');
+  });
+
+  it('postAnchor builds a #post-N fragment', () => {
+    expect(postAnchor(42)).toBe('#post-42');
+    expect(postAnchor('42')).toBe('#post-42');
   });
 });
