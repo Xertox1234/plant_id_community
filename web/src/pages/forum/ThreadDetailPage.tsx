@@ -89,6 +89,11 @@ export default function ThreadDetailPage() {
   // while its request was in flight, so a late success/failure for thread A
   // can't clobber thread B's displayed state.
   const currentTopicIdRef = useRef<number | null>(null);
+  // Remembers the cursor the deep-link auto-chase last requested. A failed
+  // load-more leaves nextCursor unchanged, so gating on "cursor actually
+  // changed" stops the chase after one attempt instead of retrying the same
+  // failing request forever; the manual "Load More" button remains the retry.
+  const chaseCursorRef = useRef<string | null>(null);
 
   // Load thread and initial posts
   useEffect(() => {
@@ -96,6 +101,8 @@ export default function ThreadDetailPage() {
     // effect already re-runs on every topicId change, so it doubles as the
     // sync point.
     currentTopicIdRef.current = topicId;
+    // A new thread starts a fresh deep-link chase.
+    chaseCursorRef.current = null;
     // Restore this topic's reply draft (per-topic key); remount the composer
     // so TipTap's init-only content picks it up.
     setReplyBody(topicId != null ? (loadDraft(draftKey('reply', String(topicId))) ?? '') : '');
@@ -178,7 +185,12 @@ export default function ThreadDetailPage() {
     if (!match) return;
     const el = document.getElementById(`post-${match[1]}`);
     if (!el) {
-      if (nextCursor && !loadingMore) handleLoadMore();
+      // Advance at most once per cursor: a failed load-more leaves nextCursor
+      // unchanged, so this stops the chase instead of retrying it forever.
+      if (nextCursor && !loadingMore && chaseCursorRef.current !== nextCursor) {
+        chaseCursorRef.current = nextCursor;
+        handleLoadMore();
+      }
       return;
     }
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });

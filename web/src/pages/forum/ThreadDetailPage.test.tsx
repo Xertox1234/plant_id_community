@@ -748,6 +748,33 @@ describe('ThreadDetailPage', () => {
     expect(fetchPostsSpy).toHaveBeenCalledWith({ thread: 12, cursor: 'cursor-page-2' });
   });
 
+  it('deep-link chase does not retry forever when a later page keeps failing', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 21 }));
+    const fetchPostsSpy = vi
+      .spyOn(forumService, 'fetchPosts')
+      .mockResolvedValueOnce({
+        items: [createMockPost({ id: '1' })],
+        meta: { count: 0, next: 'cursor-page-2', previous: null },
+      })
+      .mockRejectedValue(new Error('page 2 keeps failing'));
+
+    render(
+      <MemoryRouter initialEntries={['/forum/3-plant-care/12-watering-tips#post-21']}>
+        <ThreadDetailPage />
+      </MemoryRouter>
+    );
+
+    // The failing page-2 fetch surfaces the error notice...
+    await screen.findByText(/Failed to load more posts/i);
+    // ...and is NOT retried in a loop: exactly one request for that cursor.
+    const page2Calls = fetchPostsSpy.mock.calls.filter(
+      (c) => (c[0] as { cursor?: string })?.cursor === 'cursor-page-2'
+    );
+    expect(page2Calls).toHaveLength(1);
+  });
+
   it('displays total post count in header from thread.post_count', async () => {
     const mockThread = createMockThread({ post_count: 150 });
     const mockPosts = {
