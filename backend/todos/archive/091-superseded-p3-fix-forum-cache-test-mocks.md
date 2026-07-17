@@ -1,5 +1,5 @@
 ---
-status: pending
+status: superseded
 priority: p3
 issue_id: "091"
 tags: [testing, forum, caching, mocking, bug]
@@ -9,9 +9,12 @@ estimated_effort: "2-3 hours"
 
 # Fix Forum Cache Integration Test Mock Assertions
 
+> **Archived 2026-07-16**: Superseded. `apps/forum/tests/test_cache_integration.py` and `apps/forum/signals.py` no longer exist — the machina-era forum (and its cache service) was retired in PR #362.
+
 ## Problem Statement
 
 3 forum cache integration tests are failing because mock assertions expect `invalidate_post_lists()` to be called, but it's not being called. This suggests either:
+
 1. The signal handlers aren't calling the method as expected
 2. The mocking strategy is incorrect
 3. The test expectations don't match actual implementation
@@ -23,6 +26,7 @@ estimated_effort: "2-3 hours"
 **Impact**: Cache invalidation behavior not verified by tests
 
 **Failing Tests**:
+
 1. `test_creating_post_invalidates_thread_cache`
    - **Expected**: `invalidate_post_lists()` called once
    - **Actual**: Called 0 times
@@ -36,11 +40,13 @@ estimated_effort: "2-3 hours"
    - **Actual**: Called 0 times
 
 **Error Message**:
+
 ```python
 AssertionError: Expected 'invalidate_post_lists' to have been called once. Called 0 times.
 ```
 
 **Test Pattern** (from `test_cache_integration.py`):
+
 ```python
 @patch('apps.forum.signals.ForumCacheService')
 def test_creating_post_invalidates_thread_cache(self, mock_service):
@@ -56,6 +62,7 @@ def test_creating_post_invalidates_thread_cache(self, mock_service):
 ```
 
 **Actual Signal Implementation** (from `apps/forum/signals.py`):
+
 ```python
 @receiver(post_save, sender=ForumPost)
 def invalidate_post_caches(sender, instance, created, **kwargs):
@@ -73,13 +80,16 @@ def invalidate_post_caches(sender, instance, created, **kwargs):
 **The Problem**: Tests expect `invalidate_post_lists()` but signals call different methods.
 
 **From Signal Handler**:
+
 - `ForumCacheService.invalidate_thread_detail(slug)`
 - `ForumCacheService.invalidate_thread_lists()`
 
 **Test Expects**:
+
 - `ForumCacheService.invalidate_post_lists()`
 
 **Possible Causes**:
+
 1. **Signal implementation changed** but tests weren't updated
 2. **Tests written before implementation** and expectations don't match reality
 3. **Method name mismatch**: `invalidate_thread_lists()` vs `invalidate_post_lists()`
@@ -87,9 +97,11 @@ def invalidate_post_caches(sender, instance, created, **kwargs):
 ## Proposed Solutions
 
 ### Option 1: Fix Test Expectations (Recommended)
+
 Update tests to match actual signal implementation.
 
 **Implementation**:
+
 ```python
 @patch('apps.forum.signals.ForumCacheService')
 def test_creating_post_invalidates_thread_cache(self, mock_service):
@@ -108,20 +120,24 @@ def test_creating_post_invalidates_thread_cache(self, mock_service):
 ```
 
 **Pros**:
+
 - Matches actual implementation
 - Tests verify real behavior
 - Simple fix
 
 **Cons**:
+
 - Need to verify signal implementation is correct first
 
 **Effort**: 1-2 hours
 **Risk**: Low
 
 ### Option 2: Update Signal Implementation
+
 Change signals to call `invalidate_post_lists()` as tests expect.
 
 **Investigation Needed**:
+
 ```python
 # Check if invalidate_post_lists() exists
 # File: apps/forum/services/forum_cache_service.py
@@ -135,6 +151,7 @@ class ForumCacheService:
 ```
 
 **Implementation** (if method exists):
+
 ```python
 @receiver(post_save, sender=ForumPost)
 def invalidate_post_caches(sender, instance, created, **kwargs):
@@ -147,10 +164,12 @@ def invalidate_post_caches(sender, instance, created, **kwargs):
 ```
 
 **Pros**:
+
 - Tests remain unchanged
 - May provide more comprehensive cache invalidation
 
 **Cons**:
+
 - Need to verify method exists and is needed
 - May add unnecessary cache invalidation
 - Could impact performance
@@ -159,9 +178,11 @@ def invalidate_post_caches(sender, instance, created, **kwargs):
 **Risk**: Medium (could break caching if method doesn't exist)
 
 ### Option 3: Comprehensive Test Refactor
+
 Rewrite tests to verify actual cache behavior instead of mock calls.
 
 **Implementation**:
+
 ```python
 class CacheIntegrationTests(TestCase):
     def test_creating_post_invalidates_thread_cache(self):
@@ -186,11 +207,13 @@ class CacheIntegrationTests(TestCase):
 ```
 
 **Pros**:
+
 - Tests actual cache behavior
 - No mocking needed
 - More realistic testing
 
 **Cons**:
+
 - Requires Redis running for tests
 - More complex test setup
 - Slower tests
@@ -203,6 +226,7 @@ class CacheIntegrationTests(TestCase):
 **Option 1** - Fix test expectations to match implementation.
 
 **Rationale**:
+
 1. Fastest fix
 2. Tests should verify actual behavior
 3. Current signal implementation appears correct
@@ -210,6 +234,7 @@ class CacheIntegrationTests(TestCase):
 **Implementation Plan**:
 
 ### Phase 1: Verify Signal Implementation (30 minutes)
+
 ```bash
 # Check what methods ForumCacheService actually has
 grep -n "def invalidate" backend/apps/forum/services/forum_cache_service.py
@@ -222,6 +247,7 @@ cat backend/apps/forum/signals.py | grep -A 10 "post_save.*ForumPost"
 ```
 
 ### Phase 2: Update Test Assertions (1 hour)
+
 ```python
 # File: backend/apps/forum/tests/test_cache_integration.py
 
@@ -262,6 +288,7 @@ def test_deleting_post_invalidates_thread_cache(self, mock_service):
 ```
 
 ### Phase 3: Verification (30 minutes)
+
 ```bash
 # Run failing tests
 python manage.py test apps.forum.tests.test_cache_integration.CacheIntegrationTests.test_creating_post_invalidates_thread_cache --keepdb -v 2
@@ -273,7 +300,9 @@ python manage.py test apps.forum.tests.test_cache_integration --keepdb
 ```
 
 ### Phase 4: Consider Future Enhancement (Optional)
+
 If `invalidate_post_lists()` should exist but doesn't:
+
 1. Add method to `ForumCacheService`
 2. Update signal handlers to call it
 3. Add new test to verify post list invalidation
@@ -281,13 +310,16 @@ If `invalidate_post_lists()` should exist but doesn't:
 ## Technical Details
 
 **Files to Modify**:
+
 1. `backend/apps/forum/tests/test_cache_integration.py` (3 test methods)
 
 **Files to Review**:
+
 1. `backend/apps/forum/services/forum_cache_service.py` (verify available methods)
 2. `backend/apps/forum/signals.py` (verify signal implementation)
 
 **Cache Service Methods** (expected):
+
 ```python
 class ForumCacheService:
     @classmethod
@@ -305,6 +337,7 @@ class ForumCacheService:
 ```
 
 **Signal Handlers** (from `apps/forum/signals.py`):
+
 - `invalidate_category_caches` - Category create/update/delete
 - `invalidate_thread_caches` - Thread create/update/delete
 - `invalidate_post_caches` - Post create/update/delete
@@ -323,8 +356,10 @@ class ForumCacheService:
 ## Work Log
 
 ### 2025-11-02 - Test Failure Discovery
+
 **By:** Dependency Update Verification Process
 **Actions:**
+
 - Ran forum cache integration tests after dependency updates
 - Identified 3 tests failing on mock assertions
 - Analyzed signal handler implementation
@@ -332,12 +367,14 @@ class ForumCacheService:
 - Created TODO for systematic fix
 
 **Analysis**:
+
 - Tests written with incorrect expectations
 - Signal implementation appears correct (invalidates thread caches appropriately)
 - `invalidate_post_lists()` method may not exist or may not be needed
 - Simple fix: update test assertions to match reality
 
 **Priority**: P3 (Low-Medium)
+
 - Cache integration works correctly in production
 - Tests verify wrong behavior but actual behavior is correct
 - Not blocking deployment
@@ -347,23 +384,26 @@ class ForumCacheService:
 
 - Forum Cache Service: `backend/apps/forum/services/forum_cache_service.py`
 - Forum Signals: `backend/apps/forum/signals.py`
-- Django Signals: https://docs.djangoproject.com/en/5.2/topics/signals/
-- Python unittest.mock: https://docs.python.org/3/library/unittest.mock.html
+- Django Signals: <https://docs.djangoproject.com/en/5.2/topics/signals/>
+- Python unittest.mock: <https://docs.python.org/3/library/unittest.mock.html>
 
 ## Notes
 
 **Why This Matters**:
+
 - Test suite should verify actual behavior
 - Incorrect mocks give false confidence
 - Could mask real cache invalidation issues
 
 **Why P3 (Not Urgent)**:
+
 - Manual testing shows cache invalidation works
 - Production monitoring shows no cache staleness issues
 - Only affects test suite, not user-facing features
 - Cache hit rate (40%) is healthy
 
 **Future Prevention**:
+
 - Write integration tests that verify actual cache behavior, not just mock calls
 - Consider Option 3 for more realistic cache testing
 - Add cache monitoring to CI to catch invalidation issues

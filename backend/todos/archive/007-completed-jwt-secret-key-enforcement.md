@@ -19,6 +19,7 @@ Enhanced JWT_SECRET_KEY validation to enforce complete separation from SECRET_KE
 ### 1. Updated `backend/plant_community_backend/settings.py` (Lines 561-637)
 
 **Before** (Lines 566-583):
+
 ```python
 JWT_SECRET_KEY = config('JWT_SECRET_KEY', default=None)
 if not JWT_SECRET_KEY:
@@ -30,6 +31,7 @@ if not JWT_SECRET_KEY:
 ```
 
 **After** (Lines 573-637):
+
 ```python
 # SECURITY REQUIREMENTS (TODO #007):
 # 1. JWT_SECRET_KEY MUST be set in ALL environments (no fallbacks allowed)
@@ -68,6 +70,7 @@ except Exception as e:
 ```
 
 **Key Improvements**:
+
 - **Removed `default=None`**: No implicit fallback behavior
 - **Try-except block**: Catches any missing configuration immediately
 - **Detailed error messages**: Explains WHY separation is critical
@@ -78,6 +81,7 @@ except Exception as e:
 ### 2. Updated `backend/.env.example` (Lines 54-67)
 
 **Before** (Lines 54-56):
+
 ```bash
 # JWT Authentication Settings
 # Generate with: python -c 'import secrets; print(secrets.token_urlsafe(64))'
@@ -85,6 +89,7 @@ JWT_SECRET_KEY=REQUIRED__GENERATE_WITH__python_-c_import_secrets_token_urlsafe_6
 ```
 
 **After** (Lines 54-67):
+
 ```bash
 # JWT Authentication Settings (CRITICAL SECURITY)
 # JWT_SECRET_KEY is REQUIRED in ALL environments (no fallbacks, no exceptions)
@@ -103,6 +108,7 @@ JWT_SECRET_KEY=REQUIRED__GENERATE_WITH__python_-c_import_secrets_token_urlsafe_6
 ```
 
 **Key Improvements**:
+
 - **Clear security warnings**: Emphasizes critical nature
 - **Explicit requirements**: Lists all 3 validation requirements
 - **Key generation command**: Shows exact command with expected output length (86 chars)
@@ -116,6 +122,7 @@ JWT_SECRET_KEY=REQUIRED__GENERATE_WITH__python_-c_import_secrets_token_urlsafe_6
 Created comprehensive test suite: `backend/test_jwt_secret_key_validation.py`
 
 **Test Results**:
+
 ```
 ✓ PASS: Identical keys (JWT_SECRET_KEY == SECRET_KEY rejected)
 ✓ PASS: Short JWT_SECRET_KEY (length < 50 rejected)
@@ -124,6 +131,7 @@ Created comprehensive test suite: `backend/test_jwt_secret_key_validation.py`
 ```
 
 **Manual Verification** (November 11, 2025):
+
 ```bash
 $ python -c "from decouple import config; ..."
 ✓ JWT_SECRET_KEY is configured
@@ -139,21 +147,25 @@ $ python -c "from decouple import config; ..."
 ## Security Benefits
 
 ### 1. **Cascade Compromise Prevention**
+
 - If SECRET_KEY is leaked, JWT authentication remains secure
 - Independent key rotation without affecting Django sessions
 - Separate attack surface for different authentication mechanisms
 
 ### 2. **Explicit Configuration**
+
 - No silent fallbacks that could mask missing configuration
 - Fails loudly in development before reaching production
 - Clear error messages guide developers to correct setup
 
 ### 3. **Cryptographic Strength**
+
 - Enforces minimum 50-character length (86 recommended)
 - URL-safe base64 encoding for token compatibility
 - Sufficient entropy for HMAC-SHA256 signing
 
 ### 4. **Environment Parity**
+
 - Same validation in development and production
 - No environment-specific security weaknesses
 - Consistent behavior across all deployments
@@ -163,6 +175,7 @@ $ python -c "from decouple import config; ..."
 ## Migration Guide for Developers
 
 If you encounter the error:
+
 ```
 CRITICAL: JWT_SECRET_KEY environment variable is not set!
 ```
@@ -170,22 +183,26 @@ CRITICAL: JWT_SECRET_KEY environment variable is not set!
 **Fix** (2 minutes):
 
 1. **Generate a secure key**:
+
    ```bash
    python -c 'import secrets; print(secrets.token_urlsafe(64))'
    ```
 
 2. **Add to `.env` file**:
+
    ```bash
    echo "JWT_SECRET_KEY=<your-generated-key>" >> backend/.env
    ```
 
 3. **Verify configuration**:
+
    ```bash
    cd backend
    python manage.py check
    ```
 
 **Important**:
+
 - Use a **different** key than SECRET_KEY
 - **Never commit** `.env` file to version control
 - Key should be **at least 50 characters** (86 recommended)
@@ -195,20 +212,24 @@ CRITICAL: JWT_SECRET_KEY environment variable is not set!
 ## Impact Analysis
 
 ### Changed Files
+
 1. `/backend/plant_community_backend/settings.py` (Lines 561-637)
 2. `/backend/.env.example` (Lines 54-67)
 
 ### Backward Compatibility
+
 - ✓ **Fully backward compatible** for properly configured environments
 - ✓ Existing `.env` files with JWT_SECRET_KEY continue to work
 - ⚠️ **Breaking change** for environments without JWT_SECRET_KEY (intentional)
 
 ### Affected Environments
+
 - **Development**: Must have JWT_SECRET_KEY in `.env` (new requirement)
 - **CI/CD**: Must have JWT_SECRET_KEY in environment variables
 - **Production**: Already required (no change)
 
 ### Deployment Checklist
+
 - [x] Local development `.env` updated with JWT_SECRET_KEY
 - [x] CI/CD secrets configured (if applicable)
 - [x] Production environment variables verified
@@ -220,12 +241,14 @@ CRITICAL: JWT_SECRET_KEY environment variable is not set!
 ## Documentation Updates
 
 ### Referenced Documentation
+
 - `backend/.env.example` - Updated with security warnings
 - `backend/docs/deployment/UPGRADE_JWT_SECRET_KEY.md` - Migration guide (existing)
 - `backend/docs/security/AUTHENTICATION_SECURITY.md` - Security patterns (existing)
 - `CLAUDE.md` - Project standards (no changes needed)
 
 ### Code Comments
+
 - Added inline comments explaining security requirements (lines 565-572)
 - Documented validation checks in error messages (lines 584-596, 609-617, 628-633)
 - Added TODO reference in comments (line 565)
@@ -235,17 +258,20 @@ CRITICAL: JWT_SECRET_KEY environment variable is not set!
 ## Testing
 
 ### Manual Testing
+
 1. ✓ Removed JWT_SECRET_KEY from environment → Settings fail with clear error
 2. ✓ Set JWT_SECRET_KEY == SECRET_KEY → Validation rejects with explanation
 3. ✓ Set JWT_SECRET_KEY too short → Validation rejects with minimum length
 4. ✓ Valid configuration → Settings load successfully
 
 ### Automated Testing
+
 - Test suite: `backend/test_jwt_secret_key_validation.py`
 - Coverage: 3/4 validation scenarios (missing key uses .env fallback in test)
 - Real-world validation: Confirmed working without .env file
 
 ### Production Readiness
+
 - ✓ No breaking changes for properly configured systems
 - ✓ Clear error messages for misconfiguration
 - ✓ Documented migration path for affected environments
@@ -290,12 +316,14 @@ backend/
 **Problem**: Development environments allowed JWT_SECRET_KEY to fallback to SECRET_KEY, creating a security risk where key compromise could affect all authentication mechanisms.
 
 **Solution**: Enforced strict separation by:
+
 - Removing `default=None` fallback parameter
 - Using try-except to catch missing configuration
 - Adding comprehensive error messages explaining WHY separation matters
 - Updating `.env.example` with detailed security guidance
 
 **Outcome**:
+
 - ✓ JWT_SECRET_KEY is now **required in ALL environments**
 - ✓ Validation ensures keys are **different** and **sufficiently long**
 - ✓ Errors provide **actionable guidance** for developers

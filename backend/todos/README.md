@@ -1,5 +1,7 @@
 # Code Review Todos - Week 3 Quick Wins
 
+> **Archived 2026-07-16**: This legacy todo system is closed — all files now live in `archive/`. Active todos are tracked in the repo-root `todos/`. Everything below is historical.
+
 **Generated:** October 22, 2025
 **Review Type:** Comprehensive multi-agent code review
 **Agents Deployed:** 7 specialized reviewers
@@ -32,6 +34,7 @@
 ## Priority 1 (CRITICAL) - Fix Within 24 Hours
 
 ### 001: Rotate Exposed API Keys 🔴 CRITICAL
+
 - **File:** `001-pending-p1-rotate-exposed-api-keys.md`
 - **Category:** Security
 - **Effort:** 30 minutes
@@ -39,6 +42,7 @@
 - **Action:** Rotate Plant.id, PlantNet, SECRET_KEY, JWT_SECRET_KEY
 
 ### 002: Fix Insecure SECRET_KEY Default 🔴 CRITICAL
+
 - **File:** `002-pending-p1-fix-secret-key-default.md`
 - **Category:** Security
 - **Effort:** 15 minutes
@@ -46,6 +50,7 @@
 - **Action:** Fail fast in production if SECRET_KEY not set
 
 ### 003: Fix Lock Release Error Handling 🔴 CRITICAL
+
 - **File:** `003-pending-p1-lock-release-error-handling.md`
 - **Category:** Data Integrity
 - **Effort:** 15 minutes
@@ -53,6 +58,7 @@
 - **Action:** Wrap lock.release() in try/except with logging
 
 ### 004: Add File Upload Validation 🔴 CRITICAL
+
 - **File:** `004-pending-p1-file-upload-validation.md`
 - **Category:** Security
 - **Effort:** 1 hour
@@ -60,6 +66,7 @@
 - **Action:** Add python-magic for file magic byte validation
 
 ### 005: Add Missing Type Hints 🔴 BLOCKER
+
 - **File:** `005-pending-p1-add-missing-type-hints.md`
 - **Category:** Code Quality
 - **Effort:** 1 hour
@@ -75,6 +82,7 @@
 The comprehensive review found **49 additional findings** across 7 specialized agents:
 
 ### High Priority (11 findings) - Fix Within 1 Week
+
 - PlantNet service missing circuit breaker
 - Permission classes not environment-aware enough
 - Lock timeout values may be too short
@@ -88,6 +96,7 @@ The comprehensive review found **49 additional findings** across 7 specialized a
 - Load testing with 50-100 concurrent users
 
 ### Medium Priority (18 findings) - Fix Within 2 Weeks
+
 - Inconsistent import order
 - Constants not used consistently
 - Logging not following own standards
@@ -104,6 +113,7 @@ The comprehensive review found **49 additional findings** across 7 specialized a
 - And more...
 
 ### Low Priority (14 findings) - Nice-to-Have
+
 - Extract image processing utility
 - Add BaseAPIService abstract class
 - Complete type hints for private methods
@@ -120,6 +130,7 @@ The comprehensive review found **49 additional findings** across 7 specialized a
 ### Overall Assessment: A- (90/100) - Excellent with Minor Improvements
 
 **Strengths:**
+
 - ✅ 99.97% faster failure response (circuit breakers)
 - ✅ 90% reduction in duplicate API calls (distributed locks)
 - ✅ 100% test pass rate (20/20 tests)
@@ -128,6 +139,7 @@ The comprehensive review found **49 additional findings** across 7 specialized a
 - ✅ Perfect naming conventions (100% PEP 8)
 
 **Critical Issues (Must Fix):**
+
 - 🔴 2 security vulnerabilities (hardcoded keys, weak defaults)
 - 🔴 3 data integrity risks (lock release, cache consistency)
 - 🔴 12 type hint gaps (code quality)
@@ -177,6 +189,7 @@ All detailed findings are documented in the comprehensive review synthesis. Each
 ## Next Steps
 
 ### Immediate (TODAY)
+
 1. Review P1 todos (001-005)
 2. Assign to developers
 3. Fix critical security issues (001, 002, 004)
@@ -184,31 +197,36 @@ All detailed findings are documented in the comprehensive review synthesis. Each
 5. Fix type hints (005)
 
 ### This Week
-6. Create remaining HIGH priority todos from synthesis
-7. Schedule code review session to discuss findings
-8. Plan Phase 2 fixes (Prometheus metrics, circuit breakers)
+
+1. Create remaining HIGH priority todos from synthesis
+2. Schedule code review session to discuss findings
+3. Plan Phase 2 fixes (Prometheus metrics, circuit breakers)
 
 ### Next Sprint
-9. Address MEDIUM priority findings
-10. Implement simplification recommendations
-11. Add missing test coverage
+
+1. Address MEDIUM priority findings
+2. Implement simplification recommendations
+3. Add missing test coverage
 
 ---
 
 ## Resources
 
 **Documentation:**
+
 - Comprehensive review synthesis: See conversation above
 - Security audit: `/backend/docs/development/SECURITY_AUDIT_REPORT.md`
 - Performance analysis: `/backend/docs/performance/week2-performance.md`
 - Architecture review: `/backend/docs/architecture/`
 
 **Tools:**
+
 - mypy (type checking): `mypy apps/plant_identification/services/`
 - safety (dependency audit): `safety check`
 - bandit (security scan): `bandit -r apps/`
 
 **Getting Help:**
+
 - All findings include detailed remediation steps
 - Each todo has code examples and acceptance criteria
 - Reference agent reports for additional context
@@ -218,6 +236,7 @@ All detailed findings are documented in the comprehensive review synthesis. Each
 ## Todo File Format
 
 Each todo follows this structure:
+
 ```yaml
 ---
 status: pending | in_progress | completed
