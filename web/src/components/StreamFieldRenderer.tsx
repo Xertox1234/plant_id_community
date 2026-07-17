@@ -1,4 +1,5 @@
 import { createSafeMarkup, SANITIZE_PRESETS } from '../utils/sanitize';
+import { highlightMentions } from '../utils/mentions';
 import type { StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
 
 /**
@@ -11,11 +12,14 @@ import type { StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
 interface SafeHTMLProps {
   html: string;
   className?: string;
+  /** Applied AFTER sanitization — must never introduce user-controlled markup. */
+  postProcess?: (html: string) => string;
 }
 
-function SafeHTML({ html, className = '' }: SafeHTMLProps) {
+function SafeHTML({ html, className = '', postProcess }: SafeHTMLProps) {
   const safeMarkup = createSafeMarkup(html, SANITIZE_PRESETS.STREAMFIELD);
-  return <div className={className} dangerouslySetInnerHTML={safeMarkup} />;
+  const markup = postProcess ? { __html: postProcess(safeMarkup.__html) } : safeMarkup;
+  return <div className={className} dangerouslySetInnerHTML={markup} />;
 }
 
 /**
@@ -26,6 +30,8 @@ function SafeHTML({ html, className = '' }: SafeHTMLProps) {
  */
 interface StreamFieldRendererProps {
   blocks?: StreamFieldBlockType[] | null;
+  /** Forum posts only: style @username mentions in paragraph blocks. */
+  mentionHighlight?: boolean;
 }
 
 function renderTextOrSafeHtml(content: string, className = '') {
@@ -55,7 +61,10 @@ function getSafeHref(url: string): string {
   }
 }
 
-export default function StreamFieldRenderer({ blocks }: StreamFieldRendererProps) {
+export default function StreamFieldRenderer({
+  blocks,
+  mentionHighlight,
+}: StreamFieldRendererProps) {
   if (!blocks || blocks.length === 0) {
     return null;
   }
@@ -63,7 +72,11 @@ export default function StreamFieldRenderer({ blocks }: StreamFieldRendererProps
   return (
     <div className="prose prose-lg max-w-none">
       {blocks.map((block, index) => (
-        <StreamFieldBlock key={block.id || index} block={block} />
+        <StreamFieldBlock
+          key={block.id || index}
+          block={block}
+          mentionHighlight={mentionHighlight}
+        />
       ))}
     </div>
   );
@@ -76,9 +89,10 @@ export default function StreamFieldRenderer({ blocks }: StreamFieldRendererProps
  */
 interface StreamFieldBlockProps {
   block: StreamFieldBlockType;
+  mentionHighlight?: boolean;
 }
 
-function StreamFieldBlock({ block }: StreamFieldBlockProps) {
+function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
   const { type } = block;
 
   switch (type) {
@@ -89,7 +103,13 @@ function StreamFieldBlock({ block }: StreamFieldBlockProps) {
 
     case 'paragraph':
       // Backend: RichTextBlock (HTML string)
-      return <SafeHTML html={block.value} className="mb-4 text-ink-2 leading-relaxed" />;
+      return (
+        <SafeHTML
+          html={block.value}
+          className="mb-4 text-ink-2 leading-relaxed"
+          postProcess={mentionHighlight ? highlightMentions : undefined}
+        />
+      );
 
     case 'image': {
       // Backend (forum PR-3): ImageChooserBlock → {id, url, alt, width, height}.

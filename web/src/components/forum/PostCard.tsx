@@ -180,7 +180,7 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
 
       {/* Post Content */}
       <div className="mb-4 break-words">
-        <StreamFieldRenderer blocks={post.body} />
+        <StreamFieldRenderer blocks={post.body} mentionHighlight />
       </div>
 
       {/* Reactions — shown only when an onReact handler is provided (Phase 2 write UI). */}

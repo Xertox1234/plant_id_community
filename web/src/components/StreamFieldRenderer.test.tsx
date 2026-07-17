@@ -508,6 +508,19 @@ describe('StreamFieldRenderer', () => {
     // Removed test for embed block (no longer supported - TODO #033)
   });
 
+  describe('Mention highlighting', () => {
+    it('styles mentions in paragraphs when mentionHighlight is set', () => {
+      const { container } = render(
+        <StreamFieldRenderer
+          blocks={[{ type: 'paragraph', value: '<p>Thanks @bob_botanist!</p>' }]}
+          mentionHighlight
+        />
+      );
+      const span = container.querySelector('span.text-primary.font-medium');
+      expect(span?.textContent).toBe('@bob_botanist');
+    });
+  });
+
   describe('Performance', () => {
     it('renders many blocks efficiently', () => {
       const blocks: StreamFieldBlock[] = Array.from({ length: 50 }, (_, i) => ({
