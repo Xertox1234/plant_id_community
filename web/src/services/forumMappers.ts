@@ -108,16 +108,20 @@ function authorFromString(username: string | null): ForumAuthor {
 }
 
 /** Build a forum author from the post author object. */
-function authorFromObject(a: BackendPostAuthor): ForumAuthor {
+function authorFromObject(a: BackendPostAuthor): Post['author'] {
   if (a.username === '[deleted]') {
-    return { id: '', username: '[deleted]', display_name: '[deleted]' } as unknown as ForumAuthor;
+    return {
+      id: '',
+      username: '[deleted]',
+      display_name: '[deleted]',
+    } as unknown as Post['author'];
   }
   return {
     id: '',
     username: a.username,
     display_name: a.display_name || a.username,
     trust_level: a.trust_level ?? undefined,
-  } as unknown as ForumAuthor;
+  } as unknown as Post['author'];
 }
 
 // ---------------------------------------------------------------------------
@@ -185,10 +189,7 @@ export function mapPostToPost(p: BackendPost, threadId: string): Post {
   return {
     id: String(p.id),
     thread: threadId,
-    // authorFromObject is declared to return ForumAuthor (Thread's plain
-    // User shape) but Post.author overrides trust_level to a number — cast
-    // through unknown since the runtime object shape is compatible.
-    author: authorFromObject(p.author) as unknown as Post['author'],
+    author: authorFromObject(p.author),
     content_raw: '', // StreamField body — no plain-text equivalent; Task 6 renders body blocks
     content_html: undefined,
     content_format: 'draftail',
