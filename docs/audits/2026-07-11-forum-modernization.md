@@ -356,7 +356,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #L11 button-busy-state → todo 259
 - [ ] #L12 timestamp-accessibility → todo 259
 - [ ] #L13 tautological-composer-tests → todo 259
-- [ ] #L14 identity-polish → todo 257
+- [ ] #L14 identity-polish → todo 257 (trust_level render done in todo 273 / wave 2 slice 1; emoji aria-hidden + reactions flex-wrap remain)
 - [ ] #L16 reaction-types-duplication → todo 258
 - [ ] #L17 migrations-check-ci → todo 261
 - [ ] #L18 write-path-query-profiling → todo 258
