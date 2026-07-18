@@ -437,7 +437,9 @@ class PostListView(generics.ListAPIView):
         # select_related("topic") so PostSerializer.can_edit/can_delete
         # (Post.edit_block reads obj.topic) adds no per-post query — flat, no N+1
         # for authenticated listers (todo 252).
-        return topic.posts.filter(live=True).select_related("author", "topic")
+        return topic.posts.filter(live=True).select_related(
+            "author", "author__wagtail_forum_profile", "topic"
+        )
 
     def list(self, request, *args, **kwargs):
         # Build the page's image map ONCE (one batched query) and feed it to the

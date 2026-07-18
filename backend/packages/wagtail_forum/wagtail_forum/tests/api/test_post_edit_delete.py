@@ -599,4 +599,9 @@ def test_edit_query_count_is_pinned():
     # revision save/publish + workflow finish + counter recount, unchanged by 255.
     # 68 -> 69 (audit 2026-07-11 M15): attributed publish (user=<editor>) adds
     # ONE `SELECT 1 FROM auth_user` existence check before the log-entry INSERT.
-    assert len(ctx.captured_queries) == 69, len(ctx.captured_queries)
+    # 69 -> 70 (wave 2 slice 1): PostAuthorSerializer now reads author
+    # ForumProfile (real trust_level/display_name). The edit response
+    # serializes the author, adding ONE profile SELECT — `_get_visible_post`
+    # is a single-object fetch (O(1)), unlike the list views, which fold the
+    # profile into select_related to stay flat under N authors.
+    assert len(ctx.captured_queries) == 70, len(ctx.captured_queries)
