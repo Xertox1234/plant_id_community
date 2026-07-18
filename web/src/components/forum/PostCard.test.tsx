@@ -26,14 +26,33 @@ describe('PostCard', () => {
         email: 'plantlover@example.com',
         username: 'plantlover',
         display_name: 'Green Thumb',
-        trust_level: 'member',
+        trust_level: 2,
       },
     });
 
     renderPostCard(post);
 
     expect(screen.getByText('Green Thumb')).toBeInTheDocument();
-    expect(screen.getByText('member')).toBeInTheDocument();
+    expect(screen.getByText('Member')).toBeInTheDocument();
+  });
+
+  it('hides the trust badge for a NEW (level 0) author', () => {
+    const post = createMockPost({
+      author: {
+        id: 1,
+        email: 'newbie@example.com',
+        username: 'newbie',
+        display_name: 'New Person',
+        trust_level: 0,
+      },
+    });
+
+    renderPostCard(post);
+
+    // Level 0 (New) is intentionally un-badged (preserves the prior falsy-0
+    // hidden behaviour); only levels >= 1 get a label pill.
+    expect(screen.queryByText('New')).not.toBeInTheDocument();
+    expect(screen.getByText('New Person')).toBeInTheDocument(); // author still renders
   });
 
   it('falls back to username when display_name is missing', () => {
@@ -43,7 +62,7 @@ describe('PostCard', () => {
         email: 'plantlover@example.com',
         username: 'plantlover',
         display_name: undefined,
-        trust_level: 'basic',
+        trust_level: 1,
       },
     });
 
@@ -245,7 +264,7 @@ describe('PostCard', () => {
         email: 'gardener@example.com',
         username: 'gardener',
         display_name: 'Garden Expert',
-        trust_level: 'regular',
+        trust_level: 3,
       },
     });
 
@@ -262,7 +281,7 @@ describe('PostCard', () => {
         email: 'plantlover@example.com',
         username: 'plantlover',
         display_name: undefined,
-        trust_level: 'basic',
+        trust_level: 1,
       },
     });
 

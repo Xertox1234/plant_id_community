@@ -95,7 +95,7 @@ export function createMockPost(overrides: Partial<Post> = {}): Post {
     thread: 'thread-1',
     author: {
       ...createMockUser(),
-      trust_level: 'basic',
+      trust_level: 1,
     },
     content_raw: '<p>This is a test post content</p>',
     content_html: '<p>This is a test post content</p>',

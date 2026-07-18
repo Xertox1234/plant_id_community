@@ -53,7 +53,7 @@ export type { StreamFieldBlock } from '../types/blog';
 export interface BackendPostAuthor {
   username: string;
   display_name: string;
-  trust_level: string | null;
+  trust_level: number | null;
 }
 
 export interface BackendPost {
@@ -185,7 +185,10 @@ export function mapPostToPost(p: BackendPost, threadId: string): Post {
   return {
     id: String(p.id),
     thread: threadId,
-    author: authorFromObject(p.author),
+    // authorFromObject is declared to return ForumAuthor (Thread's plain
+    // User shape) but Post.author overrides trust_level to a number — cast
+    // through unknown since the runtime object shape is compatible.
+    author: authorFromObject(p.author) as unknown as Post['author'],
     content_raw: '', // StreamField body — no plain-text equivalent; Task 6 renders body blocks
     content_html: undefined,
     content_format: 'draftail',
@@ -223,7 +226,9 @@ export function mapSearchPostToPost(p: BackendSearchPost): Post {
   return {
     id: String(p.id),
     thread: String(p.topic_id),
-    author: authorFromString(null),
+    // Same cast as mapPostToPost — authorFromString returns ForumAuthor
+    // (Thread's User shape) but this feeds Post.author (numeric trust_level).
+    author: authorFromString(null) as unknown as Post['author'],
     content_raw: p.excerpt,
     content_format: 'plain',
     body: [],

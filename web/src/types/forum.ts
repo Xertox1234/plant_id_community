@@ -48,10 +48,11 @@ export interface Thread {
 export interface Post {
   id: string;
   thread: string;
-  // Forum posts carry a free-form trust label distinct from the auth User
-  // enum, so override (not intersect) trust_level to a plain string.
+  // Forum posts carry the backend ForumProfile trust level as an integer enum
+  // (0=New … 4=Leader), distinct from the auth User's string trust_level enum,
+  // so override (not intersect) trust_level to a number.
   author: Omit<User, 'trust_level'> & {
-    trust_level?: string;
+    trust_level?: number;
   };
   content_raw: string;
   content_html?: string;
