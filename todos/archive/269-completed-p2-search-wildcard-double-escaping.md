@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "269"
 tags: [backend, database, search, blog, plant_identification]
@@ -103,12 +103,12 @@ first.
 
 ## Acceptance Criteria
 
-- [ ] All 13 listed call sites no longer call `escape_search_query()` ahead
+- [x] All 13 listed call sites no longer call `escape_search_query()` ahead
       of an `icontains`/`istartswith` lookup
-- [ ] Each affected view/endpoint has a test proving a literal `%`/`_`/`\`
+- [x] Each affected view/endpoint has a test proving a literal `%`/`_`/`\`
       in the query still matches the real target row
-- [ ] `apps.blog` and `apps.plant_identification` test suites pass
-- [ ] Decision recorded on whether `escape_search_query()`/
+- [x] `apps.blog` and `apps.plant_identification` test suites pass
+- [x] Decision recorded on whether `escape_search_query()`/
       `escape_search_query_optional()` are still needed anywhere, or should
       be removed
 
@@ -125,6 +125,89 @@ first.
   themselves are intentionally NOT touched here — a code-fix task, not a
   documentation correction, and larger than the docs-only commit it was
   found alongside.
+
+### 2026-07-20 - Started by completing-todos skill (run 2026-07-20-1409)
+
+- Picked up by automated todo-sweep (branch `todo-269-search-wildcard-escaping`,
+  cut off fresh `main` at 3f38157 after PR #474 merged).
+
+### 2026-07-20 - Implemented (run 2026-07-20-1409)
+
+- **AC1** — removed `escape_search_query()` from all 13 call sites across the 6
+  files; passed the (already-stripped, where applicable) raw query straight to
+  the `icontains`/`istartswith` filter. Inline sites → dropped the wrapper;
+  assignment/reassignment sites (`escaped_query`/`safe_query`/`query =
+  escape_search_query(...)`) → removed the intermediate and used the source var.
+  All 6 now-unused `from apps.core.utils.query_sanitization import
+  escape_search_query` imports removed (4 auto-stripped by the formatter, 2
+  removed by hand). `grep escape_search_query apps/` now hits only the util and
+  its own test. `manage.py check` → "System check identified no issues".
+  - Side fix surfaced en route: `search_local_plants` (`views.py:~1192`) had
+    been returning the *escaped* string back to the client as the response's
+    `search_query` field; dropping the reassignment fixes that too.
+- **AC2** — added discriminating regression tests, one per distinct affected
+  view (15 test methods total, incl. a `%`-parity test added during review):
+  `apps/plant_identification/tests/test_search_wildcards.py` (species search +
+  family, disease-db search, search_local_plants, search_local_diseases, the two
+  Wagtail-v2 `endpoints.py` viewsets) and
+  `apps/blog/tests/test_search_wildcards.py` (moderate_comments, admin search,
+  plant suggestions, post-list `?tag=`, public blog-search, the unrouted
+  `search_suggestions` action). Each stores a target row whose field contains a
+  literal `_` (e.g. `Rosa_damascena`) + a decoy (`RosaXdamascena`), searches the
+  `_` literal, and asserts target-returned + decoy-excluded — the shape from
+  `wagtail_forum/.../test_user_search.py::test_search_escapes_sql_wildcards`.
+  - Independently verified the tests are discriminating (not decorative): against
+    real Postgres, `scientific_name__icontains="ZZZ_"` matches the row while
+    `__icontains=escape_search_query("ZZZ_")` (== `"ZZZ\\_"`) matches **0** — so
+    every target-returned assertion genuinely fails under the pre-fix code.
+  - Two Wagtail-v2 endpoints (`/api/v2/plant-species/`, `/api/v2/plants/`) are
+    exercised via a direct `get_queryset()` call rather than HTTP: over HTTP
+    Wagtail's `FieldsFilter` applies an EXACT `family=` match that shadows the
+    viewset's `family__icontains`, and `/api/v2/plants/` 404s under the project's
+    `NamespaceVersioning` (the page viewset doesn't set `versioning_class=None`).
+    Both are pre-existing endpoint quirks unrelated to this fix; `get_queryset()`
+    runs the exact line the fix touched. Noted for a possible future follow-up,
+    NOT changed here (out of scope).
+- **AC3** — `pytest apps/blog/tests/ apps/plant_identification/tests/ --create-db`
+  → **230 passed, 7 skipped** on a fresh test DB (215-test clean baseline + the 15
+  new tests). No pre-existing test regressed (the client-facing `search_query`
+  change touched no existing assertion). Caveat: the Wagtail-page-creating tests
+  read the migration-seeded root via `Page.objects.get(id=1)` (same convention as
+  `apps/blog/tests/test_models.py`); with `--reuse-db` a prior `TransactionTestCase`
+  in the suite truncates that root, so a partial re-run can `DoesNotExist` — run
+  page tests with `--create-db` (CI always runs fresh). Not a defect in this fix.
+
+### 2026-07-20 - Reviewed (code-review-orchestrator, run 2026-07-20-1409)
+
+- 0 critical / 0 high / 0 medium / 1 low. Verification notes all PASS: no dangling
+  `escaped_query`/`safe_query` refs, complete call-site removal, Wagtail-v2
+  `get_queryset()` tests legitimately exercise the fixed line, whitespace-strip
+  behavior unchanged per call site, fix correctness independently reproduced.
+- LOW (test-coverage): tests exercised `_` but not `%`, which had the identical
+  double-escape. **Addressed** (not deferred) — added
+  `PlantSpeciesSearchPercentWildcardTests` (target `Rosa%alba` / decoy `RosaZZalba`,
+  search `Rosa%`). `\\` intentionally NOT tested: the removed util only escaped
+  `%`/`_`, never backslash, so `\\` was never a double-escape vector for this fix.
+- **AC4 — decision: KEEP `escape_search_query()` / `escape_search_query_optional()`,
+  with a corrected docstring.** No production caller remains (only the util + its
+  own `test_query_sanitization.py`). Rationale for keeping over deleting: it is a
+  correct, tested primitive for the genuinely-still-valid case the todo names — a
+  LIKE pattern that BYPASSES the ORM's `PatternLookup` auto-escaping (raw SQL,
+  `.extra()`, a custom `Lookup`); deleting it + its ~200-line test suite is a
+  larger diff for a "fix the double-escape" PR and would force error-prone
+  re-implementation if raw-LIKE escaping is ever needed. The write-time trigger
+  `escape-search-query-before-orm-wildcard-lookup` already guards against
+  reintroducing the misuse. The util's docstring (which previously *taught* the
+  bug — "for Django ORM's icontains, istartswith… ILIKE") was rewritten to warn
+  against that exact usage and document the narrow remaining purpose.
+
+### 2026-07-20 - Completed by completing-todos skill (run 2026-07-20-1409)
+
+- Verification: all 4 acceptance criteria passed with quoted evidence above.
+- Review: code-review-orchestrator — 1 low finding, addressed in-slice (not
+  deferred); 0 blocking.
+- Landing on branch `todo-269-search-wildcard-escaping` (off fresh `main`
+  @3f38157); per-todo PR to follow.
 
 ## Notes
 

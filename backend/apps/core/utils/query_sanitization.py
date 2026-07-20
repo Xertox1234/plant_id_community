@@ -11,44 +11,39 @@ from typing import Optional
 
 def escape_search_query(query: str) -> str:
     """
-    Escape SQL wildcard characters in search queries.
+    Escape SQL LIKE wildcards (``%`` and ``_``) in a search string.
 
-    Prevents unintended pattern matching from user input containing SQL wildcard
-    characters that are interpreted by Django ORM's icontains, istartswith, and
-    iendswith operations when using PostgreSQL's ILIKE operator.
+    ⚠️  Do NOT call this before a Django ORM ``icontains`` / ``istartswith`` /
+    ``iendswith`` / ``contains`` lookup. Those run through
+    ``PatternLookup.process_rhs()``, which ALREADY escapes ``%`` / ``_`` / ``\\``
+    for you, so a user's literal ``%`` / ``_`` is matched as a literal
+    character. Escaping first double-escapes and silently drops real matches —
+    e.g. searching ``dave_`` stops matching the row ``dave_1``. This class of
+    bug is what todo 269 removed from 13 call sites; the write-time trigger
+    ``escape-search-query-before-orm-wildcard-lookup`` guards against
+    reintroducing it. See ``docs/patterns/security/input-validation.md``.
 
-    SQL Wildcards:
-        % - Matches zero or more characters
-        _ - Matches exactly one character
-
-    Without escaping, user input like "test%" would match "test", "testing",
-    "test123", etc., which may not be the intended behavior.
+    This helper is retained ONLY for the narrow case of a LIKE pattern that
+    bypasses the ORM's pattern-lookup machinery and therefore gets no
+    auto-escaping — raw SQL, ``QuerySet.extra()``, or a custom ``Lookup``. As
+    of todo 269 (2026-07-20) the codebase has no such caller; it is kept as a
+    correct primitive for that case rather than deleted.
 
     Args:
-        query: User-provided search query string
+        query: User-provided search query string.
 
     Returns:
-        Sanitized query with escaped wildcards
+        The query with ``%`` and ``_`` backslash-escaped.
 
     Examples:
-        >>> escape_search_query("test%data")
-        'test\\\\%data'
-        >>> escape_search_query("user_name")
-        'user\\\\_name'
-        >>> escape_search_query("normal text")
-        'normal text'
-        >>> escape_search_query("test%_both")
-        'test\\\\%\\\\_both'
+        >>> escape_search_query("50% off")
+        '50\\\\% off'
+        >>> escape_search_query("plant_name")
+        'plant\\\\_name'
 
     Note:
-        This function only escapes SQL wildcards. It does not protect against
-        SQL injection (Django ORM handles that). This is specifically for
-        preventing unintended pattern matching in ILIKE queries.
-
-    See Also:
-        - PHASE_6_PATTERNS_CODIFIED.md, Pattern 2
-        - SECURITY_PATTERNS_CODIFIED.md
-        - Django docs: https://docs.djangoproject.com/en/5.2/ref/models/querysets/#icontains
+        Escaping wildcards is unrelated to SQL-injection safety — the Django
+        ORM parameterises values regardless.
     """
     if not query:
         return query
