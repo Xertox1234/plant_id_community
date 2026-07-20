@@ -48,7 +48,7 @@ def dispatch(event, **kwargs):
     """
     from django.db import transaction
 
-    from .tasks import send_forum_email, send_forum_push
+    from .tasks import send_forum_email_batch, send_forum_push, send_forum_push_batch
 
     topic = kwargs.get("topic")
     topic_id = getattr(topic, "id", None)
@@ -73,15 +73,18 @@ def dispatch(event, **kwargs):
     def _enqueue_mention_push_for(mentioned, payload):
         from wagtail_forum.models import NotificationVerb
 
-        for recipient in mentioned:
-            try:
-                send_forum_push.delay(NotificationVerb.MENTION, recipient.pk, payload)
-            except Exception:
-                logger.exception(
-                    "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
-                    "mention",
-                    recipient.pk,
-                )
+        mentioned_pks = [user.pk for user in mentioned]
+        if not mentioned_pks:
+            return
+        try:
+            # One batched enqueue for all mentioned recipients (todo 268).
+            send_forum_push_batch.delay(
+                NotificationVerb.MENTION, mentioned_pks, payload
+            )
+        except Exception:
+            logger.exception(
+                "[CELERY] forum_host: failed to enqueue mention push batch"
+            )
 
     if event == "reply_added":
         post = kwargs.get("post")
@@ -94,28 +97,34 @@ def dispatch(event, **kwargs):
         payload = _build_payload(post)
 
         def _enqueue_push():
-            for recipient in reply_recipients:
+            # One batched enqueue for all reply recipients + one for mentions
+            # (todo 268) — constant enqueue count regardless of subscriber count,
+            # instead of one .delay() per recipient blocking the request thread.
+            reply_recipient_pks = [user.pk for user in reply_recipients]
+            if reply_recipient_pks:
                 try:
-                    send_forum_push.delay(event, recipient.pk, payload)
+                    send_forum_push_batch.delay(event, reply_recipient_pks, payload)
                 except Exception:
                     logger.exception(
-                        "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
+                        "[CELERY] forum_host: failed to enqueue reply push batch"
+                        " for event=%s",
                         event,
-                        recipient.pk,
                     )
             _enqueue_mention_push_for(mentioned, payload)
 
         def _enqueue_email():
             # Mentioned users get bell + push only, not email, this slice
-            # (todo 253 slice 4 scope decision) — loop reply_recipients only.
-            for recipient in reply_recipients:
+            # (todo 253 slice 4 scope decision) — reply_recipients only. One
+            # batched enqueue for the whole recipient list (todo 268).
+            reply_recipient_pks = [user.pk for user in reply_recipients]
+            if reply_recipient_pks:
                 try:
-                    send_forum_email.delay(event, recipient.pk, payload)
+                    send_forum_email_batch.delay(event, reply_recipient_pks, payload)
                 except Exception:
                     logger.exception(
-                        "[CELERY] forum_host: failed to enqueue email for event=%s user=%s",
+                        "[CELERY] forum_host: failed to enqueue reply email batch"
+                        " for event=%s",
                         event,
-                        recipient.pk,
                     )
 
         try:

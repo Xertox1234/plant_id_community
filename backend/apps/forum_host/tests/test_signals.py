@@ -65,11 +65,11 @@ def test_reply_added_enqueues_push_for_topic_author(django_capture_on_commit_cal
     TopicSubscription.subscribe(topic_author, topic)
 
     with (
-        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_delay,
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay") as mock_delay,
         # The reply_added success path also enqueues an email (todo 253 slice
         # 2, H1) via the same on_commit mechanism; mock it so this push-only
         # test doesn't attempt a real broker publish.
-        patch("apps.forum_host.tasks.send_forum_email.delay"),
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
     ):
         from apps.forum_host.notifications import dispatch
 
@@ -84,7 +84,9 @@ def test_reply_added_enqueues_push_for_topic_author(django_capture_on_commit_cal
     mock_delay.assert_called_once()
     call_args = mock_delay.call_args
     assert call_args.args[0] == "reply_added"
-    assert call_args.args[1] == topic_author.pk
+    # The recipient arg is now a BATCH list (todo 268): one enqueue for the
+    # whole reply fan-out, not one .delay() per subscriber.
+    assert call_args.args[1] == [topic_author.pk]
     # actor_name feeds the FCM tray body line (todo 253 slice 6), resolved
     # via the host User model's display_name — the same naming policy the
     # email channel already uses.
@@ -113,8 +115,8 @@ def test_reply_added_enqueues_email_for_topic_author(
     TopicSubscription.subscribe(topic_author, topic)
 
     with (
-        patch("apps.forum_host.tasks.send_forum_push.delay"),
-        patch("apps.forum_host.tasks.send_forum_email.delay") as mock_delay,
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay"),
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay") as mock_delay,
     ):
         from apps.forum_host.notifications import dispatch
 
@@ -125,7 +127,8 @@ def test_reply_added_enqueues_email_for_topic_author(
     mock_delay.assert_called_once()
     call_args = mock_delay.call_args
     assert call_args.args[0] == "reply_added"
-    assert call_args.args[1] == topic_author.pk
+    # One batched email enqueue for the whole reply fan-out (todo 268).
+    assert call_args.args[1] == [topic_author.pk]
     assert call_args.args[2]["post_id"] == str(post.pk)
 
 
@@ -152,8 +155,8 @@ def test_reply_added_fans_out_to_all_subscribers_excluding_replier(
     TopicSubscription.subscribe(replier, topic)
 
     with (
-        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push,
-        patch("apps.forum_host.tasks.send_forum_email.delay") as mock_email,
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay") as mock_email,
     ):
         from apps.forum_host.notifications import dispatch
 
@@ -166,10 +169,18 @@ def test_reply_added_fans_out_to_all_subscribers_excluding_replier(
     )
     assert notified == {topic_author.pk, subscriber_b.pk}
 
-    pushed = {c.args[1] for c in mock_push.call_args_list}
-    emailed = {c.args[1] for c in mock_email.call_args_list}
+    # The reply fan-out is now a SINGLE batched enqueue each (todo 268): the
+    # whole recipient set rides in one list arg, not one .delay() per user.
+    mock_push.assert_called_once()
+    mock_email.assert_called_once()
+    pushed = set(mock_push.call_args.args[1])
+    emailed = set(mock_email.call_args.args[1])
     assert pushed == {topic_author.pk, subscriber_b.pk}
     assert emailed == {topic_author.pk, subscriber_b.pk}
+    # The replier is excluded from their OWN reply's fan-out even though they
+    # subscribed — the discriminating property this test exists to pin.
+    assert replier.pk not in pushed
+    assert replier.pk not in emailed
 
 
 @pytest.mark.django_db
@@ -196,8 +207,8 @@ def test_reply_added_notifies_subscribers_when_topic_author_is_deleted(
     assert topic.author_id is None
 
     with (
-        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push,
-        patch("apps.forum_host.tasks.send_forum_email.delay"),
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
     ):
         from apps.forum_host.notifications import dispatch
 
@@ -207,7 +218,7 @@ def test_reply_added_notifies_subscribers_when_topic_author_is_deleted(
 
     assert Notification.objects.filter(recipient=subscriber, post=post).exists()
     mock_push.assert_called_once()
-    assert mock_push.call_args.args[1] == subscriber.pk
+    assert mock_push.call_args.args[1] == [subscriber.pk]
 
 
 @pytest.mark.django_db
@@ -226,8 +237,8 @@ def test_reply_added_auto_subscribes_the_replier(django_capture_on_commit_callba
     )
 
     with (
-        patch("apps.forum_host.tasks.send_forum_push.delay"),
-        patch("apps.forum_host.tasks.send_forum_email.delay"),
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay"),
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
     ):
         from apps.forum_host.notifications import dispatch
 
@@ -290,8 +301,8 @@ def test_reply_added_marks_the_repliers_own_topic_as_read(
     )
 
     with (
-        patch("apps.forum_host.tasks.send_forum_push.delay"),
-        patch("apps.forum_host.tasks.send_forum_email.delay"),
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay"),
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
     ):
         from apps.forum_host.notifications import dispatch
 
@@ -384,8 +395,8 @@ def test_reply_added_read_marker_keeps_pace_with_real_publish_timing(
     topic.save_revision().publish()
 
     with (
-        patch("apps.forum_host.tasks.send_forum_push.delay"),
-        patch("apps.forum_host.tasks.send_forum_email.delay"),
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay"),
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
     ):
         reply = Post.objects.create(topic=topic, author=replier)
         with django_capture_on_commit_callbacks(execute=True):
@@ -430,8 +441,8 @@ def test_reply_added_write_path_query_count_is_independent_of_subscriber_count(
         post = Post.objects.create(topic=topic, author=replier)
 
         with (
-            patch("apps.forum_host.tasks.send_forum_push.delay"),
-            patch("apps.forum_host.tasks.send_forum_email.delay"),
+            patch("apps.forum_host.tasks.send_forum_push_batch.delay"),
+            patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
         ):
             from apps.forum_host.notifications import dispatch
 
@@ -461,8 +472,8 @@ def test_reply_added_does_not_notify_for_self_reply(django_capture_on_commit_cal
     TopicSubscription.subscribe(author, topic)
 
     with (
-        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push,
-        patch("apps.forum_host.tasks.send_forum_email.delay") as mock_email,
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay") as mock_email,
     ):
         from apps.forum_host.notifications import dispatch
 
@@ -540,13 +551,13 @@ def test_reply_added_swallows_push_delay_failure(
 
     with (
         patch(
-            "apps.forum_host.tasks.send_forum_push.delay",
+            "apps.forum_host.tasks.send_forum_push_batch.delay",
             side_effect=RuntimeError("broker unavailable"),
         ) as mock_delay,
         # The reply_added success path also enqueues an email (todo 253 slice
         # 2, H1) via the same on_commit mechanism; mock it so this push-only
         # test doesn't attempt a real broker publish.
-        patch("apps.forum_host.tasks.send_forum_email.delay"),
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
     ):
         from apps.forum_host.notifications import dispatch
 
@@ -558,7 +569,9 @@ def test_reply_added_swallows_push_delay_failure(
                 dispatch("reply_added", topic=topic, post=post)  # must not raise
 
     mock_delay.assert_called_once()
-    assert "failed to enqueue push" in caplog.text
+    # The batch enqueue logs a batch-specific message now (todo 268) — the
+    # single-recipient "failed to enqueue push" wording is gone from this path.
+    assert "failed to enqueue reply push batch" in caplog.text
 
 
 @pytest.mark.django_db
@@ -578,11 +591,11 @@ def test_reply_added_persists_notification_row(django_capture_on_commit_callback
     post = Post.objects.create(topic=topic, author=replier)
 
     with (
-        patch("apps.forum_host.tasks.send_forum_push.delay"),
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay"),
         # The reply_added success path also enqueues an email (todo 253 slice
         # 2, H1) via the same on_commit mechanism; mock it so this
         # notification-row test doesn't attempt a real broker publish.
-        patch("apps.forum_host.tasks.send_forum_email.delay"),
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
     ):
         from apps.forum_host.notifications import dispatch
 
@@ -712,8 +725,8 @@ def test_reply_mentioning_a_user_creates_mention_notification(
     )
 
     with (
-        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push,
-        patch("apps.forum_host.tasks.send_forum_email.delay") as mock_email,
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay") as mock_email,
     ):
         from apps.forum_host.notifications import dispatch
 
@@ -728,7 +741,9 @@ def test_reply_mentioning_a_user_creates_mention_notification(
     notification = Notification.objects.get(recipient=mentioned, post=post)
     assert notification.verb == NotificationVerb.MENTION
 
-    mention_pushes = [c for c in mock_push.call_args_list if c.args[1] == mentioned.pk]
+    # The mention push is now a batched enqueue (todo 268): args[1] is a
+    # recipient LIST, so membership replaces the scalar-pk equality check.
+    mention_pushes = [c for c in mock_push.call_args_list if mentioned.pk in c.args[1]]
     assert len(mention_pushes) == 1
     assert mention_pushes[0].args[0] == "mention"
     # No other subscribers exist in this fixture, and mentioned users get
@@ -761,8 +776,8 @@ def test_reply_mention_suppresses_duplicate_subscriber_notification(
     TopicSubscription.subscribe(plain_subscriber, topic)
 
     with (
-        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push,
-        patch("apps.forum_host.tasks.send_forum_email.delay") as mock_email,
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay") as mock_email,
     ):
         from apps.forum_host.notifications import dispatch
 
@@ -782,12 +797,17 @@ def test_reply_mention_suppresses_duplicate_subscriber_notification(
         == NotificationVerb.REPLY
     )
 
-    pushes_to_both = [c for c in mock_push.call_args_list if c.args[1] == both.pk]
+    # args[1] is a batched recipient LIST now (todo 268) — `both` must appear
+    # in exactly one enqueue and it must be the mention one.
+    pushes_to_both = [c for c in mock_push.call_args_list if both.pk in c.args[1]]
     assert len(pushes_to_both) == 1
     assert pushes_to_both[0].args[0] == "mention"
     # `both` is suppressed into the mention-only path (no email); the plain
-    # subscriber is untouched by suppression and still gets emailed.
-    emailed = {c.args[1] for c in mock_email.call_args_list}
+    # subscriber is untouched by suppression and still gets emailed. The reply
+    # email is one batched enqueue, so union its recipient list(s).
+    emailed = set()
+    for c in mock_email.call_args_list:
+        emailed.update(c.args[1])
     assert emailed == {plain_subscriber.pk}
 
 
@@ -803,8 +823,8 @@ def test_reply_mention_excludes_self_mention(django_capture_on_commit_callbacks)
     )
 
     with (
-        patch("apps.forum_host.tasks.send_forum_push.delay"),
-        patch("apps.forum_host.tasks.send_forum_email.delay"),
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay"),
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
     ):
         from apps.forum_host.notifications import dispatch
 
@@ -843,8 +863,8 @@ def test_reply_mention_on_restricted_board_does_not_notify(
     )
 
     with (
-        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push,
-        patch("apps.forum_host.tasks.send_forum_email.delay"),
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
     ):
         from apps.forum_host.notifications import dispatch
 
@@ -859,7 +879,10 @@ def test_reply_mention_on_restricted_board_does_not_notify(
     assert not Notification.objects.filter(
         recipient=mentioned, post=post, verb=NotificationVerb.MENTION
     ).exists()
-    assert all(c.args[1] != mentioned.pk for c in mock_push.call_args_list)
+    # args[1] is a batched recipient LIST now (todo 268) — the mentioned user
+    # must not appear in ANY enqueued batch's recipient list. (A `!=` scalar
+    # check would be trivially true against a list and silently gut this test.)
+    assert all(mentioned.pk not in c.args[1] for c in mock_push.call_args_list)
 
 
 @pytest.mark.django_db
@@ -878,7 +901,7 @@ def test_topic_created_mentioning_a_user_notifies_via_opening_post(
         board=board, title="TM5", slug="t-m5", author=topic_author
     )
 
-    with patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push:
+    with patch("apps.forum_host.tasks.send_forum_push_batch.delay") as mock_push:
         from apps.forum_host.notifications import dispatch
 
         opening = Post.objects.create(
@@ -892,7 +915,9 @@ def test_topic_created_mentioning_a_user_notifies_via_opening_post(
 
     notification = Notification.objects.get(recipient=mentioned, post=opening)
     assert notification.verb == NotificationVerb.MENTION
-    mention_pushes = [c for c in mock_push.call_args_list if c.args[1] == mentioned.pk]
+    # The mention push is a batched enqueue (todo 268): args[1] is a recipient
+    # LIST, so membership replaces the scalar-pk equality check.
+    mention_pushes = [c for c in mock_push.call_args_list if mentioned.pk in c.args[1]]
     assert len(mention_pushes) == 1
     assert mention_pushes[0].args[0] == "mention"
 
@@ -937,8 +962,8 @@ def test_mention_resolution_query_count_is_independent_of_mention_count(
         )
 
         with (
-            patch("apps.forum_host.tasks.send_forum_push.delay"),
-            patch("apps.forum_host.tasks.send_forum_email.delay"),
+            patch("apps.forum_host.tasks.send_forum_push_batch.delay"),
+            patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
         ):
             from apps.forum_host.notifications import dispatch
 
@@ -950,3 +975,85 @@ def test_mention_resolution_query_count_is_independent_of_mention_count(
     few = _dispatch_mentions(1, "mqc-few")
     many = _dispatch_mentions(5, "mqc-many")
     assert few == many
+
+
+# ---- batch fan-out invariant (todo 268, AC3) --------------------------------
+
+
+@pytest.mark.django_db
+def test_reply_added_enqueue_count_is_constant_regardless_of_subscriber_count(
+    django_capture_on_commit_callbacks,
+):
+    """AC3 (todo 268): the reply fan-out must enqueue a CONSTANT number of
+    Celery tasks — exactly one push-batch + one email-batch — no matter how
+    many subscribers the topic has. This pins the whole todo: the pre-batch
+    code enqueued one .delay() per recipient, so the enqueue count scaled
+    linearly with N and blocked the reply request thread on N broker
+    round-trips. Proven by dispatching an identical reply against N=1 and
+    N=50 subscribers and asserting the enqueue counts are identical (and 1) —
+    AND that the single recipient-list arg for N=50 carries all 50 pks, so the
+    collapse is a genuine batch, not a silent drop of recipients."""
+
+    def _dispatch_reply(n_subscribers, slug):
+        topic_author = User.objects.create_user(username=f"const-author-{slug}")
+        root = Page.objects.get(id=1)
+        index = root.add_child(
+            instance=ForumIndex(title=f"ForumConst{slug}", slug=f"forum-const-{slug}")
+        )
+        board = index.add_child(
+            instance=ForumBoard(
+                title=f"GeneralConst{slug}", slug=f"general-const-{slug}"
+            )
+        )
+        topic = Topic.objects.create(
+            board=board, title="TC", slug=f"t-const-{slug}", author=topic_author
+        )
+        # Exactly N recipients: subscribe only these fresh users. topic_author
+        # is deliberately NOT subscribed, and the replier is auto-subscribed
+        # but excluded from their own reply — so the recipient set is precisely
+        # the N subscribers.
+        subscriber_pks = set()
+        for i in range(n_subscribers):
+            sub = User.objects.create_user(username=f"const-sub-{slug}-{i}")
+            TopicSubscription.subscribe(sub, topic)
+            subscriber_pks.add(sub.pk)
+        replier = User.objects.create_user(username=f"const-replier-{slug}")
+        # A plain reply with NO @mentions — a mention would fire a SECOND
+        # push-batch (NotificationVerb.MENTION) and break the "exactly one
+        # push-batch" invariant this test pins.
+        post = Post.objects.create(topic=topic, author=replier)
+
+        with (
+            patch(
+                "apps.forum_host.tasks.send_forum_push_batch.delay"
+            ) as mock_push_batch,
+            patch(
+                "apps.forum_host.tasks.send_forum_email_batch.delay"
+            ) as mock_email_batch,
+        ):
+            from apps.forum_host.notifications import dispatch
+
+            with django_capture_on_commit_callbacks(execute=True):
+                dispatch("reply_added", topic=topic, post=post)
+
+        return mock_push_batch, mock_email_batch, subscriber_pks
+
+    push_1, email_1, _ = _dispatch_reply(1, "one")
+    push_50, email_50, subscriber_pks_50 = _dispatch_reply(50, "fifty")
+
+    # Enqueue count is CONSTANT across N — exactly one push-batch + one
+    # email-batch for the reply fan-out, never scaling with subscriber count.
+    assert push_1.call_count == 1
+    assert email_1.call_count == 1
+    assert push_50.call_count == 1
+    assert email_50.call_count == 1
+    # ...and identical between N=1 and N=50 (the invariant stated as equality,
+    # not just as a fixed literal).
+    assert push_1.call_count == push_50.call_count
+    assert email_1.call_count == email_50.call_count
+
+    # The batch did NOT drop recipients to hit a constant count: the single
+    # recipient-list arg for N=50 must contain all 50 subscriber pks — batched,
+    # not lost.
+    assert set(push_50.call_args.args[1]) == subscriber_pks_50
+    assert set(email_50.call_args.args[1]) == subscriber_pks_50

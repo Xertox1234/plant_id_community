@@ -79,6 +79,31 @@ def _notification_content(event: str, data: dict) -> tuple[str, str] | None:
     return None
 
 
+def _send_fcm_message(fcm, token: str, str_data: dict, content, event: str):
+    """Build and send one FCM message (data payload + optional tray notification).
+
+    Shared by send_forum_push (single) and send_forum_push_batch (todo 268) so
+    the collapse-key / notification-hybrid construction can never drift between
+    the two shapes. Raises on send failure; the caller classifies transient vs.
+    permanent (see _is_permanent_fcm_error) and decides whether to retry.
+    """
+    message_kwargs = {"data": str_data, "token": token}
+    if content is not None:
+        title, body = content
+        # Stable collapse key: a retry after an accepted-but-timed-out send
+        # REPLACES the tray entry instead of stacking a duplicate. Deliberately
+        # per-EVENT-TYPE, not per-post (FCM keeps at most 4 collapse keys pending
+        # per offline device). See docs/rules/celery.md.
+        collapse_key = f"forum-{event}"
+        message_kwargs["notification"] = fcm.Notification(title=title, body=body)
+        message_kwargs["android"] = fcm.AndroidConfig(collapse_key=collapse_key)
+        message_kwargs["apns"] = fcm.APNSConfig(
+            headers={"apns-collapse-id": collapse_key}
+        )
+    message = fcm.Message(**message_kwargs)
+    return fcm.send(message)
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
     """Send a single FCM data message for a forum event.
@@ -137,26 +162,7 @@ def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
     content = _notification_content(event, data)
 
     try:
-        message_kwargs = {"data": str_data, "token": token}
-        if content is not None:
-            title, body = content
-            # Stable collapse key: a retry after an accepted-but-timed-out
-            # send REPLACES the tray entry instead of stacking a duplicate
-            # visible notification (idempotency, docs/rules/celery.md).
-            # Deliberately per-EVENT-TYPE, not per-post: FCM keeps at most 4
-            # distinct collapse keys pending per offline device, so unique
-            # per-post keys would silently drop all but 4 notifications
-            # accumulated overnight (review sweep). Collapsing multiple
-            # replies into the latest tray entry is the standard tradeoff —
-            # the bell remains the complete record.
-            collapse_key = f"forum-{event}"
-            message_kwargs["notification"] = fcm.Notification(title=title, body=body)
-            message_kwargs["android"] = fcm.AndroidConfig(collapse_key=collapse_key)
-            message_kwargs["apns"] = fcm.APNSConfig(
-                headers={"apns-collapse-id": collapse_key}
-            )
-        message = fcm.Message(**message_kwargs)
-        response = fcm.send(message)
+        response = _send_fcm_message(fcm, token, str_data, content, event)
         logger.info(
             "[FCM] forum.%s sent to user=%s: %s", event, recipient_user_id, response
         )
@@ -186,39 +192,116 @@ def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
 
 
 @shared_task(autoretry_for=(OperationalError,), retry_backoff=True, max_retries=3)
-def send_forum_email(event: str, recipient_user_id: int, data: dict):
-    """Send a single forum notification email via NotificationService.
+def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict):
+    """Fan out one forum FCM push to many recipients from a SINGLE enqueue (todo 268).
 
-    Enqueued from forum_host/notifications.py via transaction.on_commit,
-    mirroring send_forum_push, so a rolled-back publish never sends an email.
+    forum_host/notifications.py used to call send_forum_push.delay() once per
+    subscriber inside transaction.on_commit — N sequential broker round-trips
+    blocking the reply request, plus N worker executions each re-fetching the
+    same rows. This variant is enqueued once with the full recipient list: one
+    bulk ForumProfile fetch, then a server-side send loop.
 
-    Retry is narrowly scoped to OperationalError (a transient DB error during
-    the User/Post fetches below), not a broad catch-all: unlike push's
-    fcm.send() (which raises on a transient FCM error), this task's actual
-    send call — NotificationService.send_forum_reply_notification() ->
-    EmailService.send_email() — swallows every send/render failure internally
-    (ConnectionError, TemplateDoesNotExist, a blanket Exception) and returns a
-    bool, so it can never raise; wrapping IT in retry would be untested dead
-    code. The DB fetches below CAN genuinely raise OperationalError on a
-    connection blip, and per docs/rules/celery.md ("every task declares
-    retry config... never leave a network-touching task with default no
-    retries") that failure must not silently drop the notification — the
-    DoesNotExist/ValueError/TypeError branches return early first, so
-    autoretry only ever fires on the one real transient-failure class.
+    Per-recipient transient FCM failures are handed off to the single-recipient
+    send_forum_push task (which owns the backoff/retry logic) rather than
+    retrying the whole batch — a batch-level retry would re-send to EVERY
+    recipient (the collapse key dedupes the tray, not the wasted work). Only the
+    rare failure path re-enqueues; the common all-success path stays at one
+    enqueue. autoretry_for=(OperationalError,) covers only the pre-send bulk
+    fetch.
 
     Args:
-        event: forum event name. Only "reply_added" is wired (todo 253 slice
-               2, H1); mention/moderation/digest are later slices.
-        recipient_user_id: pk of the User to email.
-        data: the same payload dict shared with send_forum_push — carries
-              "post_id" (str). The reply Post is re-fetched here (rather than
-              embedding rendered content in the FCM-shared payload) so push's
-              data stays minimal and the email reflects the post at send time.
+        event: forum event name (see send_forum_push).
+        recipient_user_ids: pks of the Users to notify.
+        data: FCM data payload (values coerced to str).
+    """
+    from apps.garden.firebase_config import get_fcm_client, is_firebase_available
+    from wagtail_forum.models import ForumProfile
+
+    if not recipient_user_ids:
+        return
+
+    if not is_firebase_available():
+        logger.debug("[FCM] Firebase not configured — skipping forum push (%s)", event)
+        return
+
+    fcm = get_fcm_client()
+    if fcm is None:
+        logger.error("[FCM] FCM client unavailable — cannot send forum push")
+        return
+
+    # One bulk fetch instead of N: the profile row carries both the recipient
+    # (forum_notifications) and the fcm_token. A user with no ForumProfile has
+    # no token, so the single-task path would skip them too — omitting them
+    # here is equivalent.
+    profiles = ForumProfile.objects.filter(
+        user_id__in=recipient_user_ids
+    ).select_related("user")
+
+    str_data = {k: str(v) for k, v in data.items()}
+    str_data["event"] = event
+    content = _notification_content(event, data)
+
+    for profile in profiles:
+        user = profile.user
+        if getattr(user, "forum_notifications", True) is not True:
+            continue
+        if not profile.fcm_token:
+            continue
+        try:
+            response = _send_fcm_message(
+                fcm, profile.fcm_token, str_data, content, event
+            )
+            logger.info("[FCM] forum.%s sent to user=%s: %s", event, user.pk, response)
+        except Exception as exc:
+            if _is_permanent_fcm_error(exc):
+                logger.warning(
+                    "[FCM] forum.%s send failed permanently (user=%s): %s"
+                    " — not retrying",
+                    event,
+                    user.pk,
+                    exc,
+                )
+                continue
+            # Transient: hand off to the retry-capable single-recipient task
+            # rather than retrying (and re-sending) the whole batch.
+            logger.warning(
+                "[FCM] forum.%s send failed (user=%s): %s — re-enqueuing single",
+                event,
+                user.pk,
+                exc,
+            )
+            send_forum_push.delay(event, user.pk, data)
+
+
+@shared_task(autoretry_for=(OperationalError,), retry_backoff=True, max_retries=3)
+def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict):
+    """Send forum reply-notification emails to many recipients from a SINGLE
+    enqueue (todo 268), replacing the per-recipient send_forum_email fan-out.
+
+    The Post and all recipient Users are fetched ONCE up front, then the loop
+    only calls NotificationService — whose send path
+    (EmailService.send_email()) swallows every send/render failure and returns a
+    bool, so it can never raise. This ordering is load-bearing: email has no
+    collapse-key dedup, so autoretry_for=(OperationalError,) must be able to
+    fire ONLY before any email is sent, or a transient-DB retry would
+    double-email everyone. All OperationalError-raising DB access happens in the
+    up-front fetch; the send loop does none.
+
+    Args:
+        event: only "reply_added" is wired (todo 253 slice 2, H1); mention/
+               moderation/digest are later slices.
+        recipient_user_ids: pks of the Users to email.
+        data: the shared payload dict — carries "post_id" (str). The reply Post
+              is fetched here (once for the batch) so push's data stays minimal
+              and the email reflects the post at send time.
     """
     if event != "reply_added":
         logger.debug(
             "[EMAIL] forum email skipped — event=%s not implemented yet", event
         )
+        return
+
+    if not recipient_user_ids:
         return
 
     from apps.core.services.notification_service import NotificationService
@@ -230,27 +313,6 @@ def send_forum_email(event: str, recipient_user_id: int, data: dict):
     from .constants import FORUM_EMAIL_EXCERPT_MAX_CHARS
 
     User = get_user_model()
-
-    try:
-        user = User.objects.get(pk=recipient_user_id)
-    except User.DoesNotExist:
-        logger.warning(
-            "[EMAIL] forum email skipped — user %s not found", recipient_user_id
-        )
-        return
-
-    if not user.email:
-        # EmailService.send_email() silently no-ops for a blank recipient
-        # (Django's EmailMessage.recipients() filters out falsy addresses,
-        # send() then returns 0) but still logs "sent successfully" and
-        # returns True — it does not surface the 0-recipients case as a
-        # failure. Guard here so a user with no email on file gets a clear
-        # skip log instead of a misleading success one.
-        logger.warning(
-            "[EMAIL] forum email skipped — user %s has no email on file",
-            recipient_user_id,
-        )
-        return
 
     try:
         post_id = int(data.get("post_id", ""))
@@ -265,18 +327,30 @@ def send_forum_email(event: str, recipient_user_id: int, data: dict):
         logger.warning("[EMAIL] forum email skipped — post %s not found", post_id)
         return
 
+    # Materialize up front so a transient OperationalError can only fire here,
+    # before any email is sent (see the docstring's retry-safety note).
+    users = list(User.objects.filter(pk__in=recipient_user_ids))
+
     topic = post.topic
     topic_url = f"{settings.SITE_URL}{topic.get_absolute_url()}"
     author_name = post.author.display_name if post.author else "[deleted]"
     excerpt = plain_text_excerpt(post.body, FORUM_EMAIL_EXCERPT_MAX_CHARS)
+    service = NotificationService()
 
-    sent = NotificationService().send_forum_reply_notification(
-        user=user,
-        topic_title=topic.title,
-        reply_author=author_name,
-        reply_excerpt=excerpt,
-        topic_url=topic_url,
-    )
-    logger.info(
-        "[EMAIL] forum.%s email to user=%s: sent=%s", event, recipient_user_id, sent
-    )
+    for user in users:
+        if not user.email:
+            # EmailService.send_email() silently no-ops for a blank recipient
+            # but still returns True (todo 267) — skip explicitly so a user with
+            # no email on file gets a clear skip log, not a misleading success.
+            logger.warning(
+                "[EMAIL] forum email skipped — user %s has no email on file", user.pk
+            )
+            continue
+        sent = service.send_forum_reply_notification(
+            user=user,
+            topic_title=topic.title,
+            reply_author=author_name,
+            reply_excerpt=excerpt,
+            topic_url=topic_url,
+        )
+        logger.info("[EMAIL] forum.%s email to user=%s: sent=%s", event, user.pk, sent)
