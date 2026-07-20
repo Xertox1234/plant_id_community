@@ -8,8 +8,6 @@ block fields with plant data from various sources.
 import json
 import logging
 
-from apps.core.utils.query_sanitization import escape_search_query
-
 # CSRF protection enabled for all admin endpoints - removed csrf_exempt for security
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.cache import cache
@@ -136,9 +134,6 @@ class PlantSuggestionsView(View):
             if len(query) < 2:
                 return JsonResponse({"success": True, "suggestions": []})
 
-            # Escape SQL LIKE wildcards before icontains to prevent query-cost abuse.
-            escaped_query = escape_search_query(query)
-
             # Check cache first
             cache_key = f"plant_suggestions_{query.lower().replace(' ', '_')}_{limit}"
             cached_suggestions = cache.get(cache_key)
@@ -153,7 +148,7 @@ class PlantSuggestionsView(View):
 
             # Scientific names
             scientific_matches = PlantSpecies.objects.filter(
-                scientific_name__icontains=escaped_query
+                scientific_name__icontains=query
             ).values_list("scientific_name", flat=True)[: limit // 2]
 
             for name in scientific_matches:
@@ -164,7 +159,7 @@ class PlantSuggestionsView(View):
                 remaining_limit = limit - len(suggestions)
 
                 common_matches = PlantSpecies.objects.filter(
-                    common_names__icontains=escaped_query
+                    common_names__icontains=query
                 ).values_list("common_names", "scientific_name")[:remaining_limit]
 
                 for common_names, scientific in common_matches:

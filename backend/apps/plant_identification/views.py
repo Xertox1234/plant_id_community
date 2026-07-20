@@ -32,8 +32,6 @@ except ImportError:
 
 import logging
 
-from apps.core.utils.query_sanitization import escape_search_query
-
 from . import constants
 from .models import (
     DiseaseCareInstructions,
@@ -84,7 +82,6 @@ class PlantSpeciesViewSet(viewsets.ReadOnlyModelViewSet):
         # Filter by search query
         search = self.request.query_params.get("search")
         if search:
-            search = escape_search_query(search)
             queryset = queryset.filter(
                 models.Q(scientific_name__icontains=search)
                 | models.Q(common_names__icontains=search)
@@ -94,7 +91,7 @@ class PlantSpeciesViewSet(viewsets.ReadOnlyModelViewSet):
         # Filter by family
         family = self.request.query_params.get("family")
         if family:
-            queryset = queryset.filter(family__icontains=escape_search_query(family))
+            queryset = queryset.filter(family__icontains=family)
 
         return queryset.order_by("scientific_name")
 
@@ -1018,9 +1015,7 @@ class PlantDiseaseDatabaseViewSet(viewsets.ReadOnlyModelViewSet):
 
         search = self.request.query_params.get("search")
         if search:
-            queryset = queryset.filter(
-                disease_name__icontains=escape_search_query(search)
-            )
+            queryset = queryset.filter(disease_name__icontains=search)
 
         return queryset
 
@@ -1189,8 +1184,6 @@ def search_local_plants(request):
     if not query:
         return Response({"error": "Search query (q) is required"}, status=400)
 
-    query = escape_search_query(query)
-
     try:
         # Search auto-stored plants first (highest priority)
         auto_stored = PlantSpecies.objects.filter(
@@ -1247,8 +1240,6 @@ def search_local_diseases(request):
 
     if not query:
         return Response({"error": "Search query (q) is required"}, status=400)
-
-    query = escape_search_query(query)
 
     try:
         # Build query

@@ -28,8 +28,6 @@ except ImportError:
     # For Wagtail versions where Query might be located elsewhere
     Query = None
 
-from apps.core.utils.query_sanitization import escape_search_query
-
 from ..constants import (
     POPULAR_POSTS_DEFAULT_DAYS,
     POPULAR_POSTS_DEFAULT_LIMIT,
@@ -475,8 +473,6 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         if not query or len(query) < 2:
             return Response([])
 
-        safe_query = escape_search_query(query)
-
         # Search in titles and tags
         suggestions = []
 
@@ -484,7 +480,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         title_matches = (
             BlogPostPage.objects.live()
             .public()
-            .filter(title__icontains=safe_query)
+            .filter(title__icontains=query)
             .values_list("title", flat=True)[:5]
         )
         suggestions.extend(
@@ -496,7 +492,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         tag_matches = (
             Tag.objects.filter(
-                name__icontains=safe_query,
+                name__icontains=query,
                 taggit_taggeditem_items__content_type__model="blogpostpage",
             )
             .distinct()

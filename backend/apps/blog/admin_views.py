@@ -3,7 +3,6 @@ Blog admin views for managing blog content, comments, and settings.
 Provides comprehensive administrative functionality beyond basic Wagtail page management.
 """
 
-from apps.core.utils.query_sanitization import escape_search_query
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
@@ -79,11 +78,10 @@ def moderate_comments(request):
         pass  # Show all comments
 
     if search_query:
-        safe_query = escape_search_query(search_query)
         comments = comments.filter(
-            Q(content__icontains=safe_query)
-            | Q(author__username__icontains=safe_query)
-            | Q(post__title__icontains=safe_query)
+            Q(content__icontains=search_query)
+            | Q(author__username__icontains=search_query)
+            | Q(post__title__icontains=search_query)
         )
 
     comments = comments.order_by("-created_at")
@@ -279,13 +277,12 @@ def blog_search(request):
     }
 
     if query:
-        safe_query = escape_search_query(query)
         # Search posts
         if content_type in ["all", "posts"]:
             posts = BlogPostPage.objects.live().filter(
-                Q(title__icontains=safe_query)
-                | Q(search_description__icontains=safe_query)
-                | Q(introduction__icontains=safe_query)
+                Q(title__icontains=query)
+                | Q(search_description__icontains=query)
+                | Q(introduction__icontains=query)
             )
 
             if date_from:
@@ -298,15 +295,14 @@ def blog_search(request):
         # Search comments
         if content_type in ["all", "comments"]:
             comments = BlogComment.objects.filter(
-                Q(content__icontains=safe_query)
-                | Q(author__username__icontains=safe_query)
+                Q(content__icontains=query) | Q(author__username__icontains=query)
             )
             results["comments"] = comments[:20]
 
         # Search categories
         if content_type in ["all", "categories"]:
             categories = BlogCategory.objects.filter(
-                Q(name__icontains=safe_query) | Q(description__icontains=safe_query)
+                Q(name__icontains=query) | Q(description__icontains=query)
             )
             results["categories"] = categories[:10]
 
