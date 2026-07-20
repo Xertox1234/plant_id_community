@@ -16,6 +16,7 @@ from django.template import TemplateDoesNotExist
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import strip_tags
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -118,16 +119,36 @@ class EmailService:
         context = context or {}
         context.update(self._get_base_context(user, email_type))
 
-        # Render email content
+        # Render email content. The .html body is REQUIRED — a missing/broken
+        # .html is a hard failure. The .txt alternative is OPTIONAL: most
+        # EmailType templates ship only .html, so a missing .txt falls back to a
+        # stripped-tags version of the HTML rather than silently dropping the
+        # whole email (todo 267, finding 2 — before this, a missing .txt raised
+        # TemplateDoesNotExist that was caught into a silent `return False`, so
+        # e.g. every new-user welcome email no-op'd at the render step).
         try:
             html_content = render_to_string(f"emails/{template_name}.html", context)
-            text_content = render_to_string(f"emails/{template_name}.txt", context)
         except TemplateDoesNotExist as e:
-            logger.error(f"Email template not found: {template_name} - {e}")
+            logger.error(f"Email template not found: {template_name}.html - {e}")
             return False
         except Exception as e:
-            logger.error(f"Failed to render email template {template_name}: {e}")
+            logger.error(f"Failed to render email template {template_name}.html: {e}")
             return False
+
+        try:
+            text_content = render_to_string(f"emails/{template_name}.txt", context)
+        except TemplateDoesNotExist:
+            # Expected for the many .html-only templates — derive plain text
+            # from the HTML that already rendered.
+            text_content = strip_tags(html_content)
+        except Exception as e:
+            # A genuine .txt render bug shouldn't drop an email whose .html is
+            # fine; fall back to the stripped HTML but surface the bug in logs.
+            logger.warning(
+                f"Failed to render email template {template_name}.txt "
+                f"(falling back to stripped HTML): {e}"
+            )
+            text_content = strip_tags(html_content)
 
         # Create email message
         email = EmailMultiAlternatives(
@@ -145,7 +166,21 @@ class EmailService:
 
         # Send email
         try:
-            email.send()
+            sent_count = email.send()
+
+            # Django's EmailMessage.send() returns the number of messages
+            # delivered, and returns 0 WITHOUT raising when every recipient
+            # address is filtered out (e.g. a blank/empty To). Treat 0 as a
+            # failure instead of tracking + logging a phantom success (todo 267,
+            # finding 1): callers act on this bool — e.g.
+            # PlantCareReminderService.send_reminder advances next_reminder_date
+            # on a True, silently consuming a reminder a user never received.
+            if not sent_count:
+                logger.warning(
+                    f"Email {email_type} to {log_safe_email(recipient_email)} "
+                    "reached 0 recipients — not marking as sent"
+                )
+                return False
 
             # Track email sending
             self._track_email_sent(

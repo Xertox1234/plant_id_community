@@ -339,9 +339,11 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
 
     for user in users:
         if not user.email:
-            # EmailService.send_email() silently no-ops for a blank recipient
-            # but still returns True (todo 267) — skip explicitly so a user with
-            # no email on file gets a clear skip log, not a misleading success.
+            # Skip explicitly so a user with no email on file gets a clear skip
+            # log here. (Belt-and-suspenders: since todo 267,
+            # EmailService.send_email() also returns False rather than a phantom
+            # True for a 0-recipient send — this guard just keeps the skip reason
+            # legible at this layer.)
             logger.warning(
                 "[EMAIL] forum email skipped — user %s has no email on file", user.pk
             )

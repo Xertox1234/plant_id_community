@@ -31,16 +31,16 @@
         <p style="margin: 0; font-style: italic; color: #6c757d;">{{ scientific_name }}</p>
         {% endif %}
     </div>
-    
+
     <div style="text-align: center; margin: 20px 0;">
         <div class="confidence-bar">
             <div class="confidence-fill" style="width: {{ confidence|floatformat:0 }}%;"></div>
         </div>
         <p style="margin: 8px 0 0 0; font-weight: 600; color: #2c5f41;">
-            {{ confidence_text }}
+            {{ confidence_percent }} confidence
         </p>
     </div>
-    
+
     {% if identifier_name %}
     <p style="text-align: center; font-size: 14px; color: #6c757d; margin: 16px 0 0 0;">
         Identified by: <strong>{{ identifier_name }}</strong>
@@ -49,11 +49,8 @@
 </div>
 
 <div style="text-align: center; margin: 32px 0;">
-    <a href="{{ result_url }}" class="btn btn-primary" style="margin-right: 16px;">
+    <a href="{{ result_url }}" class="btn btn-primary">
         View Full Results
-    </a>
-    <a href="{{ care_guide_url }}" class="btn btn-success">
-        Get Care Instructions
     </a>
 </div>
 
@@ -69,8 +66,7 @@
 
 <div style="text-align: center; margin-top: 32px;">
     <p style="font-size: 14px; color: #6c757d;">
-        Not sure about this identification? 
-        <a href="{{ forum_url }}" style="color: #2c5f41; text-decoration: none;">Ask the community</a> for more opinions!
+        Not sure about this identification? Ask the community for more opinions!
     </p>
 </div>
 {% endblock %}
