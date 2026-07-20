@@ -73,7 +73,7 @@ class NotificationListView(generics.ListAPIView):
         if getattr(self, "swagger_fake_view", False):
             return Notification.objects.none()
         return _visible_notifications(self.request.user).select_related(
-            "actor", "topic__board"
+            "actor", "actor__wagtail_forum_profile", "topic__board"
         )
 
 

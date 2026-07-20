@@ -8,10 +8,12 @@ from wagtail.models import Page, PageViewRestriction
 from wagtail_forum.models import (
     ForumBoard,
     ForumIndex,
+    ForumProfile,
     Notification,
     NotificationVerb,
     Post,
     Topic,
+    TrustLevel,
 )
 from wagtail_forum.notifications import create_notifications
 
@@ -346,3 +348,46 @@ def test_notification_list_includes_post_id():
 
     assert resp.status_code == 200
     assert resp.data["results"][0]["post_id"] == post.pk
+
+
+@pytest.mark.django_db
+def test_notification_actor_carries_trust_level_and_display_name():
+    recipient = User.objects.create_user(username="r")
+    actor = User.objects.create_user(username="a")
+    board = _board("gen-actor")
+    topic, post = _topic_and_post(board, recipient, actor)
+    _notify(recipient, actor, topic, post)
+    profile = ForumProfile.for_user(actor)
+    profile.trust_level = TrustLevel.LEADER  # 4
+    profile.display_name = "Ann"
+    profile.save(update_fields=["trust_level", "display_name"])
+
+    client = APIClient()
+    client.force_authenticate(recipient)
+    resp = client.get("/forum/notifications/")
+    assert resp.status_code == 200
+    got = resp.data["results"][0]["actor"]
+    assert got["username"] == "a"
+    assert got["display_name"] == "Ann"
+    assert got["trust_level"] == 4
+
+
+@pytest.mark.django_db
+def test_notification_list_actor_profiles_add_no_per_row_queries():
+    recipient = User.objects.create_user(username="r2")
+    board = _board("gen-nplus1")
+    for i in range(5):
+        actor = User.objects.create_user(username=f"act{i}")
+        topic, post = _topic_and_post(board, recipient, actor, slug=f"t{i}")
+        _notify(recipient, actor, topic, post)
+
+    client = APIClient()
+    client.force_authenticate(recipient)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get("/forum/notifications/")
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 5
+    # Pinned EXACTLY: the notification fetch + one .public() PageViewRestriction
+    # lookup. actor + actor profile + topic + board all select_related, so 5
+    # distinct actors add no per-row queries.
+    assert len(ctx.captured_queries) == 2

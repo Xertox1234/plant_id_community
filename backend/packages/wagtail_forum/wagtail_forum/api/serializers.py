@@ -257,12 +257,25 @@ class PostAuthorSerializer(serializers.Serializer):
     display_name = serializers.SerializerMethodField()
     trust_level = serializers.SerializerMethodField()
 
+    @staticmethod
+    def _profile(obj):
+        # Reverse OneToOne accessor (ForumProfile.user, related_name
+        # "wagtail_forum_profile"). Its RelatedObjectDoesNotExist subclasses
+        # AttributeError, so getattr(..., None) yields None for an author with
+        # no ForumProfile row instead of raising — and issues no query when the
+        # caller select_related-joined the profile.
+        return getattr(obj, "wagtail_forum_profile", None)
+
     def get_display_name(self, obj):
+        profile = self._profile(obj)
+        if profile and profile.display_name:
+            return profile.display_name
         full = obj.get_full_name()
         return full or obj.get_username()
 
     def get_trust_level(self, obj):
-        return None  # populated in a later plan when ForumProfile is joined
+        profile = self._profile(obj)
+        return profile.trust_level if profile else None
 
 
 class PostSerializer(serializers.ModelSerializer):

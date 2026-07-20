@@ -4,7 +4,14 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import (
+    ForumBoard,
+    ForumIndex,
+    ForumProfile,
+    Post,
+    Topic,
+    TrustLevel,
+)
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
@@ -249,3 +256,96 @@ def test_post_list_affordances_add_no_per_post_queries():
     # Q1 visibility prefetch, Q2 topic lookup, Q3 posts page (select_related
     # author+topic). Same 3 as the anonymous pin — the predicate adds no query.
     assert len(ctx.captured_queries) == 3
+
+
+@pytest.mark.django_db
+def test_post_list_author_carries_trust_level_and_display_name():
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
+    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    author = User.objects.create_user(username="ada")
+    topic = Topic.objects.create(
+        board=board, title="T", slug="t", author=author, live=True
+    )
+    Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[{"type": "paragraph", "value": "<p>hi</p>"}],
+    )
+    # Set profile fields AFTER the post exists so the post-save trust signal
+    # (which recomputes trust_level from post_count) has already run and won't
+    # clobber these values. REGULAR (3) is unreachable from 1 post, proving the
+    # serializer reads the stored profile, not a recomputed level.
+    profile = ForumProfile.for_user(author)
+    profile.trust_level = TrustLevel.REGULAR  # 3
+    profile.display_name = "Ada L."
+    profile.save(update_fields=["trust_level", "display_name"])
+
+    resp = APIClient().get(f"/forum/topics/{topic.id}/posts/")
+    assert resp.status_code == 200
+    got = resp.data["results"][0]["author"]
+    assert got["username"] == "ada"
+    assert got["display_name"] == "Ada L."
+    assert got["trust_level"] == 3
+
+
+@pytest.mark.django_db
+def test_post_list_author_profiles_add_no_per_post_queries():
+    # 20 posts by 20 DISTINCT authors, each with their own ForumProfile — the
+    # worst case for an author-profile N+1. select_related folds every profile
+    # into the single posts SELECT, so the count stays the pinned 3.
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
+    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    starter = User.objects.create_user(username="starter")
+    topic = Topic.objects.create(
+        board=board, title="T", slug="t", author=starter, live=True
+    )
+    for i in range(20):
+        u = User.objects.create_user(username=f"u{i}")
+        Post.objects.create(
+            topic=topic,
+            author=u,
+            is_opening_post=(i == 0),
+            live=True,
+            body=[{"type": "paragraph", "value": "<p>hi</p>"}],
+        )
+    client = APIClient()
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get(f"/forum/topics/{topic.id}/posts/")
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 20
+    # Pinned EXACTLY (docs/rules/testing.md): Q1 visibility prefetch, Q2 topic
+    # lookup, Q3 posts page (author + author profile + topic all select_related).
+    assert len(ctx.captured_queries) == 3
+
+
+@pytest.mark.django_db
+def test_post_list_author_without_profile_still_renders():
+    # A reverse OneToOne select_related is a LEFT OUTER JOIN, so a post whose
+    # author has no ForumProfile row must NOT be dropped from the results.
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
+    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    author = User.objects.create_user(username="ghost")
+    topic = Topic.objects.create(
+        board=board, title="T", slug="t", author=author, live=True
+    )
+    Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[{"type": "paragraph", "value": "<p>hi</p>"}],
+    )
+    ForumProfile.objects.filter(user=author).delete()  # purge any signal-created row
+
+    resp = APIClient().get(f"/forum/topics/{topic.id}/posts/")
+    assert resp.status_code == 200
+    results = resp.data["results"]
+    assert len(results) == 1  # row not dropped
+    assert results[0]["author"]["username"] == "ghost"
+    assert results[0]["author"]["trust_level"] is None
+    assert results[0]["author"]["display_name"] == "ghost"  # username fallback

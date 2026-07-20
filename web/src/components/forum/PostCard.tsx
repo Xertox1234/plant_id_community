@@ -11,6 +11,15 @@ interface PostCardProps {
   onReport?: (postId: string, reason: string) => Promise<void>;
 }
 
+// Forum trust levels mirror the backend ForumProfile.TrustLevel enum (0–4).
+const TRUST_LEVEL_LABELS: Record<number, string> = {
+  0: 'New',
+  1: 'Basic',
+  2: 'Member',
+  3: 'Regular',
+  4: 'Leader',
+};
+
 // The four reaction types the backend supports.
 const REACTION_TYPES = ['like', 'love', 'helpful', 'thanks'] as const;
 
@@ -115,9 +124,10 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
                 {post.author.display_name || post.author.username}
               </span>
 
-              {post.author.trust_level && (
+              {typeof post.author.trust_level === 'number' && post.author.trust_level >= 1 && (
                 <span className="px-2 py-0.5 bg-sky/10 text-ink text-xs rounded">
-                  {post.author.trust_level}
+                  {TRUST_LEVEL_LABELS[post.author.trust_level] ??
+                    `Level ${post.author.trust_level}`}
                 </span>
               )}
 

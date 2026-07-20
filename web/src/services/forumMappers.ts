@@ -53,7 +53,7 @@ export type { StreamFieldBlock } from '../types/blog';
 export interface BackendPostAuthor {
   username: string;
   display_name: string;
-  trust_level: string | null;
+  trust_level: number | null;
 }
 
 export interface BackendPost {
@@ -108,16 +108,20 @@ function authorFromString(username: string | null): ForumAuthor {
 }
 
 /** Build a forum author from the post author object. */
-function authorFromObject(a: BackendPostAuthor): ForumAuthor {
+function authorFromObject(a: BackendPostAuthor): Post['author'] {
   if (a.username === '[deleted]') {
-    return { id: '', username: '[deleted]', display_name: '[deleted]' } as unknown as ForumAuthor;
+    return {
+      id: '',
+      username: '[deleted]',
+      display_name: '[deleted]',
+    } as unknown as Post['author'];
   }
   return {
     id: '',
     username: a.username,
     display_name: a.display_name || a.username,
     trust_level: a.trust_level ?? undefined,
-  } as unknown as ForumAuthor;
+  } as unknown as Post['author'];
 }
 
 // ---------------------------------------------------------------------------
@@ -223,7 +227,9 @@ export function mapSearchPostToPost(p: BackendSearchPost): Post {
   return {
     id: String(p.id),
     thread: String(p.topic_id),
-    author: authorFromString(null),
+    // Same cast as mapPostToPost — authorFromString returns ForumAuthor
+    // (Thread's User shape) but this feeds Post.author (numeric trust_level).
+    author: authorFromString(null) as unknown as Post['author'],
     content_raw: p.excerpt,
     content_format: 'plain',
     body: [],

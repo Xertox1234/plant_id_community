@@ -199,7 +199,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       {
         id: 50,
         topic_id: 12,
-        author: { username: 'jdoe', display_name: 'Jane Doe', trust_level: 'member' },
+        author: { username: 'jdoe', display_name: 'Jane Doe', trust_level: 2 },
         body: [{ type: 'paragraph', value: 'hello', id: 'blk-1' }],
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
@@ -225,6 +225,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
     });
     expect(p.author?.username).toBe('jdoe');
     expect(p.author?.display_name).toBe('Jane Doe');
+    expect(p.author?.trust_level).toBe(2);
     expect(p.body).toHaveLength(1);
     expect(p.body?.[0].type).toBe('paragraph');
   });
