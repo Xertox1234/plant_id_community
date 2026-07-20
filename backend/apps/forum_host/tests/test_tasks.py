@@ -1,5 +1,6 @@
-"""Unit tests for forum_host.tasks.send_forum_push (Issue 14) and
-send_forum_email (todo 253 slice 2, H1).
+"""Unit tests for forum_host.tasks: send_forum_push (Issue 14),
+send_forum_push_batch and send_forum_email_batch (todo 268 batched fan-out,
+replacing the removed per-recipient send_forum_email).
 
 All tests mock the FCM client and Firebase availability check so they
 run without Firebase credentials in CI.
@@ -330,7 +331,13 @@ def test_send_forum_push_backoff_countdown_values(prior_retries, expected_countd
     assert mock_retry.call_args.kwargs["countdown"] == expected_countdown
 
 
-# ---- send_forum_email tests (todo 253 slice 2, H1) ---------------------------
+# ---- send_forum_email_batch tests (todo 268 batched fan-out; behavior H1) ----
+#
+# The single-recipient send_forum_email was removed (todo 268): the reply
+# fan-out now enqueues ONE send_forum_email_batch(event, [pks], data) instead
+# of N send_forum_email.delay() calls. These tests call the batch task directly
+# with a single-element recipient list, preserving each original test's
+# discriminating intent.
 #
 # Unlike push, these assert on RENDERED EMAIL CONTENT (mail.outbox[0].subject /
 # .body), not just "an email was sent" — this is the one thing that catches
@@ -386,12 +393,12 @@ def _make_reply(slug_prefix, author=None):
 
 @pytest.mark.django_db
 def test_send_forum_email_sends_reply_notification():
-    from apps.forum_host.tasks import send_forum_email
+    from apps.forum_host.tasks import send_forum_email_batch
     from django.core import mail
 
     topic_author, board, topic, post = _make_reply("emailok")
 
-    send_forum_email("reply_added", topic_author.pk, {"post_id": str(post.pk)})
+    send_forum_email_batch("reply_added", [topic_author.pk], {"post_id": str(post.pk)})
 
     assert len(mail.outbox) == 1
     sent = mail.outbox[0]
@@ -424,33 +431,33 @@ def test_send_forum_email_sends_reply_notification():
 
 @pytest.mark.django_db
 def test_send_forum_email_skips_when_forum_notifications_off():
-    from apps.forum_host.tasks import send_forum_email
+    from apps.forum_host.tasks import send_forum_email_batch
     from django.core import mail
 
     topic_author, _, _, post = _make_reply("emailoptout")
     topic_author.forum_notifications = False
     topic_author.save()
 
-    send_forum_email("reply_added", topic_author.pk, {"post_id": str(post.pk)})
+    send_forum_email_batch("reply_added", [topic_author.pk], {"post_id": str(post.pk)})
 
     assert mail.outbox == []
 
 
 @pytest.mark.django_db
 def test_send_forum_email_skips_for_nonexistent_user():
-    from apps.forum_host.tasks import send_forum_email
+    from apps.forum_host.tasks import send_forum_email_batch
     from django.core import mail
 
     _, _, _, post = _make_reply("emailnouser")
 
-    send_forum_email("reply_added", 999999, {"post_id": str(post.pk)})
+    send_forum_email_batch("reply_added", [999999], {"post_id": str(post.pk)})
 
     assert mail.outbox == []
 
 
 @pytest.mark.django_db
 def test_send_forum_email_skips_when_recipient_has_no_email():
-    from apps.forum_host.tasks import send_forum_email
+    from apps.forum_host.tasks import send_forum_email_batch
     from django.core import mail
 
     topic_author, _, _, post = _make_reply("emailnoaddr")
@@ -461,26 +468,26 @@ def test_send_forum_email_skips_when_recipient_has_no_email():
     # case EmailService.send_email() itself gets wrong — recipients() filters
     # the blank address to zero, email.send() returns 0, but the caller logs
     # "sent successfully" anyway since it never checks the return value).
-    send_forum_email("reply_added", topic_author.pk, {"post_id": str(post.pk)})
+    send_forum_email_batch("reply_added", [topic_author.pk], {"post_id": str(post.pk)})
 
     assert mail.outbox == []
 
 
 @pytest.mark.django_db
 def test_send_forum_email_skips_when_post_not_found():
-    from apps.forum_host.tasks import send_forum_email
+    from apps.forum_host.tasks import send_forum_email_batch
     from django.core import mail
 
     topic_author, _, _, _ = _make_reply("emailnopost")
 
-    send_forum_email("reply_added", topic_author.pk, {"post_id": "999999"})
+    send_forum_email_batch("reply_added", [topic_author.pk], {"post_id": "999999"})
 
     assert mail.outbox == []
 
 
 @pytest.mark.django_db
 def test_send_forum_email_skips_when_post_id_invalid():
-    from apps.forum_host.tasks import send_forum_email
+    from apps.forum_host.tasks import send_forum_email_batch
     from django.core import mail
 
     topic_author, _, _, _ = _make_reply("emailbadid")
@@ -492,30 +499,34 @@ def test_send_forum_email_skips_when_post_id_invalid():
     # int("") raises ValueError; a key present with value None -> int(None)
     # raises TypeError (dict.get's default only applies when the key is
     # ABSENT, not when its value is None).
-    send_forum_email("reply_added", topic_author.pk, {})
-    send_forum_email("reply_added", topic_author.pk, {"post_id": "not-a-number"})
-    send_forum_email("reply_added", topic_author.pk, {"post_id": None})
+    send_forum_email_batch("reply_added", [topic_author.pk], {})
+    send_forum_email_batch(
+        "reply_added", [topic_author.pk], {"post_id": "not-a-number"}
+    )
+    send_forum_email_batch("reply_added", [topic_author.pk], {"post_id": None})
 
     assert mail.outbox == []
 
 
 @pytest.mark.django_db
 def test_send_forum_email_skips_unimplemented_event():
-    from apps.forum_host.tasks import send_forum_email
+    from apps.forum_host.tasks import send_forum_email_batch
     from django.core import mail
 
     topic_author, _, _, post = _make_reply("emailunimpl")
 
     # mention/moderation/digest emails are later slices of todo 253 — the
     # task must no-op, not crash, until they're wired.
-    send_forum_email("mention_added", topic_author.pk, {"post_id": str(post.pk)})
+    send_forum_email_batch(
+        "mention_added", [topic_author.pk], {"post_id": str(post.pk)}
+    )
 
     assert mail.outbox == []
 
 
 @pytest.mark.django_db
 def test_send_forum_email_deleted_author_renders_bracket_deleted():
-    from apps.forum_host.tasks import send_forum_email
+    from apps.forum_host.tasks import send_forum_email_batch
     from django.core import mail
 
     topic_author, _, _, post = _make_reply("emaildeleted")
@@ -524,7 +535,7 @@ def test_send_forum_email_deleted_author_renders_bracket_deleted():
     post.author = None
     post.save()
 
-    send_forum_email("reply_added", topic_author.pk, {"post_id": str(post.pk)})
+    send_forum_email_batch("reply_added", [topic_author.pk], {"post_id": str(post.pk)})
 
     assert len(mail.outbox) == 1
     assert "[deleted]" in mail.outbox[0].body
@@ -540,7 +551,7 @@ def test_send_forum_email_retries_on_transient_db_error():
     isn't dead config, the exact gap flagged when the original broad
     try/except/self.retry() wrapper (which only ever wrapped the swallow-all
     send call) was removed as untested dead code."""
-    from apps.forum_host.tasks import send_forum_email
+    from apps.forum_host.tasks import send_forum_email_batch
     from django.db import OperationalError
 
     topic_author, _, _, post = _make_reply("emaildberror")
@@ -548,10 +559,191 @@ def test_send_forum_email_retries_on_transient_db_error():
     with patch.object(
         Post.objects, "select_related", side_effect=OperationalError("connection lost")
     ) as mock_select_related:
-        result = send_forum_email.apply(
-            args=("reply_added", topic_author.pk, {"post_id": str(post.pk)})
+        result = send_forum_email_batch.apply(
+            args=("reply_added", [topic_author.pk], {"post_id": str(post.pk)})
         )
 
     assert mock_select_related.call_count == 4  # initial attempt + max_retries=3
     assert result.status == "FAILURE"
     assert isinstance(result.result, OperationalError)
+
+
+# ---- send_forum_push_batch tests (todo 268 batched fan-out) ------------------
+#
+# The batch variant fans one FCM push out to many recipients from a SINGLE
+# enqueue: one bulk ForumProfile fetch, then a server-side send loop. A
+# per-recipient TRANSIENT failure is handed off to the retry-capable
+# single-recipient send_forum_push task (not a whole-batch retry, which would
+# re-send to everyone); a PERMANENT failure is dropped, same as the single task.
+
+
+@pytest.mark.django_db
+def test_send_forum_push_batch_sends_to_each_recipient_from_one_bulk_fetch():
+    """One enqueue → one FCM send per recipient, and the DB fetch does NOT
+    scale with recipient count (the whole point of batching: a single
+    select_related profile fetch instead of N per-recipient lookups). Proven
+    by comparing N=1 vs N=5 — sends scale with N, DB queries do not."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    def _run_batch(n, slug):
+        recipient_pks = []
+        for i in range(n):
+            u = User.objects.create_user(username=f"batchsend-{slug}-{i}")
+            profile = ForumProfile.for_user(u)
+            profile.fcm_token = f"token-{slug}-{i}"
+            profile.save()
+            recipient_pks.append(u.pk)
+
+        mock_fcm = MagicMock()
+        mock_fcm.send.return_value = "ok"
+
+        with patch(
+            "apps.garden.firebase_config.is_firebase_available", return_value=True
+        ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+            from apps.forum_host.tasks import send_forum_push_batch
+
+            with CaptureQueriesContext(connection) as ctx:
+                send_forum_push_batch(
+                    "reply_added",
+                    recipient_pks,
+                    {"topic_id": "1", "topic_title": "Hi"},
+                )
+
+        sent_tokens = {c.kwargs["token"] for c in mock_fcm.Message.call_args_list}
+        return mock_fcm.send.call_count, len(ctx.captured_queries), sent_tokens
+
+    sends_1, queries_1, tokens_1 = _run_batch(1, "one")
+    sends_5, queries_5, tokens_5 = _run_batch(5, "five")
+
+    # One FCM send per recipient — sends scale with the recipient list.
+    assert sends_1 == 1
+    assert sends_5 == 5
+    assert tokens_1 == {"token-one-0"}
+    assert tokens_5 == {f"token-five-{i}" for i in range(5)}
+    # ...but the DB fetch is a single bulk query regardless of N (select_related
+    # on the profile's user; no per-recipient lookup).
+    assert queries_1 == queries_5
+
+
+@pytest.mark.django_db
+def test_send_forum_push_batch_skips_recipients_without_token():
+    """A recipient with no FCM token is silently skipped inside the batch loop
+    — only the tokened recipient gets a send."""
+    with_token = User.objects.create_user(username="batch-hastoken")
+    profile = ForumProfile.for_user(with_token)
+    profile.fcm_token = "real-token"
+    profile.save()
+
+    no_token = User.objects.create_user(username="batch-notoken")
+    ForumProfile.for_user(no_token)  # fcm_token="" by default
+
+    mock_fcm = MagicMock()
+    mock_fcm.send.return_value = "ok"
+
+    with patch(
+        "apps.garden.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+        from apps.forum_host.tasks import send_forum_push_batch
+
+        send_forum_push_batch(
+            "reply_added", [with_token.pk, no_token.pk], {"topic_id": "1"}
+        )
+
+    mock_fcm.send.assert_called_once()
+    assert mock_fcm.Message.call_args.kwargs["token"] == "real-token"
+
+
+@pytest.mark.django_db
+def test_send_forum_push_batch_skips_forum_notifications_off_recipients():
+    """A recipient who has turned forum_notifications off is skipped inside the
+    batch loop even though they have a token — only the opted-in user gets a
+    send (mirrors the single task's gate, applied per-recipient in the batch)."""
+    opted_in = User.objects.create_user(username="batch-optin")
+    profile_in = ForumProfile.for_user(opted_in)
+    profile_in.fcm_token = "optin-token"
+    profile_in.save()
+
+    opted_out = User.objects.create_user(username="batch-optout")
+    opted_out.forum_notifications = False
+    opted_out.save()
+    profile_out = ForumProfile.for_user(opted_out)
+    profile_out.fcm_token = "optout-token"
+    profile_out.save()
+
+    mock_fcm = MagicMock()
+    mock_fcm.send.return_value = "ok"
+
+    with patch(
+        "apps.garden.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm):
+        from apps.forum_host.tasks import send_forum_push_batch
+
+        send_forum_push_batch(
+            "reply_added", [opted_in.pk, opted_out.pk], {"topic_id": "1"}
+        )
+
+    mock_fcm.send.assert_called_once()
+    assert mock_fcm.Message.call_args.kwargs["token"] == "optin-token"
+
+
+@pytest.mark.django_db
+def test_send_forum_push_batch_re_enqueues_single_on_transient_error():
+    """A per-recipient TRANSIENT FCM failure must be handed off to the
+    retry-capable single-recipient send_forum_push task — NOT retried as a
+    whole batch (which would re-send to every recipient). The re-enqueue must
+    target the failed user's pk and carry the ORIGINAL data dict (send_forum_push
+    coerces to str itself)."""
+    from firebase_admin import exceptions as fb_exceptions
+
+    user = User.objects.create_user(username="batch-transient")
+    profile = ForumProfile.for_user(user)
+    profile.fcm_token = "live-token"
+    profile.save()
+
+    data = {"topic_id": "1", "topic_title": "Hi"}
+
+    mock_fcm = MagicMock()
+    mock_fcm.send.side_effect = fb_exceptions.UnavailableError("FCM backend down")
+
+    with patch(
+        "apps.garden.firebase_config.is_firebase_available", return_value=True
+    ), patch(
+        "apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm
+    ), patch(
+        "apps.forum_host.tasks.send_forum_push.delay"
+    ) as mock_single:
+        from apps.forum_host.tasks import send_forum_push_batch
+
+        send_forum_push_batch("reply_added", [user.pk], data)
+
+    mock_single.assert_called_once_with("reply_added", user.pk, data)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("exc", _permanent_fcm_errors(), ids=lambda e: type(e).__name__)
+def test_send_forum_push_batch_does_not_re_enqueue_on_permanent_error(exc):
+    """A per-recipient PERMANENT FCM failure (stale token, malformed message)
+    can never succeed on retry — the batch drops it and must NOT re-enqueue the
+    single-recipient task (uses the same permanent-error classes as the single
+    task's permanent-error test)."""
+    user = User.objects.create_user(username=f"batch-perm-{type(exc).__name__.lower()}")
+    profile = ForumProfile.for_user(user)
+    profile.fcm_token = "dead-token"
+    profile.save()
+
+    mock_fcm = MagicMock()
+    mock_fcm.send.side_effect = exc
+
+    with patch(
+        "apps.garden.firebase_config.is_firebase_available", return_value=True
+    ), patch(
+        "apps.garden.firebase_config.get_fcm_client", return_value=mock_fcm
+    ), patch(
+        "apps.forum_host.tasks.send_forum_push.delay"
+    ) as mock_single:
+        from apps.forum_host.tasks import send_forum_push_batch
+
+        send_forum_push_batch("reply_added", [user.pk], {"topic_id": "1"})
+
+    mock_single.assert_not_called()

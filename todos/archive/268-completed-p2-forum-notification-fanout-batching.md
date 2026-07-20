@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "268"
 tags: [backend, celery, forum, notifications, performance]
@@ -56,10 +56,10 @@ Deliberately deferred out of the slice-3 diff rather than fixed inline: a proper
 
 ## Acceptance Criteria
 
-- [ ] A reply to a topic with N subscribers enqueues a constant number of Celery tasks (not 2N)
-- [ ] Worker-side batch handlers do one bulk fetch per event, not one per recipient
-- [ ] A test pins the enqueue-call-count invariant across varying subscriber counts (e.g., 1 vs. 50)
-- [ ] `moderation_decided`'s task-call shape is either left as-is (documented why) or migrated to the same batch tasks
+- [x] A reply to a topic with N subscribers enqueues a constant number of Celery tasks (not 2N)
+- [x] Worker-side batch handlers do one bulk fetch per event, not one per recipient
+- [x] A test pins the enqueue-call-count invariant across varying subscriber counts (e.g., 1 vs. 50)
+- [x] `moderation_decided`'s task-call shape is either left as-is (documented why) or migrated to the same batch tasks
 
 ## Work Log
 
@@ -72,6 +72,71 @@ Deliberately deferred out of the slice-3 diff rather than fixed inline: a proper
   `send_forum_email` signatures shared with the untouched `moderation_decided`
   path, which is out of proportion for a slice scoped to fan-out
   *correctness*, not delivery-path performance.
+
+### 2026-07-20 - Implemented (completing-todos run 2026-07-20-1615)
+
+- Branch `todo-268-notification-fanout-batching` off fresh `main` (@c89c99e,
+  after todo 269 / PR #475 merged).
+- **AC1** — added `send_forum_push_batch(event, recipient_user_ids, data)` and
+  `send_forum_email_batch(...)` to `apps/forum_host/tasks.py`; `dispatch()`'s
+  `reply_added` branch (and the shared mention path, reused by `topic_created`)
+  now enqueues ONE `send_forum_push_batch.delay` for reply recipients, ONE for
+  mentions, and ONE `send_forum_email_batch.delay` — constant enqueue count
+  regardless of subscriber count, instead of one `.delay()` per recipient
+  blocking the request thread. Pinned by
+  `test_reply_added_enqueue_count_is_constant_regardless_of_subscriber_count`
+  (N=1 vs N=50 → identical `call_count == 1`, and the single recipient-list arg
+  carries all 50 pks — batched, not dropped).
+- **AC2** — the batch tasks do one bulk fetch: push does a single
+  `ForumProfile.objects.filter(user_id__in=…).select_related("user")`; email
+  fetches the Post once + one `User.objects.filter(pk__in=…)`. Pinned by
+  `test_send_forum_push_batch_sends_to_each_recipient_from_one_bulk_fetch`
+  (`CaptureQueriesContext`: `queries_1 == queries_5` while `sends` scale 1→5).
+- **AC3** — the invariant test above (N-independent enqueue count) is the
+  load-bearing pin.
+- **AC4 — `moderation_decided` left as-is on the single-recipient
+  `send_forum_push`** (a single author recipient — no fan-out to batch). This
+  keeps `send_forum_push` (single) a live task, which also serves as the
+  batch's transient-FCM-error re-enqueue target (per-recipient transient
+  failures hand off to the retry-capable single task rather than retrying — and
+  re-sending — the whole batch). The now-callerless `send_forum_email` (single)
+  was REMOVED and its coverage migrated to `send_forum_email_batch`.
+- Retry safety: `send_forum_email_batch` fetches Post + users up front so
+  `autoretry_for=(OperationalError,)` can only fire pre-send — email has no
+  collapse-key dedup, so a partial-send retry would double-email. (Note: this
+  leans on `EmailService.send_email()` never raising — the exact behavior todo
+  267 changes next; flagged so 267 doesn't silently break this.)
+- Extracted `_send_fcm_message()` so the collapse-key/notification-hybrid build
+  can't drift between the single and batch push tasks.
+- Tests: migrated 17 `test_signals.py` tests + 9 `test_tasks.py` email tests to
+  the batch shape (recipient arg is now a pk LIST; moderation tests untouched),
+  added the invariant test + 5 `send_forum_push_batch` unit tests. Full
+  `apps/forum_host/` suite: **103 passed** on a fresh DB; `manage.py check`
+  clean.
+
+### 2026-07-20 - Reviewed (code-review-orchestrator, run 2026-07-20-1615)
+
+- All four focus areas PASS (retry correctness, behavior parity, on_commit/txn
+  semantics, test quality). 0 blocking. 2 low/info, both accepted:
+  - Batch variants drop the per-recipient debug skip logs the single task
+    emitted (no-token / notifications-off / user-not-found). No functional
+    impact; per-recipient debug logging in a batch would be noise. Accepted.
+  - The batch push reads only EXISTING `ForumProfile` rows
+    (`filter(user_id__in=…)`) rather than calling `ForumProfile.for_user()`
+    per recipient (get-or-create). A tokenless user is skipped either way (no
+    push lost), but the batch no longer creates an empty profile as a
+    push-delivery side effect — which is actually the exact side effect todo
+    271 #1 flags (profile creation on push delivery stamps `read_watermark_at`
+    and collapses the user's unread backlog). Neutral-to-positive, documented.
+
+### 2026-07-20 - Completed by completing-todos skill (run 2026-07-20-1615)
+
+- Verification: all 4 acceptance criteria passed with quoted evidence above
+  (103 forum_host tests pass on a fresh DB; invariant + bulk-fetch tests pin
+  the batching).
+- Review: code-review-orchestrator — 0 blocking, 2 low/info accepted.
+- Landing on branch `todo-268-notification-fanout-batching`; per-todo PR to
+  follow.
 
 ## Notes
 
