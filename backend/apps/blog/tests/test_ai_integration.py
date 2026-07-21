@@ -193,7 +193,7 @@ class BlogAIIntegrationTestCase(TestCase):
 
         # Exhaust rate limit
         for _ in range(AIRateLimiter.USER_LIMIT):
-            AIRateLimiter.check_user_limit(self.user.id, is_staff=False)
+            AIRateLimiter.check_user_limit(self.user.id, has_premium=False)
 
         # Next call should fail
         result = BlogAIIntegration.generate_content("title", context, self.user)
@@ -348,12 +348,12 @@ class GenerateBlogFieldContentAPITestCase(TestCase):
 
         def side_effect(*args, **kwargs):
             call_count[0] += 1
-            if call_count[0] <= AIRateLimiter.STAFF_LIMIT:
+            if call_count[0] <= AIRateLimiter.PREMIUM_LIMIT:
                 return {
                     "success": True,
                     "content": "Generated",
                     "cached": False,
-                    "remaining_calls": AIRateLimiter.STAFF_LIMIT - call_count[0],
+                    "remaining_calls": AIRateLimiter.PREMIUM_LIMIT - call_count[0],
                 }
             else:
                 return {
@@ -369,12 +369,12 @@ class GenerateBlogFieldContentAPITestCase(TestCase):
         data = {"field_name": "title", "context": {}}
 
         # Exhaust rate limit
-        for i in range(AIRateLimiter.STAFF_LIMIT + 1):
+        for i in range(AIRateLimiter.PREMIUM_LIMIT + 1):
             response = self.client.post(
                 self.get_url(), data=json.dumps(data), content_type="application/json"
             )
 
-            if i < AIRateLimiter.STAFF_LIMIT:
+            if i < AIRateLimiter.PREMIUM_LIMIT:
                 self.assertEqual(response.status_code, 200)
             else:
                 # Last call should be rate limited
@@ -506,8 +506,8 @@ class GenerateAiContentViewTestCase(TestCase):
         self.client.force_login(self.staff_user)
         payload = {"plant_name": "Monstera", "content_type": "description"}
 
-        # The staff quota allows STAFF_LIMIT calls; the next one is rejected.
-        for _ in range(AIRateLimiter.STAFF_LIMIT):
+        # The staff quota allows PREMIUM_LIMIT calls; the next one is rejected.
+        for _ in range(AIRateLimiter.PREMIUM_LIMIT):
             self.assertEqual(self._post(payload).status_code, 200)
 
         throttled = self._post(payload)

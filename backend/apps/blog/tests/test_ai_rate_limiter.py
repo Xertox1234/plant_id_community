@@ -33,7 +33,7 @@ class AIRateLimiterTestCase(TestCase):
 
     def test_user_within_limit_allows_call(self):
         """Test that user within limit is allowed to make AI calls."""
-        result = AIRateLimiter.check_user_limit(self.user.id, is_staff=False)
+        result = AIRateLimiter.check_user_limit(self.user.id, has_premium=False)
 
         self.assertTrue(result)
 
@@ -41,23 +41,50 @@ class AIRateLimiterTestCase(TestCase):
         """Test that user exceeding limit is blocked."""
         # Make USER_LIMIT calls (default: 10)
         for _ in range(AIRateLimiter.USER_LIMIT):
-            result = AIRateLimiter.check_user_limit(self.user.id, is_staff=False)
+            result = AIRateLimiter.check_user_limit(self.user.id, has_premium=False)
             self.assertTrue(result)
 
         # Next call should be blocked
-        result = AIRateLimiter.check_user_limit(self.user.id, is_staff=False)
+        result = AIRateLimiter.check_user_limit(self.user.id, has_premium=False)
         self.assertFalse(result)
 
-    def test_staff_user_has_elevated_limit(self):
-        """Test that staff users have elevated rate limits."""
-        # Staff limit is 50, regular is 10
-        self.assertEqual(AIRateLimiter.STAFF_LIMIT, 50)
+    def test_premium_user_has_elevated_limit(self):
+        """Test that premium entitlement grants an elevated rate limit."""
+        # Premium limit is 50, regular is 10
+        self.assertEqual(AIRateLimiter.PREMIUM_LIMIT, 50)
         self.assertEqual(AIRateLimiter.USER_LIMIT, 10)
 
-        # Staff user should be able to make more calls
+        # A premium user should be able to make more than the free limit
         for _ in range(AIRateLimiter.USER_LIMIT + 1):
-            result = AIRateLimiter.check_user_limit(self.staff_user.id, is_staff=True)
-            self.assertTrue(result)  # Still within staff limit
+            result = AIRateLimiter.check_user_limit(
+                self.staff_user.id, has_premium=True
+            )
+            self.assertTrue(result)  # Still within premium limit
+
+    def test_staff_user_gets_premium_limit_through_decorator(self):
+        """Regression guard: a non-premium staff user still gets PREMIUM_LIMIT.
+
+        The rate limiter no longer branches on ``is_staff`` directly — the
+        decorator computes ``user.has_premium_access()``, which grants staff
+        premium-equivalent access implicitly. Without this, migrating off the
+        is_staff proxy would silently drop staff from 50 to 10 calls/hour on
+        the staff-only AI endpoints.
+        """
+        factory = RequestFactory()
+
+        @ai_rate_limit
+        def test_view(request):
+            return HttpResponse("Success")
+
+        # Staff, but explicitly NOT premium.
+        self.assertFalse(self.staff_user.is_premium)
+        request = factory.get("/")
+        request.user = self.staff_user
+
+        # More than USER_LIMIT (10) but within PREMIUM_LIMIT (50) — all allowed.
+        for _ in range(AIRateLimiter.USER_LIMIT + 1):
+            response = test_view(request)
+            self.assertEqual(response.status_code, 200)
 
     def test_global_limit_enforcement(self):
         """Test that global rate limit is enforced."""
@@ -87,7 +114,7 @@ class AIRateLimiterTestCase(TestCase):
     def test_get_remaining_calls_accuracy(self):
         """Test that get_remaining_calls returns accurate count."""
         # Initially should have full limit
-        remaining = AIRateLimiter.get_remaining_calls(self.user.id, is_staff=False)
+        remaining = AIRateLimiter.get_remaining_calls(self.user.id, has_premium=False)
         self.assertEqual(remaining, AIRateLimiter.USER_LIMIT)
 
         # Make 5 calls
@@ -95,7 +122,7 @@ class AIRateLimiterTestCase(TestCase):
             AIRateLimiter.check_user_limit(self.user.id)
 
         # Should have 5 remaining
-        remaining = AIRateLimiter.get_remaining_calls(self.user.id, is_staff=False)
+        remaining = AIRateLimiter.get_remaining_calls(self.user.id, has_premium=False)
         self.assertEqual(remaining, AIRateLimiter.USER_LIMIT - 5)
 
     def test_reset_user_limit_clears_counter(self):

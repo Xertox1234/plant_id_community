@@ -319,12 +319,18 @@ class BlogAIIntegration:
         # Check rate limits
         if user:
             user_id = user.id if hasattr(user, "id") else 0
-            is_staff = user.is_staff if hasattr(user, "is_staff") else False
+            has_premium = (
+                user.has_premium_access()
+                if hasattr(user, "has_premium_access")
+                else False
+            )
 
-            if not AIRateLimiter.check_user_limit(user_id, is_staff):
-                remaining = AIRateLimiter.get_remaining_calls(user_id, is_staff)
+            if not AIRateLimiter.check_user_limit(user_id, has_premium):
+                remaining = AIRateLimiter.get_remaining_calls(user_id, has_premium)
                 limit = (
-                    AIRateLimiter.STAFF_LIMIT if is_staff else AIRateLimiter.USER_LIMIT
+                    AIRateLimiter.PREMIUM_LIMIT
+                    if has_premium
+                    else AIRateLimiter.USER_LIMIT
                 )
                 return {
                     "success": False,
@@ -357,7 +363,7 @@ class BlogAIIntegration:
         cached_response = AICacheService.get_cached_response(field_name, prompt)
         if cached_response:
             remaining = AIRateLimiter.get_remaining_calls(
-                user_id if user else 0, is_staff if user else False
+                user_id if user else 0, has_premium if user else False
             )
             return {
                 "success": True,
@@ -398,7 +404,7 @@ class BlogAIIntegration:
             AICacheService.set_cached_response(field_name, prompt, response)
 
             remaining = AIRateLimiter.get_remaining_calls(
-                user_id if user else 0, is_staff if user else False
+                user_id if user else 0, has_premium if user else False
             )
 
             # Log success metrics
@@ -427,7 +433,7 @@ class BlogAIIntegration:
                 extra={
                     "field_name": field_name,
                     "user_id": user_id if user else 0,
-                    "is_staff": is_staff if user else False,
+                    "has_premium": has_premium if user else False,
                     "prompt_length": len(prompt),
                     "error_type": type(e).__name__,
                 },

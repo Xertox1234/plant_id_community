@@ -299,7 +299,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #H9 seo-surface → todo 256
 - [ ] #H10 unread-indicators → todo 253
 - [ ] #H11 mobile-forum-client → todo 260
-- [ ] #H12 entitlement-primitive → todo 255
+- [x] #H12 entitlement-primitive → todo 255 (completed 2026-07-20, slice 1)
 - [ ] #H13 llm-spam-prescreen → todo 255
 - [ ] #H14 ai-thread-summarization → todo 255
 - [ ] #H15 semantic-similar-topics → todo 255
@@ -349,8 +349,8 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #L2 onboarding-empty-states → todo 259
 - [ ] #L4 markdown-board-picker → todo 259
 - [ ] #L5 badges-gamification → todo 257
-- [ ] #L6 blog-md-doc-drift → todo 255
-- [ ] #L7 openai-key-ops-check → todo 255
+- [x] #L6 blog-md-doc-drift → todo 255 (completed 2026-07-20, slice 1)
+- [x] #L7 openai-key-ops-check → todo 255 (completed 2026-07-20, slice 1)
 - [ ] #L8 autocomplete-typeahead → todo 256
 - [ ] #L10 toolbar-tap-targets → todo 259
 - [ ] #L11 button-busy-state → todo 259

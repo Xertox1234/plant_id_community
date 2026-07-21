@@ -39,29 +39,33 @@ class AIRateLimiter:
     # Rate limit thresholds
     USER_LIMIT = 10  # calls per hour
     GLOBAL_LIMIT = 100  # calls per hour
-    STAFF_LIMIT = 50  # calls per hour (elevated for staff)
+    PREMIUM_LIMIT = 50  # calls per hour (elevated for premium entitlement)
     TTL = 3600  # 1 hour in seconds
 
     @classmethod
-    def check_user_limit(cls, user_id: int, is_staff: bool = False) -> bool:
+    def check_user_limit(cls, user_id: int, has_premium: bool = False) -> bool:
         """
         Check if user has exceeded their AI quota.
 
         Args:
             user_id: User ID to check
-            is_staff: Whether user is staff (gets elevated limit)
+            has_premium: Whether user has premium entitlement (elevated limit).
+                Compute via ``user.has_premium_access()`` — it grants staff and
+                superusers premium-equivalent access implicitly.
 
         Returns:
             True if within limit, False if rate limit exceeded
 
         Example:
-            if not AIRateLimiter.check_user_limit(request.user.id, request.user.is_staff):
+            if not AIRateLimiter.check_user_limit(
+                request.user.id, request.user.has_premium_access()
+            ):
                 return HttpResponse("Rate limit exceeded", status=429)
         """
         cache_key = f"ai_rate_limit:user:{user_id}"
         calls = cache.get(cache_key, 0)
 
-        limit = cls.STAFF_LIMIT if is_staff else cls.USER_LIMIT
+        limit = cls.PREMIUM_LIMIT if has_premium else cls.USER_LIMIT
 
         if calls >= limit:
             logger.warning(
@@ -107,25 +111,27 @@ class AIRateLimiter:
         return True
 
     @classmethod
-    def get_remaining_calls(cls, user_id: int, is_staff: bool = False) -> int:
+    def get_remaining_calls(cls, user_id: int, has_premium: bool = False) -> int:
         """
         Get remaining AI calls for user.
 
         Args:
             user_id: User ID to check
-            is_staff: Whether user is staff
+            has_premium: Whether user has premium entitlement (elevated limit)
 
         Returns:
             Number of remaining calls in current hour
 
         Example:
-            remaining = AIRateLimiter.get_remaining_calls(user.id, user.is_staff)
+            remaining = AIRateLimiter.get_remaining_calls(
+                user.id, user.has_premium_access()
+            )
             print(f"You have {remaining} AI calls remaining this hour")
         """
         cache_key = f"ai_rate_limit:user:{user_id}"
         calls = cache.get(cache_key, 0)
 
-        limit = cls.STAFF_LIMIT if is_staff else cls.USER_LIMIT
+        limit = cls.PREMIUM_LIMIT if has_premium else cls.USER_LIMIT
 
         return max(0, limit - calls)
 
@@ -178,11 +184,17 @@ def ai_rate_limit(func):
     @wraps(func)
     def wrapper(request, *args, **kwargs):
         user_id = request.user.id if request.user.is_authenticated else 0
-        is_staff = request.user.is_staff if request.user.is_authenticated else False
+        has_premium = (
+            request.user.has_premium_access()
+            if request.user.is_authenticated
+            else False
+        )
 
         # Check user-specific limit
-        if not AIRateLimiter.check_user_limit(user_id, is_staff):
-            limit = AIRateLimiter.STAFF_LIMIT if is_staff else AIRateLimiter.USER_LIMIT
+        if not AIRateLimiter.check_user_limit(user_id, has_premium):
+            limit = (
+                AIRateLimiter.PREMIUM_LIMIT if has_premium else AIRateLimiter.USER_LIMIT
+            )
             return HttpResponse(
                 f"AI rate limit exceeded. You can make {limit} requests per hour. "
                 f"Please try again later.",
@@ -218,11 +230,17 @@ def ai_rate_limit_async(func):
     @wraps(func)
     async def wrapper(request, *args, **kwargs):
         user_id = request.user.id if request.user.is_authenticated else 0
-        is_staff = request.user.is_staff if request.user.is_authenticated else False
+        has_premium = (
+            request.user.has_premium_access()
+            if request.user.is_authenticated
+            else False
+        )
 
         # Check user-specific limit
-        if not AIRateLimiter.check_user_limit(user_id, is_staff):
-            limit = AIRateLimiter.STAFF_LIMIT if is_staff else AIRateLimiter.USER_LIMIT
+        if not AIRateLimiter.check_user_limit(user_id, has_premium):
+            limit = (
+                AIRateLimiter.PREMIUM_LIMIT if has_premium else AIRateLimiter.USER_LIMIT
+            )
             return HttpResponse(
                 f"AI rate limit exceeded. You can make {limit} requests per hour. "
                 f"Please try again later.",

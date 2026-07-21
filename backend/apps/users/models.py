@@ -226,6 +226,12 @@ class User(AbstractUser):
         help_text="Last time trust level was recalculated",
     )
 
+    # Premium entitlement for AI features
+    is_premium = models.BooleanField(
+        default=False,
+        help_text="Premium entitlement gating AI features (thread summaries, etc.)",
+    )
+
     # Generic created/updated timestamps for API parity
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -287,6 +293,14 @@ class User(AbstractUser):
 
         # Basic trust level and above can upload images
         return self.trust_level in ["basic", "trusted", "veteran"]
+
+    def has_premium_access(self) -> bool:
+        """Premium entitlement gate for AI features.
+
+        Staff and superusers are granted premium access implicitly so their
+        elevated quotas/permissions are preserved without a separate flag.
+        """
+        return self.is_premium or self.is_staff or self.is_superuser
 
 
 class UserPlantCollection(models.Model):
