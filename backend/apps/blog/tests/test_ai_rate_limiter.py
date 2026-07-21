@@ -54,11 +54,15 @@ class AIRateLimiterTestCase(TestCase):
         self.assertEqual(AIRateLimiter.PREMIUM_LIMIT, 50)
         self.assertEqual(AIRateLimiter.USER_LIMIT, 10)
 
-        # A premium user should be able to make more than the free limit
+        # A non-staff premium user, resolved through the real entitlement helper
+        # (isolates the premium path from the staff path).
+        premium_user = User.objects.create_user(username="premiumuser", is_premium=True)
+        self.assertFalse(premium_user.is_staff)
+        has_premium = premium_user.has_premium_access()
+
+        # Should be able to make more than the free limit.
         for _ in range(AIRateLimiter.USER_LIMIT + 1):
-            result = AIRateLimiter.check_user_limit(
-                self.staff_user.id, has_premium=True
-            )
+            result = AIRateLimiter.check_user_limit(premium_user.id, has_premium)
             self.assertTrue(result)  # Still within premium limit
 
     def test_staff_user_gets_premium_limit_through_decorator(self):
