@@ -108,3 +108,32 @@ POST's existing author, not "any image a privileged user chooses" — a
 moderator cannot smuggle in a *different*, unrelated member's image while
 editing someone else's post (pinned by
 `test_moderator_edit_cannot_smuggle_in_a_different_members_image`).
+
+## LLM spam backend (optional, host-side — todo 255 slice 2 / H13)
+
+The package ships one spam check (`HeuristicSpamBackend`: banned words + link
+count) and a one-setting swap, `WAGTAILFORUM_SPAM_BACKEND`. `apps/forum_host/`
+adds `LLMSpamBackend` (`apps/forum_host/spam.py`), a **heuristic-first
+composite** that screens what the heuristic passes through `generate_ai_text()`.
+It ships **dormant** — enable per-environment with:
+
+    WAGTAILFORUM_SPAM_BACKEND=apps.forum_host.spam.LLMSpamBackend
+
+(requires a working `OPENAI_API_KEY`.)
+
+`check()` runs synchronously inside the moderation workflow's
+`@transaction.atomic` publish path, so the LLM call is bounded by a hard
+wall-clock timeout (`SPAM_LLM_TIMEOUT_SECONDS`, a `ThreadPoolExecutor` +
+`future.result(timeout=…)`). Two deliberate, distinct failure postures:
+
+- **Provider failure** (timeout / exception / unparseable reply) → **fail
+  closed**: returns a rejected `SpamResult` so the post follows the same
+  reject → pending-draft path a heuristic flag takes (a normal `reject`, not a
+  raise — a raise would roll the workflow back into a limbo draft with no
+  moderation-queue entry). Matches `workflow.py`'s "FAIL CLOSED" posture.
+- **Global AI budget exhausted** (`AIRateLimiter.check_global_limit()`) →
+  **degrade to heuristic** (publish): a cost decision, not an outage.
+
+Definitive `CLEAN`/`SPAM` verdicts are cached in Redis by
+`sha256(text)` + prompt version; transient failures are never cached. All
+tunables live in `apps/forum_host/constants.py` (`SPAM_LLM_*`).
