@@ -67,15 +67,18 @@ Phased to ship value early:
 - [ ] Delta sync consumes `/sync/` including tombstoned deletions (test with
       fake backend fixtures)
 - [ ] Reply/create retries are idempotent; pending-moderation surfaced in UI
-- [ ] Device registers an FCM token and receives a forum push end-to-end
-      — registration half DONE by todo 253 slice 6 (live-verified); the
-      Firebase service-account key is now PLACED and the credential PROVEN
-      (2026-07-20, see todo 253 work log — firebase_admin authenticates to
-      FCM with the real Certificate and messaging.send() round-trips). The
-      receives-a-push half now needs only this rebuilt mobile client to mint
-      a FRESH token (the slice-6 test tokens have gone stale/NotRegistered),
-      then the slice-6 runbook delivers. Completing this AC here also
-      satisfies todo 253's AC6.
+- [x] Device registers an FCM token and receives a forum push end-to-end
+      — PROVEN 2026-07-22 (see todo 253 Work Log 2026-07-22). On an Android
+      emulator: a fresh 142-char token registered via the real auth+PATCH
+      chain, a genuine `reply_added` publish sent through
+      `send_forum_push_batch` → `messaging.send()` (real Certificate,
+      returned a real FCM message id, not `NotRegistered`), and the
+      notification was RECEIVED + rendered in the device tray (`dumpsys
+      notification` record + screenshot). This also satisfied todo 253's AC6.
+      NB: verified with a throwaway `flutter run` harness
+      (`tool/fcm_e2e_hold.dart`) since `flutter test` uninstalls the app on
+      teardown and invalidates the token; this todo's own native forum UI +
+      push-tap deep-linking are still open below.
 - [ ] `flutter analyze` + `flutter test` green including regenerated codegen
 
 ## Work Log
