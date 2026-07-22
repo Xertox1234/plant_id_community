@@ -130,6 +130,21 @@ Spec: `docs/superpowers/specs/2026-07-21-forum-llm-spam-backend-design.md`.
     budget cap → **degrade to heuristic** (publish; cost decision, not outage).
 - Verified: `manage.py check` clean, `spectacular` OK, `makemigrations --check`
   no changes, `apps.forum_host` + package `test_spam` suites pass.
+- **Post-review hardening (folded in before PR):** CLEAN verdict now requires an
+  exact one-word match (a `CLEANLY …` lookalike fails closed — the one unsafe
+  parse direction); the whole post-heuristic screening block (Redis cache read,
+  budget check, provider call, cache write) fails closed via a returned reject on
+  ANY fault incl. a Redis outage, never a raise into the atomic path; timeout logs
+  at warning (no per-post traceback); verdict-cache-write failures no longer
+  discard a computed verdict. +3 tests (14 total).
+- **H13 follow-up before the setting is ever ENABLED (not blocking the dormant
+  merge):** a *sustained* LLM outage burns the shared global AI budget via failed
+  attempts, because `AIRateLimiter.check_global_limit()` check-and-increments
+  BEFORE the call. After ~`GLOBAL_LIMIT` failures the posture flips fail-closed
+  (hold) → degrade-to-heuristic (publish LLM-unscreened), and the flip is *sticky*
+  (every increment resets the 1h TTL; forum + blog share `ai_rate_limit:global`).
+  Fix before enabling: don't count failed attempts against the budget, and
+  consider a forum-specific budget key decoupled from the blog AI counter.
 - **Deferred (todo stays in_progress):** H14 summary endpoint (gate via
   `IsPremiumUser` from slice 1), H15 similar-topics (Railway pgvector precheck),
   M12/M14, M13 RAG (last).
