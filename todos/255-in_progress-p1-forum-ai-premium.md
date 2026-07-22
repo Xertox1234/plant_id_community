@@ -97,8 +97,9 @@ Sequence (dependency-ordered):
 - [x] Production `OPENAI_API_KEY` presence verified/documented before any AI
       feature ships (L7) — slice 1, 2026-07-20: present on Railway service
       `plant_id_community` (164-char `sk-` key)
-- [ ] LLM spam backend runs behind the one-setting swap with timeout +
+- [x] LLM spam backend runs behind the one-setting swap with timeout +
       heuristic fallback — publish path never blocks on provider outage (tested)
+      — slice 2, 2026-07-21
 - [ ] Premium thread-summary endpoint: Celery-generated, content-hash cached,
       entitlement-gated
 - [ ] pgvector-on-Railway precheck result recorded; similar-topics endpoint
@@ -141,6 +142,43 @@ only; field shape: boolean `is_premium` (not a tier CharField or Plan model).
   summary endpoint (gate via `IsPremiumUser`), H15 similar-topics (entry
   condition: Railway pgvector precheck — `pgvector` not yet installed / not in
   INSTALLED_APPS), M12/M14, M13 RAG (last).
+
+### 2026-07-21 - Slice 2: LLM spam backend (H13) DONE
+
+Branch `todo-255-slice2-llm-spam-backend` (off `main`, independent of slice 1).
+Spec: `docs/superpowers/specs/2026-07-21-forum-llm-spam-backend-design.md`.
+
+- **H13** — host-side `LLMSpamBackend` (`apps/forum_host/spam.py`) behind the
+  existing `WAGTAILFORUM_SPAM_BACKEND` swap; **ships dormant** (default stays
+  `HeuristicSpamBackend`). Heuristic-first composite: obvious spam rejected with
+  no LLM call; the LLM screens only what the heuristic passes, via
+  `generate_ai_text()`. Hard wall-clock timeout (`ThreadPoolExecutor`,
+  `SPAM_LLM_TIMEOUT_SECONDS=3`, lazy-init pool) because `check()` runs inside
+  the workflow's `@transaction.atomic` publish path. Redis-cached verdicts by
+  content hash; global-budget spend cap (`check_global_limit()`).
+  - **Ratified postures:** provider failure → **fail closed** (reject →
+    pending draft via a normal `reject`, not a raise — matches `workflow.py`);
+    budget cap → **degrade to heuristic** (publish; cost decision, not outage).
+- Verified: `manage.py check` clean, `spectacular` OK, `makemigrations --check`
+  no changes, `apps.forum_host` + package `test_spam` suites pass.
+- **Post-review hardening (folded in before PR):** CLEAN verdict now requires an
+  exact one-word match (a `CLEANLY …` lookalike fails closed — the one unsafe
+  parse direction); the whole post-heuristic screening block (Redis cache read,
+  budget check, provider call, cache write) fails closed via a returned reject on
+  ANY fault incl. a Redis outage, never a raise into the atomic path; timeout logs
+  at warning (no per-post traceback); verdict-cache-write failures no longer
+  discard a computed verdict. +3 tests (14 total).
+- **H13 follow-up before the setting is ever ENABLED (not blocking the dormant
+  merge):** a *sustained* LLM outage burns the shared global AI budget via failed
+  attempts, because `AIRateLimiter.check_global_limit()` check-and-increments
+  BEFORE the call. After ~`GLOBAL_LIMIT` failures the posture flips fail-closed
+  (hold) → degrade-to-heuristic (publish LLM-unscreened), and the flip is *sticky*
+  (every increment resets the 1h TTL; forum + blog share `ai_rate_limit:global`).
+  Fix before enabling: don't count failed attempts against the budget, and
+  consider a forum-specific budget key decoupled from the blog AI counter.
+- **Deferred (todo stays in_progress):** H14 summary endpoint (gate via
+  `IsPremiumUser` from slice 1), H15 similar-topics (Railway pgvector precheck),
+  M12/M14, M13 RAG (last).
 
 ## Notes
 

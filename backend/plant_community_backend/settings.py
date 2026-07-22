@@ -778,6 +778,15 @@ PLANT_HEALTH_API_BASE_URL = "https://api.plant.id"
 # OpenAI API key for Wagtail AI
 OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
 
+# Forum spam-moderation backend (todo 255 slice 2 / H13). Default is the
+# wagtail_forum package's heuristic check; set this env var to
+# "apps.forum_host.spam.LLMSpamBackend" to enable the LLM screen (requires a
+# working OPENAI_API_KEY). Ships dormant — the default does not change behavior.
+WAGTAILFORUM_SPAM_BACKEND = config(
+    "WAGTAILFORUM_SPAM_BACKEND",
+    default="wagtail_forum.spam.heuristic.HeuristicSpamBackend",
+)
+
 # Firebase Admin SDK service-account JSON path — the CANONICAL credentials
 # setting: both the auth token exchange (apps/users) and the FCM sender
 # (apps/garden/firebase_config.py) read this. Falls back to the

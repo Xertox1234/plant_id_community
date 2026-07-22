@@ -255,6 +255,7 @@ never commit it).
 | `CORS_ALLOWED_ORIGINS` | `backend/.env` | Set to `http://localhost:5174` in dev |
 | `GOOGLE_APPLICATION_CREDENTIALS` | `backend/.env` | Path to Firebase service account JSON (ADC — users-app token exchange) |
 | `FIREBASE_CREDENTIALS_PATH` | `backend/.env` | Same JSON, read by `apps/garden/firebase_config.py` — gates FCM push; unset = push disabled |
+| `WAGTAILFORUM_SPAM_BACKEND` | `backend/.env` | Dotted path to the forum spam backend; unset = heuristic. Set to `apps.forum_host.spam.LLMSpamBackend` to enable the LLM screen (needs `OPENAI_API_KEY`) |
 | `VITE_API_URL` | `web/.env` | Backend URL for React app |
 
 ## Cheap-Worker Delegation (Kimi K2.6)
