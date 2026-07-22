@@ -1500,3 +1500,57 @@ side effects (scroll) on every append — gate them with a ref (see
 `web/docs/patterns/react-typescript.md` → "One-Shot Side Effects").
 (c) A cheap mocked review can't catch a defect that lives in the interaction of
 real pagination + real routing; the whole-branch review is where it surfaced.
+
+---
+
+## 2026-07-22 — Tooling / Testing: `flutter test` uninstalls the app → invalidates a freshly-minted FCM token
+
+**Context:** Closing todo 253's AC6 ("a real client registers an FCM token and
+*receives* a push end-to-end"). Registration was already live-verified via
+`integration_test/fcm_registration_e2e_test.dart`; the remaining half was
+observing an actual push land on-device.
+
+**What broke:** The integration test registered a fresh 142-char FCM token
+(confirmed server-side on `ForumProfile.fcm_token`), but every attempt to
+deliver a real `reply_added` push to that token failed with FCM
+`NotRegistered` (`_messaging_utils.UnregisteredError`, an *authenticated*
+per-token rejection — the credential was fine). The token was dead within
+seconds of being minted.
+
+**Root cause:** `flutter test integration_test/…` **UNINSTALLS the app on
+teardown**. Uninstalling an app immediately invalidates its FCM registration
+token (this is by design — a token identifies an app *installation*). So the
+token the test wrote to the backend was already `NotRegistered` by the time any
+send fired. This is also the likely reason the slice-6 test tokens (`id=53/57`)
+had gone stale in earlier sessions — every prior delivery attempt was doomed by
+the same teardown, not by a credential or backend problem.
+
+**Fix:** Use a `flutter run` harness — not `flutter test` — for a *delivery*
+E2E. `plant_community_mobile/tool/fcm_e2e_hold.dart` reuses the integration
+test's programmatic auth-emulator sign-in and mounts the real `MyApp` (so
+`AuthService` → `syncAfterLogin()` → `PATCH /forum/me/profile/` registers the
+token), but `flutter run` leaves the app **installed and running**. Then:
+background the app (`adb shell input keyevent KEYCODE_HOME`) so a
+`notification`-hybrid FCM message renders in the tray rather than firing
+in-foreground `onMessage`, trigger a genuine `reply_added` publish (eager
+Celery so the send runs inline), and observe with `adb shell dumpsys
+notification` + a screencap.
+
+**Lessons:**
+
+- `flutter test integration_test/…` is fine for verifying push *registration*
+  (the token write is durable server-side), but it can NOT verify *receipt* —
+  the app is gone before the push arrives.
+- FCM `NotRegistered` on a token you just minted = the app was uninstalled or
+  Play services wiped between mint and send. Check `adb shell pm list packages`
+  before assuming a credential/backend fault.
+- Secondary gotcha hit the same session: a local dev DB one migration behind a
+  merged migration (`users.0010_user_is_premium`, PR #478) 500'd the token
+  exchange with `column auth_user.is_premium does not exist`. Run
+  `manage.py migrate` on the dev DB before exercising a real end-to-end flow
+  locally — merged migrations don't apply themselves (cf. CLAUDE.md gotcha #6,
+  which covers the *test* DB).
+- The stable per-event-type collapse key (`forum-<event>`) does NOT dedupe on
+  the device tray — three delivery test sends showed as three distinct
+  `FCM-Notification` records. Collapse-key coalescing is a network/offline-queue
+  behavior, not an on-device replace.
