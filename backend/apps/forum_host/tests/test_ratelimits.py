@@ -30,15 +30,33 @@ def _board():
     return index.add_child(instance=ForumBoard(title="General", slug="general"))
 
 
+# Host-only routes with no package counterpart — AI features whose logic reuses
+# host-side helpers the package may not import (todo 255). Each must still be a
+# real, mounted, throttled host view; they are allow-listed out of the drift
+# guard so they do not read as package drift.
+HOST_ONLY_ROUTES = {
+    ("topics/<int:topic_id>/summary/", "topic-summary"),  # H14 AI thread summary
+}
+
+
 def test_host_api_routes_match_package():
-    """Drift guard: a new package endpoint must not silently ship unmounted
-    (404 in prod) or unthrottled — this fails until api_urls.py is updated."""
+    """Drift guard: every package endpoint must be mounted host-side (else it
+    404s in prod or ships unthrottled) — this fails until api_urls.py is updated.
+
+    Relaxed from strict equality to ``package ⊆ host`` plus an explicit
+    HOST_ONLY_ROUTES allow-list, so intentional host-only AI routes are
+    permitted while the real invariant (no package route left unmounted, no
+    stray host route) is preserved."""
     from apps.forum_host import api_urls as host
     from wagtail_forum.api import urls as pkg
 
     pkg_routes = {(str(p.pattern), p.name) for p in pkg.urlpatterns}
     host_routes = {(str(p.pattern), p.name) for p in host.urlpatterns}
-    assert pkg_routes == host_routes
+    # Every package route is mounted host-side.
+    assert pkg_routes <= host_routes
+    # The only host routes without a package counterpart are the allow-listed
+    # host-only ones — a stray/typo'd host route still fails here.
+    assert host_routes - pkg_routes == HOST_ONLY_ROUTES
 
 
 @override_settings(FORUM_RATELIMITS={"search": "2/m"})

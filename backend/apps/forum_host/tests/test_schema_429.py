@@ -21,6 +21,7 @@ THROTTLED_OPERATIONS = [
     ("/forum/notifications/mark-read/", "post"),
     ("/forum/topics/{topic_id}/subscription/", "post"),
     ("/forum/topics/{topic_id}/subscription/", "delete"),
+    ("/forum/topics/{topic_id}/summary/", "get"),  # H14 premium AI summary
 ]
 
 

@@ -32,6 +32,11 @@ from .api import (
     UserMentionSearchView,
 )
 
+# Host-only AI route (todo 255 slice 3 / H14) — no package counterpart; the
+# summarization logic reuses the blog app's AI helpers, which the package may
+# not import. The route-drift guard allow-lists this one host-only addition.
+from .summary import TopicSummaryView
+
 app_name = "wagtail_forum_api"
 
 urlpatterns = [
@@ -44,6 +49,11 @@ urlpatterns = [
         name="topic-subscription",
     ),
     path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
+    path(
+        "topics/<int:topic_id>/summary/",
+        TopicSummaryView.as_view(),
+        name="topic-summary",
+    ),
     path("images/", PostImageUploadView.as_view(), name="image-upload"),
     path("posts/<int:post_id>/", PostWriteView.as_view(), name="post-detail"),
     path(

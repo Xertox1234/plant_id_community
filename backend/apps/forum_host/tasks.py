@@ -13,6 +13,8 @@ import logging
 from celery import shared_task
 from django.db import OperationalError
 
+from . import constants
+
 logger = logging.getLogger("forum_host.tasks")
 
 
@@ -356,3 +358,83 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
             topic_url=topic_url,
         )
         logger.info("[EMAIL] forum.%s email to user=%s: sent=%s", event, user.pk, sent)
+
+
+@shared_task(
+    bind=True,
+    max_retries=constants.SUMMARY_MAX_RETRIES,
+    default_retry_delay=constants.SUMMARY_RETRY_DELAY,
+)
+def generate_topic_summary(self, topic_id: int) -> None:
+    """Generate + cache an AI summary for a forum topic (todo 255 slice 3 / H14).
+
+    Enqueued by ``TopicSummaryView`` on a cache miss. Bounded by the Celery soft
+    time limit (there is no request/atomic path here, unlike the spam backend,
+    so no thread-pool timeout wrapper is needed). A transient provider error
+    retries with exponential backoff; a hit global AI budget degrades to a no-op
+    (a cost decision, not an outage — retrying would only burn the budget
+    further). Idempotent: a racing task that already cached this exact thread
+    state is a no-op.
+    """
+    from apps.blog.services.ai_cache_service import AICacheService
+    from apps.blog.services.ai_rate_limiter import AIRateLimiter
+    from apps.blog.wagtail_ai_v3_integration import generate_ai_text
+    from django.utils import timezone
+    from wagtail_forum.models import Topic
+
+    from .summary import build_summary_source
+
+    topic = Topic.objects.filter(pk=topic_id, live=True).first()
+    if topic is None:
+        logger.info("[CELERY] topic %s missing/unpublished; skipping summary", topic_id)
+        return
+
+    content, post_count = build_summary_source(topic)
+    if post_count < constants.SUMMARY_MIN_POSTS:
+        return
+
+    if AICacheService.get_cached_response(constants.SUMMARY_CACHE_FEATURE, content):
+        # A racing task already produced the summary for this exact thread state.
+        return
+
+    if not AIRateLimiter.check_global_limit():
+        logger.info(
+            "[PERF] topic summary skipped for %s: global AI budget exhausted",
+            topic_id,
+        )
+        return
+
+    prompt = constants.SUMMARY_PROMPT_TEMPLATE.format(content=content)
+    try:
+        summary = generate_ai_text(prompt, alias=constants.SUMMARY_ALIAS)
+    except Exception as exc:
+        logger.warning(
+            "[ERROR] topic summary generation failed for %s: %s", topic_id, exc
+        )
+        raise self.retry(
+            exc=exc,
+            countdown=self.default_retry_delay * (2**self.request.retries),
+        )
+
+    if not summary or not summary.strip():
+        # An empty completion is a transient provider glitch, never a real
+        # summary — caching it would serve blank for the whole 30-day TTL. Treat
+        # it like any transient failure: retry with backoff, never cache.
+        logger.warning("[ERROR] topic summary empty for %s; retrying", topic_id)
+        raise self.retry(
+            exc=ValueError("empty summary"),
+            countdown=self.default_retry_delay * (2**self.request.retries),
+        )
+
+    AICacheService.set_cached_response(
+        constants.SUMMARY_CACHE_FEATURE,
+        content,
+        {
+            "summary": summary,
+            "post_count": post_count,
+            "generated_at": timezone.now().isoformat(),
+        },
+    )
+    logger.info(
+        "[CACHE] cached AI summary for topic %s (%s posts)", topic_id, post_count
+    )
