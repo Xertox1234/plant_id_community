@@ -69,8 +69,13 @@ Phased to ship value early:
 - [ ] Reply/create retries are idempotent; pending-moderation surfaced in UI
 - [ ] Device registers an FCM token and receives a forum push end-to-end
       — registration half DONE by todo 253 slice 6 (live-verified); the
-      receives-a-push half is gated on the Firebase service-account key
-      (runbook in todo 253's slice-6 work log)
+      Firebase service-account key is now PLACED and the credential PROVEN
+      (2026-07-20, see todo 253 work log — firebase_admin authenticates to
+      FCM with the real Certificate and messaging.send() round-trips). The
+      receives-a-push half now needs only this rebuilt mobile client to mint
+      a FRESH token (the slice-6 test tokens have gone stale/NotRegistered),
+      then the slice-6 runbook delivers. Completing this AC here also
+      satisfies todo 253's AC6.
 - [ ] `flutter analyze` + `flutter test` green including regenerated codegen
 
 ## Work Log
