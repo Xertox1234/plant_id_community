@@ -12,6 +12,7 @@ import hashlib
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 
 from apps.blog.services.ai_rate_limiter import AIRateLimiter
 from apps.blog.wagtail_ai_v3_integration import generate_ai_text
@@ -70,36 +71,45 @@ class LLMSpamBackend(SpamBackend):
         if not text.strip():
             return SpamResult(True)
 
-        # 3. Verdict cache: a hit skips the LLM and the timeout machinery.
         cache_key = self._cache_key(text)
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return SpamResult(cached["is_clean"], cached["reason"])
 
-        # 4. Spend cap. A hit budget is a deliberate cost decision, not an
-        #    outage, so it degrades to the heuristic (publish), NOT fail-closed.
-        if not AIRateLimiter.check_global_limit():
-            logger.info(
-                "[PERF] Forum spam LLM skipped: global AI budget exhausted; "
-                "degrading to heuristic verdict"
-            )
-            return SpamResult(True)
-
-        # 5. LLM call under a hard wall-clock timeout. Any failure fails CLOSED
-        #    by returning a rejected SpamResult (a normal reject -> pending
-        #    draft in the moderation queue), NOT by raising: a raise would roll
-        #    the workflow back and leave a limbo draft with no queue entry.
+        # 3-6. LLM screening. check() runs inside the workflow's
+        #      @transaction.atomic publish path, so EVERY failure here — the
+        #      Redis verdict cache, the Redis-backed global-budget check, the
+        #      provider call (timeout or error), or the parse/cache write — must
+        #      fail CLOSED by RETURNING a rejected SpamResult, never by raising:
+        #      a raise would roll the workflow back and leave a limbo draft with
+        #      no moderation-queue entry. The one deliberate publish path is a
+        #      hit budget cap (a cost decision, not an outage), returned inline.
         try:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return SpamResult(cached["is_clean"], cached["reason"])
+
+            if not AIRateLimiter.check_global_limit():
+                logger.info(
+                    "[PERF] Forum spam LLM skipped: global AI budget exhausted; "
+                    "degrading to heuristic verdict"
+                )
+                return SpamResult(True)
+
             reply = self._call_llm(text)
+            return self._parse(reply, cache_key)
+        except FuturesTimeoutError:
+            # Expected under a slow/overloaded provider — no traceback needed.
+            logger.warning(
+                "[ERROR] Forum spam LLM timed out after %ss; failing closed "
+                "(held for review)",
+                constants.SPAM_LLM_TIMEOUT_SECONDS,
+            )
+            return SpamResult(False, constants.SPAM_LLM_UNAVAILABLE_REASON)
         except Exception:
+            # Provider error, Redis outage, or any other unexpected fault.
             logger.exception(
-                "[ERROR] Forum spam LLM call failed; failing closed "
+                "[ERROR] Forum spam screening failed; failing closed "
                 "(held for review)"
             )
             return SpamResult(False, constants.SPAM_LLM_UNAVAILABLE_REASON)
-
-        # 6. Parse (and cache definitive verdicts).
-        return self._parse(reply, cache_key)
 
     def _cache_key(self, text: str) -> str:
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -119,14 +129,19 @@ class LLMSpamBackend(SpamBackend):
     def _parse(self, reply: str, cache_key: str) -> SpamResult:
         verdict = (reply or "").strip()
         upper = verdict.upper()
-        if upper.startswith("CLEAN"):
+        # CLEAN only on an exact one-word verdict (tolerating trailing
+        # punctuation). A lookalike like "CLEANLY not spam" must NOT pass — that
+        # is the one unsafe direction (spam published), so it falls through to
+        # the fail-closed branch below.
+        first_word = upper.split(maxsplit=1)[0].strip(".,:;!-") if upper else ""
+        if first_word == "CLEAN":
             result = SpamResult(True)
         elif upper.startswith("SPAM"):
             reason = verdict[4:].lstrip(":- ").strip() or "flagged by AI moderation"
             result = SpamResult(False, f"AI: {reason}")
             logger.info("[SECURITY] Forum spam LLM flagged content: %s", result.reason)
         else:
-            # Unparseable → fail closed, do NOT cache (transient).
+            # Unparseable / ambiguous → fail closed, do NOT cache (transient).
             logger.warning(
                 "[ERROR] Forum spam LLM returned unparseable reply %r; "
                 "failing closed",
@@ -134,9 +149,17 @@ class LLMSpamBackend(SpamBackend):
             )
             return SpamResult(False, constants.SPAM_LLM_UNAVAILABLE_REASON)
 
-        cache.set(
-            cache_key,
-            {"is_clean": result.is_clean, "reason": result.reason},
-            constants.SPAM_LLM_CACHE_TTL_SECONDS,
-        )
+        # Cache the definitive verdict. A cache-write failure must not discard a
+        # verdict we already have, nor raise into the atomic publish path.
+        try:
+            cache.set(
+                cache_key,
+                {"is_clean": result.is_clean, "reason": result.reason},
+                constants.SPAM_LLM_CACHE_TTL_SECONDS,
+            )
+        except Exception:
+            logger.warning(
+                "[ERROR] Forum spam verdict-cache write failed; verdict "
+                "still applied"
+            )
         return result

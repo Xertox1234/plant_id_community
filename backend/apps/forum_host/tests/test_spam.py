@@ -128,3 +128,38 @@ class LLMSpamBackendTests(TestCase):
     @override_settings(WAGTAILFORUM_SPAM_BACKEND="apps.forum_host.spam.LLMSpamBackend")
     def test_one_setting_swap_selects_llm_backend(self):
         self.assertIsInstance(get_spam_backend(), LLMSpamBackend)
+
+    @patch(GEN)
+    def test_empty_text_is_clean_without_llm(self, mock_gen):
+        # Empty title+body: heuristic passes, extract_text is blank, so we
+        # short-circuit to clean before any budget/LLM spend.
+        result = LLMSpamBackend().check(_post(title="", body=""))
+        self.assertTrue(result.is_clean)
+        mock_gen.assert_not_called()
+
+    @patch(BUDGET, return_value=True)
+    @patch(GEN, return_value="SPAM: casino promo")
+    def test_spam_verdict_is_cached_second_check_skips_llm(self, mock_gen, _budget):
+        backend = LLMSpamBackend()
+        first = backend.check(_post(body="buy now at my shop"))
+        second = backend.check(_post(body="buy now at my shop"))
+        self.assertFalse(first.is_clean)
+        self.assertFalse(second.is_clean)
+        # Cached SPAM verdict is re-served verbatim, no second LLM call.
+        self.assertEqual(second.reason, first.reason)
+        self.assertIn("casino", second.reason.lower())
+        mock_gen.assert_called_once()
+
+    @patch(BUDGET, return_value=True)
+    @patch(GEN, return_value="CLEANLY a legitimate post, not spam")
+    def test_clean_lookalike_reply_fails_closed_and_is_not_cached(
+        self, mock_gen, _budget
+    ):
+        backend = LLMSpamBackend()
+        result = backend.check(_post(body="lookalike body"))
+        # "CLEANLY ..." must NOT be read as CLEAN — it fails closed (held).
+        self.assertFalse(result.is_clean)
+        self.assertEqual(result.reason, constants.SPAM_LLM_UNAVAILABLE_REASON)
+        # Not cached (ambiguous/transient): a second identical check re-calls.
+        backend.check(_post(body="lookalike body"))
+        self.assertEqual(mock_gen.call_count, 2)
