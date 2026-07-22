@@ -111,6 +111,11 @@ Sequenced so each step ships value alone:
       `firebase/firebase-adminsdk-credentials.json`, set
       `FIREBASE_CREDENTIALS_PATH` in backend/.env, then the slice-6 work
       log's 5-step delivery runbook).
+      (UPDATE 2026-07-20: JSON now placed + credential PROVEN functional —
+      firebase_admin authenticates to FCM with the real Certificate and
+      messaging.send() round-trips. The remaining gate is no longer the JSON
+      but a live mobile token to deliver to; the mobile build was deleted this
+      session, so deferred to todo 260. See Work Log 2026-07-20.)
 
 ## Work Log
 
@@ -1370,6 +1375,69 @@ low-priority "considerations," not just the top-billed suggestions.
   floor cut, flagged for a deliberate product decision.
 - Not archived — AC6's delivery half stays gated on the credentials only
   the user can provide. Todo stays `in_progress` with that single residue.
+
+### 2026-07-20 - completing-todos run 2026-07-18-2316: deferred (blocked on credential)
+
+- Picked up again to close out the epic. State confirmed: all 6 slices
+  implemented and merged (`git status` clean, no working diff); acceptance
+  criteria 1–5 checked; **AC6's delivery half is the sole open item**.
+- Verified the blocker is unchanged and cannot be self-served this session:
+  `firebase/firebase-adminsdk-credentials.json` is absent, `backend/.env` has
+  only `FIREBASE_PROJECT_ID` (no `FIREBASE_CREDENTIALS_PATH`), and there is no
+  FCM emulator — the slice-6 delivery runbook requires the real Firebase
+  service-account JSON, which only the user can provide. This is the same wall
+  the prior checkpoint (run 2026-07-18-2316, 0 completed) hit.
+- Presented three closeout paths via AskUserQuestion: (A) provide the key and
+  run the 5-step delivery runbook to flip AC6 on real evidence; (B) reword AC6
+  to what shipped (registration verified + delivery-ready + runbook) and move
+  the send-and-receive delivery verification into the existing residue todo
+  272, then archive; (C) leave in_progress. **User chose (C) — leave
+  in_progress.** No descope, no archival, no AC boxes flipped.
+- Per completing-todos Safety Rail #4 (AC are gospel; no `--force-complete`),
+  AC6 stays unchecked and 253 stays `in_progress`. Recorded as `skipped` in the
+  run checkpoint (terminal state for this run). Todo 272 continues to track the
+  FCM delivery residue; when the service-account key is available, run the
+  slice-6 runbook to satisfy AC6 and archive 253.
+
+### 2026-07-20 - Credential PLACED + PROVEN; AC6 delivery now blocked on a live mobile token (build deleted)
+
+- Supersedes the "blocked on credential" framing in the entry above. The user
+  placed the Firebase service-account JSON at
+  `firebase/firebase-adminsdk-credentials.json` (gitignored — verified via
+  `git check-ignore`) and set `FIREBASE_CREDENTIALS_PATH` in `backend/.env`.
+- **Credential PROVEN functional — the presumed last blocker is resolved.** A
+  read-only probe through the real production paths:
+  `is_firebase_available()=True`; `firebase_admin` initialized with
+  `credential type: Certificate` for project `plant-community-prod`;
+  `get_fcm_client()` returns the messaging module. Then the real
+  `send_forum_push` task was invoked against both registered tokens — FCM
+  returned `UnregisteredError`/`NOT_FOUND` for each (exact type
+  `firebase_admin._messaging_utils.UnregisteredError`; `is ThirdPartyAuthError:
+  False`). That is an AUTHENTICATED per-token rejection: FCM accepted and
+  processed the send with the real cert, so the credential works and the full
+  Django → `firebase_admin` → `messaging.send()` pipeline round-trips end to
+  end. A bad credential would raise `ThirdPartyAuthError`/an OAuth error, never
+  `NOT_FOUND`.
+- **New blocker for the "receives a push" half:** both stored tokens
+  (`fcm-e2e-slice6` id=53, `fcm-e2e-253-delivery` id=57) are STALE — FCM has
+  invalidated them (app uninstalled / emulator wiped / token rotated since
+  slice 6). Delivery to a device needs a CURRENTLY-VALID token.
+- **No client can mint a fresh token this session.** Web has no FCM code
+  (verified — zero `firebase`/`fcm_token`/`getToken` refs in `web/src`; a web
+  login registers no token), and the mobile Flutter build was deleted
+  (user-reported), so the mobile registration path
+  (`push_registration_service.dart` → `PATCH /forum/me/profile/`) can't run.
+  `adb`/emulator tooling isn't available in the automation shell either.
+- **Decision (user, via AskUserQuestion): leave in_progress.** User declined
+  descoping/rewording AC6 and wants it satisfied literally once a mobile build
+  exists again. AC6 stays unchecked; nothing archived.
+- **What remains for AC6:** rebuild the Flutter app on an emulator/device →
+  sign in (registers a fresh `fcm_token`) → send the `reply_added` push (real
+  cert, now proven) → observe the tray notification. Natural home is **todo 260
+  (mobile forum client)**, which rebuilds the app and reuses the E2E
+  scaffolding. Correction to the entry above: **todo 272 does NOT track this
+  delivery test** — 272 is slice-6 code-hardening residue only (iOS
+  entitlements, throttle sharing, init arbitration, copy consolidation).
 
 ## Notes
 
