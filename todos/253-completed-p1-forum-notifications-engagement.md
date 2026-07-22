@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p1
 issue_id: "253"
 tags: [forum, notifications, product-ux, celery]
@@ -101,21 +101,20 @@ Sequenced so each step ships value alone:
       server-side read-state (`TopicRead` + `ForumProfile.read_watermark_at`)
       badges both never-opened and previously-read-but-newly-replied topics,
       via a zero-added-query queryset annotation.
-- [ ] At least one real client (web or mobile) registers an FCM token and
-      receives a push end-to-end — REGISTRATION half done and live-verified
-      since slice 6 (Android emulator → real FCM token → real dev backend →
-      `ForumProfile.fcm_token` row; repeatable via
-      `integration_test/fcm_registration_e2e_test.dart`). The
-      "receives a push" half is gated on the one input only the user can
-      provide: the Firebase service-account JSON (drop at
-      `firebase/firebase-adminsdk-credentials.json`, set
-      `FIREBASE_CREDENTIALS_PATH` in backend/.env, then the slice-6 work
-      log's 5-step delivery runbook).
-      (UPDATE 2026-07-20: JSON now placed + credential PROVEN functional —
-      firebase_admin authenticates to FCM with the real Certificate and
-      messaging.send() round-trips. The remaining gate is no longer the JSON
-      but a live mobile token to deliver to; the mobile build was deleted this
-      session, so deferred to todo 260. See Work Log 2026-07-20.)
+- [x] At least one real client (web or mobile) registers an FCM token and
+      receives a push end-to-end — SATISFIED 2026-07-22 (see Work Log). Both
+      halves proven on an Android emulator against the real dev backend and
+      real FCM: (1) a FRESH 142-char token registered via the real auth+PATCH
+      chain; (2) a genuine `reply_added` publish fanned out through
+      `send_forum_push_batch` → `firebase_admin.messaging.send()` with the real
+      Certificate, returning a real FCM message id
+      (`projects/plant-community-prod/messages/0:1784745052544517%1b32106f1b32106f`,
+      NOT `NotRegistered`); (3) the notification was RECEIVED and rendered in
+      the device's system tray — `dumpsys notification` shows a live
+      `NotificationRecord` (pkg=com.plantcommunity.plant_community_mobile,
+      channel=fcm_fallback_notification_channel) with the exact copy
+      `New reply in "AC6 delivery 7b0e27"` / `fcm-e2e-253-replier replied`,
+      confirmed by screenshot. Completing this also satisfies todo 260's FCM AC.
 
 ## Work Log
 
@@ -1438,6 +1437,65 @@ low-priority "considerations," not just the top-billed suggestions.
   scaffolding. Correction to the entry above: **todo 272 does NOT track this
   delivery test** — 272 is slice-6 code-hardening residue only (iOS
   entitlements, throttle sharing, init arbitration, copy consolidation).
+
+### 2026-07-22 - AC6 delivery PROVEN end-to-end (tray notification received) — epic COMPLETE
+
+- **The prior "blocked" framing no longer held.** Re-checked the environment
+  this session and found every prerequisite present: the Flutter **source tree
+  was intact** (the 2026-07-20 "build deleted" meant the installed APK, not the
+  code), Flutter + the Android SDK (`adb`/`emulator`, just off PATH) + a
+  Google-Play AVD (`Medium_Phone_API_36.1`, `PlayStore.enabled=true` — required
+  for FCM `getToken`) were installed, the Firebase service-account JSON was
+  placed + set in `backend/.env`, and Redis was up. User approved running the
+  full on-device delivery E2E ("Run it all now").
+- **Stack stood up locally:** Android emulator (`emulator-5554`), Firebase
+  **Auth** emulator (`127.0.0.1:9099`, reachable from the device as
+  `10.0.2.2:9099`), Django `runserver 0.0.0.0:8000` with
+  `FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099` + `CELERY_TASK_ALWAYS_EAGER=True`
+  (push runs inline, no separate worker). FCM messaging still uses the real
+  Certificate — auth-emulator and real-messaging coexist in one
+  `firebase_admin` app.
+- **One real blocker found + fixed:** the local dev DB was one migration behind
+  (`users.0010_user_is_premium`, from todo 255 slice 1 / PR #478) — the token
+  exchange 500'd with `column auth_user.is_premium does not exist`. Applied the
+  migration; exchange then succeeded. (Stale-dev-DB-vs-merged-migration, same
+  class as the prior `--reuse-db`/`wagtail_forum` gaps.)
+- **`flutter test` is the WRONG vehicle for delivery** — the integration test
+  registered a fresh 142-char token, but its teardown **UNINSTALLS the app**,
+  which instantly invalidated that token (`NotRegistered` on the first send
+  attempt). This is the same stale-token wall every prior run hit. Fix: a small
+  throwaway `flutter run` harness (`plant_community_mobile/tool/fcm_e2e_hold.dart`)
+  that reuses the integration test's programmatic auth-emulator sign-in + mounts
+  the real `MyApp` (so `AuthService` → `syncAfterLogin()` → PATCH registers the
+  token), but leaves the app **installed and running**. Backgrounded the app
+  (HOME) so a `notification`-hybrid FCM message renders in the tray rather than
+  firing in-foreground `onMessage`.
+- **Delivery via the REAL path, not a direct send:** a rolled-into-`atomic()`
+  `manage.py shell` script (mirrors `apps/forum_host/tests/test_signals.py`)
+  creates a board/topic authored+subscribed by the E2E user, then a DIFFERENT
+  user (`fcm-e2e-253-replier`) posts a reply via the genuine
+  `save_revision().publish()` chain → fires `reply_added` → subscription fan-out
+  → `send_forum_push_batch` (eager) → `messaging.send()`.
+- **Evidence (both halves):**
+  - SEND: `INFO forum_host.tasks [FCM] forum.reply_added sent to user=60:
+    projects/plant-community-prod/messages/0:1784745052544517%1b32106f1b32106f`
+    — a real FCM message id, authenticated with the real cert (contrast the
+    earlier `NotRegistered` on the stale token).
+  - RECEIVE: `adb shell dumpsys notification --noredact` shows a live
+    `NotificationRecord(pkg=com.plantcommunity.plant_community_mobile,
+    channel=fcm_fallback_notification_channel, tag=FCM-Notification:…)` with
+    `android.title="New reply in \"AC6 delivery 7b0e27\""` /
+    `android.text="fcm-e2e-253-replier replied"` — exactly what
+    `tasks._notification_content("reply_added", …)` produces. Screenshot of the
+    expanded notification shade captured as durable proof.
+- **AC boxes:** AC6 flipped — the epic's final open criterion. All 6 ACs now
+  satisfied. Todo 260's FCM AC line updated to record delivery proven (its
+  other ACs — native browse, delta sync, idempotent writes — remain open; the
+  mobile forum client itself is still todo 260's scope).
+- Throwaway artifacts this session (NOT product changes): the `flutter run`
+  hold harness (`tool/fcm_e2e_hold.dart`) and two `manage.py shell` delivery
+  scripts. The AC6 feature code all shipped in slice 6; this session was the
+  manual-QA delivery pass slice 6 deferred.
 
 ## Notes
 

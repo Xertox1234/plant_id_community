@@ -288,16 +288,16 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 1 `false-positive` findings were closed in this audit and have no todo.
 
 - [x] #C1 report-flag-mechanism → todo 254 (completed 2026-07-13)
-- [ ] #C2 notifications-delivery-channel → todo 253
-- [ ] #H1 orphaned-email-notifications → todo 253
-- [ ] #H2 push-event-coverage → todo 253
-- [ ] #H3 subscriptions-watching → todo 253
-- [ ] #H4 mentions → todo 253
+- [x] #C2 notifications-delivery-channel → todo 253 (completed 2026-07-22)
+- [x] #H1 orphaned-email-notifications → todo 253 (completed 2026-07-22)
+- [x] #H2 push-event-coverage → todo 253 (completed 2026-07-22)
+- [x] #H3 subscriptions-watching → todo 253 (completed 2026-07-22)
+- [x] #H4 mentions → todo 253 (completed 2026-07-22)
 - [ ] #H6 solved-accepted-answer → todo 256
 - [ ] #H7 public-user-identity → todo 257
 - [ ] #H8 search-discoverability-filters → todo 256
 - [ ] #H9 seo-surface → todo 256
-- [ ] #H10 unread-indicators → todo 253
+- [x] #H10 unread-indicators → todo 253 (completed 2026-07-22)
 - [ ] #H11 mobile-forum-client → todo 260
 - [x] #H12 entitlement-primitive → todo 255 (completed 2026-07-20, slice 1)
 - [x] #H13 llm-spam-prescreen → todo 255 (completed 2026-07-21)
