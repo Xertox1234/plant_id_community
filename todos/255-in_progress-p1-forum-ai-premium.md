@@ -91,10 +91,12 @@ Sequence (dependency-ordered):
 
 ## Acceptance Criteria
 
-- [ ] Entitlement primitive exists, is checkable in DRF, and `AIRateLimiter`
+- [x] Entitlement primitive exists, is checkable in DRF, and `AIRateLimiter`
       consumes it (no `is_staff` proxy); `blog.md` drift corrected (L6)
-- [ ] Production `OPENAI_API_KEY` presence verified/documented before any AI
-      feature ships (L7)
+      — slice 1, 2026-07-20
+- [x] Production `OPENAI_API_KEY` presence verified/documented before any AI
+      feature ships (L7) — slice 1, 2026-07-20: present on Railway service
+      `plant_id_community` (164-char `sk-` key)
 - [x] LLM spam backend runs behind the one-setting swap with timeout +
       heuristic fallback — publish path never blocks on provider outage (tested)
       — slice 2, 2026-07-21
@@ -111,6 +113,35 @@ Sequence (dependency-ordered):
 - Epic groups 9 open findings per the manifest's Phase 4 grouping table
   (user-approved: AI & premium selected as a p1 theme). H12-first sequencing and
   the pgvector precheck are recorded in the manifest's Phase 4 notes.
+
+### 2026-07-20 - Slice 1: entitlement primitive (H12 + L6 + L7) DONE
+
+Branch `todo-255-slice1-entitlement-primitive`. User-confirmed scope: slice 1
+only; field shape: boolean `is_premium` (not a tier CharField or Plan model).
+
+- **H12** — `User.is_premium` BooleanField (migration `users.0010_user_is_premium`)
+  - `User.has_premium_access()` (mirrors `can_upload_images()`:
+  `is_premium or is_staff or is_superuser`). New DRF `IsPremiumUser` permission
+  (`apps/users/permissions.py`). `AIRateLimiter` migrated off the `is_staff`
+  proxy: constant `STAFF_LIMIT`→`PREMIUM_LIMIT`, param `is_staff`→`has_premium`;
+  decorators + `ai_integration.py` call sites now pass `has_premium_access()`.
+  **Trap avoided:** the only live decorator caller (`generate_ai_content`) is
+  `@staff_member_required`, so a naive swap would drop non-premium staff 50→10;
+  staff get premium-equivalent access *inside the helper*, preserving the limit.
+  Regression test added (`test_staff_user_gets_premium_limit_through_decorator`).
+- **L6** — rewrote `backend/docs/patterns/domain/blog.md` §"Rate Limiting"
+  to the real API (removed fictional `TIER_LIMITS` / `check_and_increment` /
+  `user.profile.subscription_tier`).
+- **L7** — production `OPENAI_API_KEY` verified present on Railway service
+  `plant_id_community` via `railway variables -s plant_id_community --kv`
+  (164-char `sk-` key; value not logged). Prod AI is wired.
+- Verified: `manage.py check` clean, `makemigrations --check` no changes,
+  `spectacular` OK, `pytest apps/users apps/blog --create-db` → 329 passed.
+- **Deferred (todo stays in_progress):** H13 spam backend (independent of H12;
+  hard timeout + heuristic fallback on the synchronous publish path), H14
+  summary endpoint (gate via `IsPremiumUser`), H15 similar-topics (entry
+  condition: Railway pgvector precheck — `pgvector` not yet installed / not in
+  INSTALLED_APPS), M12/M14, M13 RAG (last).
 
 ### 2026-07-21 - Slice 2: LLM spam backend (H13) DONE
 

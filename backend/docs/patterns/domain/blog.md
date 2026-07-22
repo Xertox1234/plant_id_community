@@ -13,7 +13,7 @@
 2. [Native Panel Integration](#native-panel-integration)
 3. [Settings-Based Custom Prompts](#settings-based-custom-prompts)
 4. [LLM Service Caching Wrapper](#llm-service-caching-wrapper)
-5. [Rate Limiting by User Tier](#rate-limiting-by-user-tier)
+5. [Rate Limiting by Entitlement](#rate-limiting-by-entitlement)
 6. [PROVIDERS Configuration](#providers-configuration)
 7. [Graceful Degradation](#graceful-degradation)
 8. [Performance Optimization](#performance-optimization)
@@ -29,6 +29,7 @@
 **Code Reduction**: Replaced 1,103 lines of custom code with native Wagtail AI panels + 441-line caching wrapper (60% reduction).
 
 **Performance Gains**:
+
 - Response time: 2-3s → <100ms (cached)
 - Cost: $1.50/month → $0.075-0.30/month (500 requests)
 - Cache hit rate: 80-95% (after warmup)
@@ -37,6 +38,7 @@
 ### What Was Removed
 
 **Custom Implementation** (1,103 lines):
+
 - Custom panels.py (185 lines)
 - Custom JavaScript widget (459 lines)
 - Custom CSS (164 lines)
@@ -44,6 +46,7 @@
 - Custom serializers (202 lines)
 
 **What Replaced It** (451 lines):
+
 - Native Wagtail AI panels (10 lines)
 - Caching wrapper service (441 lines)
 - Settings configuration (minimal)
@@ -59,6 +62,7 @@
 **Solution**: Use Wagtail AI's built-in panels for AI-powered content generation.
 
 **Anti-Pattern** ❌:
+
 ```python
 # ❌ BAD - 1,103 lines of custom code
 from .panels import CustomAITitlePanel  # 185 lines
@@ -74,6 +78,7 @@ content_panels = [
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # ✅ GOOD - 10 lines, native framework integration
 from wagtail_ai.panels import (
@@ -106,6 +111,7 @@ class BlogPostPage(Page):
 ### Visual Appearance
 
 **AI Actions Button**:
+
 - ✨ Icon button next to field
 - Tooltip: "Generate [field type]"
 - Loading state during generation
@@ -188,12 +194,14 @@ WAGTAIL_AI = {
 ### Prompt Best Practices
 
 **Structure**:
+
 1. Clear task description
 2. Specific requirements (length, tone, keywords)
 3. Context placeholder for relevant info
 4. Output format instruction
 
 **Example Context Variables**:
+
 - `{title}` - Page title
 - `{content}` - Existing content
 - `{keywords}` - SEO keywords
@@ -367,140 +375,95 @@ class AICacheService:
 | 3+ | 80-95% | $0.075-0.30/month |
 
 **Response Time**:
+
 - Cache miss: 2-3s (OpenAI API)
 - Cache hit: <100ms (Redis lookup)
 - **20-30x faster** for cached responses
 
 **Cost Analysis** (500 requests/month):
+
 - Without caching: $1.50/month
 - With 80% cache: $0.30/month (**saves $1.20/month**)
 - With 95% cache: $0.075/month (**saves $1.425/month**)
 
 ---
 
-## Rate Limiting by User Tier
+## Rate Limiting by Entitlement
 
-### Pattern: Tier-Based Generation Limits
+### Pattern: Two-tier per-user limit + a global ceiling
 
 **Problem**: OpenAI API quotas can be exhausted by power users, impacting all users.
 
-**Solution**: Implement tier-based rate limits (10/50/100 generations per hour).
+**Solution**: A per-user hourly limit (elevated for premium entitlement) plus a
+global hourly ceiling shared across everyone.
 
 **Location**: `apps/blog/services/ai_rate_limiter.py`
 
+The real class exposes **classmethods** keyed on a `user_id` int and a
+`has_premium` bool (not per-feature keys, not a `free/basic/premium` tier
+string):
+
 ```python
 class AIRateLimiter:
-    """
-    Rate limiter for AI-powered content generation.
+    USER_LIMIT = 10       # calls/hour for a standard user
+    PREMIUM_LIMIT = 50    # calls/hour with premium entitlement
+    GLOBAL_LIMIT = 100    # calls/hour across all users
+    TTL = 3600            # 1 hour
 
-    Limits by user tier:
-    - Free: 10 generations/hour
-    - Basic: 50 generations/hour
-    - Premium: 100 generations/hour
-    """
+    @classmethod
+    def check_user_limit(cls, user_id: int, has_premium: bool = False) -> bool:
+        # cache_key = f"ai_rate_limit:user:{user_id}"
+        # limit = cls.PREMIUM_LIMIT if has_premium else cls.USER_LIMIT
+        ...
 
-    # Tier limits (generations per hour)
-    TIER_LIMITS = {
-        'free': 10,
-        'basic': 50,
-        'premium': 100
-    }
+    @classmethod
+    def check_global_limit(cls) -> bool:
+        # cache_key = "ai_rate_limit:global"
+        ...
 
-    @staticmethod
-    def check_and_increment(user, feature: str, tier: str = 'free') -> bool:
-        """
-        Check if user can make another AI generation request.
-
-        Args:
-            user: Django User instance
-            feature: Feature identifier
-            tier: User tier ('free', 'basic', 'premium')
-
-        Returns:
-            True if within limit, False if exceeded
-        """
-        cache_key = f"ai:rate_limit:{feature}:{user.id}:{tier}"
-
-        # Get current count
-        current_count = cache.get(cache_key, 0)
-
-        # Check limit
-        limit = AIRateLimiter.TIER_LIMITS[tier]
-        if current_count >= limit:
-            logger.warning(
-                f"[RATE_LIMIT] User {user.id} exceeded {tier} limit ({limit}/hour)"
-            )
-            return False
-
-        # Increment counter (1 hour TTL)
-        cache.set(cache_key, current_count + 1, 3600)
-
-        return True
-
-    @staticmethod
-    def get_remaining_calls(user, feature: str, tier: str = 'free') -> int:
-        """
-        Get remaining AI generation calls for user.
-
-        Args:
-            user: Django User instance
-            feature: Feature identifier
-            tier: User tier
-
-        Returns:
-            Number of remaining calls this hour
-        """
-        cache_key = f"ai:rate_limit:{feature}:{user.id}:{tier}"
-        current_count = cache.get(cache_key, 0)
-        limit = AIRateLimiter.TIER_LIMITS[tier]
-
-        return max(0, limit - current_count)
+    @classmethod
+    def get_remaining_calls(cls, user_id: int, has_premium: bool = False) -> int:
+        ...
 ```
 
-### Integration with Wagtail Admin
+Cache keys: `ai_rate_limit:user:{user_id}` and `ai_rate_limit:global`.
 
-**Challenge**: Wagtail admin doesn't provide user context by default in panel methods.
+### Entitlement source
 
-**Solution 1: Thread-Local Storage**:
+`has_premium` comes from the entitlement primitive on the user model
+(`apps/users/models.py`), not a `user.profile.subscription_tier`:
+
 ```python
-import threading
-
-_thread_locals = threading.local()
-
-def set_current_user(user):
-    """Store current user in thread-local storage."""
-    _thread_locals.user = user
-
-def get_current_user():
-    """Get current user from thread-local storage."""
-    return getattr(_thread_locals, 'user', None)
-
-# In middleware
-class UserContextMiddleware:
-    def __call__(self, request):
-        set_current_user(request.user)
-        response = self.get_response(request)
-        set_current_user(None)  # Clean up
-        return response
+user.has_premium_access()   # -> user.is_premium or user.is_staff or user.is_superuser
 ```
 
-**Solution 2: Override Panel Methods**:
+Staff and superusers are granted premium-equivalent access implicitly, so the
+staff-only AI endpoints keep the elevated limit. For DRF endpoints, gate premium
+features with `apps.users.permissions.IsPremiumUser`.
+
+### Integration: the `@ai_rate_limit` decorator
+
+The limiter is applied at the **view layer**, not via Wagtail admin panels
+(wagtail-ai 3.x's editor panels are `/cms/`-admin-only). The decorator resolves
+the entitlement from `request.user` and returns HTTP 429 with `Retry-After` when
+either the user or the global limit is exceeded:
+
 ```python
-from wagtail_ai.panels import AITitleFieldPanel
+from apps.blog.services.ai_rate_limiter import ai_rate_limit
 
-class RateLimitedAITitlePanel(AITitleFieldPanel):
-    def on_form_bound(self):
-        super().on_form_bound()
+@staff_member_required
+@ai_rate_limit
+def generate_ai_content(request):
+    ...
 
-        user = get_current_user()
-        if user and not AIRateLimiter.check_and_increment(
-            user,
-            'wagtail_ai_title',
-            tier=user.profile.subscription_tier
-        ):
-            # Disable AI button or show upgrade prompt
-            self.disabled = True
+# Inside the decorator:
+#   has_premium = request.user.has_premium_access() if request.user.is_authenticated else False
+#   AIRateLimiter.check_user_limit(request.user.id, has_premium)
 ```
+
+`ai_rate_limit_async` is the equivalent for async views. The service layer
+(`BlogAIIntegration.generate_content`) calls `check_user_limit` /
+`get_remaining_calls` directly with the same `has_premium` value.
 
 ---
 
@@ -513,6 +476,7 @@ class RateLimitedAITitlePanel(AITitleFieldPanel):
 **Solution**: Use new `PROVIDERS` configuration format.
 
 **Anti-Pattern** ❌:
+
 ```python
 # ❌ v2.x format (deprecated)
 WAGTAIL_AI = {
@@ -530,6 +494,7 @@ WAGTAIL_AI = {
 ```
 
 **Correct Pattern** ✅:
+
 ```python
 # ✅ v3.0 format (recommended)
 WAGTAIL_AI = {
@@ -558,6 +523,7 @@ WAGTAIL_AI = {
 ### Supported Providers
 
 **OpenAI**:
+
 ```python
 "provider": "openai",
 "model": "gpt-4o-mini",  # or "gpt-4", "gpt-3.5-turbo"
@@ -565,6 +531,7 @@ WAGTAIL_AI = {
 ```
 
 **Anthropic (Claude)**:
+
 ```python
 "provider": "anthropic",
 "model": "claude-3-5-sonnet-20241022",
@@ -572,6 +539,7 @@ WAGTAIL_AI = {
 ```
 
 **Local (Llama)**:
+
 ```python
 "provider": "local",
 "model": "llama-3.1-8b",
@@ -640,6 +608,7 @@ def completion(self, messages: List[Dict], **kwargs) -> str:
 ### Error Scenarios
 
 **Handled Gracefully**:
+
 - ✅ OpenAI API down
 - ✅ Rate limit exceeded (quota)
 - ✅ Invalid API key
@@ -648,6 +617,7 @@ def completion(self, messages: List[Dict], **kwargs) -> str:
 - ✅ Malformed prompts
 
 **User Experience**:
+
 - Error messages show in admin UI
 - Admin interface remains functional
 - Users can enter content manually
@@ -674,16 +644,19 @@ def completion(self, messages: List[Dict], **kwargs) -> str:
 ### Cache Warmup Projections
 
 **Week 1** (Cold Cache):
+
 - Hit rate: 40-60%
 - Response time: 1-2s average
 - Cost: $0.60-0.90/month
 
 **Week 2** (Warming Up):
+
 - Hit rate: 60-80%
 - Response time: 500ms-1s average
 - Cost: $0.30-0.60/month
 
 **Week 3+** (Steady State):
+
 - Hit rate: 80-95%
 - Response time: <200ms average
 - Cost: $0.075-0.30/month
@@ -736,6 +709,7 @@ def test_caching_wrapper_functionality(self):
 ### Visual Verification Checklist
 
 **Manual UI Testing**:
+
 - [ ] AI Actions button (✨) appears next to fields
 - [ ] Tooltip shows "Generate [field type]"
 - [ ] Button styling matches Wagtail admin theme
@@ -752,6 +726,7 @@ def test_caching_wrapper_functionality(self):
 ### Pitfall 1: Using Custom Panels When Native Exist
 
 **Problem**:
+
 ```python
 # ❌ BAD - 185 lines of custom panel code
 from .panels import CustomAITitlePanel
@@ -764,6 +739,7 @@ from .panels import CustomAITitlePanel
 ### Pitfall 2: Hardcoded Prompts in Code
 
 **Problem**:
+
 ```python
 # ❌ BAD - Requires deployment to change
 prompt = "Generate a title..."
@@ -776,6 +752,7 @@ prompt = "Generate a title..."
 ### Pitfall 3: No Caching Wrapper
 
 **Problem**:
+
 ```python
 # ❌ BAD - Every request calls OpenAI ($0.003 each)
 response = llm_service.completion(messages)
@@ -788,6 +765,7 @@ response = llm_service.completion(messages)
 ### Pitfall 4: Using Deprecated BACKENDS
 
 **Problem**:
+
 ```python
 # ❌ BAD - Deprecated v2.x format
 WAGTAIL_AI = {
@@ -802,6 +780,7 @@ WAGTAIL_AI = {
 ### Pitfall 5: No Error Handling
 
 **Problem**:
+
 ```python
 # ❌ BAD - Breaks admin if API fails
 response = service.completion(messages)
@@ -838,4 +817,4 @@ These Wagtail AI patterns ensure:
 **Pattern Count**: 10 Wagtail AI patterns
 **Status**: ✅ Production-validated (Issue #157)
 **Performance**: <100ms cached, 80-95% cost reduction
-**Official Docs**: Wagtail AI 3.0 (https://github.com/wagtail/wagtail-ai)
+**Official Docs**: Wagtail AI 3.0 (<https://github.com/wagtail/wagtail-ai>)
