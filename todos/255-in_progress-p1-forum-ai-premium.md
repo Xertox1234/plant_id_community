@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p1
 issue_id: "255"
 tags: [forum, ai, premium, wagtail-ai]
