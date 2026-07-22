@@ -59,6 +59,10 @@ Firebase Auth 5.3.3, flutter_secure_storage, firebase-admin (backend), JWT token
 - [ ] Callable functions must handle `FirebaseFunctionsException` explicitly
 - [ ] Function calls must specify region if not `us-central1`
 
+**FCM / Push Delivery Testing**
+
+- [ ] An on-device FCM *delivery* E2E must NOT be driven by `flutter test integration_test/…` — the tool uninstalls the app on teardown, which invalidates the freshly-minted FCM token (`NotRegistered` on send). `flutter test` verifies *registration* only; use a `flutter run` harness that keeps the app installed for delivery (see `plant_community_mobile/tool/fcm_e2e_hold.dart` + `docs/LEARNINGS.md` 2026-07-22)
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
