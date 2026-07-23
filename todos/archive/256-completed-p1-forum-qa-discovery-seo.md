@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p1
 issue_id: "256"
 tags: [forum, seo, search, product-ux]
@@ -204,6 +204,19 @@ cross-submission or a frontend `robots.txt` pointer to be fully effective.
     (harmless, flat 8 queries).
 - Re-verified: web **655 tests** + `tsc`; backend `forum_host` suite **157**
   (test_seo **7**); `manage.py check` clean.
+
+### 2026-07-23 - Completed by completing-todos skill (run 2026-07-23-0217)
+
+- Both retained ACs met: **H8** (search end-to-end, PR #487 merged) and **H9**
+  (SEO surface, PR #488). Delivered as two per-slice PRs off fresh `main`.
+- Descoped up front (see the re-scope note): H6 → todo 273; M1/M5/M11/L8 → todo 276.
+- Verification: web 655 tests + `tsc`; backend forum_host 157 + wagtail_forum api
+  225 (H8) / test_seo 7 (H9); `manage.py check` + `spectacular` clean.
+- Review: H8 — 4 reviewers + advisor, all low/med fixed, security clean; H9 — 4
+  reviewers + advisor, no correctness/security bugs, coverage/robustness fixes applied.
+- Follow-up recorded (H9 ops): the backend-served sitemap lists frontend
+  (Cloudflare) URLs — needs a `robots.txt` Sitemap: pointer or Search-Console
+  cross-submission to be fully effective for discovery.
 
 ## Notes
 

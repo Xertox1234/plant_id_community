@@ -295,8 +295,8 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H4 mentions → todo 253 (completed 2026-07-22)
 - [ ] #H6 solved-accepted-answer → todo 273 (re-pointed 2026-07-23; roadmap moved solved answers to Wave 2 / not 256)
 - [ ] #H7 public-user-identity → todo 257
-- [ ] #H8 search-discoverability-filters → todo 256
-- [ ] #H9 seo-surface → todo 256
+- [x] #H8 search-discoverability-filters → todo 256 (completed 2026-07-23)
+- [x] #H9 seo-surface → todo 256 (completed 2026-07-23)
 - [x] #H10 unread-indicators → todo 253 (completed 2026-07-22)
 - [ ] #H11 mobile-forum-client → todo 260
 - [x] #H12 entitlement-primitive → todo 255 (completed 2026-07-20, slice 1)
