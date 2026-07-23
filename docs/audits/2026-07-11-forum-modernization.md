@@ -293,7 +293,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H2 push-event-coverage → todo 253 (completed 2026-07-22)
 - [x] #H3 subscriptions-watching → todo 253 (completed 2026-07-22)
 - [x] #H4 mentions → todo 253 (completed 2026-07-22)
-- [ ] #H6 solved-accepted-answer → todo 256
+- [ ] #H6 solved-accepted-answer → todo 273 (re-pointed 2026-07-23; roadmap moved solved answers to Wave 2 / not 256)
 - [ ] #H7 public-user-identity → todo 257
 - [ ] #H8 search-discoverability-filters → todo 256
 - [ ] #H9 seo-surface → todo 256
@@ -307,17 +307,17 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #H18 error-retry-affordance → todo 259
 - [ ] #H21 tombstone-prune-scheduling → todo 261
 - [ ] #H26 author-shape-inconsistency → todo 257
-- [ ] #M1 quote-reply → todo 256
+- [ ] #M1 quote-reply → todo 276 (re-pointed 2026-07-23; split out of 256)
 - [ ] #M2 bookmarks → todo 263
 - [ ] #M3 drafts-autosave → todo 263
 - [ ] #M4 edit-history-viewer → todo 263
-- [ ] #M5 tags-taxonomy → todo 256
+- [ ] #M5 tags-taxonomy → todo 276 (re-pointed 2026-07-23; split out of 256)
 - [ ] #M6 plant-domain-linkage → todo 263
 - [ ] #M7 image-authoring-alt-text → todo 263
 - [ ] #M8 polls → todo 263
 - [ ] #M9 block-mute → todo 263
 - [ ] #M10 private-messaging → todo 263
-- [ ] #M11 post-permalinks → todo 256
+- [ ] #M11 post-permalinks → todo 276 (re-pointed 2026-07-23; split out of 256; Wave 1 shipped the chase, residual = copy-link)
 - [ ] #M12 semantic-search-upgrade → todo 275 (re-pointed 2026-07-22; not in 255's AC)
 - [ ] #M13 rag-plant-care → todo 275 (re-pointed 2026-07-22; 255 held it unstarted per gate)
 - [ ] #M14 ai-composer-assist → todo 275 (re-pointed 2026-07-22; not in 255's AC)
@@ -351,7 +351,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #L5 badges-gamification → todo 257
 - [x] #L6 blog-md-doc-drift → todo 255 (completed 2026-07-20, slice 1)
 - [x] #L7 openai-key-ops-check → todo 255 (completed 2026-07-20, slice 1)
-- [ ] #L8 autocomplete-typeahead → todo 256
+- [ ] #L8 autocomplete-typeahead → todo 276 (re-pointed 2026-07-23; split out of 256)
 - [ ] #L10 toolbar-tap-targets → todo 259
 - [ ] #L11 button-busy-state → todo 259
 - [ ] #L12 timestamp-accessibility → todo 259

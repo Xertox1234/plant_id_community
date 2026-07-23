@@ -112,6 +112,58 @@ def test_search_returns_topics_and_posts():
 
 
 @pytest.mark.django_db
+def test_search_paginates_with_honest_has_more(monkeypatch):
+    # todo 256 H8: the old view hard-capped each section at 50 with no way to
+    # page past it. Now each section returns up to PAGE_SIZE with a *_has_more
+    # flag; page through with ?page=. Shrink PAGE_SIZE to 2 (mirrors the SyncView
+    # MAX_TOPICS test) so 3 matches span two pages.
+    from wagtail_forum.api import views as forum_views
+
+    monkeypatch.setattr(forum_views.SearchView, "PAGE_SIZE", 2)
+    board = _board()
+    for i in range(3):
+        Topic.objects.create(
+            board=board, title=f"Monstera {i}", slug=f"m{i}", live=True
+        )
+
+    page1 = APIClient().get("/forum/search/?q=Monstera").data
+    # Capped at PAGE_SIZE (not all 3), and honestly signals more remain.
+    assert len(page1["topics"]) == 2
+    assert page1["topics_has_more"] is True
+    assert page1["posts_has_more"] is False
+    assert page1["page"] == 1
+
+    page2 = APIClient().get("/forum/search/?q=Monstera&page=2").data
+    # The 3rd match is reachable — no silent cap swallows it.
+    assert len(page2["topics"]) == 1
+    assert page2["topics_has_more"] is False
+    assert page2["page"] == 2
+
+    # Identity, not just counts: the two pages must be disjoint and together
+    # cover all 3 matches — a stability bug that repeated or dropped a topic
+    # would pass on lengths alone. The modelsearch DB backends append a -pk
+    # tiebreak after the rank ordering, so the window is stable across requests.
+    slugs1 = {t["slug"] for t in page1["topics"]}
+    slugs2 = {t["slug"] for t in page2["topics"]}
+    assert slugs1.isdisjoint(slugs2), (slugs1, slugs2)
+    assert slugs1 | slugs2 == {"m0", "m1", "m2"}
+
+
+@pytest.mark.django_db
+def test_search_page_param_is_capped(monkeypatch):
+    # A huge ?page= must not produce an unbounded SQL OFFSET — it is capped at
+    # MAX_PAGE (bounds the offset like DRF CursorPagination.offset_cutoff).
+    from wagtail_forum.api import views as forum_views
+
+    monkeypatch.setattr(forum_views.SearchView, "MAX_PAGE", 3)
+    board = _board()
+    Topic.objects.create(board=board, title="Monstera", slug="m", live=True)
+
+    resp = APIClient().get("/forum/search/?q=Monstera&page=99999").data
+    assert resp["page"] == 3  # capped, not echoed back as 99999
+
+
+@pytest.mark.django_db
 def test_search_post_excerpts_are_plain_text_with_flat_queries():
     # Audit 2026-07-11 H24: the excerpt used body.render_as_block(), which
     # resolves the StreamValue and bulk-fetches image blocks PER POST (+1 query

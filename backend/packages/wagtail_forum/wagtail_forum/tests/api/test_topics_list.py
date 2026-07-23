@@ -149,6 +149,113 @@ def test_ordering_query_param_is_inert():
 
 
 @pytest.mark.django_db
+def test_sort_param_reorders_by_view_count():
+    # todo 256 H8: the web ThreadListPage <select> drives ?sort= through the
+    # cursor paginator's get_ordering. Unlike ?ordering= (inert, test above), a
+    # whitelisted ?sort= value actually reorders the list.
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    base = timezone.now()
+    Topic.objects.create(
+        board=board,
+        title="low views",
+        slug="low",
+        author=author,
+        live=True,
+        view_count=1,
+        last_post_at=base,  # newer activity...
+    )
+    Topic.objects.create(
+        board=board,
+        title="high views",
+        slug="high",
+        author=author,
+        live=True,
+        view_count=99,
+        last_post_at=base - datetime.timedelta(days=1),  # ...but older
+    )
+
+    resp = APIClient().get(f"/forum/boards/{board.slug}/topics/?sort=-view_count")
+
+    assert resp.status_code == 200
+    # -view_count wins over the default -last_post_at (low has newer activity but
+    # fewer views), proving ?sort= reorders the query rather than being ignored.
+    assert [t["slug"] for t in resp.data["results"]] == ["high", "low"]
+
+
+@pytest.mark.django_db
+def test_unknown_sort_param_falls_back_to_default_ordering():
+    # A bogus ?sort= must not 500 — it falls back to the default pinned+activity
+    # ordering (mirrors the ?ordering= inert contract).
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    base = timezone.now()
+    Topic.objects.create(
+        board=board,
+        title="Pinned",
+        slug="pinned",
+        author=author,
+        live=True,
+        is_pinned=True,
+        last_post_at=base - datetime.timedelta(days=10),
+    )
+    Topic.objects.create(
+        board=board,
+        title="Fresh",
+        slug="fresh",
+        author=author,
+        live=True,
+        last_post_at=base,
+    )
+
+    resp = APIClient().get(f"/forum/boards/{board.slug}/topics/?sort=bogus")
+
+    assert resp.status_code == 200
+    assert [t["slug"] for t in resp.data["results"]] == ["pinned", "fresh"]
+
+
+@pytest.mark.django_db
+def test_sort_param_survives_across_cursor_pages():
+    # The riskiest path: ?sort= must ride along in the next/previous cursor links
+    # (DRF bakes the full request URL into base_url), or page 2 silently reverts
+    # to the default ordering and dupes/skips topics across the page boundary.
+    # Seed >1 page of topics with DISTINCT view_counts, follow every cursor, and
+    # assert the whole traversal stays view-count-ordered with no dupes/omissions.
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    base = timezone.now()
+    for i in range(25):
+        Topic.objects.create(
+            board=board,
+            title=f"T{i}",
+            slug=f"t{i}",
+            author=author,
+            live=True,
+            view_count=i,  # distinct, ascending
+            last_post_at=base - datetime.timedelta(minutes=i),
+        )
+
+    client = APIClient()
+    resp = client.get(f"/forum/boards/{board.slug}/topics/?sort=-view_count")
+    assert resp.status_code == 200
+    view_counts = [t["view_count"] for t in resp.data["results"]]
+    slugs = [t["slug"] for t in resp.data["results"]]
+
+    # Follow the absolute cursor URL verbatim (docs/rules/api.md).
+    while resp.data["next"]:
+        resp = client.get(resp.data["next"])
+        assert resp.status_code == 200
+        view_counts.extend(t["view_count"] for t in resp.data["results"])
+        slugs.extend(t["slug"] for t in resp.data["results"])
+
+    # All 25 topics, each exactly once, in strictly-descending view_count order —
+    # proving the sort survived every cursor hop, not just page 1.
+    assert len(slugs) == 25
+    assert len(set(slugs)) == 25
+    assert view_counts == sorted(view_counts, reverse=True)
+
+
+@pytest.mark.django_db
 def test_pinned_ordering_is_cursor_stable_across_pages():
     # The pinned-first ordering must not break cursor traversal: every topic
     # appears exactly once across pages, pinned ones all on page 1's head.

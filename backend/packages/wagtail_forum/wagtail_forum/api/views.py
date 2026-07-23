@@ -220,7 +220,10 @@ class BoardListView(generics.ListAPIView):
     responses={200: TopicListSerializer(many=True)},
     description=(
         "List a board's live topics, most-recent activity first "
-        "(cursor-paginated). Returns 404 for a hidden/non-live board."
+        "(cursor-paginated). Optional ?sort= reorders within the pinned-first "
+        "contract — one of: -last_activity_at (default), -created_at, "
+        "created_at, -view_count, -post_count; an unknown value is ignored. "
+        "Returns 404 for a hidden/non-live board."
     ),
 )
 class TopicListView(generics.ListAPIView):
@@ -833,22 +836,33 @@ def plain_text_excerpt(stream_value, limit: int) -> str:
 
 class SearchView(APIView):
     versioning_class = None
-    MAX_RESULTS = (
-        50  # bound the result set; a high-cardinality query won't blow up memory
-    )
+    PAGE_SIZE = 20  # results per section per page; *_has_more drives client paging
+    MAX_PAGE = 50  # ceiling on ?page= — bounds the SQL OFFSET (like CursorPagination.offset_cutoff)
     MAX_EXCERPT_CHARS = 200
 
     @extend_schema(
         responses={200: dict},
         description=(
             "Search live topic titles and post bodies. Query params: q "
-            "(required), board (optional board slug filter)."
+            "(required), board (optional board slug filter), page (optional, "
+            "1-based, capped at MAX_PAGE). Each section returns up to PAGE_SIZE "
+            "results plus a *_has_more flag — no silent cap; page through with "
+            "?page=. Offset-paged over relevance-ranked results, so a concurrent "
+            "topic/post write can shift the window; clients should dedup by id "
+            "when appending pages."
         ),
     )
     def get(self, request):
         query = request.query_params.get("q", "").strip()
         board_slug = request.query_params.get("board", "").strip()
+        try:
+            page = max(1, int(request.query_params.get("page", 1)))
+        except (TypeError, ValueError):
+            page = 1
+        page = min(page, self.MAX_PAGE)  # bound the SQL OFFSET on a huge ?page=
+        offset = (page - 1) * self.PAGE_SIZE
         topics, posts = [], []
+        topics_has_more = posts_has_more = False
         if query:
             backend = get_search_backend()
             boards = _visible_boards()
@@ -865,8 +879,12 @@ class SearchView(APIView):
                 )
                 topic_qs = topic_qs.filter(board_id__in=board_ids)
                 post_qs = post_qs.filter(topic__board_id__in=board_ids)
+            # Window each hit list to [offset, offset+PAGE_SIZE], pulling one
+            # extra row to detect a further page without a COUNT query.
             topic_hits = backend.search(query, topic_qs.select_related("board"))
-            for t in topic_hits[: self.MAX_RESULTS]:
+            topic_window = list(topic_hits[offset : offset + self.PAGE_SIZE + 1])
+            topics_has_more = len(topic_window) > self.PAGE_SIZE
+            for t in topic_window[: self.PAGE_SIZE]:
                 topics.append(
                     {
                         "id": t.id,
@@ -884,7 +902,9 @@ class SearchView(APIView):
             post_hits = backend.search(
                 query, post_qs.select_related("topic", "topic__board")
             )
-            for p in post_hits[: self.MAX_RESULTS]:
+            post_window = list(post_hits[offset : offset + self.PAGE_SIZE + 1])
+            posts_has_more = len(post_window) > self.PAGE_SIZE
+            for p in post_window[: self.PAGE_SIZE]:
                 posts.append(
                     {
                         "id": p.id,
@@ -900,7 +920,15 @@ class SearchView(APIView):
                         ),
                     }
                 )
-        return Response({"topics": topics, "posts": posts})
+        return Response(
+            {
+                "topics": topics,
+                "posts": posts,
+                "topics_has_more": topics_has_more,
+                "posts_has_more": posts_has_more,
+                "page": page,
+            }
+        )
 
 
 class SyncView(APIView):
