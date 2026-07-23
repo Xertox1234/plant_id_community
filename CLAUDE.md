@@ -256,6 +256,7 @@ never commit it).
 | `GOOGLE_APPLICATION_CREDENTIALS` | `backend/.env` | Path to Firebase service account JSON (ADC — users-app token exchange) |
 | `FIREBASE_CREDENTIALS_PATH` | `backend/.env` | Same JSON, read by `apps/garden/firebase_config.py` — gates FCM push; unset = push disabled |
 | `WAGTAILFORUM_SPAM_BACKEND` | `backend/.env` | Dotted path to the forum spam backend; unset = heuristic. Set to `apps.forum_host.spam.LLMSpamBackend` to enable the LLM screen (needs `OPENAI_API_KEY`) |
+| `FORUM_VECTOR_SEARCH_ENABLED` | `backend/.env` | `True` enables the forum semantic "similar topics" endpoint (H15); default `False` (endpoint 503s, no embedding spend). Needs `OPENAI_API_KEY` + a built index (`manage.py rebuild_indexes SimilarTopics`). The pgvector apps + `CREATE EXTENSION vector` migration are always active |
 | `VITE_API_URL` | `web/.env` | Backend URL for React app |
 
 ## Cheap-Worker Delegation (Kimi K2.6)

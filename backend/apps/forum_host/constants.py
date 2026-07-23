@@ -28,6 +28,9 @@ DEFAULT_FORUM_RATELIMITS = {
     # enqueues one LLM task; generous but bounded so a premium client can't spin
     # up unbounded generations.
     "topic_summary": "30/h",
+    # Semantic similar-topics GET (todo 255 slice 4 / H15). Per-IP, same tier as
+    # `search` — a debounced compose-time box; a cache miss embeds the query.
+    "similar_topics": "30/m",
 }
 
 # Reply-notification email body excerpt length (todo 253 slice 2, H1).
@@ -143,3 +146,28 @@ SUMMARY_PROMPT_TEMPLATE = (
     "{content}\n"
     "----- END THREAD -----"
 )
+
+# ---------------------------------------------------------------------------
+# Semantic "similar topics" (todo 255 slice 4 / H15). Consumed by
+# apps/forum_host/vector_indexes.py + similar.py. Gated behind
+# settings.FORUM_VECTOR_SEARCH_ENABLED. See
+# docs/superpowers/specs/2026-07-22-forum-similar-topics-pgvector-design.md.
+# ---------------------------------------------------------------------------
+
+# Max similar topics returned to a client.
+SIMILAR_TOPICS_LIMIT = 5
+
+# Overfetch factor: vector search returns this * limit documents so the result
+# still fills after the board-visibility refetch drops restricted hits.
+SIMILAR_OVERFETCH = 3
+
+# Per-topic content cap fed into the embedding (title + opening-post excerpt).
+SIMILAR_CONTENT_MAX_CHARS = 2000
+
+# Upper bound on the compose-time query string (caps embedding tokens/cost).
+SIMILAR_QUERY_MAX_CHARS = 500
+
+# Result cache: bounds embedding spend on debounced typing by caching the
+# (query, board) result set briefly.
+SIMILAR_CACHE_PREFIX = "forum_similar_topics"
+SIMILAR_CACHE_TTL_SECONDS = 300

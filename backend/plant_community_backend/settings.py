@@ -175,6 +175,14 @@ THIRD_PARTY_APPS = [
     "allauth.socialaccount",
     "allauth.socialaccount.providers.google",
     "allauth.socialaccount.providers.github",
+    # django-ai-core vector index for the forum "similar topics" feature
+    # (todo 255 slice 4 / H15). The pgvector storage app ships the
+    # `CREATE EXTENSION vector` migration; the index app owns the embedding +
+    # embedding-cache tables. Always installed (the migration runs wherever the
+    # vector extension is available — local/CI-pgvector-image/Railway); the
+    # feature itself gates on FORUM_VECTOR_SEARCH_ENABLED (below).
+    "django_ai_core.contrib.index",
+    "django_ai_core.contrib.index.storage.pgvector",
 ]
 
 # Local Apps
@@ -786,6 +794,18 @@ WAGTAILFORUM_SPAM_BACKEND = config(
     "WAGTAILFORUM_SPAM_BACKEND",
     default="wagtail_forum.spam.heuristic.HeuristicSpamBackend",
 )
+
+# Forum semantic "similar topics" (todo 255 slice 4 / H15). The pgvector index
+# apps are always installed (the CREATE EXTENSION migration runs wherever the
+# vector extension is present), but the endpoint + any embedding API spend gate
+# on this flag. Default OFF: no accidental embedding cost over an empty forum;
+# enable in prod (with a working OPENAI_API_KEY + a rebuilt index) when there is
+# a corpus worth searching. Embeddings use FORUM_EMBED_MODEL via the openai
+# provider (reuses OPENAI_API_KEY).
+FORUM_VECTOR_SEARCH_ENABLED = config(
+    "FORUM_VECTOR_SEARCH_ENABLED", default=False, cast=bool
+)
+FORUM_EMBED_MODEL = config("FORUM_EMBED_MODEL", default="text-embedding-3-small")
 
 # Firebase Admin SDK service-account JSON path — the CANONICAL credentials
 # setting: both the auth token exchange (apps/users) and the FCM sender

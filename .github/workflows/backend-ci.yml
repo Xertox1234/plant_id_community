@@ -99,7 +99,10 @@ jobs:
         # `"test" in sys.argv` Postgres branch at settings.py:303 only fires for
         # `manage.py test`, NOT pytest). Django's test runner then creates
         # `test_plant_community` from this service.
-        image: postgres:16
+        # pgvector image (Postgres 16 + the `vector` extension preinstalled) so
+        # the forum similar-topics `CREATE EXTENSION vector` migration applies in
+        # CI (todo 255 slice 4 / H15). Stock postgres:16 lacks the extension.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres  # pragma: allowlist secret
