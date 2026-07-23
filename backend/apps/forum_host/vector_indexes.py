@@ -134,7 +134,13 @@ def find_similar_topics(
         pk__in=ordered_pks, live=True, board__in=_visible_boards()
     ).select_related("board")
     if board_slug:
-        qs = qs.filter(board__slug=board_slug)
+        # Resolve the slug to visible board ids (Wagtail slugs are unique only
+        # among siblings, so two boards can share one) and filter on board_id —
+        # mirrors SearchView, avoiding a cross-board over-match.
+        board_ids = list(
+            _visible_boards().filter(slug=board_slug).values_list("id", flat=True)
+        )
+        qs = qs.filter(board_id__in=board_ids)
     by_pk = {t.pk: t for t in qs}
     ranked = [by_pk[pk] for pk in ordered_pks if pk in by_pk]
     return ranked[:limit]

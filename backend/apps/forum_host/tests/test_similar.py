@@ -208,3 +208,20 @@ def test_similar_topics_excludes_restricted_board():
     assert public.id in ids
     # A restricted-board topic is never embedded nor returned (authz boundary).
     assert secret.id not in ids
+
+
+@override_settings(FORUM_VECTOR_SEARCH_ENABLED=True, OPENAI_API_KEY=_FAKE_OPENAI_KEY)
+@pytest.mark.django_db
+def test_board_filter_narrows_results_to_that_board():
+    board_a = _board(suffix="a")
+    board_b = _board(suffix="b")
+    ta = _topic("Tomato A", "tomato blight", suffix="ta", board=board_a)
+    _topic("Tomato B", "tomato blight", suffix="tb", board=board_b)
+
+    with patch.object(LLMService, "embedding", _fake_embedding):
+        SimilarTopics().build()
+        results = find_similar_topics("tomato blight", board_slug=board_a.slug)
+
+    ids = {t.id for t in results}
+    assert ta.id in ids
+    assert all(t.board_id == board_a.id for t in results)
