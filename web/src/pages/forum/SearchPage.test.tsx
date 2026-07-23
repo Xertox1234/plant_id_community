@@ -36,6 +36,8 @@ function createMockSearchResults(overrides = {}) {
     posts: [],
     total_threads: 0,
     total_posts: 0,
+    has_more_threads: false,
+    has_more_posts: false,
     ...overrides,
   };
 }
@@ -146,8 +148,8 @@ describe('SearchPage', () => {
       renderSearchPage('/forum/search?q=watering');
 
       await waitFor(() => {
-        // Simply check that "Found" text appears
-        expect(screen.getByText(/Found/i)).toBeInTheDocument();
+        // The summary now reads "Showing N …" (honest per-page count, not a total).
+        expect(screen.getByText(/Showing/i)).toBeInTheDocument();
       });
     });
 
@@ -267,6 +269,103 @@ describe('SearchPage', () => {
       expect(screen.getByTitle('12 views')).toBeInTheDocument();
       expect(screen.queryByLabelText('Author')).not.toBeInTheDocument();
       expect(screen.queryByLabelText('From')).not.toBeInTheDocument();
+    });
+
+    it('shows Load More when a section has_more, and appends the next page', async () => {
+      const page1 = createMockSearchResults({
+        query: 'watering',
+        threads: [createMockThread({ id: '1', title: 'Watering Guide' })],
+        total_threads: 1,
+        has_more_threads: true,
+      });
+      const page2 = createMockSearchResults({
+        query: 'watering',
+        threads: [createMockThread({ id: '2', title: 'Second Page Thread' })],
+        total_threads: 1,
+        has_more_threads: false,
+      });
+      const searchSpy = vi
+        .spyOn(forumService, 'searchForum')
+        .mockResolvedValueOnce(page1)
+        .mockResolvedValueOnce(page2);
+
+      renderSearchPage('/forum/search?q=watering');
+
+      await waitFor(() => expect(screen.getByText('Watering Guide')).toBeInTheDocument());
+      // First fetch is page 1.
+      expect(searchSpy).toHaveBeenCalledWith(expect.objectContaining({ q: 'watering', page: 1 }));
+
+      const loadMore = screen.getByRole('button', { name: /load more results/i });
+      await userEvent.click(loadMore);
+
+      // Load More requests page 2 and appends its results.
+      await waitFor(() =>
+        expect(searchSpy).toHaveBeenCalledWith(expect.objectContaining({ q: 'watering', page: 2 }))
+      );
+      // Query the ThreadCard heading specifically — the title also appears inside
+      // the highlighted-match snippet (its excerpt matches the query).
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Second Page Thread' })).toBeInTheDocument()
+      );
+      // The page-1 result is still present (appended, not replaced).
+      expect(screen.getByRole('heading', { name: 'Watering Guide' })).toBeInTheDocument();
+      // Page 2 has no more — the button is gone.
+      expect(screen.queryByRole('button', { name: /load more results/i })).not.toBeInTheDocument();
+    });
+
+    it('shows Load More when only has_more_posts is true (posts section drives it)', async () => {
+      // Covers the second operand of `has_more_threads || has_more_posts` — with
+      // has_more_threads false, deleting `|| has_more_posts` would hide the button.
+      const post1 = mapSearchPostToPost({
+        id: 1,
+        topic_id: 42,
+        topic_title: 'Watering Guide',
+        topic_slug: 'watering-guide',
+        board_id: 1,
+        board_slug: 'plant-care',
+        excerpt: 'Water your plants',
+      });
+      const page1 = createMockSearchResults({
+        query: 'watering',
+        posts: [post1],
+        total_posts: 1,
+        has_more_threads: false,
+        has_more_posts: true,
+      });
+      const page2 = createMockSearchResults({
+        query: 'watering',
+        posts: [
+          mapSearchPostToPost({
+            id: 2,
+            topic_id: 43,
+            topic_title: 'More watering',
+            topic_slug: 'more-watering',
+            board_id: 1,
+            board_slug: 'plant-care',
+            excerpt: 'even more watering',
+          }),
+        ],
+        total_posts: 1,
+        has_more_threads: false,
+        has_more_posts: false,
+      });
+      const searchSpy = vi
+        .spyOn(forumService, 'searchForum')
+        .mockResolvedValueOnce(page1)
+        .mockResolvedValueOnce(page2);
+
+      renderSearchPage('/forum/search?q=watering');
+
+      const loadMore = await screen.findByRole('button', { name: /load more results/i });
+      await userEvent.click(loadMore);
+
+      await waitFor(() =>
+        expect(searchSpy).toHaveBeenCalledWith(expect.objectContaining({ q: 'watering', page: 2 }))
+      );
+      // Page 2 exhausts posts too — button disappears.
+      await waitFor(() =>
+        expect(screen.queryByRole('button', { name: /load more results/i })).not.toBeInTheDocument()
+      );
     });
 
     it('displays no results message when no matches found', async () => {

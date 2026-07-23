@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { searchForum, fetchCategories } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import Button from '../../components/ui/Button';
 import { logger } from '../../utils/logger';
 import { sanitizeSearchQuery } from '../../utils/validation';
 import { threadPath } from '../../utils/forumUrls';
@@ -65,9 +66,16 @@ export default function SearchPage() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState<string>('');
+  // 1-based page across both result sections; Load More bumps it and appends.
+  const [page, setPage] = useState<number>(1);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
 
   // Use ref for debounce timer to prevent memory leaks
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Generation guard: a new query/category bumps this; a stale in-flight
+  // performSearch or Load More re-checks it and drops its response so it can't
+  // append the old query's results onto the new query's list or desync `page`.
+  const searchGenRef = useRef(0);
 
   // Get search params. Sanitize the query (strip control chars, cap length) as
   // client-side defense-in-depth — covers both the typed input and a direct
@@ -109,12 +117,16 @@ export default function SearchPage() {
       return;
     }
 
+    const gen = ++searchGenRef.current;
     const performSearch = async () => {
       try {
         setLoading(true);
+        setLoadingMore(false); // a new query supersedes any in-flight Load More
         setError(null);
+        setPage(1);
 
-        const results = await searchForum({ q: query, category });
+        const results = await searchForum({ q: query, category, page: 1 });
+        if (searchGenRef.current !== gen) return;
 
         setSearchResults(results);
         logger.info('[SEARCH] Results loaded', {
@@ -123,6 +135,7 @@ export default function SearchPage() {
           totalPosts: results.total_posts,
         });
       } catch (err) {
+        if (searchGenRef.current !== gen) return;
         logger.error('Error performing search', {
           component: 'SearchPage',
           error: err,
@@ -130,7 +143,7 @@ export default function SearchPage() {
         });
         setError(err instanceof Error ? err.message : 'Search failed');
       } finally {
-        setLoading(false);
+        if (searchGenRef.current === gen) setLoading(false);
       }
     };
 
@@ -198,6 +211,48 @@ export default function SearchPage() {
   const handleClearFilters = useCallback(() => {
     setSearchParams({ q: query });
   }, [query, setSearchParams]);
+
+  // Append the next page of results. Both sections share one page counter; a
+  // section that's already exhausted simply contributes nothing on the next page.
+  const handleLoadMore = useCallback(async () => {
+    if (!query || loadingMore) return;
+    const nextPage = page + 1;
+    const gen = searchGenRef.current;
+    try {
+      setLoadingMore(true);
+      setError(null);
+      const more = await searchForum({ q: query, category, page: nextPage });
+      if (searchGenRef.current !== gen) return; // a newer query superseded us
+      setSearchResults((prev) => {
+        if (!prev) return more;
+        // Dedup by id on append: offset pagination over ranked results can drift
+        // if a topic/post is created or deleted between page fetches, so the same
+        // row could reappear on a later page (wagtail-reviewer). Drop repeats.
+        const seenThreads = new Set(prev.threads.map((t) => t.id));
+        const seenPosts = new Set(prev.posts.map((p) => p.id));
+        const newThreads = more.threads.filter((t) => !seenThreads.has(t.id));
+        const newPosts = more.posts.filter((p) => !seenPosts.has(p.id));
+        return {
+          ...more,
+          threads: [...prev.threads, ...newThreads],
+          posts: [...prev.posts, ...newPosts],
+          total_threads: prev.total_threads + newThreads.length,
+          total_posts: prev.total_posts + newPosts.length,
+        };
+      });
+      setPage(nextPage);
+    } catch (err) {
+      if (searchGenRef.current !== gen) return;
+      logger.error('Error loading more search results', {
+        component: 'SearchPage',
+        error: err,
+        context: { query, category, page: nextPage },
+      });
+      setError(err instanceof Error ? err.message : 'Search failed');
+    } finally {
+      if (searchGenRef.current === gen) setLoadingMore(false);
+    }
+  }, [query, category, page, loadingMore]);
 
   // Check if any filters are active
   const hasActiveFilters = useMemo(() => !!category, [category]);
@@ -314,9 +369,10 @@ export default function SearchPage() {
           {/* Results Summary */}
           <div className="mb-6">
             <p className="text-ink-2">
-              Found <span className="font-semibold">{searchResults.total_threads}</span> thread(s)
+              Showing <span className="font-semibold">{searchResults.total_threads}</span> thread(s)
               and <span className="font-semibold">{searchResults.total_posts}</span> post(s) for{' '}
               <span className="font-semibold">"{query}"</span>
+              {(searchResults.has_more_threads || searchResults.has_more_posts) && ' (more below)'}
             </p>
           </div>
 
@@ -410,6 +466,21 @@ export default function SearchPage() {
               </svg>
               <p className="text-ink-2 mb-2">No results found for "{query}"</p>
               <p className="text-ink-3 text-sm">Try different keywords or remove some filters</p>
+            </div>
+          )}
+
+          {/* Load More (honest pagination — no silent cap) */}
+          {(searchResults.has_more_threads || searchResults.has_more_posts) && (
+            <div className="mt-4 text-center">
+              <Button
+                onClick={handleLoadMore}
+                variant="outline"
+                loading={loadingMore}
+                disabled={loadingMore}
+                className="min-h-11"
+              >
+                {loadingMore ? 'Loading…' : 'Load more results'}
+              </Button>
             </div>
           )}
         </div>

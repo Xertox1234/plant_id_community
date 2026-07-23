@@ -116,16 +116,21 @@ export async function fetchThreads(
   options: {
     board?: string;
     cursor?: string;
-    // Legacy caller fields — accepted but ignored until Task 6 updates callers.
+    /** Board-list sort — one of the TopicCursorPagination SORT_ORDERINGS keys. */
+    sort?: string;
+    // Legacy caller fields — accepted but ignored.
     category?: number;
     page?: number;
     search?: string;
     ordering?: string;
   } = {}
 ): Promise<PaginatedResponse<Thread>> {
-  const { board, cursor } = options;
+  const { board, cursor, sort } = options;
   if (!board) throw new Error('A board slug is required');
-  const url = cursor || `${FORUM_BASE}/boards/${board}/topics/`;
+  // A cursor URL is absolute and already encodes the active sort ordering, so
+  // ?sort= only ever needs to be appended on a first-page (non-cursor) request.
+  let url = cursor || `${FORUM_BASE}/boards/${board}/topics/`;
+  if (!cursor && sort) url += `?sort=${encodeURIComponent(sort)}`;
   const data = await authenticatedFetch<DrfPage<BackendTopicListItem>>(url);
   return {
     items: (data.results || []).map(mapTopicListItemToThread),
@@ -304,22 +309,29 @@ export async function uploadPostImage(imageFile: File): Promise<UploadedImage> {
 // ---------------------------------------------------------------------------
 
 export async function searchForum(options: SearchForumOptions): Promise<SearchForumResponse> {
-  const { q, category } = options;
+  const { q, category, page } = options;
   if (!q || q.trim() === '') throw new Error('Search query is required');
   const params = new URLSearchParams({ q: q.trim() });
   if (category) params.set('board', category);
+  if (page && page > 1) params.set('page', String(page));
   const data = await authenticatedFetch<{
     topics: BackendSearchTopic[];
     posts: BackendSearchPost[];
+    topics_has_more?: boolean;
+    posts_has_more?: boolean;
   }>(`${FORUM_BASE}/search/?${params}`);
   const threads = (data.topics || []).map(mapSearchTopicToThread);
   const posts = (data.posts || []).map(mapSearchPostToPost);
-  // Result sets are server-capped at 50 each; lengths are the real totals up to that cap.
+  // Each section is paginated (PAGE_SIZE per page); *_has_more says whether a
+  // further page exists. total_* are this page's lengths — SearchPage sums the
+  // accumulated results across Load More.
   return {
     query: q.trim(),
     threads,
     posts,
     total_threads: threads.length,
     total_posts: posts.length,
+    has_more_threads: data.topics_has_more ?? false,
+    has_more_posts: data.posts_has_more ?? false,
   };
 }

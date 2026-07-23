@@ -7,11 +7,14 @@ import ThreadListPage from './ThreadListPage';
 import { createMockCategory, createMockThread } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
 
+const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }));
+
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
     useParams: vi.fn(),
+    useNavigate: () => mockNavigate,
   };
 });
 
@@ -67,7 +70,10 @@ describe('ThreadListPage', () => {
 
     await waitFor(() => {
       expect(fetchCategorySpy).toHaveBeenCalledWith(3);
-      expect(fetchThreadsSpy).toHaveBeenCalledWith({ board: 'plant-care' });
+      expect(fetchThreadsSpy).toHaveBeenCalledWith({
+        board: 'plant-care',
+        sort: '-last_activity_at',
+      });
     });
   });
 
@@ -184,10 +190,10 @@ describe('ThreadListPage', () => {
     expect(breadcrumb).toHaveTextContent('Plant Care');
   });
 
-  // NOTE: in-category search/ordering are intentionally NOT API-backed in Phase 1
-  // (the backend topics endpoint only honors `page`). These controls drive the URL
-  // and the UI; the assertions below verify that surface, not a backend filter.
-  it('submits search form and surfaces the active search filter', async () => {
+  // The board search box does not filter in place — submitting redirects to the
+  // dedicated /forum/search page, pre-filtered to this board. That is the honest
+  // behavior (the board topics endpoint has no full-text filter); assert the redirect.
+  it('search submit redirects to /forum/search pre-filtered to this board', async () => {
     const mockCategory = createMockCategory({ slug: 'plant-care' });
 
     vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
@@ -199,26 +205,22 @@ describe('ThreadListPage', () => {
     renderThreadListPage();
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('Search threads...')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Search this board…')).toBeInTheDocument();
     });
 
-    const searchInput = screen.getByPlaceholderText('Search threads...');
-    const searchButton = screen.getByText('Search');
-
-    await userEvent.type(searchInput, 'watering');
-    await userEvent.click(searchButton);
+    await userEvent.type(screen.getByPlaceholderText('Search this board…'), 'watering');
+    await userEvent.click(screen.getByText('Search'));
 
     await waitFor(() => {
-      expect(screen.getByText(/Searching for:/i)).toBeInTheDocument();
+      expect(mockNavigate).toHaveBeenCalledWith('/forum/search?q=watering&category=plant-care');
     });
-    expect(screen.getByText('watering')).toBeInTheDocument();
   });
 
-  it('changes ordering when dropdown selection changes', async () => {
+  it('re-fetches threads with the new sort when the dropdown changes', async () => {
     const mockCategory = createMockCategory({ slug: 'plant-care' });
 
     vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
-    vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
+    const fetchThreadsSpy = vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: [],
       meta: { count: 0 },
     });
@@ -229,40 +231,14 @@ describe('ThreadListPage', () => {
       expect(screen.getByDisplayValue('Recent Activity')).toBeInTheDocument();
     });
 
-    const orderingSelect = screen.getByDisplayValue('Recent Activity');
-    await userEvent.selectOptions(orderingSelect, 'Most Viewed');
+    await userEvent.selectOptions(screen.getByDisplayValue('Recent Activity'), 'Most Viewed');
 
+    // Changing the sort provably changes the outgoing request (not just the URL).
     await waitFor(() => {
-      expect(screen.getByDisplayValue('Most Viewed')).toBeInTheDocument();
-    });
-  });
-
-  it('displays active search filter with clear button', async () => {
-    const mockCategory = createMockCategory({ slug: 'plant-care' });
-
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
-    vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
-      items: [],
-      meta: { count: 0 },
-    });
-
-    renderThreadListPage(['/forum/3-plant-care?search=watering']);
-
-    await waitFor(() => {
-      expect(screen.getByText(/Searching for:/i)).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('watering')).toBeInTheDocument();
-
-    const clearButton = screen.getByText('Clear');
-    expect(clearButton).toBeInTheDocument();
-
-    // Click clear button
-    await userEvent.click(clearButton);
-
-    // The active search filter is removed from the UI.
-    await waitFor(() => {
-      expect(screen.queryByText(/Searching for:/i)).not.toBeInTheDocument();
+      expect(fetchThreadsSpy).toHaveBeenCalledWith({
+        board: 'plant-care',
+        sort: '-view_count',
+      });
     });
   });
 
@@ -367,23 +343,5 @@ describe('ThreadListPage', () => {
 
     expect(screen.queryByText('Previous')).not.toBeInTheDocument();
     expect(screen.queryByText('Next')).not.toBeInTheDocument();
-  });
-
-  it('shows different empty message for search with no results', async () => {
-    const mockCategory = createMockCategory({ slug: 'plant-care' });
-
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
-    vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
-      items: [],
-      meta: { count: 0 },
-    });
-
-    renderThreadListPage(['/forum/plant-care?search=nonexistent']);
-
-    await waitFor(() => {
-      expect(screen.getByText('No threads found.')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText(/Try a different search query/i)).toBeInTheDocument();
   });
 });

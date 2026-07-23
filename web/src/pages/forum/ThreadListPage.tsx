@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
-import { useParams, useSearchParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { fetchThreads, fetchCategory } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
 import ThreadCard from '../../components/forum/ThreadCard';
@@ -17,6 +17,7 @@ import type { Thread, Category } from '@/types';
 export default function ThreadListPage() {
   const { categorySlug } = useParams<{ categorySlug: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [category, setCategory] = useState<Category | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -25,14 +26,23 @@ export default function ThreadListPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
 
-  // URL-driven search/ordering (client-side UI only — not passed to fetchThreads)
-  const search = searchParams.get('search') || '';
+  // Sort is URL-driven AND passed to the backend (fetchThreads → ?sort=). The
+  // search box redirects to the dedicated /forum/search page (handleSearch), so
+  // there is no in-page search state to track.
   const ordering = searchParams.get('order') || '-last_activity_at';
 
   // Track the resolved board slug so Load More can reuse it without re-fetching category
   const boardSlugRef = useRef<string | null>(null);
+  // Cache the resolved category (keyed on its forum id) so a pure sort change
+  // reuses it instead of re-fetching the boards list on every dropdown change.
+  const categoryCacheRef = useRef<{ forumId: number; category: Category } | null>(null);
+  // Monotonic request generation. A newer load (board nav or sort change) bumps
+  // it; in-flight loads and Load More re-check it after each await and drop a
+  // stale response, so a slow old-sort request can't clobber the current list or
+  // cursor (mirrors ThreadDetailPage's currentTopicIdRef race guard).
+  const loadGenRef = useRef(0);
 
-  // Load category and initial threads
+  // Load category (once per board) + threads (on board or sort change).
   useEffect(() => {
     const loadData = async () => {
       if (!categorySlug) return;
@@ -44,22 +54,31 @@ export default function ThreadListPage() {
         return;
       }
 
+      const gen = ++loadGenRef.current;
       try {
         setLoading(true);
+        setLoadingMore(false); // a fresh load supersedes any in-flight Load More
         setError(null);
 
-        // Resolve the true board slug first, then fetch threads by slug.
-        const categoryData = await fetchCategory(forumId);
-        boardSlugRef.current = categoryData.slug;
+        // Resolve the board once; a pure sort change reuses the cached category.
+        let categoryData =
+          categoryCacheRef.current?.forumId === forumId ? categoryCacheRef.current.category : null;
+        if (!categoryData) {
+          categoryData = await fetchCategory(forumId);
+          if (loadGenRef.current !== gen) return;
+          categoryCacheRef.current = { forumId, category: categoryData };
+          boardSlugRef.current = categoryData.slug;
+          setCategory(categoryData);
+        }
 
-        const threadsData = await fetchThreads({ board: categoryData.slug });
-
-        setCategory(categoryData);
+        const threadsData = await fetchThreads({ board: categoryData.slug, sort: ordering });
+        if (loadGenRef.current !== gen) return;
         // Stamp the resolved category onto each thread so threadPath builds
         // correct URLs (/forum/{id}-{slug}/...) instead of /forum/-topic/...
         setThreads(threadsData.items.map((t) => ({ ...t, category: categoryData })));
         setNextCursor(threadsData.meta.next ?? null);
       } catch (err) {
+        if (loadGenRef.current !== gen) return;
         logger.error('Error loading thread list data', {
           component: 'ThreadListPage',
           error: err,
@@ -67,31 +86,27 @@ export default function ThreadListPage() {
         });
         setError(err instanceof Error ? err.message : 'Failed to load threads');
       } finally {
-        setLoading(false);
+        if (loadGenRef.current === gen) setLoading(false);
       }
     };
 
     loadData();
-  }, [categorySlug]);
+  }, [categorySlug, ordering]);
 
-  // Handle search form submission (URL/UI only)
+  // The board page has no in-place search. Submitting redirects to the global
+  // /forum/search page, pre-filtered to this board — real full-text search lives
+  // there (paginated, highlighted). This keeps the control honest instead of
+  // rendering a form that quietly does nothing.
   const handleSearch = useCallback(
     (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      const formData = new FormData(e.currentTarget);
-      const searchQuery = formData.get('search') as string;
-
-      setSearchParams((prev) => {
-        const newParams = new URLSearchParams(prev);
-        if (searchQuery) {
-          newParams.set('search', searchQuery);
-        } else {
-          newParams.delete('search');
-        }
-        return newParams;
-      });
+      const searchQuery = (new FormData(e.currentTarget).get('search') as string)?.trim();
+      if (!searchQuery) return;
+      const params = new URLSearchParams({ q: searchQuery });
+      if (boardSlugRef.current) params.set('category', boardSlugRef.current);
+      navigate(`/forum/search?${params}`);
     },
-    [setSearchParams]
+    [navigate]
   );
 
   // Handle ordering change (URL/UI only)
@@ -112,9 +127,14 @@ export default function ThreadListPage() {
     const boardSlug = boardSlugRef.current;
     if (!nextCursor || !boardSlug) return;
 
+    // Tie this append to the current load generation: if a board nav or sort
+    // change supersedes us mid-flight, drop the stale page so we don't append
+    // old-sort rows or overwrite the cursor that belongs to the new ordering.
+    const gen = loadGenRef.current;
     try {
       setLoadingMore(true);
       const threadsData = await fetchThreads({ board: boardSlug, cursor: nextCursor });
+      if (loadGenRef.current !== gen) return;
       // Stamp category so Load More threads also get correct threadPath URLs.
       setThreads((prev) => [
         ...prev,
@@ -122,13 +142,14 @@ export default function ThreadListPage() {
       ]);
       setNextCursor(threadsData.meta.next ?? null);
     } catch (err) {
+      if (loadGenRef.current !== gen) return;
       logger.error('Error loading more threads', {
         component: 'ThreadListPage',
         error: err,
         context: { categorySlug },
       });
     } finally {
-      setLoadingMore(false);
+      if (loadGenRef.current === gen) setLoadingMore(false);
     }
   }, [nextCursor, categorySlug, category]);
 
@@ -189,8 +210,8 @@ export default function ThreadListPage() {
             <input
               type="search"
               name="search"
-              placeholder="Search threads..."
-              defaultValue={search}
+              placeholder="Search this board…"
+              aria-label="Search this board"
               className="flex-1 px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
             />
             <Button type="submit" variant="primary">
@@ -219,36 +240,13 @@ export default function ThreadListPage() {
         </div>
       </div>
 
-      {/* Active Filters */}
-      {search && (
-        <div className="mb-4 flex items-center gap-2">
-          <span className="text-sm text-ink-2">
-            Searching for: <strong>{search}</strong>
-          </span>
-          <button
-            onClick={() => {
-              setSearchParams((prev) => {
-                const newParams = new URLSearchParams(prev);
-                newParams.delete('search');
-                return newParams;
-              });
-            }}
-            className="text-sm text-error hover:text-error/80 underline"
-          >
-            Clear
-          </button>
-        </div>
-      )}
-
       {/* Threads List */}
       {loading ? (
         <LoadingSpinner />
       ) : threads.length === 0 ? (
         <div className="text-center py-12 text-ink-3">
           <p className="text-lg">No threads found.</p>
-          <p className="text-sm mt-2">
-            {search ? 'Try a different search query.' : 'Be the first to start a discussion!'}
-          </p>
+          <p className="text-sm mt-2">Be the first to start a discussion!</p>
         </div>
       ) : (
         <div className="space-y-4">

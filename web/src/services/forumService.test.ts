@@ -187,6 +187,36 @@ describe('forumService (wagtail_forum API contract)', () => {
     expect(fetchMock).toHaveBeenCalledWith(absoluteCursor, expect.any(Object));
   });
 
+  it('fetchThreads appends ?sort= when a sort is provided (filter alters the request)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({ results: [backendTopicListItem], next: null, previous: null })
+    );
+    await fetchThreads({ board: 'plant-care', sort: '-view_count' });
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain('/boards/plant-care/topics/?sort=-view_count');
+  });
+
+  it('fetchThreads omits ?sort= when no sort is provided', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({ results: [backendTopicListItem], next: null, previous: null })
+    );
+    await fetchThreads({ board: 'plant-care' });
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).not.toContain('sort=');
+  });
+
+  it('fetchThreads does not append ?sort= onto an absolute cursor URL', async () => {
+    // The cursor already encodes the active ordering server-side, so a cursor
+    // request must pass through unchanged (no double sort param).
+    const absoluteCursor =
+      'http://localhost:8000/api/v1/forum/boards/plant-care/topics/?cursor=abc';
+    fetchMock.mockResolvedValueOnce(
+      okJson({ results: [backendTopicListItem], next: null, previous: null })
+    );
+    await fetchThreads({ board: 'plant-care', cursor: absoluteCursor, sort: '-view_count' });
+    expect(fetchMock).toHaveBeenCalledWith(absoluteCursor, expect.any(Object));
+  });
+
   // --- Thread detail --------------------------------------------------------
 
   it('fetchThread hits /topics/{id}/ and maps detail shape', async () => {
@@ -312,6 +342,32 @@ describe('forumService (wagtail_forum API contract)', () => {
     );
     expect(r.total_threads).toBe(r.threads.length);
     expect(r.total_threads).toBe(1);
+  });
+
+  it('searchForum sends ?page= only when page > 1', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ topics: [], posts: [] }));
+    await searchForum({ q: 'succ', page: 2 });
+    expect(fetchMock.mock.calls[0][0]).toContain('page=2');
+
+    fetchMock.mockResolvedValueOnce(okJson({ topics: [], posts: [] }));
+    await searchForum({ q: 'succ', page: 1 });
+    expect(fetchMock.mock.calls[1][0]).not.toContain('page=');
+  });
+
+  it('searchForum parses topics_has_more/posts_has_more into has_more flags', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({ topics: [], posts: [], topics_has_more: true, posts_has_more: false })
+    );
+    const r = await searchForum({ q: 'succ' });
+    expect(r.has_more_threads).toBe(true);
+    expect(r.has_more_posts).toBe(false);
+  });
+
+  it('searchForum defaults has_more flags to false when the backend omits them', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ topics: [], posts: [] }));
+    const r = await searchForum({ q: 'succ' });
+    expect(r.has_more_threads).toBe(false);
+    expect(r.has_more_posts).toBe(false);
   });
 
   // --- Write functions (structurally intact, Phase 2) -----------------------

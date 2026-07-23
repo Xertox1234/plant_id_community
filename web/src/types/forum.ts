@@ -221,14 +221,20 @@ export interface SearchForumOptions {
   q: string;
   /** Board slug — sent to the backend as ?board= */
   category?: string;
+  /** 1-based page; only sent to the backend when > 1. */
+  page?: number;
 }
 
 export interface SearchForumResponse {
   query: string;
   threads: Thread[];
   posts: Post[];
+  /** Length of THIS response's threads/posts (per page), not a grand total. */
   total_threads: number;
   total_posts: number;
+  /** Whether a further page of thread/post results exists. */
+  has_more_threads: boolean;
+  has_more_posts: boolean;
 }
 
 /** Result of toggling a reaction on a post (backend toggle endpoint). */
