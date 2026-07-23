@@ -171,3 +171,6 @@ SIMILAR_QUERY_MAX_CHARS = 500
 # (query, board) result set briefly.
 SIMILAR_CACHE_PREFIX = "forum_similar_topics"
 SIMILAR_CACHE_TTL_SECONDS = 300
+
+# Max items in the public forum RSS feed (todo 256 H9).
+FORUM_RSS_MAX_ITEMS = 50

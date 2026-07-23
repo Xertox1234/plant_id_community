@@ -59,6 +59,8 @@ describe('SearchPage', () => {
 
       expect(screen.getByRole('heading', { level: 1, name: 'Forum Search' })).toBeInTheDocument();
       expect(screen.getByText('Search across threads and posts')).toBeInTheDocument();
+      // H9: the route sets a descriptive document title (React 19 metadata).
+      expect(document.title).toContain('Forum Search');
     });
 
     it('shows search input with placeholder', () => {
@@ -110,6 +112,8 @@ describe('SearchPage', () => {
           })
         );
       });
+      // H9: covers the query branch of the title ternary (`Search: ${query}`).
+      expect(document.title).toContain('Search: watering');
     });
 
     it('displays loading spinner while searching', async () => {

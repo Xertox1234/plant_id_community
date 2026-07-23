@@ -101,6 +101,8 @@ describe('ThreadListPage', () => {
 
     expect(screen.getByText('Learn how to care for your plants')).toBeInTheDocument();
     expect(screen.getByText('🌱')).toBeInTheDocument();
+    // H9: the route sets a descriptive, category-derived document title.
+    expect(document.title).toContain('Plant Care Tips');
   });
 
   it('renders threads when API call succeeds', async () => {

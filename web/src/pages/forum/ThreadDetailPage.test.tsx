@@ -137,6 +137,17 @@ describe('ThreadDetailPage', () => {
 
     expect(screen.getByText(/Master Gardener/i)).toBeInTheDocument();
     expect(screen.getByText(/150 views/i)).toBeInTheDocument();
+    // H9: descriptive title + shareable OG tags (React 19 metadata).
+    expect(document.title).toContain('How to water succulents?');
+    expect(document.querySelector('meta[property="og:type"]')?.getAttribute('content')).toBe(
+      'article'
+    );
+    expect(document.querySelector('meta[property="og:url"]')?.getAttribute('content')).toBe(
+      window.location.origin + window.location.pathname
+    );
+    expect(
+      document.querySelector('meta[property="og:description"]')?.getAttribute('content')
+    ).toContain('discussion');
   });
 
   it('renders breadcrumb navigation', async () => {

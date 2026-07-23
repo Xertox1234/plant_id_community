@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { fetchCategoryTree } from '../../services/forumService';
 import CategoryCard from '../../components/forum/CategoryCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import PageMeta from '../../components/PageMeta';
 import { logger } from '../../utils/logger';
 import type { Category } from '@/types';
 
@@ -58,6 +59,10 @@ export default function CategoryListPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <PageMeta
+        title="Community Forums · PlantID"
+        description="Connect with fellow plant enthusiasts, share knowledge, and get help with your plants in the Plant Community forums."
+      />
       {/* Page Header */}
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-ink mb-2">Community Forums</h1>

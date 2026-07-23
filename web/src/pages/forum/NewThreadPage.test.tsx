@@ -50,6 +50,11 @@ describe('NewThreadPage', () => {
     });
   });
 
+  it('sets a descriptive document title (H9)', async () => {
+    renderPage();
+    await waitFor(() => expect(document.title).toContain('Start a New Thread'));
+  });
+
   it('published topic → navigates into the new thread', async () => {
     vi.spyOn(forumService, 'createThread').mockResolvedValue({
       id: '12',

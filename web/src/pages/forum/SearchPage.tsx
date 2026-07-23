@@ -7,6 +7,7 @@ import Button from '../../components/ui/Button';
 import { logger } from '../../utils/logger';
 import { sanitizeSearchQuery } from '../../utils/validation';
 import { threadPath } from '../../utils/forumUrls';
+import PageMeta from '../../components/PageMeta';
 import type { Category, SearchForumResponse } from '@/types';
 
 /** Strip HTML tags from a string, returning plain text. */
@@ -259,6 +260,10 @@ export default function SearchPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <PageMeta
+        title={query ? `Search: ${query} · PlantID` : 'Forum Search · PlantID'}
+        description="Search across Plant Community forum threads and posts."
+      />
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-ink mb-2">Forum Search</h1>
