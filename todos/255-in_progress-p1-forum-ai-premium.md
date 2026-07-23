@@ -180,6 +180,58 @@ Spec: `docs/superpowers/specs/2026-07-21-forum-llm-spam-backend-design.md`.
   `IsPremiumUser` from slice 1), H15 similar-topics (Railway pgvector precheck),
   M12/M14, M13 RAG (last).
 
+### 2026-07-22 - Slice 3: AI thread summarization (H14) DONE
+
+Branch `todo-255-slice3-ai-summarization` (off fresh `main`). Spec:
+`docs/superpowers/specs/2026-07-22-forum-thread-summarization-design.md`.
+
+- **H14** — `GET /api/v1/forum/topics/<id>/summary/`, **premium-gated**
+  (`IsPremiumUser` from slice 1), **Celery-generated**, **content-hash cached**.
+  New `apps/forum_host/summary.py` (`build_summary_source` + `TopicSummaryView`),
+  new `generate_topic_summary` task in `tasks.py`, constants + `topic_summary`
+  throttle (`30/h`) in `constants.py`, route in `api_urls.py`.
+  - **Async 202-poll**: never calls the LLM in-request. Cache miss → enqueue one
+    task (deduped by an atomic `cache.add` pending lock so a poll-burst can't
+    fan out duplicate LLM spend) → `202 {"status":"pending"}`; poll until
+    `200 {"status":"ready","summary":...}`. Too-short thread (<3 live posts) →
+    `200 {"status":"too_short"}` with no spend.
+  - **Cache invalidation** is free: the content-hash source folds prompt version
+    - topic title + each live post's id/`updated_at`/excerpt, so any thread edit
+    changes the key. Reuses `AICacheService` (feature `forum_topic_summary`),
+    `generate_ai_text`, and respects the shared `AIRateLimiter.check_global_limit()`
+    (budget-exhausted → degrade to no-op, no retry — a cost decision).
+  - **Ratified postures:** provider error → `self.retry` w/ exp backoff; missing/
+    unpublished topic or too-short → clean no-op; broker enqueue failure →
+    release the lock + return a normal 202 the client re-polls.
+  - Drift guard `test_host_api_routes_match_package` relaxed to `package ⊆ host`
+    - a `HOST_ONLY_ROUTES` allow-list (the summary route has no package
+    counterpart by design — the package may not import blog AI).
+- Verified: `manage.py check` clean; `makemigrations --check` no changes (H14
+  adds no models); `spectacular` OK (summary GET documents 200/202/429);
+  `pytest apps/forum_host --create-db` → **134 passed** (16 new in
+  `test_summary.py`); package `test_reusability` + `test_spam` → 15 passed.
+
+### 2026-07-22 - H15 pgvector-on-Railway precheck: RESULT GREEN (AC #5, recorded)
+
+Read-only query against production Postgres via its public proxy
+(`railway variables -s Postgres` → `DATABASE_PUBLIC_URL`):
+
+- `pg_available_extensions`: `vector | 0.8.2 | (null)` → **AVAILABLE**, not yet
+  installed (`pg_trgm 1.6` installed).
+- `server_version`: **18.4** (Debian).
+- current role `postgres`: `rolsuper=t` → **can `CREATE EXTENSION vector`**.
+- installed extensions: `pg_trgm`, `plpgsql`.
+
+**Conclusion:** the pgvector storage app's shipped `VectorExtension()` migration
+would succeed at deploy — H15 is **infra-viable**; the audit's "Railway support
+UNVERIFIED" blocker is resolved. (This refutes any "deploy migration might fail"
+concern.) Remaining considerations were product/cost (empty forum, no client
+consumer until Waves 3/4, recurring embeddings cost), surfaced to the user.
+
+**Decision (user, 2026-07-22): BUILD H15 now** as slice 4 (separate PR off fresh
+main after slice 3 merges). See
+`docs/superpowers/specs/2026-07-22-forum-similar-topics-pgvector-design.md`.
+
 ## Notes
 
 p1 by user triage decision. All research verdicts for H13/H14/H15/M12/M14 were
