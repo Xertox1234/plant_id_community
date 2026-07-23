@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p1
 issue_id: "255"
 tags: [forum, ai, premium, wagtail-ai]
@@ -100,11 +100,19 @@ Sequence (dependency-ordered):
 - [x] LLM spam backend runs behind the one-setting swap with timeout +
       heuristic fallback — publish path never blocks on provider outage (tested)
       — slice 2, 2026-07-21
-- [ ] Premium thread-summary endpoint: Celery-generated, content-hash cached,
-      entitlement-gated
-- [ ] pgvector-on-Railway precheck result recorded; similar-topics endpoint
-      shipped if viable (or descoped with rationale)
-- [ ] M13 RAG remains unstarted until H15 infra lands (explicit gate)
+- [x] Premium thread-summary endpoint: Celery-generated, content-hash cached,
+      entitlement-gated — slice 3 (PR 484), 2026-07-22: `TopicSummaryView`
+      (`IsPremiumUser`) + `generate_topic_summary` Celery task + `AICacheService`
+      content-hash cache; 20 tests
+- [x] pgvector-on-Railway precheck result recorded; similar-topics endpoint
+      shipped if viable (or descoped with rationale) — slice 4 (PR 485),
+      2026-07-22: precheck GREEN (recorded above), endpoint built (viable);
+      `GET /forum/topics/similar/` behind `FORUM_VECTOR_SEARCH_ENABLED`; 11 tests
+      incl. real pgvector build+search
+- [x] M13 RAG remains unstarted until H15 infra lands (explicit gate) — held:
+      slices 3–4 built only the H14 summary + H15 index/endpoint; no RAG. M13
+      (plus the non-AC M12/M14) re-pointed to follow-up todo 275 now that H15
+      infra exists
 
 ## Work Log
 
@@ -272,6 +280,22 @@ PR 484). Spec:
   slice-2 note already flags that sharing as problematic. Add a **dedicated
   embedding budget** (separate key) before enabling, so a distributed query burst
   can't run up unbounded embedding cost.
+
+### 2026-07-22 - Epic COMPLETE (all 6 acceptance criteria met)
+
+All AC satisfied across 4 slices: H12 entitlement (#478), H13 LLM spam (#479),
+H14 summary (#484), H15 similar-topics + pgvector precheck (#485); L6/L7 in
+slice 1; M13 gate held (no RAG built). Each slice: bundled `/code-review` +
+CI "Claude Code Security Review" — the latter caught a real HIGH authz bypass on
+the H14 summary endpoint (missing board-visibility filter), fixed before merge
+and re-applied to H15.
+
+**Scope note (honest closeout):** the `source_finding` frontmatter bundled 9
+findings, but 255's AC covered H12–H15 + L6/L7 + the "M13 stays unstarted" gate.
+**M12** (semantic search upgrade) and **M14** (composer assist) were never AC
+items, and **M13** (RAG) was gated unstarted. All three are now unblocked by the
+H15 infra and are re-pointed to **follow-up todo 275** — they are NOT marked done
+here. The 2026-07-11 audit Finding Status checks off only H14 + H15 for this todo.
 
 ## Notes
 

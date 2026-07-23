@@ -301,8 +301,8 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #H11 mobile-forum-client → todo 260
 - [x] #H12 entitlement-primitive → todo 255 (completed 2026-07-20, slice 1)
 - [x] #H13 llm-spam-prescreen → todo 255 (completed 2026-07-21)
-- [ ] #H14 ai-thread-summarization → todo 255
-- [ ] #H15 semantic-similar-topics → todo 255
+- [x] #H14 ai-thread-summarization → todo 255 (completed 2026-07-22, slice 3)
+- [x] #H15 semantic-similar-topics → todo 255 (completed 2026-07-22, slice 4)
 - [x] #H16 admin-moderation-queue → todo 254 (completed 2026-07-13)
 - [ ] #H18 error-retry-affordance → todo 259
 - [ ] #H21 tombstone-prune-scheduling → todo 261
@@ -318,9 +318,9 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #M9 block-mute → todo 263
 - [ ] #M10 private-messaging → todo 263
 - [ ] #M11 post-permalinks → todo 256
-- [ ] #M12 semantic-search-upgrade → todo 255
-- [ ] #M13 rag-plant-care → todo 255
-- [ ] #M14 ai-composer-assist → todo 255
+- [ ] #M12 semantic-search-upgrade → todo 275 (re-pointed 2026-07-22; not in 255's AC)
+- [ ] #M13 rag-plant-care → todo 275 (re-pointed 2026-07-22; 255 held it unstarted per gate)
+- [ ] #M14 ai-composer-assist → todo 275 (re-pointed 2026-07-22; not in 255's AC)
 - [x] #M16 preview-support → todo 254 (completed 2026-07-13)
 - [ ] #M17 i18n → todo 262
 - [ ] #M18 package-readme → todo 262
