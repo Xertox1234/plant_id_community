@@ -380,11 +380,17 @@ def generate_topic_summary(self, topic_id: int) -> None:
     from apps.blog.services.ai_rate_limiter import AIRateLimiter
     from apps.blog.wagtail_ai_v3_integration import generate_ai_text
     from django.utils import timezone
+    from wagtail_forum.api.views import _visible_boards
     from wagtail_forum.models import Topic
 
     from .summary import build_summary_source
 
-    topic = Topic.objects.filter(pk=topic_id, live=True).first()
+    # Defense in depth: the same board-visibility guard the endpoint enforces —
+    # a restricted-board (PageViewRestriction) topic is never summarized even if
+    # a task were somehow enqueued for one.
+    topic = Topic.objects.filter(
+        pk=topic_id, live=True, board__in=_visible_boards()
+    ).first()
     if topic is None:
         logger.info("[CELERY] topic %s missing/unpublished; skipping summary", topic_id)
         return

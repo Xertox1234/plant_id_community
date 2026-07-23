@@ -22,8 +22,8 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from wagtail_forum.api.views import plain_text_excerpt
-from wagtail_forum.models import Post, Topic
+from wagtail_forum.api.views import _get_visible_topic, plain_text_excerpt
+from wagtail_forum.models import Post
 
 from . import constants
 from .api import _throttled
@@ -78,11 +78,11 @@ class TopicSummaryView(APIView):
         ),
     )
     def get(self, request, topic_id):
-        topic = Topic.objects.filter(pk=topic_id, live=True).first()
-        if topic is None:
-            return Response(
-                {"detail": "Topic not found."}, status=status.HTTP_404_NOT_FOUND
-            )
+        # Enforce board visibility (Wagtail PageViewRestriction) via the package's
+        # canonical predicate — a restricted/non-live topic 404s with no existence
+        # leak, exactly like TopicDetailView/PostListView. Without this the summary
+        # (built from the thread's post bodies) would cross the privacy boundary.
+        topic = _get_visible_topic(topic_id)
 
         content, post_count = build_summary_source(topic)
         if post_count < constants.SUMMARY_MIN_POSTS:

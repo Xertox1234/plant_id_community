@@ -18,7 +18,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework.test import APIClient
-from wagtail.models import Page
+from wagtail.models import Page, PageViewRestriction
 from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
 
 User = get_user_model()
@@ -337,6 +337,50 @@ def test_task_retries_and_does_not_cache_empty_summary():
         AICacheService.get_cached_response(constants.SUMMARY_CACHE_FEATURE, content)
         is None
     )
+
+
+def _restricted_topic_with_posts(n_posts=3):
+    """A live topic on a board carrying a login PageViewRestriction."""
+    author = User.objects.create_user(username="secret-author")
+    board = _board(suffix="secret")
+    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    topic = Topic.objects.create(
+        board=board, title="Members only", slug="secret", author=author
+    )
+    for i in range(n_posts):
+        Post.objects.create(
+            topic=topic,
+            author=author,
+            is_opening_post=(i == 0),
+            body=[{"type": "paragraph", "value": f"<p>classified {i}</p>"}],
+        )
+    return topic
+
+
+@pytest.mark.django_db
+def test_restricted_board_topic_is_404_not_summarized():
+    """Board-level PageViewRestriction is an access boundary: a premium user must
+    NOT receive a summary of a restricted board's thread (authz-bypass regression,
+    security-review HIGH on PR #484)."""
+    topic = _restricted_topic_with_posts()
+    client = _premium_client()
+    with patch(DELAY) as mock_delay:
+        resp = client.get(_url(topic.id))
+    # 404 with no existence leak, exactly like TopicDetailView for a hidden board.
+    assert resp.status_code == 404
+    mock_delay.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_task_skips_restricted_board_topic_without_spend():
+    """Defense in depth: even if a task were enqueued for a restricted-board
+    topic, it must not read its posts or call the LLM."""
+    from apps.forum_host.tasks import generate_topic_summary
+
+    topic = _restricted_topic_with_posts()
+    with patch(BUDGET, return_value=True), patch(GEN) as mock_gen:
+        generate_topic_summary(topic.id)
+    mock_gen.assert_not_called()
 
 
 @override_settings(FORUM_RATELIMITS={"topic_summary": "1/h"})
