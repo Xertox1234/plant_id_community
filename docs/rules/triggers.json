@@ -638,5 +638,22 @@
     "source": "codify: feat/forum-wave1-honesty-polish",
     "added": "2026-07-17",
     "severity": "warn"
+  },
+  {
+    "id": "forum-host-view-missing-visibility-filter",
+    "domains": [
+      "forum",
+      "security"
+    ],
+    "path_glob": [
+      "backend/apps/forum_host/*.py"
+    ],
+    "content_present": "Topic\\.objects\\.(filter|get)\\(",
+    "content_absent": "_visible_boards|_get_visible_topic",
+    "message": "Host-side forum view/task querying Topic must enforce board visibility: use _get_visible_topic(topic_id) or Topic.objects.filter(..., board__in=_visible_boards()) (from wagtail_forum.api.views). PageViewRestriction is NOT auto-enforced — else a restricted board`s content leaks (todo 255 slice 3 HIGH authz bypass). Filter the SOURCE too, not just the response.",
+    "pattern_ref": "docs/rules/forum.md",
+    "source": "codify: chore/complete-todo-255",
+    "added": "2026-07-22",
+    "severity": "warn"
   }
 ]

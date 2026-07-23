@@ -51,3 +51,14 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   `Notification` row that was never persisted). Caught by kimi-review, not the
   domain reviewers, in `forum_host/notifications.py`'s `reply_added` branch
   (todo 253 slice 1) — see `backend/docs/patterns/architecture/services.md`.
+- **HOST-side forum views/tasks reading topic or post content MUST enforce board
+  visibility** — `_get_visible_topic(topic_id)` (404s hidden/restricted, no
+  existence leak) or `Topic.objects.filter(..., board__in=_visible_boards())`
+  (both from `wagtail_forum.api.views`). `PageViewRestriction` is NOT
+  auto-enforced. This applies to NEW endpoint types too: the H14 AI
+  thread-summary endpoint (`apps/forum_host/summary.py`) shipped without it and
+  a CI security review flagged a HIGH authz bypass — a premium user could
+  summarize a restricted board's thread (todo 255 slice 3). The package-only
+  visibility trigger did not cover `apps/forum_host/`; a broadened trigger now
+  does. Filter the SOURCE too (e.g. a vector-index queryset), not just the
+  response — never embed/cache restricted content.
