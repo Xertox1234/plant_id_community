@@ -1554,3 +1554,66 @@ notification` + a screencap.
   the device tray — three delivery test sends showed as three distinct
   `FCM-Notification` records. Collapse-key coalescing is a network/offline-queue
   behavior, not an on-device replace.
+
+## Forum AI features epic — todo 255 (2026-07-22)
+
+### [2026-07-22] HIGH authz bypass: a NEW host-side AI endpoint skipped the forum board-visibility filter
+
+**What broke:** the H14 premium AI thread-summary endpoint
+(`apps/forum_host/summary.py`, `TopicSummaryView` + `generate_topic_summary`)
+fetched the topic with `Topic.objects.filter(pk=topic_id, live=True)` — omitting
+the `board__in=_visible_boards()` guard every other forum topic/post view
+enforces via `_get_visible_topic`. A premium/staff user could summarize a
+thread on a restricted (`PageViewRestriction`) board they cannot otherwise read;
+the summary is built directly from the restricted posts' bodies. Caught by the
+CI "Claude Code Security Review", NOT by the bundled `/code-review` nor the local
+suites.
+
+**Root cause:** `PageViewRestriction` is not auto-enforced in custom views/APIs
+(a known rule in `docs/rules/wagtail.md`), but the write-time JIT trigger that
+would have flagged it (`forum-api-queryset-missing-visibility-filter`) was scoped
+ONLY to the reusable package (`backend/packages/wagtail_forum/wagtail_forum/api/*.py`)
+— it never covered host endpoints in `apps/forum_host/`. A brand-new endpoint
+TYPE (AI summary) in the uncovered directory slipped straight through.
+
+**Fix:** route the lookup through `_get_visible_topic(topic_id)` (endpoint) and
+`board__in=_visible_boards()` (Celery task, defense in depth); both 404/no-op a
+restricted-board topic with no existence leak. Broadened the JIT trigger to
+`backend/apps/forum_host/*.py`. The same guard was applied up-front to the H15
+similar-topics feature, filtering BOTH the vector-index source queryset (never
+embed restricted content) AND the query-time refetch. Lesson: a visibility (or
+any security) trigger scoped to one directory does not protect a sibling
+directory — when a new host-side endpoint type reads shared domain content,
+re-audit which triggers actually cover its path.
+
+### [2026-07-22] django-ai-core + pgvector activation gotchas (Django 6.0)
+
+Activating the dormant `django_ai_core.contrib.index` pgvector stack (H15)
+surfaced four load-bearing gotchas, all verified against installed source:
+
+- **`pgvector==0.4.1` crashes `migrate` on Django 6.0.** Its `VectorExtension`
+  overrides `CreateExtension.__init__` setting only `self.name='vector'`, never
+  `self.hints`, which Django 6.0's `CreateExtension` requires →
+  `AttributeError: 'VectorExtension' object has no attribute 'hints'` at the
+  `CREATE EXTENSION vector` migration. **Pin `pgvector==0.5.0`** — it guards
+  `if VERSION[0] >= 6: super().__init__('vector', hints=hints)`.
+- **`LLMService.create(provider="openai", api_key="")` raises
+  `MissingApiKeyError` at CONSTRUCTION** (not at first call). A `VectorIndex`
+  that builds its embedding transformer as a class attribute therefore fails to
+  IMPORT wherever the key is unset (dev/CI/local tests). Build the transformer
+  (and the source queryset) LAZILY in `__init__` (instance attrs — the base
+  `VectorIndex.__init__` reads `self.*`, so they shadow the class attrs).
+- **django-ai-core has NO autodiscovery.** An index registers only when the
+  module holding its `@registry.register()` class is imported — force it from
+  `AppConfig.ready()`, else `rebuild_indexes` reports "No indexes registered".
+- **CI Postgres must carry the `vector` extension.** GitHub's stock
+  `postgres:16` service image lacks it → the always-run `CREATE EXTENSION vector`
+  migration fails the whole suite. Swap the service image to
+  `pgvector/pgvector:pg16`. (Local PG18 + Railway PG18 already have it — verify
+  with `SELECT * FROM pg_available_extensions WHERE name='vector'` against the
+  target, e.g. Railway's `DATABASE_PUBLIC_URL` proxy.)
+
+Secondary tooling snag: the `detect-secrets` pre-commit hook flags any
+`OPENAI_API_KEY="..."` string literal (keyword detector, value-agnostic) — in a
+TEST, assign the fake key to a named constant with a `# pragma: allowlist secret`
+line and stage the updated `.secrets.baseline`.
