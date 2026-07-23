@@ -134,6 +134,7 @@ DJANGO_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.sites",
+    "django.contrib.sitemaps",  # forum SEO sitemap (todo 256 H9)
     "django.contrib.postgres",
 ]
 

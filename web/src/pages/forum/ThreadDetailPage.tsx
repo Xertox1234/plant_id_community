@@ -20,6 +20,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import { useAuth } from '../../contexts/AuthContext';
 import { logger } from '../../utils/logger';
+import PageMeta from '../../components/PageMeta';
 import type { Thread, Post } from '@/types';
 import type { PaginatedResponse } from '@/types/forum';
 
@@ -400,6 +401,16 @@ export default function ThreadDetailPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <PageMeta
+        title={`${thread.title} · PlantID`}
+        description={`${thread.title} — a discussion in ${thread.category.name} on the Plant Community forum.`}
+        og={{
+          title: thread.title,
+          description: `A discussion in ${thread.category.name} on Plant Community.`,
+          url: typeof window !== 'undefined' ? window.location.href : undefined,
+          type: 'article',
+        }}
+      />
       {/* Breadcrumb */}
       <nav className="mb-6 text-sm text-ink-2" aria-label="Breadcrumb">
         <ol className="flex items-center gap-2">

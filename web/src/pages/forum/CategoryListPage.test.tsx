@@ -86,6 +86,8 @@ describe('CategoryListPage', () => {
     });
 
     expect(screen.getByText(/Connect with fellow plant enthusiasts/i)).toBeInTheDocument();
+    // H9: the route sets a descriptive document title (React 19 metadata).
+    expect(document.title).toContain('Community Forums');
   });
 
   it('displays error message when API call fails', async () => {

@@ -74,8 +74,8 @@ _(H8 + H9 only — see the re-scope note at the top. H6 → todo 273; M1/M5/M11/
 - [x] **H8** Search reachable from forum navigation (Wave 1); changing sort/filters
       provably changes the outgoing request (unmocked service test) — done slice 1
 - [x] **H8** Search results paginated with an honest `has_more` (no silent 50-cap) — done slice 1
-- [ ] **H9** Every forum route sets a descriptive title + meta; sitemap lists live
-      topics/boards; RSS feed available; OG decision recorded
+- [x] **H9** Every forum route sets a descriptive title + meta; sitemap lists live
+      topics/boards; RSS feed available; OG decision recorded — done slice 2
 
 ## Work Log
 
@@ -141,6 +141,41 @@ _(H8 + H9 only — see the re-scope note at the top. H6 → todo 273; M1/M5/M11/
     tiebreak).
 - Re-verified: web **650 tests** pass + `tsc` clean; backend **225** forum-api
   tests pass; `spectacular` schema OK.
+
+### 2026-07-23 - Slice 2 (H9) implemented + verified
+
+- **Web** (per-route title/meta + OG): new `web/src/components/PageMeta.tsx`
+  renders `<title>`/`<meta>` inline (React 19 native hoisting — verified working
+  in jsdom). Wired into all 5 forum routes (CategoryList, ThreadList, ThreadDetail,
+  Search, NewThread) with data-derived titles; ThreadDetail also emits OG tags.
+- **Backend** (sitemap + RSS): `apps/forum_host/sitemaps.py` (`ForumBoardSitemap`
+  - `ForumTopicSitemap`) at `/forum/sitemap.xml`; `apps/forum_host/feeds.py`
+  (`ForumTopicsFeed`) at `/forum/rss/`. Both emit **SPA frontend canonical URLs**
+  (`settings.SITE_URL` + path) — byte-for-byte the same base the reply-notification
+  emails use (`tasks.py:337`). `django.contrib.sitemaps` added to INSTALLED_APPS;
+  routes mounted at the root before the Wagtail catch-all.
+- **Security (load-bearing)**: both surfaces filter through `_visible_boards()`
+  (`.live().public()`), so a topic on a hidden/view-restricted board never leaks
+  — proven by `test_seo.py::test_sitemap_and_feed_exclude_restricted_board_topics`.
+
+#### OG / crawler decision (recorded)
+
+Cheap, no-prerender path: forum pages render OG/meta via **React 19 native
+metadata**. This works for **JS-capable crawlers (Googlebot executes JS)** but
+**not** non-JS link unfurlers (Slack/Twitter/Facebook) — they won't show rich
+previews for topic detail. The sitemap + RSS give crawl discovery at the frontend
+canonical URLs. Rationale: the SPA is the real forum UI (audit H17 — backend board
+pages are only a minimal crawler fallback), so the frontend origin is canonical;
+a Cloudflare prerender was evaluated and **declined** (not worth the cost/complexity
+for the current stage). Ops note: the sitemap is served from the backend (Railway)
+while topic URLs live on the frontend (Cloudflare) — needs a Search-Console
+cross-submission or a frontend `robots.txt` pointer to be fully effective.
+
+- **Verification**: `tsc` clean; `npx vitest run` → `48 files / 655 tests` pass
+  (incl. PageMeta unit tests + a per-route title assertion on each of the 5 pages).
+  Backend `pytest test_seo.py test_ratelimits.py test_schema_429.py --create-db`
+  → `33 passed` (4 SEO incl. the restricted-board exclusion). `manage.py check`
+  clean; `spectacular` schema OK.
 
 ## Notes
 

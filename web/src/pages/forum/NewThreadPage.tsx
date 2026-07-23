@@ -6,6 +6,7 @@ import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDra
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
+import PageMeta from '../../components/PageMeta';
 import { logger } from '../../utils/logger';
 import type { Category } from '@/types';
 
@@ -131,6 +132,10 @@ export default function NewThreadPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <PageMeta
+        title="Start a New Thread · PlantID"
+        description="Start a new discussion in the Plant Community forums."
+      />
       {/* Breadcrumb */}
       <nav className="mb-6 text-sm text-ink-2" aria-label="Breadcrumb">
         <ol className="flex items-center gap-2">

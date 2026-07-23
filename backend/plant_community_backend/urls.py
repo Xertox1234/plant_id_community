@@ -17,6 +17,8 @@ from apps.blog.api.viewsets import (
 
 # Import core views
 from apps.core.views import ReactAppView, csp_report_view, csrf_token_view
+from apps.forum_host.feeds import ForumTopicsFeed
+from apps.forum_host.sitemaps import forum_sitemaps
 from apps.plant_identification.api.endpoints import (
     PlantCareGuideAPIViewSet,
     PlantCategoryAPIViewSet,
@@ -27,6 +29,7 @@ from apps.plant_identification.api.endpoints import (
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from django.contrib.sitemaps.views import sitemap
 from django.urls import include, path, re_path
 from django.views.generic import RedirectView
 
@@ -162,6 +165,16 @@ urlpatterns = [
     path("app/identify/", ReactAppView.as_view(), name="react-app-identify"),
     path("app/login/", ReactAppView.as_view(), name="react-app-login"),
     path("app/register/", ReactAppView.as_view(), name="react-app-register"),
+    # Forum SEO — sitemap + RSS of live public topics/boards (todo 256 H9).
+    # Public crawler endpoints; placed before the Wagtail catch-all so they
+    # resolve. URLs point at the SPA frontend (settings.SITE_URL).
+    path(
+        "forum/sitemap.xml",
+        sitemap,
+        {"sitemaps": forum_sitemaps},
+        name="forum-sitemap",
+    ),
+    path("forum/rss/", ForumTopicsFeed(), name="forum-rss"),
     # Default redirect to Wagtail admin for development
     path("", RedirectView.as_view(url="/cms/", permanent=False)),
     # Wagtail Frontend URLs (should be last)
