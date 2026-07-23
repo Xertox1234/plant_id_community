@@ -232,6 +232,47 @@ consumer until Waves 3/4, recurring embeddings cost), surfaced to the user.
 main after slice 3 merges). See
 `docs/superpowers/specs/2026-07-22-forum-similar-topics-pgvector-design.md`.
 
+### 2026-07-22 - Slice 4: semantic similar-topics via pgvector (H15) DONE
+
+Branch `todo-255-slice4-similar-topics` (off fresh main, after slice 3 merged as
+PR 484). Spec:
+`docs/superpowers/specs/2026-07-22-forum-similar-topics-pgvector-design.md`.
+
+- **H15** — activated django-ai-core's dormant vector index. `GET
+  /api/v1/forum/topics/similar/?q=&board=` (`apps/forum_host/similar.py`) →
+  compose-time semantic search over live, **visible** topics; public read,
+  per-IP throttled (`30/m`), result-cached by `(q, board)`. Gated behind
+  `FORUM_VECTOR_SEARCH_ENABLED` (default False → `503`, zero embedding spend over
+  the empty forum). `SimilarTopics` `VectorIndex` (`vector_indexes.py`) over
+  Topic title + opening-post plaintext, lazy OpenAI embedder (`text-embedding-3-small`)
+  - `PgVectorProvider`; registered in `apps.py` `ready()`. `find_similar_topics`
+  filters the **source queryset AND the refetch** through `_visible_boards()`
+  (the slice-3 authz lesson — restricted-board content is never embedded nor
+  returned), and never raises to the caller.
+  - **Infra:** 2 INSTALLED_APPS + the shipped `CREATE EXTENSION vector` migration
+    (local PG18 + Railway PG18 have `vector`; CI Postgres swapped
+    `postgres:16` → `pgvector/pgvector:pg16`). `pgvector==0.5.0` — 0.4.1's
+    `VectorExtension` predates Django 6.0's `hints` requirement and crashes
+    `migrate`. Populate with `manage.py rebuild_indexes SimilarTopics`.
+  - **Design traps handled:** `LLMService.create` raises `MissingApiKeyError` on
+    an empty key → transformer + source queryset built lazily in `__init__`
+    (instance attrs, verified read by the base `__init__`); no autodiscovery →
+    forced import in `ready()`; the `find_similar` UnboundLocalError bug avoided
+    by using `search_documents(query_str)`.
+- Verified: `manage.py check` (Postgres + SQLite) clean; `makemigrations --check`
+  no changes (apps own their migrations); `spectacular` OK (similar GET documents
+  200/400/503/429); `pytest apps/forum_host --create-db` → 150 passed (11 new in
+  `test_similar.py`, incl. real pgvector build+search with a deterministic fake
+  embedder + restricted-board exclusion); `apps/blog apps/users` → 329 passed.
+- **Pre-enablement follow-up (NOT blocking the dormant merge; before the flag is
+  ever set True in prod):** the query-embedding path has no *aggregate* AI-budget
+  cap — only per-IP throttle + result cache. The summary/spam paths check
+  `AIRateLimiter.check_global_limit()`; similar-topics does not, because that
+  counter (`ai_rate_limit:global`) is shared with blog/forum *completions* and the
+  slice-2 note already flags that sharing as problematic. Add a **dedicated
+  embedding budget** (separate key) before enabling, so a distributed query burst
+  can't run up unbounded embedding cost.
+
 ## Notes
 
 p1 by user triage decision. All research verdicts for H13/H14/H15/M12/M14 were

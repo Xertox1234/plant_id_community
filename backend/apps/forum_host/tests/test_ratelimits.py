@@ -36,6 +36,7 @@ def _board():
 # guard so they do not read as package drift.
 HOST_ONLY_ROUTES = {
     ("topics/<int:topic_id>/summary/", "topic-summary"),  # H14 AI thread summary
+    ("topics/similar/", "topic-similar"),  # H15 semantic similar topics
 }
 
 
