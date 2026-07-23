@@ -75,3 +75,58 @@ def test_rss_feed_lists_live_topic_with_frontend_link():
 
     assert "Fern care" in xml
     assert f"{_SITE}{topic.get_absolute_url()}" in xml
+
+
+@pytest.mark.django_db
+def test_rss_feed_excludes_draft_topic():
+    # The feed's own live=True guard needs coverage — the sitemap's is covered by
+    # test_sitemap_excludes_draft_topic, but the feed filters independently.
+    _index, board = _tree()
+    draft = Topic.objects.create(board=board, title="Draft", slug="draft", live=False)
+    xml = APIClient().get("/forum/rss/").content.decode()
+    assert draft.get_absolute_url() not in xml
+
+
+@pytest.mark.django_db
+def test_sitemap_and_feed_exclude_ancestor_restricted_topics():
+    # `.public()` excludes not just directly-restricted pages but descendants of
+    # a restricted ancestor. Restrict the ForumIndex and assert the board + its
+    # topic vanish from both surfaces — locks in the inheritance the code relies on.
+    index, board = _tree()
+    PageViewRestriction.objects.create(page=index, restriction_type="login")
+    topic = Topic.objects.create(board=board, title="Secret", slug="secret", live=True)
+
+    sitemap = APIClient().get("/forum/sitemap.xml").content.decode()
+    feed = APIClient().get("/forum/rss/").content.decode()
+
+    assert topic.get_absolute_url() not in sitemap
+    assert topic.get_absolute_url() not in feed
+    assert f"/forum/{board.id}-general</loc>" not in sitemap
+    assert "<loc>" + _SITE + "/forum</loc>" not in sitemap  # restricted index too
+
+
+@pytest.mark.django_db
+def test_sitemap_and_feed_query_counts_are_flat():
+    # Both endpoints gate visibility via .public() (a PageViewRestriction lookup),
+    # so pin the exact query count — a dropped select_related('board') or a
+    # per-topic query in location()/item_link() would regress it (docs/rules).
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    _index, board = _tree()
+    for i in range(5):
+        Topic.objects.create(board=board, title=f"T{i}", slug=f"t{i}", live=True)
+
+    with CaptureQueriesContext(connection) as ctx:
+        assert APIClient().get("/forum/sitemap.xml").status_code == 200
+    sitemap_queries = len(ctx.captured_queries)
+
+    with CaptureQueriesContext(connection) as ctx:
+        assert APIClient().get("/forum/rss/").status_code == 200
+    rss_queries = len(ctx.captured_queries)
+
+    # Flat regardless of topic count (select_related('board') covers the only FK).
+    # sitemap = 8 (two sections, each with a .public() PageViewRestriction lookup);
+    # rss = 2 (topics query + one .public() lookup). Exact, not <= (docs/rules).
+    assert sitemap_queries == 8, sitemap_queries
+    assert rss_queries == 2, rss_queries

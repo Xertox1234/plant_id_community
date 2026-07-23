@@ -16,8 +16,13 @@ from django.contrib.sitemaps import Sitemap
 from wagtail_forum.api.views import _visible_boards
 from wagtail_forum.models import ForumIndex, Topic
 
-_PROTOCOL, _, _DOMAIN = settings.SITE_URL.partition("://")
-_DOMAIN = _DOMAIN.rstrip("/")
+
+def _frontend_parts():
+    """(protocol, domain) of the SPA frontend origin, read at CALL time so a
+    misconfigured or test-overridden SITE_URL is always honored — matches
+    tasks.py's email deep-link convention (also a live settings.SITE_URL read)."""
+    protocol, _, domain = settings.SITE_URL.partition("://")
+    return (protocol or "https"), domain.rstrip("/")
 
 
 class _FrontendSitemap(Sitemap):
@@ -25,10 +30,10 @@ class _FrontendSitemap(Sitemap):
     backend host this sitemap is served from."""
 
     def get_protocol(self, protocol=None):
-        return _PROTOCOL or "https"
+        return _frontend_parts()[0]
 
     def get_domain(self, site=None):
-        return _DOMAIN
+        return _frontend_parts()[1]
 
 
 class ForumBoardSitemap(_FrontendSitemap):

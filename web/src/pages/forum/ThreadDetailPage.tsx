@@ -407,7 +407,8 @@ export default function ThreadDetailPage() {
         og={{
           title: thread.title,
           description: `A discussion in ${thread.category.name} on Plant Community.`,
-          url: typeof window !== 'undefined' ? window.location.href : undefined,
+          // Canonical topic URL — drop any ?query/#hash; the SPA is client-only.
+          url: `${window.location.origin}${window.location.pathname}`,
           type: 'article',
         }}
       />

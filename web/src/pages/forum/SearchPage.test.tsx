@@ -112,6 +112,8 @@ describe('SearchPage', () => {
           })
         );
       });
+      // H9: covers the query branch of the title ternary (`Search: ${query}`).
+      expect(document.title).toContain('Search: watering');
     });
 
     it('displays loading spinner while searching', async () => {

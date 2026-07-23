@@ -177,6 +177,34 @@ cross-submission or a frontend `robots.txt` pointer to be fully effective.
   → `33 passed` (4 SEO incl. the restricted-board exclusion). `manage.py check`
   clean; `spectacular` schema OK.
 
+### 2026-07-23 - Slice 2 (H9) code review + fixes
+
+- Reviewed by 4 domain reviewers (django-drf, wagtail, react-typescript,
+  cross-cutting) + advisor steer. **No correctness/security bugs** — cross-cutting
+  confirmed via mutation testing that the `.public()`/`live=True` guards ARE
+  load-bearing (dropping either fails the exclusion tests). All findings were
+  coverage/robustness. Fixes applied:
+  - **SITE_URL read at call-time** (django-drf) in `sitemaps.py` + `feeds.py`
+    (was module-frozen) — honors a test override / late config, matches the email
+    convention.
+  - **`MAX_ITEMS` → `FORUM_RSS_MAX_ITEMS`** constant (django-drf; app convention).
+  - **Canonical OG url** (react/cross-cutting): `origin + pathname` (drops
+    query/hash; removed the vestigial SSR guard).
+  - **Test coverage**: RSS draft-exclusion; **ancestor-restriction** exclusion
+    (restrict the ForumIndex — locks in `.public()` descendant inheritance,
+    wagtail med); exact **query-count pins** (sitemap 8, rss 2 — `.public()`
+    lookups, cross-cutting med); og:url + og:description assertions; SearchPage
+    `Search: {query}` title-branch assertion (cross-cutting meds).
+  - **Accepted low**: static-title pages (Category/NewThread) don't set the title
+    during the sub-second loading flash — the loaded state (crawler-visible)
+    has the correct title; a clean fix needs a structural refactor not warranted
+    for a LOW. Noted, not fixed.
+  - Info (no action): 50k-topic sitemap pagination (dormant); cross-origin sitemap
+    (recorded ops follow-up); `_visible_boards()` called twice per sitemap render
+    (harmless, flat 8 queries).
+- Re-verified: web **655 tests** + `tsc`; backend `forum_host` suite **157**
+  (test_seo **7**); `manage.py check` clean.
+
 ## Notes
 
 p1 by user triage decision. M11 was rated High by the react-typescript reviewer

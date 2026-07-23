@@ -142,6 +142,12 @@ describe('ThreadDetailPage', () => {
     expect(document.querySelector('meta[property="og:type"]')?.getAttribute('content')).toBe(
       'article'
     );
+    expect(document.querySelector('meta[property="og:url"]')?.getAttribute('content')).toBe(
+      window.location.origin + window.location.pathname
+    );
+    expect(
+      document.querySelector('meta[property="og:description"]')?.getAttribute('content')
+    ).toContain('discussion');
   });
 
   it('renders breadcrumb navigation', async () => {
