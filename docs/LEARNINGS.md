@@ -1699,3 +1699,28 @@ review/testing before merge:
    mount). Lesson: a package that can be mounted under arbitrary namespaces must
    derive the namespace from the live request, never hardcode it — and a
    package-only test suite will not catch it; run the host-mounted suite too.
+
+## 2026-07-24 — `autoFocus` fires before `useEffect`, breaking modal focus-return (todo 259, React/a11y)
+
+A new `ConfirmDialog` (styled replacement for `window.confirm`) claimed to
+"return focus to the trigger on close" but lost focus instead. Both the bundled
+`/code-review` pass and the checklist orchestrator independently flagged it.
+
+Root cause: the confirm button used the React `autoFocus` prop, and a separate
+`useEffect` captured `document.activeElement` (to restore on close). React
+applies `autoFocus` during the **commit phase** — before passive effects run —
+so by the time the effect executed, `activeElement` was already the confirm
+button, not the trigger. On close the effect restored focus to the button
+(mid-unmount) → focus fell to `<body>` (WCAG 2.4.3 regression).
+
+Fix: don't use the `autoFocus` prop for a dialog that must restore focus.
+Capture `document.activeElement` in the effect FIRST (it's still the trigger,
+because nothing has autofocused yet), THEN focus the target imperatively
+(`dialogRef.current?.querySelector('[data-autofocus]')?.focus()`); restore the
+captured trigger in the cleanup. Also: a reusable dialog must use `useId()` for
+its `aria-labelledby`/`aria-describedby` ids — a static id collides when the
+component is rendered twice on one page (ThreadDetailPage renders two).
+
+Lesson: `autoFocus` and an imperative focus-capture effect don't compose —
+`autoFocus` wins the race. Any focus-trap/focus-restore component must own the
+initial focus imperatively inside the same effect that captures the trigger.

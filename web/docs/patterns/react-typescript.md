@@ -349,3 +349,35 @@ two-dynamic-segment route. Mitigations, in order:
   Document that invariant at the route.
 - If a genuine literal collision is possible, use a distinct prefix
   (`/forum/u/:username`) or reserve the slug — not route reordering.
+
+## Screen-reader announcements: persistent live region, not conditional mount
+
+A `role="alert"`/`aria-live` element that is **conditionally mounted with its
+content** (`{error && <p role="alert">{error}</p>}`) is generally NOT announced —
+MDN documents that a live region must already exist in the DOM before its text
+changes for assistive tech to read it (audit 2026-07-11 M26). The fix is a
+persistent container whose text content swaps.
+
+Two shapes, both used in the forum:
+
+- **App-wide announcer** (`contexts/AnnouncerContext.tsx`): one polite + one
+  assertive `aria-live` region mounted once at the app root; `useAnnounce()`
+  swaps their text. Use for transient messages with no visible counterpart
+  (e.g. "Reply posted." after a successful post).
+- **Persistent visible banner**: keep the banner element always mounted and swap
+  its text; collapse it with `sr-only` (not unmount) when empty:
+
+```tsx
+<div aria-live="polite" aria-atomic="true"
+     className={notice ? 'visible-styles' : 'sr-only'}>
+  {notice}
+</div>
+```
+
+Use **bare `aria-live`**, not `role="status"`/`role="alert"`, on these regions:
+`role="status"` collides with the many `LoadingSpinner`s across the app in
+`getByRole('status')` test queries. The `aria-live` attribute is the actual
+announcement mechanism; the roles are just conveniences that imply it. Test a
+content-swap announcement by asserting the SAME region node's `textContent`
+changes (not that a new node mounted) — that is what proves the live-region
+contract, and it's the non-tautological version of an announce test.
