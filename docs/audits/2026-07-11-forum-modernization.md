@@ -332,17 +332,17 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #M25 reply-focus-drop → todo 259
 - [ ] #M26 live-region-announcements → todo 259
 - [ ] #M27 unsaved-edit-discard → todo 259
-- [ ] #M28 author-type-casts → todo 258
+- [x] #M28 author-type-casts → todo 258 (completed 2026-07-24, PR2; casts already removed by 257, dead types deleted here)
 - [ ] #M29 upload-precheck → todo 259
 - [ ] #M30 thread-pagination-ux → todo 259
 - [ ] #M31 scroll-to-top → todo 259
 - [ ] #M34 write-path-e2e → todo 261
-- [ ] #M35 patch-idempotency → todo 258
-- [ ] #M36 image-upload-idempotency → todo 258
-- [ ] #M37 openapi-response-codes → todo 258
-- [ ] #M38 meprofile-schema → todo 258
-- [ ] #M39 error-envelope-ownership → todo 258
-- [ ] #M40 envelope-shapes → todo 258
+- [x] #M35 patch-idempotency → todo 258 (completed 2026-07-24, PR #494)
+- [x] #M36 image-upload-idempotency → todo 258 (completed 2026-07-24, PR #494)
+- [x] #M37 openapi-response-codes → todo 258 (completed 2026-07-24, PR #494)
+- [x] #M38 meprofile-schema → todo 258 (completed 2026-07-24, PR #494)
+- [x] #M39 error-envelope-ownership → todo 258 (completed 2026-07-24, PR #494)
+- [ ] #M40 envelope-shapes → todo 277 (re-pointed 2026-07-24; out of 258 acceptance gate — breaking, needs web coordination; partly stale)
 - [x] #M41 deleted-author-convention → todo 257 (completed 2026-07-24, PR #490)
 - [ ] #M42 http-caching → todo 261
 - [x] #L1 anon-reaction-counts → todo 257 (completed 2026-07-24, PR #491; shipped Wave 1 #473, test-proven)
@@ -357,11 +357,11 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #L12 timestamp-accessibility → todo 259
 - [ ] #L13 tautological-composer-tests → todo 259
 - [x] #L14 identity-polish → todo 257 (completed 2026-07-24, PR #491; trust_level render #474, emoji aria-hidden #491, reactions flex-wrap shipped Wave 1 #473)
-- [ ] #L16 reaction-types-duplication → todo 258
+- [x] #L16 reaction-types-duplication → todo 258 (completed 2026-07-24, PR2; shared web literal + backend drift-guard)
 - [ ] #L17 migrations-check-ci → todo 261
-- [ ] #L18 write-path-query-profiling → todo 258
-- [ ] #L19 location-header-201 → todo 258
-- [ ] #L20 versioning-comment → todo 258
+- [x] #L18 write-path-query-profiling → todo 258 (completed 2026-07-24, PR #494; PATCH 71 / DELETE 33, cascade not elidable)
+- [x] #L19 location-header-201 → todo 258 (completed 2026-07-24, PR #494)
+- [ ] #L20 versioning-comment → todo 277 (re-pointed 2026-07-24; out of 258 acceptance gate)
 - [x] #L21 image-reuse-privacy-decision → todo 254 (completed 2026-07-13)
 
 ## Phase 6 code review (2026-07-11)

@@ -4,6 +4,7 @@ import { formatDistanceToNow } from 'date-fns';
 import StreamFieldRenderer from '../StreamFieldRenderer';
 import { userProfilePath } from '../../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME, TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
+import { REACTION_TYPES } from '../../utils/forumReactions';
 import type { Post } from '@/types';
 
 interface PostCardProps {
@@ -13,9 +14,6 @@ interface PostCardProps {
   onReact?: (postId: string, reactionType: string) => void;
   onReport?: (postId: string, reason: string) => Promise<void>;
 }
-
-// The four reaction types the backend supports.
-const REACTION_TYPES = ['like', 'love', 'helpful', 'thanks'] as const;
 
 // Mirrors wagtail_forum Report.REASON_CHOICES.
 const REPORT_REASONS = [
