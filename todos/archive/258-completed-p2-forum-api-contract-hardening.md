@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "258"
 tags: [forum, api, drf, openapi]
@@ -102,7 +102,7 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `H` = `bac
       single shape — PR1
 - [x] `manage.py spectacular` clean with complete response codes on the named
       endpoints; 201s carry `Location` — PR1
-- [ ] No `as unknown as` casts in forum mappers; no dead exported forum types;
+- [x] No `as unknown as` casts in forum mappers; no dead exported forum types;
       reaction types single-sourced — PR2 (web)
 - [x] L18 profiling results recorded in this todo's work log — PR1
 
@@ -208,6 +208,38 @@ cross-cutting-reviewer (all three, staged diff). Findings (0 critical/high):
 
 Re-verified: `pytest apps/forum_host packages/wagtail_forum` → **507 passed**;
 flake8 clean; `spectacular` exit 0.
+
+### 2026-07-24 - PR2 web (M28 + L16) + review + archival
+
+Branch `fix/forum-258-web-types` off fresh main (after PR1 #494 merged).
+
+- **M28** — the `as unknown as ForumAuthor` casts were already gone (todo 257);
+  deleted the 8 dead exported types from `web/src/types/forum.ts`
+  (CreateThreadData, CreatePostData, FetchThreadsOptions, FetchPostsOptions,
+  CreateThreadInput, CreatePostInput, AddReactionInput, the legacy `Reaction`
+  interface), removed the orphaned `import type { User }`, and pruned the
+  `types/index.ts` re-exports.
+- **L16** — extracted `REACTION_TYPES` from `PostCard.tsx` into a shared
+  `web/src/utils/forumReactions.ts` (single-sourced on the web side); added a
+  **cross-boundary drift guard** `apps/forum_host/tests/test_reaction_contract.py`
+  that reads the web literal and fails CI if it diverges from
+  `Reaction.REACTION_CHOICES`. Honest framing: this is a drift GUARD, not codegen
+  single-sourcing (no OpenAPI→TS pipeline exists).
+
+Review: `react-typescript-reviewer` — 1 LOW (the new `ReactionType` export was
+itself unused); repaired by dropping it (kept only the `REACTION_TYPES` value).
+
+Verification: web `tsc --noEmit` clean; `eslint` clean; `vitest run` → **663
+passed**; backend `test_reaction_contract.py` PASSED; flake8 clean.
+
+### 2026-07-24 - Completed by completing-todos skill (run 2026-07-24-1946)
+
+- Verification: all 6 acceptance criteria passed (PR1 #494 + PR2).
+- Review: 2 PRs reviewed (backend orchestrator 3-reviewer pass + web
+  react-typescript-reviewer); all blocking-severity findings addressed via repair;
+  0 critical/high across both.
+- Deferred M40 + L20 (not acceptance criteria) → todo 277; re-pointed in the
+  audit Finding Status.
 
 ## Notes
 
