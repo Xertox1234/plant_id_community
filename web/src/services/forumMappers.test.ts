@@ -47,14 +47,19 @@ describe('forumMappers (wagtail_forum contract)', () => {
       id: 12,
       title: 'Succulent help',
       slug: 'succulent-help',
-      author: 'jdoe',
+      author: {
+        username: 'jdoe',
+        display_name: 'Jane Doe',
+        avatar: 'http://x/media/a.jpg',
+        trust_level: 2,
+      },
       is_pinned: false,
       is_closed: false,
       locked: false,
       reply_count: 4,
       view_count: 99,
       last_post_at: '2026-01-02T00:00:00Z',
-      last_post_author: 'jdoe',
+      last_post_author: null,
       is_unread: false,
     });
     expect(t).toMatchObject({
@@ -67,15 +72,20 @@ describe('forumMappers (wagtail_forum contract)', () => {
       is_pinned: false,
       is_locked: false,
     });
-    expect(t.author?.username).toBe('jdoe');
+    // Unified author object (todo 257 H26): username, display_name, avatar.
+    expect(t.author.username).toBe('jdoe');
+    expect(t.author.display_name).toBe('Jane Doe');
+    expect(t.author.avatar).toBe('http://x/media/a.jpg');
+    expect(t.author.trust_level).toBe(2);
   });
 
-  it('mapTopicListItemToThread handles null author ([deleted])', () => {
+  it('mapTopicListItemToThread maps the [deleted] sentinel author', () => {
     const t = mapTopicListItemToThread({
       id: 1,
       title: 'T',
       slug: 't',
-      author: null,
+      // Backend sends the [deleted] sentinel OBJECT for a deleted author (M41).
+      author: { username: '[deleted]', display_name: '[deleted]', avatar: null, trust_level: null },
       is_pinned: false,
       is_closed: false,
       locked: false,
@@ -85,7 +95,8 @@ describe('forumMappers (wagtail_forum contract)', () => {
       last_post_author: null,
       is_unread: false,
     });
-    expect(t.author?.username).toBe('[deleted]');
+    expect(t.author.username).toBe('[deleted]');
+    expect(t.author.avatar).toBeNull();
   });
 
   it('mapTopicListItemToThread passes through is_unread', () => {
@@ -93,7 +104,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       id: 1,
       title: 'T',
       slug: 't',
-      author: 'u',
+      author: { username: 'u', display_name: 'U', avatar: null, trust_level: null },
       is_pinned: false,
       is_closed: false,
       locked: false,
@@ -111,7 +122,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       id: 1,
       title: 'T',
       slug: 't',
-      author: 'u',
+      author: { username: 'u', display_name: 'U', avatar: null, trust_level: null },
       is_pinned: false,
       is_closed: true,
       locked: false,
@@ -142,7 +153,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       title: 'Succulent help',
       slug: 'succulent-help',
       board: { id: 3, slug: 'plant-care', title: 'Plant Care' },
-      author: 'jdoe',
+      author: { username: 'jdoe', display_name: 'Jane Doe', avatar: null, trust_level: 2 },
       is_pinned: true,
       is_closed: false,
       locked: false,
@@ -150,7 +161,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       view_count: 99,
       created_at: '2026-01-01T00:00:00Z',
       last_post_at: '2026-01-02T00:00:00Z',
-      last_post_author: 'jdoe',
+      last_post_author: null,
       opening_post_id: 50,
       is_subscribed: true,
     });
@@ -175,7 +186,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       title: 'T',
       slug: 't',
       board: { id: 1, slug: 'b', title: 'B' },
-      author: null,
+      author: { username: '[deleted]', display_name: '[deleted]', avatar: null, trust_level: null },
       is_pinned: false,
       is_closed: false,
       locked: true,
@@ -199,7 +210,12 @@ describe('forumMappers (wagtail_forum contract)', () => {
       {
         id: 50,
         topic_id: 12,
-        author: { username: 'jdoe', display_name: 'Jane Doe', trust_level: 2 },
+        author: {
+          username: 'jdoe',
+          display_name: 'Jane Doe',
+          avatar: 'http://x/media/jane.jpg',
+          trust_level: 2,
+        },
         body: [{ type: 'paragraph', value: 'hello', id: 'blk-1' }],
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
@@ -223,9 +239,10 @@ describe('forumMappers (wagtail_forum contract)', () => {
       can_delete: false,
       can_report: true,
     });
-    expect(p.author?.username).toBe('jdoe');
-    expect(p.author?.display_name).toBe('Jane Doe');
-    expect(p.author?.trust_level).toBe(2);
+    expect(p.author.username).toBe('jdoe');
+    expect(p.author.display_name).toBe('Jane Doe');
+    expect(p.author.trust_level).toBe(2);
+    expect(p.author.avatar).toBe('http://x/media/jane.jpg');
     expect(p.body).toHaveLength(1);
     expect(p.body?.[0].type).toBe('paragraph');
   });
@@ -235,7 +252,12 @@ describe('forumMappers (wagtail_forum contract)', () => {
       {
         id: 51,
         topic_id: 12,
-        author: { username: '[deleted]', display_name: '[deleted]', trust_level: null },
+        author: {
+          username: '[deleted]',
+          display_name: '[deleted]',
+          avatar: null,
+          trust_level: null,
+        },
         body: [],
         created_at: '2026-01-01T00:00:00Z',
         is_opening_post: false,
@@ -256,7 +278,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       {
         id: 52,
         topic_id: 12,
-        author: { username: 'u', display_name: 'U', trust_level: null },
+        author: { username: 'u', display_name: 'U', avatar: null, trust_level: null },
         body: [],
         created_at: '2026-01-01T00:00:00Z',
         is_opening_post: false,

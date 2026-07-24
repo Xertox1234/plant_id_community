@@ -357,10 +357,23 @@ def test_notification_actor_carries_trust_level_and_display_name():
     board = _board("gen-actor")
     topic, post = _topic_and_post(board, recipient, actor)
     _notify(recipient, actor, topic, post)
+    # The actor now carries the SAME unified author object as topic/post authors
+    # (todo 257 H26), including avatar — so give the actor one and assert it.
+    from wagtail.images import get_image_model
+    from wagtail.images.tests.utils import get_test_image_file
+    from wagtail_forum.collections import get_forum_image_collection
+
+    avatar = get_image_model().objects.create(
+        title="ann-avatar",
+        file=get_test_image_file(),
+        collection=get_forum_image_collection(),
+        uploaded_by_user=actor,
+    )
     profile = ForumProfile.for_user(actor)
     profile.trust_level = TrustLevel.LEADER  # 4
     profile.display_name = "Ann"
-    profile.save(update_fields=["trust_level", "display_name"])
+    profile.avatar = avatar
+    profile.save(update_fields=["trust_level", "display_name", "avatar"])
 
     client = APIClient()
     client.force_authenticate(recipient)
@@ -370,6 +383,7 @@ def test_notification_actor_carries_trust_level_and_display_name():
     assert got["username"] == "a"
     assert got["display_name"] == "Ann"
     assert got["trust_level"] == 4
+    assert got["avatar"] == f"http://testserver{avatar.file.url}"
 
 
 @pytest.mark.django_db

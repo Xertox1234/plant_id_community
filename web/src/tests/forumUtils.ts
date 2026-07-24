@@ -7,8 +7,7 @@
  * Previous version was deleted but not converted, causing test failures.
  */
 
-import type { Category, Thread, Post } from '../types/forum';
-import type { User } from '../types/auth';
+import type { Category, Thread, Post, ForumAuthor } from '../types/forum';
 
 /**
  * Create a mock Category for testing
@@ -33,24 +32,18 @@ export function createMockCategory(overrides: Partial<Category> = {}): Category 
 }
 
 /**
- * Create a mock User for testing
+ * Create a mock ForumAuthor for testing — the unified author object every
+ * topic/post payload carries (todo 257 H26).
  *
- * @param overrides - Partial user data to override defaults
- * @returns Complete User object with defaults
+ * @param overrides - Partial author data to override defaults
+ * @returns Complete ForumAuthor object with defaults
  */
-function createMockUser(overrides: Partial<User> = {}): User {
-  const defaults: User = {
-    id: 1,
-    email: 'testuser@example.com',
+export function createMockForumAuthor(overrides: Partial<ForumAuthor> = {}): ForumAuthor {
+  const defaults: ForumAuthor = {
     username: 'testuser',
     display_name: 'Test User',
-    first_name: 'Test',
-    last_name: 'User',
-    trust_level: 'basic',
-    date_joined: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString(), // 30 days ago
-    is_active: true,
-    is_staff: false,
-    is_moderator: false,
+    avatar: null,
+    trust_level: 1,
   };
 
   return { ...defaults, ...overrides };
@@ -69,7 +62,7 @@ export function createMockThread(overrides: Partial<Thread> = {}): Thread {
     slug: 'how-to-water-succulents',
     excerpt: 'Looking for advice on watering frequency',
     category: createMockCategory(),
-    author: createMockUser(),
+    author: createMockForumAuthor(),
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(), // 3 days ago
     updated_at: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
     last_activity_at: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
@@ -93,10 +86,7 @@ export function createMockPost(overrides: Partial<Post> = {}): Post {
   const defaults: Post = {
     id: 'post-1',
     thread: 'thread-1',
-    author: {
-      ...createMockUser(),
-      trust_level: 1,
-    },
+    author: createMockForumAuthor({ trust_level: 1 }),
     content_raw: '<p>This is a test post content</p>',
     content_html: '<p>This is a test post content</p>',
     content_format: 'rich',

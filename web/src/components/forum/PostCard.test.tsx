@@ -22,10 +22,9 @@ describe('PostCard', () => {
   it('renders post author information', () => {
     const post = createMockPost({
       author: {
-        id: 1,
-        email: 'plantlover@example.com',
         username: 'plantlover',
         display_name: 'Green Thumb',
+        avatar: null,
         trust_level: 2,
       },
     });
@@ -39,10 +38,9 @@ describe('PostCard', () => {
   it('hides the trust badge for a NEW (level 0) author', () => {
     const post = createMockPost({
       author: {
-        id: 1,
-        email: 'newbie@example.com',
         username: 'newbie',
         display_name: 'New Person',
+        avatar: null,
         trust_level: 0,
       },
     });
@@ -58,10 +56,9 @@ describe('PostCard', () => {
   it('falls back to username when display_name is missing', () => {
     const post = createMockPost({
       author: {
-        id: 1,
-        email: 'plantlover@example.com',
         username: 'plantlover',
         display_name: undefined,
+        avatar: null,
         trust_level: 1,
       },
     });
@@ -260,10 +257,9 @@ describe('PostCard', () => {
   it('renders author avatar with first letter', () => {
     const post = createMockPost({
       author: {
-        id: 1,
-        email: 'gardener@example.com',
         username: 'gardener',
         display_name: 'Garden Expert',
+        avatar: null,
         trust_level: 3,
       },
     });
@@ -274,13 +270,30 @@ describe('PostCard', () => {
     expect(screen.getByText('G')).toBeInTheDocument();
   });
 
+  it('renders the avatar image when the author has an avatar (todo 257)', () => {
+    const post = createMockPost({
+      author: {
+        username: 'gardener',
+        display_name: 'Garden Expert',
+        avatar: 'http://x/media/avatar.jpg',
+        trust_level: 3,
+      },
+    });
+
+    renderPostCard(post);
+
+    const img = screen.getByAltText('Garden Expert avatar');
+    expect(img).toHaveAttribute('src', 'http://x/media/avatar.jpg');
+    // The initial-letter fallback is replaced by the image.
+    expect(screen.queryByText('G')).not.toBeInTheDocument();
+  });
+
   it('uses username first letter when display_name is missing', () => {
     const post = createMockPost({
       author: {
-        id: 1,
-        email: 'plantlover@example.com',
         username: 'plantlover',
         display_name: undefined,
+        avatar: null,
         trust_level: 1,
       },
     });

@@ -102,6 +102,92 @@ def test_registering_a_token_releases_it_from_any_other_profile():
     assert prev_profile.fcm_token == "unrelated-token"
 
 
+def _forum_image(uploader, title="avatar"):
+    from wagtail.images import get_image_model
+    from wagtail.images.tests.utils import get_test_image_file
+    from wagtail_forum.collections import get_forum_image_collection
+
+    return get_image_model().objects.create(
+        title=title,
+        file=get_test_image_file(),
+        collection=get_forum_image_collection(),
+        uploaded_by_user=uploader,
+    )
+
+
+@pytest.mark.django_db
+def test_me_profile_avatar_set_and_read():
+    # todo 257 slice A (AC): avatar settable via /me/profile with a bare image
+    # id; response + GET echo the ABSOLUTE URL (same shape rendered on posts).
+    user = User.objects.create_user(username="ada")
+    ForumProfile.for_user(user)
+    image = _forum_image(user)
+    client = APIClient()
+    client.force_authenticate(user)
+
+    resp = client.patch("/forum/me/profile/", {"avatar_id": image.id}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["avatar"] == f"http://testserver{image.file.url}"
+    assert "avatar_id" not in resp.data  # write-only, never echoed
+    assert ForumProfile.for_user(user).avatar_id == image.id
+
+    got = client.get("/forum/me/profile/")
+    assert got.data["avatar"] == f"http://testserver{image.file.url}"
+
+
+@pytest.mark.django_db
+def test_me_profile_avatar_rejects_foreign_image():
+    # IDOR: a caller must not set their avatar to an image ANOTHER user
+    # uploaded — mirrors the inline-image membership check (api/sanitize.py).
+    owner = User.objects.create_user(username="owner")
+    attacker = User.objects.create_user(username="attacker")
+    ForumProfile.for_user(attacker)
+    foreign = _forum_image(owner)
+    client = APIClient()
+    client.force_authenticate(attacker)
+
+    resp = client.patch("/forum/me/profile/", {"avatar_id": foreign.id}, format="json")
+    assert resp.status_code == 400
+    assert ForumProfile.for_user(attacker).avatar_id is None  # unchanged
+
+
+@pytest.mark.django_db
+def test_me_profile_avatar_rejects_image_outside_forum_collection():
+    # The other IDOR half: an image the caller DID upload but that lives outside
+    # the forum collection (e.g. a blog image) is not a valid avatar.
+    from wagtail.images import get_image_model
+    from wagtail.images.tests.utils import get_test_image_file
+
+    user = User.objects.create_user(username="ada")
+    ForumProfile.for_user(user)
+    outside = get_image_model().objects.create(
+        title="blog-hero", file=get_test_image_file(), uploaded_by_user=user
+    )
+    client = APIClient()
+    client.force_authenticate(user)
+
+    resp = client.patch("/forum/me/profile/", {"avatar_id": outside.id}, format="json")
+    assert resp.status_code == 400
+    assert ForumProfile.for_user(user).avatar_id is None
+
+
+@pytest.mark.django_db
+def test_me_profile_avatar_clear():
+    # An explicit null clears the avatar (no ownership check needed).
+    user = User.objects.create_user(username="ada")
+    image = _forum_image(user)
+    profile = ForumProfile.for_user(user)
+    profile.avatar = image
+    profile.save(update_fields=["avatar"])
+    client = APIClient()
+    client.force_authenticate(user)
+
+    resp = client.patch("/forum/me/profile/", {"avatar_id": None}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["avatar"] is None
+    assert ForumProfile.for_user(user).avatar_id is None
+
+
 @pytest.mark.django_db
 def test_me_profile_requires_auth():
     resp = APIClient().get("/forum/me/profile/")

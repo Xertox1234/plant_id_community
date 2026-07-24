@@ -113,10 +113,10 @@ describe('ThreadDetailPage', () => {
       slug: 'watering-tips',
       title: 'How to water succulents?',
       author: {
-        id: 1,
-        email: 'gardener@example.com',
         username: 'gardener',
         display_name: 'Master Gardener',
+        avatar: null,
+        trust_level: null,
       },
       view_count: 150,
     });

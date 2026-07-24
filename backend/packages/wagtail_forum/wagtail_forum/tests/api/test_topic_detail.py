@@ -43,13 +43,22 @@ def test_topic_detail_returns_live_topic():
     assert resp.data["id"] == topic.id
     assert resp.data["title"] == "Hello"
     assert resp.data["board"]["slug"] == "general"
-    assert resp.data["author"] == "ada"
+    # Unified author object (todo 257 H26): every topic/post author is the same
+    # shape. `ada` has no ForumProfile row → display_name falls back to the
+    # username, avatar/trust_level are null.
+    assert resp.data["author"] == {
+        "username": "ada",
+        "display_name": "ada",
+        "avatar": None,
+        "trust_level": None,
+    }
     assert resp.data["opening_post_id"] == opening.id
     # Anonymous is_subscribed short-circuits with zero extra queries (todo
     # 253 slice 3) — the pin below stays 4, not 5, for this request.
     assert resp.data["is_subscribed"] is False
-    # Exactly 4: page-view-restriction check, topic fetch (select_related board/author),
-    # opening-post id lookup, post refetch by id.
+    # Exactly 4: page-view-restriction check, topic fetch (select_related board +
+    # author/last_post_author down to ForumProfile.avatar — LEFT JOINs, no extra
+    # queries), opening-post id lookup, post refetch by id.
     # Pinned EXACTLY (docs/rules/testing.md) — if this changes, explain the new count here.
     assert len(ctx.captured_queries) == 4
 

@@ -54,8 +54,8 @@ class UserMentionSearchView(APIView):
         ).order_by("username")[:MAX_RESULTS]
         # get_full_name()/get_username() — not a `.display_name` property,
         # which is specific to THIS host's User model and breaks the
-        # package's host-agnostic contract (mirrors PostAuthorSerializer.
-        # get_display_name in serializers.py).
+        # package's host-agnostic contract (mirrors serialize_forum_author's
+        # display_name resolution in serializers.py).
         return Response(
             [
                 {

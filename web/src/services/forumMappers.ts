@@ -1,5 +1,5 @@
 import type { StreamFieldBlock } from '../types/blog';
-import type { Category, Thread, Post } from '../types/forum';
+import type { Category, Thread, Post, ForumAuthor } from '../types/forum';
 
 // ---------------------------------------------------------------------------
 // Backend shapes — wagtail_forum API contract
@@ -18,14 +18,16 @@ export interface BackendTopicListItem {
   id: number;
   title: string;
   slug: string;
-  author: string | null;
+  // Unified author object (todo 257 H26) — a deleted author is the `[deleted]`
+  // sentinel object, never null. last_post_author is object-or-null.
+  author: BackendAuthor;
   is_pinned: boolean;
   is_closed: boolean;
   locked: boolean;
   reply_count: number;
   view_count: number;
   last_post_at: string | null;
-  last_post_author: string | null;
+  last_post_author: BackendAuthor | null;
   is_unread: boolean;
 }
 
@@ -34,7 +36,7 @@ export interface BackendTopicDetail {
   title: string;
   slug: string;
   board: { id: number; slug: string; title: string };
-  author: string | null;
+  author: BackendAuthor;
   is_pinned: boolean;
   is_closed: boolean;
   locked: boolean;
@@ -42,7 +44,7 @@ export interface BackendTopicDetail {
   view_count: number;
   created_at: string;
   last_post_at: string | null;
-  last_post_author: string | null;
+  last_post_author: BackendAuthor | null;
   opening_post_id: number | null;
   is_subscribed: boolean;
 }
@@ -50,16 +52,20 @@ export interface BackendTopicDetail {
 // StreamFieldBlock re-exported for consumers that import backend shapes from this module.
 export type { StreamFieldBlock } from '../types/blog';
 
-export interface BackendPostAuthor {
+// The unified author object every topic/post payload carries (backend
+// serialize_forum_author, todo 257 H26/M41). A deleted author is the
+// `[deleted]` sentinel object, never null.
+export interface BackendAuthor {
   username: string;
   display_name: string;
+  avatar: string | null;
   trust_level: number | null;
 }
 
 export interface BackendPost {
   id: number;
   topic_id: number;
-  author: BackendPostAuthor;
+  author: BackendAuthor;
   body: StreamFieldBlock[];
   created_at: string;
   updated_at?: string;
@@ -97,31 +103,23 @@ export interface BackendSearchPost {
 // Helpers
 // ---------------------------------------------------------------------------
 
-type ForumAuthor = Thread['author'];
-
-/** Build a forum author from a plain string username (topic list/detail). */
-function authorFromString(username: string | null): ForumAuthor {
-  if (!username) {
-    return { id: '', username: '[deleted]', display_name: '[deleted]' } as unknown as ForumAuthor;
-  }
-  return { id: '', username, display_name: username } as unknown as ForumAuthor;
-}
-
-/** Build a forum author from the post author object. */
-function authorFromObject(a: BackendPostAuthor): Post['author'] {
-  if (a.username === '[deleted]') {
-    return {
-      id: '',
-      username: '[deleted]',
-      display_name: '[deleted]',
-    } as unknown as Post['author'];
+/**
+ * Map the backend author object to the unified ForumAuthor used by both
+ * Thread.author and Post.author (todo 257 H26). The backend already sends the
+ * `[deleted]` sentinel object for a deleted author, so this mostly passes
+ * through; the null branch covers `last_post_author` and the search payloads,
+ * which carry no author. No casts — the shapes line up exactly.
+ */
+function mapAuthor(a: BackendAuthor | null): ForumAuthor {
+  if (!a) {
+    return { username: '[deleted]', display_name: '[deleted]', avatar: null, trust_level: null };
   }
   return {
-    id: '',
     username: a.username,
     display_name: a.display_name || a.username,
-    trust_level: a.trust_level ?? undefined,
-  } as unknown as Post['author'];
+    avatar: a.avatar,
+    trust_level: a.trust_level,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +145,7 @@ export function mapTopicListItemToThread(t: BackendTopicListItem): Thread {
     slug: t.slug,
     // No category info on the list item — caller must supply or leave empty
     category: { id: '', name: '', slug: '', created_at: '' },
-    author: authorFromString(t.author),
+    author: mapAuthor(t.author),
     // list item has no created_at; use last_post_at as best proxy
     created_at: t.last_post_at || '',
     last_activity_at: t.last_post_at || '',
@@ -173,7 +171,7 @@ export function mapTopicDetailToThread(t: BackendTopicDetail): Thread {
     title: t.title,
     slug: t.slug,
     category,
-    author: authorFromString(t.author),
+    author: mapAuthor(t.author),
     created_at: t.created_at,
     last_activity_at: t.last_post_at || t.created_at,
     post_count: t.reply_count,
@@ -189,7 +187,7 @@ export function mapPostToPost(p: BackendPost, threadId: string): Post {
   return {
     id: String(p.id),
     thread: threadId,
-    author: authorFromObject(p.author),
+    author: mapAuthor(p.author),
     content_raw: '', // StreamField body — no plain-text equivalent; Task 6 renders body blocks
     content_html: undefined,
     content_format: 'draftail',
@@ -212,7 +210,8 @@ export function mapSearchTopicToThread(t: BackendSearchTopic): Thread {
     title: t.title,
     slug: t.slug,
     category: { id: String(t.board_id), name: '', slug: t.board_slug, created_at: '' },
-    author: authorFromString(null),
+    // Search payload carries no author (BackendSearchTopic) → sentinel author.
+    author: mapAuthor(null),
     // Search payload carries no creation time; only last activity. Don't alias
     // last_post_at as created_at (that misrepresents it downstream).
     created_at: '',
@@ -227,9 +226,8 @@ export function mapSearchPostToPost(p: BackendSearchPost): Post {
   return {
     id: String(p.id),
     thread: String(p.topic_id),
-    // Same cast as mapPostToPost — authorFromString returns ForumAuthor
-    // (Thread's User shape) but this feeds Post.author (numeric trust_level).
-    author: authorFromString(null) as unknown as Post['author'],
+    // Search payload carries no author (BackendSearchPost) → sentinel author.
+    author: mapAuthor(null),
     content_raw: p.excerpt,
     content_format: 'plain',
     body: [],

@@ -112,10 +112,18 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
       <div className="flex items-start justify-between flex-wrap gap-2 mb-4">
         {/* Author Info */}
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
-            <span className="text-xl font-bold text-leaf">
-              {post.author.display_name?.[0] || post.author.username[0]}
-            </span>
+          <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center overflow-hidden">
+            {post.author.avatar ? (
+              <img
+                src={post.author.avatar}
+                alt={`${post.author.display_name || post.author.username} avatar`}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <span className="text-xl font-bold text-leaf">
+                {post.author.display_name?.[0] || post.author.username[0]}
+              </span>
+            )}
           </div>
 
           <div>

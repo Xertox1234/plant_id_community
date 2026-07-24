@@ -91,7 +91,7 @@ def _get_visible_post(post_id):
     return get_object_or_404(
         Post.objects.filter(
             live=True, topic__live=True, topic__board__in=_visible_boards()
-        ).select_related("topic", "author"),
+        ).select_related("topic", "author__wagtail_forum_profile__avatar"),
         id=post_id,
     )
 
@@ -241,8 +241,13 @@ class TopicListView(generics.ListAPIView):
         if getattr(self, "swagger_fake_view", False):
             return Topic.objects.none()
         board = _get_board(self.kwargs["slug"])
+        # Join author + last_post_author down to their ForumProfile.avatar so the
+        # unified author object (todo 257 H26) serializes with zero per-row
+        # queries — select_related adds JOINs, not queries, so the list pin stays
+        # flat (test_topics_list.py).
         qs = Topic.objects.filter(board=board, live=True).select_related(
-            "author", "last_post_author"
+            "author__wagtail_forum_profile__avatar",
+            "last_post_author__wagtail_forum_profile__avatar",
         )
         qs = _annotate_topic_unread(qs, self.request.user)
         # Kept in sync with TopicCursorPagination.ordering — the paginator
@@ -356,7 +361,11 @@ class TopicDetailView(generics.RetrieveAPIView):
             return Topic.objects.none()
         return Topic.objects.filter(
             live=True, board__in=_visible_boards()
-        ).select_related("board", "author", "last_post_author")
+        ).select_related(
+            "board",
+            "author__wagtail_forum_profile__avatar",
+            "last_post_author__wagtail_forum_profile__avatar",
+        )
 
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)
@@ -441,7 +450,7 @@ class PostListView(generics.ListAPIView):
         # (Post.edit_block reads obj.topic) adds no per-post query — flat, no N+1
         # for authenticated listers (todo 252).
         return topic.posts.filter(live=True).select_related(
-            "author", "author__wagtail_forum_profile", "topic"
+            "author__wagtail_forum_profile__avatar", "topic"
         )
 
     def list(self, request, *args, **kwargs):

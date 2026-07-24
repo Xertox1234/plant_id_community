@@ -6,6 +6,9 @@
 export interface NotificationActor {
   username: string;
   display_name: string;
+  // Unified author object (todo 257 H26): the actor now carries an avatar
+  // (absolute URL or null), same shape as every topic/post author.
+  avatar: string | null;
   trust_level: number | null;
 }
 

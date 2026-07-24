@@ -26,7 +26,7 @@ function makeNotification(overrides: Partial<ForumNotification> = {}): ForumNoti
   return {
     id: 1,
     verb: 'reply',
-    actor: { username: 'ada', display_name: 'Ada', trust_level: 0 },
+    actor: { username: 'ada', display_name: 'Ada', avatar: null, trust_level: 0 },
     topic: {
       id: 10,
       slug: 'watering-tips',

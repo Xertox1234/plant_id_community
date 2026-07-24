@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p2
 issue_id: "257"
 tags: [forum, profiles, product-ux, api]
@@ -90,6 +90,21 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `web` = `w
 ### 2026-07-11 - Created from forum-modernization audit (Phase 4 deferral)
 
 - Epic groups 7 open findings per the manifest's Phase 4 grouping table.
+
+### 2026-07-24 - Started by completing-todos skill (run 2026-07-24-1314)
+
+- Reconciled vs current `main`: nothing re-homed (all 7 findings still point
+  here). Wave 2 slice 1 (#474) already gave `PostAuthorSerializer` real
+  `trust_level` + `display_name` (part of H7) and the web trust_level→label
+  render (part of L14). Residual: everything else — Topic authors are still bare
+  username strings (H26), no `avatar` in `MeProfileSerializer`/`PostAuthorSerializer`,
+  no public profile endpoint/page, reacted-state/anon-counts/badge/polish pending.
+- **258 overlap**: H26 unification collides with 258's M28 ("whichever lands
+  first"). 258 is pending/unstarted → **257 owns H26**; leave 258 a breadcrumb.
+- **User triage**: ALL slices, full treatment (review→fix→codify→merge per slice).
+  Order: **A** author-contract unification (H26+M41+avatar) → **C** PostCard UX
+  cluster (M23+L1+L5+L14) → **B** public profile endpoint + page (H7 remainder).
+- Slice A branch: `forum-257a-author-contract`.
 
 ## Notes
 
