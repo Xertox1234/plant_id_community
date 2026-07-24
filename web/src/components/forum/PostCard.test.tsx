@@ -35,6 +35,33 @@ describe('PostCard', () => {
     expect(screen.getByText('Member')).toBeInTheDocument();
   });
 
+  it('links the author name to their public profile (todo 257 H7)', () => {
+    const post = createMockPost({
+      author: {
+        username: 'plantlover',
+        display_name: 'Green Thumb',
+        avatar: null,
+        trust_level: 2,
+      },
+    });
+
+    renderPostCard(post);
+
+    const link = screen.getByRole('link', { name: 'Green Thumb' });
+    expect(link).toHaveAttribute('href', '/forum/users/plantlover');
+  });
+
+  it('does not link a [deleted] author (no profile to open)', () => {
+    const post = createMockPost({
+      author: { username: '[deleted]', display_name: '[deleted]', avatar: null, trust_level: null },
+    });
+
+    renderPostCard(post);
+
+    expect(screen.queryByRole('link', { name: '[deleted]' })).not.toBeInTheDocument();
+    expect(screen.getByText('[deleted]')).toBeInTheDocument();
+  });
+
   it('hides the trust badge for a NEW (level 0) author', () => {
     const post = createMockPost({
       author: {

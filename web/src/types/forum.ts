@@ -274,6 +274,7 @@ export interface ForumUserProfile {
     id: number;
     slug: string;
     title: string;
+    board_id: number;
     board_slug: string;
     reply_count: number;
     created_at: string;
@@ -283,6 +284,7 @@ export interface ForumUserProfile {
     topic_id: number;
     topic_slug: string;
     topic_title: string;
+    board_id: number;
     board_slug: string;
     created_at: string;
   }[];

@@ -19,6 +19,7 @@ const ThreadListPage = lazy(() => import('./pages/forum/ThreadListPage'));
 const ThreadDetailPage = lazy(() => import('./pages/forum/ThreadDetailPage'));
 const NewThreadPage = lazy(() => import('./pages/forum/NewThreadPage'));
 const SearchPage = lazy(() => import('./pages/forum/SearchPage'));
+const UserProfilePage = lazy(() => import('./pages/forum/UserProfilePage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const MyPlantsPage = lazy(() => import('./pages/MyPlantsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
@@ -58,6 +59,7 @@ function App() {
           <Route path="/blog/:slug" element={<BlogDetailPage />} />
           <Route path="/blog/preview/:content_type/:token" element={<BlogPreview />} />
           <Route path="/forum/search" element={<SearchPage />} />
+          <Route path="/forum/users/:username" element={<UserProfilePage />} />
           <Route path="/forum" element={<CategoryListPage />} />
           <Route path="/forum/:categorySlug" element={<ThreadListPage />} />
           <Route path="/forum/:categorySlug/:threadSlug" element={<ThreadDetailPage />} />
