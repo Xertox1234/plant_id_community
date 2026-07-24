@@ -14,6 +14,8 @@ interface TipTapEditorProps {
   placeholder?: string;
   editable?: boolean;
   className?: string;
+  /** Focus the editor once it mounts — used to restore focus after posting (M25). */
+  autoFocus?: boolean;
 }
 
 /**
@@ -28,6 +30,7 @@ export default function TipTapEditor({
   placeholder = 'Write your post...',
   editable = true,
   className = '',
+  autoFocus = false,
 }: TipTapEditorProps) {
   const editor = useEditor({
     extensions: [
@@ -54,6 +57,9 @@ export default function TipTapEditor({
     ],
     content,
     editable,
+    // TipTap applies this at creation; the composer remounts (key change) after
+    // a reply, so a fresh instance with autoFocus lands the caret in it (M25).
+    autofocus: autoFocus ? 'end' : false,
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
       onChange?.(html);

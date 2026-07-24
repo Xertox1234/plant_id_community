@@ -8,6 +8,7 @@ import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import PageMeta from '../../components/PageMeta';
+import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { logger } from '../../utils/logger';
 import type { Category } from '@/types';
 
@@ -44,9 +45,14 @@ export default function NewThreadPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  // A pending (untrusted-author) topic is live=False and 404s if opened, so we
+  // show an on-page confirmation instead of navigating into it (M24 — replaces
+  // window.alert, which was inaccessible and jarring).
+  const [submittedPending, setSubmittedPending] = useState<boolean>(false);
   // Bumping this re-runs the board load — drives the initial fetch and the
   // error-state Retry; each run gets its own `ignore` cleanup flag.
   const [reloadKey, setReloadKey] = useState(0);
+  const announce = useAnnounce();
 
   useEffect(() => {
     // react.dev race guard: drop a stale response (unmount, or a retry/param
@@ -106,9 +112,9 @@ export default function NewThreadPage() {
         if (res.status === 'published') {
           navigate(threadPath(category, { id: res.id, slug: res.slug, title: title.trim() }));
         } else {
-          // A pending topic is live=False — opening it 404s. Confirm + return to board.
-          window.alert('Your topic was submitted and is awaiting moderation.');
-          navigate(categoryPath(category));
+          // Pending → show the on-page confirmation and announce it (M24).
+          setSubmittedPending(true);
+          announce('Your topic was submitted and is awaiting moderation.', 'polite');
         }
       } catch (err) {
         logger.error('Error creating thread', {
@@ -121,13 +127,33 @@ export default function NewThreadPage() {
         setSubmitting(false);
       }
     },
-    [category, title, body, navigate, newThreadDraftKey]
+    [category, title, body, navigate, newThreadDraftKey, announce]
   );
 
   if (loading) {
     return (
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (submittedPending && category) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="rounded-lg border border-line bg-surface-2 p-6 text-center space-y-3">
+          <h1 className="text-xl font-semibold text-ink">
+            Thanks — your topic is awaiting moderation
+          </h1>
+          <p className="text-ink-2">
+            A moderator will review it shortly, and it will appear on the board once approved.
+          </p>
+          <Link to={categoryPath(category)} className="inline-block">
+            <Button variant="primary" className="min-h-11">
+              Back to {category.name}
+            </Button>
+          </Link>
+        </div>
       </div>
     );
   }
@@ -202,6 +228,7 @@ export default function NewThreadPage() {
             variant="primary"
             disabled={!canSubmit || submitting}
             loading={submitting}
+            loadingText="Posting…"
           >
             Post Thread
           </Button>

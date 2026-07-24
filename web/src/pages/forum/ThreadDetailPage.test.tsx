@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import * as ReactRouter from 'react-router-dom';
@@ -553,8 +553,8 @@ describe('ThreadDetailPage', () => {
     expect(fetchPostsSpy).toHaveBeenCalledTimes(1); // initial load only — no refetch
   });
 
-  it('deletes a post after confirmation and removes it from the list', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  it('deletes a post via the styled confirm dialog and removes it from the list (M24)', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm');
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 1 }));
     vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
       items: [
@@ -571,10 +571,82 @@ describe('ThreadDetailPage', () => {
     renderThreadDetailPage();
 
     await screen.findByText('doomed');
+    // Clicking Delete opens a styled dialog — NOT a native window.confirm.
     await userEvent.click(screen.getByTitle('Delete post'));
+    const dialog = await screen.findByRole('dialog');
+    expect(confirmSpy).not.toHaveBeenCalled();
+    // Confirm inside the dialog performs the delete.
+    await userEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }));
 
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith('5'));
     expect(screen.queryByText('doomed')).not.toBeInTheDocument();
+  });
+
+  it('cancelling the delete dialog leaves the post intact (M24)', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 1 }));
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [createMockPost({ id: '5', can_delete: true })],
+      meta: { count: 0, next: null, previous: null },
+    });
+    const deleteSpy = vi.spyOn(forumService, 'deletePost').mockResolvedValue(undefined);
+
+    renderThreadDetailPage();
+
+    await screen.findByTitle('Delete post');
+    await userEvent.click(screen.getByTitle('Delete post'));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
+  it('prompts before discarding unsaved edits when switching edit targets (M27)', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [
+        createMockPost({
+          id: '5',
+          can_edit: true,
+          body: [{ id: 'a', type: 'paragraph', value: '<p>first</p>' }],
+        }),
+        createMockPost({
+          id: '6',
+          can_edit: true,
+          body: [{ id: 'b', type: 'paragraph', value: '<p>second</p>' }],
+        }),
+      ],
+      meta: { count: 0, next: null, previous: null },
+    });
+
+    renderThreadDetailPage();
+
+    // Edit the first post and make an unsaved change.
+    const editButtons = await screen.findAllByTitle('Edit post');
+    await userEvent.click(editButtons[0]);
+    await userEvent.type(screen.getByLabelText('body'), ' changed');
+
+    // The other post's Edit button now prompts instead of silently discarding.
+    await userEvent.click(screen.getByTitle('Edit post'));
+    expect(await screen.findByRole('dialog')).toHaveTextContent(/discard unsaved changes/i);
+  });
+
+  it('announces success after posting a published reply (M25)', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [],
+      meta: { count: 0, next: null, previous: null },
+    });
+    vi.spyOn(forumService, 'createPost').mockResolvedValue({ id: '99', status: 'published' });
+
+    renderThreadDetailPage();
+
+    await userEvent.type(await screen.findByLabelText('Write a reply...'), 'a reply');
+    await userEvent.click(screen.getByRole('button', { name: /post reply/i }));
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-announcer="polite"]')).toHaveTextContent('Reply posted.')
+    );
   });
 
   it('toggling a reaction updates the displayed count', async () => {
