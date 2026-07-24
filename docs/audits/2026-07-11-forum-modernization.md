@@ -304,7 +304,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H14 ai-thread-summarization → todo 255 (completed 2026-07-22, slice 3)
 - [x] #H15 semantic-similar-topics → todo 255 (completed 2026-07-22, slice 4)
 - [x] #H16 admin-moderation-queue → todo 254 (completed 2026-07-13)
-- [ ] #H18 error-retry-affordance → todo 259
+- [x] #H18 error-retry-affordance → todo 259 (completed 2026-07-24)
 - [ ] #H21 tombstone-prune-scheduling → todo 261
 - [x] #H26 author-shape-inconsistency → todo 257 (completed 2026-07-24, PR #490)
 - [ ] #M1 quote-reply → todo 276 (re-pointed 2026-07-23; split out of 256)
@@ -326,16 +326,16 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #M18 package-readme → todo 262
 - [x] #M19 per-board-moderation → todo 254 (completed 2026-07-13)
 - [x] #M20 admin-polish-cluster → todo 254 (completed 2026-07-13)
-- [ ] #M22 fetch-race-guards → todo 259
+- [x] #M22 fetch-race-guards → todo 259 (completed 2026-07-24)
 - [x] #M23 reacted-state → todo 257 (completed 2026-07-24, PR #491)
-- [ ] #M24 native-dialogs → todo 259
-- [ ] #M25 reply-focus-drop → todo 259
-- [ ] #M26 live-region-announcements → todo 259
-- [ ] #M27 unsaved-edit-discard → todo 259
+- [x] #M24 native-dialogs → todo 259 (completed 2026-07-24)
+- [x] #M25 reply-focus-drop → todo 259 (completed 2026-07-24)
+- [x] #M26 live-region-announcements → todo 259 (forum flows completed 2026-07-24; app-wide role="alert" residue → todo 278)
+- [x] #M27 unsaved-edit-discard → todo 259 (completed 2026-07-24)
 - [x] #M28 author-type-casts → todo 258 (completed 2026-07-24, PR2; casts already removed by 257, dead types deleted here)
-- [ ] #M29 upload-precheck → todo 259
-- [ ] #M30 thread-pagination-ux → todo 259
-- [ ] #M31 scroll-to-top → todo 259
+- [x] #M29 upload-precheck → todo 259 (completed 2026-07-24)
+- [x] #M30 thread-pagination-ux → todo 259 (completed 2026-07-24)
+- [x] #M31 scroll-to-top → todo 259 (completed 2026-07-24)
 - [ ] #M34 write-path-e2e → todo 261
 - [x] #M35 patch-idempotency → todo 258 (completed 2026-07-24, PR #494)
 - [x] #M36 image-upload-idempotency → todo 258 (completed 2026-07-24, PR #494)
@@ -346,16 +346,16 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #M41 deleted-author-convention → todo 257 (completed 2026-07-24, PR #490)
 - [ ] #M42 http-caching → todo 261
 - [x] #L1 anon-reaction-counts → todo 257 (completed 2026-07-24, PR #491; shipped Wave 1 #473, test-proven)
-- [ ] #L2 onboarding-empty-states → todo 259
-- [ ] #L4 markdown-board-picker → todo 259
+- [ ] #L2 onboarding-empty-states → todo 278 (re-pointed 2026-07-24; deferred from 259 — "L", no AC, needs backend Wagtail work)
+- [x] #L4 markdown-board-picker → todo 259 (completed 2026-07-24)
 - [x] #L5 badges-gamification → todo 257 (completed 2026-07-24, PR #491; styled trust badge satisfies; fuller gamification deferred per the finding's own guidance)
 - [x] #L6 blog-md-doc-drift → todo 255 (completed 2026-07-20, slice 1)
 - [x] #L7 openai-key-ops-check → todo 255 (completed 2026-07-20, slice 1)
 - [ ] #L8 autocomplete-typeahead → todo 276 (re-pointed 2026-07-23; split out of 256)
-- [ ] #L10 toolbar-tap-targets → todo 259
-- [ ] #L11 button-busy-state → todo 259
-- [ ] #L12 timestamp-accessibility → todo 259
-- [ ] #L13 tautological-composer-tests → todo 259
+- [x] #L10 toolbar-tap-targets → todo 259 (completed 2026-07-24)
+- [x] #L11 button-busy-state → todo 259 (completed 2026-07-24)
+- [x] #L12 timestamp-accessibility → todo 259 (completed 2026-07-24)
+- [x] #L13 tautological-composer-tests → todo 259 (completed 2026-07-24)
 - [x] #L14 identity-polish → todo 257 (completed 2026-07-24, PR #491; trust_level render #474, emoji aria-hidden #491, reactions flex-wrap shipped Wave 1 #473)
 - [x] #L16 reaction-types-duplication → todo 258 (completed 2026-07-24, PR2; shared web literal + backend drift-guard)
 - [ ] #L17 migrations-check-ci → todo 261

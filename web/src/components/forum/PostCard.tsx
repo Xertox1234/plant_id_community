@@ -1,7 +1,7 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { formatDistanceToNow } from 'date-fns';
 import StreamFieldRenderer from '../StreamFieldRenderer';
+import Timestamp from '../ui/Timestamp';
 import { userProfilePath } from '../../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME, TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
 import { REACTION_TYPES } from '../../utils/forumReactions';
@@ -52,6 +52,9 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
   const [hasReported, setHasReported] = useState(false);
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  // When the clipboard API is unavailable, reveal the URL inline for manual copy
+  // instead of a native window.prompt (audit M24).
+  const [copyFallbackUrl, setCopyFallbackUrl] = useState<string | null>(null);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const nonZeroReactions = REACTION_TYPES.filter((t) => (post.reaction_counts?.[t] ?? 0) > 0);
   // Author name + avatar link to the public profile (todo 257 H7) — but a
@@ -64,9 +67,11 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
     try {
       await navigator.clipboard.writeText(url);
       setCopiedLink(true);
+      setCopyFallbackUrl(null);
       setTimeout(() => setCopiedLink(false), 2000);
     } catch {
-      window.prompt('Copy link:', url); // clipboard API unavailable (http, old browser)
+      // Clipboard API unavailable (http, old browser) — surface the URL inline.
+      setCopyFallbackUrl(url);
     }
   };
 
@@ -87,15 +92,6 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
       setIsSubmittingReport(false);
     }
   };
-
-  // Memoize formatted date
-  const formattedDate = useMemo(() => {
-    try {
-      return formatDistanceToNow(new Date(post.created_at), { addSuffix: true });
-    } catch {
-      return 'recently';
-    }
-  }, [post.created_at]);
 
   return (
     <div
@@ -152,13 +148,13 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
             </div>
 
             <div className="text-sm text-ink-3">
-              <span title={new Date(post.created_at).toLocaleString()}>{formattedDate}</span>
+              <Timestamp iso={post.created_at} prefix="Posted" />
 
               {post.edited_at && (
                 <>
                   <span className="mx-1">•</span>
                   <span className="italic">
-                    Edited {formatDistanceToNow(new Date(post.edited_at), { addSuffix: true })}
+                    Edited <Timestamp iso={post.edited_at} />
                     {post.edited_by &&
                       ` by ${post.edited_by.display_name || post.edited_by.username}`}
                   </span>
@@ -202,6 +198,23 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
           )}
         </div>
       </div>
+
+      {/* Clipboard-unavailable fallback: the URL, selectable for manual copy. */}
+      {copyFallbackUrl && (
+        <div className="mb-4">
+          <label htmlFor={`copy-link-${post.id}`} className="sr-only">
+            Post link (copy manually)
+          </label>
+          <input
+            id={`copy-link-${post.id}`}
+            type="text"
+            readOnly
+            value={copyFallbackUrl}
+            onFocus={(e) => e.currentTarget.select()}
+            className="w-full rounded border border-line-2 bg-surface-1 px-3 py-2 text-sm text-ink"
+          />
+        </div>
+      )}
 
       {/* Post Content */}
       <div className="mb-4 break-words">

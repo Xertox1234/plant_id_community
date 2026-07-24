@@ -16,10 +16,14 @@ import { DELETED_AUTHOR_USERNAME } from '../../utils/forumAuthor';
 import { bodyBlocksToHtml } from '../../utils/forumBody';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import PostCard from '../../components/forum/PostCard';
+import ForumErrorState from '../../components/forum/ForumErrorState';
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import { useAuth } from '../../contexts/AuthContext';
+import { useAnnounce } from '../../contexts/AnnouncerContext';
+import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
 import PageMeta from '../../components/PageMeta';
 import type { Thread, Post } from '@/types';
@@ -58,6 +62,8 @@ export default function ThreadDetailPage() {
   const { categorySlug, threadSlug } = useParams<{ categorySlug: string; threadSlug: string }>();
   const { isAuthenticated } = useAuth();
   const location = useLocation();
+  const announce = useAnnounce();
+  useScrollToTop();
 
   // The route param is a hybrid "id-slug"; lookups use the leading topic id.
   const topicId = parseLeadingId(threadSlug);
@@ -66,6 +72,9 @@ export default function ThreadDetailPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by the error-state Retry to re-run the load effect (each run gets a
+  // fresh `ignore` guard, so a late response from a superseded run is dropped).
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Cursor pagination state
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -85,6 +94,13 @@ export default function ThreadDetailPage() {
   const [subscribing, setSubscribing] = useState<boolean>(false);
   // A transient banner for write errors + moderation outcomes.
   const [notice, setNotice] = useState<string | null>(null);
+  // Focus the reply composer after a successful post (M25); reset on navigation
+  // so arriving on a thread never steals focus into the reply box.
+  const [autoFocusComposer, setAutoFocusComposer] = useState<boolean>(false);
+  // A post awaiting delete confirmation (styled dialog, replaces window.confirm).
+  const [pendingDelete, setPendingDelete] = useState<Post | null>(null);
+  // A post the user asked to edit while another edit has unsaved changes (M27).
+  const [pendingEditSwitch, setPendingEditSwitch] = useState<Post | null>(null);
 
   // Tracks the topic currently on screen. handleToggleSubscription reads this
   // after its await to detect that the user navigated to a different thread
@@ -122,7 +138,14 @@ export default function ThreadDetailPage() {
     // Same for an in-flight load-more (the deep-link chase can start one) —
     // its finally is thread-guarded, so clear the flag here for the new thread.
     setLoadingMore(false);
+    // Arriving on a thread must not autofocus the reply box (steals focus/scroll);
+    // only a successful reply re-enables it.
+    setAutoFocusComposer(false);
 
+    // react.dev race guard: a stale initial load (fast nav to another thread,
+    // unmount, or a Retry superseding an in-flight request) is dropped so
+    // thread A's content can't render under thread B's URL (audit M22).
+    let ignore = false;
     const loadData = async () => {
       if (topicId == null) {
         setError('Invalid thread URL');
@@ -139,12 +162,14 @@ export default function ThreadDetailPage() {
           fetchPosts({ thread: topicId }),
         ])) as [Thread, PaginatedResponse<Post>];
 
+        if (ignore) return;
         setThread(threadData);
         setPosts(postsData.items);
-        // meta.count is hardcoded 0 by the service; seed from thread.post_count instead
+        // meta.count is 0 for cursor pages (no total); seed from thread.post_count.
         setTotalPosts(threadData.post_count ?? 0);
         setNextCursor(postsData.meta.next ?? null);
       } catch (err) {
+        if (ignore) return;
         logger.error('Error loading thread data', {
           component: 'ThreadDetailPage',
           error: err,
@@ -152,12 +177,15 @@ export default function ThreadDetailPage() {
         });
         setError(err instanceof Error ? err.message : 'Failed to load thread');
       } finally {
-        setLoading(false);
+        if (!ignore) setLoading(false);
       }
     };
 
     loadData();
-  }, [topicId, threadSlug, categorySlug]);
+    return () => {
+      ignore = true;
+    };
+  }, [topicId, threadSlug, categorySlug, reloadKey]);
 
   // Load more posts (cursor pagination)
   const handleLoadMore = useCallback(async () => {
@@ -238,12 +266,18 @@ export default function ThreadDetailPage() {
         const res = await createPost({ thread: topicId, content: replyBody });
         if (topicId != null) clearDraft(draftKey('reply', String(topicId)));
         setReplyBody('');
-        setComposerKey((k) => k + 1); // remount the editor so it visibly clears
+        // Remount the editor so it visibly clears, and focus the fresh composer
+        // (M25) — remount-via-key alone left focus dropped after posting.
+        setComposerKey((k) => k + 1);
+        setAutoFocusComposer(true);
         if (res.status === 'published') {
           const refreshed = await collectAllPosts(topicId);
           setPosts(refreshed.items);
           setNextCursor(refreshed.next);
           setTotalPosts((n) => n + 1);
+          // Success has no visible banner (the reply just appears), so announce
+          // it for screen readers (M25).
+          announce('Reply posted.', 'polite');
         } else {
           setNotice('Your reply was submitted and is awaiting moderation.');
         }
@@ -258,7 +292,7 @@ export default function ThreadDetailPage() {
         setReplySubmitting(false);
       }
     },
-    [topicId, replyBody]
+    [topicId, replyBody, announce]
   );
 
   const handleReact = useCallback(async (postId: string, reactionType: string) => {
@@ -337,8 +371,15 @@ export default function ThreadDetailPage() {
     }
   }, []);
 
-  const handleDelete = useCallback(async (post: Post) => {
-    if (!window.confirm('Delete this post? This cannot be undone.')) return;
+  // Open the styled delete confirmation (M24 — replaces window.confirm).
+  const handleDelete = useCallback((post: Post) => {
+    setPendingDelete(post);
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    const post = pendingDelete;
+    if (!post) return;
+    setPendingDelete(null);
     try {
       await deletePost(post.id);
       setPosts((prev) => prev.filter((p) => p.id !== post.id));
@@ -351,12 +392,29 @@ export default function ThreadDetailPage() {
       });
       setNotice(err instanceof Error ? err.message : 'Failed to delete post');
     }
-  }, []);
+  }, [pendingDelete]);
 
-  const handleEdit = useCallback((post: Post) => {
+  // Start editing `post`. If another post is mid-edit with unsaved changes,
+  // confirm the discard first instead of silently dropping them (M27).
+  const startEditing = useCallback((post: Post) => {
     setEditingPostId(post.id);
     setEditBody(bodyBlocksToHtml(post.body));
   }, []);
+
+  const handleEdit = useCallback(
+    (post: Post) => {
+      if (editingPostId != null && editingPostId !== post.id) {
+        const current = posts.find((p) => p.id === editingPostId);
+        const isDirty = !!current && editBody !== bodyBlocksToHtml(current.body);
+        if (isDirty) {
+          setPendingEditSwitch(post);
+          return;
+        }
+      }
+      startEditing(post);
+    },
+    [editingPostId, editBody, posts, startEditing]
+  );
 
   const handleEditSubmit = useCallback(
     async (e: FormEvent<HTMLFormElement>) => {
@@ -391,6 +449,13 @@ export default function ThreadDetailPage() {
     setEditBody('');
   }, []);
 
+  // Confirmed the unsaved-edit discard (M27): switch to the post the user asked
+  // to edit, dropping the previous edit's changes.
+  const confirmEditSwitch = useCallback(() => {
+    if (pendingEditSwitch) startEditing(pendingEditSwitch);
+    setPendingEditSwitch(null);
+  }, [pendingEditSwitch, startEditing]);
+
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -402,9 +467,10 @@ export default function ThreadDetailPage() {
   if (error || !thread) {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-error/10 border border-error/30 text-ink px-4 py-3 rounded">
-          <strong>Error:</strong> {error || 'Thread not found'}
-        </div>
+        <ForumErrorState
+          message={error || 'Thread not found'}
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
       </div>
     );
   }
@@ -505,12 +571,21 @@ export default function ThreadDetailPage() {
         </div>
       </div>
 
-      {/* Write-path notice (errors + moderation outcomes) */}
-      {notice && (
-        <div className="mb-6 rounded-lg border border-line bg-surface-2 px-4 py-3 text-ink-2">
-          {notice}
-        </div>
-      )}
+      {/* Write-path notice (errors + moderation outcomes). Persistent live
+          region: the container is always mounted so swapping its text is read
+          out by a screen reader — a conditionally-mounted `role` node generally
+          is NOT announced (audit M26/AC1). Visually collapsed when empty. */}
+      <div
+        aria-live="polite"
+        aria-atomic="true"
+        className={
+          notice
+            ? 'mb-6 rounded-lg border border-line bg-surface-2 px-4 py-3 text-ink-2'
+            : 'sr-only'
+        }
+      >
+        {notice}
+      </div>
 
       {/* Posts List */}
       <div className="space-y-4 mb-8">
@@ -596,6 +671,7 @@ export default function ThreadDetailPage() {
           <TipTapEditor
             key={composerKey}
             content={replyBody}
+            autoFocus={autoFocusComposer}
             onChange={(html) => {
               setReplyBody(html);
               if (topicId != null) {
@@ -609,11 +685,31 @@ export default function ThreadDetailPage() {
             variant="primary"
             disabled={isBlankHtml(replyBody) || replySubmitting}
             loading={replySubmitting}
+            loadingText="Posting…"
           >
             Post Reply
           </Button>
         </form>
       )}
+
+      {/* Styled confirmations — replace native window.confirm (M24) and guard
+          unsaved edits when switching edit targets (M27). */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete this post?"
+        message="This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
+      <ConfirmDialog
+        open={pendingEditSwitch !== null}
+        title="Discard unsaved changes?"
+        message="You have unsaved edits on another post. Editing this one will discard them."
+        confirmLabel="Discard & edit"
+        onConfirm={confirmEditSwitch}
+        onCancel={() => setPendingEditSwitch(null)}
+      />
     </div>
   );
 }

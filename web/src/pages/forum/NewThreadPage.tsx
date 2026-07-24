@@ -1,12 +1,15 @@
 import { useState, useEffect, useCallback, useMemo, FormEvent } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { createThread, fetchCategory } from '../../services/forumService';
+import { createThread, fetchCategories, fetchCategory } from '../../services/forumService';
 import { parseLeadingId, threadPath, categoryPath } from '../../utils/forumUrls';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import TipTapEditor from '../../components/forum/TipTapEditor';
+import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import PageMeta from '../../components/PageMeta';
+import { useAnnounce } from '../../contexts/AnnouncerContext';
+import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
 import type { Category } from '@/types';
 
@@ -24,11 +27,15 @@ function isBlankHtml(html: string): boolean {
  * moderation notice and return to the board instead.
  */
 export default function NewThreadPage() {
+  useScrollToTop();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const categoryParam = searchParams.get('category');
 
   const [category, setCategory] = useState<Category | null>(null);
+  // Boards for the composer picker when no `?category=` was supplied (L4) — lets
+  // a user start a thread without first navigating into a specific board.
+  const [boards, setBoards] = useState<Category[]>([]);
   const newThreadDraftKey = draftKey('new-thread', categoryParam ?? 'unknown');
   // Parse the saved draft once (per key), not once per field.
   const initialDraft = useMemo<{ title?: string; body?: string }>(() => {
@@ -43,20 +50,35 @@ export default function NewThreadPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  // A pending (untrusted-author) topic is live=False and 404s if opened, so we
+  // show an on-page confirmation instead of navigating into it (M24 — replaces
+  // window.alert, which was inaccessible and jarring).
+  const [submittedPending, setSubmittedPending] = useState<boolean>(false);
+  // Bumping this re-runs the board load — drives the initial fetch and the
+  // error-state Retry; each run gets its own `ignore` cleanup flag.
+  const [reloadKey, setReloadKey] = useState(0);
+  const announce = useAnnounce();
 
   useEffect(() => {
+    // react.dev race guard: drop a stale response (unmount, or a retry/param
+    // change superseding an in-flight request) instead of setting state.
+    let ignore = false;
     const load = async () => {
       const forumId = parseLeadingId(categoryParam ?? undefined);
-      if (forumId == null) {
-        setError('Invalid board. Open “New Thread” from a forum board.');
-        setLoading(false);
-        return;
-      }
       try {
         setLoading(true);
         setError(null);
-        setCategory(await fetchCategory(forumId));
+        if (forumId == null) {
+          // No board pre-selected — load the list and let the user pick (L4)
+          // instead of dead-ending on an "invalid board" error.
+          const list = await fetchCategories();
+          if (!ignore) setBoards(list);
+        } else {
+          const cat = await fetchCategory(forumId);
+          if (!ignore) setCategory(cat);
+        }
       } catch (err) {
+        if (ignore) return;
         logger.error('Error loading board for new thread', {
           component: 'NewThreadPage',
           error: err,
@@ -64,11 +86,14 @@ export default function NewThreadPage() {
         });
         setError(err instanceof Error ? err.message : 'Failed to load board');
       } finally {
-        setLoading(false);
+        if (!ignore) setLoading(false);
       }
     };
     load();
-  }, [categoryParam]);
+    return () => {
+      ignore = true;
+    };
+  }, [categoryParam, reloadKey]);
 
   // Persist the draft on every change; an all-empty draft is removed.
   useEffect(() => {
@@ -94,9 +119,9 @@ export default function NewThreadPage() {
         if (res.status === 'published') {
           navigate(threadPath(category, { id: res.id, slug: res.slug, title: title.trim() }));
         } else {
-          // A pending topic is live=False — opening it 404s. Confirm + return to board.
-          window.alert('Your topic was submitted and is awaiting moderation.');
-          navigate(categoryPath(category));
+          // Pending → show the on-page confirmation and announce it (M24).
+          setSubmittedPending(true);
+          announce('Your topic was submitted and is awaiting moderation.', 'polite');
         }
       } catch (err) {
         logger.error('Error creating thread', {
@@ -109,7 +134,7 @@ export default function NewThreadPage() {
         setSubmitting(false);
       }
     },
-    [category, title, body, navigate, newThreadDraftKey]
+    [category, title, body, navigate, newThreadDraftKey, announce]
   );
 
   if (loading) {
@@ -120,12 +145,30 @@ export default function NewThreadPage() {
     );
   }
 
+  if (submittedPending && category) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="rounded-lg border border-line bg-surface-2 p-6 text-center space-y-3">
+          <h1 className="text-xl font-semibold text-ink">
+            Thanks — your topic is awaiting moderation
+          </h1>
+          <p className="text-ink-2">
+            A moderator will review it shortly, and it will appear on the board once approved.
+          </p>
+          <Link to={categoryPath(category)} className="inline-block">
+            <Button variant="primary" className="min-h-11">
+              Back to {category.name}
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (error && !category) {
     return (
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-error/10 border border-error/30 text-ink px-4 py-3 rounded">
-          <strong>Error:</strong> {error}
-        </div>
+        <ForumErrorState message={error} onRetry={() => setReloadKey((k) => k + 1)} />
       </div>
     );
   }
@@ -160,6 +203,30 @@ export default function NewThreadPage() {
       <h1 className="text-3xl font-bold text-ink mb-6">Start a New Thread</h1>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Board picker — shown only when no board was pre-selected (L4). */}
+        {boards.length > 0 && (
+          <div>
+            <label htmlFor="board-picker" className="block text-sm font-medium text-ink-2 mb-1">
+              Board
+            </label>
+            <select
+              id="board-picker"
+              value={category?.id ?? ''}
+              onChange={(e) => setCategory(boards.find((b) => b.id === e.target.value) ?? null)}
+              className="min-h-11 w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary bg-surface-2 text-ink"
+            >
+              <option value="" disabled>
+                Choose a board…
+              </option>
+              {boards.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div>
           <label htmlFor="thread-title" className="block text-sm font-medium text-ink-2 mb-1">
             Title
@@ -192,6 +259,7 @@ export default function NewThreadPage() {
             variant="primary"
             disabled={!canSubmit || submitting}
             loading={submitting}
+            loadingText="Posting…"
           >
             Post Thread
           </Button>

@@ -8,12 +8,33 @@ import { logger } from '../../utils/logger';
 import { ForumImage } from './forumImageNode';
 import { ForumMention } from './forumMentionNode';
 
+// Client-side pre-upload limits — mirror wagtail_forum conf.py
+// (IMAGE_MAX_SIZE_BYTES, IMAGE_ALLOWED_MIME_TYPES). Defense-in-depth: the
+// server re-validates, but a fast local check avoids a wasted round-trip (M29).
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+const IMAGE_LIMIT_HINT = 'JPEG, PNG, GIF or WebP, up to 10 MB';
+
+/** Allow only http(s), mailto, or site-relative link targets (blocks javascript: etc.). */
+function isAllowedLinkHref(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) return true;
+  try {
+    return ['http:', 'https:', 'mailto:'].includes(new URL(trimmed).protocol);
+  } catch {
+    return false;
+  }
+}
+
 interface TipTapEditorProps {
   content?: string;
   onChange?: (html: string) => void;
   placeholder?: string;
   editable?: boolean;
   className?: string;
+  /** Focus the editor once it mounts — used to restore focus after posting (M25). */
+  autoFocus?: boolean;
 }
 
 /**
@@ -28,6 +49,7 @@ export default function TipTapEditor({
   placeholder = 'Write your post...',
   editable = true,
   className = '',
+  autoFocus = false,
 }: TipTapEditorProps) {
   const editor = useEditor({
     extensions: [
@@ -54,6 +76,9 @@ export default function TipTapEditor({
     ],
     content,
     editable,
+    // TipTap applies this at creation; the composer remounts (key change) after
+    // a reply, so a fresh instance with autoFocus lands the caret in it (M25).
+    autofocus: autoFocus ? 'end' : false,
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
       onChange?.(html);
@@ -63,12 +88,25 @@ export default function TipTapEditor({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  // Link editor: null = closed; a string is the in-progress href (styled input
+  // that replaces the native window.prompt — M24).
+  const [linkDraft, setLinkDraft] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   const handleImageSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = ''; // allow re-selecting the same file after an error
     if (!file || !editor) return;
     setImageError(null);
+    // Client-side pre-check (M29) — fail fast on type/size before uploading.
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setImageError(`Unsupported image type. ${IMAGE_LIMIT_HINT}.`);
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setImageError(`Image is too large — ${IMAGE_LIMIT_HINT}.`);
+      return;
+    }
     setUploadingImage(true);
     try {
       const image = await uploadPostImage(file);
@@ -87,6 +125,26 @@ export default function TipTapEditor({
     } finally {
       setUploadingImage(false);
     }
+  };
+
+  // Apply the link editor's URL: empty removes the link; an invalid target is
+  // rejected with a message rather than silently linked (M24).
+  const applyLink = () => {
+    if (linkDraft === null || !editor) return;
+    const href = linkDraft.trim();
+    if (!href) {
+      editor.chain().focus().unsetLink().run();
+      setLinkDraft(null);
+      setLinkError(null);
+      return;
+    }
+    if (!isAllowedLinkHref(href)) {
+      setLinkError('Enter a valid http(s), mailto:, or /relative link.');
+      return;
+    }
+    editor.chain().focus().setLink({ href }).run();
+    setLinkDraft(null);
+    setLinkError(null);
   };
 
   // Cleanup: Destroy editor instance on unmount to prevent memory leak
@@ -160,10 +218,8 @@ export default function TipTapEditor({
 
           <ToolbarButton
             onClick={() => {
-              const url = window.prompt('Enter URL:');
-              if (url) {
-                editor.chain().focus().setLink({ href: url }).run();
-              }
+              setLinkError(null);
+              setLinkDraft(editor.getAttributes('link').href ?? '');
             }}
             isActive={editor.isActive('link')}
             title="Insert Link"
@@ -188,7 +244,7 @@ export default function TipTapEditor({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept={ALLOWED_IMAGE_TYPES.join(',')}
             className="hidden"
             data-testid="forum-image-input"
             onChange={handleImageSelect}
@@ -196,11 +252,71 @@ export default function TipTapEditor({
         </div>
       )}
 
-      {imageError && (
-        <p className="bg-surface border-b border-line-2 px-3 py-2 text-sm text-error" role="alert">
-          {imageError}
+      {/* Link editor — styled replacement for window.prompt (M24), with
+          validation (M24: the prompt applied any string unvalidated). */}
+      {editable && linkDraft !== null && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-2 bg-surface p-2">
+          <label htmlFor="tiptap-link-url" className="sr-only">
+            Link URL
+          </label>
+          <input
+            id="tiptap-link-url"
+            type="url"
+            autoFocus
+            value={linkDraft}
+            onChange={(e) => setLinkDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                applyLink();
+              } else if (e.key === 'Escape') {
+                setLinkDraft(null);
+                setLinkError(null);
+              }
+            }}
+            placeholder="https://example.com"
+            aria-invalid={!!linkError}
+            className="min-h-11 flex-1 rounded border border-line-2 bg-surface-1 px-3 text-sm text-ink"
+          />
+          <button
+            type="button"
+            onClick={applyLink}
+            className="min-h-11 rounded bg-primary/20 px-3 text-sm font-medium text-ink"
+          >
+            Apply
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setLinkDraft(null);
+              setLinkError(null);
+            }}
+            className="min-h-11 rounded px-3 text-sm text-ink-2"
+          >
+            Cancel
+          </button>
+          {linkError && <span className="w-full text-sm text-error">{linkError}</span>}
+        </div>
+      )}
+
+      {/* Image upload limits hint (M29). */}
+      {editable && (
+        <p className="border-b border-line-2 bg-surface px-3 py-1 text-xs text-ink-3">
+          Images: {IMAGE_LIMIT_HINT}
         </p>
       )}
+
+      {/* Upload error — persistent live region so a screen reader reads the text
+          swap; a conditionally-mounted role node generally is not announced (M26). */}
+      <p
+        aria-live="assertive"
+        aria-atomic="true"
+        className={
+          imageError ? 'bg-surface border-b border-line-2 px-3 py-2 text-sm text-error' : 'sr-only'
+        }
+      >
+        {imageError}
+      </p>
 
       {/* Editor Content */}
       <EditorContent
@@ -228,8 +344,9 @@ function ToolbarButton({ onClick, isActive, title, children }: ToolbarButtonProp
       // Glyph children ("B", "•") would otherwise BE the accessible name —
       // title never wins name-from-content (AccName 1.2; audit 2026-07-11 H19).
       aria-label={title}
+      // min-h-11/min-w-11 = 44px WCAG 2.5.5 tap target (audit L10; was ~32px).
       className={`
-        px-3 py-1.5 rounded text-sm font-medium transition-colors
+        inline-flex min-h-11 min-w-11 items-center justify-center rounded px-3 text-sm font-medium transition-colors
         ${isActive ? 'bg-primary/20 text-ink' : 'bg-surface-2 text-ink-2 hover:bg-surface-3'}
       `}
     >

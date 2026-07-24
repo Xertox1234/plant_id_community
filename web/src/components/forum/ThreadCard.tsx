@@ -1,8 +1,7 @@
-import { memo, useMemo } from 'react';
+import { memo } from 'react';
 import { Link } from 'react-router-dom';
-import { formatDistanceToNow } from 'date-fns';
-import { logger } from '../../utils/logger';
 import { threadPath } from '../../utils/forumUrls';
+import Timestamp from '../ui/Timestamp';
 import type { Thread } from '@/types';
 
 interface ThreadCardProps {
@@ -19,22 +18,6 @@ interface ThreadCardProps {
  * Shows title, excerpt, author, stats, and activity time.
  */
 function ThreadCard({ thread, compact = false, hideAuthor = false }: ThreadCardProps) {
-  // Memoize formatted date to prevent recalculation
-  const formattedDate = useMemo(() => {
-    try {
-      return formatDistanceToNow(new Date(thread.last_activity_at), {
-        addSuffix: true,
-      });
-    } catch (error) {
-      logger.error('Error formatting date in ThreadCard', {
-        component: 'ThreadCard',
-        error,
-        context: { threadId: thread.id, lastActivityAt: thread.last_activity_at },
-      });
-      return 'recently';
-    }
-  }, [thread.last_activity_at, thread.id]);
-
   const threadUrl = threadPath(thread.category, thread);
 
   return (
@@ -117,7 +100,7 @@ function ThreadCard({ thread, compact = false, hideAuthor = false }: ThreadCardP
           <span aria-hidden="true">•</span>
 
           {/* Last Activity */}
-          <span title={new Date(thread.last_activity_at).toLocaleString()}>{formattedDate}</span>
+          <Timestamp iso={thread.last_activity_at} prefix="Last activity" />
         </div>
       </Link>
     </div>

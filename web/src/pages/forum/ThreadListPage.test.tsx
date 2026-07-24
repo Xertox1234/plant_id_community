@@ -260,6 +260,21 @@ describe('ThreadListPage', () => {
     });
   });
 
+  it('shows an honest remaining count on Load More when the board total is known (M30)', async () => {
+    const mockCategory = createMockCategory({ slug: 'plant-care', thread_count: 25 });
+
+    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
+      items: Array.from({ length: 20 }, (_, i) => createMockThread({ id: `thread-${i}` })),
+      meta: { count: 0, next: 'http://api/next-cursor', previous: null },
+    });
+
+    renderThreadListPage();
+
+    // 25 total − 20 loaded = 5 remaining, not a fabricated "0 remaining".
+    expect(await screen.findByText('Load More (5 remaining)')).toBeInTheDocument();
+  });
+
   it('calls fetchThreads with cursor when Load More is clicked', async () => {
     const mockCategory = createMockCategory({ slug: 'plant-care' });
     const nextCursorUrl = 'http://api/next-cursor';

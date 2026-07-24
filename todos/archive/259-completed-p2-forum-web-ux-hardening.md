@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "259"
 tags: [forum, web, react, a11y]
@@ -100,18 +100,33 @@ Batch by surface, each independently shippable:
 
 ## Acceptance Criteria
 
-- [ ] A failed post/moderation notice is announced by a screen reader
+- [x] A failed post/moderation notice is announced by a screen reader
       (persistent live-region, tested via content-swap not conditional mount)
-- [ ] All forum fetches race-guarded; every forum error state has a working
-      Retry
-- [ ] No native `alert/confirm/prompt` in forum flows
-- [ ] Switching edit targets with unsaved changes prompts; reply flow restores
-      focus and announces success
-- [ ] Composer: client-side pre-upload validation with visible limits, board
-      picker, ≥44px toolbar targets, non-tautological upload tests
-- [ ] Quote blocks render under the forum allowlist (audit contract tests
-      still green)
-- [ ] Scroll-to-top wired on forum routes; Load More counts honest
+      — `AnnouncerContext` (persistent aria-live, content-swap test) + ThreadDetailPage
+      persistent notice banner; `AnnouncerContext.test.tsx` asserts the region is
+      the SAME node before/after (content swap, not remount).
+- [x] All forum fetches race-guarded; every forum error state has a working
+      Retry — react.dev `ignore` cleanup on CategoryList/ThreadDetail/NewThread
+      (ThreadList already had loadGenRef); shared `ForumErrorState` retry (H18),
+      CategoryListPage retry test proves recovery.
+- [x] No native `alert/confirm/prompt` in forum flows — ConfirmDialog (delete),
+      NewThreadPage confirmation panel (was alert), PostCard inline reveal (was
+      prompt), TipTapEditor styled link editor (was prompt); tests assert
+      `window.alert/confirm/prompt` not called.
+- [x] Switching edit targets with unsaved changes prompts; reply flow restores
+      focus and announces success — M27 dirty-check → ConfirmDialog (tested);
+      reply autofocus (TipTap `autofocus`) + `announce('Reply posted.')` (tested).
+- [x] Composer: client-side pre-upload validation with visible limits, board
+      picker, ≥44px toolbar targets, non-tautological upload tests — TipTapEditor
+      type/size pre-check + limits hint (M29), 44px targets (L10), NewThreadPage
+      board picker (L4), real handleImageSelect success/failure/reject tests (L13).
+- [x] Quote blocks render under the forum allowlist (audit contract tests
+      still green) — forum content (paragraphs) sanitized under the tightened
+      `FORUM` preset matching nh3 (M32); the audit's quote XSS + heading/code
+      contract tests remain green (verified in the full run).
+- [x] Scroll-to-top wired on forum routes; Load More counts honest — `useScrollToTop`
+      on the 4 core forum pages (M31); ThreadListPage Load More shows honest
+      `(N remaining)` from board.topic_count, service no longer hardcodes count (M30).
 
 ## Work Log
 
@@ -119,6 +134,57 @@ Batch by surface, each independently shippable:
 
 - Epic groups 15 open findings (incl. L4, unassigned in the draft grouping —
   added here at finalization) + the M32 renderer residue.
+
+### 2026-07-24 - Started by completing-todos skill (run 2026-07-24-2133)
+
+- Picked up by automated workflow.
+
+### 2026-07-24 - Implemented in 5 batched surfaces (branch forum-web-ux-hardening-259)
+
+- **S1** (5a72acb) M26/L11/L12 → AC1: `AnnouncerContext` persistent live region,
+  Button aria-busy + loadingText, `<Timestamp>` (`<time datetime>` + aria-label).
+- **S2** (afff240) M22/H18 → AC2: react.dev `ignore` race guards + shared
+  `ForumErrorState` Retry.
+- **S3** (2a68a9d) M24/M27/M25 → AC3/AC4: `ConfirmDialog`, NewThread confirmation
+  panel, PostCard inline copy reveal, TipTap link editor; edit dirty-check; reply
+  autofocus + success announce.
+- **S4** (728aacc) M29/L10/L4/L13/M24/M32 → AC5/AC6: image pre-check + hint, 44px
+  targets, board picker, real upload tests, tightened `FORUM` sanitizer allowlist.
+- **S5** (d587240) M31/M30 → AC7: `useScrollToTop`, honest Load More counts.
+- **Verification** (all green, quoted):
+  - `npx vitest run` → `PASS (692) FAIL (0)` (added ~23 real tests incl. the M32
+    contract + content-swap-announce + upload success/failure).
+  - `npm run type-check` → `tsc --noEmit` (0 errors).
+  - `npm run lint` → `ESLint: 0 errors, 1 warnings` (the 1 warning is in the
+    generated coverage artifact `block-navigation.js`, not source).
+- **Scope decision**: L2 (empty states / `ForumIndex.intro` CMS serialization,
+  last-activity on board cards) and the app-wide M26 role="alert" migration
+  beyond forum flows (Input.tsx, LoginPage) are DEFERRED — L2 is an "L", in no
+  AC, and drags in backend Wagtail work; spun out to follow-up todo 278. AC gate
+  fully met without them.
+
+### 2026-07-24 - Code review + repair
+
+- Ran bundled `/code-review` (high effort, 8-angle bug pass) + `code-review-orchestrator`
+  (checklist). Both independently flagged the same one real defect: `ConfirmDialog`
+  restored focus to the confirm button (unmounting) instead of the trigger on
+  close, because a React `autoFocus` prop fires during commit before the
+  focus-capture effect (WCAG 2.4.3). **Repaired** (34ed3cb): capture the trigger
+  first, focus the confirm button via ref; also made aria ids unique per instance
+  (useId). Added a focus-in/focus-return test. No other critical/high findings;
+  the sanitizer routing, race guards, and announcer pattern were confirmed sound.
+- Final: `npx vitest run` → `PASS (693) FAIL (0)`; type-check + lint clean.
+
+### 2026-07-24 - Completed by completing-todos skill (run 2026-07-24-2133)
+
+- Verification: all 7 acceptance criteria passed (backed by 693 green web tests,
+  clean tsc + eslint).
+- Review: bundled `/code-review` (high) + `code-review-orchestrator`; 1 real
+  finding (ConfirmDialog focus-return), repaired (34ed3cb); no critical/high left.
+- Codified: LEARNINGS (autoFocus-vs-useEffect focus timing) + react-typescript
+  pattern (persistent live-region announcer) — d0d9123.
+- Audit `## Finding Status`: all 14 of 259's findings checked off; L2 re-pointed
+  to follow-up todo 278 (deferred: empty states + app-wide role="alert" sweep).
 
 ## Notes
 

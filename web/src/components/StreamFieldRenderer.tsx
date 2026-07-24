@@ -14,10 +14,21 @@ interface SafeHTMLProps {
   className?: string;
   /** Applied AFTER sanitization — must never introduce user-controlled markup. */
   postProcess?: (html: string) => string;
+  /**
+   * DOMPurify preset. Defaults to the broad STREAMFIELD allowlist (blog); forum
+   * content passes the tighter FORUM allowlist so headings/img/div/pre in a
+   * direct-API payload are stripped, matching the server contract (M32).
+   */
+  preset?: Parameters<typeof createSafeMarkup>[1];
 }
 
-function SafeHTML({ html, className = '', postProcess }: SafeHTMLProps) {
-  const safeMarkup = createSafeMarkup(html, SANITIZE_PRESETS.STREAMFIELD);
+function SafeHTML({
+  html,
+  className = '',
+  postProcess,
+  preset = SANITIZE_PRESETS.STREAMFIELD,
+}: SafeHTMLProps) {
+  const safeMarkup = createSafeMarkup(html, preset);
   const markup = postProcess ? { __html: postProcess(safeMarkup.__html) } : safeMarkup;
   return <div className={className} dangerouslySetInnerHTML={markup} />;
 }
@@ -102,11 +113,13 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
     }
 
     case 'paragraph':
-      // Backend: RichTextBlock (HTML string)
+      // Backend: RichTextBlock (HTML string). Forum posts (mentionHighlight)
+      // sanitize under the tighter FORUM allowlist to match nh3 (M32).
       return (
         <SafeHTML
           html={block.value}
           className="mb-4 text-ink-2 leading-relaxed"
+          preset={mentionHighlight ? SANITIZE_PRESETS.FORUM : SANITIZE_PRESETS.STREAMFIELD}
           postProcess={mentionHighlight ? highlightMentions : undefined}
         />
       );

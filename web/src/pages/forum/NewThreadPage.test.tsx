@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import * as ReactRouter from 'react-router-dom';
 import NewThreadPage from './NewThreadPage';
+import { AnnouncerProvider } from '../../contexts/AnnouncerContext';
 import * as forumService from '../../services/forumService';
 
 vi.mock('react-router-dom', async () => {
@@ -25,7 +26,9 @@ let mockNavigate: ReturnType<typeof vi.fn>;
 function renderPage() {
   return render(
     <MemoryRouter>
-      <NewThreadPage />
+      <AnnouncerProvider>
+        <NewThreadPage />
+      </AnnouncerProvider>
     </MemoryRouter>
   );
 }
@@ -71,8 +74,8 @@ describe('NewThreadPage', () => {
     );
   });
 
-  it('pending topic → moderation notice, navigates to the board (not into the pending topic)', async () => {
-    vi.spyOn(window, 'alert').mockImplementation(() => {});
+  it('pending topic → on-page moderation confirmation, no native alert, no navigation into it (M24)', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
     vi.spyOn(forumService, 'createThread').mockResolvedValue({
       id: '12',
       slug: 'my-topic',
@@ -83,12 +86,50 @@ describe('NewThreadPage', () => {
     await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
     await userEvent.type(screen.getByLabelText('body'), 'hello');
     await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/forum/3-plant-care'));
+
+    // A styled on-page confirmation replaces the old window.alert; we do NOT
+    // navigate into the pending (live=False) topic — it would 404.
+    await screen.findByRole('heading', { name: /awaiting moderation/i });
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getByRole('link', { name: /back to plant care/i })).toBeInTheDocument();
     expect(forumService.createThread).toHaveBeenCalledWith({
       boardSlug: 'plant-care',
       title: 'My Topic',
       content: '<p>hello</p>',
     });
+  });
+
+  it('offers a board picker when no ?category= is supplied, and lets you pick one (L4)', async () => {
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([new URLSearchParams(''), vi.fn()]);
+    vi.spyOn(forumService, 'fetchCategories').mockResolvedValue([
+      { id: '3', name: 'Plant Care', slug: 'plant-care', created_at: '' },
+      { id: '4', name: 'Pests', slug: 'pests', created_at: '' },
+    ]);
+    vi.spyOn(forumService, 'createThread').mockResolvedValue({
+      id: '12',
+      slug: 'my-topic',
+      status: 'published',
+    });
+
+    renderPage();
+
+    // Picker appears (no dead-end error); submit is disabled until a board is chosen.
+    const picker = await screen.findByLabelText('Board');
+    expect(screen.getByRole('button', { name: /post|create|submit/i })).toBeDisabled();
+
+    await userEvent.selectOptions(picker, '3');
+    await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+    await userEvent.type(screen.getByLabelText('body'), 'hello');
+    await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
+
+    await waitFor(() =>
+      expect(forumService.createThread).toHaveBeenCalledWith({
+        boardSlug: 'plant-care',
+        title: 'My Topic',
+        content: '<p>hello</p>',
+      })
+    );
   });
 
   it('blocks submit until both title and body are filled', async () => {

@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import TipTapEditor from './TipTapEditor';
+import * as forumService from '../../services/forumService';
+import { logger } from '../../utils/logger';
 
 /**
  * TipTapEditor Component Tests
@@ -76,18 +79,16 @@ describe('TipTapEditor', () => {
     expect(screen.queryByTitle('Italic (Ctrl+I)')).not.toBeInTheDocument();
   });
 
-  it('provides onChange callback prop', async () => {
-    const onChangeMock = vi.fn();
+  it('renders an editable ProseMirror surface in edit mode', async () => {
+    const { container } = render(<TipTapEditor onChange={vi.fn()} editable />);
 
-    const { container } = render(<TipTapEditor onChange={onChangeMock} />);
-
-    // Wait for editor to initialize
     await waitFor(() => {
       expect(container.querySelector('.ProseMirror')).toBeInTheDocument();
     });
 
-    // Verify editor exists and onChange prop is passed
-    expect(onChangeMock).toBeDefined();
+    // The surface is genuinely editable (not just present) — the old test only
+    // asserted the mock was defined, which could never fail (audit L13).
+    expect(container.querySelector('.ProseMirror')).toHaveAttribute('contenteditable', 'true');
   });
 
   it('renders bold toolbar button', async () => {
@@ -174,5 +175,85 @@ describe('TipTapEditor', () => {
       const editorContainer = container.querySelector('.custom-class');
       expect(editorContainer).toBeInTheDocument();
     });
+  });
+
+  it('shows the image size/type limits hint (M29)', async () => {
+    render(<TipTapEditor onChange={vi.fn()} editable />);
+    await waitFor(() => expect(screen.getByTitle('Insert image')).toBeInTheDocument());
+    expect(screen.getByText(/up to 10 MB/i)).toBeInTheDocument();
+  });
+
+  it('rejects an unsupported image type before uploading (M29)', async () => {
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage');
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    const input = screen.getByTestId('forum-image-input');
+    const file = new File(['x'], 'doc.pdf', { type: 'application/pdf' });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(await screen.findByText(/unsupported image type/i)).toBeInTheDocument();
+    expect(uploadSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized image before uploading (M29)', async () => {
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage');
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    const input = screen.getByTestId('forum-image-input');
+    const file = new File(['x'], 'big.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(file, 'size', { value: 11 * 1024 * 1024 });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(await screen.findByText(/too large/i)).toBeInTheDocument();
+    expect(uploadSpy).not.toHaveBeenCalled();
+  });
+
+  it('uploads a valid image through the service (L13)', async () => {
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue({
+      id: 1,
+      url: 'https://cdn.example/x.jpg',
+      alt: '',
+      width: 10,
+      height: 10,
+    });
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    const input = screen.getByTestId('forum-image-input');
+    const file = new File(['x'], 'ok.jpg', { type: 'image/jpeg' });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledWith(file));
+  });
+
+  it('surfaces an upload failure as an error message (L13)', async () => {
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    vi.spyOn(forumService, 'uploadPostImage').mockRejectedValue(new Error('server exploded'));
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    const input = screen.getByTestId('forum-image-input');
+    const file = new File(['x'], 'ok.jpg', { type: 'image/jpeg' });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(await screen.findByText('server exploded')).toBeInTheDocument();
+  });
+
+  it('opens a styled link editor instead of window.prompt, and validates the URL (M24)', async () => {
+    const promptSpy = vi.spyOn(window, 'prompt');
+    render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTitle('Insert Link')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTitle('Insert Link'));
+    expect(promptSpy).not.toHaveBeenCalled();
+
+    const urlInput = screen.getByLabelText('Link URL');
+    await userEvent.type(urlInput, 'javascript:alert(1)');
+    await userEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    // A dangerous scheme is rejected with a message, not silently linked.
+    expect(screen.getByText(/valid http/i)).toBeInTheDocument();
   });
 });
