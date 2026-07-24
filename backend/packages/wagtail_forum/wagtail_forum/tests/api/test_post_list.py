@@ -9,6 +9,7 @@ from wagtail_forum.models import (
     ForumIndex,
     ForumProfile,
     Post,
+    Reaction,
     Topic,
     TrustLevel,
 )
@@ -254,8 +255,10 @@ def test_post_list_affordances_add_no_per_post_queries():
     assert resp.status_code == 200
     assert len(resp.data["results"]) == 20
     # Q1 visibility prefetch, Q2 topic lookup, Q3 posts page (select_related
-    # author+topic). Same 3 as the anonymous pin — the predicate adds no query.
-    assert len(ctx.captured_queries) == 3
+    # author+topic — the affordance predicate adds no query), Q4 the batched M23
+    # reacted map (authed-only, one query for the page). 4, not the anonymous 3;
+    # still no has_perm here (the author owns every post → owner short-circuit).
+    assert len(ctx.captured_queries) == 4
 
 
 @pytest.mark.django_db
@@ -365,3 +368,74 @@ def test_post_list_author_without_profile_still_renders():
     assert results[0]["author"]["trust_level"] is None
     assert results[0]["author"]["display_name"] == "ghost"  # username fallback
     assert results[0]["author"]["avatar"] is None  # no profile → no avatar
+
+
+@pytest.mark.django_db
+def test_post_list_reacted_reflects_current_user():
+    # M23: `reacted` lists the reaction types the CURRENT user has active on each
+    # post — `[]` for anonymous, and it never leaks another user's reactions.
+    topic = _topic_with_posts(2)
+    posts = list(topic.posts.filter(live=True).order_by("id"))
+    me = User.objects.create_user(username="me")
+    other = User.objects.create_user(username="other")
+    Reaction.objects.create(post=posts[0], user=me, reaction_type="like")
+    Reaction.objects.create(post=posts[0], user=me, reaction_type="helpful")
+    Reaction.objects.create(post=posts[0], user=other, reaction_type="love")  # not mine
+    Reaction.objects.create(post=posts[1], user=other, reaction_type="like")  # not mine
+
+    client = APIClient()
+    client.force_authenticate(me)
+    resp = client.get(f"/forum/topics/{topic.id}/posts/")
+    assert resp.status_code == 200
+    rows = {r["id"]: r for r in resp.data["results"]}
+    assert sorted(rows[posts[0].id]["reacted"]) == ["helpful", "like"]  # mine only
+    assert rows[posts[1].id]["reacted"] == []  # only `other` reacted here
+
+    # Anonymous carries no personal reacted state.
+    anon = APIClient().get(f"/forum/topics/{topic.id}/posts/")
+    assert all(r["reacted"] == [] for r in anon.data["results"])
+
+
+@pytest.mark.django_db
+def test_post_list_reacted_is_batched_no_per_post_queries():
+    # M23 pin (the landmine): an authed user with reactions across MANY posts —
+    # the reacted map is ONE batched query, so the authed list pin stays flat
+    # under N. 20 posts proving a fixed count is the proof there is no per-post
+    # N+1 (a per-post reacted query would be 20+; a per-post has_perm would be 40+).
+    topic = _topic_with_posts(20)
+    me = User.objects.create_user(username="me")
+    for p in topic.posts.filter(live=True):
+        Reaction.objects.create(post=p, user=me, reaction_type="like")
+
+    client = APIClient()
+    client.force_authenticate(me)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get(f"/forum/topics/{topic.id}/posts/")
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 20
+    # Pinned EXACTLY (docs/rules/testing.md): 3 base (visibility, topic, posts
+    # page) + 2 authed permission-cache queries (the first post's can_edit/delete
+    # has_perm populates the user perm-cache; the other 19 hit it) + 1 batched
+    # reacted map = 6. Anonymous never runs the last three (pins 3). FLAT under N;
+    # if this changes, explain the new count here.
+    assert len(ctx.captured_queries) == 6
+
+
+@pytest.mark.django_db
+def test_reacted_single_object_fallback_is_correct():
+    # A single-post response (edit/reply) carries NO batched forum_reacted_map, so
+    # get_reacted falls back to a per-object query. Prove the fallback returns the
+    # real reacted state (not []), so the replace-the-post client update
+    # (ThreadDetailPage.handleEditSubmit) can't clobber it (M23).
+    from rest_framework.test import APIRequestFactory
+    from wagtail_forum.api.serializers import PostSerializer
+
+    topic = _topic_with_posts(1)
+    post = topic.posts.filter(live=True).first()
+    me = User.objects.create_user(username="me")
+    Reaction.objects.create(post=post, user=me, reaction_type="love")
+
+    request = APIRequestFactory().get("/")
+    request.user = me
+    data = PostSerializer(post, context={"request": request}).data  # no reacted map
+    assert data["reacted"] == ["love"]

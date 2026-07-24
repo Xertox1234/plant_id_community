@@ -90,6 +90,9 @@ export interface Post {
   is_first_post?: boolean;
   is_active?: boolean;
   reaction_counts?: Record<string, number>;
+  /** Reaction types the current user has active on this post (M23); [] when
+   * logged out. Drives the reaction buttons' aria-pressed / pressed styling. */
+  reacted?: string[];
   /** Permission flags from the backend (wagtail_forum PostSerializer). */
   can_edit?: boolean;
   can_delete?: boolean;

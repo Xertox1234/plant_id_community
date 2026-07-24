@@ -602,7 +602,9 @@ def test_edit_query_count_is_pinned():
     # 69 -> 70 (wave 2 slice 1): the edit response serializes the author via the
     # unified serialize_forum_author (todo 257 H26), which reads the author's
     # ForumProfile (real trust_level/display_name), adding ONE profile SELECT.
-    # Stays 70 under 257: submit_edit_for_moderation refresh_from_db()'s the post,
-    # discarding _get_visible_post's select_related join, so the profile reloads
-    # lazily here; the test author has no avatar, so no extra avatar SELECT.
-    assert len(ctx.captured_queries) == 70, len(ctx.captured_queries)
+    # 70 -> 71 (todo 257 slice C / M23): the single-post edit response has no
+    # batched forum_reacted_map (that's list-only), so PostSerializer.get_reacted
+    # falls back to ONE O(1) reacted lookup for this post — deliberate, so the
+    # response's `reacted` is correct and the replace-the-post client update
+    # (ThreadDetailPage.handleEditSubmit) can't clobber the user's reacted state.
+    assert len(ctx.captured_queries) == 71, len(ctx.captured_queries)

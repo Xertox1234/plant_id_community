@@ -83,11 +83,15 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `web` = `w
 - [x] Avatar settable via `/me/profile` and rendered on posts (slice A: IDOR-scoped
       `avatar_id` write + absolute-URL read; `<img>` on PostCard)
 - [ ] Clicking an author opens a public profile page (profile + recent activity)
-- [ ] Reacted state visible with `aria-pressed`; reaction counts visible
-      logged-out
-- [ ] Trust level renders as a styled badge
+- [x] Reacted state visible with `aria-pressed`; reaction counts visible
+      logged-out (slice C: M23 per-type `reacted` map on the post payload +
+      `aria-pressed`; L1 anon counts already shipped in Wave 1 #473, test-proven)
+- [x] Trust level renders as a styled badge (slice C: the styled trust pill from
+      wave 2 #474 satisfies the badge AC; L5's fuller gamification machinery is
+      explicitly DEFERRED per the finding's own "defer unless cheap" guidance)
 - [x] List query pins unchanged or new counts explained in-comment (slice A: pins
-      flat via select_related avatar JOINs; edit-delete 70 comment refreshed)
+      flat via select_related avatar JOINs; slice C: authed post-list 3→4/6 and
+      edit-delete 70→71 all explained in-comment with the batched-map rationale)
 
 ## Work Log
 
@@ -133,8 +137,37 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `web` = `w
      not API author parsing (Wave 3 unstarted) — the string→object change breaks nothing.
 - Verify: backend 324+2 pass (`--create-db`), `spectacular` exit 0; web `type-check`
   clean, `vitest run` 656 pass. code-review-orchestrator: PASS, 0 findings.
-- Commits on branch: `2ed4b28` (impl) + review-response (last_post_author docs+tests).
-- NEXT: codify → PR → merge slice A; then slice C off fresh main, then slice B.
+- Commits on branch: `2ed4b28` (impl) + `f29076f` (review-response) + `9acc12e` (codify).
+- **MERGED**: PR #490 squashed to main as `e8d461d` (2026-07-24). Slice A ACs checked above.
+- NEXT: slice C (PostCard UX: M23/L1/L5/L14) off fresh main → then slice B (H7 profile
+  endpoint+page) → then archive todo 257. Slice C/B execution plan in scratchpad RESUME-257.md.
+
+### 2026-07-24 - Slice C COMPLETE (PostCard UX cluster: M23/L1/L5/L14)
+
+- Branch `forum-257c-postcard-ux` off fresh main (e8d461d).
+- **Reconciliation narrowed the scope**: L1 (anon reaction counts) + L14 reactions
+  `flex-wrap` shipped in Wave 1 #473 already (PostCard renders the row for anon when
+  `nonZeroReactions>0`; row has `flex-wrap`); the L5 trust-badge pill shipped in wave 2
+  #474. So net-new = **M23** + **L14 emoji `aria-hidden`**.
+- **M23 (reacted state)**: `PostSerializer.reacted` (list of the current user's active
+  reaction types, `[]` anon). Pin-safe: `PostListView.list()` builds a per-page batched
+  `forum_reacted_map` in ONE query (authed-only, like `build_forum_image_map`); the
+  serializer reads it → zero per-post queries. Single-post responses (edit/reply) have no
+  map → ONE O(1) fallback query, deliberately (keeps the edit response's `reacted` correct
+  so `handleEditSubmit`'s replace-the-post update can't clobber it — advisor-flagged).
+  Web: `Post.reacted`/`BackendPost.reacted`, `mapPostToPost` maps it, `handleReact` carries
+  the toggle's `reacted` (was dropped), PostCard buttons get `aria-pressed` + pressed styling.
+- **L14 emoji `aria-hidden`**: reaction emoji spans marked `aria-hidden` (the aria-label/count
+  conveys meaning).
+- **Query pins (the M23 landmine)**: authed post-list is FLAT under N — pinned at 4 (author
+  viewing own posts: 3 base + 1 batched reacted map; owner short-circuits has_perm) and 6
+  (non-author: +2 has_perm cache-fill, once); edit-delete 70→71 (single-post fallback). All
+  explained in-comment. Anonymous pins unchanged (reacted query is authed-only).
+- Verify: backend 329 forum tests pass (`--create-db`) + `spectacular` exit 0; web
+  `type-check` clean + `vitest run` 658 pass. New tests: reacted serialization (authed/anon/
+  no-leak), authed multi-post batched pin, single-object fallback value, PostCard aria-pressed
+  - emoji aria-hidden, ThreadDetailPage toggle flips pressed state, mapper reacted default.
+- NEXT: review (orchestrator + advisor) → fix → codify → PR → merge; then slice B (H7).
 
 ## Notes
 

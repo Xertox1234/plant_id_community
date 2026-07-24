@@ -585,6 +585,9 @@ describe('ThreadDetailPage', () => {
 
     await waitFor(() => expect(screen.getByLabelText('React like')).toHaveTextContent('1'));
     expect(forumService.toggleReaction).toHaveBeenCalledWith('5', 'like');
+    // M23: the toggle's `reacted: true` flips the button's pressed state (was
+    // previously dropped, so the button never showed as reacted).
+    expect(screen.getByLabelText('React like')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('reports a post and shows a confirmation', async () => {

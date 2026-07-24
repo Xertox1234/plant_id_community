@@ -177,6 +177,32 @@ describe('PostCard', () => {
     expect(screen.getByText('1')).toBeInTheDocument();
   });
 
+  it('sets aria-pressed on reaction buttons the current user has reacted to (M23)', () => {
+    const post = createMockPost({
+      reaction_counts: { like: 3, love: 1 },
+      reacted: ['like'],
+    });
+
+    renderPostCard(post); // renderPostCard passes onReact (interactive buttons)
+
+    expect(screen.getByRole('button', { name: 'React like' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'React love' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+  });
+
+  it('marks decorative reaction emoji as aria-hidden (L14)', () => {
+    const post = createMockPost({ reaction_counts: { like: 5 } });
+
+    renderPostCard(post);
+
+    expect(screen.getByText('👍')).toHaveAttribute('aria-hidden', 'true');
+  });
+
   it('shows all four reaction options in the picker when no reactions exist yet and onReact is provided', () => {
     const post = createMockPost({
       reaction_counts: {},
