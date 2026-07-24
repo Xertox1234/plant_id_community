@@ -72,3 +72,13 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   exercise the ancestor case, not just a directly-restricted board. Draft
   (`live=False`) topics need their own exclusion test per surface — the sitemap's
   and the feed's `live=True` guards are independent.
+- **A settable image/file reference on a user resource (e.g. profile `avatar_id`)
+  must be validated against the caller's OWN uploads within the allowed collection
+  before assignment** — `uploaded_by_user=<caller>` AND
+  `collection=get_forum_image_collection()`, the same two-part check that gates
+  inline images (audit L21). Never trust a bare image id; a `None` clear needs no
+  ownership check. See `docs/patterns/domain/forum.md` (unified author contract).
+- **Serialize every forum author through the single `serialize_forum_author` helper**
+  (topic `author`/`last_post_author`, post `author`, notification `actor`) so the
+  shape and the `[deleted]` sentinel OBJECT stay identical; `select_related` the
+  full `author__wagtail_forum_profile__avatar` chain to keep list pins flat.

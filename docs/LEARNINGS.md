@@ -1649,3 +1649,23 @@ committed code + PR were correct; the danger is only a later `git add -A` stagin
 it. Before any archival/bookkeeping `git add -A`, diff the reviewed source files
 and restore (`git checkout HEAD -- <file>`) any mutation left behind, then re-run
 the load-bearing test. (Same pattern seen earlier the same session on a test file.)
+
+## Forum author-contract unification (todo 257 slice A, 2026-07-24)
+
+**A denormalized `last_post_author` cannot distinguish "no posts yet" from "last
+poster's account deleted".** Unifying the forum author contract (H26/M41) meant
+one `[deleted]` sentinel object wherever an author can be null. It applies cleanly
+to a topic's `author` (the creator FK — SET_NULL → sentinel). It does NOT apply to
+`last_post_author`: `signals.py._refresh_topic_counters` sets
+`last_post_author_id=Subquery(latest_live_post.author_id)` and
+`last_post_at=Coalesce(latest_live_post.first_published_at, "created_at")`. So a
+topic with **no live posts** and a topic whose **last poster was deleted** BOTH end
+up with `last_post_author_id=None` and a **non-null** `last_post_at` (Coalesced to
+`created_at`) — the denorm fields carry no signal that separates them. Telling them
+apart needs a live-post existence query per row, which breaks the flat list pin
+(the AC explicitly required "query pins unchanged"). Resolution: `last_post_author`
+returns `null` for both, documented at `get_last_post_author`; the sentinel is
+reserved for the `author` field where the distinction is unambiguous. Lesson: a
+"consistent representation everywhere" AC can collide with a "pins unchanged" AC
+when a field is denormalized — pick the pin, and document the field that can't
+carry the finer distinction rather than adding a query to force it.

@@ -109,6 +109,43 @@ moderator cannot smuggle in a *different*, unrelated member's image while
 editing someone else's post (pinned by
 `test_moderator_edit_cannot_smuggle_in_a_different_members_image`).
 
+## Unified author contract + settable avatar (todo 257 H26/M41)
+
+Every author a client sees — a topic's `author`, its `last_post_author`, a post's
+`author`, a notification's `actor` — serializes through the SINGLE helper
+`serialize_forum_author(user, request)` in `api/serializers.py`. It returns one
+object shape `{username, display_name, avatar, trust_level}`, and a deleted author
+(`user is None`) is the `[deleted]` sentinel OBJECT, never `null` and never a bare
+string. Before this, topics sent a username string (null when deleted) while posts
+sent a rich object with a partial `[deleted]` dict — two shapes for one concept.
+
+Three things make it correct and cheap:
+
+- **Pin-flatness by nested `select_related`.** The helper reads the profile via the
+  reverse OneToOne (`getattr(user, "wagtail_forum_profile", None)`) and the avatar
+  via the FK. The list/detail views join the whole chain —
+  `select_related("author__wagtail_forum_profile__avatar", ...)` — so those reads
+  are LEFT JOINs already materialized in the page query, NOT per-row SELECTs. The
+  query-count pins stay flat under N distinct authors (see query-optimization.md
+  Pattern 30). Gate on `profile.avatar_id` (the loaded FK column) before touching
+  `.avatar`, so the no-avatar case never issues a query.
+
+- **Avatar is the raw `.file.url` (absolute via `request.build_absolute_uri`), NOT a
+  rendition.** Inline body images use `serialize_image_for_api` renditions, but a
+  `get_rendition()` per author would add a SELECT and break the flat pin. Avatars
+  trade image-fidelity for pin-flatness — a conscious, documented tradeoff.
+
+- **Settable avatar is IDOR-scoped like inline images.** `MeProfileSerializer` takes
+  a write-only `avatar_id`; `validate_avatar_id` accepts it only if the image was
+  `uploaded_by_user=<caller>` AND lives in `get_forum_image_collection()` — the same
+  two-part membership check that gates inline images (the L21 pattern above). A bare
+  id is never trusted; `None` clears the avatar with no ownership check.
+
+`last_post_author` is the one field that returns `null` (not the sentinel) for a
+deleted last-poster: the denormalized Topic fields can't tell "no posts yet" from
+"last poster's account gone" without a live-post existence query that would break
+the pin. See `docs/LEARNINGS.md` 2026-07-24.
+
 ## LLM spam backend (optional, host-side — todo 255 slice 2 / H13)
 
 The package ships one spam check (`HeuristicSpamBackend`: banned words + link

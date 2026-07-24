@@ -1397,3 +1397,25 @@ There is no `Q()` expression that replicates `.public()` without a subquery agai
 **Rule**: Never silently rely on `Count(filter=Q(live=True))` where `.live().public()` semantics are required. Choose option 1 or option 2 explicitly.
 
 **Accepted divergence — `BlogAuthorPageViewSet`**: `backend/apps/blog/api/viewsets.py` `BlogAuthorPageViewSet.get_queryset()` annotates `annotated_post_count` with `Count(filter=Q(live=True))`, while `BlogAuthorPageSerializer.get_post_count()` falls back to `.live().public()`. Option 2 (explicit divergence) is accepted here: the blog has no `PageViewRestriction` objects — author pages and blog posts are all public — so the annotation and the fallback return identical counts in practice. The correlated subquery in option 1 would add per-row cost for a gap that cannot occur given current content. If `PageViewRestriction` is ever introduced for blog content, switch that annotation to option 1.
+
+## Pattern 30: Nested `select_related` through reverse-OneToOne → FK keeps `SerializerMethodField` pins flat
+
+**Problem**: A serializer reads a related object graph off each row — e.g. a forum author's `ForumProfile` (reverse OneToOne) and that profile's `avatar` (FK). Done naively in a `SerializerMethodField`, each row triggers a profile SELECT and an avatar SELECT → a classic N+1 that a `<=` query ceiling hides but an exact pin catches.
+
+**Fix**: `select_related` the ENTIRE chain in the view's `get_queryset()`, including the deepest leaf. `select_related` adds JOINs, not queries — the whole graph materializes in the single page query, so the pin stays flat under N distinct authors.
+
+```python
+# The deepest path implies every shallower one, so this one string covers
+# author, author.wagtail_forum_profile, AND author.wagtail_forum_profile.avatar.
+qs = Topic.objects.filter(...).select_related(
+    "author__wagtail_forum_profile__avatar",
+    "last_post_author__wagtail_forum_profile__avatar",
+)
+```
+
+Two things make it hold:
+
+- **Read via `getattr(user, "wagtail_forum_profile", None)`** for the reverse OneToOne — a `RelatedObjectDoesNotExist` (subclass of `AttributeError`) yields `None` with no query when the join found no profile row, and the LEFT JOIN keeps authors-without-a-profile in the result set (an INNER JOIN would silently drop them — pin a `..._without_profile_still_renders` test).
+- **Gate on the FK column (`profile.avatar_id`) before touching the related object (`profile.avatar`)** — `avatar_id` is already loaded on the joined row, so the common no-avatar case never issues the avatar SELECT.
+
+**Caveat**: a `refresh_from_db()` (e.g. `submit_edit_for_moderation` on a post edit) discards the `select_related`-joined instance, so a single-object serialize AFTER a refresh reloads the graph lazily — that path's pin reflects the lazy SELECTs, not the join. Document the count at the assertion site. See the forum unified author contract (`docs/patterns/domain/forum.md`); live in `wagtail_forum/api/{serializers,views,notifications}.py`.
