@@ -22,6 +22,17 @@ pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 URL = "/forum/images/"
 
 
+@pytest.fixture(autouse=True)
+def clear_idempotency_cache():
+    """Prevent idempotency cache from bleeding between tests (LocMemCache is
+    process-global)."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
 def _jpeg(width=10, height=10):
     buf = io.BytesIO()
     PILImage.new("RGB", (width, height), color="red").save(buf, format="JPEG")
@@ -53,6 +64,7 @@ def test_valid_image_uploads_into_forum_collection_and_returns_shape():
     assert resp.status_code == 201
     assert set(resp.data) == {"id", "url", "alt", "width", "height"}
     assert resp.data["url"].startswith("http://testserver")
+    assert resp["Location"] == resp.data["url"]  # L19: 201 carries a Location header
     image = get_image_model().objects.get(id=resp.data["id"])
     assert image.collection_id == get_forum_image_collection().id
 
@@ -226,3 +238,53 @@ def test_image_uploaded_by_another_member_cannot_be_referenced():
         format="json",
     )
     assert reply.status_code == 400
+
+
+@pytest.mark.django_db
+def test_upload_retry_with_idempotency_key_stores_one_image():
+    """M36: a retry with the same Idempotency-Key + the same image replays the
+    original 201 instead of storing a second Image row + file."""
+    client = _auth_client()
+    content = _jpeg()  # identical bytes → identical content fingerprint
+    r1 = client.post(
+        URL,
+        {"image": _upload(content=content)},
+        format="multipart",
+        HTTP_IDEMPOTENCY_KEY="img-1",
+    )
+    r2 = client.post(
+        URL,
+        {"image": _upload(content=content)},
+        format="multipart",
+        HTTP_IDEMPOTENCY_KEY="img-1",
+    )
+
+    assert r1.status_code == 201
+    assert r2.status_code == 201
+    assert r2.data == r1.data  # replayed: same id + url
+    # L19 + replay fidelity (258 review): the replay carries the same Location.
+    assert r2["Location"] == r1["Location"] == r1.data["url"]
+    assert get_image_model().objects.count() == 1  # one row ⇒ one stored file
+
+
+@pytest.mark.django_db
+def test_upload_idempotency_key_reuse_with_different_image_is_422():
+    """Same key + a DIFFERENT image is a client error (422), and the rejected
+    retry stores nothing — the content hash guards against a stale replay."""
+    client = _auth_client()
+    r1 = client.post(
+        URL,
+        {"image": _upload(content=_jpeg(10, 10))},
+        format="multipart",
+        HTTP_IDEMPOTENCY_KEY="img-1",
+    )
+    r2 = client.post(
+        URL,
+        {"image": _upload(content=_jpeg(12, 12))},
+        format="multipart",
+        HTTP_IDEMPOTENCY_KEY="img-1",
+    )
+
+    assert r1.status_code == 201
+    assert r2.status_code == 422
+    assert get_image_model().objects.count() == 1

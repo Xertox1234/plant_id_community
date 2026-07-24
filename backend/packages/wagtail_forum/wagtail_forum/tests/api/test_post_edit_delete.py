@@ -21,6 +21,17 @@ User = get_user_model()
 pytestmark = [pytest.mark.django_db, pytest.mark.urls("wagtail_forum.tests.api.urls")]
 
 
+@pytest.fixture(autouse=True)
+def clear_idempotency_cache():
+    """Prevent idempotency cache from bleeding between tests (LocMemCache is
+    process-global)."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
 def _board():
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
@@ -608,3 +619,96 @@ def test_edit_query_count_is_pinned():
     # response's `reacted` is correct and the replace-the-post client update
     # (ThreadDetailPage.handleEditSubmit) can't clobber the user's reacted state.
     assert len(ctx.captured_queries) == 71, len(ctx.captured_queries)
+
+
+def test_patch_retry_with_idempotency_key_writes_one_revision():
+    """M35: a mobile retry of an edit with the same Idempotency-Key must NOT
+    write a second revision — a second revision re-fires moderation_decided and
+    sends a DUPLICATE push (there is no dedup downstream). The replay returns the
+    original 200 body verbatim."""
+    board = _board()
+    author = _member("ada")
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    client = APIClient()
+    client.force_authenticate(author)
+    payload = {"body": [{"type": "paragraph", "value": "<p>edited</p>"}]}
+
+    r1 = client.patch(
+        f"/forum/posts/{reply.id}/",
+        payload,
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="edit-1",
+    )
+    revisions_after_first = reply.revisions.count()
+    r2 = client.patch(
+        f"/forum/posts/{reply.id}/",
+        payload,
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="edit-1",
+    )
+
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert r2.data == r1.data  # replayed, not re-computed
+    assert reply.revisions.count() == revisions_after_first  # no second revision
+
+
+def test_patch_idempotency_key_reuse_with_different_body_is_422():
+    """Same key + a different body is a client error (422), and the rejected
+    retry writes no revision."""
+    board = _board()
+    author = _member("ada")
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    client = APIClient()
+    client.force_authenticate(author)
+
+    r1 = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {"body": [{"type": "paragraph", "value": "<p>first</p>"}]},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="edit-1",
+    )
+    revisions_after_first = reply.revisions.count()
+    r2 = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {"body": [{"type": "paragraph", "value": "<p>second</p>"}]},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="edit-1",
+    )
+
+    assert r1.status_code == 200
+    assert r2.status_code == 422
+    assert reply.revisions.count() == revisions_after_first
+
+
+def test_patch_idempotency_keys_are_user_scoped():
+    """The key is scoped per (endpoint, user): user B reusing user A's key string
+    is NOT a replay of A's edit — it applies its own real edit + revision."""
+    board = _board()
+    author = _member("ada")
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    mod = _moderator("mod")
+
+    ca = APIClient()
+    ca.force_authenticate(author)
+    ra = ca.patch(
+        f"/forum/posts/{reply.id}/",
+        {"body": [{"type": "paragraph", "value": "<p>by author</p>"}]},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="shared",
+    )
+    revisions_after_author = reply.revisions.count()
+
+    cm = APIClient()
+    cm.force_authenticate(mod)
+    rm = cm.patch(
+        f"/forum/posts/{reply.id}/",
+        {"body": [{"type": "paragraph", "value": "<p>by mod</p>"}]},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="shared",
+    )
+
+    assert ra.status_code == 200
+    assert rm.status_code == 200
+    assert reply.revisions.count() > revisions_after_author  # a real, new edit
+    assert any("by mod" in b["value"] for b in rm.data["body"])

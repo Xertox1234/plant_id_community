@@ -1,3 +1,4 @@
+import hashlib
 import logging
 
 from django.contrib.auth import get_user_model
@@ -15,6 +16,7 @@ from django.db.models import (
 )
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.html import strip_tags
@@ -34,7 +36,7 @@ from wagtail.images import get_image_model
 from wagtail.search.backends import get_search_backend
 
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
-    from drf_spectacular.utils import extend_schema
+    from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
 except ImportError:  # pragma: no cover
 
     def extend_schema(**kwargs):
@@ -42,6 +44,15 @@ except ImportError:  # pragma: no cover
             return fn
 
         return decorator
+
+    def extend_schema_view(**kwargs):
+        def decorator(cls):
+            return cls
+
+        return decorator
+
+    def OpenApiExample(*args, **kwargs):  # noqa: N802 - mirrors drf-spectacular API
+        return None
 
 
 from ..blocks import ForumBodyBlock
@@ -198,7 +209,26 @@ def _replay_or_none(cache_key, payload_fingerprint):
         )
     # Replay the ORIGINAL status (e.g. 201), not a fresh 200 — clients key on
     # 201 to detect creation (IETF idempotency-key draft).
-    return Response(cached["data"], status=cached["status"])
+    response = Response(cached["data"], status=cached["status"])
+    # Re-attach any remembered headers (e.g. a 201's Location) so the replay is
+    # response-faithful, not just body-faithful (L19).
+    for header, value in cached.get("headers", {}).items():
+        response[header] = value
+    return response
+
+
+def _created_location(request, name, **kwargs):
+    """Absolute URL for a just-created resource's route, namespace-agnostic (L19).
+
+    The forum mounts under different namespaces per host (the package sets
+    app_name 'wagtail_forum_api'; a host may include it namespaced, mount its own
+    throttled wrappers, or use the urlconf as a bare root with NO namespace).
+    Reverse the route within the CURRENT request's namespace so a Location header
+    never 500s on a NoReverseMatch.
+    """
+    namespace = request.resolver_match.namespace
+    route = f"{namespace}:{name}" if namespace else name
+    return request.build_absolute_uri(reverse(route, kwargs=kwargs))
 
 
 class BoardListView(generics.ListAPIView):
@@ -223,7 +253,7 @@ class BoardListView(generics.ListAPIView):
 
 
 @extend_schema(
-    responses={200: TopicListSerializer(many=True)},
+    responses={200: TopicListSerializer(many=True), 404: dict},
     description=(
         "List a board's live topics, most-recent activity first "
         "(cursor-paginated). Optional ?sort= reorders within the pinned-first "
@@ -262,10 +292,37 @@ class TopicListView(generics.ListAPIView):
 
     @extend_schema(
         request=TopicCreateSerializer,
-        responses={201: dict, 409: dict, 422: dict},
+        responses={201: dict, 400: dict, 401: dict, 404: dict, 409: dict, 422: dict},
+        examples=[
+            OpenApiExample(
+                "Create a topic",
+                request_only=True,
+                value={
+                    "title": "How do I repot a monstera?",
+                    "slug": "how-do-i-repot-a-monstera",
+                    "body": [
+                        {"type": "paragraph", "value": "<p>Roots are crowded.</p>"}
+                    ],
+                },
+            ),
+            OpenApiExample(
+                "Idempotency-Key reused with a different body",
+                response_only=True,
+                status_codes=["422"],
+                value={
+                    "error": True,
+                    "message": (
+                        "Idempotency-Key was already used with a different payload."
+                    ),
+                    "code": "unprocessable",
+                    "status_code": 422,
+                },
+            ),
+        ],
         description=(
             "Create a topic (with its opening post) and route it through "
-            "moderation. Supports an Idempotency-Key header: a retry with the "
+            "moderation. On success returns 201 with a Location header for the "
+            "new topic. Supports an Idempotency-Key header: a retry with the "
             "same key replays the original response (original status code); "
             "reuse with a different payload returns 422. A taken slug is "
             "auto-suffixed (-2, -3, …) — read the final slug from the response."
@@ -304,8 +361,17 @@ class TopicListView(generics.ListAPIView):
         result = {"id": topic.id, "slug": topic.slug, "status": status}
         # Cache the outcome — including a backend-crash "pending" — so a client
         # retry with the same key cleanly replays instead of re-creating.
-        remember(cache_key, result, http_status.HTTP_201_CREATED, payload_fp)
-        return Response(result, status=http_status.HTTP_201_CREATED)
+        location = _created_location(request, "topic-detail", topic_id=topic.id)
+        remember(
+            cache_key,
+            result,
+            http_status.HTTP_201_CREATED,
+            payload_fp,
+            headers={"Location": location},
+        )
+        response = Response(result, status=http_status.HTTP_201_CREATED)
+        response["Location"] = location
+        return response
 
     @staticmethod
     def _create_topic(request, board, validated):
@@ -430,7 +496,7 @@ class TopicDetailView(generics.RetrieveAPIView):
 
 
 @extend_schema(
-    responses={200: PostSerializer(many=True)},
+    responses={200: PostSerializer(many=True), 404: dict},
     description=(
         "List a topic's live posts, oldest first (cursor-paginated). Returns "
         "404 if the topic is non-live or on a hidden/non-live board."
@@ -489,11 +555,12 @@ class PostListView(generics.ListAPIView):
 
     @extend_schema(
         request=ReplyCreateSerializer,
-        responses={201: dict, 404: dict, 409: dict, 422: dict},
+        responses={201: dict, 400: dict, 401: dict, 404: dict, 409: dict, 422: dict},
         description=(
-            "Reply to a topic; the reply routes through moderation. Supports "
-            "an Idempotency-Key header (a mobile retry must not create a "
-            "duplicate reply)."
+            "Reply to a topic; the reply routes through moderation. On success "
+            "returns 201 with a Location header for the new post. Supports an "
+            "Idempotency-Key header (a mobile retry must not create a duplicate "
+            "reply); reuse with a different payload returns 422."
         ),
     )
     def post(self, request, topic_id):
@@ -544,8 +611,17 @@ class PostListView(generics.ListAPIView):
             moderation_status = "pending"
 
         result = {"id": post.id, "status": moderation_status}
-        remember(cache_key, result, http_status.HTTP_201_CREATED, payload_fp)
-        return Response(result, status=http_status.HTTP_201_CREATED)
+        location = _created_location(request, "post-detail", post_id=post.id)
+        remember(
+            cache_key,
+            result,
+            http_status.HTTP_201_CREATED,
+            payload_fp,
+            headers={"Location": location},
+        )
+        response = Response(result, status=http_status.HTTP_201_CREATED)
+        response["Location"] = location
+        return response
 
 
 class PostWriteView(APIView):
@@ -579,7 +655,15 @@ class PostWriteView(APIView):
 
     @extend_schema(
         request=PostEditSerializer,
-        responses={200: PostSerializer, 400: dict, 403: dict, 404: dict, 409: dict},
+        responses={
+            200: PostSerializer,
+            400: dict,
+            401: dict,
+            403: dict,
+            404: dict,
+            409: dict,
+            422: dict,
+        },
         description=(
             "Edit a post (author or moderator). Re-screened by author trust: a "
             "trusted edit publishes immediately; an untrusted edit awaits "
@@ -588,10 +672,25 @@ class PostWriteView(APIView):
             "moderation_status is 'pending', the response body reflects the "
             "SUBMITTED revision (what you sent) — reads (GET) keep returning "
             "the last-approved live body until the edit clears moderation. "
-            "409 if the topic is closed/locked."
+            "409 if the topic is closed/locked. Supports an Idempotency-Key "
+            "header: a retry with the same key replays the original response "
+            "instead of writing a second revision / re-firing moderation and "
+            "its push (409 if a same-key twin is mid-flight, 422 on payload "
+            "reuse with a different body)."
         ),
     )
     def patch(self, request, post_id):
+        # Idempotency (M35): a mobile retry of an edit must not re-run
+        # submit_edit_for_moderation — that writes a second revision, re-emits
+        # moderation_decided, and fires a DUPLICATE FCM push (no dedup downstream).
+        cache_key = idempotency_cache_key(request, "post-edit")
+        payload_fp = (
+            fingerprint({"post": post_id, "body": request.data}) if cache_key else None
+        )
+        replayed = _replay_or_none(cache_key, payload_fp)
+        if replayed is not None:
+            return replayed
+
         post = self._get_editable(request, post_id)
         self._enforce_writable(post.edit_block(request.user))
         serializer = PostEditSerializer(
@@ -600,6 +699,7 @@ class PostWriteView(APIView):
         )
         serializer.is_valid(raise_exception=True)
         post.body = ForumBodyBlock().to_python(serializer.validated_data["body"])
+        reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
         # submit_edit_for_moderation owns the persistence contract: a pre-revision
         # failure propagates (never a fake 'pending'); a moderation-step failure is
         # caught there and reported truthfully as pending. Do NOT re-wrap it in a
@@ -635,6 +735,10 @@ class PostWriteView(APIView):
             },
         ).data
         data["moderation_status"] = moderation_status
+        # Cache the outcome so a mobile retry with the same key replays this 200
+        # instead of re-running the edit — which would write a second revision,
+        # re-fire moderation_decided, and send a duplicate push (M35).
+        remember(cache_key, data, http_status.HTTP_200_OK, payload_fp)
         return Response(data)
 
     @extend_schema(
@@ -700,12 +804,16 @@ class PostImageUploadView(APIView):
                 "properties": {"image": {"type": "string", "format": "binary"}},
             }
         },
-        responses={201: dict, 400: dict, 401: dict},
+        responses={201: dict, 400: dict, 401: dict, 409: dict, 422: dict},
         description=(
             "Upload an inline post image (4-layer validated: extension, MIME, "
             "size, PIL decode) into the forum image collection. Returns "
-            "{id, url, alt, width, height}; reference the returned id from an "
-            "`image` body block. Requires authentication."
+            "{id, url, alt, width, height} with a Location header; reference the "
+            "returned id from an `image` body block. Requires authentication. "
+            "Supports an Idempotency-Key header: a retry with the same key "
+            "replays the original response instead of storing a duplicate image "
+            "row + file (409 if a same-key twin is mid-flight, 422 on key reuse "
+            "with a different image)."
         ),
     )
     def post(self, request):
@@ -713,16 +821,40 @@ class PostImageUploadView(APIView):
         if image_file is None:
             raise ValidationError("No image file provided.")
         validate_image_upload(image_file)
+        # Idempotency (M36): the multipart upload is the most retry-prone shape
+        # (mobile composer on a flaky network). request.data holds the
+        # UploadedFile, not JSON, so fingerprint on a CONTENT hash — name+size
+        # alone could collide. seek(0) before hashing (validate may have consumed
+        # the stream) AND after (so .create() still stores the full file).
+        cache_key = idempotency_cache_key(request, "image-upload")
+        payload_fp = None
+        if cache_key:
+            image_file.seek(0)
+            content_hash = hashlib.sha256(image_file.read()).hexdigest()
+            image_file.seek(0)
+            payload_fp = fingerprint({"name": image_file.name, "sha256": content_hash})
+        replayed = _replay_or_none(cache_key, payload_fp)
+        if replayed is not None:
+            return replayed
+
+        reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
         image = get_image_model().objects.create(
             title=(image_file.name or "forum-image")[:255],
             file=image_file,
             collection=get_forum_image_collection(),
             uploaded_by_user=request.user,
         )
-        return Response(
-            serialize_image_for_api(image, request),
-            status=http_status.HTTP_201_CREATED,
+        data = serialize_image_for_api(image, request)
+        remember(
+            cache_key,
+            data,
+            http_status.HTTP_201_CREATED,
+            payload_fp,
+            headers={"Location": data["url"]},
         )
+        response = Response(data, status=http_status.HTTP_201_CREATED)
+        response["Location"] = data["url"]  # created image's absolute URL (L19)
+        return response
 
 
 class ReactionToggleView(APIView):
@@ -731,7 +863,7 @@ class ReactionToggleView(APIView):
 
     @extend_schema(
         request=ReactionSerializer,
-        responses={200: dict, 400: dict, 404: dict},
+        responses={200: dict, 400: dict, 401: dict, 404: dict, 409: dict, 422: dict},
         description=(
             "Toggle a reaction. The response's `reacted` is a BOOLEAN — the "
             "resulting state of THIS reaction type for this user (distinct from "
@@ -784,7 +916,7 @@ class PostReportView(APIView):
 
     @extend_schema(
         request=ReportSerializer,
-        responses={200: dict, 400: dict, 404: dict},
+        responses={200: dict, 400: dict, 401: dict, 404: dict, 409: dict, 422: dict},
         description=(
             "Report a post for moderator review. Idempotent per (post, "
             "reporter): reporting the same post again is a no-op, not an "
@@ -822,6 +954,23 @@ class PostReportView(APIView):
         return Response(result, status=http_status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        responses={200: MeProfileSerializer, 401: dict},
+        description=(
+            "Retrieve the authenticated user's forum profile (bio, avatar, "
+            "trust level, capabilities, and the write-only fcm_token field)."
+        ),
+    ),
+    patch=extend_schema(
+        request=MeProfileSerializer,
+        responses={200: MeProfileSerializer, 400: dict, 401: dict},
+        description=(
+            "Update the authenticated user's forum profile (partial). Returns "
+            "400 if bio exceeds 2000 chars or fcm_token exceeds 255 chars."
+        ),
+    ),
+)
 class MeProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = MeProfileSerializer
     permission_classes = [IsAuthenticated]

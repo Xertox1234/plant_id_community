@@ -120,3 +120,77 @@ def test_notification_list_view_guards_schema_generation():
     view = NotificationListView()
     view.swagger_fake_view = True
     assert list(view.get_queryset()) == []
+
+
+@pytest.mark.django_db
+def test_write_endpoints_declare_provable_error_codes():
+    """M37/M38 (todo 258): the write + idempotent endpoints document the exact
+    error codes they can actually raise — not just in prose. `spectacular`
+    exiting 0 proves only that the schema GENERATES; this pins the declared
+    response codes on the named operations so a dropped OR spurious code fails
+    loudly. 429 is normalized out: the host throttle hook injects it (pinned
+    separately in apps/forum_host test_schema_429.py), and the PACKAGE does not
+    own it."""
+    from drf_spectacular.generators import SchemaGenerator
+
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    paths = schema["paths"]
+
+    def codes(path, method):
+        # Strip the host-injected 429 so the package pins only the codes it owns.
+        return set(paths[path][method]["responses"]) - {"429"}
+
+    # topic create: 400/401/404 were undeclared (only 201/409/422).
+    assert codes("/forum/boards/{slug}/topics/", "post") == {
+        "201",
+        "400",
+        "401",
+        "404",
+        "409",
+        "422",
+    }
+    # reply create: 400/401 were undeclared.
+    assert codes("/forum/topics/{topic_id}/posts/", "post") == {
+        "201",
+        "400",
+        "401",
+        "404",
+        "409",
+        "422",
+    }
+    # reaction toggle: 409/422 were undeclared despite the idempotency contract.
+    assert codes("/forum/posts/{post_id}/reactions/", "post") == {
+        "200",
+        "400",
+        "401",
+        "404",
+        "409",
+        "422",
+    }
+    # post report: identical idempotency path — same omission.
+    assert codes("/forum/posts/{post_id}/reports/", "post") == {
+        "200",
+        "400",
+        "401",
+        "404",
+        "409",
+        "422",
+    }
+    # PATCH gains Idempotency-Key (M35): 422 (payload reuse) + 401 were undeclared.
+    assert codes("/forum/posts/{post_id}/", "patch") == {
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+    }
+    # image upload gains Idempotency-Key (M36): 409/422 were undeclared.
+    assert codes("/forum/images/", "post") == {"201", "400", "401", "409", "422"}
+    # list GETs documented 404 in prose only.
+    assert codes("/forum/boards/{slug}/topics/", "get") == {"200", "404"}
+    assert codes("/forum/topics/{topic_id}/posts/", "get") == {"200", "404"}
+    # MeProfileView had ZERO @extend_schema (M38) — now GET + PATCH documented.
+    assert codes("/forum/me/profile/", "get") == {"200", "401"}
+    assert codes("/forum/me/profile/", "patch") == {"200", "400", "401"}

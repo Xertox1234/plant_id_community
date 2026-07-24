@@ -69,6 +69,10 @@ def test_trusted_user_creates_published_topic_idempotently():
     # Replay carries the ORIGINAL status (IETF idempotency-key draft), not 200.
     assert r2.status_code == 201
     assert r2.data == r1.data
+    # L19 + replay fidelity (258 review): the replayed 201 must carry the SAME
+    # Location header as the original — the replay path was dropping it.
+    assert r1["Location"].endswith(f"/forum/topics/{r1.data['id']}/")
+    assert r2["Location"] == r1["Location"]
     assert Topic.objects.filter(board=board).count() == 1
 
 
@@ -154,6 +158,9 @@ def test_api_topic_create_publishes_topic_and_updates_board_counters():
 
     assert r.status_code == 201
     topic = Topic.objects.get(board=board, slug="hello")
+    # L19: the 201 carries a Location header for the created topic (reverse
+    # resolves under the package's app_name namespace, mount-prefix agnostic).
+    assert r["Location"] == f"http://testserver/forum/topics/{topic.id}/"
     assert topic.live is True
     board.refresh_from_db()
     assert board.topic_count == 1
@@ -369,11 +376,16 @@ def test_oversized_body_is_rejected():
     }
     resp = client.post(f"/forum/boards/{board.slug}/topics/", payload, format="json")
     assert resp.status_code == 400
-    # Flat field error — body maps to a list of strings, not the double-nested
-    # {"body": {"body": [...]}} shape (M14). The project envelope nests field
-    # errors under "errors" when the custom exception handler is active.
-    field_errors = resp.data.get("errors", resp.data)
-    assert isinstance(field_errors["body"][0], str)
+    # M39: the error envelope is pinned to exactly ONE shape — no bare-DRF fork.
+    # Under the project's test settings the host handler (apps.core.exceptions)
+    # is active; the package ships a compatible reference handler pinned
+    # separately in test_error_envelope.py. Field errors always nest under
+    # "errors"; body maps to a flat list of strings, not the double-nested
+    # {"body": {"body": [...]}} shape (M14).
+    assert set(resp.data) == {"error", "message", "code", "status_code", "errors"}
+    assert resp.data["error"] is True
+    assert resp.data["status_code"] == 400
+    assert isinstance(resp.data["errors"]["body"][0], str)
     assert Topic.objects.filter(slug="t").count() == 0
 
 
