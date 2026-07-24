@@ -75,3 +75,10 @@ Compact checklist auto-injected before edits. Long-form:
   `except Exception` swallow it into a fake success and then re-raise on the next
   ORM call (`refresh_from_db`). Keep the service layer framework-free: let the
   model's `DoesNotExist` propagate and translate it to `NotFound` at the view.
+- **A per-request-user field on a `many=True` serializer must batch its data into
+  serializer context in ONE query (like `build_forum_image_map`), and the field
+  method must guard the map read with `if map is not None:` — NEVER truthiness.**
+  An authed user with zero rows yields an empty `{}` (falsy but not `None`); a
+  truthiness check silently routes every row to the per-object fallback and
+  reintroduces the N+1. Pin an authed test where the user has NO rows. See
+  `docs/patterns/performance/query-optimization.md` Pattern 31.
