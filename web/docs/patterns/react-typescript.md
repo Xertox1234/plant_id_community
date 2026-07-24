@@ -288,3 +288,37 @@ can't retry forever. And any request fired automatically from such an effect
 needs a **stale-thread guard** — capture the id before the `await` and skip the
 `setState` if `currentIdRef.current` moved on, or a late page for thread A
 appends to thread B (see `ThreadDetailPage.tsx`).
+
+## React 19 Native Document Metadata (per-route SEO)
+
+React 19 hoists `<title>`, `<meta>`, and `<link>` rendered **anywhere** in the
+tree to `<head>` automatically — no `react-helmet`. Use it for per-route
+title/description/OG on an SPA (todo 256 H9): a small `PageMeta` component
+(`web/src/components/PageMeta.tsx`) renders the tags inline; each page passes
+data-derived values.
+
+```tsx
+export default function PageMeta({ title, description, og }: PageMetaProps) {
+  return (
+    <>
+      <title>{title}</title>
+      {description && <meta name="description" content={description} />}
+      {og && <meta property="og:title" content={og.title} />}
+    </>
+  );
+}
+// In a page: <PageMeta title={`${thread.title} · PlantID`} og={{ ... }} />
+```
+
+- **Testable in jsdom/Vitest**: after render, assert `document.title` and
+  `document.querySelector('meta[property="og:type"]')` — the hoist runs on commit.
+- **Placement tradeoff**: rendering `PageMeta` in a page's main (post-load) return
+  means the title isn't set during the loading flash. Fine for data-derived titles
+  (a crawler waits for network idle); for a *static* title, render it before the
+  loading/error early returns if the flash matters.
+- **Crawler reach**: only JS-executing crawlers (Googlebot) see these — non-JS
+  link unfurlers (Slack/Twitter/FB) do not run the SPA. Pair with a
+  server-rendered sitemap/RSS for discovery; accept no rich unfurl without a
+  prerender.
+- **OG url**: build from `window.location.origin + window.location.pathname`
+  (drops query/hash) — the SPA is client-only, so no SSR guard is needed.
