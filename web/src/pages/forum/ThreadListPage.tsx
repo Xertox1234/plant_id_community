@@ -7,6 +7,7 @@ import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import PageMeta from '../../components/PageMeta';
+import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
 import type { Thread, Category } from '@/types';
 
@@ -17,6 +18,7 @@ import type { Thread, Category } from '@/types';
  * Route: /forum/:categorySlug
  */
 export default function ThreadListPage() {
+  useScrollToTop();
   const { categorySlug } = useParams<{ categorySlug: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -265,7 +267,9 @@ export default function ThreadListPage() {
         </div>
       )}
 
-      {/* Load More (cursor pagination) */}
+      {/* Load More (cursor pagination). Honest remaining count from the board's
+          topic_count when known; a bare label otherwise, never a fake "0 left"
+          (audit M30 — the service used to hardcode meta.count to 0). */}
       {nextCursor && (
         <div className="mt-8 text-center">
           <Button
@@ -275,7 +279,12 @@ export default function ThreadListPage() {
             disabled={loadingMore}
             className="min-h-11"
           >
-            {loadingMore ? 'Loading...' : 'Load More'}
+            {loadingMore
+              ? 'Loading...'
+              : (() => {
+                  const remaining = Math.max(0, (category?.thread_count ?? 0) - threads.length);
+                  return remaining > 0 ? `Load More (${remaining} remaining)` : 'Load More';
+                })()}
           </Button>
         </div>
       )}

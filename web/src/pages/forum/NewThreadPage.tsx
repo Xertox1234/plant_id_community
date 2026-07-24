@@ -9,6 +9,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import PageMeta from '../../components/PageMeta';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
+import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
 import type { Category } from '@/types';
 
@@ -26,6 +27,7 @@ function isBlankHtml(html: string): boolean {
  * moderation notice and return to the board instead.
  */
 export default function NewThreadPage() {
+  useScrollToTop();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const categoryParam = searchParams.get('category');

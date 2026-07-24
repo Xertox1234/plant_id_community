@@ -4,6 +4,7 @@ import CategoryCard from '../../components/forum/CategoryCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import PageMeta from '../../components/PageMeta';
+import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
 import type { Category } from '@/types';
 
@@ -14,6 +15,7 @@ import type { Category } from '@/types';
  * Route: /forum
  */
 export default function CategoryListPage() {
+  useScrollToTop();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);

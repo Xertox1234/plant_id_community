@@ -135,7 +135,9 @@ export async function fetchThreads(
   const data = await authenticatedFetch<DrfPage<BackendTopicListItem>>(url);
   return {
     items: (data.results || []).map(mapTopicListItemToThread),
-    meta: { count: 0, next: data.next, previous: data.previous },
+    // Cursor pagination omits a total, so `count` is undefined here; pages that
+    // want a real total seed it from board.topic_count / thread.post_count (M30).
+    meta: { count: data.count ?? 0, next: data.next, previous: data.previous },
   };
 }
 
@@ -220,7 +222,9 @@ export async function fetchPosts(options: {
   const data = await authenticatedFetch<DrfPage<BackendPost>>(url);
   return {
     items: (data.results || []).map((p) => mapPostToPost(p, String(thread))),
-    meta: { count: 0, next: data.next, previous: data.previous },
+    // Cursor pagination omits a total, so `count` is undefined here; pages that
+    // want a real total seed it from board.topic_count / thread.post_count (M30).
+    meta: { count: data.count ?? 0, next: data.next, previous: data.previous },
   };
 }
 

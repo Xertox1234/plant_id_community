@@ -23,6 +23,7 @@ import Button from '../../components/ui/Button';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
+import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
 import PageMeta from '../../components/PageMeta';
 import type { Thread, Post } from '@/types';
@@ -62,6 +63,7 @@ export default function ThreadDetailPage() {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
   const announce = useAnnounce();
+  useScrollToTop();
 
   // The route param is a hybrid "id-slug"; lookups use the leading topic id.
   const topicId = parseLeadingId(threadSlug);
