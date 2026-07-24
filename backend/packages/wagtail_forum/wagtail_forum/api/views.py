@@ -460,9 +460,21 @@ class PostListView(generics.ListAPIView):
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         objects = page if page is not None else queryset
+        # Per-page batched map of the CURRENT user's reactions (M23) so the
+        # serializer's `reacted` field costs zero per-post queries — one query
+        # for the whole page, like build_forum_image_map. Authed-only: an
+        # anonymous list issues no reaction query, so its pin stays 3.
+        reacted_map = None
+        if request.user.is_authenticated:
+            reacted_map = {}
+            for post_id, rtype in Reaction.objects.filter(
+                post__in=objects, user=request.user
+            ).values_list("post_id", "reaction_type"):
+                reacted_map.setdefault(post_id, []).append(rtype)
         context = {
             **self.get_serializer_context(),
             "forum_image_map": build_forum_image_map(objects),
+            "forum_reacted_map": reacted_map,
         }
         serializer = self.get_serializer(objects, many=True, context=context)
         if page is not None:
@@ -715,8 +727,10 @@ class ReactionToggleView(APIView):
         request=ReactionSerializer,
         responses={200: dict, 400: dict, 404: dict},
         description=(
-            "Toggle a reaction. The response includes `reacted` (the resulting "
-            "state for this user). With an Idempotency-Key header a retry "
+            "Toggle a reaction. The response's `reacted` is a BOOLEAN — the "
+            "resulting state of THIS reaction type for this user (distinct from "
+            "a post payload's `reacted`, which is the string[] of all the user's "
+            "active types on that post). With an Idempotency-Key header a retry "
             "replays the original result instead of toggling back."
         ),
     )

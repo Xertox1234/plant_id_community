@@ -263,8 +263,17 @@ export default function ThreadDetailPage() {
   const handleReact = useCallback(async (postId: string, reactionType: string) => {
     try {
       const result = await toggleReaction(postId, reactionType);
+      // Carry the toggle's `reacted` into the post's reacted set (M23) so the
+      // button's pressed state flips immediately — previously dropped.
       setPosts((prev) =>
-        prev.map((p) => (p.id === postId ? { ...p, reaction_counts: result.reaction_counts } : p))
+        prev.map((p) => {
+          if (p.id !== postId) return p;
+          const prevReacted = p.reacted ?? [];
+          const reacted = result.reacted
+            ? [...new Set([...prevReacted, reactionType])]
+            : prevReacted.filter((t) => t !== reactionType);
+          return { ...p, reaction_counts: result.reaction_counts, reacted };
+        })
       );
     } catch (err) {
       logger.error('Error toggling reaction', {

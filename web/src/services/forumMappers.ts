@@ -73,6 +73,7 @@ export interface BackendPost {
   is_opening_post: boolean;
   status: 'live' | 'pending';
   reaction_counts: Record<string, number>;
+  reacted?: string[];
   can_edit: boolean;
   can_delete: boolean;
   can_report: boolean;
@@ -198,6 +199,7 @@ export function mapPostToPost(p: BackendPost, threadId: string): Post {
     is_first_post: p.is_opening_post,
     is_active: p.status === 'live',
     reaction_counts: p.reaction_counts ?? {},
+    reacted: p.reacted ?? [],
     can_edit: p.can_edit,
     can_delete: p.can_delete,
     can_report: p.can_report,

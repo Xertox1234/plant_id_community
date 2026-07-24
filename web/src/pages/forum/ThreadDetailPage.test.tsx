@@ -585,6 +585,33 @@ describe('ThreadDetailPage', () => {
 
     await waitFor(() => expect(screen.getByLabelText('React like')).toHaveTextContent('1'));
     expect(forumService.toggleReaction).toHaveBeenCalledWith('5', 'like');
+    // M23: the toggle's `reacted: true` flips the button's pressed state (was
+    // previously dropped, so the button never showed as reacted).
+    expect(screen.getByLabelText('React like')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('un-reacting removes the type and flips aria-pressed back to false (M23)', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      // Starts reacted (pressed), count 2 (others reacted too).
+      items: [createMockPost({ id: '5', reaction_counts: { like: 2 }, reacted: ['like'] })],
+      meta: { count: 0, next: null, previous: null },
+    });
+    vi.spyOn(forumService, 'toggleReaction').mockResolvedValue({
+      reaction_counts: { like: 1 },
+      reacted: false, // the un-react branch of handleReact's ternary
+    });
+
+    renderThreadDetailPage();
+
+    const likeBtn = await screen.findByRole('button', { name: 'React like' });
+    expect(likeBtn).toHaveAttribute('aria-pressed', 'true');
+
+    await userEvent.click(likeBtn);
+
+    // Count drops to 1 (others still reacted) and the user's pressed state clears.
+    await waitFor(() => expect(screen.getByLabelText('React like')).toHaveTextContent('1'));
+    expect(screen.getByLabelText('React like')).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('reports a post and shows a confirmation', async () => {

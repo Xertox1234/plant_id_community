@@ -335,6 +335,7 @@ class PostSerializer(serializers.ModelSerializer):
     topic_id = serializers.IntegerField(read_only=True)
     edited_at = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
+    reacted = serializers.SerializerMethodField()
     can_edit = serializers.SerializerMethodField()
     can_delete = serializers.SerializerMethodField()
     can_report = serializers.SerializerMethodField()
@@ -352,6 +353,7 @@ class PostSerializer(serializers.ModelSerializer):
             "is_opening_post",
             "status",
             "reaction_counts",
+            "reacted",
             "can_edit",
             "can_delete",
             "can_report",
@@ -376,6 +378,40 @@ class PostSerializer(serializers.ModelSerializer):
     @extend_schema_field(OpenApiTypes.STR)
     def get_status(self, obj):
         return "live" if obj.live else "pending"
+
+    @extend_schema_field(
+        {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": [choice[0] for choice in Reaction.REACTION_CHOICES],
+            },
+        }
+    )
+    def get_reacted(self, obj):
+        # Which reaction types the CURRENT user has active on this post (M23) —
+        # `[]` for anonymous. On the list endpoint this reads a per-page batched
+        # map from context (forum_reacted_map, built once in PostListView.list),
+        # so it costs zero per-post queries and the authed list pin stays flat
+        # under N posts. Single-post responses (edit/reply-create) carry no map
+        # and fall back to ONE O(1) query — deliberately, so the edit response's
+        # reacted state is correct and a replace-the-post client update
+        # (ThreadDetailPage.handleEditSubmit) can't clobber it.
+        # NB for future callers: any NEW many=True PostSerializer usage over an
+        # authed request MUST seed `forum_reacted_map` in context (like
+        # build_forum_image_map) — otherwise this fallback fires per row and
+        # reintroduces the N+1 the batched map exists to prevent.
+        user = self._request_user()
+        if user is None or not user.is_authenticated:
+            return []
+        reacted_map = self.context.get("forum_reacted_map")
+        if reacted_map is not None:
+            return reacted_map.get(obj.id, [])
+        return list(
+            Reaction.objects.filter(post=obj, user=user).values_list(
+                "reaction_type", flat=True
+            )
+        )
 
     def _request_user(self):
         request = self.context.get("request")

@@ -223,6 +223,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
         is_opening_post: true,
         status: 'live',
         reaction_counts: { like: 3 },
+        reacted: ['like'],
         can_edit: true,
         can_delete: false,
         can_report: true,
@@ -235,6 +236,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       is_first_post: true,
       is_active: true,
       reaction_counts: { like: 3 },
+      reacted: ['like'],
       can_edit: true,
       can_delete: false,
       can_report: true,
@@ -291,6 +293,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       '12'
     );
     expect(p.is_active).toBe(false);
+    expect(p.reacted).toEqual([]); // absent in payload → defaults to []
   });
 
   // -------------------------------------------------------------------------

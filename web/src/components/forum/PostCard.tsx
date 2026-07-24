@@ -205,20 +205,31 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
 
       {(onReact || nonZeroReactions.length > 0) && (
         <div className="flex flex-wrap items-center gap-2 pt-4 border-t border-line">
-          {nonZeroReactions.map((type) => (
-            <button
-              key={type}
-              type="button"
-              onClick={onReact ? () => onReact(post.id, type) : undefined}
-              disabled={!onReact}
-              className="inline-flex items-center gap-1 min-h-11 px-3 py-1 bg-surface-2 hover:bg-surface-3 rounded-full text-sm transition-colors disabled:cursor-default disabled:hover:bg-surface-2"
-              aria-label={onReact ? `React ${type}` : `${post.reaction_counts?.[type]} ${type}`}
-              title={onReact ? `React ${type}` : type}
-            >
-              <span>{getReactionEmoji(type)}</span>
-              <span className="font-medium">{post.reaction_counts?.[type]}</span>
-            </button>
-          ))}
+          {nonZeroReactions.map((type) => {
+            // Whether the CURRENT user has this reaction active (M23). Only
+            // meaningful on the interactive (authed) buttons; the anon display
+            // buttons omit aria-pressed (they aren't toggles).
+            const isReacted = !!post.reacted?.includes(type);
+            return (
+              <button
+                key={type}
+                type="button"
+                onClick={onReact ? () => onReact(post.id, type) : undefined}
+                disabled={!onReact}
+                aria-pressed={onReact ? isReacted : undefined}
+                className={`inline-flex items-center gap-1 min-h-11 px-3 py-1 rounded-full text-sm transition-colors disabled:cursor-default ${
+                  isReacted
+                    ? 'bg-primary/10 text-primary ring-1 ring-primary/40'
+                    : 'bg-surface-2 hover:bg-surface-3 disabled:hover:bg-surface-2'
+                }`}
+                aria-label={onReact ? `React ${type}` : `${post.reaction_counts?.[type]} ${type}`}
+                title={onReact ? `React ${type}` : type}
+              >
+                <span aria-hidden="true">{getReactionEmoji(type)}</span>
+                <span className="font-medium">{post.reaction_counts?.[type]}</span>
+              </button>
+            );
+          })}
           {onReact && !showReactionPicker && (
             <button
               type="button"
@@ -227,7 +238,7 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
               aria-label="Add reaction"
               title="Add reaction"
             >
-              +🙂
+              <span aria-hidden="true">+🙂</span>
             </button>
           )}
           {onReact &&
@@ -240,11 +251,12 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
                   onReact(post.id, type);
                   setShowReactionPicker(false);
                 }}
+                aria-pressed={false}
                 className="inline-flex items-center min-h-11 px-3 py-1 bg-surface-2 hover:bg-surface-3 rounded-full text-sm transition-colors"
                 aria-label={`React ${type}`}
                 title={`React ${type}`}
               >
-                {getReactionEmoji(type)}
+                <span aria-hidden="true">{getReactionEmoji(type)}</span>
               </button>
             ))}
         </div>

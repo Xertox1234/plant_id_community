@@ -1419,3 +1419,38 @@ Two things make it hold:
 - **Gate on the FK column (`profile.avatar_id`) before touching the related object (`profile.avatar`)** — `avatar_id` is already loaded on the joined row, so the common no-avatar case never issues the avatar SELECT.
 
 **Caveat**: a `refresh_from_db()` (e.g. `submit_edit_for_moderation` on a post edit) discards the `select_related`-joined instance, so a single-object serialize AFTER a refresh reloads the graph lazily — that path's pin reflects the lazy SELECTs, not the join. Document the count at the assertion site. See the forum unified author contract (`docs/patterns/domain/forum.md`); live in `wagtail_forum/api/{serializers,views,notifications}.py`.
+
+## Pattern 31: Per-request-user field on a `many=True` serializer → batch into context, and guard the read with `is not None`
+
+**Problem**: A list serializer needs a field whose value depends on the REQUESTING USER, not just the row — e.g. "which reaction types has *this user* reacted with on this post" (`PostSerializer.reacted`). It can't come from `select_related` (it's not a row attribute; it's a join keyed on the current user). The naive `SerializerMethodField` that queries per row is a per-user N+1 that only bites authenticated requests, so anonymous pin tests never catch it.
+
+**Fix**: build the whole page's per-user data in ONE query in the view's `list()` and inject it via serializer context — exactly like `build_forum_image_map`. The field method reads the map, never the DB (on the list path).
+
+```python
+# view.list(): one query for the whole page, AUTHED-ONLY so anon pins don't move
+reacted_map = None
+if request.user.is_authenticated:
+    reacted_map = {}
+    for post_id, rtype in Reaction.objects.filter(
+        post__in=objects, user=request.user            # `objects` = the materialized page
+    ).values_list("post_id", "reaction_type"):
+        reacted_map.setdefault(post_id, []).append(rtype)
+context = {..., "forum_reacted_map": reacted_map}
+
+# serializer field:
+def get_reacted(self, obj):
+    user = self._request_user()
+    if user is None or not user.is_authenticated:
+        return []                                       # anon: no query, no map read
+    reacted_map = self.context.get("forum_reacted_map")
+    if reacted_map is not None:                         # NOT `if reacted_map:`  ← the landmine
+        return reacted_map.get(obj.id, [])
+    return list(Reaction.objects.filter(post=obj, user=user)
+                .values_list("reaction_type", flat=True))  # single-object fallback (edit/reply)
+```
+
+Three load-bearing details:
+
+- **Guard the map read with `is not None`, NEVER truthiness.** An authenticated user with zero rows produces an empty dict `{}` — falsy but not `None`. `if reacted_map:` routes *every* row to the per-object fallback and silently reintroduces the N+1. Pin an authed test where the user has NO rows (empty map) and assert the count is the batched number, not `base + N` (in the forum this is the owner-affordance pin at 4, not 3+20).
+- **`post__in=objects` does not re-run the page query** as long as `objects` is the already-materialized page list (DRF `paginate_queryset` returns `list(qs[:page_size])`). Passing a *lazy* queryset there would make it a correlated subquery — use the paginated list.
+- **The single-object fallback is correct but load-bearing**: it keeps edit/reply-create responses (no batched map) accurate so a replace-the-post client update can't clobber the field. BUT any NEW `many=True` caller that forgets to seed the context map silently hits the per-row fallback — document the "seed the map" contract on the field (like this section). Authed list pins move (e.g. +1 for the batched query, +2 for `has_perm` cache-fill on non-author viewers); explain each shift in-comment. Lives in `wagtail_forum/api/{serializers,views}.py` (`forum_reacted_map`, todo 257 slice C / M23).
