@@ -179,7 +179,13 @@ class TopicListSerializer(serializers.ModelSerializer):
     @extend_schema_field(AUTHOR_SCHEMA)
     def get_last_post_author(self, obj):
         # Secondary "last activity by" pointer: the object when a last poster is
-        # known, else null (no posts yet, or the last poster's account is gone).
+        # known, else null. Unlike `author` (the topic creator, which gets the
+        # [deleted] sentinel when SET_NULL'd — M41), a null here is deliberately
+        # NOT the sentinel: the denormalized fields can't tell "no live posts"
+        # (last_post_author_id None, last_post_at Coalesced to created_at) apart
+        # from "last poster's account gone" (also last_post_author_id None) —
+        # signals.py sets both the same way. Distinguishing them needs a live-post
+        # existence query, which would break the flat list pin (AC: pins unchanged).
         if obj.last_post_author_id is None:
             return None
         return serialize_forum_author(obj.last_post_author, self.context.get("request"))
@@ -219,6 +225,8 @@ class TopicDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(AUTHOR_SCHEMA)
     def get_last_post_author(self, obj):
+        # Null (not the [deleted] sentinel) when unknown — see the list
+        # serializer's get_last_post_author for the denorm/pin rationale.
         if obj.last_post_author_id is None:
             return None
         return serialize_forum_author(obj.last_post_author, self.context.get("request"))

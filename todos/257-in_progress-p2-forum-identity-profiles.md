@@ -75,15 +75,19 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `web` = `w
 
 ## Acceptance Criteria
 
-- [ ] One author object shape across topic list/detail and post payloads; one
+- [x] One author object shape across topic list/detail and post payloads; one
       deleted-author convention; web mappers drop the `as unknown as ForumAuthor`
       casts for author identity (overlaps todo 258 M28 — whichever lands first)
-- [ ] Avatar settable via `/me/profile` and rendered on posts
+      (slice A, 2026-07-24: `serialize_forum_author` everywhere incl. notif actor;
+      `[deleted]` sentinel OBJECT; `mapAuthor` cast-free)
+- [x] Avatar settable via `/me/profile` and rendered on posts (slice A: IDOR-scoped
+      `avatar_id` write + absolute-URL read; `<img>` on PostCard)
 - [ ] Clicking an author opens a public profile page (profile + recent activity)
 - [ ] Reacted state visible with `aria-pressed`; reaction counts visible
       logged-out
 - [ ] Trust level renders as a styled badge
-- [ ] List query pins unchanged or new counts explained in-comment
+- [x] List query pins unchanged or new counts explained in-comment (slice A: pins
+      flat via select_related avatar JOINs; edit-delete 70 comment refreshed)
 
 ## Work Log
 
@@ -105,6 +109,32 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `web` = `w
   Order: **A** author-contract unification (H26+M41+avatar) → **C** PostCard UX
   cluster (M23+L1+L5+L14) → **B** public profile endpoint + page (H7 remainder).
 - Slice A branch: `forum-257a-author-contract`.
+
+### 2026-07-24 - Slice A COMPLETE (author-contract unification, H26+M41+avatar)
+
+- Backend: one `serialize_forum_author(user, request)` helper backs every topic,
+  post, AND notification-actor payload → `{username, display_name, avatar, trust_level}`;
+  single `[deleted]` sentinel OBJECT (M41); `PostAuthorSerializer` deleted.
+- Avatar: read = absolute URL; write = `avatar_id` (write-only), IDOR-scoped to
+  caller-uploaded forum-collection images (mirrors `api/sanitize.py`); `<img>` on PostCard.
+- Web: new `ForumAuthor` type unifies `Thread.author`+`Post.author`; `mapAuthor` drops
+  the `as unknown as` casts; `NotificationActor` gains avatar.
+- **Decisions (advisor-vetted, review PASS 0 findings):**
+  1. Notification actor folded into the unified helper (its `@extend_schema_field`
+     already promised avatar) — full contract consistency.
+  2. Avatar = raw `.file.url` (full-size original), NOT a rendition — deliberate:
+     a `get_rendition` adds a per-author SELECT that breaks the flat list pin. Inline
+     body images still use renditions; avatars trade fidelity for pin-flatness.
+  3. `last_post_author` → `null` (not the sentinel) for a deleted last-poster: the
+     denorm can't tell "no posts" from "poster gone" without a pin-breaking query
+     (AC: pins unchanged). Primary M41 target (`author`) uses the sentinel. Documented
+     in `get_last_post_author`.
+  4. Mobile-safe: `plant_community_mobile` forum screen uses hardcoded mock strings,
+     not API author parsing (Wave 3 unstarted) — the string→object change breaks nothing.
+- Verify: backend 324+2 pass (`--create-db`), `spectacular` exit 0; web `type-check`
+  clean, `vitest run` 656 pass. code-review-orchestrator: PASS, 0 findings.
+- Commits on branch: `2ed4b28` (impl) + review-response (last_post_author docs+tests).
+- NEXT: codify → PR → merge slice A; then slice C off fresh main, then slice B.
 
 ## Notes
 
