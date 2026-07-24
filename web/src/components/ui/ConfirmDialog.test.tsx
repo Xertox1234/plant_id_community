@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { useState } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ConfirmDialog from './ConfirmDialog';
@@ -39,5 +40,35 @@ describe('ConfirmDialog', () => {
 
     await userEvent.keyboard('{Escape}');
     expect(onCancel).toHaveBeenCalledTimes(2);
+  });
+
+  it('focuses the confirm button on open and returns focus to the trigger on close', async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Open</button>
+          <ConfirmDialog
+            open={open}
+            title="Delete?"
+            message="Sure?"
+            confirmLabel="Delete"
+            onConfirm={() => setOpen(false)}
+            onCancel={() => setOpen(false)}
+          />
+        </>
+      );
+    }
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: 'Open' });
+    trigger.focus();
+
+    await userEvent.click(trigger);
+    // Focus moves into the dialog (confirm button), not left on the trigger.
+    expect(screen.getByRole('button', { name: 'Delete' })).toHaveFocus();
+
+    await userEvent.keyboard('{Escape}');
+    // ...and returns to the trigger when the dialog closes (WCAG 2.4.3).
+    expect(trigger).toHaveFocus();
   });
 });
