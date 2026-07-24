@@ -36,3 +36,8 @@ export function threadPath(
 export function postAnchor(postId: number | string): string {
   return `#post-${postId}`;
 }
+
+/** Public forum profile page for a username (todo 257 H7). */
+export function userProfilePath(username: string): string {
+  return `/forum/users/${encodeURIComponent(username)}`;
+}

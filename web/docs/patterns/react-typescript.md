@@ -322,3 +322,30 @@ export default function PageMeta({ title, description, og }: PageMetaProps) {
   prerender.
 - **OG url**: build from `window.location.origin + window.location.pathname`
   (drops query/hash) — the SPA is client-only, so no SSR guard is needed.
+
+## Router: No Nested Anchors, and Route Matching Is Score-Based (todo 257 slice B)
+
+Two React-Router gotchas hit while adding forum author-profile links + a route.
+
+**1. Never nest an interactive `<Link>` inside a card-level `<Link>`.** `ThreadCard`
+wraps the *entire card* in `<Link to={threadUrl} className="block">`. Adding an
+author `<Link>` inside it produced **nested `<a>` tags — invalid HTML**; the browser
+auto-closes the outer anchor at the inner one, and a `getByRole('link')` test fails
+with "Found multiple elements with the role link". Put per-element links only where
+the container is *not* itself a link: `PostCard` and the thread-header author name
+are fine (their containers are plain `<div>`s); a card-list item whose whole card
+already navigates is not — leave its inner text plain.
+
+**2. React Router v6/v7 route matching is SCORE-BASED, not declaration-order.** A
+static path segment outranks a dynamic one (`users` beats `:categorySlug`), so
+`/forum/users/:username` always outscores `/forum/:categorySlug/:threadSlug` for a
+3-segment URL — **reordering the `<Route>`s does NOT change this.** A bare
+`/forum/users/:x` route can therefore permanently shadow a sibling
+two-dynamic-segment route. Mitigations, in order:
+
+- Keep colliding URLs structurally distinct. Here the collision is only theoretical
+  because board/thread URLs are always ID-prefixed (`categoryPath` →
+  `/forum/{id}-{slug}/...`), so no real thread URL is ever `/forum/users/<x>`.
+  Document that invariant at the route.
+- If a genuine literal collision is possible, use a distinct prefix
+  (`/forum/u/:username`) or reserve the slug — not route reordering.

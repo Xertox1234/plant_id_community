@@ -1,6 +1,9 @@
 import { memo, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import StreamFieldRenderer from '../StreamFieldRenderer';
+import { userProfilePath } from '../../utils/forumUrls';
+import { DELETED_AUTHOR_USERNAME, TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
 import type { Post } from '@/types';
 
 interface PostCardProps {
@@ -10,15 +13,6 @@ interface PostCardProps {
   onReact?: (postId: string, reactionType: string) => void;
   onReport?: (postId: string, reason: string) => Promise<void>;
 }
-
-// Forum trust levels mirror the backend ForumProfile.TrustLevel enum (0–4).
-const TRUST_LEVEL_LABELS: Record<number, string> = {
-  0: 'New',
-  1: 'Basic',
-  2: 'Member',
-  3: 'Regular',
-  4: 'Leader',
-};
 
 // The four reaction types the backend supports.
 const REACTION_TYPES = ['like', 'love', 'helpful', 'thanks'] as const;
@@ -62,6 +56,10 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
   const [copiedLink, setCopiedLink] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const nonZeroReactions = REACTION_TYPES.filter((t) => (post.reaction_counts?.[t] ?? 0) > 0);
+  // Author name + avatar link to the public profile (todo 257 H7) — but a
+  // deleted author ([deleted] sentinel) has no profile, so render plain.
+  const authorHref =
+    post.author.username === DELETED_AUTHOR_USERNAME ? null : userProfilePath(post.author.username);
 
   const handleCopyLink = async () => {
     const url = `${window.location.origin}${window.location.pathname}#post-${post.id}`;
@@ -128,9 +126,18 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
 
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-ink">
-                {post.author.display_name || post.author.username}
-              </span>
+              {authorHref ? (
+                <Link
+                  to={authorHref}
+                  className="font-semibold text-ink hover:text-primary hover:underline"
+                >
+                  {post.author.display_name || post.author.username}
+                </Link>
+              ) : (
+                <span className="font-semibold text-ink">
+                  {post.author.display_name || post.author.username}
+                </span>
+              )}
 
               {typeof post.author.trust_level === 'number' && post.author.trust_level >= 1 && (
                 <span className="px-2 py-0.5 bg-sky/10 text-ink text-xs rounded">

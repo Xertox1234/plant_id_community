@@ -11,7 +11,8 @@ import {
   subscribeToTopic,
   unsubscribeFromTopic,
 } from '../../services/forumService';
-import { parseLeadingId } from '../../utils/forumUrls';
+import { parseLeadingId, userProfilePath } from '../../utils/forumUrls';
+import { DELETED_AUTHOR_USERNAME } from '../../utils/forumAuthor';
 import { bodyBlocksToHtml } from '../../utils/forumBody';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import PostCard from '../../components/forum/PostCard';
@@ -457,9 +458,18 @@ export default function ThreadDetailPage() {
             <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-sm text-ink-3">
               <span>
                 by{' '}
-                <strong className="text-ink-2">
-                  {thread.author.display_name || thread.author.username}
-                </strong>
+                {thread.author.username === DELETED_AUTHOR_USERNAME ? (
+                  <strong className="text-ink-2">
+                    {thread.author.display_name || thread.author.username}
+                  </strong>
+                ) : (
+                  <Link
+                    to={userProfilePath(thread.author.username)}
+                    className="font-bold text-ink-2 hover:text-primary hover:underline"
+                  >
+                    {thread.author.display_name || thread.author.username}
+                  </Link>
+                )}
               </span>
               <span>•</span>
               <span>💬 {totalPosts} replies</span>

@@ -39,3 +39,11 @@ Compact checklist auto-injected before edits. Long-form:
   argument ONCE, so all n slots share one object (duplicate React keys, cross-item
   mutation, warning noise that buries real warnings). Use
   `Array.from({ length: n }, (_, i) => makeThing({ id: i }))`.
+- **Never nest an interactive `<Link>`/`<a>` inside a card-level `<Link>`** — a
+  nested `<a>` is invalid HTML (the browser auto-closes the outer anchor) and
+  `getByRole('link')` breaks with "found multiple". Add per-element links only where
+  the container isn't itself a link. See `web/docs/patterns/react-typescript.md`.
+- **React Router route matching is score-based, not declaration-order** — a static
+  segment outranks a dynamic one, so `/forum/users/:x` can shadow `/forum/:a/:b`
+  regardless of `<Route>` order; reordering does NOT fix it (use a distinct prefix
+  or keep URLs structurally distinct).

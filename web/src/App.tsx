@@ -19,6 +19,7 @@ const ThreadListPage = lazy(() => import('./pages/forum/ThreadListPage'));
 const ThreadDetailPage = lazy(() => import('./pages/forum/ThreadDetailPage'));
 const NewThreadPage = lazy(() => import('./pages/forum/NewThreadPage'));
 const SearchPage = lazy(() => import('./pages/forum/SearchPage'));
+const UserProfilePage = lazy(() => import('./pages/forum/UserProfilePage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const MyPlantsPage = lazy(() => import('./pages/MyPlantsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
@@ -58,6 +59,11 @@ function App() {
           <Route path="/blog/:slug" element={<BlogDetailPage />} />
           <Route path="/blog/preview/:content_type/:token" element={<BlogPreview />} />
           <Route path="/forum/search" element={<SearchPage />} />
+          {/* Safe against /forum/:categorySlug/:threadSlug despite React Router's
+              static>dynamic ranking: board/thread URLs are always ID-prefixed
+              (categoryPath => /forum/{id}-{slug}/...), so no real URL is ever
+              /forum/users/<x> except this profile route. */}
+          <Route path="/forum/users/:username" element={<UserProfilePage />} />
           <Route path="/forum" element={<CategoryListPage />} />
           <Route path="/forum/:categorySlug" element={<ThreadListPage />} />
           <Route path="/forum/:categorySlug/:threadSlug" element={<ThreadDetailPage />} />

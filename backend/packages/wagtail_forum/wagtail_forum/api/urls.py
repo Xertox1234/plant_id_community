@@ -14,6 +14,7 @@ from .views import (
     PostListView,
     PostReportView,
     PostWriteView,
+    PublicProfileView,
     ReactionToggleView,
     SearchView,
     SyncView,
@@ -49,6 +50,13 @@ urlpatterns = [
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
     path("users/search/", UserMentionSearchView.as_view(), name="user-mention-search"),
+    # MUST come after users/search/ — the literal path wins over <str:username>
+    # so "search" isn't captured as a username (Django resolves in order).
+    path(
+        "users/<str:username>/",
+        PublicProfileView.as_view(),
+        name="user-profile",
+    ),
     path("notifications/", NotificationListView.as_view(), name="notification-list"),
     path(
         "notifications/unread-count/",

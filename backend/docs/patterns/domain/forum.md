@@ -146,6 +146,30 @@ deleted last-poster: the denormalized Topic fields can't tell "no posts yet" fro
 "last poster's account gone" without a live-post existence query that would break
 the pin. See `docs/LEARNINGS.md` 2026-07-24.
 
+## Public read-only profile endpoint (todo 257 H7)
+
+`GET /forum/users/<username>/` (`PublicProfileView`, `AllowAny`) returns a user's
+public identity + recent activity. Four load-bearing rules:
+
+- **Read the profile via `getattr(user, "wagtail_forum_profile", None)`, NEVER
+  `ForumProfile.for_user()`** — `for_user` get-or-CREATEs, so a public endpoint
+  hitting it for an arbitrary username would write a row per probe. A
+  real-but-profileless user serializes to defaults (like `serialize_forum_author`);
+  only a **missing OR inactive** user 404s (`get_object_or_404(..., is_active=True)`).
+- **Never expose `fcm_token` (a credential) or `flags_received` (a
+  moderation-proximity signal, audit L12)** — build the response dict field-by-field,
+  don't dump the model. Pin a `..._never_leaks_...` test.
+- **Build recent-activity as lightweight dicts, NOT `PostSerializer` /
+  `TopicListSerializer`.** The heavy serializers would recompute `reacted` for the
+  *profile user* (meaningless — it's the viewer's state that matters) and re-trigger
+  the body/author N+1s. Lightweight dicts keep the pin at ~4 (user+profile+avatar
+  join, the `.public()` restriction lookup, one topics query, one posts query — the
+  `board__in=_visible_boards()` subqueries inline). Filter recent activity by
+  `_visible_boards()` + `live=True` (+ `topic__live=True` for posts) and pin BOTH the
+  `live=False` and the restricted-board (PageViewRestriction) exclusions.
+- **Single-source identity via `serialize_forum_author(user, request)`** then spread
+  in bio/signature/post_count/joined_at — same absolute-URL avatar as posts.
+
 ## LLM spam backend (optional, host-side — todo 255 slice 2 / H13)
 
 The package ships one spam check (`HeuristicSpamBackend`: banned words + link

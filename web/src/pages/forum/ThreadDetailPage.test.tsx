@@ -136,6 +136,11 @@ describe('ThreadDetailPage', () => {
     });
 
     expect(screen.getByText(/Master Gardener/i)).toBeInTheDocument();
+    // The header author name links to their public profile (todo 257 H7).
+    expect(screen.getByRole('link', { name: 'Master Gardener' })).toHaveAttribute(
+      'href',
+      '/forum/users/gardener'
+    );
     expect(screen.getByText(/150 views/i)).toBeInTheDocument();
     // H9: descriptive title + shareable OG tags (React 19 metadata).
     expect(document.title).toContain('How to water succulents?');

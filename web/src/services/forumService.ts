@@ -36,6 +36,7 @@ import type {
   SearchForumOptions,
   SearchForumResponse,
   ReactionToggleResult,
+  ForumUserProfile,
 } from '../types/forum';
 import { slugifyTitle } from '../utils/forumUrls';
 import { htmlToBodyBlocks } from '../utils/forumBody';
@@ -185,6 +186,13 @@ export interface ForumUserSearchResult {
 export async function searchForumUsers(query: string): Promise<ForumUserSearchResult[]> {
   return authenticatedFetch<ForumUserSearchResult[]>(
     `${FORUM_BASE}/users/search/?q=${encodeURIComponent(query)}`
+  );
+}
+
+/** Fetch a user's public forum profile + recent activity (todo 257 H7). */
+export async function fetchUserProfile(username: string): Promise<ForumUserProfile> {
+  return authenticatedFetch<ForumUserProfile>(
+    `${FORUM_BASE}/users/${encodeURIComponent(username)}/`
   );
 }
 

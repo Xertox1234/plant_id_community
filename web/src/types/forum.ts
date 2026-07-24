@@ -258,3 +258,34 @@ export interface ReactionToggleResult {
   /** Whether the current user now has this reaction active on the post. */
   reacted: boolean;
 }
+
+/** A public forum profile (GET /forum/users/{username}/, todo 257 H7). */
+export interface ForumUserProfile {
+  username: string;
+  display_name: string;
+  avatar: string | null;
+  trust_level: number | null;
+  bio: string;
+  signature: string;
+  /** Lifetime denormalized post count — not the length of recent_posts. */
+  post_count: number;
+  joined_at: string | null;
+  recent_topics: {
+    id: number;
+    slug: string;
+    title: string;
+    board_id: number;
+    board_slug: string;
+    reply_count: number;
+    created_at: string;
+  }[];
+  recent_posts: {
+    id: number;
+    topic_id: number;
+    topic_slug: string;
+    topic_title: string;
+    board_id: number;
+    board_slug: string;
+    created_at: string;
+  }[];
+}
