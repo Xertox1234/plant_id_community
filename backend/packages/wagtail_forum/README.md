@@ -21,3 +21,46 @@ The package ships no throttling by design — auth and rate limits are the host'
 responsibility. Wrap the API views (see `apps/forum_host/api.py` in the
 reference host: `method_decorator(ratelimit(...))` subclasses mounted in place
 of `wagtail_forum.api.urls`, with a route-parity test against this package).
+
+## Error envelope
+
+Every API error path raises a DRF `APIException` (never a hand-built
+`Response({"detail": ...})`), so all errors flow through one exception handler
+and share a single envelope:
+
+```json
+{
+  "error": true,
+  "message": "Idempotency-Key was already used with a different payload.",
+  "code": "unprocessable",
+  "status_code": 422,
+  "errors": {"body": ["This field is required."]}
+}
+```
+
+`errors` carries field-level validation errors, or `{"detail": "<message>"}` for
+a non-field error; it is absent when the exception has no detail. Register the
+shipped reference handler so a mounted host gets this contract instead of bare
+DRF responses:
+
+```python
+REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": (
+        "wagtail_forum.api.exception_handler.forum_exception_handler"
+    ),
+}
+```
+
+A host may substitute its own compatible handler — the plant_id reference host
+uses `apps.core.exceptions.custom_exception_handler`, which emits the identical
+core envelope plus an optional `request_id` and a 429 branch for its rate
+limiter.
+
+## Idempotency
+
+Every unsafe write (`topic`/`reply`/`image` create, `post` edit, `reaction`
+toggle, `report`) honours an `Idempotency-Key` request header: a retry with the
+same key replays the original response (original status code) instead of
+repeating the side effect; reuse with a different body returns `422`; a same-key
+twin still in-flight returns `409`. Keys are scoped per (endpoint, user) and
+cached for 24h. See `api/idempotency.py`.

@@ -187,6 +187,10 @@ def test_reply_retry_with_idempotency_key_does_not_duplicate():
     assert r1.status_code == 201
     assert r2.status_code == 201  # replays the ORIGINAL status
     assert r2.data == r1.data
+    # L19 (258): the 201 carries a Location for the created post, and the replay
+    # carries the SAME Location (the replay path was dropping headers).
+    assert r1["Location"].endswith(f"/forum/posts/{r1.data['id']}/")
+    assert r2["Location"] == r1["Location"]
     assert Post.objects.filter(topic=topic, is_opening_post=False).count() == 1
 
 

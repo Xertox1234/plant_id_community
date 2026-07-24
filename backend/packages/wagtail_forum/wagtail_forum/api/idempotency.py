@@ -50,10 +50,12 @@ def replay(cache_key):
     return cache.get(cache_key) if cache_key else None
 
 
-def remember(cache_key, data, status, payload_fingerprint):
+def remember(cache_key, data, status, payload_fingerprint, headers=None):
+    """Cache an idempotent outcome. ``headers`` (e.g. a 201's Location) are
+    stored so a replay is response-faithful, not just body-faithful (audit L19:
+    a retried create must carry the same Location as the original)."""
     if cache_key:
-        cache.set(
-            cache_key,
-            {"data": data, "status": status, "fingerprint": payload_fingerprint},
-            IDEMPOTENCY_TTL,
-        )
+        entry = {"data": data, "status": status, "fingerprint": payload_fingerprint}
+        if headers:
+            entry["headers"] = headers
+        cache.set(cache_key, entry, IDEMPOTENCY_TTL)
