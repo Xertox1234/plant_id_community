@@ -505,12 +505,21 @@ export default function ThreadDetailPage() {
         </div>
       </div>
 
-      {/* Write-path notice (errors + moderation outcomes) */}
-      {notice && (
-        <div className="mb-6 rounded-lg border border-line bg-surface-2 px-4 py-3 text-ink-2">
-          {notice}
-        </div>
-      )}
+      {/* Write-path notice (errors + moderation outcomes). Persistent live
+          region: the container is always mounted so swapping its text is read
+          out by a screen reader — a conditionally-mounted `role` node generally
+          is NOT announced (audit M26/AC1). Visually collapsed when empty. */}
+      <div
+        aria-live="polite"
+        aria-atomic="true"
+        className={
+          notice
+            ? 'mb-6 rounded-lg border border-line bg-surface-2 px-4 py-3 text-ink-2'
+            : 'sr-only'
+        }
+      >
+        {notice}
+      </div>
 
       {/* Posts List */}
       <div className="space-y-4 mb-8">

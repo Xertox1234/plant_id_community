@@ -1,7 +1,7 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { formatDistanceToNow } from 'date-fns';
 import StreamFieldRenderer from '../StreamFieldRenderer';
+import Timestamp from '../ui/Timestamp';
 import { userProfilePath } from '../../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME, TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
 import { REACTION_TYPES } from '../../utils/forumReactions';
@@ -88,15 +88,6 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
     }
   };
 
-  // Memoize formatted date
-  const formattedDate = useMemo(() => {
-    try {
-      return formatDistanceToNow(new Date(post.created_at), { addSuffix: true });
-    } catch {
-      return 'recently';
-    }
-  }, [post.created_at]);
-
   return (
     <div
       className={`
@@ -152,13 +143,13 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
             </div>
 
             <div className="text-sm text-ink-3">
-              <span title={new Date(post.created_at).toLocaleString()}>{formattedDate}</span>
+              <Timestamp iso={post.created_at} prefix="Posted" />
 
               {post.edited_at && (
                 <>
                   <span className="mx-1">•</span>
                   <span className="italic">
-                    Edited {formatDistanceToNow(new Date(post.edited_at), { addSuffix: true })}
+                    Edited <Timestamp iso={post.edited_at} />
                     {post.edited_by &&
                       ` by ${post.edited_by.display_name || post.edited_by.username}`}
                   </span>

@@ -7,6 +7,7 @@ import ThreadDetailPage from './ThreadDetailPage';
 import { createMockThread, createMockPost } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
 import { useAuth } from '../../contexts/AuthContext';
+import { AnnouncerProvider } from '../../contexts/AnnouncerContext';
 import { logger } from '../../utils/logger';
 
 vi.mock('react-router-dom', async () => {
@@ -43,7 +44,9 @@ vi.mock('../../components/forum/TipTapEditor', () => ({
 function renderThreadDetailPage(categorySlug = 'plant-care', threadSlug = 'watering-tips') {
   return render(
     <MemoryRouter initialEntries={[`/forum/${categorySlug}/${threadSlug}`]}>
-      <ThreadDetailPage />
+      <AnnouncerProvider>
+        <ThreadDetailPage />
+      </AnnouncerProvider>
     </MemoryRouter>
   );
 }
@@ -411,7 +414,9 @@ describe('ThreadDetailPage', () => {
     });
     rerender(
       <MemoryRouter initialEntries={['/forum/plant-care/34-different-thread']}>
-        <ThreadDetailPage />
+        <AnnouncerProvider>
+          <ThreadDetailPage />
+        </AnnouncerProvider>
       </MemoryRouter>
     );
 
@@ -447,7 +452,9 @@ describe('ThreadDetailPage', () => {
     });
     rerender(
       <MemoryRouter initialEntries={['/forum/plant-care/34-different-thread']}>
-        <ThreadDetailPage />
+        <AnnouncerProvider>
+          <ThreadDetailPage />
+        </AnnouncerProvider>
       </MemoryRouter>
     );
     await waitFor(() => expect(fetchThreadSpy).toHaveBeenCalledWith(34));
@@ -782,7 +789,9 @@ describe('ThreadDetailPage', () => {
 
     render(
       <MemoryRouter initialEntries={['/forum/3-plant-care/12-watering-tips#post-21']}>
-        <ThreadDetailPage />
+        <AnnouncerProvider>
+          <ThreadDetailPage />
+        </AnnouncerProvider>
       </MemoryRouter>
     );
 
@@ -806,7 +815,9 @@ describe('ThreadDetailPage', () => {
 
     render(
       <MemoryRouter initialEntries={['/forum/3-plant-care/12-watering-tips#post-21']}>
-        <ThreadDetailPage />
+        <AnnouncerProvider>
+          <ThreadDetailPage />
+        </AnnouncerProvider>
       </MemoryRouter>
     );
 
@@ -837,7 +848,9 @@ describe('ThreadDetailPage', () => {
 
     render(
       <MemoryRouter initialEntries={['/forum/3-plant-care/12-watering-tips#post-5']}>
-        <ThreadDetailPage />
+        <AnnouncerProvider>
+          <ThreadDetailPage />
+        </AnnouncerProvider>
       </MemoryRouter>
     );
 

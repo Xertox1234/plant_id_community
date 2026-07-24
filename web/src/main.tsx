@@ -5,6 +5,7 @@ import { ErrorBoundary, FallbackProps } from 'react-error-boundary';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { RequestProvider } from './contexts/RequestContext';
+import { AnnouncerProvider } from './contexts/AnnouncerContext';
 import { ErrorFallback } from './components/ErrorBoundary';
 import { initSentry } from './config/sentry';
 import { logger, initLogger } from './utils/logger';
@@ -76,7 +77,9 @@ createRoot(document.getElementById('root')!).render(
         <BrowserRouter>
           <RequestProvider>
             <AuthProvider>
-              <App />
+              <AnnouncerProvider>
+                <App />
+              </AnnouncerProvider>
             </AuthProvider>
           </RequestProvider>
         </BrowserRouter>

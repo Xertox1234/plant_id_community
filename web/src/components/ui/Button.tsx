@@ -25,6 +25,12 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
   loading?: boolean;
+  /**
+   * Label shown in place of `children` while `loading` (e.g. "Posting…").
+   * A visible label swap is the most reliable "busy" signal for screen readers
+   * (audit 2026-07-11 L11); `aria-busy` is set alongside it either way.
+   */
+  loadingText?: ReactNode;
 }
 
 export default function Button({
@@ -32,6 +38,7 @@ export default function Button({
   variant = 'primary',
   size = 'md',
   loading = false,
+  loadingText,
   disabled = false,
   type = 'button',
   onClick,
@@ -67,6 +74,7 @@ export default function Button({
       type={type}
       onClick={onClick}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       className={combinedClassName}
       {...props}
     >
@@ -93,7 +101,7 @@ export default function Button({
           />
         </svg>
       )}
-      {children}
+      {loading && loadingText !== undefined ? loadingText : children}
     </button>
   );
 }
