@@ -16,6 +16,7 @@ import { DELETED_AUTHOR_USERNAME } from '../../utils/forumAuthor';
 import { bodyBlocksToHtml } from '../../utils/forumBody';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import PostCard from '../../components/forum/PostCard';
+import ForumErrorState from '../../components/forum/ForumErrorState';
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
@@ -66,6 +67,9 @@ export default function ThreadDetailPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by the error-state Retry to re-run the load effect (each run gets a
+  // fresh `ignore` guard, so a late response from a superseded run is dropped).
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Cursor pagination state
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -123,6 +127,10 @@ export default function ThreadDetailPage() {
     // its finally is thread-guarded, so clear the flag here for the new thread.
     setLoadingMore(false);
 
+    // react.dev race guard: a stale initial load (fast nav to another thread,
+    // unmount, or a Retry superseding an in-flight request) is dropped so
+    // thread A's content can't render under thread B's URL (audit M22).
+    let ignore = false;
     const loadData = async () => {
       if (topicId == null) {
         setError('Invalid thread URL');
@@ -139,12 +147,14 @@ export default function ThreadDetailPage() {
           fetchPosts({ thread: topicId }),
         ])) as [Thread, PaginatedResponse<Post>];
 
+        if (ignore) return;
         setThread(threadData);
         setPosts(postsData.items);
-        // meta.count is hardcoded 0 by the service; seed from thread.post_count instead
+        // meta.count is 0 for cursor pages (no total); seed from thread.post_count.
         setTotalPosts(threadData.post_count ?? 0);
         setNextCursor(postsData.meta.next ?? null);
       } catch (err) {
+        if (ignore) return;
         logger.error('Error loading thread data', {
           component: 'ThreadDetailPage',
           error: err,
@@ -152,12 +162,15 @@ export default function ThreadDetailPage() {
         });
         setError(err instanceof Error ? err.message : 'Failed to load thread');
       } finally {
-        setLoading(false);
+        if (!ignore) setLoading(false);
       }
     };
 
     loadData();
-  }, [topicId, threadSlug, categorySlug]);
+    return () => {
+      ignore = true;
+    };
+  }, [topicId, threadSlug, categorySlug, reloadKey]);
 
   // Load more posts (cursor pagination)
   const handleLoadMore = useCallback(async () => {
@@ -402,9 +415,10 @@ export default function ThreadDetailPage() {
   if (error || !thread) {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-error/10 border border-error/30 text-ink px-4 py-3 rounded">
-          <strong>Error:</strong> {error || 'Thread not found'}
-        </div>
+        <ForumErrorState
+          message={error || 'Thread not found'}
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
       </div>
     );
   }

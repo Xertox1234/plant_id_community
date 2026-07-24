@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import CategoryListPage from './CategoryListPage';
 import { createMockCategory } from '../../tests/forumUtils';
@@ -102,6 +103,24 @@ describe('CategoryListPage', () => {
     });
 
     expect(screen.getByText(errorMessage)).toBeInTheDocument();
+  });
+
+  it('recovers via Retry after a failed load (audit H18)', async () => {
+    const fetchSpy = vi
+      .spyOn(forumService, 'fetchCategoryTree')
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValueOnce([createMockCategory({ id: 'cat-1', name: 'Plant Care' })]);
+
+    renderCategoryListPage();
+
+    // First load fails → error panel with a Retry button.
+    const retry = await screen.findByRole('button', { name: /retry/i });
+    // Retry re-runs the fetch; the second attempt succeeds and renders content.
+    await userEvent.click(retry);
+
+    await waitFor(() => expect(screen.getByText('Plant Care')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it('shows empty state when no categories exist', async () => {

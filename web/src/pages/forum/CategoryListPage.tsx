@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { fetchCategoryTree } from '../../services/forumService';
 import CategoryCard from '../../components/forum/CategoryCard';
+import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import PageMeta from '../../components/PageMeta';
 import { logger } from '../../utils/logger';
@@ -16,28 +17,38 @@ export default function CategoryListPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  // Bumping this re-runs the load effect — drives both the initial fetch and
+  // the error-state Retry, each run getting its own `ignore` cleanup flag.
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    // react.dev's prescribed race guard: a stale response (unmount, or a retry
+    // superseding an in-flight request) is dropped instead of setting state.
+    let ignore = false;
     const loadCategories = async () => {
       try {
         setLoading(true);
         setError(null);
 
         const data = await fetchCategoryTree();
-        setCategories(data);
+        if (!ignore) setCategories(data);
       } catch (err) {
+        if (ignore) return;
         logger.error('Error loading forum categories', {
           component: 'CategoryListPage',
           error: err,
         });
         setError(err instanceof Error ? err.message : 'Failed to load categories');
       } finally {
-        setLoading(false);
+        if (!ignore) setLoading(false);
       }
     };
 
     loadCategories();
-  }, []);
+    return () => {
+      ignore = true;
+    };
+  }, [reloadKey]);
 
   if (loading) {
     return (
@@ -50,9 +61,11 @@ export default function CategoryListPage() {
   if (error) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-error/10 border border-error/30 text-ink px-4 py-3 rounded">
-          <strong>Error loading categories:</strong> {error}
-        </div>
+        <ForumErrorState
+          title="Error loading categories"
+          message={error}
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
       </div>
     );
   }

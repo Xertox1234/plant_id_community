@@ -3,6 +3,7 @@ import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom'
 import { fetchThreads, fetchCategory } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
 import ThreadCard from '../../components/forum/ThreadCard';
+import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import PageMeta from '../../components/PageMeta';
@@ -26,6 +27,9 @@ export default function ThreadListPage() {
   const [error, setError] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
+  // Bumped by the error-state Retry to re-run the load effect (the effect's
+  // own loadGenRef already drops stale responses — M22 was handled here).
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Sort is URL-driven AND passed to the backend (fetchThreads → ?sort=). The
   // search box redirects to the dedicated /forum/search page (handleSearch), so
@@ -92,7 +96,7 @@ export default function ThreadListPage() {
     };
 
     loadData();
-  }, [categorySlug, ordering]);
+  }, [categorySlug, ordering, reloadKey]);
 
   // The board page has no in-place search. Submitting redirects to the global
   // /forum/search page, pre-filtered to this board — real full-text search lives
@@ -165,9 +169,7 @@ export default function ThreadListPage() {
   if (error && !category) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-error/10 border border-error/30 text-ink px-4 py-3 rounded">
-          <strong>Error:</strong> {error}
-        </div>
+        <ForumErrorState message={error} onRetry={() => setReloadKey((k) => k + 1)} />
       </div>
     );
   }

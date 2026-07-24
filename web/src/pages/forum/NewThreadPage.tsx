@@ -4,6 +4,7 @@ import { createThread, fetchCategory } from '../../services/forumService';
 import { parseLeadingId, threadPath, categoryPath } from '../../utils/forumUrls';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import TipTapEditor from '../../components/forum/TipTapEditor';
+import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import PageMeta from '../../components/PageMeta';
@@ -43,8 +44,14 @@ export default function NewThreadPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumping this re-runs the board load — drives the initial fetch and the
+  // error-state Retry; each run gets its own `ignore` cleanup flag.
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    // react.dev race guard: drop a stale response (unmount, or a retry/param
+    // change superseding an in-flight request) instead of setting state.
+    let ignore = false;
     const load = async () => {
       const forumId = parseLeadingId(categoryParam ?? undefined);
       if (forumId == null) {
@@ -55,8 +62,10 @@ export default function NewThreadPage() {
       try {
         setLoading(true);
         setError(null);
-        setCategory(await fetchCategory(forumId));
+        const cat = await fetchCategory(forumId);
+        if (!ignore) setCategory(cat);
       } catch (err) {
+        if (ignore) return;
         logger.error('Error loading board for new thread', {
           component: 'NewThreadPage',
           error: err,
@@ -64,11 +73,14 @@ export default function NewThreadPage() {
         });
         setError(err instanceof Error ? err.message : 'Failed to load board');
       } finally {
-        setLoading(false);
+        if (!ignore) setLoading(false);
       }
     };
     load();
-  }, [categoryParam]);
+    return () => {
+      ignore = true;
+    };
+  }, [categoryParam, reloadKey]);
 
   // Persist the draft on every change; an all-empty draft is removed.
   useEffect(() => {
@@ -123,9 +135,7 @@ export default function NewThreadPage() {
   if (error && !category) {
     return (
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-error/10 border border-error/30 text-ink px-4 py-3 rounded">
-          <strong>Error:</strong> {error}
-        </div>
+        <ForumErrorState message={error} onRetry={() => setReloadKey((k) => k + 1)} />
       </div>
     );
   }
