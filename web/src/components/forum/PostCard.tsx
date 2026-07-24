@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import StreamFieldRenderer from '../StreamFieldRenderer';
 import { userProfilePath } from '../../utils/forumUrls';
+import { DELETED_AUTHOR_USERNAME, TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
 import type { Post } from '@/types';
 
 interface PostCardProps {
@@ -12,15 +13,6 @@ interface PostCardProps {
   onReact?: (postId: string, reactionType: string) => void;
   onReport?: (postId: string, reason: string) => Promise<void>;
 }
-
-// Forum trust levels mirror the backend ForumProfile.TrustLevel enum (0–4).
-const TRUST_LEVEL_LABELS: Record<number, string> = {
-  0: 'New',
-  1: 'Basic',
-  2: 'Member',
-  3: 'Regular',
-  4: 'Leader',
-};
 
 // The four reaction types the backend supports.
 const REACTION_TYPES = ['like', 'love', 'helpful', 'thanks'] as const;
@@ -67,7 +59,7 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
   // Author name + avatar link to the public profile (todo 257 H7) — but a
   // deleted author ([deleted] sentinel) has no profile, so render plain.
   const authorHref =
-    post.author.username === '[deleted]' ? null : userProfilePath(post.author.username);
+    post.author.username === DELETED_AUTHOR_USERNAME ? null : userProfilePath(post.author.username);
 
   const handleCopyLink = async () => {
     const url = `${window.location.origin}${window.location.pathname}#post-${post.id}`;

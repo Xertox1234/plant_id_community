@@ -1,5 +1,6 @@
 import type { StreamFieldBlock } from '../types/blog';
 import type { Category, Thread, Post, ForumAuthor } from '../types/forum';
+import { DELETED_AUTHOR_USERNAME } from '../utils/forumAuthor';
 
 // ---------------------------------------------------------------------------
 // Backend shapes — wagtail_forum API contract
@@ -113,7 +114,12 @@ export interface BackendSearchPost {
  */
 function mapAuthor(a: BackendAuthor | null): ForumAuthor {
   if (!a) {
-    return { username: '[deleted]', display_name: '[deleted]', avatar: null, trust_level: null };
+    return {
+      username: DELETED_AUTHOR_USERNAME,
+      display_name: DELETED_AUTHOR_USERNAME,
+      avatar: null,
+      trust_level: null,
+    };
   }
   return {
     username: a.username,

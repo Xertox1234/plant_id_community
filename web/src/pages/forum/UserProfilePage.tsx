@@ -3,16 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { fetchUserProfile } from '../../services/forumService';
 import { threadPath, postAnchor } from '../../utils/forumUrls';
+import { TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
 import type { ForumUserProfile } from '../../types/forum';
-
-// Mirrors the backend ForumProfile.TrustLevel enum (0–4); shared shape with PostCard.
-const TRUST_LEVEL_LABELS: Record<number, string> = {
-  0: 'New',
-  1: 'Basic',
-  2: 'Member',
-  3: 'Regular',
-  4: 'Leader',
-};
 
 function relative(iso: string): string {
   try {
@@ -31,6 +23,17 @@ export default function UserProfilePage() {
   const [profile, setProfile] = useState<ForumUserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Reset synchronously when the :username param changes (e.g. clicking another
+  // author while already on a profile page) so the previous user's profile
+  // doesn't flash under the new URL for a frame before the effect refetches.
+  const [renderedFor, setRenderedFor] = useState(username);
+  if (renderedFor !== username) {
+    setRenderedFor(username);
+    setProfile(null);
+    setLoading(true);
+    setError(null);
+  }
 
   useEffect(() => {
     let active = true;
@@ -102,7 +105,10 @@ export default function UserProfilePage() {
         </div>
       </header>
 
-      {profile.bio && <p className="mb-6 text-ink break-words">{profile.bio}</p>}
+      {profile.bio && <p className="mb-2 text-ink break-words">{profile.bio}</p>}
+      {profile.signature && (
+        <p className="mb-6 text-sm text-ink-3 italic break-words">{profile.signature}</p>
+      )}
 
       {/* Recent topics */}
       <section className="mb-6">

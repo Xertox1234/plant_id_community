@@ -86,6 +86,9 @@ function ThreadCard({ thread, compact = false, hideAuthor = false }: ThreadCardP
           {/* Author — omitted for search results where no real author data exists */}
           {!hideAuthor && (
             <>
+              {/* The whole card is already a <Link> to the thread, so the author
+                  name stays plain text here — a nested <a> is invalid HTML. The
+                  clickable author link lives on PostCard + the thread header. */}
               <span className="font-medium text-ink-2">
                 {thread.author.display_name || thread.author.username}
               </span>

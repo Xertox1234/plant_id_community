@@ -894,7 +894,6 @@ class PublicProfileView(APIView):
 
     permission_classes = [AllowAny]
     versioning_class = None
-    filter_backends = []  # host filter-backend opt-out — see BoardListView
     RECENT_LIMIT = 10
 
     @extend_schema(
