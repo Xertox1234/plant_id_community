@@ -82,3 +82,8 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   (topic `author`/`last_post_author`, post `author`, notification `actor`) so the
   shape and the `[deleted]` sentinel OBJECT stay identical; `select_related` the
   full `author__wagtail_forum_profile__avatar` chain to keep list pins flat.
+- **A new route in `wagtail_forum/api/urls.py` MUST also be mounted in
+  `apps/forum_host/api_urls.py`** (throttled wrapper for a write view, or straight
+  from the package for a GET-only view) — `test_host_api_routes_match_package`
+  enforces route parity. Verifying with the package tests alone MISSES it; run
+  `pytest apps/forum_host packages/wagtail_forum` before pushing a new forum route.
