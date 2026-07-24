@@ -508,6 +508,9 @@ describe('PostCard', () => {
     expect(screen.getByText('2')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /add reaction/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /react love/i })).not.toBeInTheDocument();
+    // The read-only count button is not a toggle → aria-pressed is omitted
+    // entirely (not "false"), so a screen reader doesn't announce it as pressable.
+    expect(screen.getByRole('button', { name: '2 like' })).not.toHaveAttribute('aria-pressed');
   });
 
   it('hides zero counts at rest and expands the picker on demand', () => {

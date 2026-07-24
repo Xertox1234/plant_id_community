@@ -727,8 +727,10 @@ class ReactionToggleView(APIView):
         request=ReactionSerializer,
         responses={200: dict, 400: dict, 404: dict},
         description=(
-            "Toggle a reaction. The response includes `reacted` (the resulting "
-            "state for this user). With an Idempotency-Key header a retry "
+            "Toggle a reaction. The response's `reacted` is a BOOLEAN — the "
+            "resulting state of THIS reaction type for this user (distinct from "
+            "a post payload's `reacted`, which is the string[] of all the user's "
+            "active types on that post). With an Idempotency-Key header a retry "
             "replays the original result instead of toggling back."
         ),
     )

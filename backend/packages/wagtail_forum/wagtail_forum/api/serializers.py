@@ -379,7 +379,15 @@ class PostSerializer(serializers.ModelSerializer):
     def get_status(self, obj):
         return "live" if obj.live else "pending"
 
-    @extend_schema_field({"type": "array", "items": {"type": "string"}})
+    @extend_schema_field(
+        {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": [choice[0] for choice in Reaction.REACTION_CHOICES],
+            },
+        }
+    )
     def get_reacted(self, obj):
         # Which reaction types the CURRENT user has active on this post (M23) —
         # `[]` for anonymous. On the list endpoint this reads a per-page batched
@@ -389,6 +397,10 @@ class PostSerializer(serializers.ModelSerializer):
         # and fall back to ONE O(1) query — deliberately, so the edit response's
         # reacted state is correct and a replace-the-post client update
         # (ThreadDetailPage.handleEditSubmit) can't clobber it.
+        # NB for future callers: any NEW many=True PostSerializer usage over an
+        # authed request MUST seed `forum_reacted_map` in context (like
+        # build_forum_image_map) — otherwise this fallback fires per row and
+        # reintroduces the N+1 the batched map exists to prevent.
         user = self._request_user()
         if user is None or not user.is_authenticated:
             return []
