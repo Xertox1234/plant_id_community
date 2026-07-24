@@ -58,3 +58,15 @@ Compact checklist auto-injected before edits. Long-form:
   pinned-first lists) and 500 via dotted serializer sources
   (`?ordering=author__get_username` → `FieldError`). List order is a package
   contract, not client-selectable (audit 2026-07-11 Phase 6 R1).
+- **An idempotent endpoint's replay must re-attach response headers, not just
+  body + status.** A retried create that returns a `Location` drops it on replay
+  unless the idempotency cache stores headers too — persist them
+  (`remember(..., headers={"Location": ...})`) and re-apply them in the replay
+  helper, or the replayed 201 silently differs from the original (todo 258 M35/L19).
+- **Never hardcode a URL namespace in `reverse()` inside a reusable/mountable
+  package.** `reverse("wagtail_forum_api:topic-detail", …)` 500s
+  (`NoReverseMatch`) when the package is a bare root urlconf (no namespace) or
+  nested under a host namespace (`v1:wagtail_forum_api`) — `app_name` only makes a
+  namespace when `include()`d. Resolve within the live request instead:
+  `ns = request.resolver_match.namespace; reverse(f"{ns}:name" if ns else "name", …)`
+  (see `_created_location`, todo 258 L19).

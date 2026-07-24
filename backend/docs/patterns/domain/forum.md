@@ -198,3 +198,45 @@ wall-clock timeout (`SPAM_LLM_TIMEOUT_SECONDS`, a `ThreadPoolExecutor` +
 Definitive `CLEAN`/`SPAM` verdicts are cached in Redis by
 `sha256(text)` + prompt version; transient failures are never cached. All
 tunables live in `apps/forum_host/constants.py` (`SPAM_LLM_*`).
+
+## Idempotency contract on new write surfaces (todo 258)
+
+The reusable idempotency helpers (`api/idempotency.py` — `idempotency_cache_key`,
+`fingerprint`, `reserve`, `remember`, `_replay_or_none`) apply to any unsafe write
+in the same 6 steps: extract key → fingerprint → replay-or-none (409 in-flight /
+422 payload-mismatch) → validate → `reserve()` right before the mutation →
+`remember()` after. The package README's "Idempotency" section is authoritative;
+three non-obvious points learned wiring PATCH + image upload:
+
+- **Multipart uploads fingerprint on a CONTENT hash, not the request body.**
+  `request.data` holds the `UploadedFile`, not JSON, so name+size can collide.
+  `fingerprint({"name": …, "sha256": hashlib.sha256(file.read()).hexdigest()})`,
+  with `file.seek(0)` BEFORE hashing (validation may have consumed the stream) AND
+  after (so `.create()` stores the full file).
+- **A replay must be response-faithful, not just body-faithful.** A 201 with a
+  `Location` header must replay WITH that header — `remember(..., headers={…})`
+  persists it and `_replay_or_none` re-applies it. See `docs/rules/api.md` +
+  `docs/LEARNINGS.md` 2026-07-24.
+- **`Location` reverse is namespace-agnostic** (`_created_location`): resolve
+  within `request.resolver_match.namespace`, never a hardcoded `app_name` — the
+  package mounts under a bare root OR a nested host namespace.
+
+## Reference error-envelope handler ships in the package (audit M39)
+
+`api/exception_handler.py::forum_exception_handler` produces the consistent
+envelope (`{error, message, code, status_code, errors?}`) so a host that mounts
+the package gets it by default instead of bare DRF `{"detail": …}`. The package
+cannot import host code, so it DUPLICATES the host's envelope logic
+(`apps/core/exceptions.py`) rather than sharing it — the two are byte-compatible
+and interchangeable. Package tests run under the host settings, so the enveloped
+shape can be pinned directly (`tests/api/test_error_envelope.py` +
+`test_topic_create.py::test_oversized_body_is_rejected`).
+
+## Cross-boundary drift guard when there is no codegen (audit L16)
+
+There is no OpenAPI→TS codegen, so a shared literal that must match on both sides
+(the web `REACTION_TYPES` vs backend `Reaction.REACTION_CHOICES`) is single-sourced
+per-side and guarded by a **backend test that reads the committed web file** and
+asserts equality (`apps/forum_host/tests/test_reaction_contract.py`). Honest
+framing: a drift GUARD (fails CI if either side changes alone), not true
+single-sourcing.

@@ -655,5 +655,21 @@
     "source": "codify: chore/complete-todo-255",
     "added": "2026-07-22",
     "severity": "warn"
+  },
+  {
+    "id": "forum-reverse-hardcoded-namespace",
+    "domains": [
+      "api",
+      "forum"
+    ],
+    "path_glob": [
+      "backend/packages/wagtail_forum/**/*.py"
+    ],
+    "content_present": "reverse\\(['\"]wagtail_forum_api:",
+    "message": "Hardcoded URL namespace in reverse() — a mountable package must resolve within request.resolver_match.namespace (see _created_location), else NoReverseMatch 500 under the nested/root host mount.",
+    "pattern_ref": "backend/docs/patterns/domain/forum.md",
+    "source": "codify: docs/codify-forum-258",
+    "added": "2026-07-24",
+    "severity": "warn"
   }
 ]
