@@ -1669,3 +1669,33 @@ reserved for the `author` field where the distinction is unambiguous. Lesson: a
 "consistent representation everywhere" AC can collide with a "pins unchanged" AC
 when a field is denormalized — pick the pin, and document the field that can't
 carry the finer distinction rather than adding a query to force it.
+
+## 2026-07-24 — Idempotency-replay + package-`reverse()` gotchas (todo 258, API)
+
+Two bugs surfaced during forum API contract hardening (todo 258), both caught by
+review/testing before merge:
+
+1. **An idempotent replay dropped the `Location` header.** Adding a `Location`
+   header to the 201 create responses (L19) worked for the FIRST request, but a
+   same-key retry returned a 201 with NO `Location`: `_replay_or_none` rebuilt the
+   response from the cached `{data, status, fingerprint}` only — headers were never
+   persisted, so the replay was not byte-identical to the original (which the IETF
+   idempotency-key draft requires). Root cause: `remember()` cached body + status
+   but not headers. Fix: `remember()` now stores an optional `headers` dict and the
+   replay helper re-applies it. Lesson: when you add a response header to an
+   idempotent endpoint, the idempotency cache must carry it too, or replays
+   silently differ from the original response.
+
+2. **A hardcoded URL namespace in `reverse()` 500'd under the host mount.** The
+   Location header used `reverse("wagtail_forum_api:topic-detail", …)`. It passed
+   under the package's flat test urlconf but raised `NoReverseMatch` under the real
+   project mount: the host re-declares the routes nested under `v1:wagtail_forum_api`,
+   and mounting the urlconf as a bare root has NO namespace at all (`app_name`
+   creates a namespace only when the module is `include()`d, not when it is the
+   ROOT_URLCONF). The forum-host throttle suite caught it (500 instead of 201 on
+   topic-create) — the package's own tests were green because they run under the
+   flat urlconf. Fix: a `_created_location` helper resolves the route within
+   `request.resolver_match.namespace` (falling back to no-namespace for a root
+   mount). Lesson: a package that can be mounted under arbitrary namespaces must
+   derive the namespace from the live request, never hardcode it — and a
+   package-only test suite will not catch it; run the host-mounted suite too.
