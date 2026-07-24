@@ -1,5 +1,6 @@
 import logging
 
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.db import IntegrityError, transaction
@@ -21,7 +22,11 @@ from rest_framework import generics
 from rest_framework import status as http_status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import (
+    AllowAny,
+    IsAuthenticated,
+    IsAuthenticatedOrReadOnly,
+)
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from wagtail.actions.unpublish import UnpublishAction
@@ -60,6 +65,7 @@ from .serializers import (
     TopicDetailSerializer,
     TopicListSerializer,
     build_forum_image_map,
+    serialize_forum_author,
     serialize_image_for_api,
 )
 from .upload_validation import validate_image_upload
@@ -827,6 +833,135 @@ class MeProfileView(generics.RetrieveUpdateAPIView):
         from ..models import ForumProfile
 
         return ForumProfile.for_user(self.request.user)
+
+
+PUBLIC_PROFILE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "username": {"type": "string"},
+        "display_name": {"type": "string"},
+        "avatar": {"type": "string", "nullable": True},
+        "trust_level": {"type": "integer", "nullable": True},
+        "bio": {"type": "string"},
+        "signature": {"type": "string"},
+        "post_count": {"type": "integer"},
+        "joined_at": {"type": "string", "format": "date-time", "nullable": True},
+        "recent_topics": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "integer"},
+                    "slug": {"type": "string"},
+                    "title": {"type": "string"},
+                    "board_slug": {"type": "string"},
+                    "reply_count": {"type": "integer"},
+                    "created_at": {"type": "string", "format": "date-time"},
+                },
+            },
+        },
+        "recent_posts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "integer"},
+                    "topic_id": {"type": "integer"},
+                    "topic_slug": {"type": "string"},
+                    "topic_title": {"type": "string"},
+                    "board_slug": {"type": "string"},
+                    "created_at": {"type": "string", "format": "date-time"},
+                },
+            },
+        },
+    },
+}
+
+
+class PublicProfileView(APIView):
+    """Public forum profile: identity + trust + recent activity, read-only.
+
+    Deliberately does NOT expose fcm_token (a credential) or flags_received (a
+    moderation-proximity signal, audit L12), and NEVER creates a ForumProfile
+    for an arbitrary username — a real-but-profileless user serializes to
+    defaults (like serialize_forum_author); only a missing/inactive user 404s.
+    Recent activity is built as lightweight dicts, NOT PostSerializer/
+    TopicListSerializer: those would recompute `reacted` for the profile user
+    (meaningless here) and re-trigger the body/author N+1s (todo 257 slice B).
+    """
+
+    permission_classes = [AllowAny]
+    versioning_class = None
+    filter_backends = []  # host filter-backend opt-out — see BoardListView
+    RECENT_LIMIT = 10
+
+    @extend_schema(
+        responses={200: PUBLIC_PROFILE_SCHEMA, 404: dict},
+        description=(
+            "Public forum profile for a username: display_name, avatar, "
+            "trust_level, bio, signature, lifetime post_count, and the user's "
+            "most recent live topics + replies (each bounded to 10, "
+            "visibility-filtered). 404 for a missing or inactive user. Never "
+            "exposes fcm_token or flags_received."
+        ),
+    )
+    def get(self, request, username):
+        User = get_user_model()
+        user = get_object_or_404(
+            User.objects.select_related("wagtail_forum_profile__avatar"),
+            username=username,
+            is_active=True,
+        )
+        profile = getattr(user, "wagtail_forum_profile", None)
+        boards = _visible_boards()
+        recent_topics = [
+            {
+                "id": t.id,
+                "slug": t.slug,
+                "title": t.title,
+                "board_slug": t.board.slug,
+                "reply_count": t.reply_count,
+                "created_at": t.created_at,
+            }
+            for t in (
+                Topic.objects.filter(author=user, live=True, board__in=boards)
+                .select_related("board")
+                .order_by("-created_at")[: self.RECENT_LIMIT]
+            )
+        ]
+        recent_posts = [
+            {
+                "id": p.id,
+                "topic_id": p.topic_id,
+                "topic_slug": p.topic.slug,
+                "topic_title": p.topic.title,
+                "board_slug": p.topic.board.slug,
+                "created_at": p.created_at,
+            }
+            for p in (
+                Post.objects.filter(
+                    author=user,
+                    live=True,
+                    is_opening_post=False,
+                    topic__live=True,
+                    topic__board__in=boards,
+                )
+                .select_related("topic", "topic__board")
+                .order_by("-created_at")[: self.RECENT_LIMIT]
+            )
+        ]
+        return Response(
+            {
+                # Single-sourced identity — same absolute-URL avatar as posts.
+                **serialize_forum_author(user, request),
+                "bio": profile.bio if profile else "",
+                "signature": profile.signature if profile else "",
+                "post_count": profile.post_count if profile else 0,
+                "joined_at": profile.joined_at if profile else None,
+                "recent_topics": recent_topics,
+                "recent_posts": recent_posts,
+            }
+        )
 
 
 def plain_text_excerpt(stream_value, limit: int) -> str:
