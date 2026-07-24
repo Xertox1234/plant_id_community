@@ -125,6 +125,33 @@ def test_public_profile_hides_non_live_activity():
 
 
 @pytest.mark.django_db
+def test_public_profile_hides_restricted_board_activity():
+    # The other half of recent-activity visibility (besides live=False): content
+    # on a board behind a Wagtail PageViewRestriction must not surface, since the
+    # endpoint is public. Guards the `board__in=_visible_boards()` filter.
+    from wagtail.models import PageViewRestriction
+
+    board = _board()
+    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    ada = User.objects.create_user(username="ada")
+    topic = Topic.objects.create(
+        board=board, title="Secret", slug="secret", author=ada, live=True
+    )
+    Post.objects.create(
+        topic=topic,
+        author=ada,
+        is_opening_post=False,
+        live=True,
+        body=[{"type": "paragraph", "value": "<p>hi</p>"}],
+    )
+
+    resp = APIClient().get("/forum/users/ada/")
+    assert resp.status_code == 200
+    assert resp.data["recent_topics"] == []  # restricted board → invisible
+    assert resp.data["recent_posts"] == []
+
+
+@pytest.mark.django_db
 def test_public_profile_search_route_is_not_shadowed():
     # The literal users/search/ must still resolve to the mention search, not to
     # PublicProfileView with username="search".
