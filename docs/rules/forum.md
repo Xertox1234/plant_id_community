@@ -62,3 +62,13 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   visibility trigger did not cover `apps/forum_host/`; a broadened trigger now
   does. Filter the SOURCE too (e.g. a vector-index queryset), not just the
   response — never embed/cache restricted content.
+- **Public crawl surfaces enforce board visibility too.** The forum
+  `sitemap.xml` + RSS feed (`apps/forum_host/{sitemaps,feeds}.py`, todo 256 H9)
+  are the widest-blast-radius surface — anonymous, cacheable, search-indexed —
+  so both filter topics through `board__in=_visible_boards()` (`.live().public()`)
+  and list only `ForumIndex.objects.live().public()` boards. `.public()` excludes
+  a restricted board AND every descendant of a restricted ancestor, so a
+  restriction on the `ForumIndex` hides the whole tree; a coverage test must
+  exercise the ancestor case, not just a directly-restricted board. Draft
+  (`live=False`) topics need their own exclusion test per surface — the sitemap's
+  and the feed's `live=True` guards are independent.

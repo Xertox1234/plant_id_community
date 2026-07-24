@@ -1617,3 +1617,35 @@ Secondary tooling snag: the `detect-secrets` pre-commit hook flags any
 `OPENAI_API_KEY="..."` string literal (keyword detector, value-agnostic) — in a
 TEST, assign the fake key to a named constant with a `# pragma: allowlist secret`
 line and stage the updated `.secrets.baseline`.
+
+## 2026-07-23 — Forum discovery/SEO (todo 256, H8+H9)
+
+**DRF cursor pagination with a client-selectable sort.** To let a `?sort=` param
+reorder a `CursorPagination` list, override `get_ordering(request, queryset, view)`
+on the paginator and map a **whitelisted** value to an ordering tuple (keep a
+unique tiebreak like `-id` last so the cursor stays deterministic; fall back to the
+default on an unknown value — never 500). The chosen sort **survives in the
+`next`/`previous` links** because DRF bakes the full request URL (incl. `?sort=`)
+into `base_url`. Pin it with a test that follows every cursor page and asserts the
+whole traversal stays ordered with no dupes/omissions — a single-page test misses
+the cross-page reversion. (`wagtail_forum/api/pagination.py`.)
+
+**A backend-served sitemap/RSS for an SPA on a separate origin must emit the
+FRONTEND canonical URLs, not the backend host.** The React app is on Cloudflare;
+Django on Railway serves `/forum/sitemap.xml`. Subclass `django.contrib.sitemaps.Sitemap`
+and override `get_domain()`/`get_protocol()` to build `<loc>` against
+`settings.SITE_URL` (the SPA origin) — the same base the reply-notification emails
+use (`tasks.py`), so a topic's canonical URL is byte-for-byte identical in email,
+sitemap, and feed. Read `SITE_URL` at **call time**, not a module-level global, or
+a test `@override_settings`/late config is silently ignored. Ops caveat: a sitemap
+that lists a different origin than it's served from needs a frontend `robots.txt`
+`Sitemap:` pointer or Search-Console cross-submission to actually be honored.
+
+**Review agents can leave a mutation-test edit in the working tree.** A reviewer
+verifying a test is non-vacuous mutated `board__in=_visible_boards()` →
+`ForumBoard.objects.live()` (dropping `.public()`) in `sitemaps.py`/`feeds.py` and
+did not revert it — an **uncommitted working-tree security regression**. The
+committed code + PR were correct; the danger is only a later `git add -A` staging
+it. Before any archival/bookkeeping `git add -A`, diff the reviewed source files
+and restore (`git checkout HEAD -- <file>`) any mutation left behind, then re-run
+the load-bearing test. (Same pattern seen earlier the same session on a test file.)
