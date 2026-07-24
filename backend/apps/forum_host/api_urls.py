@@ -14,7 +14,7 @@ from wagtail_forum.api.notifications import NotificationListView
 
 # GET-only views are mounted straight from the package (no throttle); views with
 # a throttled write handler come from the host wrappers in .api.
-from wagtail_forum.api.views import BoardListView, TopicDetailView
+from wagtail_forum.api.views import BoardListView, PublicProfileView, TopicDetailView
 
 from .api import (
     MeProfileView,
@@ -76,6 +76,9 @@ urlpatterns = [
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
     path("users/search/", UserMentionSearchView.as_view(), name="user-mention-search"),
+    # After users/search/ so the literal isn't captured as a username (mirrors
+    # the package). GET-only + AllowAny — mounted straight, no throttle wrapper.
+    path("users/<str:username>/", PublicProfileView.as_view(), name="user-profile"),
     path("notifications/", NotificationListView.as_view(), name="notification-list"),
     path(
         "notifications/unread-count/",
