@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "257"
 tags: [forum, profiles, product-ux, api]
@@ -82,7 +82,9 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `web` = `w
       `[deleted]` sentinel OBJECT; `mapAuthor` cast-free)
 - [x] Avatar settable via `/me/profile` and rendered on posts (slice A: IDOR-scoped
       `avatar_id` write + absolute-URL read; `<img>` on PostCard)
-- [ ] Clicking an author opens a public profile page (profile + recent activity)
+- [x] Clicking an author opens a public profile page (profile + recent activity)
+      (slice B: `GET /forum/users/{username}/` read-only endpoint + `UserProfilePage`;
+      author name links on PostCard + thread header)
 - [x] Reacted state visible with `aria-pressed`; reaction counts visible
       logged-out (slice C: M23 per-type `reacted` map on the post payload +
       `aria-pressed`; L1 anon counts already shipped in Wave 1 #473, test-proven)
@@ -168,6 +170,28 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `web` = `w
   no-leak), authed multi-post batched pin, single-object fallback value, PostCard aria-pressed
   - emoji aria-hidden, ThreadDetailPage toggle flips pressed state, mapper reacted default.
 - NEXT: review (orchestrator + advisor) → fix → codify → PR → merge; then slice B (H7).
+
+### 2026-07-24 - Slice B COMPLETE + EPIC CLOSED (H7 public profiles) — PR #492 (64d7d30)
+
+- Backend: `GET /forum/users/<username>/` (`PublicProfileView`, AllowAny, read-only) —
+  identity via `serialize_forum_author` + bio/signature/post_count/joined_at + 10 most
+  recent live topics/replies as lightweight dicts (NOT the heavy serializers). Never
+  leaks fcm_token/flags_received; getattr-not-`for_user()`; 404 missing/inactive vs
+  defaults for profileless; visibility-filtered; query pin=4 flat. Route mounted in BOTH
+  the package urls AND `apps/forum_host/api_urls.py` (route-parity CI catch — the host
+  mount was missed first pass; fixed + codified).
+- Web: `UserProfilePage` (`/forum/users/:username`); author name links on PostCard +
+  thread header (ThreadCard left plain — the whole card is already a `<Link>`, nested
+  `<a>` is invalid); shared `utils/forumAuthor` constants; stale-flash fix.
+- Review: 3 reviewers + advisor, all findings folded (route-collision was a false
+  positive — board URLs are ID-prefixed; restricted-board test added). Verified: backend
+  full forum suite (incl. apps/forum_host) + spectacular exit 0; web tsc + vitest green.
+- Codified: `react-typescript.md` (nested-anchor + RR score-based matching), `rules/react.md`,
+  `rules/forum.md` (host-route parity), `forum.md` (public read-only profile pattern).
+
+**EPIC 257 DONE — all 3 slices merged (A #490, C #491, B #492); all 7 findings resolved
+(H7, H26, M23, M41, L1, L5, L14). L5 = trust badge satisfied; fuller gamification deferred
+per the finding's own guidance.**
 
 ## Notes
 
