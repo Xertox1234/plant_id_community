@@ -183,7 +183,12 @@ describe('SearchPage', () => {
       const deletedThread = createMockThread({
         id: '1',
         title: 'Watering Guide',
-        author: { id: 0, email: '', username: '[deleted]', display_name: '[deleted]' },
+        author: {
+          username: '[deleted]',
+          display_name: '[deleted]',
+          avatar: null,
+          trust_level: null,
+        },
       });
       const mockResults = createMockSearchResults({
         query: 'watering',

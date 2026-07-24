@@ -21,6 +21,20 @@ export interface Category {
 }
 
 /**
+ * Forum author — the unified object every topic/post/notification-actor payload
+ * shares (backend serialize_forum_author, todo 257 H26/M41). A deleted author is
+ * the `[deleted]` sentinel object, never null. `trust_level` is the backend
+ * ForumProfile integer enum (0=New … 4=Leader) or null when the author has no
+ * profile; `avatar` is an absolute image URL or null.
+ */
+export interface ForumAuthor {
+  username: string;
+  display_name: string;
+  avatar: string | null;
+  trust_level: number | null;
+}
+
+/**
  * Forum thread
  */
 export interface Thread {
@@ -29,7 +43,7 @@ export interface Thread {
   slug: string;
   excerpt?: string;
   category: Category;
-  author: User;
+  author: ForumAuthor;
   created_at: string;
   updated_at?: string;
   last_activity_at: string;
@@ -48,12 +62,9 @@ export interface Thread {
 export interface Post {
   id: string;
   thread: string;
-  // Forum posts carry the backend ForumProfile trust level as an integer enum
-  // (0=New … 4=Leader), distinct from the auth User's string trust_level enum,
-  // so override (not intersect) trust_level to a number.
-  author: Omit<User, 'trust_level'> & {
-    trust_level?: number;
-  };
+  // Same unified ForumAuthor object as Thread.author (todo 257 H26): username,
+  // display_name, avatar, and the ForumProfile integer trust_level.
+  author: ForumAuthor;
   content_raw: string;
   content_html?: string;
   content_format?: string;

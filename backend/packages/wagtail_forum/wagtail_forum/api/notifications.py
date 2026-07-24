@@ -72,8 +72,12 @@ class NotificationListView(generics.ListAPIView):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return Notification.objects.none()
+        # Join the actor down to ForumProfile.avatar so the unified author
+        # object (todo 257 H26) serializes with zero per-row queries — the
+        # deepest path implies actor + actor__wagtail_forum_profile, so the
+        # list pin stays flat (test_notifications_api).
         return _visible_notifications(self.request.user).select_related(
-            "actor", "actor__wagtail_forum_profile", "topic__board"
+            "actor__wagtail_forum_profile__avatar", "topic__board"
         )
 
 

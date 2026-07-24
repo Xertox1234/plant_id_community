@@ -278,10 +278,21 @@ def test_post_list_author_carries_trust_level_and_display_name():
     # (which recomputes trust_level from post_count) has already run and won't
     # clobber these values. REGULAR (3) is unreachable from 1 post, proving the
     # serializer reads the stored profile, not a recomputed level.
+    from wagtail.images import get_image_model
+    from wagtail.images.tests.utils import get_test_image_file
+    from wagtail_forum.collections import get_forum_image_collection
+
+    avatar = get_image_model().objects.create(
+        title="ada-avatar",
+        file=get_test_image_file(),
+        collection=get_forum_image_collection(),
+        uploaded_by_user=author,
+    )
     profile = ForumProfile.for_user(author)
     profile.trust_level = TrustLevel.REGULAR  # 3
     profile.display_name = "Ada L."
-    profile.save(update_fields=["trust_level", "display_name"])
+    profile.avatar = avatar
+    profile.save(update_fields=["trust_level", "display_name", "avatar"])
 
     resp = APIClient().get(f"/forum/topics/{topic.id}/posts/")
     assert resp.status_code == 200
@@ -289,6 +300,10 @@ def test_post_list_author_carries_trust_level_and_display_name():
     assert got["username"] == "ada"
     assert got["display_name"] == "Ada L."
     assert got["trust_level"] == 3
+    # The avatar serializes as the ABSOLUTE image file URL (todo 257 slice A) —
+    # not just non-null, so the feature deliverable "avatar rendered on posts"
+    # is actually proven, not merely query-pinned.
+    assert got["avatar"] == f"http://testserver{avatar.file.url}"
 
 
 @pytest.mark.django_db
@@ -349,3 +364,4 @@ def test_post_list_author_without_profile_still_renders():
     assert results[0]["author"]["username"] == "ghost"
     assert results[0]["author"]["trust_level"] is None
     assert results[0]["author"]["display_name"] == "ghost"  # username fallback
+    assert results[0]["author"]["avatar"] is None  # no profile → no avatar

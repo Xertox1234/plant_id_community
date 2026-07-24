@@ -52,6 +52,58 @@ def test_topics_list_is_cursor_paginated_with_bounded_queries():
 
 
 @pytest.mark.django_db
+def test_topics_list_last_post_author_is_unified_object():
+    # H26: last_post_author used to be a bare username string; it now shares the
+    # unified author OBJECT (username, display_name, avatar, trust_level).
+    board = _board()
+    author = User.objects.create_user(username="starter")
+    last_poster = User.objects.create_user(username="replier")
+    profile = ForumProfile.for_user(last_poster)
+    profile.display_name = "Rep Lier"
+    profile.save(update_fields=["display_name"])
+    Topic.objects.create(
+        board=board,
+        title="T",
+        slug="t",
+        author=author,
+        live=True,
+        last_post_at=timezone.now(),
+        last_post_author=last_poster,
+    )
+
+    resp = APIClient().get(f"/forum/boards/{board.slug}/topics/")
+    assert resp.status_code == 200
+    assert resp.data["results"][0]["last_post_author"] == {
+        "username": "replier",
+        "display_name": "Rep Lier",
+        "avatar": None,
+        "trust_level": 0,
+    }
+
+
+@pytest.mark.django_db
+def test_topics_list_last_post_author_null_when_absent():
+    # No recorded last poster (last_post_author_id None) → null, deliberately NOT
+    # the [deleted] sentinel: the denorm can't tell "no posts" from "poster gone"
+    # without a pin-breaking query (see get_last_post_author's comment).
+    board = _board()
+    author = User.objects.create_user(username="starter")
+    Topic.objects.create(
+        board=board,
+        title="T",
+        slug="t",
+        author=author,
+        live=True,
+        last_post_at=timezone.now(),
+        last_post_author=None,
+    )
+
+    resp = APIClient().get(f"/forum/boards/{board.slug}/topics/")
+    assert resp.status_code == 200
+    assert resp.data["results"][0]["last_post_author"] is None
+
+
+@pytest.mark.django_db
 def test_pinned_topics_float_above_activity_ordering():
     # Audit 2026-07-11 H5: the cursor ordering ignored is_pinned, so a
     # moderator-pinned topic sank as normal activity accrued.

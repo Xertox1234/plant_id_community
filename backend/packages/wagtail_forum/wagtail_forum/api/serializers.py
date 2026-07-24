@@ -3,6 +3,7 @@ from wagtail.blocks import RichTextBlock
 from wagtail.images import get_image_model
 from wagtail.rich_text import expand_db_html
 
+from ..collections import get_forum_image_collection
 from ..models import (
     ForumBoard,
     ForumProfile,
@@ -42,9 +43,58 @@ AUTHOR_SCHEMA = {
     "properties": {
         "username": {"type": "string"},
         "display_name": {"type": "string"},
+        "avatar": {"type": "string", "nullable": True},
         "trust_level": {"type": "integer", "nullable": True},
     },
 }
+
+
+def _deleted_author():
+    """The single deleted-author convention (H26/M41): one `[deleted]` sentinel
+    OBJECT everywhere — topics used to send `null`, posts a partial sentinel."""
+    return {
+        "username": "[deleted]",
+        "display_name": "[deleted]",
+        "avatar": None,
+        "trust_level": None,
+    }
+
+
+def serialize_forum_author(user, request=None):
+    """Unified author object for EVERY topic + post payload (H26): `author`,
+    `last_post_author`, and a post's author all share this shape.
+
+    Reads `ForumProfile` via the reverse OneToOne (`wagtail_forum_profile`);
+    `getattr(..., None)` yields None (no query) for an author with no profile
+    row AND issues no query when the view select_related-joined the profile.
+    Avatar is the raw image file URL (absolute) — deliberately NOT a rendition,
+    so a select_related-joined avatar costs zero per-row queries and the list
+    query-count pins stay flat (todo 257 slice A / H7).
+    """
+    if user is None:
+        return _deleted_author()
+    profile = getattr(user, "wagtail_forum_profile", None)
+    display_name = (
+        (profile.display_name if profile and profile.display_name else None)
+        or user.get_full_name()
+        or user.get_username()
+    )
+    avatar = None
+    # `avatar_id` (the FK column) is already loaded — gate on it so we never
+    # touch `.avatar` (a query if NOT select_related-joined) for the common
+    # no-avatar case.
+    if profile and profile.avatar_id and profile.avatar:
+        avatar = profile.avatar.file.url
+        if request is not None:
+            avatar = request.build_absolute_uri(avatar)
+    return {
+        "username": user.get_username(),
+        "display_name": display_name,
+        "avatar": avatar,
+        "trust_level": profile.trust_level if profile else None,
+    }
+
+
 BOARD_SCHEMA = {
     "type": "object",
     "properties": {
@@ -93,10 +143,8 @@ class BoardSerializer(serializers.ModelSerializer):
 
 
 class TopicListSerializer(serializers.ModelSerializer):
-    author = serializers.CharField(source="author.get_username", default=None)
-    last_post_author = serializers.CharField(
-        source="last_post_author.get_username", default=None
-    )
+    author = serializers.SerializerMethodField()
+    last_post_author = serializers.SerializerMethodField()
     # LockableMixin field, same as the detail serializer: the write guard is
     # `is_closed OR locked`, so list clients need both to render the lock badge
     # and predict write-eligibility (audit 2026-07-11 L3).
@@ -123,12 +171,29 @@ class TopicListSerializer(serializers.ModelSerializer):
             "is_unread",
         ]
 
+    @extend_schema_field(AUTHOR_SCHEMA)
+    def get_author(self, obj):
+        # Always an object; a deleted author (author_id None) → [deleted] sentinel.
+        return serialize_forum_author(obj.author, self.context.get("request"))
+
+    @extend_schema_field(AUTHOR_SCHEMA)
+    def get_last_post_author(self, obj):
+        # Secondary "last activity by" pointer: the object when a last poster is
+        # known, else null. Unlike `author` (the topic creator, which gets the
+        # [deleted] sentinel when SET_NULL'd — M41), a null here is deliberately
+        # NOT the sentinel: the denormalized fields can't tell "no live posts"
+        # (last_post_author_id None, last_post_at Coalesced to created_at) apart
+        # from "last poster's account gone" (also last_post_author_id None) —
+        # signals.py sets both the same way. Distinguishing them needs a live-post
+        # existence query, which would break the flat list pin (AC: pins unchanged).
+        if obj.last_post_author_id is None:
+            return None
+        return serialize_forum_author(obj.last_post_author, self.context.get("request"))
+
 
 class TopicDetailSerializer(serializers.ModelSerializer):
-    author = serializers.CharField(source="author.get_username", default=None)
-    last_post_author = serializers.CharField(
-        source="last_post_author.get_username", default=None
-    )
+    author = serializers.SerializerMethodField()
+    last_post_author = serializers.SerializerMethodField()
     board = serializers.SerializerMethodField()
     opening_post_id = serializers.SerializerMethodField()
     locked = serializers.BooleanField()
@@ -153,6 +218,18 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             "opening_post_id",
             "is_subscribed",
         ]
+
+    @extend_schema_field(AUTHOR_SCHEMA)
+    def get_author(self, obj):
+        return serialize_forum_author(obj.author, self.context.get("request"))
+
+    @extend_schema_field(AUTHOR_SCHEMA)
+    def get_last_post_author(self, obj):
+        # Null (not the [deleted] sentinel) when unknown — see the list
+        # serializer's get_last_post_author for the denorm/pin rationale.
+        if obj.last_post_author_id is None:
+            return None
+        return serialize_forum_author(obj.last_post_author, self.context.get("request"))
 
     @extend_schema_field(BOARD_SCHEMA)
     def get_board(self, obj):
@@ -252,32 +329,6 @@ def serialize_forum_body(stream_value, image_map=None, request=None):
     return blocks
 
 
-class PostAuthorSerializer(serializers.Serializer):
-    username = serializers.CharField(source="get_username")
-    display_name = serializers.SerializerMethodField()
-    trust_level = serializers.SerializerMethodField()
-
-    @staticmethod
-    def _profile(obj):
-        # Reverse OneToOne accessor (ForumProfile.user, related_name
-        # "wagtail_forum_profile"). Its RelatedObjectDoesNotExist subclasses
-        # AttributeError, so getattr(..., None) yields None for an author with
-        # no ForumProfile row instead of raising — and issues no query when the
-        # caller select_related-joined the profile.
-        return getattr(obj, "wagtail_forum_profile", None)
-
-    def get_display_name(self, obj):
-        profile = self._profile(obj)
-        if profile and profile.display_name:
-            return profile.display_name
-        full = obj.get_full_name()
-        return full or obj.get_username()
-
-    def get_trust_level(self, obj):
-        profile = self._profile(obj)
-        return profile.trust_level if profile else None
-
-
 class PostSerializer(serializers.ModelSerializer):
     author = serializers.SerializerMethodField()
     body = serializers.SerializerMethodField()
@@ -308,13 +359,7 @@ class PostSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(AUTHOR_SCHEMA)
     def get_author(self, obj):
-        if obj.author is None:
-            return {
-                "username": "[deleted]",
-                "display_name": "[deleted]",
-                "trust_level": None,
-            }
-        return PostAuthorSerializer(obj.author).data
+        return serialize_forum_author(obj.author, self.context.get("request"))
 
     @extend_schema_field(FORUM_BODY_SCHEMA)
     def get_body(self, obj):
@@ -381,16 +426,13 @@ class NotificationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(AUTHOR_SCHEMA)
     def get_actor(self, obj):
-        # Slice 1's only verb (reply) always sets an actor at creation; a null
-        # actor here means the acting user's account was deleted afterwards
-        # (SET_NULL) — same "[deleted]" placeholder as PostSerializer.get_author.
-        if obj.actor is None:
-            return {
-                "username": "[deleted]",
-                "display_name": "[deleted]",
-                "trust_level": None,
-            }
-        return PostAuthorSerializer(obj.actor).data
+        # Unified author object (todo 257 H26/M41): the actor shares the exact
+        # shape + `[deleted]` sentinel as every topic/post author. A null actor
+        # means the acting account was deleted after the notification was
+        # created (SET_NULL) → serialize_forum_author returns the sentinel.
+        # The queryset select_relates actor__wagtail_forum_profile__avatar so
+        # this stays flat (test_notifications_api pins 2 queries).
+        return serialize_forum_author(obj.actor, self.context.get("request"))
 
     @extend_schema_field(NOTIFICATION_TOPIC_SCHEMA)
     def get_topic(self, obj):
@@ -464,6 +506,15 @@ class MeProfileSerializer(serializers.ModelSerializer):
     fcm_token = serializers.CharField(
         max_length=255, required=False, allow_blank=True, write_only=True
     )
+    # Read side: the absolute avatar URL (or null). Write side: `avatar_id`,
+    # the id of an image the caller uploaded into the forum collection (todo
+    # 257 slice A). Split fields so the response carries a ready-to-render URL
+    # while the request takes a bare id — same author-object avatar contract
+    # rendered on every post.
+    avatar = serializers.SerializerMethodField()
+    avatar_id = serializers.IntegerField(
+        write_only=True, required=False, allow_null=True
+    )
 
     class Meta:
         model = ForumProfile
@@ -477,6 +528,8 @@ class MeProfileSerializer(serializers.ModelSerializer):
             "post_count",
             "capabilities",
             "fcm_token",
+            "avatar",
+            "avatar_id",
         ]
         read_only_fields = ["trust_level", "post_count"]
 
@@ -510,3 +563,36 @@ class MeProfileSerializer(serializers.ModelSerializer):
             "can_reply": True,
             "can_create_topic": True,
         }
+
+    @extend_schema_field({"type": "string", "nullable": True})
+    def get_avatar(self, obj):
+        if not (obj.avatar_id and obj.avatar):
+            return None
+        url = obj.avatar.file.url
+        request = self.context.get("request")
+        return request.build_absolute_uri(url) if request is not None else url
+
+    def validate_avatar_id(self, value):
+        # None is an explicit "clear my avatar" — allowed, no ownership check.
+        if value is None:
+            return value
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        # IDOR-safe: an avatar must be an image THIS user uploaded into the
+        # forum image collection — the same membership check that gates inline
+        # post images (api/sanitize.py). Without it, a caller could point their
+        # avatar at any image id (a blog image, another member's upload).
+        owns_image = (
+            get_image_model()
+            .objects.filter(
+                id=value,
+                uploaded_by_user=user,
+                collection=get_forum_image_collection(),
+            )
+            .exists()
+        )
+        if not owns_image:
+            raise serializers.ValidationError(
+                "Avatar must be an image you uploaded to the forum."
+            )
+        return value

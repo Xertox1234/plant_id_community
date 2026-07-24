@@ -31,10 +31,10 @@ describe('ThreadCard', () => {
   it('renders author display name', () => {
     const thread = createMockThread({
       author: {
-        id: 1,
-        email: 'plantlover@example.com',
         username: 'plantlover',
         display_name: 'Plant Enthusiast',
+        avatar: null,
+        trust_level: null,
       },
     });
 
@@ -46,10 +46,10 @@ describe('ThreadCard', () => {
   it('falls back to username when display_name is missing', () => {
     const thread = createMockThread({
       author: {
-        id: 1,
-        email: 'plantlover@example.com',
         username: 'plantlover',
         display_name: undefined,
+        avatar: null,
+        trust_level: null,
       },
     });
 
