@@ -521,6 +521,47 @@ describe('StreamFieldRenderer', () => {
     });
   });
 
+  describe('Forum allowlist tightening (M32)', () => {
+    it('keeps forum-allowed marks but strips headings/img in forum paragraphs', () => {
+      const { container } = render(
+        <StreamFieldRenderer
+          blocks={[
+            {
+              type: 'paragraph',
+              value:
+                '<h1>Big</h1><strong>bold</strong> <a href="https://x.example">link</a> <img src="https://x.example/p.jpg" alt="pic">',
+            },
+          ]}
+          mentionHighlight
+        />
+      );
+      // nh3-allowed marks survive.
+      expect(container.querySelector('strong')?.textContent).toBe('bold');
+      expect(container.querySelector('a')?.getAttribute('href')).toBe('https://x.example');
+      // Headings and inline images are dropped to match the server allowlist;
+      // the heading's text is kept (unwrapped), the image has none.
+      expect(container.querySelector('h1')).toBeNull();
+      expect(container.querySelector('img')).toBeNull();
+      expect(container.textContent).toContain('Big');
+    });
+
+    it('leaves blog paragraphs on the broad STREAMFIELD allowlist (img preserved)', () => {
+      const { container } = render(
+        <StreamFieldRenderer
+          blocks={[
+            {
+              type: 'paragraph',
+              value: '<p>x</p><img src="https://x.example/p.jpg" alt="pic">',
+            },
+          ]}
+        />
+      );
+      // No mentionHighlight → blog path → the inline image survives, proving the
+      // tightening is forum-scoped and did not regress blog rendering.
+      expect(container.querySelector('img')?.getAttribute('src')).toBe('https://x.example/p.jpg');
+    });
+  });
+
   describe('Performance', () => {
     it('renders many blocks efficiently', () => {
       const blocks: StreamFieldBlock[] = Array.from({ length: 50 }, (_, i) => ({

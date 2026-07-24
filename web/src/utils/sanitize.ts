@@ -139,49 +139,20 @@ export const SANITIZE_PRESETS = {
   } as const,
 
   /**
-   * FORUM: Rich forum posts with mentions, code blocks, images
-   * Use for: Forum posts, thread content
-   * Allows: FULL + mentions, code blocks, custom classes for syntax highlighting
+   * FORUM: forum post rich text, tightened to the server's nh3 allowlist.
+   * The backend keeps only bold, italic, links, lists and inline code
+   * (wagtail_forum); headings/blockquote/pre/img/div/u are flattened server-side,
+   * so the client must not render them from a direct-API payload either (audit
+   * 2026-07-11 M32). Inline `<img>` is intentionally absent — forum images are
+   * separate `image` StreamField blocks, not inline markup. `span`/data-mention
+   * carry @mention markup.
    */
   FORUM: {
-    ALLOWED_TAGS: [
-      'p',
-      'br',
-      'strong',
-      'em',
-      'u',
-      'a',
-      'ul',
-      'ol',
-      'li',
-      'h1',
-      'h2',
-      'h3',
-      'h4',
-      'h5',
-      'h6',
-      'blockquote',
-      'code',
-      'pre',
-      'img',
-      'span',
-      'div',
-    ],
-    ALLOWED_ATTR: [
-      'href',
-      'target',
-      'rel',
-      'class',
-      'src',
-      'alt',
-      'title',
-      'data-mention',
-      'data-mention-id',
-    ],
+    ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'code', 'span'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'data-mention', 'data-mention-id'],
     ALLOWED_CLASSES: {
       span: ['mention'],
       code: ['language-*'],
-      div: ['code-block'],
     },
     ALLOW_DATA_ATTR: false,
   } as const,

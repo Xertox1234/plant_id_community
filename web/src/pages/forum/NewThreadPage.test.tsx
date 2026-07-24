@@ -100,6 +100,38 @@ describe('NewThreadPage', () => {
     });
   });
 
+  it('offers a board picker when no ?category= is supplied, and lets you pick one (L4)', async () => {
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([new URLSearchParams(''), vi.fn()]);
+    vi.spyOn(forumService, 'fetchCategories').mockResolvedValue([
+      { id: '3', name: 'Plant Care', slug: 'plant-care', created_at: '' },
+      { id: '4', name: 'Pests', slug: 'pests', created_at: '' },
+    ]);
+    vi.spyOn(forumService, 'createThread').mockResolvedValue({
+      id: '12',
+      slug: 'my-topic',
+      status: 'published',
+    });
+
+    renderPage();
+
+    // Picker appears (no dead-end error); submit is disabled until a board is chosen.
+    const picker = await screen.findByLabelText('Board');
+    expect(screen.getByRole('button', { name: /post|create|submit/i })).toBeDisabled();
+
+    await userEvent.selectOptions(picker, '3');
+    await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+    await userEvent.type(screen.getByLabelText('body'), 'hello');
+    await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
+
+    await waitFor(() =>
+      expect(forumService.createThread).toHaveBeenCalledWith({
+        boardSlug: 'plant-care',
+        title: 'My Topic',
+        content: '<p>hello</p>',
+      })
+    );
+  });
+
   it('blocks submit until both title and body are filled', async () => {
     renderPage();
     await screen.findByText('Plant Care');

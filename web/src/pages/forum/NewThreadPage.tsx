@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, FormEvent } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { createThread, fetchCategory } from '../../services/forumService';
+import { createThread, fetchCategories, fetchCategory } from '../../services/forumService';
 import { parseLeadingId, threadPath, categoryPath } from '../../utils/forumUrls';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import TipTapEditor from '../../components/forum/TipTapEditor';
@@ -31,6 +31,9 @@ export default function NewThreadPage() {
   const categoryParam = searchParams.get('category');
 
   const [category, setCategory] = useState<Category | null>(null);
+  // Boards for the composer picker when no `?category=` was supplied (L4) — lets
+  // a user start a thread without first navigating into a specific board.
+  const [boards, setBoards] = useState<Category[]>([]);
   const newThreadDraftKey = draftKey('new-thread', categoryParam ?? 'unknown');
   // Parse the saved draft once (per key), not once per field.
   const initialDraft = useMemo<{ title?: string; body?: string }>(() => {
@@ -60,16 +63,18 @@ export default function NewThreadPage() {
     let ignore = false;
     const load = async () => {
       const forumId = parseLeadingId(categoryParam ?? undefined);
-      if (forumId == null) {
-        setError('Invalid board. Open “New Thread” from a forum board.');
-        setLoading(false);
-        return;
-      }
       try {
         setLoading(true);
         setError(null);
-        const cat = await fetchCategory(forumId);
-        if (!ignore) setCategory(cat);
+        if (forumId == null) {
+          // No board pre-selected — load the list and let the user pick (L4)
+          // instead of dead-ending on an "invalid board" error.
+          const list = await fetchCategories();
+          if (!ignore) setBoards(list);
+        } else {
+          const cat = await fetchCategory(forumId);
+          if (!ignore) setCategory(cat);
+        }
       } catch (err) {
         if (ignore) return;
         logger.error('Error loading board for new thread', {
@@ -196,6 +201,30 @@ export default function NewThreadPage() {
       <h1 className="text-3xl font-bold text-ink mb-6">Start a New Thread</h1>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Board picker — shown only when no board was pre-selected (L4). */}
+        {boards.length > 0 && (
+          <div>
+            <label htmlFor="board-picker" className="block text-sm font-medium text-ink-2 mb-1">
+              Board
+            </label>
+            <select
+              id="board-picker"
+              value={category?.id ?? ''}
+              onChange={(e) => setCategory(boards.find((b) => b.id === e.target.value) ?? null)}
+              className="min-h-11 w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary bg-surface-2 text-ink"
+            >
+              <option value="" disabled>
+                Choose a board…
+              </option>
+              {boards.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div>
           <label htmlFor="thread-title" className="block text-sm font-medium text-ink-2 mb-1">
             Title
