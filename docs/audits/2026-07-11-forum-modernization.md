@@ -294,7 +294,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H3 subscriptions-watching → todo 253 (completed 2026-07-22)
 - [x] #H4 mentions → todo 253 (completed 2026-07-22)
 - [ ] #H6 solved-accepted-answer → todo 273 (re-pointed 2026-07-23; roadmap moved solved answers to Wave 2 / not 256)
-- [ ] #H7 public-user-identity → todo 257
+- [x] #H7 public-user-identity → todo 257 (completed 2026-07-24, PR #492)
 - [x] #H8 search-discoverability-filters → todo 256 (completed 2026-07-23)
 - [x] #H9 seo-surface → todo 256 (completed 2026-07-23)
 - [x] #H10 unread-indicators → todo 253 (completed 2026-07-22)
@@ -306,7 +306,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H16 admin-moderation-queue → todo 254 (completed 2026-07-13)
 - [ ] #H18 error-retry-affordance → todo 259
 - [ ] #H21 tombstone-prune-scheduling → todo 261
-- [ ] #H26 author-shape-inconsistency → todo 257
+- [x] #H26 author-shape-inconsistency → todo 257 (completed 2026-07-24, PR #490)
 - [ ] #M1 quote-reply → todo 276 (re-pointed 2026-07-23; split out of 256)
 - [ ] #M2 bookmarks → todo 263
 - [ ] #M3 drafts-autosave → todo 263
@@ -327,7 +327,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #M19 per-board-moderation → todo 254 (completed 2026-07-13)
 - [x] #M20 admin-polish-cluster → todo 254 (completed 2026-07-13)
 - [ ] #M22 fetch-race-guards → todo 259
-- [ ] #M23 reacted-state → todo 257
+- [x] #M23 reacted-state → todo 257 (completed 2026-07-24, PR #491)
 - [ ] #M24 native-dialogs → todo 259
 - [ ] #M25 reply-focus-drop → todo 259
 - [ ] #M26 live-region-announcements → todo 259
@@ -343,12 +343,12 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #M38 meprofile-schema → todo 258
 - [ ] #M39 error-envelope-ownership → todo 258
 - [ ] #M40 envelope-shapes → todo 258
-- [ ] #M41 deleted-author-convention → todo 257
+- [x] #M41 deleted-author-convention → todo 257 (completed 2026-07-24, PR #490)
 - [ ] #M42 http-caching → todo 261
-- [ ] #L1 anon-reaction-counts → todo 257
+- [x] #L1 anon-reaction-counts → todo 257 (completed 2026-07-24, PR #491; shipped Wave 1 #473, test-proven)
 - [ ] #L2 onboarding-empty-states → todo 259
 - [ ] #L4 markdown-board-picker → todo 259
-- [ ] #L5 badges-gamification → todo 257
+- [x] #L5 badges-gamification → todo 257 (completed 2026-07-24, PR #491; styled trust badge satisfies; fuller gamification deferred per the finding's own guidance)
 - [x] #L6 blog-md-doc-drift → todo 255 (completed 2026-07-20, slice 1)
 - [x] #L7 openai-key-ops-check → todo 255 (completed 2026-07-20, slice 1)
 - [ ] #L8 autocomplete-typeahead → todo 276 (re-pointed 2026-07-23; split out of 256)
@@ -356,7 +356,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #L11 button-busy-state → todo 259
 - [ ] #L12 timestamp-accessibility → todo 259
 - [ ] #L13 tautological-composer-tests → todo 259
-- [ ] #L14 identity-polish → todo 257 (trust_level render done in todo 273 / wave 2 slice 1; emoji aria-hidden + reactions flex-wrap remain)
+- [x] #L14 identity-polish → todo 257 (completed 2026-07-24, PR #491; trust_level render #474, emoji aria-hidden #491, reactions flex-wrap shipped Wave 1 #473)
 - [ ] #L16 reaction-types-duplication → todo 258
 - [ ] #L17 migrations-check-ci → todo 261
 - [ ] #L18 write-path-query-profiling → todo 258
