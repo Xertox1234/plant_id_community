@@ -231,7 +231,76 @@ def _created_location(request, name, **kwargs):
     return request.build_absolute_uri(reverse(route, kwargs=kwargs))
 
 
-class BoardListView(generics.ListAPIView):
+def _apply_forum_read_cache_headers(response, request, *, public):
+    """Cache-Control + Vary for a forum read endpoint (audit M42).
+
+    When ``public`` and the request is anonymous and the response is a success:
+    the payload is identical across all anonymous users — every per-user field
+    (`is_unread`, `is_subscribed`, `can_edit`/`can_delete`/`can_report`,
+    `reacted`) sits at its constant anonymous baseline — so a shared cache
+    (Cloudflare) may store it: `public, s-maxage`. `max-age=0` keeps a
+    private/browser cache revalidating, so only the CDN holds the anon copy.
+    Everything else — any authenticated request, any error (>=400), and every
+    request to a ``public=False`` view — gets `private, no-store`: never stored
+    by a shared cache, so per-user capabilities can never leak and there is no
+    edge-cached copy to serve.
+
+    `Vary` includes both `Cookie` AND `Authorization`: `CookieJWTAuthentication`
+    falls back to the Authorization header (the mobile client authenticates that
+    way, cookie-less), so a shared cache keyed only on Cookie could hand the
+    anonymous entry to a header-authenticated request. Both dimensions keep an
+    authenticated request from ever matching the anonymous cache key.
+    """
+    from django.utils.cache import patch_vary_headers
+
+    user = getattr(request, "user", None)
+    is_anonymous = user is None or not user.is_authenticated
+    if public and is_anonymous and response.status_code < 400:
+        seconds = get_setting("PUBLIC_READ_CACHE_SECONDS")
+        response["Cache-Control"] = f"public, s-maxage={seconds}, max-age=0"
+    else:
+        response["Cache-Control"] = "private, no-store"
+    patch_vary_headers(response, ("Cookie", "Authorization"))
+    return response
+
+
+class PublicForumReadCacheMixin:
+    """Anonymous GET/HEAD reads are shared-cacheable; authed reads are private.
+
+    Only for reads whose sole staleness is list-level and which have NO
+    per-request side effect: board list, topic list, search. Applies to GET/HEAD
+    only, so a view that also serves a mutating POST (topic/post create) leaves
+    its write responses untouched (no cache header at all). Topic detail and post
+    list deliberately use ``PrivateForumReadCacheMixin`` instead — see there.
+    """
+
+    _forum_read_public = True
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        if request.method in ("GET", "HEAD"):
+            _apply_forum_read_cache_headers(
+                response, request, public=self._forum_read_public
+            )
+        return response
+
+
+class PrivateForumReadCacheMixin(PublicForumReadCacheMixin):
+    """GET/HEAD reads are always `private, no-store` — never edge-cached.
+
+    For public reads that must reach the origin every time: TopicDetailView
+    (its `retrieve` increments `view_count`, a user-visible sortable metric that
+    a CDN cache would undercount) and PostListView (a report-auto-hidden or
+    unpublished post must stop being served immediately — there is no CDN purge
+    wired, so a shared-cache TTL would keep moderated content live). Still
+    explicit `no-store` rather than header-less, so a "cache everything" CDN
+    rule can never heuristically store their per-user payloads.
+    """
+
+    _forum_read_public = False
+
+
+class BoardListView(PublicForumReadCacheMixin, generics.ListAPIView):
     serializer_class = BoardSerializer
     pagination_class = None  # boards are few; return a flat results list
     # Opt out of host versioning: the package may be mounted outside a version
@@ -262,7 +331,7 @@ class BoardListView(generics.ListAPIView):
         "Returns 404 for a hidden/non-live board."
     ),
 )
-class TopicListView(generics.ListAPIView):
+class TopicListView(PublicForumReadCacheMixin, generics.ListAPIView):
     serializer_class = TopicListSerializer
     pagination_class = TopicCursorPagination
     versioning_class = None
@@ -422,7 +491,7 @@ class TopicListView(generics.ListAPIView):
         "topic on a hidden/non-live board (no existence leak)."
     ),
 )
-class TopicDetailView(generics.RetrieveAPIView):
+class TopicDetailView(PrivateForumReadCacheMixin, generics.RetrieveAPIView):
     serializer_class = TopicDetailSerializer
     versioning_class = None
     filter_backends = []  # host filter-backend opt-out — see BoardListView
@@ -502,7 +571,7 @@ class TopicDetailView(generics.RetrieveAPIView):
         "404 if the topic is non-live or on a hidden/non-live board."
     ),
 )
-class PostListView(generics.ListAPIView):
+class PostListView(PrivateForumReadCacheMixin, generics.ListAPIView):
     serializer_class = PostSerializer
     pagination_class = PostCursorPagination
     versioning_class = None
@@ -1144,7 +1213,7 @@ def plain_text_excerpt(stream_value, limit: int) -> str:
     return " ".join(parts)[:limit]
 
 
-class SearchView(APIView):
+class SearchView(PublicForumReadCacheMixin, APIView):
     versioning_class = None
     PAGE_SIZE = 20  # results per section per page; *_has_more drives client paging
     MAX_PAGE = 50  # ceiling on ?page= — bounds the SQL OFFSET (like CursorPagination.offset_cutoff)
