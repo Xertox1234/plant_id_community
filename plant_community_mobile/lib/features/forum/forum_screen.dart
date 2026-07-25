@@ -1,80 +1,79 @@
 import 'package:flutter/material.dart';
-import '../../core/constants/app_spacing.dart';
-import '../../core/theme/green_thumb_extension.dart';
-import '../../shared/widgets/clay_button.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
-/// Community forum hub (stub). Shows a few sample posts; live posting is not
-/// yet implemented.
-class ForumScreen extends StatelessWidget {
+import '../../core/constants/app_spacing.dart';
+import 'models/models.dart';
+import 'providers/forum_providers.dart';
+
+/// Community forum home: the boards a member can browse, plus a "Recent
+/// activity" list backed by the offline delta-sync mirror.
+class ForumScreen extends ConsumerWidget {
   const ForumScreen({super.key});
 
-  static const _posts = [
-    _Post(
-      author: 'Sarah G.',
-      authorInitial: 'S',
-      tag: 'Help',
-      title: 'Why are my Monstera leaves turning yellow?',
-      upvotes: 12,
-      replies: 4,
-    ),
-    _Post(
-      author: 'Mark B.',
-      authorInitial: 'M',
-      tag: 'Share',
-      title: 'My succulent collection after 2 years 🌵',
-      upvotes: 48,
-      replies: 11,
-    ),
-    _Post(
-      author: 'Leaf Lover',
-      authorInitial: 'L',
-      tag: 'ID',
-      title: 'Can anyone identify this fern I found?',
-      upvotes: 7,
-      replies: 2,
-    ),
-  ];
-
   @override
-  Widget build(BuildContext context) {
-    final ext =
-        Theme.of(context).extension<GreenThumbExtension>() ??
-        GreenThumbExtension.fallback;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final boardsAsync = ref.watch(boardsProvider);
+    final recentAsync = ref.watch(recentTopicsProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Community'), centerTitle: true),
       body: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: ext.padScreen),
-          child: Column(
+        child: RefreshIndicator(
+          onRefresh: () async {
+            ref.invalidate(boardsProvider);
+            ref.invalidate(recentTopicsProvider);
+          },
+          child: ListView(
+            padding: const EdgeInsets.all(AppSpacing.md),
             children: [
-              Expanded(
-                child: ListView.separated(
-                  padding: EdgeInsets.only(
-                    top: ext.padScreen,
-                    bottom: ext.gapY,
-                  ),
-                  itemCount: _posts.length,
-                  separatorBuilder: (_, _) => SizedBox(height: ext.gapY),
-                  itemBuilder: (context, i) =>
-                      _PostCard(post: _posts[i], ext: ext),
+              const _SectionHeader('Boards'),
+              boardsAsync.when(
+                loading: () => const _SectionLoader(),
+                error: (error, _) => _SectionError(
+                  message: 'Could not load boards.',
+                  onRetry: () => ref.invalidate(boardsProvider),
                 ),
+                data: (boards) => boards.isEmpty
+                    ? const _EmptyLine('No boards yet.')
+                    : Column(
+                        children: [
+                          for (final board in boards)
+                            _BoardTile(
+                              board: board,
+                              onTap: () => context.pushNamed(
+                                'forumBoard',
+                                pathParameters: {'slug': board.slug},
+                                extra: board.title,
+                              ),
+                            ),
+                        ],
+                      ),
               ),
-              SizedBox(height: ext.gapY),
-              ClayButton(
-                label: '+ New Post',
-                fullWidth: true,
-                onPressed: () {},
+              const SizedBox(height: AppSpacing.lg),
+              const _SectionHeader('Recent activity'),
+              recentAsync.when(
+                loading: () => const _SectionLoader(),
+                error: (error, _) => _SectionError(
+                  message: 'Could not load recent topics.',
+                  onRetry: () => ref.invalidate(recentTopicsProvider),
+                ),
+                data: (topics) => topics.isEmpty
+                    ? const _EmptyLine('Nothing here yet.')
+                    : Column(
+                        children: [
+                          for (final stub in topics.take(10))
+                            _RecentTile(
+                              stub: stub,
+                              onTap: () => context.pushNamed(
+                                'forumTopic',
+                                pathParameters: {'id': '${stub.id}'},
+                                extra: stub.title,
+                              ),
+                            ),
+                        ],
+                      ),
               ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                'Live posting coming soon',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: ext.ink3),
-                textAlign: TextAlign.center,
-              ),
-              SizedBox(height: ext.padScreen),
             ],
           ),
         ),
@@ -83,122 +82,115 @@ class ForumScreen extends StatelessWidget {
   }
 }
 
-class _Post {
-  const _Post({
-    required this.author,
-    required this.authorInitial,
-    required this.tag,
-    required this.title,
-    required this.upvotes,
-    required this.replies,
-  });
-  final String author;
-  final String authorInitial;
-  final String tag;
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.title);
   final String title;
-  final int upvotes;
-  final int replies;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Text(
+        title,
+        style: Theme.of(
+          context,
+        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+      ),
+    );
+  }
 }
 
-class _PostCard extends StatelessWidget {
-  const _PostCard({required this.post, required this.ext});
-  final _Post post;
-  final GreenThumbExtension ext;
+class _BoardTile extends StatelessWidget {
+  const _BoardTile({required this.board, required this.onTap});
+  final ForumBoard board;
+  final VoidCallback onTap;
 
-  Color _tagBg(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return switch (post.tag) {
-      'Help' => ext.berry.withValues(alpha: 0.12),
-      'Share' => cs.primary.withValues(alpha: 0.12),
-      _ => ext.sky.withValues(alpha: 0.12),
-    };
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: ListTile(
+        onTap: onTap,
+        title: Text(
+          board.title,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        subtitle: board.description.isNotEmpty
+            ? Text(
+                board.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              )
+            : null,
+        trailing: Text(
+          '${board.topicCount} topics',
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
   }
+}
 
-  Color _tagFg(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return switch (post.tag) {
-      'Help' => ext.berry,
-      'Share' => cs.primary,
-      _ => ext.sky,
-    };
-  }
+class _RecentTile extends StatelessWidget {
+  const _RecentTile({required this.stub, required this.onTap});
+  final ForumTopicStub stub;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
-        padding: EdgeInsets.all(ext.padCard),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundColor: Theme.of(
-                    context,
-                  ).colorScheme.primaryContainer,
-                  child: Text(
-                    post.authorInitial,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onPrimaryContainer,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Text(
-                  post.author,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: ext.ink2),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _tagBg(context),
-                    borderRadius: BorderRadius.circular(AppSpacing.rXs),
-                  ),
-                  child: Text(
-                    post.tag,
-                    style: TextStyle(
-                      color: _tagFg(context),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(post.title, style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: AppSpacing.xs),
-            Row(
-              children: [
-                Icon(Icons.arrow_upward, size: 14, color: ext.ink3),
-                const SizedBox(width: 2),
-                Text(
-                  '${post.upvotes}',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: ext.ink3),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Icon(Icons.chat_bubble_outline, size: 14, color: ext.ink3),
-                const SizedBox(width: 2),
-                Text(
-                  '${post.replies}',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: ext.ink3),
-                ),
-              ],
-            ),
-          ],
+      child: ListTile(
+        dense: true,
+        onTap: onTap,
+        leading: const Icon(Icons.forum_outlined),
+        title: Text(stub.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      ),
+    );
+  }
+}
+
+class _SectionLoader extends StatelessWidget {
+  const _SectionLoader();
+  @override
+  Widget build(BuildContext context) => const Padding(
+    padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+    child: Center(child: CircularProgressIndicator()),
+  );
+}
+
+class _SectionError extends StatelessWidget {
+  const _SectionError({required this.message, required this.onRetry});
+  final String message;
+  final VoidCallback onRetry;
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      child: Row(
+        children: [
+          Expanded(child: Text(message)),
+          TextButton(onPressed: onRetry, child: const Text('Retry')),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyLine extends StatelessWidget {
+  const _EmptyLine(this.text);
+  final String text;
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
       ),
     );

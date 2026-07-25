@@ -298,7 +298,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H8 search-discoverability-filters → todo 256 (completed 2026-07-23)
 - [x] #H9 seo-surface → todo 256 (completed 2026-07-23)
 - [x] #H10 unread-indicators → todo 253 (completed 2026-07-22)
-- [ ] #H11 mobile-forum-client → todo 260
+- [x] #H11 mobile-forum-client → todo 260 (completed 2026-07-25)
 - [x] #H12 entitlement-primitive → todo 255 (completed 2026-07-20, slice 1)
 - [x] #H13 llm-spam-prescreen → todo 255 (completed 2026-07-21)
 - [x] #H14 ai-thread-summarization → todo 255 (completed 2026-07-22, slice 3)

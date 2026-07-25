@@ -3,8 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
+import 'package:plant_community_mobile/features/forum/screens/forum_composer_screen.dart';
+import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
+import 'package:plant_community_mobile/features/forum/screens/forum_topics_screen.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
+
+import '../features/forum/support/forum_test_support.dart';
 
 // TODO: Add Firebase mocking to enable widget tests
 // See test/routing/TEST_STATUS.md for details
@@ -194,6 +201,94 @@ void main() {
       await tester.pump(const Duration(seconds: 4));
     });
 
+    testWidgets('forumBoard route builds ForumTopicsScreen', (tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(
+            _MockUnauthenticatedAuthNotifier.new,
+          ),
+          forumApiProvider.overrideWithValue(FakeForumApi()),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+
+      router.go('/forum/boards/general', extra: 'General');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(ForumTopicsScreen), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('forumTopic route builds ForumThreadScreen', (tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(
+            _MockUnauthenticatedAuthNotifier.new,
+          ),
+          forumApiProvider.overrideWithValue(
+            FakeForumApi()..topicDetail = topicDetail(),
+          ),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+
+      router.go('/forum/topics/10', extra: 'A topic');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(ForumThreadScreen), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('forumCompose route builds ForumComposerScreen with args', (
+      tester,
+    ) async {
+      final container = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(
+            _MockUnauthenticatedAuthNotifier.new,
+          ),
+          forumApiProvider.overrideWithValue(FakeForumApi()),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+
+      router.go(
+        '/forum/compose',
+        extra: const ForumComposeArgs.reply(topicId: 10),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(ForumComposerScreen), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+    });
+
     group('Authentication Guard Tests', () {
       testWidgets(
         'Should redirect unauthenticated user to login when accessing protected route',
@@ -305,7 +400,6 @@ void main() {
         await tester.pump(const Duration(seconds: 4));
       });
     });
-
   });
 }
 

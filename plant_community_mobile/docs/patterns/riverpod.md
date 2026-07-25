@@ -163,3 +163,43 @@ class IdentificationNotifier extends _$IdentificationNotifier {
   }
 }
 ```
+
+## Idempotent Write Actions
+
+Backend write endpoints that accept an `Idempotency-Key` (forum create/reply/
+edit/react/report) dedupe by `(scope, user, sha256(key), payload-fingerprint)`:
+a retry with the **same** key + **same** payload replays the original response
+(same status, e.g. `201`); the same key with a **different** payload returns a
+permanent `422` for the 24h TTL. So a mobile retry must reuse the key, but an
+edit-then-retry must NOT — hold one key per compose action and rotate it when
+the content changes:
+
+```dart
+class ForumComposerController {
+  ForumComposerController({required ForumApi api, String? idempotencyKey})
+    : _api = api, _key = idempotencyKey ?? const Uuid().v4();
+  final ForumApi _api;
+  String _key;
+  String? _lastFingerprint;
+  String get idempotencyKey => _key;
+
+  void _refreshKeyForContent(String fingerprint) {
+    if (_lastFingerprint != null && _lastFingerprint != fingerprint) {
+      _key = const Uuid().v4();          // content changed → genuinely new attempt
+    }
+    _lastFingerprint = fingerprint;
+  }
+
+  Future<CreateReplyResult> submitReply({required int topicId, required String body}) {
+    _refreshKeyForContent('reply|$topicId|${body.trim()}');
+    return _api.createReply(topicId: topicId, body: buildParagraphBody(body),
+        idempotencyKey: _key);
+  }
+}
+```
+
+Handle `409` (a twin still in flight → back off and retry the same key) and
+`422` (fell through the rotation → surface a fresh-key retry) at the call site.
+Reference: `lib/features/forum/services/forum_composer_controller.dart`. Note
+the web client sends no key at all — do not copy that; the backend is built for
+mobile retries. See `docs/rules/flutter.md`.
