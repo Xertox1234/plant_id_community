@@ -111,6 +111,73 @@ class AIRateLimiter:
         return True
 
     @classmethod
+    def peek_budget(cls, cache_key: str, limit: int) -> bool:
+        """
+        Check a named budget WITHOUT consuming it.
+
+        ``check_global_limit`` check-and-increments in one step, which bills a
+        call before it is known to have happened: under a provider outage every
+        failed attempt still burns budget, and once the counter is exhausted a
+        caller that degrades-on-cap silently flips from its failure posture to
+        its over-budget posture. Callers that must only pay for calls that
+        actually reached the provider pair this with ``consume_budget``.
+
+        Args:
+            cache_key: Budget counter key (callers own their own key, so one
+                subsystem's load cannot starve another's quota).
+            limit: Maximum calls per ``cls.TTL`` window for this key.
+
+        Returns:
+            True if within budget, False if the cap is reached.
+        """
+        calls = cache.get(cache_key, 0)
+
+        if calls >= limit:
+            logger.error(
+                f"[RATE_LIMIT] Budget exhausted for {cache_key} "
+                f"({calls}/{limit} calls/hour)"
+            )
+            return False
+
+        return True
+
+    @classmethod
+    def consume_budget(cls, cache_key: str, limit: int) -> int:
+        """
+        Record one spent call against a named budget.
+
+        Call this only once the spend has actually occurred. Uses the same
+        get-then-set idiom as ``check_global_limit`` deliberately: ``cache.incr``
+        would re-``set`` without a timeout and silently collapse the window to
+        the backend's default ``TIMEOUT`` instead of ``cls.TTL``.
+
+        Args:
+            cache_key: Budget counter key.
+            limit: Maximum calls per window (used for the log line only).
+
+        Returns:
+            The new call count for this window.
+        """
+        calls = cache.get(cache_key, 0) + 1
+        cache.set(cache_key, calls, cls.TTL)
+
+        logger.debug(f"[RATE_LIMIT] {cache_key}: {calls}/{limit} calls/hour")
+
+        return calls
+
+    @classmethod
+    def reset_budget(cls, cache_key: str) -> None:
+        """
+        Reset a named budget counter (admin function).
+
+        Args:
+            cache_key: Budget counter key to clear.
+        """
+        cache.delete(cache_key)
+
+        logger.info(f"[RATE_LIMIT] Reset budget for {cache_key}")
+
+    @classmethod
     def get_remaining_calls(cls, user_id: int, has_premium: bool = False) -> int:
         """
         Get remaining AI calls for user.

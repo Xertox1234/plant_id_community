@@ -176,11 +176,7 @@ The package ships one spam check (`HeuristicSpamBackend`: banned words + link
 count) and a one-setting swap, `WAGTAILFORUM_SPAM_BACKEND`. `apps/forum_host/`
 adds `LLMSpamBackend` (`apps/forum_host/spam.py`), a **heuristic-first
 composite** that screens what the heuristic passes through `generate_ai_text()`.
-It ships **dormant** — enable per-environment with:
-
-    WAGTAILFORUM_SPAM_BACKEND=apps.forum_host.spam.LLMSpamBackend
-
-(requires a working `OPENAI_API_KEY`.)
+It ships **dormant** — the default stays the heuristic backend.
 
 `check()` runs synchronously inside the moderation workflow's
 `@transaction.atomic` publish path, so the LLM call is bounded by a hard
@@ -192,12 +188,78 @@ wall-clock timeout (`SPAM_LLM_TIMEOUT_SECONDS`, a `ThreadPoolExecutor` +
   reject → pending-draft path a heuristic flag takes (a normal `reject`, not a
   raise — a raise would roll the workflow back into a limbo draft with no
   moderation-queue entry). Matches `workflow.py`'s "FAIL CLOSED" posture.
-- **Global AI budget exhausted** (`AIRateLimiter.check_global_limit()`) →
-  **degrade to heuristic** (publish): a cost decision, not an outage.
+- **Forum AI budget exhausted** (`SPAM_LLM_BUDGET_LIMIT`) → **degrade to
+  heuristic** (publish): a cost decision, not an outage.
 
 Definitive `CLEAN`/`SPAM` verdicts are cached in Redis by
 `sha256(text)` + prompt version; transient failures are never cached. All
 tunables live in `apps/forum_host/constants.py` (`SPAM_LLM_*`).
+
+### Keeping the two postures independent (todo 274 / H13)
+
+The postures above only stay distinct because **budget is consumed after the
+provider answers, never before**. `AIRateLimiter.check_global_limit()`
+check-and-increments in one step, so every *failed* attempt still burned
+budget: a sustained outage exhausted the cap in `GLOBAL_LIMIT` failures and
+flipped the backend from fail-closed (hold) to degrade-to-heuristic (**publish
+LLM-unscreened**) — a spam-publishing posture reached purely by the provider
+being down, and a sticky one, since every increment re-stamped the 1h TTL.
+
+Three couplings were fixed, and all three must hold together:
+
+1. **Peek, then consume — and only for a definitive verdict.**
+   `AIRateLimiter.peek_budget(key, limit)` is read-only; `consume_budget(key,
+   limit)` runs inside `_parse()`, on the `CLEAN`/`SPAM` branches only. Every
+   failure mode — timeout, provider error, **and an unparseable reply** —
+   returns before that line, so no provider-side failure can burn the cap.
+   Unparseable is the non-obvious one: those verdicts are deliberately not
+   cached, so each retry re-calls the provider, and counting them would let a
+   provider stuck emitting garbage drain the budget into publish-unscreened.
+   Spend during such an incident is one call per post submission — the same
+   rate as healthy operation, so the cap is not protecting anything there.
+2. **A forum-private counter.** `SPAM_LLM_BUDGET_CACHE_KEY`
+   (`ai_rate_limit:forum_spam`) is separate from the blog's shared
+   `ai_rate_limit:global`, so neither subsystem can starve the other's quota and
+   the forum's degrade threshold is not moved by blog traffic.
+3. **An inner provider deadline.** `future.result(timeout=…)` bounds only the
+   *caller*; a submitted future cannot be cancelled once running. The same
+   deadline is therefore also passed to `generate_ai_text(..., timeout=…)`,
+   which forwards it as a completion kwarg to the provider SDK, so a hung
+   provider unblocks the worker instead of parking it. Without it,
+   `SPAM_LLM_MAX_WORKERS` hung calls park the whole pool with no recovery.
+
+**Never use `cache.incr()` for these counters.** Django's `BaseCache.incr()` is
+`get()` then `set(key, value)` with *no* timeout, which silently re-stamps the
+entry with the backend's default `TIMEOUT` (300s here) instead of
+`AIRateLimiter.TTL` (3600s) — a 12x window shrink that no test would show.
+Use the explicit `cache.set(key, calls + 1, cls.TTL)` idiom.
+
+### Enable procedure
+
+The hardening gate above is landed, so the setting is **safe to enable**. Per
+environment:
+
+1. Confirm `OPENAI_API_KEY` is set and working in that environment.
+2. Set `WAGTAILFORUM_SPAM_BACKEND=apps.forum_host.spam.LLMSpamBackend`.
+3. Restart, then watch `[SECURITY] Forum spam LLM flagged content` (flags),
+   `[ERROR] Forum spam LLM timed out` (provider health), and `[RATE_LIMIT]
+   Budget exhausted for ai_rate_limit:forum_spam` (cap hit) in the logs.
+
+Operational knobs, all in `apps/forum_host/constants.py`:
+
+| Constant | Default | Effect |
+|----------|---------|--------|
+| `SPAM_LLM_BUDGET_LIMIT` | 200/hr | Screens before degrading to heuristic (publish). Raise for higher forum volume. |
+| `SPAM_LLM_TIMEOUT_SECONDS` | 3 | Caller **and** provider deadline. Bounds held-transaction time. |
+| `SPAM_LLM_MAX_WORKERS` | 4 | Concurrent screens. Size for peak concurrent moderation. |
+| `SPAM_LLM_CACHE_TTL_SECONDS` | 24h | Verdict cache lifetime (duplicate spam is free). |
+| `SPAM_LLM_PROMPT_VERSION` | 1 | Bump to invalidate cached verdicts after a prompt change. |
+
+To clear an exhausted forum budget without waiting out the hour:
+`AIRateLimiter.reset_budget(constants.SPAM_LLM_BUDGET_CACHE_KEY)`.
+
+To roll back, unset `WAGTAILFORUM_SPAM_BACKEND` — the heuristic default returns
+with no code change.
 
 ## Idempotency contract on new write surfaces (todo 258)
 

@@ -5,6 +5,8 @@ Tests rate limiting behavior, quota enforcement, and decorator functionality
 to ensure cost protection and fair usage.
 """
 
+from unittest.mock import patch
+
 from apps.blog.services.ai_rate_limiter import AIRateLimiter, ai_rate_limit
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -247,3 +249,65 @@ class AIRateLimiterTestCase(TestCase):
         # Remaining should be correct
         remaining = AIRateLimiter.get_remaining_calls(self.user.id)
         self.assertEqual(remaining, AIRateLimiter.USER_LIMIT - 5)
+
+
+class NamedBudgetTestCase(TestCase):
+    """peek_budget / consume_budget / reset_budget (forum H13 item 1 + 3).
+
+    The split exists so a caller can decline to pay for a call that never
+    reached the provider — see apps/forum_host/spam.py.
+    """
+
+    KEY = "ai_rate_limit:test_feature"
+    LIMIT = 3
+
+    def setUp(self):
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_peek_does_not_consume(self):
+        """The whole point: peeking N times must not spend anything."""
+        for _ in range(self.LIMIT + 2):
+            self.assertTrue(AIRateLimiter.peek_budget(self.KEY, self.LIMIT))
+
+        self.assertEqual(cache.get(self.KEY, 0), 0)
+
+    def test_consume_increments_by_one(self):
+        self.assertEqual(AIRateLimiter.consume_budget(self.KEY, self.LIMIT), 1)
+        self.assertEqual(AIRateLimiter.consume_budget(self.KEY, self.LIMIT), 2)
+        self.assertEqual(cache.get(self.KEY), 2)
+
+    def test_peek_is_false_once_the_cap_is_reached(self):
+        for _ in range(self.LIMIT):
+            AIRateLimiter.consume_budget(self.KEY, self.LIMIT)
+
+        self.assertFalse(AIRateLimiter.peek_budget(self.KEY, self.LIMIT))
+
+    def test_consume_sets_the_one_hour_ttl_explicitly(self):
+        """Regression guard for the rejected cache.incr() implementation.
+
+        Django's BaseCache.incr() is get() then set(key, value) with NO
+        timeout, so it silently re-stamps the entry with the backend's default
+        TIMEOUT (300s here) instead of AIRateLimiter.TTL — shrinking the budget
+        window by 12x. Asserted through cache.set rather than a backend TTL
+        probe so this holds on LocMem (local) and Redis (CI) alike.
+        """
+        with patch("apps.blog.services.ai_rate_limiter.cache.set") as mock_set:
+            AIRateLimiter.consume_budget(self.KEY, self.LIMIT)
+
+        mock_set.assert_called_once_with(self.KEY, 1, AIRateLimiter.TTL)
+
+    def test_reset_clears_the_counter(self):
+        AIRateLimiter.consume_budget(self.KEY, self.LIMIT)
+        AIRateLimiter.reset_budget(self.KEY)
+
+        self.assertEqual(cache.get(self.KEY, 0), 0)
+        self.assertTrue(AIRateLimiter.peek_budget(self.KEY, self.LIMIT))
+
+    def test_named_budgets_are_independent(self):
+        AIRateLimiter.consume_budget(self.KEY, self.LIMIT)
+
+        self.assertEqual(cache.get("ai_rate_limit:other_feature", 0), 0)
+        self.assertEqual(cache.get("ai_rate_limit:global", 0), 0)

@@ -55,6 +55,27 @@ def test_opening_post_text_includes_topic_title(settings):
     assert "casino" in result.reason.lower()
 
 
+def test_check_text_screens_already_flattened_text(settings):
+    # check() delegates to check_text() so a composite backend can flatten a
+    # StreamField body once and screen the same string with both passes.
+    settings.WAGTAILFORUM_SPAM_BANNED_WORDS = ["casino"]
+    result = HeuristicSpamBackend().check_text("visit my Casino now")
+    assert result.is_clean is False
+    assert "casino" in result.reason.lower()
+
+
+def test_check_text_and_check_agree_on_the_same_object(settings):
+    settings.WAGTAILFORUM_SPAM_BANNED_WORDS = ["casino"]
+    backend = HeuristicSpamBackend()
+    obj = SimpleNamespace(title="Win big", body=_FakeBody("visit my Casino now"))
+
+    via_obj = backend.check(obj)
+    via_text = backend.check_text(backend.extract_text(obj))
+
+    assert via_obj.is_clean == via_text.is_clean is False
+    assert via_obj.reason == via_text.reason
+
+
 def test_default_autopublish_level_is_member():
     assert get_setting("TRUST_AUTOPUBLISH_LEVEL") == 2
 

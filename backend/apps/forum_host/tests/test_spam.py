@@ -9,6 +9,7 @@ from apps.forum_host.spam import LLMSpamBackend
 from django.conf import settings
 from django.core.cache import cache
 from django.test import TestCase, override_settings
+from wagtail_forum.spam import base as spam_base
 from wagtail_forum.spam import get_spam_backend
 from wagtail_forum.spam.heuristic import HeuristicSpamBackend
 
@@ -39,7 +40,8 @@ class SpamBackendSettingTests(TestCase):
 
 # Patch the names as bound INTO the spam module, not at their source.
 GEN = "apps.forum_host.spam.generate_ai_text"
-BUDGET = "apps.forum_host.spam.AIRateLimiter.check_global_limit"
+BUDGET = "apps.forum_host.spam.AIRateLimiter.peek_budget"
+LIMIT = "apps.forum_host.constants.SPAM_LLM_BUDGET_LIMIT"
 
 
 class LLMSpamBackendTests(TestCase):
@@ -163,3 +165,162 @@ class LLMSpamBackendTests(TestCase):
         # Not cached (ambiguous/transient): a second identical check re-calls.
         backend.check(_post(body="lookalike body"))
         self.assertEqual(mock_gen.call_count, 2)
+
+
+class LLMSpamBudgetAccountingTests(TestCase):
+    """H13 items 1 + 3 — budget is consumed ONLY by calls that reached the
+    provider, and on a forum-private counter.
+
+    These tests deliberately do NOT patch the budget methods: they read the
+    real counter out of the cache, because the whole point is what gets
+    written to it.
+    """
+
+    def setUp(self):
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def _spent(self) -> int:
+        return cache.get(constants.SPAM_LLM_BUDGET_CACHE_KEY, 0)
+
+    @patch(GEN, return_value="CLEAN")
+    def test_successful_screen_consumes_one_unit(self, mock_gen):
+        result = LLMSpamBackend().check(_post(body="a first body"))
+        self.assertTrue(result.is_clean)
+        self.assertEqual(self._spent(), 1)
+
+    @patch(GEN, return_value="CLEAN")
+    def test_cached_verdict_consumes_nothing_extra(self, mock_gen):
+        backend = LLMSpamBackend()
+        backend.check(_post(body="a repeated body"))
+        backend.check(_post(body="a repeated body"))
+        mock_gen.assert_called_once()
+        self.assertEqual(self._spent(), 1)  # not 2 — the re-screen was free
+
+    @patch(GEN, return_value="not a verdict at all")
+    def test_unparseable_reply_consumes_nothing(self, mock_gen):
+        # No verdict came back, so nothing is spent — the acceptance criterion
+        # lists "unparseable" alongside timeout and exception.
+        result = LLMSpamBackend().check(_post(body="an unparseable body"))
+        self.assertFalse(result.is_clean)
+        self.assertEqual(result.reason, constants.SPAM_LLM_UNAVAILABLE_REASON)
+        self.assertEqual(self._spent(), 0)
+
+    @patch(LIMIT, 3)
+    @patch(GEN, return_value="not a verdict at all")
+    def test_sustained_unparseable_replies_burn_nothing(self, mock_gen):
+        """The subtlest arm of criterion 1.
+
+        Unparseable verdicts are deliberately NOT cached (they are transient),
+        so every retry re-calls the provider. If those calls consumed budget, a
+        provider stuck emitting garbage would drain the cap and flip the
+        backend to degrade-to-heuristic — publishing unscreened — which is the
+        very posture change this todo exists to prevent.
+        """
+        backend = LLMSpamBackend()
+        attempts = 3 + 5  # deliberately past the patched cap
+
+        for i in range(attempts):
+            result = backend.check(_post(body=f"a garbage-reply body {i}"))
+            self.assertFalse(result.is_clean, f"attempt {i} published")
+            self.assertEqual(result.reason, constants.SPAM_LLM_UNAVAILABLE_REASON)
+
+        self.assertEqual(mock_gen.call_count, attempts)
+        self.assertEqual(self._spent(), 0)
+
+    @patch(LIMIT, 3)
+    @patch(GEN, side_effect=RuntimeError("provider down"))
+    def test_sustained_outage_burns_nothing_and_never_flips_to_publish(self, mock_gen):
+        """The H13 item 1 regression: N > limit consecutive provider failures.
+
+        Before the peek/consume split these burned budget, exhausted the cap,
+        and flipped the backend from fail-closed (hold) to
+        degrade-to-heuristic (publish LLM-unscreened) — a spam-publishing
+        posture reached purely by the provider being down.
+        """
+        backend = LLMSpamBackend()
+        attempts = 3 + 5  # deliberately past the patched cap
+
+        for i in range(attempts):
+            result = backend.check(_post(body=f"an outage body {i}"))
+            self.assertFalse(result.is_clean, f"attempt {i} published")
+            self.assertEqual(result.reason, constants.SPAM_LLM_UNAVAILABLE_REASON)
+
+        self.assertEqual(mock_gen.call_count, attempts)  # never short-circuited
+        self.assertEqual(self._spent(), 0)  # nothing burned
+
+    @patch(LIMIT, 2)
+    @patch("apps.forum_host.constants.SPAM_LLM_TIMEOUT_SECONDS", 0.05)
+    def test_sustained_timeouts_burn_nothing(self):
+        """The timeout path must not consume budget either."""
+
+        def slow(*args, **kwargs):
+            time.sleep(0.4)
+            return "CLEAN"
+
+        with patch(GEN, side_effect=slow):
+            for i in range(4):  # past the patched cap of 2
+                result = LLMSpamBackend().check(_post(body=f"a slow body {i}"))
+                self.assertFalse(result.is_clean)
+                self.assertEqual(result.reason, constants.SPAM_LLM_UNAVAILABLE_REASON)
+
+        self.assertEqual(self._spent(), 0)
+
+    def test_exhausted_budget_degrades_to_heuristic_publish(self):
+        """A deliberate cap is a COST decision — it still publishes."""
+        cache.set(
+            constants.SPAM_LLM_BUDGET_CACHE_KEY,
+            constants.SPAM_LLM_BUDGET_LIMIT,
+            constants.SPAM_LLM_CACHE_TTL_SECONDS,
+        )
+
+        with patch(GEN) as mock_gen:
+            result = LLMSpamBackend().check(_post(body="an over-cap body"))
+
+        self.assertTrue(result.is_clean)  # degrade to heuristic → publish
+        mock_gen.assert_not_called()  # no spend past the cap
+
+    @patch(GEN, return_value="CLEAN")
+    def test_forum_budget_is_separate_from_the_blog_global_counter(self, mock_gen):
+        """H13 item 3 — forum load must not eat the blog's AI quota."""
+        LLMSpamBackend().check(_post(body="a separate-keys body"))
+
+        self.assertEqual(self._spent(), 1)
+        self.assertEqual(cache.get("ai_rate_limit:global", 0), 0)
+
+    @patch(GEN, return_value="CLEAN")
+    def test_provider_call_carries_an_inner_timeout(self, mock_gen):
+        """H13 item 2 — the worker thread gets its own deadline.
+
+        future.result() only bounds the caller; a submitted future cannot be
+        cancelled once running, so the provider call itself must be bounded or
+        a hung provider parks the pool.
+        """
+        LLMSpamBackend().check(_post(body="a timeout-kwarg body"))
+
+        _, kwargs = mock_gen.call_args
+        self.assertEqual(kwargs["timeout"], constants.SPAM_LLM_TIMEOUT_SECONDS)
+
+
+class HeuristicTextReuseTests(TestCase):
+    """The StreamField body is flattened once, not once per pass."""
+
+    def setUp(self):
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    @patch(GEN, return_value="CLEAN")
+    def test_extract_text_runs_once_per_screened_post(self, mock_gen):
+        # Spy the SHARED module-level walker, not the backend instance: the
+        # heuristic is a separate object with its own bound extract_text, so an
+        # instance-level spy counts 1 whether or not the body is walked twice.
+        with patch.object(
+            spam_base, "extract_text", wraps=spam_base.extract_text
+        ) as spy:
+            LLMSpamBackend().check(_post(body="a single-walk body"))
+
+        self.assertEqual(spy.call_count, 1)

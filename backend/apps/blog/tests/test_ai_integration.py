@@ -463,6 +463,42 @@ class GenerateAiTextHelperTestCase(TestCase):
             messages=[{"role": "user", "content": "Describe Monstera care"}]
         )
 
+    @patch("wagtail_ai.agents.base.get_llm_service")
+    def test_timeout_is_forwarded_as_a_completion_kwarg(self, mock_get_llm_service):
+        """A caller-supplied deadline must reach the provider SDK.
+
+        The forum spam backend runs this in a worker thread, where a wall-clock
+        timeout on the caller cannot cancel the thread — only the provider's own
+        request deadline unblocks it. The kwarg crosses several **kwargs hops
+        (CachedLLMService -> LLMService -> AnyLLM -> the OpenAI client), so a
+        signature change anywhere would drop it silently.
+        """
+        from apps.blog.wagtail_ai_v3_integration import generate_ai_text
+
+        mock_service = mock_get_llm_service.return_value
+        mock_service.completion.return_value = _make_completion_response("CLEAN")
+
+        generate_ai_text("Screen this post", timeout=3)
+
+        mock_service.completion.assert_called_once_with(
+            messages=[{"role": "user", "content": "Screen this post"}],
+            timeout=3,
+        )
+
+    @patch("wagtail_ai.agents.base.get_llm_service")
+    def test_timeout_is_omitted_when_not_supplied(self, mock_get_llm_service):
+        """No timeout kwarg at all when None, so the provider default applies
+        and existing call sites keep their exact payload."""
+        from apps.blog.wagtail_ai_v3_integration import generate_ai_text
+
+        mock_service = mock_get_llm_service.return_value
+        mock_service.completion.return_value = _make_completion_response("hi")
+
+        generate_ai_text("No deadline here")
+
+        _, kwargs = mock_service.completion.call_args
+        self.assertNotIn("timeout", kwargs)
+
 
 class GenerateAiContentViewTestCase(TestCase):
     """The /blog-api/ai-content/ endpoint (H2 migration + H3 rate limiting)."""

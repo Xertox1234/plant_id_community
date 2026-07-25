@@ -79,6 +79,21 @@ SPAM_LLM_ALIAS = "default"
 # reject comment a moderator sees).
 SPAM_LLM_UNAVAILABLE_REASON = "AI moderation unavailable — held for review"
 
+# Budget counter for LLM spam screening — deliberately SEPARATE from the blog's
+# shared `ai_rate_limit:global` key (audit H13 item 3). Sharing one counter let
+# either subsystem starve the other's AI quota with no per-feature accounting,
+# and coupled the forum's degrade-to-heuristic posture to blog traffic.
+SPAM_LLM_BUDGET_CACHE_KEY = "ai_rate_limit:forum_spam"
+
+# Screens per hour before the forum degrades to the heuristic verdict. Only
+# calls that actually reached the provider are counted (see spam.py), so an
+# outage cannot drain this.
+SPAM_LLM_BUDGET_LIMIT = 200
+
+# Truncation bound on an unparseable provider reply echoed into the warning log
+# (bounds log volume on a misbehaving provider).
+SPAM_LLM_LOG_TRUNCATE_CHARS = 80
+
 # Classification prompt. The post is framed as untrusted DATA; the model is told
 # to treat any instructions inside it as content to classify, never commands.
 SPAM_LLM_PROMPT_TEMPLATE = (
