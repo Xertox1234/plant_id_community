@@ -87,3 +87,10 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   from the package for a GET-only view) — `test_host_api_routes_match_package`
   enforces route parity. Verifying with the package tests alone MISSES it; run
   `pytest apps/forum_host packages/wagtail_forum` before pushing a new forum route.
+- **New BEHAVIOR on a package read view (cache headers, `finalize_response`,
+  etc.) must be tested through the `forum_host` mount, not just the package test
+  urlconf.** Several read views are host-SUBCLASSED for throttling
+  (`class TopicListView(forum_views.TopicListView)` in `apps/forum_host/api.py`),
+  so the package's own tests exercise the unwrapped class. Inheritance preserves
+  the behavior, but only a test hitting the real `/api/v1/forum/...` path proves
+  it ships in prod — add one to `apps/forum_host/tests/test_api_mounted.py`.

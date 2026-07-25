@@ -1768,3 +1768,53 @@ component is rendered twice on one page (ThreadDetailPage renders two).
 Lesson: `autoFocus` and an imperative focus-capture effect don't compose —
 `autoFocus` wins the race. Any focus-trap/focus-restore component must own the
 initial focus imperatively inside the same effect that captures the trigger.
+
+## 2026-07-25 — Playwright authed spec ran UNAUTHENTICATED for months (todo 261 / M34, E2E)
+
+The forum authenticated E2E (`web/e2e/forum-authenticated.spec.js`) was a wall of
+`test.skip()` / `.catch(() => false)` soft-checks and was assumed to be
+"authenticated coverage." It was actually running with **no auth** — every write
+step silently no-op-skipped, a green-but-vacuous suite.
+
+Root cause: the `chromium-authenticated`/`firefox-authenticated` projects in
+`playwright.config.ts` selected the spec with
+`testMatch: /(forum-authenticated|auth\.spec)\.js/`. That regex requires a file
+ending `forum-authenticated.js` OR `auth.spec.js` — but the file is
+`forum-authenticated.**spec**.js`. After "forum-authenticated" comes `.spec.js`,
+not `.js`, so the first alternative never matched. The spec therefore matched
+ONLY the plain `chromium`/etc. projects (whose `testIgnore` excluded just
+`auth.setup.js`), i.e. it ran WITHOUT the `storageState` auth — so the "+ New
+Thread" auth-gated flow redirected to `/login` and every step skipped.
+
+Two-part fix: `testMatch: /(forum-authenticated|auth)\.spec\.js/` (matches the
+`.spec.js` files) AND add `forum-authenticated\.spec` to the 5 unauthenticated
+projects' `testIgnore` (so the authed spec doesn't ALSO run unauthenticated and
+fail). Rewrote the spec into a real create→reply→edit→react→delete lifecycle
+with hard assertions; it now passes under `chromium-authenticated`.
+
+Lessons: (1) A Playwright project `testMatch`/`testIgnore` regex is matched
+against the filename — `X\.js` does NOT match `X.spec.js`; write
+`X\.spec\.js`. (2) An authed E2E that "passes" while full of `test.skip()` is
+the tell it never authenticated — assert it runs under the intended
+`storageState` project (`--list` shows `[chromium-authenticated] ›`), not just
+that it's green. (3) Verify a new/edited spec actually executes its body: run it
+and read the per-test result, don't trust the summary.
+
+## 2026-07-25 — Untrusted forum author's clean prose auto-publishes synchronously (todo 261, testing)
+
+Writing the M34 authed E2E needed a topic/reply to become visible immediately so
+the lifecycle could continue. The seeded `e2e_test_user` is untrusted
+(`trust_level 0`, `post_count 0`), which routes writes through moderation
+(`live=False`) — seemingly blocking the flow.
+
+But `SpamCheckTask.start()` (`wagtail_forum/models/moderation.py`) runs the spam
+backend **synchronously inside `workflow.start()`**: clean content auto-approves
+→ the single-task workflow finishes → publishes, and `submit_for_moderation`
+returns `'published'` in the same request. So an untrusted author's **clean
+prose** (no links, no banned words — the heuristic backend's triggers) goes live
+immediately; only flagged content stays `pending`.
+
+Lesson: an E2E (or any test) that creates forum content as an untrusted user and
+asserts immediate visibility works IFF the body is clean — don't assume untrusted
+== always-moderated. Conversely, a test that means to exercise the *pending* path
+must inject a heuristic trigger (e.g. >3 links) or bump `trust` the other way.
