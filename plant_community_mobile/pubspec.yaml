@@ -61,6 +61,7 @@ dependencies:
   intl: ^0.20.1
   uuid: ^4.5.2
   logger: ^2.5.0
+  html: ^0.15.4  # Parse sanitized forum StreamField paragraph HTML for rendering
 
   # Secure Storage
   flutter_secure_storage: ^10.0.0  # Secure JWT token storage

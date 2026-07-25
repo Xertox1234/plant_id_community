@@ -12,6 +12,9 @@ import '../../features/profile/profile_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/care/care_screen.dart';
 import '../../features/forum/forum_screen.dart';
+import '../../features/forum/screens/forum_topics_screen.dart';
+import '../../features/forum/screens/forum_thread_screen.dart';
+import '../../features/forum/screens/forum_composer_screen.dart';
 import '../../features/collection/collection_screen.dart';
 import '../../models/plant.dart';
 import '../../services/auth_service.dart';
@@ -187,6 +190,44 @@ GoRouter appRouter(Ref ref) {
           state: state,
           child: const ForumScreen(),
         ),
+      ),
+      GoRoute(
+        path: '/forum/boards/:slug',
+        name: 'forumBoard',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: ForumTopicsScreen(
+            boardSlug: state.pathParameters['slug'] ?? '',
+            boardTitle: state.extra is String ? state.extra as String : null,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/forum/topics/:id',
+        name: 'forumTopic',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: ForumThreadScreen(
+            topicId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+            initialTitle: state.extra is String ? state.extra as String : null,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/forum/compose',
+        name: 'forumCompose',
+        pageBuilder: (context, state) {
+          final args = state.extra;
+          return _buildPageWithTransition(
+            context: context,
+            state: state,
+            child: args is ForumComposeArgs
+                ? ForumComposerScreen(args: args)
+                : ErrorScreen(error: Exception('Missing composer arguments')),
+          );
+        },
       ),
       GoRoute(
         path: AppRoutes.collection,

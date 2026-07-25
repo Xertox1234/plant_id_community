@@ -1,41 +1,35 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/forum_screen.dart';
-import 'package:plant_community_mobile/shared/widgets/clay_button.dart';
-import 'package:plant_community_mobile/core/theme/app_theme.dart';
-import 'package:plant_community_mobile/core/theme/app_palettes.dart';
-import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
 
-Widget _wrap(Widget child) => MaterialApp(
-  theme: AppTheme.build(
-    AppPaletteChoice.loam,
-    Brightness.light,
-    AppDensity.cozy,
-  ),
-  home: child,
+import 'support/forum_test_support.dart';
+
+Widget _wrap(FakeForumApi api) => ProviderScope(
+  overrides: [
+    forumApiProvider.overrideWithValue(api),
+    forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+  ],
+  child: const MaterialApp(home: ForumScreen()),
 );
 
 void main() {
-  testWidgets('renders 3 sample posts', (tester) async {
-    await tester.pumpWidget(_wrap(const ForumScreen()));
-    expect(find.textContaining('Monstera'), findsOneWidget);
-    expect(find.textContaining('succulent'), findsOneWidget);
-    expect(find.textContaining('fern'), findsOneWidget);
+  testWidgets('empty forum shows empty-state placeholders', (tester) async {
+    // No boards and an empty sync feed.
+    await tester.pumpWidget(_wrap(FakeForumApi()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Boards'), findsOneWidget);
+    expect(find.text('Recent activity'), findsOneWidget);
+    expect(find.textContaining('No boards yet'), findsOneWidget);
+    expect(find.textContaining('Nothing here yet'), findsOneWidget);
   });
 
-  testWidgets('ClayButton New Post present', (tester) async {
-    await tester.pumpWidget(_wrap(const ForumScreen()));
-    expect(find.byType(ClayButton), findsOneWidget);
-    expect(find.text('+ New Post'), findsOneWidget);
-  });
-
-  testWidgets('coming soon notice present', (tester) async {
-    await tester.pumpWidget(_wrap(const ForumScreen()));
-    expect(find.textContaining('coming soon'), findsOneWidget);
-  });
-
-  testWidgets('no crashes on pump', (tester) async {
-    await tester.pumpWidget(_wrap(const ForumScreen()));
+  testWidgets('pumps without exceptions', (tester) async {
+    await tester.pumpWidget(_wrap(FakeForumApi()));
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 }
