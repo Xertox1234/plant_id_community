@@ -90,15 +90,70 @@ directly-reachable host can't be tricked into thinking plain HTTP is secure).
 - Set `VITE_API_URL` on the Cloudflare Workers Builds triggers to the Railway URL,
   then rebuild the frontend.
 
-## Background jobs (Celery) — optional, add when needed
+## Background jobs & scheduling — current topology (forum ops, todo 261 / H21)
 
-The site browses/authenticates without Celery. For background tasks (e.g. blog AI
-generation), add a **second service** from the same repo + root directory, and set
-its **custom start command** to:
+**Current prod topology: a SINGLE web service (gunicorn). There is no Celery
+worker and no beat/cron process.** This has two consequences that the forum
+code cannot signal at runtime:
+
+1. **Every forum `.delay()` task silently drops.** `send_forum_push`,
+   `send_forum_push_batch`, `send_forum_email_batch`, and
+   `generate_topic_summary` are enqueued to Redis but nothing consumes the
+   queue, so they never execute. (Push is separately gated on the Firebase key,
+   which is also unset in prod — see below.)
+2. **Tombstone pruning never runs.** `prune_forum_tombstones` documents "run
+   daily via beat/cron" but no scheduler invokes it, so `TopicDeletedLog` grows
+   unbounded and the 30-day `WAGTAILFORUM_SYNC_TOMBSTONE_RETENTION_DAYS`
+   retention contract is unenforced.
+
+### Decision (todo 261): schedule pruning now, defer the worker
+
+Railway bills per-second for allocated resources with **no scale-to-zero**, so
+an always-on worker costs ~$3–5/mo even while idle. Because push is already
+gated on the (unset) Firebase key and summaries need the OpenAI key, a worker
+today would deliver almost nothing. So:
+
+- **Now — add a cron service for pruning** (near-$0; runs a few seconds/day).
+- **Defer the worker** until push/email/summaries are actually turned on. When
+  that happens, the cheapest path is to run the Celery worker **inside the
+  existing gunicorn container** (a process manager, or `celery … worker &`
+  alongside gunicorn) rather than paying for a second always-on service — you
+  already fund that container 24/7.
+
+### Add the tombstone-pruning cron service
+
+Railway cron services run a start command on a schedule, then **must exit** (a
+run that doesn't terminate skips the next one). Config lives in
+[`backend/railway.cron.json`](../../railway.cron.json): daily at `03:00 UTC`
+(`cronSchedule` min frequency is 5 min; schedules are UTC), running
+`python manage.py prune_forum_tombstones`, with no healthcheck and
+`restartPolicyType: NEVER` (a failed prune waits for tomorrow, it does not
+crash-loop).
+
+1. **New → Empty Service** in the same project, pointing at this repo.
+2. **Settings → Root Directory** = `backend`.
+3. **Settings → Config-as-code file** = `railway.cron.json`. This is
+   load-bearing: a service left on the default `railway.json` inherits the web
+   service's gunicorn `startCommand` **and** `healthcheckPath` (the cron would
+   try to serve gunicorn and never pass a healthcheck). The separate config
+   file is how the cron avoids that inheritance.
+4. Reference `DATABASE_URL` = `${{Postgres.DATABASE_URL}}` (private networking;
+   no public domain needed). `REDIS_URL` is not required for pruning.
+5. Deploy. **Verify:** after a scheduled run, the service log shows
+   `Pruned N tombstone row(s) older than 30 day(s).`
+
+### Add the worker later (when push/email/summaries are enabled)
+
+Cheapest: co-locate in the web container. Standalone (if you want independent
+scaling) is a **second service**, same repo + root directory, custom start
+command — this also covers blog AI generation:
 
 ```bash
 celery -A plant_community_backend worker --loglevel=info --concurrency=2
 ```
+
+Add `--beat` (or a separate beat service) only if you move scheduling off the
+cron service above. `CELERY_BROKER_URL` defaults to `REDIS_URL`.
 
 ## Known gaps to address later
 

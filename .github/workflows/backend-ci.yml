@@ -68,6 +68,14 @@ jobs:
       - name: Run Django system checks
         run: python manage.py check
 
+      - name: Check for missing migrations
+        # Fails the build when a model change has no accompanying migration
+        # (L17, todo 261). `--check` exits non-zero if makemigrations WOULD
+        # create a migration; `--dry-run` stops it from writing one. Migration
+        # DETECTION compares model state to the migration files (not the live
+        # schema), so the SQLite settings used above are fine here.
+        run: python manage.py makemigrations --check --dry-run
+
       - name: Validate OpenAPI schema generation
         # Catches serializer<->model field drift: a serializer referencing a
         # non-existent model field raises ImproperlyConfigured during generation,

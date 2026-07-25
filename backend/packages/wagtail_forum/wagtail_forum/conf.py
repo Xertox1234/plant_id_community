@@ -27,6 +27,19 @@ DEFAULTS = {
     # view_count deduplication window (seconds). A topic detail GET from the same
     # user (or anonymous IP) within this window counts as one view, not many.
     "VIEW_COUNT_DEDUP_SECONDS": 15 * 60,  # 15 minutes
+    # Shared-cache TTL (seconds) for ANONYMOUS hot public reads — board list,
+    # topic list, and search ONLY (audit 2026-07-11 M42). Only applied to
+    # anonymous success responses (which sit at the constant anon baseline for
+    # every per-user field), so a CDN like Cloudflare can offload read-heavy
+    # public traffic. Authenticated responses are always `private, no-store`.
+    # Topic detail and post list are deliberately NOT cached (they use
+    # PrivateForumReadCacheMixin): topic detail increments view_count per hit,
+    # and a moderated-away (unpublished/report-hidden) post must stop serving
+    # immediately — there is no CDN purge wired. Accepted tradeoff for the
+    # cached list/search endpoints: a just-removed topic can linger in the
+    # anon-cached LIST (title + counts, never body) for up to this TTL; the
+    # origin is correct on the next cache miss. Short by design.
+    "PUBLIC_READ_CACHE_SECONDS": 60,
     # How long tombstone rows (TopicDeletedLog) are retained before pruning.
     # A mobile client that hasn't synced in longer than this window will miss
     # some deletions and should fall back to a full resync.

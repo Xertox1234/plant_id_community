@@ -715,6 +715,64 @@ hash2 = hash(json.dumps({"b": 2, "a": 1}, sort_keys=True))
 
 ---
 
+## HTTP shared-cache headers on public reads (anon-scoped, behind a CDN)
+
+Distinct from the app-level Redis cache above: this offloads read-heavy PUBLIC
+GETs to a CDN (Cloudflare) via `Cache-Control`/`Vary`, with no server-side store.
+Pattern from the forum (audit M42, todo 261): `wagtail_forum/api/views.py`.
+
+**The trap.** A forum read serializes per-user fields — a post's
+`can_edit`/`can_delete`/`can_report`/`reacted`, a topic list's `is_unread`, a
+topic's `is_subscribed`. If a shared cache ever stores one user's response and
+replays it, it leaks capabilities. So only ANONYMOUS responses (where every such
+field sits at its constant baseline: `False`/`[]`) may be shared-cached.
+
+**Two gotchas that a naive `Vary: Cookie` misses:**
+
+1. **`Vary` must cover every auth scheme.** `CookieJWTAuthentication` falls back
+   to the `Authorization` header (the cookie-less mobile client), so a cache
+   keyed only on `Cookie` hands the anonymous entry to a header-authenticated
+   request. Vary on BOTH.
+2. **Don't public-cache a read with a side effect or moderation-removal risk.**
+   `TopicDetailView.retrieve` increments `view_count` (a cache serves N visitors
+   off one origin hit → undercounts a sortable metric); post/topic content can be
+   unpublished or report-auto-hidden with no CDN purge wired (stale content lives
+   until the TTL). Those endpoints are `no-store` for everyone.
+
+```python
+def _apply_forum_read_cache_headers(response, request, *, public):
+    from django.utils.cache import patch_vary_headers
+
+    is_anonymous = getattr(request, "user", None) is None or not request.user.is_authenticated
+    if public and is_anonymous and response.status_code < 400:
+        response["Cache-Control"] = f"public, s-maxage={get_setting('PUBLIC_READ_CACHE_SECONDS')}, max-age=0"
+    else:
+        response["Cache-Control"] = "private, no-store"
+    patch_vary_headers(response, ("Cookie", "Authorization"))  # every auth scheme
+    return response
+
+
+class PublicForumReadCacheMixin:  # board list, topic list, search
+    _forum_read_public = True
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        if request.method in ("GET", "HEAD"):  # never a mutating POST
+            _apply_forum_read_cache_headers(response, request, public=self._forum_read_public)
+        return response
+
+
+class PrivateForumReadCacheMixin(PublicForumReadCacheMixin):  # topic detail, post list
+    _forum_read_public = False  # always no-store: view_count / moderation-removal
+```
+
+**Test through the real mount, not just the package urlconf.** The mixin lives on
+the package view, but prod serves via `apps/forum_host` — some views are
+host-SUBCLASSED (throttle wrappers). Inheritance preserves `finalize_response`,
+but only a test hitting the real `/api/v1/forum/...` path proves the header
+actually ships (`apps/forum_host/tests/test_api_mounted.py`).
+
+---
+
 ## Related Patterns
 
 - **Performance**: See `performance/query-optimization.md` (N+1 prevention)

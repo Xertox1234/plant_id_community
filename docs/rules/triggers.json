@@ -671,5 +671,24 @@
     "source": "codify: docs/codify-forum-258",
     "added": "2026-07-24",
     "severity": "warn"
+  },
+  {
+    "id": "cdn-public-cache-vary-auth-schemes",
+    "domains": [
+      "caching",
+      "security",
+      "api"
+    ],
+    "path_glob": [
+      "backend/**/views.py",
+      "backend/**/*_views.py"
+    ],
+    "content_present": "s-maxage",
+    "content_absent": "Authorization",
+    "message": "Shared-cache header (s-maxage) added: Vary MUST cover every auth scheme. CookieJWTAuthentication falls back to the Authorization header (mobile), so Vary: Cookie alone leaks the anon copy to a header-authed request. Use patch_vary_headers(resp, (\"Cookie\",\"Authorization\")); gate the public branch on anonymous + status<400; no-store authed and side-effect/moderation-removal reads. See backend/docs/patterns/architecture/caching.md",
+    "pattern_ref": "backend/docs/patterns/architecture/caching.md",
+    "source": "codify: main",
+    "added": "2026-07-24",
+    "severity": "warn"
   }
 ]
