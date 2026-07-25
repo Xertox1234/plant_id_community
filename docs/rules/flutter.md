@@ -44,3 +44,14 @@ Compact checklist auto-injected before edits. Long-form:
   around an awaited call — a timed-out request keeps running after the flag
   resets; put the opt-out ON THE REQUEST (`Options(extra: {...})`, checked in
   the interceptor). See `plant_community_mobile/docs/patterns/flutter-patterns.md`.
+- **Widget/route tests: every provider the mounted screen reads must succeed.**
+  Riverpod 3.x `FutureProvider`/`AsyncNotifier` auto-retry on error with a
+  backoff `Timer`; a fetch that keeps throwing reschedules that timer forever and
+  fails the test with `A Timer is still pending even after the widget tree was
+  disposed`. Give the fake API a fixture for each method the screen calls — don't
+  rely on an error state settling. (`docs/LEARNINGS.md` 2026-07-25.)
+- **Idempotent mobile writes: one `Idempotency-Key` per action, rotated on
+  content change.** Reuse the key across retries of the *same* payload so the
+  server replays; regenerate it when the composed content changes, or an
+  edit-then-retry wedges a permanent `422` ("used with a different payload").
+  See `plant_community_mobile/docs/patterns/riverpod.md` → Idempotent Write Actions.

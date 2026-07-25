@@ -113,6 +113,50 @@ against the pinned Wagtail version.
 
 ---
 
+### [2026-07-25] Riverpod FutureProvider auto-retry leaves a pending timer that fails widget tests
+
+**Mistake**: A `flutter test` for the forum thread route failed with `A Timer is
+still pending even after the widget tree was disposed` (stack through
+`ProviderElement.triggerRetry`). The test mounted a screen whose
+`topicDetailProvider` fetch threw (the fake had no fixture for that call).
+
+**Root cause**: Riverpod 3.x/v4 `FutureProvider`/`AsyncNotifier` **auto-retry on
+error** with an exponential-backoff `Timer`. A provider whose fetch keeps
+throwing re-schedules a retry timer indefinitely; in `flutter test` that timer
+outlives the widget tree and trips the pending-timer invariant. `pump(4s)` only
+fires one retry, which schedules the next.
+
+**Fix**: In widget/route tests, make every provider the screen reads **succeed**
+— give the fake API a fixture for each method the mounted screen calls (here:
+set `topicDetail` on the fake). Don't rely on an error state settling; the retry
+loops. (An erroring provider is only safe to leave pending when the test tears
+down before the first backoff fires.)
+
+**Agent**: flutter-dart-reviewer
+
+---
+
+### [2026-07-25] Incremental build_runner can miss a `@riverpod` hash change — clean-rebuild before trusting codegen
+
+**Mistake**: After editing a method body in a `@riverpod` source,
+`dart run build_runner build` reported `wrote 0 outputs`, implying codegen was
+current. A subsequent `build_runner clean` + `build` produced a **different**
+`.g.dart` (a changed `_$xHash`) — the version that would have been committed was
+stale and would have failed CI's "generated code committed" gate.
+
+**Root cause**: build_runner's incremental cache did not detect the source-hash
+change; only a clean rebuild regenerated the embedded hash.
+
+**Fix**: Before committing Flutter changes that touch any `@riverpod`/`part
+'*.g.dart'` source, run `dart run build_runner clean && flutter pub run
+build_runner build` and confirm `git diff` on the `.g.dart` files is what you
+expect. A "0 outputs" incremental run is not proof the committed codegen matches
+a fresh CI build. Reinforces the flutter codegen CI-gate rule.
+
+**Agent**: flutter-dart-reviewer
+
+---
+
 ## Security
 
 ### [2025-11-11] F-strings in raw SQL bypass Django ORM injection protection (Issue #012)
