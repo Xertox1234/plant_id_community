@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Count
+from django.utils.translation import gettext_lazy as _
 
 
 class Reaction(models.Model):
@@ -9,10 +10,10 @@ class Reaction(models.Model):
     HELPFUL = "helpful"
     THANKS = "thanks"
     REACTION_CHOICES = [
-        (LIKE, "Like"),
-        (LOVE, "Love"),
-        (HELPFUL, "Helpful"),
-        (THANKS, "Thanks"),
+        (LIKE, _("Like")),
+        (LOVE, _("Love")),
+        (HELPFUL, _("Helpful")),
+        (THANKS, _("Thanks")),
     ]
 
     post = models.ForeignKey(

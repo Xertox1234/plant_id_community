@@ -12,16 +12,17 @@ host registers it or provides a compatible one (the plant_id host uses
 ``apps.core.exceptions.custom_exception_handler``).
 """
 
+from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import APIException
 
 
 class Conflict(APIException):
     status_code = 409
-    default_detail = "Conflict."
+    default_detail = _("Conflict.")
     default_code = "conflict"
 
 
 class UnprocessableEntity(APIException):
     status_code = 422
-    default_detail = "Unprocessable request."
+    default_detail = _("Unprocessable request.")
     default_code = "unprocessable"

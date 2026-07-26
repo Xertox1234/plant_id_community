@@ -2,6 +2,7 @@ import hashlib
 import json
 
 from django.core.cache import cache
+from django.utils.translation import gettext_lazy as _
 
 IDEMPOTENCY_TTL = 60 * 60 * 24  # 24h
 PROCESSING_TTL = 60  # in-flight sentinel; short so a crash can't wedge the key
@@ -42,7 +43,7 @@ def reserve(cache_key):
     from .exceptions import Conflict
 
     if not cache.add(cache_key, {"processing": True}, PROCESSING_TTL):
-        raise Conflict("A request with this Idempotency-Key is being processed.")
+        raise Conflict(_("A request with this Idempotency-Key is being processed."))
 
 
 def replay(cache_key):

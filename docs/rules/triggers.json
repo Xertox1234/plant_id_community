@@ -690,5 +690,21 @@
     "source": "codify: main",
     "added": "2026-07-24",
     "severity": "warn"
+  },
+  {
+    "id": "wagtail-forum-untranslated-api-error",
+    "domains": [
+      "forum",
+      "api"
+    ],
+    "path_glob": [
+      "backend/packages/wagtail_forum/**/*.py"
+    ],
+    "content_present": "raise (ValidationError|Conflict|UnprocessableEntity|NotFound|PermissionDenied|APIException)\\(\\s*[\"']",
+    "message": "User-facing forum API error strings are translated: wrap in gettext_lazy — raise Conflict(_(\"...\")). Use %(name)s interpolation, not an f-string, so it stays lazy.",
+    "pattern_ref": "docs/rules/forum.md",
+    "source": "codify: forum-pkg/262-readme-i18n",
+    "added": "2026-07-26",
+    "severity": "warn"
   }
 ]

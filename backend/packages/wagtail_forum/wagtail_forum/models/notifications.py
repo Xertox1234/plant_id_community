@@ -8,11 +8,12 @@ delivery (FCM push, email) is a host concern — see
 
 from django.conf import settings
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 
 class NotificationVerb(models.TextChoices):
-    REPLY = "reply", "Reply"
-    MENTION = "mention", "Mention"
+    REPLY = "reply", _("Reply")
+    MENTION = "mention", _("Mention")
     # moderation/subscription verbs are added by later slices of todo 253.
 
 

@@ -20,6 +20,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.html import strip_tags
+from django.utils.translation import gettext_lazy as _
 from rest_framework import generics
 from rest_framework import status as http_status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -138,7 +139,7 @@ def _get_board(slug):
         raise NotFound()
     if len(boards) > 1:
         raise Conflict(
-            "Board slug is ambiguous across forum trees; contact the site admin."
+            _("Board slug is ambiguous across forum trees; contact the site admin.")
         )
     return boards[0]
 
@@ -202,10 +203,10 @@ def _replay_or_none(cache_key, payload_fingerprint):
     if cached is None:
         return None
     if cached.get("processing"):
-        raise Conflict("A request with this Idempotency-Key is being processed.")
+        raise Conflict(_("A request with this Idempotency-Key is being processed."))
     if cached["fingerprint"] != payload_fingerprint:
         raise UnprocessableEntity(
-            "Idempotency-Key was already used with a different payload."
+            _("Idempotency-Key was already used with a different payload.")
         )
     # Replay the ORIGINAL status (e.g. 201), not a fresh 200 — clients key on
     # 201 to detect creation (IETF idempotency-key draft).
@@ -459,7 +460,7 @@ class TopicListView(PublicForumReadCacheMixin, generics.ListAPIView):
                 # Truncate so base+suffix fits SlugField(max_length=255) —
                 # Postgres raises DataError (500) past it; SQLite won't.
                 suffix = f"-{attempt + 1}"
-                slug_try = f"{base_slug[:255 - len(suffix)]}{suffix}"
+                slug_try = f"{base_slug[: 255 - len(suffix)]}{suffix}"
             try:
                 with transaction.atomic():
                     topic = Topic(
@@ -481,7 +482,7 @@ class TopicListView(PublicForumReadCacheMixin, generics.ListAPIView):
                 return topic, opening
             except IntegrityError:
                 continue
-        raise Conflict("Could not allocate a unique slug for this topic.")
+        raise Conflict(_("Could not allocate a unique slug for this topic."))
 
 
 @extend_schema(
@@ -652,7 +653,7 @@ class PostListView(PrivateForumReadCacheMixin, generics.ListAPIView):
             id=topic_id,
         )
         if topic.is_closed or topic.locked:
-            raise Conflict("Topic is closed to replies.")
+            raise Conflict(_("Topic is closed to replies."))
         serializer = ReplyCreateSerializer(
             data=request.data, context={"request": request}
         )
@@ -888,7 +889,7 @@ class PostImageUploadView(APIView):
     def post(self, request):
         image_file = request.FILES.get("image")
         if image_file is None:
-            raise ValidationError("No image file provided.")
+            raise ValidationError(_("No image file provided."))
         validate_image_upload(image_file)
         # Idempotency (M36): the multipart upload is the most retry-prone shape
         # (mobile composer on a flaky network). request.data holds the
@@ -1007,7 +1008,7 @@ class PostReportView(APIView):
         # serializer's can_report affordance cannot diverge — same discipline as
         # PostWriteView's edit_block/delete_block (todo 252).
         if not post.can_be_reported_by(request.user):
-            raise ValidationError({"detail": "You cannot report your own post."})
+            raise ValidationError({"detail": _("You cannot report your own post.")})
         serializer = ReportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
@@ -1332,12 +1333,12 @@ class SyncView(APIView):
                 # A silently-ignored bad value degrades to a full resync; a
                 # naive datetime is interpreted in the server TZ (audit M11).
                 raise ValidationError(
-                    {"since": "Provide an ISO-8601 datetime with a timezone offset."}
+                    {"since": _("Provide an ISO-8601 datetime with a timezone offset.")}
                 )
         try:
             since_id = int(request.query_params.get("since_id", 0) or 0)
         except (TypeError, ValueError):
-            raise ValidationError({"since_id": "Provide an integer topic id."})
+            raise ValidationError({"since_id": _("Provide an integer topic id.")})
 
         qs = Topic.objects.filter(live=True, board__in=_visible_boards())
         board_slug = request.query_params.get("board")
