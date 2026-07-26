@@ -130,17 +130,90 @@ run that doesn't terminate skips the next one). Config lives in
 `restartPolicyType: NEVER` (a failed prune waits for tomorrow, it does not
 crash-loop).
 
-1. **New → Empty Service** in the same project, pointing at this repo.
-2. **Settings → Root Directory** = `backend`.
-3. **Settings → Config-as-code file** = `railway.cron.json`. This is
-   load-bearing: a service left on the default `railway.json` inherits the web
-   service's gunicorn `startCommand` **and** `healthcheckPath` (the cron would
-   try to serve gunicorn and never pass a healthcheck). The separate config
-   file is how the cron avoids that inheritance.
-4. Reference `DATABASE_URL` = `${{Postgres.DATABASE_URL}}` (private networking;
-   no public domain needed). `REDIS_URL` is not required for pruning.
-5. Deploy. **Verify:** after a scheduled run, the service log shows
-   `Pruned N tombstone row(s) older than 30 day(s).`
+**Status: LIVE in `production` since 2026-07-26** as service
+`forum-prune-cron`, verified pruning on schedule (evidence below).
+
+#### How it was actually deployed — snapshot upload, not a GitHub source
+
+Root Directory and config-as-code file are **dashboard-only** settings: no CLI
+flag exists (`railway add --help`, `railway service source connect --help`),
+and the public GraphQL API rejects the CLI's stored token (see todo 261 —
+introspection succeeds because Railway's schema is public, which is a false
+positive; every authenticated call returns `Not Authorized`).
+
+Both settings become unnecessary if you deploy the snapshot directly, because
+**Railway reads config-as-code from the root of the uploaded build context**:
+
+```bash
+cd backend
+cp railway.json /tmp/railway.json.bak
+cp railway.cron.json railway.json          # cron config becomes THE config
+railway up --service forum-prune-cron --detach
+cp /tmp/railway.json.bak railway.json      # restore (use a trap — see below)
+```
+
+Upload root *is* `backend/`, so Root Directory is moot; the snapshot's
+`railway.json` *is* the cron config, so the config-as-code setting is moot.
+Always guard the swap with `trap '…' EXIT` so a failed upload cannot leave the
+web service's `railway.json` overwritten in the working tree.
+
+**Tradeoff:** the service's source is an uploaded snapshot, so pushes to `main`
+do **not** redeploy the cron. Re-run the command above to ship changes, or
+attach the GitHub repo in the dashboard (Root Directory + config-as-code must
+then be set as in the original steps 2–3).
+
+1. **New → Empty Service** in the same project. *(done — `forum-prune-cron`,
+   created with `railway add --service forum-prune-cron`)*
+2. ~~**Settings → Root Directory** = `backend`~~ — not needed with the snapshot
+   upload above; required only if you attach a GitHub source.
+3. ~~**Settings → Config-as-code file** = `railway.cron.json`~~ — same. Note why
+   it would matter: a service left on the default `railway.json` inherits the
+   web service's gunicorn `startCommand` **and** `healthcheckPath`, so the cron
+   would try to serve gunicorn and never pass a healthcheck.
+4. **Variables — the cron needs nearly the full production set, not just the
+   database.** `validate_environment()` runs at settings *import* time
+   (`plant_community_backend/settings.py:1553`) and raises
+   `ImproperlyConfigured` when `DEBUG=False`, so a management command that
+   never serves a request still fails to boot without these. Set them as
+   cross-service references (no secret duplication):
+
+   | Variable | Value | Why it is required |
+   |----------|-------|--------------------|
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | the rows being pruned (private networking; no public domain needed) |
+   | `REDIS_URL` | `${{Redis.REDIS_URL}}` | **critical error if unset when `DEBUG=False`, and the value is live-`ping`ed at import** |
+   | `SECRET_KEY` | `${{plant_id_community.SECRET_KEY}}` | `config("SECRET_KEY")` raises outright in production (`settings.py:48`); also min 50 chars + no insecure patterns |
+   | `JWT_SECRET_KEY` | `${{plant_id_community.JWT_SECRET_KEY}}` | **no default, required in ALL environments** (`settings.py:596`); min 50 chars and must differ from `SECRET_KEY`. This one is *not* covered by `validate_environment()` — it raises earlier, and omitting it crash-looped the first real cron run |
+   | `PLANT_ID_API_KEY` | `${{plant_id_community.PLANT_ID_API_KEY}}` | critical in production; also length-validated (min 32) |
+   | `ALLOWED_HOSTS` | `${{plant_id_community.ALLOWED_HOSTS}}` | critical when unset or left at the localhost default |
+   | `CSRF_TRUSTED_ORIGINS` | `${{plant_id_community.CSRF_TRUSTED_ORIGINS}}` | critical in production |
+   | `CORS_ALLOWED_ORIGINS` | `${{plant_id_community.CORS_ALLOWED_ORIGINS}}` | critical when unset or left at the placeholder default |
+   | `DEBUG` | `${{plant_id_community.DEBUG}}` | keeps the cron on the same branch as the web service |
+
+   An earlier revision of this runbook said "`REDIS_URL` is not required for
+   pruning" — that was wrong. Pruning itself touches no cache, but settings
+   import refuses to complete without a reachable Redis, so the cron would have
+   crash-looped nightly.
+
+5. Deploy. **Verify two separate things:**
+   - *The schedule is registered* — the deployment manifest reports
+     `cronSchedule: "0 3 * * *"` (`railway status --json`). Checkable at once.
+     Note the manifest field is the reliable one; the service-instance-level
+     `cronSchedule` reads `None` even when the cron is working.
+   - *The command actually runs in the prod container* — the deploy log shows
+     `Pruned N tombstone row(s) older than 30 day(s).` and the run exits 0.
+
+   **A deploy does NOT trigger a run** (confirmed empirically 2026-07-26: a
+   successful deploy left the deploy log completely empty). Only the schedule
+   fires it, roughly 1–2 minutes after the nominal time — a `32 14 * * *` test
+   schedule fired at `14:34:15Z`. To verify without waiting for 03:00 UTC,
+   temporarily deploy with a `cronSchedule` a few minutes out, capture the log,
+   then redeploy with `railway.cron.json` unchanged to restore `0 3 * * *`.
+
+   Reading logs: `railway logs <deployment-id> --service forum-prune-cron
+   --deployment --lines 60`. Pass the deployment id explicitly — the default
+   ("most recent successful deployment") can resolve to a superseded one and
+   return nothing. Also note the log stream tags ordinary INFO lines as
+   `[ERRO]`; that prefix is not a real error.
 
 ### Add the worker later (when push/email/summaries are enabled)
 

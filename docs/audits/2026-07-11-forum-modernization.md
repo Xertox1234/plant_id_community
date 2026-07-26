@@ -306,7 +306,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H15 semantic-similar-topics → todo 255 (completed 2026-07-22, slice 4)
 - [x] #H16 admin-moderation-queue → todo 254 (completed 2026-07-13)
 - [x] #H18 error-retry-affordance → todo 259 (completed 2026-07-24)
-- [ ] #H21 tombstone-prune-scheduling → todo 261
+- [x] #H21 tombstone-prune-scheduling → todo 261 (completed 2026-07-26)
 - [x] #H26 author-shape-inconsistency → todo 257 (completed 2026-07-24, PR #490)
 - [ ] #M1 quote-reply → todo 276 (re-pointed 2026-07-23; split out of 256)
 - [ ] #M2 bookmarks → todo 263
@@ -337,7 +337,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #M29 upload-precheck → todo 259 (completed 2026-07-24)
 - [x] #M30 thread-pagination-ux → todo 259 (completed 2026-07-24)
 - [x] #M31 scroll-to-top → todo 259 (completed 2026-07-24)
-- [ ] #M34 write-path-e2e → todo 261
+- [x] #M34 write-path-e2e → todo 261 (completed 2026-07-26)
 - [x] #M35 patch-idempotency → todo 258 (completed 2026-07-24, PR #494)
 - [x] #M36 image-upload-idempotency → todo 258 (completed 2026-07-24, PR #494)
 - [x] #M37 openapi-response-codes → todo 258 (completed 2026-07-24, PR #494)
@@ -345,7 +345,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #M39 error-envelope-ownership → todo 258 (completed 2026-07-24, PR #494)
 - [ ] #M40 envelope-shapes → todo 277 (re-pointed 2026-07-24; out of 258 acceptance gate — breaking, needs web coordination; partly stale)
 - [x] #M41 deleted-author-convention → todo 257 (completed 2026-07-24, PR #490)
-- [ ] #M42 http-caching → todo 261
+- [x] #M42 http-caching → todo 261 (completed 2026-07-26)
 - [x] #L1 anon-reaction-counts → todo 257 (completed 2026-07-24, PR #491; shipped Wave 1 #473, test-proven)
 - [ ] #L2 onboarding-empty-states → todo 278 (re-pointed 2026-07-24; deferred from 259 — "L", no AC, needs backend Wagtail work)
 - [x] #L4 markdown-board-picker → todo 259 (completed 2026-07-24)
@@ -359,7 +359,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #L13 tautological-composer-tests → todo 259 (completed 2026-07-24)
 - [x] #L14 identity-polish → todo 257 (completed 2026-07-24, PR #491; trust_level render #474, emoji aria-hidden #491, reactions flex-wrap shipped Wave 1 #473)
 - [x] #L16 reaction-types-duplication → todo 258 (completed 2026-07-24, PR2; shared web literal + backend drift-guard)
-- [ ] #L17 migrations-check-ci → todo 261
+- [x] #L17 migrations-check-ci → todo 261 (completed 2026-07-26)
 - [x] #L18 write-path-query-profiling → todo 258 (completed 2026-07-24, PR #494; PATCH 71 / DELETE 33, cascade not elidable)
 - [x] #L19 location-header-201 → todo 258 (completed 2026-07-24, PR #494)
 - [ ] #L20 versioning-comment → todo 277 (re-pointed 2026-07-24; out of 258 acceptance gate)
