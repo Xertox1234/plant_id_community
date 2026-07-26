@@ -42,8 +42,8 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # (verified: it is the only `locale/` in the COPY'd context, and `venv/` is
 # .dockerignored so Django's and Wagtail's own pre-compiled catalogs are outside
 # the walk). `-i venv` is belt-and-braces in case that .dockerignore entry ever
-# goes away. Runs BEFORE collectstatic so the walk doesn't traverse the 262
-# freshly-collected static files. Same throwaway build-only env prefix as the
+# goes away. Runs BEFORE collectstatic so the walk doesn't traverse the
+# freshly-collected static tree. Same throwaway build-only env prefix as the
 # collectstatic line below — see that comment for why it's inline and safe.
 RUN DEBUG=True JWT_SECRET_KEY=build-only-throwaway-value-not-a-real-key-000000000000000 DATABASE_URL=sqlite:////tmp/build.sqlite3 python manage.py compilemessages -i venv --verbosity 1  # pragma: allowlist secret
 
