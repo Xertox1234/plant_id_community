@@ -79,6 +79,37 @@ SPAM_LLM_ALIAS = "default"
 # reject comment a moderator sees).
 SPAM_LLM_UNAVAILABLE_REASON = "AI moderation unavailable — held for review"
 
+# Budget counter for LLM spam screening — deliberately SEPARATE from the blog's
+# shared `ai_rate_limit:global` key (audit H13 item 3). Sharing one counter let
+# either subsystem starve the other's AI quota with no per-feature accounting,
+# and coupled the forum's degrade-to-heuristic posture to blog traffic.
+SPAM_LLM_BUDGET_CACHE_KEY = "ai_rate_limit:forum_spam"
+
+# Screens per hour before the forum degrades to the heuristic verdict. Only
+# calls that returned a DEFINITIVE verdict are counted (see spam.py) — a
+# timed-out or unparseable call did reach the provider but is deliberately not
+# counted, so no provider failure can drain this into publish-unscreened.
+#
+# The flip side, and the reason this number is not larger: because failed calls
+# are uncounted, this cap does NOT bound spend while the provider is
+# misbehaving (spend is then bounded only by post-submission rate). Capping
+# that too needs a separate attempts counter that trips a HOLD rather than the
+# publish-degrade — tracked as a prerequisite in todo 280, before the backend
+# is enabled anywhere.
+#
+# NOTE ON AGGREGATE SPEND: forum screening previously shared the blog's
+# `ai_rate_limit:global` (AIRateLimiter.GLOBAL_LIMIT = 100/hr), which capped
+# BOTH subsystems together. Splitting the counters raises the aggregate
+# ceiling to 100 (blog) + this value (forum). At 200 that is a 3x increase in
+# worst-case hourly AI spend versus the shared cap — deliberate, since the
+# point of the split is that forum load cannot starve blog quota, but size it
+# against real forum volume rather than treating it as free headroom.
+SPAM_LLM_BUDGET_LIMIT = 200
+
+# Truncation bound on an unparseable provider reply echoed into the warning log
+# (bounds log volume on a misbehaving provider).
+SPAM_LLM_LOG_TRUNCATE_CHARS = 80
+
 # Classification prompt. The post is framed as untrusted DATA; the model is told
 # to treat any instructions inside it as content to classify, never commands.
 SPAM_LLM_PROMPT_TEMPLATE = (

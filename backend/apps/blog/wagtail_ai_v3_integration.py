@@ -70,7 +70,9 @@ logger = logging.getLogger(__name__)
 _original_get_llm_service = None
 
 
-def generate_ai_text(prompt: str, *, alias: str = "default") -> str:
+def generate_ai_text(
+    prompt: str, *, alias: str = "default", timeout: float | None = None
+) -> str:
     """
     Generate text from a single prompt via the wagtail-ai 3.x LLM service.
 
@@ -82,6 +84,13 @@ def generate_ai_text(prompt: str, *, alias: str = "default") -> str:
     Args:
         prompt: The user prompt to send to the LLM.
         alias: Provider alias from ``WAGTAIL_AI['PROVIDERS']`` (default ``"default"``).
+        timeout: Optional per-request provider deadline in seconds. Forwarded as
+            a completion kwarg, which reaches the provider SDK's own request
+            timeout. Callers that run this in a worker thread need it: a wall
+            clock timeout on the caller side cannot cancel an already-running
+            thread, so without an inner deadline a hung provider parks the
+            worker indefinitely. Omitted entirely when None, so the provider
+            default applies and existing call sites are unchanged.
 
     Returns:
         The generated text (``choices[0].message.content``).
@@ -89,7 +98,10 @@ def generate_ai_text(prompt: str, *, alias: str = "default") -> str:
     from wagtail_ai.agents import base as wagtail_ai_base
 
     service = wagtail_ai_base.get_llm_service(alias)
-    result = service.completion(messages=[{"role": "user", "content": prompt}])
+    # get_llm_service is functools.cache'd, so the deadline must be a per-call
+    # kwarg — it cannot come from the shared WAGTAIL_AI['PROVIDERS'] client.
+    extra = {} if timeout is None else {"timeout": timeout}
+    result = service.completion(messages=[{"role": "user", "content": prompt}], **extra)
     return result.choices[0].message.content
 
 
