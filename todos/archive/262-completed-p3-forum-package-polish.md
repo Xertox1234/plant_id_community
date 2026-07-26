@@ -178,6 +178,24 @@ would corrupt the moderation audit trail) and `DEFAULT_WORKFLOW_NAME` /
 duplicate workflow row per locale). Both rationales documented in the README so
 a future reader does not "fix" them.
 
+### 2026-07-26 - Catalog compilation is NOT wired into any build (stated, not fixed)
+
+Raised on final review: the `.mo` is gitignored and Django reads only the
+compiled catalog, so a clean-checkout build ships `.po` with no `.mo` and the
+catalogs are inert at runtime. Checked whether to wire `compilemessages` next
+to the Dockerfile's baked `collectstatic` (todo 261) — **it would fail**:
+`backend/Dockerfile` is `python:3.13-slim` and installs only `build-essential
+libpq-dev`, so `msgfmt` is absent.
+
+Decision: do NOT wire it in this p3 docs PR. Adding `gettext` to the production
+image is a deploy-risk change for zero current benefit — the host is
+English-only (`LANGUAGE_CODE = "en-us"`, no `WAGTAIL_CONTENT_LANGUAGES`) and the
+sole catalog is `en` with every `msgstr` empty, so the compiled artifact would
+be a no-op. Instead the README now says plainly that nothing in this repo
+compiles catalogs, why (no `gettext` in the image), and exactly what a host
+adopting a non-English locale must add. The earlier wording implied a build step
+existed somewhere; that was the misleading part, and it is fixed.
+
 ### 2026-07-26 - Packaging: investigated, no change needed
 
 Checked whether templates and the new catalogs actually ship (they would be

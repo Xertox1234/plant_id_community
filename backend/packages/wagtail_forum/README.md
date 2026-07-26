@@ -371,8 +371,20 @@ django-admin makemessages -l de
 django-admin compilemessages -l de
 ```
 
-Compiled `.mo` files are not committed — Django reads the compiled catalog, so
-run `compilemessages` as part of your build or deploy step.
+The committed `en` catalog is an extraction **snapshot**, not a translation
+(every `msgstr` is empty, so English resolves to the msgid either way). Re-run
+`makemessages` after adding a translatable string to keep it current.
+
+Compiled `.mo` files are not committed — Django reads the compiled catalog, not
+the `.po` — so `compilemessages` must run as part of your build or deploy step.
+
+**Nothing in this repository runs it today, deliberately.** The reference host
+is English-only, and its image (`python:3.13-slim`) installs no `gettext`, so
+`msgfmt` is unavailable there and adding the step would fail the build. A host
+adopting a non-English locale must install `gettext` in its image and run
+`compilemessages` alongside `collectstatic`; until then the shipped catalogs
+are inert at runtime — which is correct for an English-only deployment, but is
+the step to remember when that changes.
 
 Two deliberate omissions:
 
