@@ -24,7 +24,7 @@ run_hook() {
 check() {
   local name="$1" input="$2" pattern="$3" combined
   combined=$(run_hook "$input")
-  if echo "$combined" | grep -q "$pattern"; then
+  if grep -q "$pattern" <<< "$combined"; then
     echo "PASS: $name"; PASS=$((PASS + 1))
   else
     echo "FAIL: $name"; echo "  expected to find: $pattern"; FAIL=$((FAIL + 1))
@@ -34,7 +34,7 @@ check() {
 check_no_match() {
   local name="$1" input="$2" pattern="$3" combined
   combined=$(run_hook "$input")
-  if echo "$combined" | grep -q "$pattern"; then
+  if grep -q "$pattern" <<< "$combined"; then
     echo "FAIL: $name (expected NOT to find: $pattern)"; FAIL=$((FAIL + 1))
   else
     echo "PASS: $name"; PASS=$((PASS + 1))
@@ -161,12 +161,12 @@ TRIG_EVENT=$(jq -n --arg sid "$TRIG_SESSION" \
 rm -f "/tmp/inject-${TRIG_SESSION}-"* 2>/dev/null
 OUT1=$(printf '%s' "$TRIG_EVENT" | INJECT_FIRES_LOG=/dev/null bash "$HOOK" 2>/dev/null)
 OUT2=$(printf '%s' "$TRIG_EVENT" | INJECT_FIRES_LOG=/dev/null bash "$HOOK" 2>/dev/null)
-if echo "$OUT1" | grep -q "systemMessage" && echo "$OUT1" | grep -q "RECENT MISTAKES"; then
+if grep -q "systemMessage" <<< "$OUT1" && grep -q "RECENT MISTAKES" <<< "$OUT1"; then
   echo "PASS: trigger match → systemMessage + RECENT MISTAKES"; PASS=$((PASS + 1))
 else
   echo "FAIL: trigger match → systemMessage + RECENT MISTAKES"; FAIL=$((FAIL + 1))
 fi
-if echo "$OUT2" | grep -q "RECENT MISTAKES"; then
+if grep -q "RECENT MISTAKES" <<< "$OUT2"; then
   echo "FAIL: repeat trigger in same session → deduped"; FAIL=$((FAIL + 1))
 else
   echo "PASS: repeat trigger in same session → deduped"; PASS=$((PASS + 1))

@@ -56,7 +56,7 @@ run_hook() {
 
 assert_contains() {
   local name="$1" haystack="$2" needle="$3"
-  if echo "$haystack" | grep -q "$needle"; then
+  if grep -q "$needle" <<< "$haystack"; then
     echo "PASS: $name"; PASS=$((PASS+1))
   else
     echo "FAIL: $name (expected to find: $needle)"
@@ -67,7 +67,7 @@ assert_contains() {
 
 assert_not_contains() {
   local name="$1" haystack="$2" needle="$3"
-  if echo "$haystack" | grep -q "$needle"; then
+  if grep -q "$needle" <<< "$haystack"; then
     echo "FAIL: $name (expected NOT to find: $needle)"
     echo "  got: $(echo "$haystack" | head -3)"
     FAIL=$((FAIL+1))
