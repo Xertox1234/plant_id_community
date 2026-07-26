@@ -17,7 +17,7 @@ from .models import ForumProfile, Post, Report, Topic
 class TopicViewSet(SnippetViewSet):
     model = Topic
     icon = "form"
-    menu_label = "Topics"
+    menu_label = _("Topics")
     list_display = ["title", "board", "author", "live", "reply_count"]
     list_filter = ["live"]
     search_fields = ["title"]
@@ -32,7 +32,7 @@ class TopicViewSet(SnippetViewSet):
 class PostViewSet(SnippetViewSet):
     model = Post
     icon = "comment"
-    menu_label = "Posts"
+    menu_label = _("Posts")
     list_display = ["__str__", "topic", "author", "live"]
     list_filter = ["live"]
     # Post is index.Indexed with one SearchField ("body"); this list is passed
@@ -51,7 +51,7 @@ class PostViewSet(SnippetViewSet):
 class ForumProfileViewSet(SnippetViewSet):
     model = ForumProfile
     icon = "user"
-    menu_label = "Profiles"
+    menu_label = _("Profiles")
     list_display = ["__str__", "trust_level", "post_count"]
     list_filter = ["trust_level"]
     # ForumProfile is a plain model (not index.Indexed), so this list drives a
@@ -69,7 +69,7 @@ class ForumProfileViewSet(SnippetViewSet):
 class ReportViewSet(SnippetViewSet):
     model = Report
     icon = "warning"
-    menu_label = "Reports"
+    menu_label = _("Reports")
     list_display = ["post", "reporter", "reason", "status", "created_at"]
     list_filter = ["status", "reason"]
 
@@ -83,7 +83,7 @@ class ReportViewSet(SnippetViewSet):
 class ForumViewSetGroup(SnippetViewSetGroup):
     items = (TopicViewSet, PostViewSet, ForumProfileViewSet, ReportViewSet)
     menu_icon = "group"
-    menu_label = "Forum"
+    menu_label = _("Forum")
     menu_name = "forum"
 
 
@@ -157,7 +157,7 @@ def register_forum_search_area():
     from django.urls import reverse
 
     return SearchArea(
-        "Forum",
+        _("Forum"),
         reverse(Topic.snippet_viewset.get_url_name("list")),
         name="forum",
         icon_name="group",

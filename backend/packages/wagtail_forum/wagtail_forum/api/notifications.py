@@ -2,6 +2,7 @@
 
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -58,8 +59,7 @@ def _visible_notifications(user):
 @extend_schema(
     responses={200: NotificationSerializer(many=True)},
     description=(
-        "List the authenticated user's notifications, newest first "
-        "(cursor-paginated)."
+        "List the authenticated user's notifications, newest first (cursor-paginated)."
     ),
 )
 class NotificationListView(generics.ListAPIView):
@@ -126,7 +126,7 @@ class NotificationMarkReadView(APIView):
                 isinstance(i, int) and not isinstance(i, bool) for i in ids
             )
             if not is_valid_ids:
-                raise ValidationError({"ids": "Must be a list of integers."})
+                raise ValidationError({"ids": _("Must be a list of integers.")})
             qs = qs.filter(id__in=ids)
         updated = qs.update(read_at=timezone.now())
         return Response({"updated": updated})

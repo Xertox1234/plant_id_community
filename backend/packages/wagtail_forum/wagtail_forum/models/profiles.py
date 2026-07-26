@@ -1,15 +1,16 @@
 from django.conf import settings
 from django.db import IntegrityError, models
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from wagtail.images import get_image_model_string
 
 
 class TrustLevel(models.IntegerChoices):
-    NEW = 0, "New"
-    BASIC = 1, "Basic"
-    MEMBER = 2, "Member"
-    REGULAR = 3, "Regular"
-    LEADER = 4, "Leader"
+    NEW = 0, _("New")
+    BASIC = 1, _("Basic")
+    MEMBER = 2, _("Member")
+    REGULAR = 3, _("Regular")
+    LEADER = 4, _("Leader")
 
 
 class ForumProfile(models.Model):

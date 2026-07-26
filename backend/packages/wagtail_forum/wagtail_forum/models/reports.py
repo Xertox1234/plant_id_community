@@ -2,6 +2,7 @@ from django.conf import settings
 from django.db import IntegrityError, models, transaction
 from django.db.models import F
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from wagtail.actions.unpublish import UnpublishAction
 
 
@@ -11,10 +12,10 @@ class Report(models.Model):
     OFF_TOPIC = "off_topic"
     OTHER = "other"
     REASON_CHOICES = [
-        (SPAM, "Spam"),
-        (ABUSE, "Abuse"),
-        (OFF_TOPIC, "Off topic"),
-        (OTHER, "Other"),
+        (SPAM, _("Spam")),
+        (ABUSE, _("Abuse")),
+        (OFF_TOPIC, _("Off topic")),
+        (OTHER, _("Other")),
     ]
 
     OPEN = "open"
@@ -22,10 +23,10 @@ class Report(models.Model):
     ACTIONED = "actioned"
     DISMISSED = "dismissed"
     STATUS_CHOICES = [
-        (OPEN, "Open"),
-        (AUTO_HIDDEN, "Auto-hidden"),
-        (ACTIONED, "Actioned"),
-        (DISMISSED, "Dismissed"),
+        (OPEN, _("Open")),
+        (AUTO_HIDDEN, _("Auto-hidden")),
+        (ACTIONED, _("Actioned")),
+        (DISMISSED, _("Dismissed")),
     ]
 
     post = models.ForeignKey(

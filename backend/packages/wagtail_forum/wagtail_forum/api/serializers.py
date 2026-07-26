@@ -1,3 +1,4 @@
+from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 from wagtail.blocks import RichTextBlock
 from wagtail.images import get_image_model
@@ -629,6 +630,6 @@ class MeProfileSerializer(serializers.ModelSerializer):
         )
         if not owns_image:
             raise serializers.ValidationError(
-                "Avatar must be an image you uploaded to the forum."
+                _("Avatar must be an image you uploaded to the forum.")
             )
         return value

@@ -1,0 +1,288 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-26 10:52-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: api/exceptions.py:21
+msgid "Conflict."
+msgstr ""
+
+#: api/exceptions.py:27
+msgid "Unprocessable request."
+msgstr ""
+
+#: api/idempotency.py:46 api/views.py:206
+msgid "A request with this Idempotency-Key is being processed."
+msgstr ""
+
+#: api/notifications.py:129
+msgid "Must be a list of integers."
+msgstr ""
+
+#: api/sanitize.py:74 api/sanitize.py:101 api/sanitize.py:107
+#: api/sanitize.py:112 api/sanitize.py:114 api/sanitize.py:171
+msgid "Invalid post body."
+msgstr ""
+
+#: api/sanitize.py:76
+msgid "Post body has too many blocks."
+msgstr ""
+
+#: api/sanitize.py:78
+msgid "Post body is too large."
+msgstr ""
+
+#: api/sanitize.py:128
+msgid ""
+"Blocks referencing site objects (e.g. images) cannot be submitted via the "
+"API."
+msgstr ""
+
+#: api/sanitize.py:163
+msgid ""
+"Post body references an image that is not in the forum image collection."
+msgstr ""
+
+#: api/serializers.py:633
+msgid "Avatar must be an image you uploaded to the forum."
+msgstr ""
+
+#: api/upload_validation.py:35
+#, python-format
+msgid "Invalid file type. Allowed: %(allowed)s."
+msgstr ""
+
+#: api/upload_validation.py:42
+#, python-format
+msgid "Invalid file content type \"%(content_type)s\"."
+msgstr ""
+
+#: api/upload_validation.py:49
+#, python-format
+msgid "File too large. Maximum %(max_mb)sMB."
+msgstr ""
+
+#: api/upload_validation.py:62
+#, python-format
+msgid "Image dimensions too large. Maximum %(width)sx%(height)s."
+msgstr ""
+
+#: api/upload_validation.py:67
+#, python-format
+msgid "Invalid image format \"%(format)s\"."
+msgstr ""
+
+#: api/upload_validation.py:78
+msgid "Image file rejected as a decompression bomb."
+msgstr ""
+
+#: api/upload_validation.py:85
+msgid "Invalid image file."
+msgstr ""
+
+#: api/views.py:142
+msgid "Board slug is ambiguous across forum trees; contact the site admin."
+msgstr ""
+
+#: api/views.py:209
+msgid "Idempotency-Key was already used with a different payload."
+msgstr ""
+
+#: api/views.py:485
+msgid "Could not allocate a unique slug for this topic."
+msgstr ""
+
+#: api/views.py:656
+msgid "Topic is closed to replies."
+msgstr ""
+
+#: api/views.py:892
+msgid "No image file provided."
+msgstr ""
+
+#: api/views.py:1011
+msgid "You cannot report your own post."
+msgstr ""
+
+#: api/views.py:1336
+msgid "Provide an ISO-8601 datetime with a timezone offset."
+msgstr ""
+
+#: api/views.py:1341
+msgid "Provide an integer topic id."
+msgstr ""
+
+#: models/notifications.py:15
+msgid "Reply"
+msgstr ""
+
+#: models/notifications.py:16
+msgid "Mention"
+msgstr ""
+
+#: models/posts.py:143
+msgid "Post is locked."
+msgstr ""
+
+#: models/posts.py:145
+msgid "Topic is closed or locked."
+msgstr ""
+
+#: models/posts.py:158
+msgid "Opening posts cannot be deleted via the API."
+msgstr ""
+
+#: models/profiles.py:9
+msgid "New"
+msgstr ""
+
+#: models/profiles.py:10
+msgid "Basic"
+msgstr ""
+
+#: models/profiles.py:11
+msgid "Member"
+msgstr ""
+
+#: models/profiles.py:12
+msgid "Regular"
+msgstr ""
+
+#: models/profiles.py:13
+msgid "Leader"
+msgstr ""
+
+#: models/reactions.py:13
+msgid "Like"
+msgstr ""
+
+#: models/reactions.py:14
+msgid "Love"
+msgstr ""
+
+#: models/reactions.py:15
+msgid "Helpful"
+msgstr ""
+
+#: models/reactions.py:16
+msgid "Thanks"
+msgstr ""
+
+#: models/reports.py:15
+msgid "Spam"
+msgstr ""
+
+#: models/reports.py:16
+msgid "Abuse"
+msgstr ""
+
+#: models/reports.py:17
+msgid "Off topic"
+msgstr ""
+
+#: models/reports.py:18
+msgid "Other"
+msgstr ""
+
+#: models/reports.py:26
+msgid "Open"
+msgstr ""
+
+#: models/reports.py:27
+msgid "Auto-hidden"
+msgstr ""
+
+#: models/reports.py:28
+msgid "Actioned"
+msgstr ""
+
+#: models/reports.py:29
+msgid "Dismissed"
+msgstr ""
+
+#: templates/wagtail_forum/admin/bulk_actions/confirm_bulk_unpublish.html:6
+#, python-format
+msgid "Unpublish %(snippet_type_name)s"
+msgstr ""
+
+#: templates/wagtail_forum/admin/bulk_actions/confirm_bulk_unpublish.html:13
+msgid "Unpublish "
+msgstr ""
+
+#: templates/wagtail_forum/admin/bulk_actions/confirm_bulk_unpublish.html:24
+#, python-format
+msgid "Are you sure you want to unpublish this %(snippet_type_name)s?"
+msgstr ""
+
+#: templates/wagtail_forum/admin/bulk_actions/confirm_bulk_unpublish.html:26
+#, python-format
+msgid "Are you sure you want to unpublish %(count)s %(snippet_type_name)s?"
+msgstr ""
+
+#: templates/wagtail_forum/admin/bulk_actions/confirm_bulk_unpublish.html:38
+#, python-format
+msgid "You don't have permission to unpublish this %(snippet_type_name)s"
+msgstr ""
+
+#: templates/wagtail_forum/admin/bulk_actions/confirm_bulk_unpublish.html:42
+#, python-format
+msgid "You don't have permission to unpublish these %(snippet_plural_name)s"
+msgstr ""
+
+#: templates/wagtail_forum/admin/bulk_actions/confirm_bulk_unpublish.html:51
+msgid "Yes, unpublish"
+msgstr ""
+
+#: templates/wagtail_forum/admin/bulk_actions/confirm_bulk_unpublish.html:52
+msgid "No, don't unpublish"
+msgstr ""
+
+#: wagtail_hooks.py:20
+msgid "Topics"
+msgstr ""
+
+#: wagtail_hooks.py:35
+msgid "Posts"
+msgstr ""
+
+#: wagtail_hooks.py:54
+msgid "Profiles"
+msgstr ""
+
+#: wagtail_hooks.py:72
+msgid "Reports"
+msgstr ""
+
+#: wagtail_hooks.py:86 wagtail_hooks.py:160
+msgid "Forum"
+msgstr ""
+
+#: wagtail_hooks.py:178
+msgid "Unpublish"
+msgstr ""
+
+#: wagtail_hooks.py:180
+msgid "Unpublish selected forum items"
+msgstr ""
+
+#: wagtail_hooks.py:210
+#, python-format
+msgid "%(count)d item has been unpublished"
+msgid_plural "%(count)d items have been unpublished"
+msgstr[0] ""
+msgstr[1] ""

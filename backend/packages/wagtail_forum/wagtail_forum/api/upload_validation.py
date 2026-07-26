@@ -8,6 +8,7 @@ the host's `apps.*` namespace (`tests/test_reusability.py`).
 
 import logging
 
+from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
 from ..conf import get_setting
@@ -30,15 +31,24 @@ def validate_image_upload(image_file):
     name = image_file.name or ""
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     if ext not in extensions:
-        raise ValidationError(f"Invalid file type. Allowed: {', '.join(extensions)}.")
+        raise ValidationError(
+            _("Invalid file type. Allowed: %(allowed)s.")
+            % {"allowed": ", ".join(extensions)}
+        )
 
     # Layer 2: MIME allowlist (catches a declared content-type that isn't an image).
     if image_file.content_type not in mime_types:
-        raise ValidationError(f'Invalid file content type "{image_file.content_type}".')
+        raise ValidationError(
+            _('Invalid file content type "%(content_type)s".')
+            % {"content_type": image_file.content_type}
+        )
 
     # Layer 3: size cap (DoS guard).
     if image_file.size > max_size:
-        raise ValidationError(f"File too large. Maximum {max_size // (1024 * 1024)}MB.")
+        raise ValidationError(
+            _("File too large. Maximum %(max_mb)sMB.")
+            % {"max_mb": max_size // (1024 * 1024)}
+        )
 
     # Layer 4: PIL magic-number decode + decompression-bomb + dimension caps.
     try:
@@ -49,10 +59,13 @@ def validate_image_upload(image_file):
             width, height = img.size
             if width > max_width or height > max_height:
                 raise ValidationError(
-                    f"Image dimensions too large. Maximum {max_width}x{max_height}."
+                    _("Image dimensions too large. Maximum %(width)sx%(height)s.")
+                    % {"width": max_width, "height": max_height}
                 )
             if (img.format or "").lower() not in ("jpeg", "png", "gif", "webp"):
-                raise ValidationError(f'Invalid image format "{img.format}".')
+                raise ValidationError(
+                    _('Invalid image format "%(format)s".') % {"format": img.format}
+                )
         image_file.seek(0)  # reset the pointer for the subsequent save
     except ValidationError:
         raise  # a dimension/format rejection above — don't relabel it "invalid"
@@ -62,11 +75,11 @@ def validate_image_upload(image_file):
             image_file.name,
             image_file.size,
         )
-        raise ValidationError("Image file rejected as a decompression bomb.")
+        raise ValidationError(_("Image file rejected as a decompression bomb."))
     except Exception as exc:  # not a decodable image
         logger.warning(
             "[SECURITY] Forum image rejected (invalid): name=%s error=%s",
             image_file.name,
             exc,
         )
-        raise ValidationError("Invalid image file.")
+        raise ValidationError(_("Invalid image file."))

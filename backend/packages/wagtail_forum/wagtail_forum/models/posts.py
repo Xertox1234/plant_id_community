@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel
 from wagtail.fields import StreamField
 from wagtail.models import (
@@ -139,9 +140,9 @@ class Post(
         ):
             return (BLOCK_FORBIDDEN, None)
         if self.locked and not user.has_perm("wagtail_forum.change_post"):
-            return ("locked", "Post is locked.")
+            return ("locked", _("Post is locked."))
         if self.topic.is_closed or self.topic.locked:
-            return ("frozen", "Topic is closed or locked.")
+            return ("frozen", _("Topic is closed or locked."))
         return None
 
     def delete_block(self, user):
@@ -154,7 +155,7 @@ class Post(
         if blocked is not None:
             return blocked
         if self.is_opening_post:
-            return ("opening", "Opening posts cannot be deleted via the API.")
+            return ("opening", _("Opening posts cannot be deleted via the API."))
         return None
 
     def can_be_edited_by(self, user):

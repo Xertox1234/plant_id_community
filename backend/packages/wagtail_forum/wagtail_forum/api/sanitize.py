@@ -15,6 +15,7 @@ import json
 
 import nh3
 from django.db.models import Q
+from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 from wagtail.blocks import ChooserBlock, RichTextBlock, StructBlock
 from wagtail.images import get_image_model
@@ -70,11 +71,11 @@ def validate_forum_body(value, allowed_uploader_ids):
     # already keys field errors under the field name — a dict here would
     # double-nest the response as {"body": {"body": [...]}} (audit M14).
     if not isinstance(value, list):
-        raise serializers.ValidationError("Invalid post body.")
+        raise serializers.ValidationError(_("Invalid post body."))
     if len(value) > MAX_BODY_BLOCKS:
-        raise serializers.ValidationError("Post body has too many blocks.")
+        raise serializers.ValidationError(_("Post body has too many blocks."))
     if len(json.dumps(value)) > MAX_BODY_CHARS:
-        raise serializers.ValidationError("Post body is too large.")
+        raise serializers.ValidationError(_("Post body is too large."))
     body_block = ForumBodyBlock()
     image_types = {
         name
@@ -97,20 +98,20 @@ def validate_forum_body(value, allowed_uploader_ids):
             not isinstance(block, dict)
             or block.get("type") not in body_block.child_blocks
         ):
-            raise serializers.ValidationError("Invalid post body.")
+            raise serializers.ValidationError(_("Invalid post body."))
         block_value = block.get("value")
         if block["type"] in struct_types:
             if not isinstance(block_value, dict) or not all(
                 isinstance(v, str) for v in block_value.values()
             ):
-                raise serializers.ValidationError("Invalid post body.")
+                raise serializers.ValidationError(_("Invalid post body."))
         elif block["type"] in image_types:
             # An image chooser value is the referenced image's integer PK; bool
             # is an int subclass, so exclude it. Membership is verified below.
             if not isinstance(block_value, int) or isinstance(block_value, bool):
-                raise serializers.ValidationError("Invalid post body.")
+                raise serializers.ValidationError(_("Invalid post body."))
         elif not isinstance(block_value, str):
-            raise serializers.ValidationError("Invalid post body.")
+            raise serializers.ValidationError(_("Invalid post body."))
 
     # Non-image chooser blocks stay rejected outright: there is no upload/
     # validation path for them, so a caller could store a nonexistent PK
@@ -123,8 +124,10 @@ def validate_forum_body(value, allowed_uploader_ids):
     for block in value:
         if isinstance(block, dict) and block.get("type") in other_chooser_types:
             raise serializers.ValidationError(
-                "Blocks referencing site objects (e.g. images) cannot be "
-                "submitted via the API."
+                _(
+                    "Blocks referencing site objects (e.g. images) cannot be "
+                    "submitted via the API."
+                )
             )
 
     # Image blocks ARE allowed, but only when every referenced PK is an image in
@@ -156,14 +159,16 @@ def validate_forum_body(value, allowed_uploader_ids):
         )
         if any(image_id not in valid_ids for image_id in image_ids):
             raise serializers.ValidationError(
-                "Post body references an image that is not in the forum "
-                "image collection."
+                _(
+                    "Post body references an image that is not in the forum "
+                    "image collection."
+                )
             )
 
     try:
         body_block.to_python(value)
     except Exception as exc:  # malformed StreamField payload
-        raise serializers.ValidationError("Invalid post body.") from exc
+        raise serializers.ValidationError(_("Invalid post body.")) from exc
 
     # Sanitize every rich-text block type, not a hardcoded name — a future
     # RichTextBlock added to ForumBodyBlock must not silently bypass sanitization.
