@@ -82,3 +82,10 @@ Compact checklist auto-injected before edits. Long-form:
   truthiness check silently routes every row to the per-object fallback and
   reintroduces the N+1. Pin an authed test where the user has NO rows. See
   `docs/patterns/performance/query-optimization.md` Pattern 31.
+- **Wrapping a model's `choices` labels in `gettext_lazy` needs NO migration** —
+  Django's lazy proxy compares equal to its source string, so the autodetector
+  sees no field change (`makemigrations` reports "No changes detected"). Verified
+  across 5 choice fields in `wagtail_forum` (todo 262). Do not hand-write an
+  `AlterField` for it, and do not avoid i18n out of migration fear. This is the
+  opposite of a *value* change (`("spam", "Spam")` -> `("spam", "Junk")`), which
+  DOES generate one — see migration `wagtail_forum/0015_alter_notification_verb`.

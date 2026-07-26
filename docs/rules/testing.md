@@ -118,3 +118,15 @@ Compact checklist auto-injected before edits.
   the tell); (2) never run two pytest sessions concurrently — they share the one
   `test_plant_community` Postgres DB and cross-kill with phantom connection
   errors/DuplicateDatabase. See `docs/LEARNINGS.md` 2026-07-17.
+- **A "docs must mention X" coverage test needs a word boundary, not `in`.**
+  `f"PREFIX_{name}" not in text` passes for a typo that *appends* characters —
+  `WAGTAILFORUM_MENTION_MAX_PER_POSTX` contains the real name as a prefix, so the
+  test stayed green on a broken README (todo 262). Use
+  `re.search(rf"PREFIX_{name}\b", text)`. Same trap for any
+  substring-based name/route/key coverage assertion.
+- **Restore a mutation-check with `git checkout -- <path>`, never a `cp` backup.**
+  A relative `cp` after a `cd` in the same one-liner silently fails when the shell
+  resets cwd, and re-running the check then overwrites the backup with the
+  already-mutated file — the mutation survives into the commit. Commit first, then
+  mutate and `git checkout --` to restore; finish by asserting `git status` is
+  clean, not just that the test passes.

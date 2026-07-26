@@ -1818,3 +1818,36 @@ Lesson: an E2E (or any test) that creates forum content as an untrusted user and
 asserts immediate visibility works IFF the body is clean — don't assume untrusted
 == always-moderated. Conversely, a test that means to exercise the *pending* path
 must inject a heuristic trigger (e.g. >3 links) or bump `trust` the other way.
+
+## 2026-07-26 — A green doc-coverage test hid a README typo it was written to catch (todo 262, testing)
+
+Todo 262 added `wagtail_forum/tests/test_docs.py` to stop the package README
+re-rotting: every key in `conf.DEFAULTS` must appear in `README.md`. It passed.
+The README nonetheless shipped `WAGTAILFORUM_MENTION_MAX_PER_POSTX` — the
+code-review orchestrator found it, not the test.
+
+Two independent faults compounded:
+
+1. **The assertion was a substring check.** `f"WAGTAILFORUM_{name}" not in text`
+   is satisfied by any string that merely *contains* the name, and the real key
+   is a prefix of the typo. The test could never fail on trailing garbage.
+2. **The typo came from my own mutation-check, whose restore silently failed.**
+   The check ran `cd packages/wagtail_forum && cp README.md /tmp/README.bak &&
+   ... ; cp /tmp/README.bak packages/wagtail_forum/README.md`. The shell's cwd
+   had already reset, so the trailing relative `cp` restore resolved to a
+   nonexistent path and errored *after* the `;`. Re-running the check then did
+   `cp $R /tmp/README.bak` first — overwriting the good backup with the
+   already-mutated file — so the "restore" reinstated the typo.
+
+Root cause: verifying a test's sensitivity with the same fragile mechanism that
+edits the file under test, and asserting only "test passes" rather than "tree is
+clean".
+
+Fixes: `re.search(rf"WAGTAILFORUM_{name}\b", text)`; and mutation-check by
+committing first, mutating, restoring with `git checkout -- <path>`, then
+asserting `git status --short` is empty as part of the check.
+
+Lesson: a passing mutation-check proves the test *can* fail; it does not prove
+you put the file back. And a coverage test that matches by substring is weaker
+than it reads — the failure mode is a green test over broken content, which is
+worse than no test.

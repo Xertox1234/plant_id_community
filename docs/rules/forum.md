@@ -94,3 +94,16 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   so the package's own tests exercise the unwrapped class. Inheritance preserves
   the behavior, but only a test hitting the real `/api/v1/forum/...` path proves
   it ships in prod — add one to `apps/forum_host/tests/test_api_mounted.py`.
+- **User-facing API strings are NOT confined to `api/` — sweep the models too.**
+  `Post.edit_block()`/`delete_block()` (`wagtail_forum/models/posts.py`) return
+  `(code, message)` tuples whose message reaches clients verbatim via
+  `raise Conflict(message)` in `api/views.py`. An i18n (or wording//security)
+  sweep scoped to `api/**` silently misses them — three such strings were caught
+  only in review of todo 262. Trace the sink, not the directory.
+- **Do NOT wrap persisted strings in `gettext_lazy`.** `DEFAULT_WORKFLOW_NAME` /
+  `"Spam check"` (`wagtail_forum/workflow.py`) are `get_or_create` **lookup
+  keys** — a translated name creates a duplicate workflow row per locale; and
+  `SpamResult.reason` is stored as a Wagtail workflow rejection comment, so
+  rendering it in whichever locale was active at write time corrupts the
+  moderation audit trail. Translate what is *displayed*, never what is *stored*
+  or *keyed on*.
