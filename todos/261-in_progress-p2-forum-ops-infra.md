@@ -220,6 +220,10 @@ API suite); authed E2E `2 passed` again.
   repo source connected on purpose** — connecting a source before Root
   Directory + config-as-code are set would deploy gunicorn under the inherited
   `railway.json` and crash-loop against a healthcheck.
+- **No compute allocated yet** (verified, since the service is billable once it
+  deploys): `forum-prune-cron` reports `activeDeployments=0`,
+  `latestDeployment=None`, `instances=0`. Nothing accrues until the source is
+  connected in step 3 of the handoff.
 - **Runbook bug found and fixed** (`backend/docs/deployment/railway.md`). The
   previous step 4 said "`REDIS_URL` is not required for pruning" — **wrong**.
   `validate_environment()` runs at settings *import* (`settings.py:1553`) and,
