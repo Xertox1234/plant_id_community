@@ -11,7 +11,7 @@ run_hook() { echo "$1" | bash "$HOOK" 2>/dev/null; }
 assert_deny() {
   local name="$1" out
   out=$(run_hook "$2")
-  if echo "$out" | grep -q '"permissionDecision": "deny"'; then
+  if grep -q '"permissionDecision": "deny"' <<< "$out"; then
     echo "PASS: $name"; PASS=$((PASS+1))
   else
     echo "FAIL: $name (expected a deny decision)"

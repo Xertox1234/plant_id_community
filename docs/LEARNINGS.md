@@ -1851,3 +1851,40 @@ Lesson: a passing mutation-check proves the test *can* fail; it does not prove
 you put the file back. And a coverage test that matches by substring is weaker
 than it reads — the failure mode is a green test over broken content, which is
 worse than no test.
+
+## 2026-07-26 — Translation catalogs shipped inert; two wrong assumptions about compilemessages (todo 262 follow-up)
+
+Todo 262 added `gettext_lazy` across `wagtail_forum` and committed a `.po`
+catalog, but nothing ever compiled it. Django reads the compiled `.mo`, never
+the `.po`, and `.mo` is gitignored as a build artifact — so a clean-checkout
+build shipped catalogs that were **silently inert**: every locale falls back to
+the msgid with no error, no warning, and a green test suite. The failure mode is
+invisible, which is why it survived a full review.
+
+Two assumptions I made along the way were wrong, both worth remembering:
+
+1. **`compilemessages` DOES walk the whole tree from cwd.** I first asserted it
+   only inspects `./conf/locale`, `./locale`, and `settings.LOCALE_PATHS` — which
+   would have meant `cd`-ing into the package or adding a `LOCALE_PATHS` entry.
+   Reading `django/core/management/commands/compilemessages.py` shows an explicit
+   `os.walk(".", topdown=True)` collecting every dir named `locale`. So running it
+   from the project root picks up installed-in-tree packages automatically. Verify
+   against the installed source, not memory — the basedirs list is only the start.
+   Corollary: run it **before** `collectstatic` so the walk doesn't traverse the
+   collected static tree, and pass `-i venv` locally or it descends into
+   site-packages and tries to compile Django's and Wagtail's own catalogs.
+2. **The apt package is `gettext`, not `gettext-base`.** `gettext-base` ships
+   only `gettext`/`ngettext`/`envsubst`; `/usr/bin/msgfmt` is in `gettext`
+   (confirmed against Debian's package index, then in the built image:
+   `msgfmt (GNU gettext-tools) 0.23.1`). Picking the wrong one fails the build
+   with compilemessages' own "Can't find msgfmt".
+
+Fix: `gettext` in the apt layer + `manage.py compilemessages` before
+`collectstatic` in `backend/Dockerfile`.
+
+Verification note worth repeating: **no CI job builds this image** (grep
+`.github/workflows/` for `docker build` — nothing), so Railway's build is
+otherwise the first exercise of any Dockerfile change, on a file that already
+needed four prod-only fixes during todo 261. Build it locally before merging.
+The proof that the step really ran is the timestamp: `django.mo` at build time vs
+`django.po` at checkout time — a copied-in artifact would share the source's.

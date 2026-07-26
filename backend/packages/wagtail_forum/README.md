@@ -377,14 +377,24 @@ The committed `en` catalog is an extraction **snapshot**, not a translation
 
 Compiled `.mo` files are not committed — Django reads the compiled catalog, not
 the `.po` — so `compilemessages` must run as part of your build or deploy step.
+A build that skips it ships the catalogs **inert**: every locale silently falls
+back to the msgid, with no error to notice.
 
-**Nothing in this repository runs it today, deliberately.** The reference host
-is English-only, and its image (`python:3.13-slim`) installs no `gettext`, so
-`msgfmt` is unavailable there and adding the step would fail the build. A host
-adopting a non-English locale must install `gettext` in its image and run
-`compilemessages` alongside `collectstatic`; until then the shipped catalogs
-are inert at runtime — which is correct for an English-only deployment, but is
-the step to remember when that changes.
+The reference host wires this into its image build (`backend/Dockerfile`), and a
+reusing host needs the same two pieces:
+
+1. **`gettext` in the image** — it provides `msgfmt`. `gettext-base` is *not*
+   enough; it omits `msgfmt` and `compilemessages` fails with "Can't find
+   msgfmt".
+2. **`python manage.py compilemessages`** as a build step. It walks the tree
+   from the working directory collecting `locale/` dirs, so running it from the
+   project root picks up this package's catalog automatically — no
+   `LOCALE_PATHS` entry needed. Run it *before* `collectstatic` so the walk does
+   not traverse the collected static tree.
+
+Today this compiles only the `en` snapshot, which is a no-op at runtime — the
+point is that the pipeline is live, so adding `locale/de/` is the only step
+required to get real translations.
 
 Two deliberate omissions:
 

@@ -13,9 +13,12 @@
 FROM python:3.13-slim
 
 # System deps: libpq for psycopg, build-essential as a safety net for any
-# dependency that lacks a cp313 wheel. Apt lists are dropped to keep the layer small.
+# dependency that lacks a cp313 wheel, gettext for `msgfmt` (the compilemessages
+# step below). It must be `gettext`, NOT `gettext-base` — the latter ships only
+# gettext/ngettext/envsubst and omits msgfmt, which fails compilemessages with
+# "Can't find msgfmt". Apt lists are dropped to keep the layer small.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libpq-dev \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev gettext \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
@@ -30,6 +33,19 @@ WORKDIR /app
 COPY . .
 
 RUN pip install --upgrade pip && pip install -r requirements.txt
+
+# Compile translation catalogs at BUILD time. Django reads the compiled `.mo`,
+# never the `.po`, and `.mo` is gitignored as a build artifact — so without this
+# step wagtail_forum's catalogs ship inert and every locale silently falls back
+# to the msgid. compilemessages walks the tree from cwd collecting `locale/`
+# dirs; here that resolves to exactly packages/wagtail_forum/wagtail_forum/locale
+# (verified: it is the only `locale/` in the COPY'd context, and `venv/` is
+# .dockerignored so Django's and Wagtail's own pre-compiled catalogs are outside
+# the walk). `-i venv` is belt-and-braces in case that .dockerignore entry ever
+# goes away. Runs BEFORE collectstatic so the walk doesn't traverse the
+# freshly-collected static tree. Same throwaway build-only env prefix as the
+# collectstatic line below — see that comment for why it's inline and safe.
+RUN DEBUG=True JWT_SECRET_KEY=build-only-throwaway-value-not-a-real-key-000000000000000 DATABASE_URL=sqlite:////tmp/build.sqlite3 python manage.py compilemessages -i venv --verbosity 1  # pragma: allowlist secret
 
 # Collect static assets at BUILD time so the runtime start command is gunicorn-only.
 # Why: in Railway's runtime container under python:3.13-slim, `collectstatic` copies

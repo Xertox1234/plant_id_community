@@ -82,7 +82,7 @@ chmod +x "$STUB"
 mkfixture backend/apps/residual.py 'import os\n'
 ERR=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"backend/apps/residual.py"}}' \
       | FORMAT_ON_EDIT_RUFF="$STUB" FORMAT_ON_EDIT_ROOT="$ROOT" bash "$HOOK" 2>&1 >/dev/null); RC=$?
-if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qi 'F401\|unused'; then
+if [ "$RC" -eq 2 ] && grep -qi 'F401\|unused' <<< "$ERR"; then
   ok "unfixable F401 → exit 2 with feedback"
 else
   no "unfixable F401 → exit 2 with feedback" "rc=$RC err=$ERR"
@@ -107,7 +107,7 @@ ESLINT_ERR="$ROOT/eslint-err"
 mkfixture web/src/bad.ts 'const y = z;\n'
 ERR=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"web/src/bad.ts"}}' \
       | FORMAT_ON_EDIT_ESLINT="$ESLINT_ERR" FORMAT_ON_EDIT_ROOT="$ROOT" bash "$HOOK" 2>&1 >/dev/null); RC=$?
-if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qi 'eslint'; then
+if [ "$RC" -eq 2 ] && grep -qi 'eslint' <<< "$ERR"; then
   ok "TS residual error → exit 2 with feedback"
 else
   no "TS residual error → exit 2 with feedback" "rc=$RC err=$ERR"
@@ -171,7 +171,7 @@ PY
     local m=""
     while IFS= read -r p; do
       [ -z "$p" ] && continue
-      printf '%s\n' "$2" | grep -qxF "$p" || m="$m $p"
+      grep -qxF "$p" <<< "$2" || m="$m $p"
     done <<< "$1"
     printf '%s' "$m"
   }
@@ -184,7 +184,7 @@ PY
     no "skip-list ⊇ setup.cfg F401 ignores (in sync)" "missing:$REAL_MISSING cfg_empty?=$([ -z "$CFG" ] && echo yes || echo no)"
   fi
   # (b) Teeth: a setup.cfg F401 entry NOT in the skip-list is detected as missing.
-  if printf '%s' "$(check_subset 'apps/fake_reexport.py' "$SKIP")" | grep -q 'fake_reexport'; then
+  if grep -q 'fake_reexport' <<< "$(check_subset 'apps/fake_reexport.py' "$SKIP")"; then
     ok "sync check detects an unmirrored F401 ignore"
   else
     no "sync check detects an unmirrored F401 ignore" "fake entry not flagged"
