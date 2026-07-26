@@ -77,10 +77,11 @@ audit.
       tombstones actually pruned on schedule in that topology (DEFERRED — needs a
       live deploy of the cron service + a scheduled run; evidence = the log line
       `Pruned N tombstone row(s)…`, which the command already emits locally)
-- [~] Push-task execution home in prod confirmed — repo evidence confirms NO
-      worker exists (single gunicorn service), so push/email/summaries drop;
-      documented + decided (defer worker). DEFERRED: dashboard confirmation of
-      the live topology is the user's step
+- [x] Push-task execution home in prod confirmed — LIVE topology verified via
+      `railway status --json` (2026-07-26): 1 environment (`production`), 3
+      services (Postgres, Redis, `plant_id_community`), all `cronSchedule=None`,
+      the only app start command being gunicorn. NO Celery worker → push/email/
+      summaries drop; documented + decided (defer worker)
 - [x] Authed E2E covers create → reply → edit → react → delete
 - [x] Anonymous hot reads carry cache headers; authed/user-specific responses
       provably uncached or varied (test)
@@ -196,13 +197,67 @@ critical/high. 2 medium + 4 low, all fixed:
 Re-verified after fixes: `6 passed` (cache tests) + `230 passed` (full forum
 API suite); authed E2E `2 passed` again.
 
+### 2026-07-26 - Live topology verified; cron service provisioned; runbook bug fixed
+
+- **AC2 FLIPPED — live prod topology confirmed** via `railway status --json`
+  (authoritative API, same data the dashboard renders, as the account owner):
+  1 environment (`production`), 3 service instances —
+
+  ```text
+  SERVICES (project-level):   Postgres | plant_id_community | Redis
+  ENV: production
+    service_id=6530094c cron=None start=None                    # Postgres image
+    service_id=676207b7 cron=None start='…redis-server…'         # Redis image
+    service_id=9edd1c89 cron=None start="sh -c 'gunicorn …'"     # web
+  ```
+
+  No Celery worker, no beat, `cronSchedule=None` everywhere. This is exactly
+  the confirmation AC2 deferred to the dashboard, so it is now met by evidence
+  rather than by repo inference. The defer-the-worker decision stands.
+- **Cron service provisioned via CLI** (user chose "I create it via CLI, you
+  finish config"): `railway add --service forum-prune-cron` →
+  `{"id":"7fee2fe0-5b83-46ab-99e4-ccfc001de87e"}`. Created **empty, with no
+  repo source connected on purpose** — connecting a source before Root
+  Directory + config-as-code are set would deploy gunicorn under the inherited
+  `railway.json` and crash-loop against a healthcheck.
+- **Runbook bug found and fixed** (`backend/docs/deployment/railway.md`). The
+  previous step 4 said "`REDIS_URL` is not required for pruning" — **wrong**.
+  `validate_environment()` runs at settings *import* (`settings.py:1553`) and,
+  when `DEBUG=False`, raises `ImproperlyConfigured` without `REDIS_URL` (and
+  live-`ping`s it), plus `SECRET_KEY` (raises at `settings.py:48`),
+  `PLANT_ID_API_KEY`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`,
+  `CORS_ALLOWED_ORIGINS`. A cron built to that runbook would have crash-looped
+  nightly and never pruned. Doc now carries the full table + the reason each
+  entry is load-bearing.
+- **Variables set as cross-service references** (no secret duplication, and no
+  secret values read): `DATABASE_URL=${{Postgres.DATABASE_URL}}`,
+  `REDIS_URL=${{Redis.REDIS_URL}}`, and `SECRET_KEY` / `PLANT_ID_API_KEY` /
+  `ALLOWED_HOSTS` / `CSRF_TRUSTED_ORIGINS` / `CORS_ALLOWED_ORIGINS` / `DEBUG`
+  from `${{plant_id_community.*}}`. Verified resolved on the new service
+  (`DEBUG=False`, `ALLOWED_HOSTS=plantidcommunity-production.up.railway.app`,
+  origins populated).
+- **Overclaim caught and corrected:** an intermediate draft of the doc asserted
+  Railway runs a cron service's start command once on deploy. Railway's cron
+  docs do not state that (verified against
+  `https://docs.railway.com/reference/cron-jobs`, which covers must-exit,
+  5-min minimum, and UTC only). The doc now separates "schedule is registered"
+  (checkable immediately) from "command ran in the prod container" (deploy-time
+  log if it appears, else after the first 03:00 UTC fire).
+
 ### Handoff — remaining deploy+verify (keeps 261 open)
 
-1. Add the Railway cron service per `railway.md` → "Add the tombstone-pruning
-   cron service" (Config-as-code file = `railway.cron.json`). After the first
-   scheduled fire, confirm the log line `Pruned N tombstone row(s)…` → flips AC1.
-2. Confirm in the Railway dashboard that no Celery worker runs (expected) and
-   decide when to enable one for push/email/summaries → flips AC2.
+AC1 only. The CLI exposes no flag for Root Directory or the config-as-code path
+(confirmed in `railway add --help` and `railway service source connect --help`),
+so these two settings are dashboard-only — on service **`forum-prune-cron`**:
+
+1. **Settings → Root Directory** = `backend`
+2. **Settings → Config-as-code file** = `railway.cron.json`
+3. *Then* **Settings → Source** → connect `Xertox1234/plant_id_community`,
+   branch `main` (this order matters — see the runbook note).
+
+Then I verify and flip AC1: `cronSchedule: "0 3 * * *"` on the service instance,
+plus the log line `Pruned N tombstone row(s) older than 30 day(s).` with a
+clean exit.
 
 ## Notes
 

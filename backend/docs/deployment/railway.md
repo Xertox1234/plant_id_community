@@ -130,17 +130,55 @@ run that doesn't terminate skips the next one). Config lives in
 `restartPolicyType: NEVER` (a failed prune waits for tomorrow, it does not
 crash-loop).
 
-1. **New → Empty Service** in the same project, pointing at this repo.
+Steps 1 and 4 are already done in `production`: the empty service
+`forum-prune-cron` was created via `railway add` on 2026-07-26 with all
+variables below set as cross-service references. Steps 2, 3 and 5 are
+dashboard-only — the CLI exposes no flag for Root Directory or the
+config-as-code path (`railway add --help`, `railway service source connect
+--help`), which is why the source is deliberately left **disconnected** until
+2 and 3 are set: connecting it first would deploy gunicorn under the inherited
+`railway.json`.
+
+1. **New → Empty Service** in the same project. *(done — `forum-prune-cron`)*
 2. **Settings → Root Directory** = `backend`.
 3. **Settings → Config-as-code file** = `railway.cron.json`. This is
    load-bearing: a service left on the default `railway.json` inherits the web
    service's gunicorn `startCommand` **and** `healthcheckPath` (the cron would
    try to serve gunicorn and never pass a healthcheck). The separate config
    file is how the cron avoids that inheritance.
-4. Reference `DATABASE_URL` = `${{Postgres.DATABASE_URL}}` (private networking;
-   no public domain needed). `REDIS_URL` is not required for pruning.
-5. Deploy. **Verify:** after a scheduled run, the service log shows
-   `Pruned N tombstone row(s) older than 30 day(s).`
+   **Only after 2 and 3:** Settings → Source → connect this repo (branch
+   `main`), which triggers the first deploy.
+4. **Variables — the cron needs nearly the full production set, not just the
+   database.** `validate_environment()` runs at settings *import* time
+   (`plant_community_backend/settings.py:1553`) and raises
+   `ImproperlyConfigured` when `DEBUG=False`, so a management command that
+   never serves a request still fails to boot without these. Set them as
+   cross-service references (no secret duplication):
+
+   | Variable | Value | Why it is required |
+   |----------|-------|--------------------|
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | the rows being pruned (private networking; no public domain needed) |
+   | `REDIS_URL` | `${{Redis.REDIS_URL}}` | **critical error if unset when `DEBUG=False`, and the value is live-`ping`ed at import** |
+   | `SECRET_KEY` | `${{plant_id_community.SECRET_KEY}}` | `config("SECRET_KEY")` raises outright in production (`settings.py:48`) |
+   | `PLANT_ID_API_KEY` | `${{plant_id_community.PLANT_ID_API_KEY}}` | critical in production; also length-validated (min 32) |
+   | `ALLOWED_HOSTS` | `${{plant_id_community.ALLOWED_HOSTS}}` | critical when unset or left at the localhost default |
+   | `CSRF_TRUSTED_ORIGINS` | `${{plant_id_community.CSRF_TRUSTED_ORIGINS}}` | critical in production |
+   | `CORS_ALLOWED_ORIGINS` | `${{plant_id_community.CORS_ALLOWED_ORIGINS}}` | critical when unset or left at the placeholder default |
+   | `DEBUG` | `${{plant_id_community.DEBUG}}` | keeps the cron on the same branch as the web service |
+
+   An earlier revision of this runbook said "`REDIS_URL` is not required for
+   pruning" — that was wrong. Pruning itself touches no cache, but settings
+   import refuses to complete without a reachable Redis, so the cron would have
+   crash-looped nightly.
+
+5. Deploy. **Verify two separate things:**
+   - *The schedule is registered* — the service instance reports
+     `cronSchedule: "0 3 * * *"` (`railway status --json`). Checkable at once.
+   - *The command actually runs in the prod container* — the service log shows
+     `Pruned N tombstone row(s) older than 30 day(s).` and the run exits 0.
+     Railway's cron docs do not state whether a deploy also triggers an
+     immediate run, so treat the deploy-time log as a bonus if it appears and
+     otherwise confirm after the first 03:00 UTC fire.
 
 ### Add the worker later (when push/email/summaries are enabled)
 
