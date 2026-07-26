@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "261"
 tags: [forum, ops, celery, ci, e2e]
@@ -73,10 +73,16 @@ audit.
 
 ## Acceptance Criteria
 
-- [~] Prod Celery topology documented (DONE: `backend/docs/deployment/railway.md`);
-      tombstones actually pruned on schedule in that topology (DEFERRED — needs a
-      live deploy of the cron service + a scheduled run; evidence = the log line
-      `Pruned N tombstone row(s)…`, which the command already emits locally)
+- [x] Prod Celery topology documented (`backend/docs/deployment/railway.md`);
+      tombstones actually pruned on schedule — LIVE in prod 2026-07-26 as the
+      Railway cron service `forum-prune-cron`. A test schedule (`32 14 * * *`)
+      fired at `14:34:15Z` and logged
+      `Pruned 0 tombstone row(s) older than 30 day(s).` with deployment status
+      `SUCCESS` (container started, ran, exited cleanly as Railway cron
+      requires). Production schedule then restored and verified:
+      `cronSchedule '0 3 * * *'`, `startCommand 'python manage.py
+      prune_forum_tombstones'`, `restartPolicyType NEVER`,
+      `healthcheckPath None`, `preDeployCommand None`
 - [x] Push-task execution home in prod confirmed — LIVE topology verified via
       `railway status --json` (2026-07-26): 1 environment (`production`), 3
       services (Postgres, Redis, `plant_id_community`), all `cronSchedule=None`,
@@ -276,25 +282,80 @@ retry this path.**
 Conclusion: Root Directory + config-as-code are genuinely dashboard-only, as
 the runbook already says. The handoff below stands unchanged.
 
-### Handoff — remaining deploy+verify (keeps 261 open)
+### 2026-07-26 - AC1 CLOSED — cron deployed and verified pruning on schedule
 
-AC1 only. The CLI exposes no flag for Root Directory or the config-as-code path
-(confirmed in `railway add --help` and `railway service source connect --help`),
-so these two settings are dashboard-only — on service **`forum-prune-cron`**:
+The dashboard-only blocker was dissolved by a route none of the earlier four
+attempts covered: **Railway reads config-as-code from the root of the uploaded
+build context**, so `railway up` from `backend/` with the cron config staged as
+`railway.json` makes both Root Directory and config-as-code irrelevant. Swap
+guarded by `trap '…' EXIT` so a failed upload can never leave the web service's
+`railway.json` overwritten (verified clean after every one of the four uploads).
 
-1. **Settings → Root Directory** = `backend`
-2. **Settings → Config-as-code file** = `railway.cron.json`
-3. *Then* **Settings → Source** → connect `Xertox1234/plant_id_community`,
-   branch `main` (this order matters — see the runbook note).
+Sequence and evidence:
 
-Then I verify and flip AC1: `cronSchedule: "0 3 * * *"` on the service instance,
-plus the log line `Pruned N tombstone row(s) older than 30 day(s).` with a
-clean exit.
+1. First deploy (`d23dfeef`) — `SUCCESS`, deploy log **completely empty**. This
+   settles the open question: **a deploy does NOT trigger a cron run.** The
+   earlier draft claim that it does was wrong to remove-on-suspicion and is now
+   disproven outright.
+2. Test-schedule deploy (`5ae63d99`, `16 14 * * *`) — **`CRASHED`**. Cause from
+   the deploy log: `JWT_SECRET_KEY` missing. It has **no default and is required
+   in ALL environments** (`settings.py:596`, min 50 chars, must differ from
+   `SECRET_KEY`) and is raised *before* `validate_environment()`, so my
+   8-variable table missed it. Valuable failure: this is exactly the crash-loop
+   the original `REDIS_URL` doc bug would have caused, caught on a test schedule
+   instead of silently at 03:00.
+3. Added `JWT_SECRET_KEY=${{plant_id_community.JWT_SECRET_KEY}}` (86 chars).
+   Test-schedule deploy (`405b4db3`, `32 14 * * *`) → fired `14:34:15Z`:
+
+   ```text
+   Starting Container
+   [settings] ENABLE_FILE_LOGGING=True (argv=['manage.py', 'prune_forum_tombstones'])
+   [ENV VALIDATION] Configuration warnings detected:   # warnings only, no criticals
+   Pruned 0 tombstone row(s) older than 30 day(s).
+   ```
+
+   Deployment `SUCCESS` — started, ran against prod Postgres, exited cleanly.
+   Cron fires ~1–2 min after nominal (`14:32` → `14:34:15`).
+4. Final deploy (`653dea26`) restored the production schedule. Verified:
+   `cronSchedule '0 3 * * *'`, `startCommand 'python manage.py
+   prune_forum_tombstones'`, `restartPolicyType NEVER`, `healthcheckPath None`,
+   `preDeployCommand None`, status `SUCCESS`.
+
+Runbook updated with all of it: the snapshot-upload method + its
+pushes-don't-redeploy tradeoff, the `JWT_SECRET_KEY` row, deploy-does-not-run,
+the fire delay, the manifest-vs-instance `cronSchedule` discrepancy (the
+instance field reads `None` even when working), and the need to pass an explicit
+deployment id to `railway logs`.
+
+**All 5 acceptance criteria now met.**
+
+### 2026-07-26 - Completed by completing-todos skill (run 2026-07-26-0400)
+
+- Verification: all 5 acceptance criteria passed with quoted evidence — L17 CI
+  migration gate, M42 anon cache headers (`6 passed` + `230 passed` forum API
+  suite), M34 authed E2E (`2 passed`), H21 cron live-verified in prod
+  (`Pruned 0 tombstone row(s) older than 30 day(s).` at `14:34:15Z`), and the
+  prod topology confirmed via `railway status --json`.
+- Review: prior pass (3 reviewers) found 0 critical/high, 2 medium + 4 low, all
+  fixed. This session's diff is documentation + todo bookkeeping only — no code
+  — so no further reviewer dispatch.
+- Corrections made during the run, all recorded above rather than quietly
+  dropped: the "deploy triggers a cron run" claim (disproven empirically), the
+  "GraphQL API route is available" claim (false positive from public-schema
+  introspection), and the `REDIS_URL`/`JWT_SECRET_KEY` gaps in the runbook.
 
 ## Notes
 
 p2. The topology investigation (step 1) is cheap and load-bearing for two
 other epics — do it first even if the rest waits.
+
+Follow-ups deliberately NOT done here (no scope creep):
+
+- The cron's source is an uploaded snapshot, so pushes to `main` do not
+  redeploy it. Re-run the documented `railway up` to ship changes, or attach
+  the GitHub repo in the dashboard.
+- The Celery worker stays deferred until push/email/summaries are enabled;
+  cheapest path remains co-locating it in the existing gunicorn container.
 
 Phase 6 review residue (2026-07-11 audit, celery reviewer, LOW): the FCM
 retry backoff (30/60/120s) has no jitter — a correlated FCM outage retries
