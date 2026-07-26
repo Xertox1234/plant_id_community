@@ -32,6 +32,43 @@ which environment goes first and when to accept the spend.
 - The provider call carries an inner request deadline, so a hung provider
   unblocks the worker thread instead of parking the pool.
 
+## Blocking prerequisite — uncapped spend while the provider misbehaves
+
+Surfaced by `/code-review medium` of PR #500 (2026-07-25), **after** todo 274
+landed. Resolve this before flipping the setting, not after.
+
+Budget is consumed only for a **definitive** verdict. That is correct and
+deliberate — it is what stops a provider failure from draining the cap and
+flipping the backend to publish-unscreened (the H13 bug). But it leaves an
+asymmetry:
+
+| Provider state | Billable requests | Counted? | Capped? |
+|---|---|---|---|
+| Healthy | 1 per screened post | yes | yes, at 200/hr |
+| Chronic timeout (answers in >`SPAM_LLM_TIMEOUT_SECONDS`) | 1 per screened post | **no** | **no** |
+| Garbage/unparseable replies (never cached, so every retry re-calls) | 1 per screened post | **no** | **no** |
+
+A `future.result()` expiry means the request *was* issued — the caller simply
+stopped waiting for it. So the cap bounds spend exactly when spend is
+well-behaved, and stops bounding it when the provider misbehaves. Exposure is
+bounded by post-submission rate rather than unbounded, so it only bites above
+`SPAM_LLM_BUDGET_LIMIT` posts/hr — but that is precisely the busy-forum case.
+
+**Do NOT fix this by counting failures against the existing counter** — that
+reintroduces the exact sticky fail-open todo 274 removed, and
+`test_sustained_outage_burns_nothing_and_never_flips_to_publish` will go red.
+The two postures must stay on separate counters:
+
+- **Verdict budget** (`ai_rate_limit:forum_spam`, existing) — exhaustion is a
+  cost decision on *working* screening → degrade to heuristic → **publish**.
+- **Attempts counter** (new) — counts every call that reached the provider,
+  including timeouts and unparseable replies. Exhaustion means the provider is
+  misbehaving → stop spending → **hold** (fail closed), never publish.
+
+Note `test_sustained_timeouts_burn_nothing` currently codifies the blind spot
+as a guarantee; it will need to assert against the *verdict* counter
+specifically once an attempts counter exists.
+
 ## Recommended Action
 
 Follow the **Enable procedure** in
@@ -52,6 +89,10 @@ traffic: `backend/apps/forum_host/constants.py` (`SPAM_LLM_BUDGET_LIMIT`,
 
 ## Acceptance
 
+- [ ] **Prerequisite:** an attempts counter caps spend during provider
+      misbehaviour (chronic timeout / unparseable replies) by failing **closed**,
+      without letting failures drain the verdict budget into publish-unscreened.
+      Todo 274's three sustained-failure tests must still pass unchanged.
 - [ ] `WAGTAILFORUM_SPAM_BACKEND` is set to the LLM backend in at least one
       environment, with a working `OPENAI_API_KEY`.
 - [ ] A real post is screened end-to-end (a `[SECURITY] Forum spam LLM flagged

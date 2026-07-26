@@ -249,11 +249,29 @@ Operational knobs, all in `apps/forum_host/constants.py`:
 
 | Constant | Default | Effect |
 |----------|---------|--------|
-| `SPAM_LLM_BUDGET_LIMIT` | 200/hr | Screens before degrading to heuristic (publish). Raise for higher forum volume. |
+| `SPAM_LLM_BUDGET_LIMIT` | 200/hr | Screens before degrading to heuristic (publish). Counts **definitive verdicts only** — see the two caveats below. |
 | `SPAM_LLM_TIMEOUT_SECONDS` | 3 | Caller **and** provider deadline. Bounds held-transaction time. |
 | `SPAM_LLM_MAX_WORKERS` | 4 | Concurrent screens. Size for peak concurrent moderation. |
 | `SPAM_LLM_CACHE_TTL_SECONDS` | 24h | Verdict cache lifetime (duplicate spam is free). |
 | `SPAM_LLM_PROMPT_VERSION` | 1 | Bump to invalidate cached verdicts after a prompt change. |
+
+Two caveats on `SPAM_LLM_BUDGET_LIMIT`, both consequences of counting only
+definitive verdicts — read them before raising the number:
+
+- **It does not bound spend while the provider is misbehaving.** A timed-out or
+  unparseable call *did* reach the provider (and is likely billed) but is not
+  counted, so during a chronic-timeout or garbage-reply incident there is one
+  billable request per moderated post with no cap and no degrade. Spend is then
+  bounded only by post-submission rate. This is the deliberate trade for never
+  letting a provider failure flip the backend to publish-unscreened; capping it
+  too needs a *separate* attempts counter that trips a **hold** rather than the
+  publish-degrade. Tracked as a prerequisite in **todo 280**.
+- **It raises aggregate AI spend, it does not just partition it.** Forum
+  screening previously shared the blog's `ai_rate_limit:global`
+  (`AIRateLimiter.GLOBAL_LIMIT` = 100/hr), which capped both subsystems
+  *together*. After the split the ceiling is 100 (blog) + this value (forum) —
+  at 200 that is **3x** the old worst-case hourly spend. Size it against real
+  forum volume rather than treating it as free headroom.
 
 To clear an exhausted forum budget without waiting out the hour:
 `AIRateLimiter.reset_budget(constants.SPAM_LLM_BUDGET_CACHE_KEY)`.

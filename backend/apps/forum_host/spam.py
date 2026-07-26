@@ -10,6 +10,7 @@ See docs/superpowers/specs/2026-07-21-forum-llm-spam-backend-design.md.
 
 import hashlib
 import logging
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
@@ -166,11 +167,13 @@ class LLMSpamBackend(SpamBackend):
         if first_word == "CLEAN":
             result = SpamResult(True)
         elif upper.startswith("SPAM"):
-            # Split the verdict word off rather than slicing a hardcoded
+            # Strip the verdict WORD rather than slicing a hardcoded
             # len("SPAM"): a "SPAMMY: too promotional" reply must yield the
-            # reason "too promotional", not "MY: too promotional".
-            parts = verdict.split(maxsplit=1)
-            tail = parts[1] if len(parts) > 1 else ""
+            # reason "too promotional", not "MY: too promotional". Done with a
+            # prefix strip, not split(maxsplit=1) — the model does not always
+            # put a space after the colon, and splitting on whitespace would
+            # truncate "SPAM:promotional link" to just "link".
+            tail = re.sub(r"(?i)^spam\w*", "", verdict, count=1)
             reason = tail.lstrip(":- ").strip() or "flagged by AI moderation"
             result = SpamResult(False, f"AI: {reason}")
             logger.info("[SECURITY] Forum spam LLM flagged content: %s", result.reason)
@@ -190,10 +193,19 @@ class LLMSpamBackend(SpamBackend):
         # A definitive verdict — and ONLY here — spends budget. Every failure
         # mode (timeout, provider error, unparseable reply) returns before this
         # line, so no provider-side failure can ever burn the cap.
-        AIRateLimiter.consume_budget(
-            constants.SPAM_LLM_BUDGET_CACHE_KEY,
-            constants.SPAM_LLM_BUDGET_LIMIT,
-        )
+        try:
+            AIRateLimiter.consume_budget(
+                constants.SPAM_LLM_BUDGET_CACHE_KEY,
+                constants.SPAM_LLM_BUDGET_LIMIT,
+            )
+        except Exception:
+            # Same rule as the verdict-cache write below: a counter-write
+            # failure must not discard a verdict we already paid for. Without
+            # this, a Redis OOM would propagate to check()'s except-Exception
+            # and hold a post whose definitive CLEAN had already come back.
+            logger.warning(
+                "[ERROR] Forum spam budget accounting failed; verdict still applied"
+            )
 
         # Cache the definitive verdict. A cache-write failure must not discard a
         # verdict we already have, nor raise into the atomic publish path.

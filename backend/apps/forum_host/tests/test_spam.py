@@ -153,6 +153,25 @@ class LLMSpamBackendTests(TestCase):
         mock_gen.assert_called_once()
 
     @patch(BUDGET, return_value=True)
+    @patch(GEN, return_value="SPAM:promotional link farm")
+    def test_spam_reason_survives_a_missing_space_after_the_colon(
+        self, mock_gen, _budget
+    ):
+        # The model does not reliably put a space after the colon. Splitting on
+        # whitespace would truncate this reason to its last word ("farm"), so
+        # the verdict word is stripped as a prefix instead.
+        result = LLMSpamBackend().check(_post(body="a no-space-colon body"))
+        self.assertEqual(result.reason, "AI: promotional link farm")
+
+    @patch(BUDGET, return_value=True)
+    @patch(GEN, return_value="SPAMMY: too promotional")
+    def test_spam_lookalike_verdict_word_is_stripped_whole(self, mock_gen, _budget):
+        # "SPAMMY" still flags (safe direction), but the reason must not carry
+        # the tail of the verdict word — the old len("SPAM") slice gave "MY:".
+        result = LLMSpamBackend().check(_post(body="a spammy-word body"))
+        self.assertEqual(result.reason, "AI: too promotional")
+
+    @patch(BUDGET, return_value=True)
     @patch(GEN, return_value="CLEANLY a legitimate post, not spam")
     def test_clean_lookalike_reply_fails_closed_and_is_not_cached(
         self, mock_gen, _budget
@@ -289,6 +308,23 @@ class LLMSpamBudgetAccountingTests(TestCase):
 
         self.assertEqual(self._spent(), 1)
         self.assertEqual(cache.get("ai_rate_limit:global", 0), 0)
+
+    @patch(GEN, return_value="CLEAN")
+    def test_budget_write_failure_does_not_discard_a_paid_verdict(self, mock_gen):
+        """A counter-write failure must not throw away a verdict we paid for.
+
+        consume_budget() runs inside the try/except that fails closed, so an
+        unguarded cache error there would hold a post whose definitive CLEAN
+        had already come back — the same mistake the verdict-cache write below
+        it explicitly guards against.
+        """
+        with patch(
+            "apps.forum_host.spam.AIRateLimiter.consume_budget",
+            side_effect=RuntimeError("redis OOM"),
+        ):
+            result = LLMSpamBackend().check(_post(body="a budget-write-fail body"))
+
+        self.assertTrue(result.is_clean)  # verdict survives, post publishes
 
     @patch(GEN, return_value="CLEAN")
     def test_provider_call_carries_an_inner_timeout(self, mock_gen):
