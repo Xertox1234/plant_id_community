@@ -309,15 +309,21 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H21 tombstone-prune-scheduling → todo 261 (completed 2026-07-26)
 - [x] #H26 author-shape-inconsistency → todo 257 (completed 2026-07-24, PR #490)
 - [ ] #M1 quote-reply → todo 276 (re-pointed 2026-07-23; split out of 256)
-- [ ] #M2 bookmarks → todo 263
-- [ ] #M3 drafts-autosave → todo 263
-- [ ] #M4 edit-history-viewer → todo 263
+- [ ] #M2 bookmarks → todo 283 (re-pointed 2026-07-26; promoted out of 263 with M8)
+- [x] #M3 drafts-autosave → shipped Wave 1 #473, verified 2026-07-26 (no todo:
+      `web/utils/forumDrafts.ts` autosaves both composers to sessionStorage and
+      restores on mount — page-level restore test added at 263 close-out. The
+      audit's `beforeunload` suggestion is superseded, not deferred)
+- [ ] #M4 edit-history-viewer → todo 282 (re-pointed 2026-07-26; promoted out of 263)
 - [ ] #M5 tags-taxonomy → todo 276 (re-pointed 2026-07-23; split out of 256)
-- [ ] #M6 plant-domain-linkage → todo 263
-- [ ] #M7 image-authoring-alt-text → todo 263
-- [ ] #M8 polls → todo 263
-- [ ] #M9 block-mute → todo 263
-- [ ] #M10 private-messaging → todo 263
+- [ ] #M6 plant-domain-linkage → todo 273 (re-pointed 2026-07-26; Wave 2 slice 3 —
+      263 routed it there on 2026-07-17, this line was stale)
+- [ ] #M7 image-authoring-alt-text → todo 281 (re-pointed 2026-07-26; promoted out
+      of 263 at p2 — a11y, not polish)
+- [ ] #M8 polls → todo 283 (re-pointed 2026-07-26; promoted out of 263 with M2)
+- [ ] #M9 block-mute → todo 284 (re-pointed 2026-07-26; promoted out of 263)
+- [ ] #M10 private-messaging → todo 284 (re-pointed 2026-07-26; promoted out of 263,
+      gated behind M9 in that todo's first acceptance criterion)
 - [ ] #M11 post-permalinks → todo 276 (re-pointed 2026-07-23; split out of 256; Wave 1 shipped the chase, residual = copy-link)
 - [ ] #M12 semantic-search-upgrade → todo 275 (re-pointed 2026-07-22; not in 255's AC)
 - [ ] #M13 rag-plant-care → todo 275 (re-pointed 2026-07-22; 255 held it unstarted per gate)

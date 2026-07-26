@@ -229,6 +229,16 @@ Gotchas:
   the PR/todo Work Log — a passing suite shouldn't imply coverage it doesn't
   have. See `forumMentionNode.ts`'s `shouldRender` guard and todo 253 slice
   4's Work Log for the precedent.
+- **A `vi.mock` stub must forward the prop under test, or the behaviour is
+  unobservable.** The forum composer tests stub `TipTapEditor` down to a bare
+  `<textarea onChange=…>`, which is fine for typing but silently drops
+  `content` — so a test asserting *restored* state (a saved draft, a loaded
+  edit body) sees an empty field no matter what the page does, and the obvious
+  reading is "the page is broken". Forward the prop
+  (`defaultValue={content}` for an uncontrolled stub) and, where the value
+  matters, assert it reached the *service* call too — that distinguishes real
+  component state from a rendered default. See the M3 draft-restore test in
+  `src/pages/forum/NewThreadPage.test.tsx`.
 - jsdom implements `scrollIntoView` on **`HTMLElement.prototype`**, not
   `Element.prototype`. A test that stubs/spies `Element.prototype.scrollIntoView`
   gets **silently shadowed** — the real call resolves to jsdom's own

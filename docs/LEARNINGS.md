@@ -1888,3 +1888,50 @@ otherwise the first exercise of any Dockerfile change, on a file that already
 needed four prod-only fixes during todo 261. Build it locally before merging.
 The proof that the step really ran is the timestamp: `django.mo` at build time vs
 `django.po` at checkout time — a copied-in artifact would share the source's.
+
+## 2026-07-26 — Closing a parking epic: promote-all is the only terminal state, and re-point beats false-checkoff (todo 263)
+
+Todo 263 was a *parking epic* — a todo whose acceptance criterion is a recurring
+process step, not a shipped artifact: "at each roadmap review, every member
+finding is either promoted (own todo/PR with concrete criteria) or explicitly
+re-deferred **here** with a dated note." Two traps fall out of that shape, and
+both are easy to walk into on autopilot.
+
+**1. Re-deferring anything keeps the epic open forever.** The AC's second branch
+writes the finding back into the same file, so the epic can never reach
+`completed` while any finding uses it. The only terminal state is to promote
+*every* remaining finding into its own todo — at which point nothing is parked
+and the epic has done its whole job. Worth stating the reasoning explicitly in
+the close-out Work Log, because "archived an epic with 8 open findings" reads
+like a silent drop unless the promote-all argument is on the page.
+
+**2. The `completing-todos` archive step will falsify the source review doc.**
+Its Step 5.4 finds `- [ ] #<finding>` in the `source_review` and rewrites it to
+`- [x] #<finding> (completed YYYY-MM-DD)`. For a *promoted* finding that is a
+lie — checking off `#M8 polls` as completed when polls do not exist corrupts the
+exact tracking the Review Doc Tracking convention exists to protect, and the
+falsehood is durable (nobody re-audits a checked box). Use the **re-point** form
+the audit docs already use for findings that move between todos:
+
+```markdown
+- [ ] #M2 bookmarks → todo 283 (re-pointed 2026-07-26; promoted out of 263 with M8)
+- [x] #M3 drafts-autosave → shipped Wave 1 #473, verified 2026-07-26 (no todo)
+```
+
+Only genuinely-shipped findings get `- [x]`. Consequence to handle deliberately:
+open `- [ ]` lines remain, so the skill's "all findings resolved → `git mv` to
+`…-COMPLETED.md`" rename must **not** fire. Skip it knowingly rather than
+discovering it renamed a doc that still tracks unshipped work.
+
+Root cause of both: root `CLAUDE.md`'s Review Doc Tracking section documents
+only the create→complete path. The re-point path was already in use in
+`docs/audits/2026-07-11-forum-modernization.md` (H6, M1, M11, M12…) but was
+undocumented, so the automation's default was the wrong one.
+
+Third thing this surfaced, unrelated to bookkeeping: **verify a "resolved"
+finding, don't grep it.** M3 (composer drafts) had been fixed by an earlier wave,
+but only the storage helper was under test — the page-level restore was
+unproven. Adding the integration test before declaring the finding resolved is
+what turns "I found the file" into evidence. It also exposed that the test's
+`vi.mock` of `TipTapEditor` dropped the `content` prop, which would have made any
+restore assertion structurally unobservable (see `web/docs/patterns/testing.md`).
