@@ -155,6 +155,21 @@ One line per converted finding, in finding-number order.
 - Checks off `- [ ] #42` → `- [x] #42 (completed YYYY-MM-DD)`
 - When **all** `## Finding Status` lines are `- [x]`, renames the review doc to `…-COMPLETED.md` via `git mv`
 
+**4. A finding that MOVED is re-pointed, never checked off.** `- [x]` means
+shipped. When a finding is promoted or split into a different todo, keep it
+`- [ ]` and rewrite the target instead:
+
+```markdown
+- [ ] #M2 bookmarks → todo 283 (re-pointed 2026-07-26; promoted out of 263 with M8)
+```
+
+Checking off a merely-relocated finding falsifies the tracking doc, and nobody
+re-audits a checked box. Consequence: open `- [ ]` lines remain, so the
+`…-COMPLETED.md` rename above must **not** fire — skip it deliberately. This
+matters most when closing a *parking epic* (a todo whose AC is "promote or
+re-defer each finding"): re-deferring keeps it open forever, so promote-all is
+the only terminal state. See `docs/LEARNINGS.md` 2026-07-26 (todo 263).
+
 ### Why
 
 Previously, findings were converted to todos and completed without any trace in the source review doc, making it impossible to tell at a glance which findings were still open. This broke down in the May 6 review — 7 items looked open but were already done as todos 057–063.

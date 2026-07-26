@@ -6,6 +6,7 @@ import * as ReactRouter from 'react-router-dom';
 import NewThreadPage from './NewThreadPage';
 import { AnnouncerProvider } from '../../contexts/AnnouncerContext';
 import * as forumService from '../../services/forumService';
+import { draftKey, saveDraft, loadDraft } from '../../utils/forumDrafts';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
@@ -15,9 +16,14 @@ vi.mock('react-router-dom', async () => {
 vi.mock('../../services/forumService');
 
 // TipTap is heavy + jsdom-hostile — stub it to a textarea that emits paragraph HTML.
+// `content` rides through as defaultValue so a restored draft is observable (M3).
 vi.mock('../../components/forum/TipTapEditor', () => ({
-  default: ({ onChange }: { onChange?: (html: string) => void }) => (
-    <textarea aria-label="body" onChange={(e) => onChange?.(`<p>${e.target.value}</p>`)} />
+  default: ({ content, onChange }: { content?: string; onChange?: (html: string) => void }) => (
+    <textarea
+      aria-label="body"
+      defaultValue={content}
+      onChange={(e) => onChange?.(`<p>${e.target.value}</p>`)}
+    />
   ),
 }));
 
@@ -130,6 +136,39 @@ describe('NewThreadPage', () => {
         content: '<p>hello</p>',
       })
     );
+  });
+
+  it('restores a saved composer draft, then clears it once posted (M3)', async () => {
+    // Wave 1 (#473) made composer state survive a refresh/back-nav within the
+    // tab: the draft is written to sessionStorage on every keystroke and read
+    // back on mount. This is the page-level proof — forumDrafts.test.ts covers
+    // only the storage helper.
+    const key = draftKey('new-thread', '3-plant-care');
+    saveDraft(key, JSON.stringify({ title: 'Half-written topic', body: '<p>saved body</p>' }));
+    vi.spyOn(forumService, 'createThread').mockResolvedValue({
+      id: '12',
+      slug: 'my-topic',
+      status: 'published',
+    });
+
+    renderPage();
+    await screen.findByText('Plant Care');
+
+    expect(screen.getByLabelText(/title/i)).toHaveValue('Half-written topic');
+    expect(screen.getByLabelText('body')).toHaveValue('<p>saved body</p>');
+
+    // The restored values are real component state, not just rendered defaults:
+    // posting without retyping sends them verbatim.
+    await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
+    await waitFor(() =>
+      expect(forumService.createThread).toHaveBeenCalledWith({
+        boardSlug: 'plant-care',
+        title: 'Half-written topic',
+        content: '<p>saved body</p>',
+      })
+    );
+    // Posted drafts must not resurrect on the next visit.
+    expect(loadDraft(key)).toBeNull();
   });
 
   it('blocks submit until both title and body are filled', async () => {
