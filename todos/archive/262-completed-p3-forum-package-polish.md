@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "262"
 tags: [forum, wagtail, i18n, docs]
@@ -144,6 +144,40 @@ migrations on live tables. Forum content is user-generated, so it needs
 `ForumIndex`/`ForumBoard` are `Page` subclasses and already carry
 `locale`/`translation_key`, so board structure is translatable today.
 
+### 2026-07-26 - Code review (code-review-orchestrator) + repair
+
+4 findings; 1 critical + 3 high were real and all repaired. Both real defects
+were things my own verification could not have caught, so they are worth
+recording:
+
+1. **[critical] README typo `WAGTAILFORUM_MENTION_MAX_PER_POSTX`.** Self-
+   inflicted: my mutation-check of `test_docs.py` had a broken restore path
+   (relative `cp` after a `cd`, so the restore silently failed, and the second
+   run then overwrote the backup with the already-mutated file). The typo
+   survived — **and `test_docs.py` passed anyway**, because `f"WAGTAILFORUM_
+   {name}" not in text` is a *substring* check and the real name is a prefix of
+   the typo. Fixed the README and hardened the test to
+   `re.search(rf"WAGTAILFORUM_{name}\b", text)`. Re-verified by mutation, this
+   time restoring with `git checkout --`: mutated → fails naming
+   `MENTION_MAX_PER_POST`, restored → passes, tree clean.
+2. **[high x3] Missed i18n strings in `models/posts.py`.** `edit_block()` /
+   `delete_block()` return `(code, message)` tuples whose message reaches
+   clients via `raise Conflict(message)` in `api/views.py` — genuinely
+   user-facing, and outside the audit's stated line refs, so my sweep missed
+   them. Wrapped "Post is locked.", "Topic is closed or locked.", and
+   "Opening posts cannot be deleted via the API."
+
+Follow-up sweep of my own after the repair (`grep` for any remaining
+`raise <Exc>("...")` package-wide, excluding tests): **zero** remaining bare
+user-facing strings. Catalog regenerated: 61 → 64 msgids.
+
+Deliberately left unwrapped after tracing their sinks — `SpamResult.reason`
+(persisted as a Wagtail workflow rejection comment; translating at write time
+would corrupt the moderation audit trail) and `DEFAULT_WORKFLOW_NAME` /
+`"Spam check"` (`get_or_create` lookup keys — a translated name would create a
+duplicate workflow row per locale). Both rationales documented in the README so
+a future reader does not "fix" them.
+
 ### 2026-07-26 - Packaging: investigated, no change needed
 
 Checked whether templates and the new catalogs actually ship (they would be
@@ -152,6 +186,20 @@ useless otherwise). Built wheel + sdist before and after adding an explicit
 templates, locale files, 118 wheel entries / 143 sdist entries). setuptools'
 pyproject-mode `include-package-data` already covers them, so the block was
 removed rather than shipping redundant config with a false justification.
+
+### 2026-07-26 - Completed by completing-todos skill (run 2026-07-26-1628)
+
+- Verification: all 3 acceptance criteria passed.
+  `pytest packages/wagtail_forum apps/forum_host --create-db` → **532 passed**
+  (twice: before and after the review repair — the suite includes tests that
+  assert error messages verbatim, e.g. `resp.data["message"] == "Post is
+  locked."`, which confirms the lazy wrapping renders identically under `en`).
+  `manage.py makemigrations --check --dry-run` → "No changes detected".
+  `makemessages` → 64 msgids, `compilemessages` OK. ruff + flake8 clean.
+- Review: 4 findings, 4 blocking (1 critical + 3 high) — **all repaired**, then
+  re-verified. No findings accepted unaddressed.
+- Source review `docs/audits/2026-07-11-forum-modernization.md`: #M17 and #M18
+  checked off. 19 findings remain open there, so the doc is NOT renamed.
 
 ## Notes
 

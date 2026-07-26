@@ -323,8 +323,9 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #M13 rag-plant-care → todo 275 (re-pointed 2026-07-22; 255 held it unstarted per gate)
 - [ ] #M14 ai-composer-assist → todo 275 (re-pointed 2026-07-22; not in 255's AC)
 - [x] #M16 preview-support → todo 254 (completed 2026-07-13)
-- [ ] #M17 i18n → todo 262
-- [ ] #M18 package-readme → todo 262
+- [x] #M17 i18n → todo 262 (completed 2026-07-26)
+- [x] #M18 package-readme → todo 262 (completed 2026-07-26; the finding's
+      "13 settings" count was stale — `conf.DEFAULTS` has 19, all documented)
 - [x] #M19 per-board-moderation → todo 254 (completed 2026-07-13)
 - [x] #M20 admin-polish-cluster → todo 254 (completed 2026-07-13)
 - [x] #M22 fetch-race-guards → todo 259 (completed 2026-07-24)
