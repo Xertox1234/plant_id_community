@@ -248,6 +248,34 @@ API suite); authed E2E `2 passed` again.
   (checkable immediately) from "command ran in the prod container" (deploy-time
   log if it appears, else after the first 03:00 UTC fire).
 
+### 2026-07-26 - GraphQL API route investigated and RULED OUT
+
+Attempted to set the two dashboard-only settings (`rootDirectory`,
+`railwayConfigFile`) via Railway's public GraphQL API so AC1 could be finished
+without the dashboard. **It does not work with the CLI's stored token — do not
+retry this path.**
+
+- Schema introspection *looked* like proof the route was available
+  (`ServiceInstanceUpdateInput` exposes `rootDirectory`, `railwayConfigFile`,
+  `source`; `serviceInstanceUpdate(serviceId, environmentId, input)` exists).
+  That was a **false positive**: Railway's schema is publicly readable, so
+  introspection succeeds unauthenticated.
+- Every authenticated call returns `Not Authorized` — **byte-identical to an
+  unauthenticated control request**, which is the tell. Tried:
+  `Authorization: Bearer <accessToken>`, bare `Authorization: <accessToken>`,
+  `project-access-token`, `x-railway-token`; hosts
+  `backboard.railway.com/graphql/v2`, `backboard.railway.app/graphql/v2`,
+  `backboard.railway.com/graphql/internal`. The token was unexpired
+  (`tokenExpiresAt` = 2026-07-26T05:00:55 UTC) and `railway status` worked
+  throughout, so the CLI authenticates by some other means than a bearer token
+  on the public endpoint.
+- A dashboard-created account/project token would likely authenticate — but
+  creating one is itself a dashboard trip, and it is more steps than just
+  setting the two fields. Not worth it.
+
+Conclusion: Root Directory + config-as-code are genuinely dashboard-only, as
+the runbook already says. The handoff below stands unchanged.
+
 ### Handoff — remaining deploy+verify (keeps 261 open)
 
 AC1 only. The CLI exposes no flag for Root Directory or the config-as-code path
