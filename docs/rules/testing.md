@@ -145,7 +145,12 @@ Compact checklist auto-injected before edits.
   A doc/comment citing `path.py:411` can resolve perfectly and still be false — that
   line was `def send_forum_mention_notification`, a method with zero callers, cited
   as the live mention-delivery path (todo 270). A resolving line number is a
-  syntactic check; whether the code runs is a semantic one.
+  syntactic check; whether the code runs is a semantic one. **And read the
+  enclosing function before citing a grep hit** — the first repair of that same
+  paragraph cited `notifications.py:82` as a `create_notifications` call because
+  grep matched `NotificationVerb.MENTION` there; line 82 is an argument to
+  `send_forum_push_batch.delay(...)`, a different mechanism. A grep hit gives you
+  a line, not a callee.
 - **Restore a mutation-check with `git checkout -- <path>`, never a `cp` backup.**
   A relative `cp` after a `cd` in the same one-liner silently fails when the shell
   resets cwd, and re-running the check then overwrites the backup with the

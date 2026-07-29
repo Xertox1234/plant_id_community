@@ -415,7 +415,7 @@ Every storage call is wrapped in try/catch and swallows failures: a draft is a c
 
 ### 5.1 @Mentions — ✅ Shipped (todo 253 slice 4)
 
-~~**Problem**: No way to notify a specific user in a post.~~ Done: mention parsing and recipient resolution (`resolve_mentioned_users`, `wagtail_forum/mentions.py:64`), the `Notification` model (`wagtail_forum/models/notifications.py`), the notification fan-out (`create_notifications(…, verb=NotificationVerb.MENTION)`, `wagtail_forum/notifications.py:17`, called from `@/backend/apps/forum_host/notifications.py:193` and `:82`), and composer autocomplete (`ForumMention` TipTap node in `TipTapEditor.tsx`) are all live.
+~~**Problem**: No way to notify a specific user in a post.~~ Done: mention parsing and recipient resolution (`resolve_mentioned_users`, `wagtail_forum/mentions.py:64`), the `Notification` model (`wagtail_forum/models/notifications.py`), the in-app notification fan-out (`create_notifications(…, verb=NotificationVerb.MENTION)`, `wagtail_forum/notifications.py:17`, called from `@/backend/apps/forum_host/notifications.py:193`), the push fan-out (`_enqueue_mention_push_for` → `send_forum_push_batch.delay(NotificationVerb.MENTION, …)`, `@/backend/apps/forum_host/notifications.py:73-83`, invoked at `:113` and `:258`), and composer autocomplete (`ForumMention` TipTap node in `TipTapEditor.tsx`) are all live.
 
 > **Citation corrected Jul 29, 2026 (todo 270)**: PR #467's version of this line credited
 > `send_forum_mention_notification` at `@/backend/apps/core/services/notification_service.py:411`.

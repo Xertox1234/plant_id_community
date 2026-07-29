@@ -2001,7 +2001,16 @@ repo-wide**; it is dead code. The shipped mention path is entirely elsewhere:
 `resolve_mentioned_users` (`wagtail_forum/mentions.py:64`) →
 `create_notifications(…, verb=NotificationVerb.MENTION)`
 (`wagtail_forum/notifications.py:17`), called from
-`apps/forum_host/notifications.py:193` and `:82`.
+`apps/forum_host/notifications.py:193`, with push delivery running separately via
+`_enqueue_mention_push_for` (`notifications.py:73-83`).
+
+**The same trap bit this very entry during review.** A first draft of the repair
+also credited `notifications.py:82` as a `create_notifications` call site, because
+a grep for `NotificationVerb.MENTION` returned that line. Line 82 is an *argument*
+to `send_forum_push_batch.delay(...)` inside `_enqueue_mention_push_for` — a
+different delivery mechanism entirely. A grep hit gives you a line, not a callee;
+read the enclosing function before citing it. Two independent passes wrote a wrong
+citation for this one paragraph, which is a fair measure of how easy the mistake is.
 
 The citation was valid; the sentence wrapping it was false. A resolver checks that
 a pointer is not dangling, which is a *syntactic* property. Whether the pointed-at
