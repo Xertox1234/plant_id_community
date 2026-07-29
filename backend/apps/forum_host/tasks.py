@@ -60,6 +60,16 @@ def _notification_content(event: str, data: dict) -> tuple[str, str] | None:
     posts (slice-6 review, cross-file tracer) — it keeps the pre-slice
     data-only behavior. Unknown/future events also stay data-only until
     someone designs their copy.
+
+    COPY HAS THREE HOMES (todo 272 item 5 → todo 287). The same forum event is
+    phrased independently here (push tray), in
+    ``apps/core/services/notification_service.py`` (email subjects/bodies, the
+    ``send_forum_*`` methods), and in
+    ``web/src/components/layout/NotificationBell.tsx`` (``notificationLabel``).
+    They already disagree — a reply is "New reply in: X" by email, 'New reply
+    in "X"' + "Someone replied" here, and 'Someone replied to "X"' in the bell.
+    Changing wording (or adding i18n) in one place must touch the other two;
+    consolidating the two backend homes into one copy table is todo 287.
     """
     from .constants import PUSH_TITLE_TOPIC_MAX_CHARS
 

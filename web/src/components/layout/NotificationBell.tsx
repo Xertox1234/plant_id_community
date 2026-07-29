@@ -14,6 +14,14 @@ import type { ForumNotification } from '../../types/notifications';
 // exists to keep the bell feeling live, not to approach the abuse boundary.
 const UNREAD_POLL_INTERVAL_MS = 30_000;
 
+// COPY HAS THREE HOMES (todo 272 item 5 -> todo 287). The same forum event is
+// phrased independently here (the bell), in the push tray
+// (backend/apps/forum_host/tasks.py::_notification_content), and in email
+// subjects/bodies (backend/apps/core/services/notification_service.py, the
+// send_forum_* methods). They already disagree - a reply reads 'Someone replied
+// to "X"' here, 'New reply in "X"' + "Someone replied" in the tray, and
+// "New reply in: X" by email. Changing wording (or adding i18n) here must touch
+// the other two; consolidating the two backend homes is todo 287.
 function notificationLabel(notification: ForumNotification): string {
   const actorName = notification.actor?.display_name || notification.actor?.username || 'Someone';
   const topicTitle = notification.topic?.title || 'your topic';

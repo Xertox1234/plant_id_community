@@ -84,6 +84,23 @@ def _ensure_firebase_initialized() -> None:
 
     Never raises: a broken credential file or a lost first-touch init race
     must degrade to failed verification (handled 401), not 500 every login.
+
+    TWO INIT HOMES — accepted as-is (todo 272 item 4, 2026-07-29). Firebase
+    bootstrap is still split between this function and
+    ``apps/garden/firebase_config.initialize_firebase`` (path gate → registry
+    reuse → Certificate). That is deliberate, not an oversight: the dangerous
+    part of the split — two code paths reaching *different credentials*, and
+    so a divergent project identity — was already closed. Tier 2 above does
+    not build its own ``credentials.Certificate``; it delegates to the garden
+    bootstrap, which is the single certificate-init site, and both read one
+    canonical setting (``FIREBASE_CREDENTIALS_PATH``, which absorbs
+    ``GOOGLE_APPLICATION_CREDENTIALS`` in settings.py). What remains split is
+    only tier 3, the projectId-only fallback, which exists solely for the auth
+    emulator / ADC dev loop and deliberately leaves FCM disabled — the garden
+    side has no use for it. Folding the two into a shared bootstrap module
+    would therefore move code without removing a failure mode. REVISIT
+    TRIGGER: a third caller needing Firebase init, or tier 3 growing a
+    non-dev-loop use.
     """
     try:
         firebase_admin.get_app()
