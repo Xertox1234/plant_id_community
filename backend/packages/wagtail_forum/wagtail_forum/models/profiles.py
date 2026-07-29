@@ -53,13 +53,34 @@ class ForumProfile(models.Model):
     # showed up," since `user.date_joined` is off-limits here (AbstractUser-
     # only, not part of the AbstractBaseUser contract this package assumes).
     #
-    # Known gap (todo 271): for_user() is called from several trigger points
-    # beyond "this user opened a topic" — MeProfileView and the push-delivery
-    # task (forum_host/tasks.py) both create a profile as a side effect of
-    # unrelated actions. For a pre-ship "sleeper" account, whichever of these
-    # fires first stamps read_watermark_at=now and silently collapses that
-    # user's entire pre-existing unread backlog, not just the topic (if any)
-    # they were actually looking at. Not fixed here — see the todo.
+    # Accepted tradeoff, decided 2026-07-29 (todo 271 #1) — read this as the
+    # standing disposition, not a stale TODO. for_user() is the package's lazy
+    # profile-creation entry point and is reached from five non-test calls
+    # across four modules, only ONE of which means "this user read something":
+    #   * api/views.py TopicDetailView.retrieve   — a genuine read
+    #   * api/views.py MeProfileView.get_object   — fetching one's own profile
+    #   * workflow.py (x2)                        — trust check when the user
+    #                                               submits a post
+    #   * forum_host/tasks.py                     — push delivery, i.e. a
+    #                                               THIRD PARTY's action
+    # And for_user() is not even the only creation path: signals.py's
+    # _refresh_profile calls ForumProfile.objects.get_or_create(user_id=...)
+    # directly on every post-count/trust recount, bypassing this classmethod.
+    # Whichever fires first stamps read_watermark_at=now, so for a pre-ship
+    # "sleeper" account (no profile row yet) an unrelated trigger can collapse
+    # that user's whole pre-existing unread backlog forest-wide, not just the
+    # topic they were looking at (a push delivery involves no looking at all).
+    # Accepted because: no live complaint; the blast radius is one cohort
+    # (accounts predating the profile row) times one cosmetic signal (badge
+    # state); and the genuine read path (TopicDetailView.retrieve's _mark_read
+    # on_commit callback) already collapses the backlog forest-wide by design,
+    # per its own comment there — so the non-read triggers differ in
+    # propriety, not in effect. Re-scope trigger: an actual "why did my unread
+    # badges disappear" report. The concrete candidate fix — seed the initial
+    # watermark from `getattr(user, "date_joined", None)` so it derives from a
+    # stable per-user fact instead of wall-clock-at-first-touch — is tracked
+    # as todo 285, deliberately NOT bundled here (it changes unread semantics
+    # for every existing account).
     read_watermark_at = models.DateTimeField(default=timezone.now)
 
     @classmethod

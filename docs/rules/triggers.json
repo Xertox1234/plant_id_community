@@ -722,5 +722,24 @@
     "source": "codify: todo/270-forum-mobile-roadmap-reaudit",
     "added": "2026-07-29",
     "severity": "warn"
+  },
+  {
+    "id": "on_commit-no-deferral-claim",
+    "added": "2026-07-29",
+    "domains": [
+      "database",
+      "testing"
+    ],
+    "path_glob": [
+      "backend/**/views.py",
+      "backend/**/tasks.py",
+      "backend/**/signals.py",
+      "backend/**/models/*.py"
+    ],
+    "content_present": "transaction\\.on_commit|connection\\.on_commit",
+    "message": "transaction.on_commit() does NOT defer here: ATOMIC_REQUESTS=False and no explicit atomic() means Django's autocommit branch runs the callback immediately, inline, in-request. Do not claim it is deferred, outside the request, or free of the pinned query count. Note the trap: under @pytest.mark.django_db the callback DOES defer (and rolls back unrun), so a green assertNumQueries pin cannot detect the production cost. robust=True is still honored on the immediate path.",
+    "pattern_ref": "docs/rules/database.md",
+    "severity": "warn",
+    "source": "todos/archive 271"
   }
 ]

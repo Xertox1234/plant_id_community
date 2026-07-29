@@ -200,6 +200,12 @@ def test_view_count_recounts_after_dedup_window_expires(
 def test_view_count_does_not_add_queries_to_response():
     # on_commit fires AFTER the response transaction; the pinned query count
     # for the response itself must be unchanged (still 4).
+    # This pin is about THIS TEST, not about production. django_db wraps the
+    # body in an atomic block, so on_commit really does defer here (and rolls
+    # back unrun) — in production, autocommit + ATOMIC_REQUESTS=False makes the
+    # same callback run inline. See TopicDetailView.retrieve's comment and
+    # docs/LEARNINGS.md (todo 271, 2026-07-29). Do not cite this 4 as evidence
+    # that the view_count/TopicRead writes are free in production.
     cache.clear()
     board = _board(slug="vc-board5")
     author = User.objects.create_user(username="vcq")

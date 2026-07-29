@@ -512,8 +512,38 @@ class TopicDetailView(PrivateForumReadCacheMixin, generics.RetrieveAPIView):
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)
         # Increment view_count after a successful 200, deduplicated per viewer.
-        # Uses on_commit so the UPDATE runs outside the serialization transaction
-        # and does not inflate the pinned query count for the response itself.
+        #
+        # on_commit timing — accepted as-is, decided 2026-07-29 (todo 271 #2).
+        # Read the `on_commit` calls in this method as ordering/fail-safe
+        # constructs, NOT as "this write is deferred past the request." This
+        # project runs ATOMIC_REQUESTS=False and nothing wraps retrieve() in an
+        # explicit atomic(), so `connection.in_atomic_block` is False here and
+        # Django's autocommit branch (db/backends/base/base.py::on_commit,
+        # verified against Django 6.0.7) executes the callback IMMEDIATELY,
+        # inline, inside this same request. Both callbacks below are therefore
+        # a real, uncounted cost on every qualifying topic-detail GET in
+        # production.
+        #
+        # Note the asymmetry that hides this: under @pytest.mark.django_db the
+        # test body IS inside an atomic block, so on_commit takes the deferring
+        # branch and the callback is rolled back without ever running. That is why
+        # test_topic_detail.py's read-recording tests need the
+        # django_capture_on_commit_callbacks fixture at all — and why its
+        # test_view_count_does_not_add_queries_to_response can legitimately pin
+        # 4 queries. That pin is honest about the test and says nothing about
+        # production; do not read it as evidence these callbacks are free.
+        #
+        # Accepted rather than wrapped in atomic() or moved to Celery: an
+        # atomic() wrap buys deferral-to-commit and isolation hygiene, not a
+        # smaller production query count (the work still happens in-request);
+        # and the writes are two cheap dedup-gated UPDATEs on a read path with
+        # no user-facing symptom.
+        # `robust=True` on _mark_read is still load-bearing on this path —
+        # the autocommit branch honors it (same source), so a failure logs
+        # instead of turning an already-successful 200 into a 500. Revisit
+        # trigger: topic-detail p99 regressing, or a third callback landing
+        # here. Do not re-litigate per-slice.
+        #
         # The cache key is scoped per (topic, viewer) — authenticated users key on
         # their pk; anonymous requests key on the client IP so a single browser
         # session doesn't multi-count. The TTL is host-configurable via
