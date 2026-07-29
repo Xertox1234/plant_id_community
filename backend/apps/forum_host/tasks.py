@@ -63,8 +63,9 @@ def _notification_content(event: str, data: dict) -> tuple[str, str] | None:
 
     COPY HAS THREE HOMES (todo 272 item 5 → todo 287). The same forum event is
     phrased independently here (push tray), in
-    ``apps/core/services/notification_service.py`` (email subjects/bodies, the
-    ``send_forum_*`` methods), and in
+    ``apps/core/services/notification_service.py::send_forum_reply_notification``
+    (the email subject/body — and the only *live* forum email path; its
+    ``send_forum_*`` siblings are uncalled, see that method's docstring), and in
     ``web/src/components/layout/NotificationBell.tsx`` (``notificationLabel``).
     They already disagree — a reply is "New reply in: X" by email, 'New reply
     in "X"' + "Someone replied" here, and 'Someone replied to "X"' in the bell.
