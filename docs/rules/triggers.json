@@ -706,5 +706,21 @@
     "source": "codify: forum-pkg/262-readme-i18n",
     "added": "2026-07-26",
     "severity": "warn"
+  },
+  {
+    "id": "playwright-ts-spec-never-authenticated",
+    "domains": [
+      "testing",
+      "react"
+    ],
+    "path_glob": [
+      "web/e2e/*.spec.ts"
+    ],
+    "content_present": "@playwright/test|test\\(|test\\.describe\\(",
+    "message": "Playwright .spec.ts NEVER runs authenticated: the authed projects testMatch /(forum-authenticated|auth)\\.spec\\.js/ (.js only), so this spec always runs signed-out with no storageState. Fine for anonymous coverage; if it needs a signed-in view, name it *.spec.js or widen the authed testMatch AND the anonymous testIgnore together. See docs/LEARNINGS.md 2026-07-29 (todo 270).",
+    "pattern_ref": "docs/rules/testing.md",
+    "source": "codify: todo/270-forum-mobile-roadmap-reaudit",
+    "added": "2026-07-28",
+    "severity": "warn"
   }
 ]

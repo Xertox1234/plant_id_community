@@ -133,6 +133,19 @@ Compact checklist auto-injected before edits.
   test stayed green on a broken README (todo 262). Use
   `re.search(rf"PREFIX_{name}\b", text)`. Same trap for any
   substring-based name/route/key coverage assertion.
+- **A Playwright `*.spec.ts` NEVER runs authenticated.** The authenticated projects
+  select on `testMatch: /(forum-authenticated|auth)\.spec\.js/` — `.js` only — so a
+  TypeScript spec always runs under the anonymous projects with no `storageState`,
+  silently and while passing. A new spec that needs a signed-in view must be named
+  `*.spec.js`, or widen the authenticated `testMatch` **and** the anonymous
+  projects' `testIgnore` together. Never cite an E2E spec as evidence for auth-gated
+  UI without confirming its project via `npx playwright test --list`. See
+  `docs/LEARNINGS.md` 2026-07-29 (todo 270) and 2026-07-25 (todo 261).
+- **Grep for call sites, not the `def`, before crediting a symbol as shipped.**
+  A doc/comment citing `path.py:411` can resolve perfectly and still be false — that
+  line was `def send_forum_mention_notification`, a method with zero callers, cited
+  as the live mention-delivery path (todo 270). A resolving line number is a
+  syntactic check; whether the code runs is a semantic one.
 - **Restore a mutation-check with `git checkout -- <path>`, never a `cp` backup.**
   A relative `cp` after a `cd` in the same one-liner silently fails when the shell
   resets cwd, and re-running the check then overwrites the backup with the
