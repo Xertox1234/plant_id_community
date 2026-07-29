@@ -83,6 +83,15 @@ Compact checklist auto-injected before edits.
   call `get_queryset()` with no request/kwargs wired: it only survives if the
   guard short-circuits (guard missing → `KeyError` on `self.kwargs` → red).
   See `wagtail_forum/tests/api/test_schema.py`.
+- **An ambient framework fallback makes an explicit override
+  unfalsifiable-by-omission end-to-end — pin the override with a direct unit
+  test.** Second instance of the bullet above, so treat it as the rule: when
+  your code sets a value the framework would also supply by default on the
+  tested path, an outcome assertion pins the *framework*, not your override.
+  Prefer `.get(key)` to `[key]` there — a `KeyError` is weaker mutation
+  evidence than a value mismatch. See
+  `wagtail_forum/tests/test_admin.py::test_bulk_unpublish_action_execution_context_carries_acting_user`
+  and `docs/LEARNINGS.md` 2026-07-29 (todo 265).
 - **"Comment out `permission_classes`" can be a NO-OP mutation.** With
   `DEFAULT_PERMISSION_CLASSES = IsAuthenticatedOrReadOnly`, a view with its
   `permission_classes` removed still blocks anonymous writes — the 401 test

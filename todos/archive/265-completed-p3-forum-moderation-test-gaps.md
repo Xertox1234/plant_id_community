@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "265"
 tags: [forum, testing, moderation]
@@ -76,13 +76,18 @@ regression test pinning them.
       in `ModelLogEntry` after `ForumUnpublishBulkAction` runs
 - [x] A test asserts unauthenticated `POST` to the report endpoint returns
       401
-- [ ] Both new tests are non-vacuous: the mutations described in
-      Recommended Action step 3 make them fail — **partially true, see
-      "Cannot honestly flip" note in Work Log**: the 401 test's mutation
-      (`permission_classes` → `AllowAny`) does make it fail, verified. The
-      attribution test's prescribed mutation (dropping the
-      `get_execution_context()` override) does NOT make it fail — root
-      cause identified, not a defect in the test or the code.
+- [x] Both behaviors are pinned by a non-vacuous test — each prescribed
+      mutation makes a test fail with a real behavioral difference, not a
+      crash. **Scope correction (2026-07-29, see Work Log)**: the 401 test
+      satisfies this as originally written (`permission_classes` →
+      `[AllowAny]` → `assert 400 == 401`). The attribution behavior does NOT
+      — the *end-to-end* `ModelLogEntry` assertion is unfalsifiable-by-
+      omission on the admin path, because Wagtail's ambient `LogContext`
+      supplies the same user when the override is gone. It is instead pinned
+      by a direct unit test on `get_execution_context()`
+      (`test_bulk_unpublish_action_execution_context_carries_acting_user`),
+      which the prescribed mutation *does* fail (`assert None == <User>`),
+      mirroring `test_schema.py`'s `swagger_fake_view` precedent.
 - [x] Full `wagtail_forum` + `forum_host` suite green
 
 ## Work Log
@@ -195,6 +200,92 @@ box or invent an artificial mutation to make it "pass."
   override itself (not just the outcome) is judged worth the extra test.
 - Left in `in_progress` state (filename unchanged) per the skill's
   skip-todo protocol; NOT moved to `todos/archive/`.
+
+### 2026-07-29 - Resumed and closed by completing-todos skill (run 2026-07-29-0207)
+
+Took option (b) from the 2026-07-13 skip note — write a differently-shaped
+test that pins the override directly — rather than option (a) (close by
+analysis). The prior session's root cause was correct and is now the
+*documented reason* for the test's shape rather than a reason to leave the
+criterion open.
+
+**The repair.** Added
+`test_bulk_unpublish_action_execution_context_carries_acting_user` to
+`tests/test_admin.py`: instantiate `ForumUnpublishBulkAction(request, Post)`
+with a `RequestFactory` request (no admin view, therefore no ambient
+`LogContext`) and assert `get_execution_context().get("user") == admin`.
+This is the same shape `docs/rules/testing.md` already prescribes for the
+`swagger_fake_view` guard (`tests/api/test_schema.py::test_topic_list_view_guards_schema_generation`)
+— when an end-to-end test can't detect a guard's removal, pin the guard
+directly. `.get("user")`, not `["user"]`, deliberately: with the override
+dropped `super()` returns `{"self": self}`, and a `KeyError` crash would be
+weaker mutation evidence than a value mismatch (the 2026-07-13 session was
+nearly misled by exactly that — a `NameError` mistaken for a red test).
+
+**Mutation check 1 — the override (the one that was unfalsifiable before).**
+Dropped `"user": self.request.user` from `get_execution_context()`:
+
+```
+test_bulk_unpublish_action_unpublishes_selected_posts PASSED   [ 33%]
+test_bulk_unpublish_action_execution_context_carries_acting_user FAILED [ 66%]
+test_bulk_unpublish_action_blocks_user_without_change_permission PASSED [100%]
+
+E   AssertionError: assert None == <User: ctxroot>
+E    +      where {'self': <...ForumUnpublishBulkAction object...>} = get_execution_context()
+1 failed, 2 passed, 10 deselected
+```
+
+Note the first line: the end-to-end `ModelLogEntry` test still passes under
+the mutation, independently reproducing the 2026-07-13 finding. The new test
+is what turns the override falsifiable. Restored from a pre-mutation backup;
+`git status` confirmed `wagtail_hooks.py` clean.
+
+**Mutation check 2 — the 401 test, re-verified first-hand** (not taken on
+the prior session's word). Mutated `PostReportView.permission_classes` to
+`[AllowAny]`, with the import added in the same write as its use (the
+formatter strips orphaned imports between edits — the 2026-07-13 `NameError`):
+
+```
+E   assert 400 == 401
+E    +  where 400 = <Response status_code=400, "application/json">.status_code
+FAILED tests/api/test_reports.py::test_unauthenticated_report_is_rejected
+1 failed, 9 passed
+```
+
+A real behavioral difference (the anonymous request reaches the serializer and
+trips the self-report validator), not a crash. Restored; `git status` clean.
+
+**Full suite (criterion 4, re-confirmed).**
+`pytest packages/wagtail_forum/ apps/forum_host/ -q --create-db` →
+`533 passed, 2 warnings in 40.28s`. Baseline on `main` before the change was
+`532 passed`; the delta is exactly the one new test. (`--create-db`, not
+`--reuse-db`: these tests create Wagtail pages under root, and a reused DB
+can carry a truncated page tree.)
+
+**Scope correction, not a box-flip.** Criterion 3's text was rewritten before
+checking it, so the record says what was actually proven: the attribution
+*behavior* is pinned, but by a unit test on the override rather than by the
+end-to-end assertion the finding originally assumed. The override itself was
+left in place — it is correct, costs nothing, and is load-bearing for any
+future caller outside an admin view's `LogContext`.
+
+### 2026-07-29 - Completed by completing-todos skill (run 2026-07-29-0207)
+
+- Verification: all 4 acceptance criteria met. Criterion 3 required rewriting
+  its own text (it encoded a disproved assumption) before it could be
+  honestly satisfied — see the entry above for both mutation transcripts.
+- Review: `code-review-orchestrator` returned **0 findings** — "Test is
+  correct, non-vacuous, follows all conventions, and docstring claims are
+  factually accurate." Nothing blocking, nothing to repair, no `Known issues`.
+- Codified: generalized rule added to `docs/rules/testing.md` (an ambient
+  framework fallback makes an explicit override unfalsifiable-by-omission —
+  pin it with a direct unit test; prefer `.get(key)` to `[key]` there), and a
+  `docs/LEARNINGS.md` entry documenting the
+  `require_admin_access` → `LogContext` → `log(user=user or
+  get_active_log_context().user)` chain. Both docs-only, added after the
+  review dispatch, so they are outside its scope.
+- No `source_review`/`source_finding` in frontmatter (see Notes), so the
+  skill's source-review check-off step is a deliberate no-op.
 
 ## Notes
 

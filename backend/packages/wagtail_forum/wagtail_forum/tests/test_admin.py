@@ -298,6 +298,42 @@ def test_bulk_unpublish_action_unpublishes_selected_posts(client):
 
 
 @pytest.mark.django_db
+def test_bulk_unpublish_action_execution_context_carries_acting_user():
+    """Pins `ForumUnpublishBulkAction.get_execution_context()`'s
+    `user=self.request.user` override directly (todo 265).
+
+    The end-to-end `ModelLogEntry` assertion in the test above CANNOT catch
+    this override's removal. `wagtail.admin.auth.require_admin_access` wraps
+    every admin view in `LogContext(user=request.user)`, and
+    `LogActionRegistry.log()` does `user = user or
+    get_active_log_context().user` — so a bulk unpublish dispatched through a
+    real admin view is attributed to the acting moderator whether or not the
+    override exists. The override is load-bearing only against a future caller
+    outside that ambient context (the DRF paths pinned by
+    test_actor_attribution.py have no LogContext at all).
+
+    Same shape as test_schema.py::test_topic_list_view_guards_schema_generation:
+    when an ambient framework fallback supplies the same value, only a direct
+    unit test can pin the explicit override. Drop the override and this fails
+    with `None != <admin>` (`super()` returns `{"self": self}`, no user key).
+    """
+    from django.test import RequestFactory
+    from wagtail_forum.models import Post
+    from wagtail_forum.wagtail_hooks import ForumUnpublishBulkAction
+
+    admin = User.objects.create_superuser(username="ctxroot", email="ctx@x.io")
+    request = RequestFactory().post("/cms/bulk/wagtail_forum/post/unpublish/")
+    request.user = admin
+
+    action = ForumUnpublishBulkAction(request, Post)
+
+    # .get(), not ["user"]: with the override dropped this must be an
+    # unambiguous value mismatch, not a KeyError that could be mistaken for
+    # an unrelated crash during mutation verification.
+    assert action.get_execution_context().get("user") == admin
+
+
+@pytest.mark.django_db
 def test_bulk_unpublish_action_blocks_user_without_change_permission(client):
     # check_perm gates on wagtail_forum.change_post — a staff user who can
     # reach /cms/ (access_admin) but lacks that specific permission must not
