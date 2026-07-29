@@ -29,7 +29,7 @@ Verified by grep on 2026-07-29 during todo 272's closure. For a single
 
 - **Scope is smaller than it looks — three of the four `send_forum_*` methods
   are dead code.** `send_forum_reply_notification` is the ONLY live email path
-  (called from `apps/forum_host/tasks.py:363`). Its siblings
+  (called from `apps/forum_host/tasks.py:364`). Its siblings
   `send_forum_mention_notification` (`💬 {user} mentioned you in: {title}`),
   `send_new_topic_notification` (`🌱 New topic in {category}: {title}`) and
   `send_forum_digest_email` (`🌿 Your {period} … digest`) have **zero call
@@ -42,10 +42,13 @@ Verified by grep on 2026-07-29 during todo 272's closure. For a single
   (This is the exact trap in `docs/LEARNINGS.md` 2026-07-29 / todo 270 —
   `PLANNING/20_FORUM_MOBILE_ROADMAP.md:421` still credits
   `send_forum_mention_notification` as the shipped mention mechanism.)
-- The three homes also differ in **coverage**, not just wording: the push tray
+- The homes also differ in **coverage**, not just wording: the push tray
   deliberately renders only `reply_added` and `mention` (everything else returns
-  `None` to stay tray-silent — see its docstring), while email has a topic and a
-  digest path with no tray equivalent. A copy table must not flatten that away.
+  `None` to stay tray-silent — see its docstring). A copy table must not flatten
+  that away — an event with no push copy has to stay `None`, not fall through to
+  generic wording, or the tray starts popping "your post was published" at users
+  on every routine autopublish. Note the *live* overlap between the two backend
+  homes is therefore exactly one event: `reply_added`.
 - All three now carry a mutual cross-reference comment pointing at each other
   and at this todo (added during 272's closure) — that is the stopgap, not the
   fix.
@@ -58,7 +61,8 @@ Verified by grep on 2026-07-29 during todo 272's closure. For a single
    and the only part that is a pure refactor. Add a copy table (a module of
    event → `{subject, body, push_title, push_body}` templates), most plausibly
    in `apps/forum_host/` next to the existing constants, and have both
-   `_notification_content` and the `send_forum_*` methods read from it.
+   `_notification_content` and the live `send_forum_reply_notification` read
+   from it.
 2. Preserve the tray-silence whitelist explicitly: an event absent from the push
    columns must stay `None`, not fall back to generic wording. The existing
    `_notification_content` tests pin this — keep them green rather than
@@ -117,8 +121,10 @@ Verified by grep on 2026-07-29 during todo 272's closure. For a single
   Review Doc Tracking, promote-all is the only terminal state for a parking todo.
 - Re-verified the three homes and their actual current strings by grep before
   promoting, rather than trusting todo 272's description. Two facts 272 did not
-  record: the emoji-only-in-email divergence, and that the homes differ in event
-  *coverage* as well as wording.
+  record, both of which change this todo's shape: that three of the four
+  `send_forum_*` methods are **dead code** (so the email side is one method, not
+  four, and the emoji-bearing copy is unshipped), and that the homes differ in
+  event *coverage* as well as wording.
 - Stopgap shipped in the meantime: a mutual cross-reference comment in each of
   the three homes, so a copy edit in one surfaces the other two.
 

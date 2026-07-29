@@ -2120,9 +2120,10 @@ needs a real task queue (Celery), not `atomic()`.
 
 ## 2026-07-29 — Self-invalidating citations: your own edit moves the line you just cited (todo 272, docs)
 
-Closing todo 272 (a parking todo, comment/docs-only diff) produced **three
-separate stale line numbers, all self-inflicted**, in one session. The pattern is
-mechanical and worth naming because it is invisible to every existing gate.
+Closing todo 272 (a parking todo, comment/docs-only diff) produced **four
+separate stale line numbers, all self-inflicted**, in one session — the fourth
+landing inside this very entry, after it was written. The pattern is mechanical
+and worth naming because it is invisible to every existing gate.
 
 **The shape.** You grep a file to find a call site, write the line number into a
 doc or a todo, and *then* add a comment or docstring to that same file above the
@@ -2142,6 +2143,13 @@ Concrete instances from this one diff:
   *corrected it to `:318`*, extended the same docstring again for the dead-code
   note, and shifted it once more → `:326`. The repair re-broke the thing it
   repaired.
+- `tasks.py:363` (the `send_forum_reply_notification` caller) was cited in three
+  files — including **this entry** — and then a follow-up commit added one net
+  line to a docstring *above* it → `:364`. Caught only by an advisor pass
+  explicitly asking "did your own follow-up edit move the line you cited?" This
+  is the strongest evidence for the rule: the citation was written by someone
+  who had just finished documenting this exact failure mode, and it still broke,
+  because the invalidating edit came *after* the citation was considered final.
 
 **Rule**: a line number cited for a file that the same diff edits must be
 re-derived **after** the final edit to that file, not when it was discovered.
@@ -2160,7 +2168,7 @@ for forum notification copy, and promoted a consolidation todo scoped around all
 four. Three of the four — `send_forum_mention_notification`,
 `send_new_topic_notification`, `send_forum_digest_email` — have **zero call sites
 repo-wide**. Only `send_forum_reply_notification` is live (from
-`apps/forum_host/tasks.py:363`). The promoted todo's scope was ~4x too large and
+`apps/forum_host/tasks.py:364`). The promoted todo's scope was ~4x too large and
 credited dead copy as shipped behavior.
 
 This is precisely the trap documented above in *[2026-07-29] A resolving citation

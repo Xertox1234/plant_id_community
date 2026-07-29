@@ -201,7 +201,7 @@ Both load-bearing claims re-verified against source rather than trusted:
   "your post was published" at users.
 - Second, and materially: **three of the four `send_forum_*` methods are dead
   code.** `send_forum_reply_notification` is the only live email path (called
-  from `apps/forum_host/tasks.py:363`); `send_forum_mention_notification`,
+  from `apps/forum_host/tasks.py:364`); `send_forum_mention_notification`,
   `send_new_topic_notification` and `send_forum_digest_email` have **zero call
   sites repo-wide** (verified by grepping for callers rather than definitions,
   and confirming no `getattr`-style dynamic dispatch). This shrinks todo 287's
@@ -243,7 +243,13 @@ Both load-bearing claims re-verified against source rather than trusted:
 from a grep taken *before* the class-head comment was added to
 `auth_service.dart`, which shifted every one of them. Re-grepped and corrected
 after the edit (detach `:131`, clearOnLogout `:255`, syncAfterLogin `:354`,
-epoch capture `:279` / re-check `:405`, seam `:92`).
+epoch capture `:279`, `_isCurrentExchange` `:404` with five call sites, seam
+`:92`). This happened **four times** across the session in total — the last one
+after this todo was already archived and the codification written: a follow-up
+commit added one net line to a `tasks.py` docstring above the
+`send_forum_reply_notification` caller, invalidating the `:363` cited in three
+files (including the LEARNINGS entry about this exact failure). Corrected to
+`:364`; the LEARNINGS entry now carries that instance as its worked example.
 
 **Source-review tracking — deliberately skipped, not silently no-opped.** This
 todo's `source_review` frontmatter is `"todo 253 slice 6 code review
