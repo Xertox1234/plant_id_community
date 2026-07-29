@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
+<!--
+	todo 272 item 1 / todo 286 — this file is wired into Debug, Profile AND
+	Release via CODE_SIGN_ENTITLEMENTS (Runner.xcodeproj/project.pbxproj), so
+	`development` below applies to a Distribution-signed archive too, and App
+	Store Connect validation rejects that. Before the first TestFlight/App
+	Store archive: flip this to `production`, or split per-config entitlements
+	so the dev loop keeps `development`. Do it with real APNs provisioning —
+	the value must match the certificate the archive is signed with.
+	Also listed in docs/DEPLOYMENT_SECURITY_CHECKLIST.md → Mobile (Flutter).
+-->
 <dict>
 	<key>aps-environment</key>
 	<string>development</string>

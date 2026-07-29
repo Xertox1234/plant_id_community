@@ -11,6 +11,19 @@ DEFAULT_FORUM_RATELIMITS = {
     "post_delete": "20/h",
     "reaction_toggle": "60/m",
     "report_create": "10/h",
+    # SHARED SCOPE — accepted, monitor-only (todo 272 item 2, 2026-07-29).
+    # `PATCH /forum/me/profile/` (MeProfileView) is the single writer endpoint
+    # for THREE unrelated callers, so they consume one 10/h budget together:
+    #   1. FCM token registration on login (PushRegistrationService.syncAfterLogin)
+    #   2. the logout token clear (clearOnLogout, a blank-token PATCH)
+    #   3. human profile edits (display name, bio, avatar)
+    # Normal usage is far under the cap — the client dedupes to ~1 token PATCH
+    # per login — but a bio-editing spree can starve the logout clear (its 429
+    # is swallowed, leaving a stale token until another device claims it via
+    # MeProfileSerializer's device-uniqueness rule) and vice versa.
+    # Accepted rather than split: no live 429s, and both fixes (a dedicated
+    # throttle scope for the token write, or a modest rate bump) are cheap to
+    # apply later. REVISIT TRIGGER: profile_update 429s appearing in logs.
     "profile_update": "10/h",
     "image_upload": "30/h",
     "search": "30/m",

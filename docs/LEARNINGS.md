@@ -2117,3 +2117,78 @@ transaction commits, skip if it rolls back), which is a correctness/isolation
 property. It does **not** move the work out of the request — the callback still
 runs synchronously before the response returns. Getting work off the request
 needs a real task queue (Celery), not `atomic()`.
+
+## 2026-07-29 — Self-invalidating citations: your own edit moves the line you just cited (todo 272, docs)
+
+Closing todo 272 (a parking todo, comment/docs-only diff) produced **four
+separate stale line numbers, all self-inflicted**, in one session — the fourth
+landing inside this very entry, after it was written. The pattern is mechanical
+and worth naming because it is invisible to every existing gate.
+
+**The shape.** You grep a file to find a call site, write the line number into a
+doc or a todo, and *then* add a comment or docstring to that same file above the
+cited line. The insertion shifts everything below it. The citation was correct
+when written and wrong by the time it was committed — and nothing catches it:
+`flake8`, `flutter analyze`, `tsc` and the test suite all pass, because no
+executable line changed. It is a documentation defect produced by a
+documentation edit.
+
+Concrete instances from this one diff:
+
+- `auth_service.dart`: cited `:121`/`:245`/`:344` for the push wiring, then added
+  a 9-line class-head comment. All shifted +10 (→ `:131`/`:255`/`:354`). Caught
+  by re-grepping on suspicion.
+- `notification_service.py`: cited the reply subject at `:307`, then added a
+  docstring to the enclosing method → `:318`. Caught by the review pass. Then
+  *corrected it to `:318`*, extended the same docstring again for the dead-code
+  note, and shifted it once more → `:326`. The repair re-broke the thing it
+  repaired.
+- `tasks.py:363` (the `send_forum_reply_notification` caller) was cited in three
+  files — including **this entry** — and then a follow-up commit added one net
+  line to a docstring *above* it → `:364`. Caught only by an advisor pass
+  explicitly asking "did your own follow-up edit move the line you cited?" This
+  is the strongest evidence for the rule: the citation was written by someone
+  who had just finished documenting this exact failure mode, and it still broke,
+  because the invalidating edit came *after* the citation was considered final.
+
+**Rule**: a line number cited for a file that the same diff edits must be
+re-derived **after** the final edit to that file, not when it was discovered.
+Practically: do the code edits first, take citations last, and re-grep every
+in-diff citation immediately before commit. Prefer symbol-anchored citations
+(`file.py::method_name`) over bare line numbers wherever the reader can search —
+they survive edits by construction. When a line number really is wanted, pair it
+with the symbol (`:326` in `send_forum_reply_notification`) so a stale number
+degrades to a findable pointer instead of a wrong one.
+
+### The todo-270 dead-code trap fires again — and what actually caught it
+
+The same closure nearly shipped a second, worse documentation defect: it
+described `notification_service.py`'s `send_forum_*` methods as the "email home"
+for forum notification copy, and promoted a consolidation todo scoped around all
+four. Three of the four — `send_forum_mention_notification`,
+`send_new_topic_notification`, `send_forum_digest_email` — have **zero call sites
+repo-wide**. Only `send_forum_reply_notification` is live (from
+`apps/forum_host/tasks.py:364`). The promoted todo's scope was ~4x too large and
+credited dead copy as shipped behavior.
+
+This is precisely the trap documented above in *[2026-07-29] A resolving citation
+is not a verified claim* (todo 270), which names
+`send_forum_mention_notification` as its worked example. The lesson existed, in
+this file, about this exact method — and was still re-learned, because reading
+`grep -n "def send_forum_"` gives you a plausible-looking list of "homes" and
+nothing prompts you to ask which ones run.
+
+**What caught it**: opening `docs/LEARNINGS.md` at the end of the session to
+*write* the codification. That is too late to be reliable — the wrong claim was
+already in three files by then. **Read `docs/LEARNINGS.md` for the area you are
+about to write about, before writing**, not just before writing code; `CLAUDE.md`
+already says "read before starting a new feature area", and a documentation pass
+over a subsystem is a new feature area for this purpose.
+
+**Reusable check for any doc that enumerates "where X lives"**: for each entry,
+grep for *callers*, not definitions, and state liveness explicitly. An
+enumeration of definitions silently promotes dead code to documented
+architecture. Note `PLANNING/20_FORUM_MOBILE_ROADMAP.md:421` still credits
+`send_forum_mention_notification` as the shipped mention mechanism — the todo-270
+audit corrected its own doc but that claim survives elsewhere, which is itself
+the argument for checking liveness at every citation site rather than once.

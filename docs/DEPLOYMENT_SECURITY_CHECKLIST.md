@@ -632,6 +632,20 @@ service firebase.storage {
   await dotenv.load(fileName: ".env");
   ```
 
+- [ ] **iOS APNs entitlement switched to `production`** (blocks App Store submission)
+
+  `ios/Runner/Runner.entitlements` ships `aps-environment` = `development`, and
+  `CODE_SIGN_ENTITLEMENTS` wires that one file into **all three** build configs
+  (Debug, Profile, Release — `Runner.xcodeproj/project.pbxproj`). A
+  Distribution-signed archive therefore carries a development APNs entitlement,
+  which App Store Connect validation rejects. Do this together with real APNs
+  provisioning — either flip the value, or split per-config entitlements files
+  so the dev loop keeps working. Tracked as todo 286.
+
+  ```bash
+  grep -A1 aps-environment plant_community_mobile/ios/Runner/Runner.entitlements
+  ```
+
 - [ ] **Production build** tested
 
   ```bash

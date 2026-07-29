@@ -292,7 +292,26 @@ class NotificationService:
         reply_excerpt: str,
         topic_url: str,
     ) -> bool:
-        """Send forum reply notification."""
+        """Send forum reply notification.
+
+        COPY HAS THREE HOMES (todo 272 item 5 -> todo 287). This method owns the
+        EMAIL wording for forum replies; the same event is phrased independently
+        in the push tray (``apps/forum_host/tasks.py::_notification_content``)
+        and in the web bell (``web/src/components/layout/NotificationBell.tsx``).
+        They already disagree — a reply is "New reply in: X" here, 'New reply in
+        "X"' + "Someone replied" in the tray, 'Someone replied to "X"' in the
+        bell. Changing wording (or adding i18n) must touch all three; folding
+        the two backend homes into one copy table is todo 287.
+
+        This is the ONLY live forum email path: it is called from
+        ``apps/forum_host/tasks.py`` (see ``notifications.py``'s slice-2 note).
+        The ``send_forum_*`` siblings below — ``send_forum_mention_notification``,
+        ``send_new_topic_notification``, ``send_forum_digest_email`` — have
+        **zero call sites repo-wide** (verified 2026-07-29); mention delivery
+        runs entirely through the package's own notification path, not through
+        here. Do not cite them as shipped behavior (docs/LEARNINGS.md
+        2026-07-29, todo 270: a resolving citation is not a verified claim).
+        """
         # Keys must match the template vars in emails/forum_reply.{html,txt}
         # (author_name/post_excerpt), not these parameter names — Django
         # silently renders an undefined var as '', so a mismatch here ships
