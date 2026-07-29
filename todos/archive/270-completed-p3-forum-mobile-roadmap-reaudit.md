@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "270"
 tags: [forum, docs, roadmap]
@@ -135,3 +135,62 @@ unverified since Playwright is excluded from CI).
 
 Scope note: E2E was **not** executed — this is a p3 doc audit, and the doc now states
 plainly that existence ≠ passing rather than implying a green run.
+
+### 2026-07-29 - Code review + repair
+
+`code-review-orchestrator` routed to **zero** domain reviewers (docs-only diff; the routing
+table covers source files) and correctly declined to invent findings.
+
+Because the real risk here is a *wrong verdict*, not code quality, an adversarial
+fact-checker independently re-verified all 18 phase verdicts and both premise corrections
+against source. It **confirmed 11/11** claim groups — and refuted two things, both
+independently re-verified by me before repair:
+
+**Repair 1 — Phase 5.1 credited dead code (inherited from PR #467, high value).**
+The line credited `send_forum_mention_notification`
+(`backend/apps/core/services/notification_service.py:411`). The citation *resolves* — it is
+the method definition — but the method has **zero call sites** repo-wide:
+
+```text
+$ grep -rn "send_forum_mention_notification" --include="*.py" . | grep -v "def send_"
+NONE — definition only, zero call sites
+```
+
+The shipped mention path is `resolve_mentioned_users` (`wagtail_forum/mentions.py:64`) →
+`create_notifications(…, verb=NotificationVerb.MENTION)` (`wagtail_forum/notifications.py:17`),
+called from `apps/forum_host/notifications.py:193` and `:82`. Doc re-pointed, with a note
+explaining that this is precisely the failure a resolves-to-a-real-line check cannot catch:
+**the citation was valid, the claim around it was not.**
+
+**Repair 2 — I overclaimed E2E coverage for the 1.3 acceptance criterion.**
+I wrote that the 375px no-overflow assertion "covers the pages that host" the TipTap
+toolbar. It does not. The authenticated Playwright projects match `.js` specs only
+(`testMatch: /(forum-authenticated|auth)\.spec\.js/`, `web/playwright.config.ts:134`), so
+the `.ts` responsive spec always runs **signed-out**, and an anonymous visitor gets the
+"Log in to post a reply" box instead of the composer (`ThreadDetailPage.tsx:656`) — the
+toolbar is never in the DOM. Re-worded the criterion to cite the markup as its evidence,
+and added the auth/spec-extension coverage gap as a second E2E caveat in Testing Strategy,
+since it silently limits every future mobile spec.
+
+Two nits also folded in: "explicitly destructured away" → the legacy fields are simply
+never destructured; and the CI command is `npm run test -- --run`, not `vitest --run`.
+
+Re-ran the citation resolver after the repairs (new citations were introduced):
+
+```text
+OK    wagtail_forum/mentions.py:64 -> 'def resolve_mentioned_users(post, *, exclude_pks=()):'
+OK    wagtail_forum/notifications.py:17 -> 'def create_notifications('
+OK    backend/apps/forum_host/notifications.py:193 -> 'create_notifications('
+OK    web/playwright.config.ts:134 -> 'testMatch: /(forum-authenticated|auth)\.spec\.js/,'
+OK    web/src/pages/forum/ThreadDetailPage.tsx:656 -> ') : !isAuthenticated ? ('
+
+--- 76 citations resolved, 0 failures ---
+EXIT: 0
+```
+
+No blocking (critical/high) findings remained. No `Known issues` outstanding.
+
+### 2026-07-29 - Completed by completing-todos skill (run 2026-07-29-0248)
+
+- Verification: all 4 acceptance criteria passed; AC3 proven mechanically (76 citations, 0 failures, exit 0).
+- Review: orchestrator returned no applicable reviewers (docs-only); adversarial fact-check confirmed 11/11 verdicts and surfaced 2 findings, both repaired.

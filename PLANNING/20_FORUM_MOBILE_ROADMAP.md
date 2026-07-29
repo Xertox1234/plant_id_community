@@ -202,7 +202,7 @@ Two deviations from the original plan, both intentional:
 - Show a `LoadingSpinner` skeleton at the bottom during fetch.
 - Retain a "Load More" fallback button if `prefers-reduced-motion` is set.
 
-**API impact** (corrected Jul 29, 2026 — the original claim was false): `fetchThreads` does **not** take `page`/`limit`. Its real signature is `{ board, cursor, sort }` (`@/web/src/services/forumService.ts:116-141`); `page`, `category`, `search` and `ordering` survive on the options type only as legacy fields that are explicitly destructured away and ignored. Cursor pagination also omits a total, so `meta.count` falls back to `0` and pages seed real totals from `board.topic_count` / `thread.post_count` (audit M30). An infinite scroll must therefore drive off `meta.next`, and cannot compute "page N of M". Still no backend changes needed.
+**API impact** (corrected Jul 29, 2026 — the original claim was false): `fetchThreads` does **not** take `page`/`limit`. Its real signature is `{ board, cursor, sort }` (`@/web/src/services/forumService.ts:116-141`); `page`, `category`, `search` and `ordering` survive on the options type only as legacy fields — the function destructures just `{ board, cursor, sort }` and never reads them. Cursor pagination also omits a total, so `meta.count` falls back to `0` and pages seed real totals from `board.topic_count` / `thread.post_count` (audit M30). An infinite scroll must therefore drive off `meta.next`, and cannot compute "page N of M". Still no backend changes needed.
 
 **Flutter equivalent**: `ListView.builder` with `NotificationListener<ScrollNotification>` or `ScrollController`.
 
@@ -415,7 +415,14 @@ Every storage call is wrapped in try/catch and swallows failures: a draft is a c
 
 ### 5.1 @Mentions — ✅ Shipped (todo 253 slice 4)
 
-~~**Problem**: No way to notify a specific user in a post.~~ Done: mention parsing (`wagtail_forum/mentions.py`), the `Notification` model (`wagtail_forum/models/notifications.py`), the `send_forum_mention_notification` call (`@/backend/apps/core/services/notification_service.py:411` — corrected, was cited at line 376), and composer autocomplete (`ForumMention` TipTap node in `TipTapEditor.tsx`) are all live.
+~~**Problem**: No way to notify a specific user in a post.~~ Done: mention parsing and recipient resolution (`resolve_mentioned_users`, `wagtail_forum/mentions.py:64`), the `Notification` model (`wagtail_forum/models/notifications.py`), the notification fan-out (`create_notifications(…, verb=NotificationVerb.MENTION)`, `wagtail_forum/notifications.py:17`, called from `@/backend/apps/forum_host/notifications.py:193` and `:82`), and composer autocomplete (`ForumMention` TipTap node in `TipTapEditor.tsx`) are all live.
+
+> **Citation corrected Jul 29, 2026 (todo 270)**: PR #467's version of this line credited
+> `send_forum_mention_notification` at `@/backend/apps/core/services/notification_service.py:411`.
+> That line does resolve — it is the method *definition* — but the method has **zero call sites**
+> repo-wide and is not part of the shipped mention path. It is dead code, not the delivery
+> mechanism. The real path is the `forum_host` fan-out cited above. This is the failure mode a
+> resolves-to-a-real-line check cannot catch: the citation was valid, the claim around it was not.
 
 <details><summary>Original fix plan (kept for reference)</summary>
 
@@ -482,10 +489,13 @@ Every storage call is wrapped in try/catch and swallows failures: a draft is a c
 Re-verified Jul 29, 2026:
 
 - **Playwright E2E**: `@/web/e2e/forum-authenticated.spec.js` exists. ✅ **Mobile viewport tests now exist too** — `@/web/e2e/forum-responsive.spec.ts` sweeps 375×812 / 768×1024 / 1280×800 (`:6-10`), asserting no horizontal overflow on the forum index, category list and thread detail, plus a 44px tap-target check on the sort select (`:52-64`). A third spec, `@/web/e2e/forum-golden-path.spec.ts`, covers the happy path. Gap: **320px is not covered** — the narrowest viewport tested is 375px, so the 320px acceptance criterion below is unproven.
-- **Component tests**: all `*.test.tsx` files in `@/web/src/components/forum/` and `@/web/src/pages/forum/` must pass. These are the CI-gated ones (`web-ci.yml` runs `vitest --run`).
+- **Component tests**: all `*.test.tsx` files in `@/web/src/components/forum/` and `@/web/src/pages/forum/` must pass. These are the CI-gated ones (`.github/workflows/web-ci.yml` runs `npm run test -- --run`).
 - **Accessibility**: Run Lighthouse CI on forum pages. Target 95+ mobile score. Not currently wired.
 
-> **E2E caveat**: Playwright is excluded from CI (see `@/web/CLAUDE.md`) and runs locally only, so "the spec exists" is *not* "the spec passes". This audit verified existence and content, not green runs.
+> **E2E caveats** — two, both worth knowing before trusting a green run:
+>
+> 1. Playwright is excluded from CI (see `@/web/CLAUDE.md`) and runs locally only, so "the spec exists" is *not* "the spec passes". This audit verified existence and content, not green runs.
+> 2. **`forum-responsive.spec.ts` only ever runs signed-out.** The authenticated Playwright projects restrict themselves to `.js` specs (`testMatch: /(forum-authenticated|auth)\.spec\.js/`, `@/web/playwright.config.ts:134`), so the `.ts` responsive spec runs under the five anonymous projects. Anything gated behind auth — the reply composer and its TipTap toolbar, reaction toggling, edit/delete — is therefore **not** covered by the responsive assertions. Any new mobile spec that needs a signed-in view must either be `.js` or the project `testMatch` must be widened.
 
 ---
 
@@ -521,7 +531,7 @@ Checkbox states re-verified Jul 29, 2026 (todo 270); each checked box names its 
 ### Phase 1 Complete When
 - [x] Edit/delete actions visible and functional on touch devices — always rendered below `md`; hover/focus reveal at `md+` (1.1)
 - [x] Reactions toggle on tap with visual feedback — `onReact` + `aria-pressed` + filled active style; feedback is post-response, not optimistic (1.2)
-- [x] TipTap toolbar usable at 375px width without horizontal scroll — 7 buttons, `flex-wrap`, 44px targets (1.3); the 375px no-overflow assertion in `forum-responsive.spec.ts` covers the pages that host it
+- [x] TipTap toolbar usable at 375px width without horizontal scroll — 7 buttons, `flex-wrap`, 44px targets (1.3). Evidence is the markup, **not** E2E: `forum-responsive.spec.ts` runs only under the unauthenticated Playwright projects (the `*-authenticated` projects `testMatch` `.js` specs only, `@/web/playwright.config.ts:134`), and an anonymous visitor gets the "Log in to post a reply" box instead of the composer (`@/web/src/pages/forum/ThreadDetailPage.tsx:656`), so the toolbar is never in the DOM during that spec
 - [ ] Thread header and breadcrumb do not wrap awkwardly on mobile — header is 🟡 (1.4, no `flex-col sm:flex-row`); breadcrumb is ⬜ (1.5)
 
 ### Phase 2 Complete When
