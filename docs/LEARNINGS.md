@@ -2058,3 +2058,62 @@ anchor beside the number — a function name or a JSX comment such as
 `{/* Toolbar */}` — so a drifted line can be re-found by searching for the anchor
 instead of silently pointing at unrelated code. Three citations in this very doc
 had drifted onto an empty line, a `useState`, and an extension import.
+
+## Django `on_commit` under autocommit (todo 271, 2026-07-29)
+
+**`transaction.on_commit(fn)` does not defer anything when there is no open
+transaction.** This project runs `ATOMIC_REQUESTS = False`, so unless a view
+explicitly opens `transaction.atomic()`, `connection.in_atomic_block` is
+`False` — and Django's autocommit branch
+(`db/backends/base/base.py::on_commit`, read against the installed Django
+6.0.7) executes the callback **immediately and inline**, in the same request,
+on the same connection:
+
+```python
+def on_commit(self, func, robust=False):
+    if self.in_atomic_block:
+        self.run_on_commit.append((set(self.savepoint_ids), func, robust))
+    elif not self.get_autocommit():
+        raise TransactionManagementError(...)
+    else:
+        # No transaction in progress and in autocommit mode; execute immediately.
+        if robust: ... try/except/logger.error ...
+        else: func()
+```
+
+**Lesson**: "I moved that write to `on_commit`, so it's outside the request /
+doesn't count against the query pin" is false in production here, and it is an
+easy thing to write into a docstring and have nobody re-check.
+
+**And a pinned-query test cannot catch it, because the test suite is the one
+place where the deferral is real.** Under `@pytest.mark.django_db` (and Django's
+`TestCase`) the test body runs *inside* an atomic block, so `on_commit` takes
+the deferring branch and the callback is rolled back without ever running. So a
+`CaptureQueriesContext` assertion legitimately measures N queries while
+production runs N+2 — the test is honest about itself and silent about
+production. The tell that a suite is in this situation: tests that need
+`django_capture_on_commit_callbacks` (or `TestCase.captureOnCommitCallbacks`) to
+observe the write at all, sitting next to a query-count pin that doesn't use it.
+Verify empirically before asserting deferral — `connection.in_atomic_block` in a
+`manage.py shell` around a real `APIClient` call settles the production side in
+one line. Concretely wrong-then-corrected instance:
+`wagtail_forum/api/views.py`'s `TopicDetailView.retrieve()` claimed its
+`view_count` increment "runs outside the serialization transaction and does not
+inflate the pinned query count"; both its callbacks are in fact real, uncounted
+per-request cost. Now documented as an accepted tradeoff at that call site.
+
+**The one guarantee that does survive autocommit**: `robust=True` is honored on
+the immediate path too (see the `if robust:` branch above), so a fail-safe
+`on_commit(fn, robust=True)` still prevents a side-effect exception from
+turning an already-successful 200 into a 500. That property is real; the
+deferral is not.
+
+**Corollary for reusable packages**: `on_commit` behavior is a property of the
+*host's* transaction configuration, not the package's. A package view that
+needs its callbacks to actually defer-until-commit must open its own `atomic()`
+rather than assume the host set `ATOMIC_REQUESTS`. Note what that does and does
+not buy: `atomic()` restores the deferral `on_commit` advertises (run after this
+transaction commits, skip if it rolls back), which is a correctness/isolation
+property. It does **not** move the work out of the request — the callback still
+runs synchronously before the response returns. Getting work off the request
+needs a real task queue (Celery), not `atomic()`.

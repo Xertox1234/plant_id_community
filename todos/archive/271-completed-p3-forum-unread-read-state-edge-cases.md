@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "271"
 tags: [backend, forum, notifications, performance]
@@ -114,8 +114,8 @@ already (originally deferred) before being revisited the same day.
 
 ## Acceptance Criteria
 
-- [ ] #1: re-scoped or explicitly accepted as a permanent, documented tradeoff
-- [ ] #2: a decision recorded (atomic-wrap / async / accept-as-is) — doesn't
+- [x] #1: re-scoped or explicitly accepted as a permanent, documented tradeoff
+- [x] #2: a decision recorded (atomic-wrap / async / accept-as-is) — doesn't
       require code if "accept-as-is" is chosen
 - [x] #3: `TopicRead.mark_read` called from the reply-created path so an
       author's own reply doesn't self-flag as unread, with a test
@@ -164,10 +164,134 @@ already (originally deferred) before being revisited the same day.
   `test_topic_created_auto_subscribes_the_author` shapes exactly:
   `test_reply_added_marks_the_repliers_own_topic_as_read`,
   `test_topic_created_marks_the_authors_own_topic_as_read`,
-  `test_topic_created_with_no_opening_post_does_not_mark_read`.
+  `test_topic_created_with_no_opening_post_does_not_mark_read`,
+  `test_reply_added_read_marker_keeps_pace_with_real_publish_timing`.
+  (The 4th was omitted from this list when it was first written — count
+  corrected 2026-07-29 against the file, which has all four.)
 - Re-verified: `apps/forum_host/tests/` + `packages/wagtail_forum/wagtail_forum/tests/`
   full pass, `manage.py check` clean, `makemigrations --check --dry-run` →
   "No changes detected" (no model changes, notifications.py only).
+
+### 2026-07-29 - #1 and #2 dispositioned; completed by completing-todos skill
+
+**Verification note (honest framing):** AC1 and AC2 are decision-type criteria.
+There is no command whose output proves "a decision was recorded" — the
+evidence is the durable artifact, cited by file below, not a test run. No
+command output is quoted for those two flips because none would mean anything.
+The supporting test/lint runs below are evidence that the edits are *safe*, not
+that the decisions are *right*.
+
+**#1 (watermark scope) — accepted as a permanent, documented tradeoff, AND
+the fix re-scoped into its own todo.** Both branches of the AC, deliberately:
+
+- Acceptance record written into
+  `wagtail_forum/models/profiles.py`, on the `read_watermark_at` field —
+  self-contained (date, the full call-site enumeration, rationale, and an
+  explicit re-scope trigger), because this todo file is being archived and a
+  comment that says "see the todo" rots the moment it moves.
+- Enumerated the real triggers by grepping non-test call sites rather than
+  trusting this doc's original two-site claim. There are **five**, not two:
+  `TopicDetailView.retrieve` (the only genuine read), `MeProfileView.get_object`,
+  `workflow.py` x2 (trust check on post submission),
+  `forum_host/tasks.py` (push delivery — a *third party's* action), plus
+  `signals.py::_refresh_profile`, which calls
+  `ForumProfile.objects.get_or_create(user_id=...)` **directly**, bypassing
+  `for_user()` entirely. The last one was caught by the review pass, not by me.
+- Key reason acceptance is defensible and was not obvious from this doc: the
+  *genuine* read path at `views.py` already collapses the backlog forest-wide
+  by design (documented in its own comment). So the non-read triggers differ
+  from the sanctioned one in propriety, not in effect.
+- Re-scoped fix → **todo 285**: seed the initial watermark from
+  `getattr(user, "date_joined", None)` so it derives from a stable per-user
+  fact instead of wall-clock-at-first-touch. Deliberately NOT bundled here —
+  it changes unread semantics for every existing account and wants its own
+  diff and review, and this todo's own Recommended Action said "no action
+  without a concrete complaint." Todo 285 also records a trap: the existing
+  `test_for_user_stamps_read_watermark_at_creation_time` would keep passing
+  under that change by coincidence (`create_user` sets `date_joined` inside
+  the assertion window) while no longer testing its own name.
+
+**#2 (on_commit timing) — decision: ACCEPT AS-IS.** Recorded in
+`wagtail_forum/api/views.py`, in `TopicDetailView.retrieve()`.
+Rationale, and two corrections to this doc's original analysis:
+
+- Verified the load-bearing claim against the *installed* Django (6.0.7,
+  `venv/.../django/db/backends/base/base.py::on_commit`) rather than from
+  memory: the autocommit branch honors `robust=True` (try/except →
+  `logger.error`). So `_mark_read`'s fail-safe genuinely works on the
+  immediate path, which is what makes accept-as-is safe rather than merely
+  convenient.
+- An `atomic()` wrap was rejected: it buys defer-until-commit and isolation
+  hygiene, not a smaller production query count — the work still runs
+  in-request. Celery was rejected as disproportionate for two dedup-gated
+  UPDATEs with no user-facing symptom. Revisit trigger recorded: topic-detail
+  p99 regression, or a third callback landing in that method.
+- **Correction to this doc's #2 text**: it framed the cost as landing inside
+  the pinned-query measurement. That is right for production and *wrong for
+  the test suite*, which is the whole trap. Under `@pytest.mark.django_db`
+  the test body is itself inside an atomic block, so `on_commit` really does
+  defer and the callback is rolled back without ever running. That is why the
+  read-recording tests need the `django_capture_on_commit_callbacks` fixture,
+  and why `test_topic_detail.py::test_view_count_does_not_add_queries_to_response`
+  can legitimately pin 4 queries. The pin is honest about the test and silent
+  about production — so no pinned-query test can ever catch this cost.
+  Annotated that test's own comment accordingly, since it stated the
+  deferral unqualified and was the most likely thing to be re-cited later.
+- Also corrected: this doc pointed at `test_topics_list.py` for the pin.
+  That file has no query-count assertion at all; the pin is in
+  `test_topic_detail.py`.
+
+**Codified** → `docs/LEARNINGS.md`, new section "Django `on_commit` under
+autocommit (todo 271, 2026-07-29)": on_commit does not defer without an open
+transaction; the test-vs-production asymmetry and its tell; `robust=True`
+survives the immediate path; and the reusable-package corollary (on_commit
+behavior is the *host's* configuration, not the package's).
+
+**Doc-accuracy fix:** the 2026-07-16 entry above said "4 new tests" and then
+listed 3. The file has 4 — `test_reply_added_read_marker_keeps_pace_with_real_publish_timing`
+was the omitted one. Enumeration corrected in place.
+
+**AC3 re-verified (was already checked):**
+`TopicRead.mark_read` present in both branches of
+`apps/forum_host/notifications.py` — `reply_added` (line 163) and
+`topic_created` (line 280).
+
+**Evidence (safety of the edits, not correctness of the decisions):**
+
+- `python manage.py check` → `System check identified no issues (0 silenced).`
+- `python manage.py makemigrations --check --dry-run` → `No changes detected`
+  (confirms the profiles.py edit is comment-only and did not touch the field).
+- `python -m pytest apps/forum_host packages/wagtail_forum --create-db` →
+  `533 passed` (single serial invocation, `--create-db` per the page-creating
+  suite rule). Re-run after the review repairs: `533 passed`.
+- `flake8` on all edited Python files → exit 0.
+
+**Review:** `code-review-orchestrator`, 4 findings (2 high, 2 medium), all
+documentation-accuracy findings on a comment-only Python diff. All 4 verified
+against primary evidence before acting — 3 confirmed and repaired (the
+test-vs-production framing, the LEARNINGS "regardless" overstatement, the
+missing `signals.py` creation path), 1 partially rejected in its reasoning
+but repaired anyway (the corollary: `atomic()` *does* deliver on_commit's
+advertised defer-until-commit, so the reviewer's "atomic() doesn't achieve
+deferral" is too strong — but the wording was genuinely ambiguous between
+"deferred past commit" and "off the request", so it was disambiguated).
+Re-review after repair returned `{"findings": []}`.
+
+### 2026-07-29 - Completed by completing-todos skill (run 2026-07-29-0342)
+
+- Verification: all 3 acceptance criteria satisfied. #3 was already done
+  (2026-07-16) and re-verified by code trace; #1 and #2 are decision-type
+  criteria closed by durable recorded decisions at
+  `wagtail_forum/models/profiles.py` (`read_watermark_at`) and
+  `wagtail_forum/api/views.py` (`TopicDetailView.retrieve`) respectively —
+  no command output can prove a decision, so none is claimed for those two.
+  Supporting safety evidence: `manage.py check` clean,
+  `makemigrations --check` "No changes detected", 533 tests passed, flake8
+  exit 0.
+- Review: 4 findings (2 high, 2 medium), all documentation-accuracy on a
+  comment-only Python diff; 4 repaired, 0 accepted-unaddressed; re-review
+  clean.
+- Spun out: todo 285 (seed `read_watermark_at` from `date_joined`).
 
 ## Notes
 

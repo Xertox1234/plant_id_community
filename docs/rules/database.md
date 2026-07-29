@@ -89,3 +89,21 @@ Compact checklist auto-injected before edits. Long-form:
   `AlterField` for it, and do not avoid i18n out of migration fear. This is the
   opposite of a *value* change (`("spam", "Spam")` -> `("spam", "Junk")`), which
   DOES generate one — see migration `wagtail_forum/0015_alter_notification_verb`.
+- **`transaction.on_commit()` defers NOTHING when no transaction is open — and
+  the test suite is the one place where it does defer, so no pinned-query test
+  can catch the difference.** This project runs `ATOMIC_REQUESTS = False`, so
+  unless a view opens an explicit `atomic()`, Django's autocommit branch
+  (`db/backends/base/base.py::on_commit`, verified against Django 6.0.7) runs
+  the callback IMMEDIATELY and inline, inside the request. Under
+  `@pytest.mark.django_db` (and `TestCase`) the body IS inside an atomic block,
+  so the same callback defers and is rolled back unrun — which is why observing
+  it needs `django_capture_on_commit_callbacks`. Consequence: a
+  `CaptureQueriesContext`/`assertNumQueries` pin can honestly read N while
+  production runs N+2. Never write "moved to on_commit, so it's outside the
+  request / doesn't count against the pin" — check `connection.in_atomic_block`
+  instead. `robust=True` IS still honored on the immediate path, so the
+  don't-500-an-already-successful-200 fail-safe survives; only the deferral
+  doesn't. For a reusable package this is the HOST's configuration, not yours:
+  open your own `atomic()` if you need real defer-until-commit, and reach for
+  Celery if you need the work off the request — `atomic()` does not do that.
+  See `docs/LEARNINGS.md` 2026-07-29 (todo 271).
