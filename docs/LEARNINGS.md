@@ -1935,3 +1935,50 @@ unproven. Adding the integration test before declaring the finding resolved is
 what turns "I found the file" into evidence. It also exposed that the test's
 `vi.mock` of `TipTapEditor` dropped the `content` prop, which would have made any
 restore assertion structurally unobservable (see `web/docs/patterns/testing.md`).
+
+## 2026-07-29 — An ambient framework fallback makes an explicit override unfalsifiable end-to-end (todo 265, wagtail/testing)
+
+Todo 265 sat blocked for two weeks on a single acceptance criterion: prove the
+new attribution test is non-vacuous by deleting the thing it pins. Deleting it
+didn't fail the test. Not a flaky test and not a bug — a fact about Wagtail
+worth writing down, because nothing in the code we own hints at it.
+
+`ForumUnpublishBulkAction.get_execution_context()`
+(`wagtail_forum/wagtail_hooks.py`) overrides `{"user": self.request.user}` so
+bulk take-downs attribute to the acting moderator. An end-to-end test asserting
+the resulting `ModelLogEntry.user == admin` passes **with or without that
+override**, because of this chain inside Wagtail:
+
+1. `wagtail/admin/auth.py::require_admin_access` — wraps *every* admin view
+   (a `BulkAction` is a `FormView` dispatched through the normal admin URL
+   conf, so it is included) in `with LogContext(user=user):`.
+2. `wagtail/log_actions.py::LogActionRegistry.log()` — `user = user or
+   get_active_log_context().user`.
+3. `UnpublishAction._unpublish_object()` passes `user=self.user` straight to
+   `log()`. With the override gone `self.user` is `None`, step 2's fallback
+   supplies the same admin user, and the assertion still holds.
+
+So the override is genuinely redundant *on the admin path* — and load-bearing
+everywhere else. `LogContext` only activates inside admin views, which is
+exactly why the DRF paths must pass the user explicitly (see
+`tests/test_actor_attribution.py`). Keep the override: it costs nothing and it
+is the correct thing for any future non-admin caller.
+
+**The generalizable lesson** (now in `docs/rules/testing.md`, as the second
+instance of a shape the `swagger_fake_view` bullet already recorded): when your
+code sets a value the framework would also supply by default on the path under
+test, an *outcome* assertion pins the framework, not your override. Unit-test
+the override's own return value. In that unit test prefer `.get(key)` over
+`[key]` — with the override dropped, `super()` returns `{"self": self}`, and a
+`KeyError` crash is weaker mutation evidence than `assert None == <User>`; the
+earlier session on this todo was nearly misled by exactly that confusion, having
+mistaken a `NameError` from a forgotten import for a red test.
+
+**Process note.** The 2026-07-13 session was right to refuse to flip the box —
+Safety Rail #4 has no `--force-complete`, and "the mutation didn't fail it" is
+not evidence of correctness. But refusing to flip is only half the move: the
+criterion's *text* encoded an assumption (that an end-to-end assertion could pin
+this) that investigation had disproved. Closing it required rewriting the
+criterion to state what is actually provable, then satisfying *that*. A todo
+that stalls on an unfalsifiable criterion usually needs its criterion repaired,
+not its evidence stretched.

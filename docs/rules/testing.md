@@ -83,6 +83,22 @@ Compact checklist auto-injected before edits.
   call `get_queryset()` with no request/kwargs wired: it only survives if the
   guard short-circuits (guard missing → `KeyError` on `self.kwargs` → red).
   See `wagtail_forum/tests/api/test_schema.py`.
+- **An ambient framework fallback makes an explicit override
+  unfalsifiable-by-omission end-to-end — pin the override with a direct unit
+  test.** Generalization of the bullet above (second instance, so treat it as
+  the rule, not a one-off). Wagtail's `require_admin_access` wraps every admin
+  view in `LogContext(user=request.user)` and `LogActionRegistry.log()` does
+  `user = user or get_active_log_context().user`, so
+  `ForumUnpublishBulkAction.get_execution_context()`'s
+  `user=self.request.user` override can be deleted and the end-to-end
+  `ModelLogEntry` assertion still passes. Whenever your code sets a value the
+  framework would also supply by default on the tested path, an outcome
+  assertion pins the *framework*, not your override: unit-test the override's
+  own return value instead. Prefer `.get(key)` to `[key]` in that assertion —
+  a missing-key `KeyError` is weaker mutation evidence than a value mismatch,
+  and is easy to misread as an unrelated crash. See
+  `wagtail_forum/tests/test_admin.py::test_bulk_unpublish_action_execution_context_carries_acting_user`
+  (todo 265).
 - **"Comment out `permission_classes`" can be a NO-OP mutation.** With
   `DEFAULT_PERMISSION_CLASSES = IsAuthenticatedOrReadOnly`, a view with its
   `permission_classes` removed still blocks anonymous writes — the 401 test
