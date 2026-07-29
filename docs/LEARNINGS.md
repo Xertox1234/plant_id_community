@@ -1982,3 +1982,79 @@ this) that investigation had disproved. Closing it required rewriting the
 criterion to state what is actually provable, then satisfying *that*. A todo
 that stalls on an unfalsifiable criterion usually needs its criterion repaired,
 not its evidence stretched.
+
+## 2026-07-29 — A resolving citation is not a verified claim; and `.ts` E2E specs can never authenticate (todo 270, docs/E2E)
+
+Re-auditing `PLANNING/20_FORUM_MOBILE_ROADMAP.md` against live code surfaced two
+lessons that generalize past this one doc.
+
+### 1. "The line number resolves" proves nothing about the claim around it
+
+AC3 for todo 270 was "no citation that fails to resolve to a real location." A
+script confirmed it mechanically: 76 citations, 0 failures. It still missed a
+false claim.
+
+Phase 5.1 credited @mentions as shipped via "the `send_forum_mention_notification`
+call (`backend/apps/core/services/notification_service.py:411`)". Line 411 resolves
+perfectly — it is that method's `def`. But the method has **zero call sites
+repo-wide**; it is dead code. The shipped mention path is entirely elsewhere:
+`resolve_mentioned_users` (`wagtail_forum/mentions.py:64`) →
+`create_notifications(…, verb=NotificationVerb.MENTION)`
+(`wagtail_forum/notifications.py:17`), called from
+`apps/forum_host/notifications.py:193`, with push delivery running separately via
+`_enqueue_mention_push_for` (`notifications.py:73-83`).
+
+**The same trap bit this very entry during review.** A first draft of the repair
+also credited `notifications.py:82` as a `create_notifications` call site, because
+a grep for `NotificationVerb.MENTION` returned that line. Line 82 is an *argument*
+to `send_forum_push_batch.delay(...)` inside `_enqueue_mention_push_for` — a
+different delivery mechanism entirely. A grep hit gives you a line, not a callee;
+read the enclosing function before citing it. Two independent passes wrote a wrong
+citation for this one paragraph, which is a fair measure of how easy the mistake is.
+
+The citation was valid; the sentence wrapping it was false. A resolver checks that
+a pointer is not dangling, which is a *syntactic* property. Whether the pointed-at
+code actually does what the prose says is a *semantic* one, and it needs either a
+reader or an adversarial checker. Notably this bad citation was introduced by
+PR #467's own correction pass — a review that fixed 7 stale line numbers and, in
+the same breath, added a fresh claim pointing at dead code.
+
+**Lesson**: when a doc credits a symbol as the delivery mechanism for shipped
+behavior, `grep` for its **call sites**, not its definition. `def foo` existing is
+not evidence `foo` runs. Corollary for doc audits generally: a mechanical
+citation check is necessary but never sufficient — pair it with an independent
+adversarial pass over the *claims*, which is what caught this.
+
+### 2. `.ts` Playwright specs are structurally locked out of authenticated runs
+
+Follow-on to 2026-07-25 (todo 261 / M34), which fixed the authenticated projects'
+selector to `testMatch: /(forum-authenticated|auth)\.spec\.js/`. That fix was
+correct for the file it targeted — and it quietly capped coverage for every spec
+written since.
+
+The regex ends in `\.spec\.js`. The repo's newer E2E specs are **TypeScript**:
+`forum-responsive.spec.ts`, `forum-golden-path.spec.ts`. A `.ts` spec therefore
+cannot match an authenticated project, so it always runs under the five anonymous
+projects with no `storageState` — silently, and while passing.
+
+The concrete consequence found during this audit: `forum-responsive.spec.ts`
+asserts no horizontal overflow at 375/768/1280 on thread detail, and that had been
+cited as evidence the TipTap toolbar is mobile-usable. It is not evidence. Signed
+out, `ThreadDetailPage.tsx:656` renders the "Log in to post a reply" box **instead
+of** the composer, so the toolbar is never in the DOM for that spec. Everything
+auth-gated — composer, reaction toggling, edit/delete — is outside its reach.
+
+**Lesson**: a new mobile/responsive spec that needs a signed-in view must either
+be named `*.spec.js` or the authenticated projects' `testMatch` must be widened to
+accept `.ts` (and the anonymous projects' `testIgnore` widened to match, or it
+runs twice and fails signed-out). Before citing any E2E spec as evidence for
+auth-gated UI, confirm which project it runs under —
+`npx playwright test --list` prints the project prefix. Do not infer coverage from
+a spec's filename or from a green summary.
+
+**Also reusable, from the same audit**: planning-doc line numbers rotted twice in
+this repo, and PR #467's fix lasted about two weeks. Citations now name a stable
+anchor beside the number — a function name or a JSX comment such as
+`{/* Toolbar */}` — so a drifted line can be re-found by searching for the anchor
+instead of silently pointing at unrelated code. Three citations in this very doc
+had drifted onto an empty line, a `useState`, and an extension import.
