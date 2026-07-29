@@ -58,7 +58,9 @@ Read in full: `PostCard.tsx` (339 L), `ThreadListPage.tsx` (293 L), `ThreadDetai
 `StreamFieldRenderer.tsx`, `forumDrafts.ts`, `forumService.ts`, `forum-responsive.spec.ts`
 and `wagtail_forum/api/serializers.py`.
 
-**Verdicts — all 18 Phase 1–4 sub-phases** (5 shipped, 3 partially shipped, 10 still open):
+**Verdicts — all 19 Phase 1–4 sub-phases** (4 ✅ shipped, 3 🟡 partially shipped, 12 ⬜ still open).
+Tally re-derived from the doc's own headings rather than counted by hand — the first
+write of this line said "18 (5/3/10)", which the 19-row table below already contradicted:
 
 | Phase | Verdict | Basis |
 |-------|---------|-------|
