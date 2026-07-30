@@ -74,13 +74,18 @@ class Topic(
 
     search_fields = [
         index.SearchField("title"),
-        # No AutocompleteField (todo 276 / audit L8): nothing ever called
-        # `backend.autocomplete()`, and the default database backend builds a
-        # separate `autocomplete` tsvector per IndexEntry row for it — cost with
-        # no reader. Wave 1 already shipped header search + full-text
-        # SearchView, so there is no product gap. Re-add this line (no migration
-        # needed — search_fields is not a DB field) if a title typeahead is ever
-        # actually wired to a suggest endpoint.
+        # KEEP (todo 276 / audit L8). The reader is Wagtail itself, not our code:
+        # `TopicViewSet` (wagtail_hooks.py) is a SnippetViewSet with
+        # `search_fields = ["title"]`, so the /cms/ Topics listing has a search
+        # box, and Wagtail's generic `search_queryset`
+        # (admin/views/generic/base.py) calls `search_backend.autocomplete()`
+        # whenever `get_autocomplete_search_fields()` is non-empty — else it
+        # falls back to whole-word `search()` and warns. Dropping this made a
+        # moderator's "mons" stop matching "Monstera repotting" in the CMS.
+        # Grepping this repo for `.autocomplete(` does NOT prove it has no
+        # reader; the framework is the caller. Pinned by
+        # tests/test_admin.py::test_topic_listing_search_matches_a_title_prefix.
+        index.AutocompleteField("title"),
         index.FilterField("live"),
         # SearchView filters by visible board (`board__in`); without this a
         # real search backend raises FilterFieldError.

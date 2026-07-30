@@ -464,4 +464,38 @@ describe('ThreadListPage', () => {
       expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument()
     );
   });
+
+  it('drops the remaining-count from Load More while a tag filter is active', async () => {
+    // category.thread_count is the board's UNFILTERED total, so subtracting the
+    // filtered page length invents a number ("380 remaining" for a 25-result
+    // filter) — the exact dishonest-count class audit M30 removed.
+    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
+      createMockCategory({ slug: 'plant-care', name: 'Plant Care', thread_count: 400 })
+    );
+    vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
+      items: [createMockThread({ id: '1', title: 'Tagged Thread', tags: ['monstera'] })],
+      meta: { count: 25, next: 'https://api.test/cursor=next', previous: null },
+    });
+
+    renderThreadListPage(['/forum/3-plant-care?tag=monstera']);
+
+    const button = await screen.findByRole('button', { name: /load more/i });
+    expect(button).toHaveTextContent('Load More');
+    expect(button).not.toHaveTextContent('remaining');
+  });
+
+  it('still shows the honest remaining-count when no tag filter is active', async () => {
+    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
+      createMockCategory({ slug: 'plant-care', name: 'Plant Care', thread_count: 400 })
+    );
+    vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
+      items: [createMockThread({ id: '1', title: 'A Thread' })],
+      meta: { count: 400, next: 'https://api.test/cursor=next', previous: null },
+    });
+
+    renderThreadListPage(['/forum/3-plant-care']);
+
+    const button = await screen.findByRole('button', { name: /load more/i });
+    expect(button).toHaveTextContent('399 remaining');
+  });
 });

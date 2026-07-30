@@ -69,8 +69,14 @@ export function htmlToBodyBlocks(html: string): ForumBodyWriteBlock[] {
       if (text) blocks.push({ type: 'quote', value: text });
       // An image nested in the quote is invisible to `textContent` — hoist it
       // out as its own block rather than dropping the user's content silently.
+      // Gate on the attribute exactly like the top-level branch above: a pasted
+      // `<img data-image-id="">` would otherwise yield value 0, and a
+      // non-numeric one NaN (serialized as null). Both fail the server's
+      // validate_forum_body, so ONE unusable image would 400 the whole save
+      // instead of just being dropped.
       for (const img of Array.from(el.querySelectorAll('img[data-image-id]'))) {
-        blocks.push({ type: 'image', value: Number(img.getAttribute('data-image-id')) });
+        const nestedId = img.getAttribute('data-image-id');
+        if (nestedId) blocks.push({ type: 'image', value: Number(nestedId) });
       }
     } else if (el) {
       buffer.push(el.outerHTML);

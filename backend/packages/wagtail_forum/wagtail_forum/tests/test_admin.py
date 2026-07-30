@@ -144,6 +144,46 @@ def test_post_search_fields_finds_live_post_by_body_text(client):
 
 
 @pytest.mark.django_db
+def test_topic_listing_search_matches_a_title_prefix(client):
+    """Pins `index.AutocompleteField("title")` on Topic (todo 276 / audit L8).
+
+    The reader is WAGTAIL, not our code: TopicViewSet is a SnippetViewSet with
+    search_fields=["title"], and the generic admin `search_queryset` calls
+    `search_backend.autocomplete()` only while
+    `Topic.get_autocomplete_search_fields()` is non-empty — otherwise it falls
+    back to whole-word `search()` (plus a RuntimeWarning that pytest.ini does
+    NOT turn into a failure). So dropping the field silently breaks prefix
+    search in the CMS with every test still green.
+
+    A PREFIX query is the whole point: "mons" is not a word in the title, so it
+    only matches through the autocomplete path.
+    """
+    from wagtail.models import Page
+    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Topic
+
+    author = User.objects.create_user(username="topic_search_author")
+    ForumProfile.for_user(author)
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="TSForum", slug="tsforum"))
+    board = index.add_child(instance=ForumBoard(title="TSGeneral", slug="tsgeneral"))
+    topic = Topic.objects.create(
+        board=board,
+        title="Monstera repotting",
+        slug="monstera-repotting",
+        author=author,
+    )
+    topic.save_revision().publish()
+
+    admin = User.objects.create_superuser(username="root_ts", email="rts@x.io")
+    client.force_login(admin)
+
+    resp = client.get("/cms/snippets/wagtail_forum/topic/?q=mons")
+
+    assert resp.status_code == 200
+    assert b"Monstera repotting" in resp.content
+
+
+@pytest.mark.django_db
 def test_forum_profile_search_fields_finds_profile_by_username(client):
     from wagtail_forum.models import ForumProfile
 

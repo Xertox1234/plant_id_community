@@ -338,7 +338,10 @@ export default function ThreadListPage() {
 
       {/* Load More (cursor pagination). Honest remaining count from the board's
           topic_count when known; a bare label otherwise, never a fake "0 left"
-          (audit M30 — the service used to hardcode meta.count to 0). */}
+          (audit M30 — the service used to hardcode meta.count to 0). The count is
+          suppressed entirely while a tag filter is active: thread_count is the
+          board's UNFILTERED total, so "380 remaining" on a 25-result filter would
+          be exactly the dishonest number M30 removed. */}
       {nextCursor && !loading && (
         <div className="mt-8 text-center">
           <Button
@@ -351,6 +354,7 @@ export default function ThreadListPage() {
             {loadingMore
               ? 'Loading...'
               : (() => {
+                  if (activeTag) return 'Load More';
                   const remaining = Math.max(0, (category?.thread_count ?? 0) - threads.length);
                   return remaining > 0 ? `Load More (${remaining} remaining)` : 'Load More';
                 })()}

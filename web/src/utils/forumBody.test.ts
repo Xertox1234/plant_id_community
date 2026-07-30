@@ -108,6 +108,21 @@ describe('forumBody quote blocks (audit M1)', () => {
     ]);
   });
 
+  it('skips a nested image with a blank id instead of emitting value 0', () => {
+    // `<img data-image-id="">` matches the selector but has no usable id.
+    // Emitting 0 (or NaN -> null) fails validate_forum_body server-side, so ONE
+    // unusable image would 400 the whole save. Match the top-level branch and
+    // drop it. The real image alongside it must still survive.
+    expect(
+      htmlToBodyBlocks(
+        '<blockquote><p>q</p><img data-image-id=""><img data-image-id="8"></blockquote>'
+      )
+    ).toEqual([
+      { type: 'quote', value: 'q' },
+      { type: 'image', value: 8 },
+    ]);
+  });
+
   it('ESCAPES quote text on the way back into composer HTML', () => {
     // The server leaves quote values unsanitized ("text by contract"), so an
     // unescaped write-back would turn stored text into real editor markup.
