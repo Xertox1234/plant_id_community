@@ -5,12 +5,15 @@ the list and detail endpoints, the ?tag= filter, and the query-count pin that
 keeps tag serialization from becoming an N+1.
 """
 
+import datetime
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 from rest_framework.test import APIClient
 from wagtail.models import Page
 from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Topic, TrustLevel
@@ -379,3 +382,50 @@ def test_tag_length_bound_is_clamped_to_taggits_column_width():
     )
 
     assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_tag_filter_paginates_for_an_authenticated_viewer():
+    """The one shape the other tag tests miss: AUTHENTICATED + .distinct() +
+    cursor pagination together.
+
+    Anonymous requests take `_annotate_topic_unread`'s constant branch
+    (`Value(False)`), but an authenticated one builds
+    `.alias(_read_baseline=Coalesce(Subquery(...), ...))` and annotates off that
+    alias — an expression deliberately NOT in the select list. `SELECT DISTINCT`
+    constrains what ORDER BY may reference, and the cursor paginator orders by
+    (-is_pinned, -last_post_at, -id), so this is where a bad interaction between
+    the review-round `.distinct()` and the unread annotation would surface —
+    as a 500, or as rows repeating across pages.
+    """
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    viewer = User.objects.create_user(username="viewer")
+    base = timezone.now()
+    for i in range(25):
+        topic = Topic.objects.create(
+            board=board,
+            title=f"T{i}",
+            slug=f"t{i}",
+            author=author,
+            live=True,
+            last_post_at=base - datetime.timedelta(minutes=i),
+        )
+        topic.tags.add("monstera")
+
+    client = APIClient()
+    client.force_authenticate(viewer)
+    first = client.get(f"/forum/boards/{board.slug}/topics/?tag=monstera")
+
+    assert first.status_code == 200
+    assert len(first.data["results"]) == 20  # page_size
+    assert first.data["next"] is not None
+
+    second = client.get(first.data["next"])  # the cursor URL must carry ?tag=
+    assert second.status_code == 200
+
+    slugs = [t["slug"] for t in first.data["results"] + second.data["results"]]
+    # Every tagged topic exactly once — no duplicates across the page boundary,
+    # and the filter is still applied on page 2.
+    assert len(slugs) == 25
+    assert len(set(slugs)) == 25
