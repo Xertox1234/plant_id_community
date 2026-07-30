@@ -215,6 +215,31 @@ mutation.
 - `npm run type-check` → clean; `npm run lint` → `0 errors` (1 pre-existing warning in `block-navigation.js`)
 - `flake8` on all changed backend files → clean (fixed one `W391`)
 
+### 2026-07-30 - Post-review coverage gap + PR
+
+PR #511. All required CI checks green (16 pass). The one red check is
+non-required `CodeQL` — analysed as a false positive and **left open rather than
+dismissed** (that call belongs to the repo owner); reasoning posted as a PR
+comment. It did surface one *real* nearby issue, fixed in `50e858b`: a bare
+body-level text node's `textContent` was pushed verbatim into a `paragraph`
+block whose value IS HTML, so `a < b` re-parsed as markup. Escaping it is also
+the correct rendering.
+
+**Coverage gap caught after the review round.** Every `?tag=` test used an
+anonymous client — which takes `_annotate_topic_unread`'s constant
+`Value(False)` branch. An authenticated request instead builds
+`.alias(_read_baseline=Coalesce(Subquery(...), ...))` and annotates off an
+expression deliberately NOT in the select list, and Postgres constrains what
+`ORDER BY` may reference under `SELECT DISTINCT`. Since `.distinct()` was added
+during the *repair* round (after the main test pass) and every tag fixture was
+1–2 topics, the combination of authenticated + distinct + cursor pagination had
+zero coverage. Closed in `0cab18c` with a 25-topic authenticated paginated test:
+green against Postgres (the local test DB is postgresql, matching CI), all 25
+slugs exactly once across both cursor pages. No production bug — but it was the
+last untested shape.
+
+Final: `594 passed` backend, `731 passed` web.
+
 ### 2026-07-23 - Created by splitting todo 256
 
 - Todo 256 (Q&A/discovery/SEO epic) re-scoped by user to H8 (search) + H9 (SEO)
