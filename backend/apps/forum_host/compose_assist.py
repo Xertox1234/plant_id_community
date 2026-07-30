@@ -42,6 +42,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from wagtail_forum.api.versioning import UnversionedForumAPIMixin
 
 from . import constants
 from .api import _throttled
@@ -103,11 +104,10 @@ def _draft_text(raw: str) -> str:
 
 
 @_throttled("compose_assist", "POST")
-class ComposeAssistView(APIView):
+class ComposeAssistView(UnversionedForumAPIMixin, APIView):
     """POST a draft, get an AI-improved plain-text rewrite (premium perk)."""
 
     permission_classes = [IsPremiumUser]
-    versioning_class = None  # opt out of NamespaceVersioning, like package views
 
     @extend_schema(
         request=dict,

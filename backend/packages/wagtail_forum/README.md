@@ -16,6 +16,7 @@ The core imports nothing host-specific and uses `settings.AUTH_USER_MODEL`.
 - [Settings](#settings)
 - [Signals](#signals)
 - [Spam backends](#spam-backends)
+- [List envelopes](#list-envelopes)
 - [Error envelope](#error-envelope)
 - [Idempotency](#idempotency)
 - [Rate limiting](#rate-limiting)
@@ -270,6 +271,54 @@ The shipped default, `HeuristicSpamBackend`, rejects on link count
 (`SPAM_MAX_LINKS`) and a case-insensitive word blocklist (`SPAM_BANNED_WORDS`).
 Its `check_text()` is split out so a composite backend (e.g. one that also calls
 an LLM) can flatten a large body once and screen the same string twice.
+
+## List envelopes
+
+The forum API ships **four** list-collection shapes. They are not converging:
+each one carries information the cursor envelope cannot express, and the audit
+that raised this (M40) asked for one documented contract *or* a documented
+divergence. This is the divergence, stated deliberately.
+
+| Endpoint(s) | Envelope | Why not cursor |
+|---|---|---|
+| topic list, post list, notification list | `{results, next, previous}` (DRF `CursorPagination`) | — this is the default; use it for any new collection. |
+| `GET boards/` | `{results}` — flat, no cursor | Boards are a handful of Wagtail pages rendered as one nav tree. `pagination_class = None`; a `next` that is always `null` would imply paging that does not exist. |
+| `GET search/` | `{topics, posts, topics_has_more, posts_has_more, page}` | **Two** independently-paged result sets in one response. A cursor envelope has one `results`; splitting search into two round-trips would double the query cost of every keystroke. Offset-paged (not keyset) because the ordering is relevance, which a concurrent write reshuffles — so `page` is echoed back and clients dedup by id when appending. |
+| `GET sync/` | `{topics, deleted, has_more, next_since, next_since_id}` | A delta poll, not a page. `deleted` carries tombstones (ids to evict) that no `results` list can represent, and the cursor is a compound `(updated_at, id)` the client persists across sessions — DRF's opaque cursor is per-response and not resumable days later. |
+
+A host may add sections to these: the plant_id reference host appends a premium
+`semantic` array to the search payload (`apps/forum_host/semantic_search.py`).
+Additive only — a host must not change a shipped key's meaning.
+
+### Section items are lighter than list items, on purpose
+
+Search items are **not** `TopicListSerializer` / `PostSerializer` payloads, and
+enriching them is a non-goal:
+
+- The **post** item is `{id, topic_id, topic_title, topic_slug, board_id,
+  board_slug, excerpt}`. `excerpt` is a plain-text slice built from the
+  StreamField's `raw_data` (`plain_text_excerpt`), precisely so search does not
+  resolve every hit's body. Serializing the full body per hit re-introduces the
+  per-post image bulk-fetch that helper exists to avoid — the cost lands on the
+  forum's most-hit anonymous, CDN-cached endpoint.
+- Neither search item carries an `author`. Search ranks text, and adding one
+  would mean joining the whole `author__wagtail_forum_profile__avatar` chain for
+  two result sets per query. Clients render the `[deleted]`-style sentinel
+  (`web/src/services/forumMappers.ts`).
+- Topic items **do** carry `reply_count`, `view_count`, `last_post_at` and
+  `is_pinned` — the board-list metadata a result row displays. `is_pinned` is
+  there because a pinned topic is pinned wherever it surfaces, not because
+  search is pinned-first: search order is relevance, always.
+
+A client that needs the full object follows the id to `topics/<id>/` or
+`topics/<id>/posts/`.
+
+### Versioning
+
+These shapes are **not** negotiated per request — every forum view opts out of
+DRF request versioning (`api/versioning.py`, one shared mixin). A breaking
+response change is therefore a package version bump plus a coordinated client
+update, never a new `/v2/` path.
 
 ## Error envelope
 

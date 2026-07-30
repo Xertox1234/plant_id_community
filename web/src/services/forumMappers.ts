@@ -82,6 +82,13 @@ export interface BackendPost {
   can_report: boolean;
 }
 
+/**
+ * The search sections are DELIBERATELY lighter than the topic/post list items,
+ * not an oversight — see `## List envelopes` in
+ * `backend/packages/wagtail_forum/README.md` for the contract and the reasons
+ * (audit M40). Anything absent here is absent on purpose; the mappers below
+ * substitute honest sentinels rather than aliasing a different field.
+ */
 export interface BackendSearchTopic {
   id: number;
   slug: string;
@@ -89,6 +96,7 @@ export interface BackendSearchTopic {
   reply_count: number;
   view_count: number;
   last_post_at: string | null;
+  is_pinned: boolean;
   board_id: number;
   board_slug: string;
 }
@@ -232,6 +240,7 @@ export function mapSearchTopicToThread(t: BackendSearchTopic): Thread {
     last_activity_at: t.last_post_at || '',
     post_count: t.reply_count,
     view_count: t.view_count,
+    is_pinned: t.is_pinned,
     is_active: true,
   };
 }

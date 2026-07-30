@@ -358,7 +358,12 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #M37 openapi-response-codes → todo 258 (completed 2026-07-24, PR #494)
 - [x] #M38 meprofile-schema → todo 258 (completed 2026-07-24, PR #494)
 - [x] #M39 error-envelope-ownership → todo 258 (completed 2026-07-24, PR #494)
-- [ ] #M40 envelope-shapes → todo 277 (re-pointed 2026-07-24; out of 258 acceptance gate — breaking, needs web coordination; partly stale)
+- [x] #M40 envelope-shapes → todo 277 (completed 2026-07-30; resolved as a
+      DOCUMENTED divergence — README `## List envelopes` — not a convergence:
+      search carries two independently-paged sections and sync carries tombstones
+      + a persisted compound cursor, neither expressible as `{results,next}`. Not
+      breaking after all: the only response change was additive (`is_pinned` on
+      the search topic item, the last field M40 named))
 - [x] #M41 deleted-author-convention → todo 257 (completed 2026-07-24, PR #490)
 - [x] #M42 http-caching → todo 261 (completed 2026-07-26)
 - [x] #L1 anon-reaction-counts → todo 257 (completed 2026-07-24, PR #491; shipped Wave 1 #473, test-proven)
@@ -377,7 +382,10 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #L17 migrations-check-ci → todo 261 (completed 2026-07-26)
 - [x] #L18 write-path-query-profiling → todo 258 (completed 2026-07-24, PR #494; PATCH 71 / DELETE 33, cascade not elidable)
 - [x] #L19 location-header-201 → todo 258 (completed 2026-07-24, PR #494)
-- [ ] #L20 versioning-comment → todo 277 (re-pointed 2026-07-24; out of 258 acceptance gate)
+- [x] #L20 versioning-comment → todo 277 (completed 2026-07-30; one
+      `UnversionedForumAPIMixin` for 17 package + 3 host views, guarded by
+      `test_forum_versioning_optout.py` — behavioural tests cannot catch a
+      dropped opt-out on this mount)
 - [x] #L21 image-reuse-privacy-decision → todo 254 (completed 2026-07-13)
 
 ## Phase 6 code review (2026-07-11)

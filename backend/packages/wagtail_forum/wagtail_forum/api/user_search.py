@@ -11,6 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .versioning import UnversionedForumAPIMixin
 from .views import extend_schema
 
 MAX_RESULTS = 10
@@ -27,9 +28,8 @@ USER_SEARCH_SCHEMA = {
 }
 
 
-class UserMentionSearchView(APIView):
+class UserMentionSearchView(UnversionedForumAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
-    versioning_class = None
 
     @extend_schema(
         responses={200: USER_SEARCH_SCHEMA},
