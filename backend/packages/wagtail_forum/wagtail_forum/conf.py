@@ -67,6 +67,12 @@ DEFAULTS = {
     # that only happen to share a default; a host tuning one must not
     # silently retune the other.
     "TOPIC_READ_DEDUP_SECONDS": 15 * 60,  # 15 minutes
+    # Topic tags (audit M5) — the species/genus/symptom discovery axis beside
+    # the primary board taxonomy. Bounded on write so a single create can't
+    # spray the shared Tag table: taggit creates a Tag row per unseen name, so
+    # an unbounded list is a cheap write-amplification vector.
+    "TOPIC_MAX_TAGS": 5,
+    "TOPIC_TAG_MAX_LENGTH": 50,  # <= taggit's Tag.name max_length (100)
 }
 
 

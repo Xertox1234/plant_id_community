@@ -5,6 +5,7 @@ from wagtail.images import get_image_model
 from wagtail.rich_text import expand_db_html
 
 from ..collections import get_forum_image_collection
+from ..conf import get_setting
 from ..models import (
     ForumBoard,
     ForumProfile,
@@ -35,6 +36,69 @@ except ImportError:  # pragma: no cover
 # Bio is stored in an unbounded TextField; bound it at the API boundary like
 # post bodies are (MAX_BODY_CHARS) — PATCHing megabytes is storage abuse.
 MAX_BIO_CHARS = 2_000
+
+
+# Hard ceiling on the RAW submitted tag list, independent of the configurable
+# TOPIC_MAX_TAGS (which a host may raise). Deliberately a static constant so it
+# also bounds the pre-validation payload — see _BoundedTagListField.
+MAX_TAG_LIST_ITEMS = 100
+
+# taggit's own Tag.name column width. A host that raises TOPIC_TAG_MAX_LENGTH
+# past this would otherwise pass validation and then blow up on INSERT with a
+# DataError (NOT an IntegrityError, so the topic-create slug retry does not catch
+# it) — a 500 where a 400 belongs. Clamp instead of trusting the setting.
+TAGGIT_NAME_MAX_LENGTH = 100
+
+
+def normalize_topic_tags(value):
+    """Validate + normalize a topic's tag list (audit M5).
+
+    Read the bounds at CALL time, not import time, so a host's settings override
+    (and `@override_settings` in tests) actually applies. Normalizes to trimmed,
+    case-folded, de-duplicated names so "Monstera" and "monstera " are one tag
+    rather than two rows in the shared Tag table.
+    """
+    max_tags = get_setting("TOPIC_MAX_TAGS")
+    max_length = min(get_setting("TOPIC_TAG_MAX_LENGTH"), TAGGIT_NAME_MAX_LENGTH)
+    # dict (not a list) for O(1) membership — a list made this loop O(n^2), which
+    # an authenticated caller could drive into seconds of CPU with a large list
+    # inside the 10MB body cap. dict preserves insertion order (3.7+).
+    seen = {}
+    for raw in value:
+        name = " ".join(str(raw).split()).lower()  # collapse inner whitespace too
+        if not name:
+            continue
+        if len(name) > max_length:
+            raise serializers.ValidationError(
+                _("Each tag must be at most %(n)d characters.") % {"n": max_length}
+            )
+        # Commas are taggit's own list separator — one submitted tag containing
+        # one would silently split into several on parse.
+        if "," in name:
+            raise serializers.ValidationError(_("A tag cannot contain a comma."))
+        seen[name] = None
+    if len(seen) > max_tags:
+        raise serializers.ValidationError(
+            _("At most %(n)d tags per topic.") % {"n": max_tags}
+        )
+    return list(seen)
+
+
+class _BoundedTagListField(serializers.ListField):
+    """A ListField that rejects an oversized list BEFORE per-item validation.
+
+    ``ListField(max_length=...)`` is enforced by a validator that DRF runs
+    *after* ``to_internal_value`` has already run child validation on every
+    element, so it cannot bound the work a caller triggers. Check the raw length
+    first — the same "bound it before you parse it" shape as the body limits in
+    api/sanitize.py (MAX_BODY_BLOCKS).
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, list) and len(data) > MAX_TAG_LIST_ITEMS:
+            raise serializers.ValidationError(_("Too many tags."))
+        return super().to_internal_value(data)
+
 
 # Inline OpenAPI schemas so drf-spectacular types PostSerializer's
 # SerializerMethodFields precisely instead of defaulting each to `string`
@@ -127,6 +191,7 @@ FORUM_BODY_SCHEMA = {
         },
     },
 }
+TAGS_SCHEMA = {"type": "array", "items": {"type": "string"}}
 CAPABILITIES_SCHEMA = {
     "type": "object",
     "properties": {
@@ -154,6 +219,7 @@ class TopicListSerializer(serializers.ModelSerializer):
     # plain BooleanField needs no SerializerMethodField/default fallback
     # (todo 253 slice 5, H10).
     is_unread = serializers.BooleanField(read_only=True)
+    tags = serializers.SerializerMethodField()
 
     class Meta:
         model = Topic
@@ -170,7 +236,14 @@ class TopicListSerializer(serializers.ModelSerializer):
             "last_post_at",
             "last_post_author",
             "is_unread",
+            "tags",
         ]
+
+    @extend_schema_field(TAGS_SCHEMA)
+    def get_tags(self, obj):
+        # Relies on the view's prefetch_related("tags") — without it this is a
+        # query PER ROW (the list pin is asserted in test_topics_list.py).
+        return [tag.name for tag in obj.tags.all()]
 
     @extend_schema_field(AUTHOR_SCHEMA)
     def get_author(self, obj):
@@ -199,6 +272,7 @@ class TopicDetailSerializer(serializers.ModelSerializer):
     opening_post_id = serializers.SerializerMethodField()
     locked = serializers.BooleanField()
     is_subscribed = serializers.SerializerMethodField()
+    tags = serializers.SerializerMethodField()
 
     class Meta:
         model = Topic
@@ -218,7 +292,12 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             "last_post_author",
             "opening_post_id",
             "is_subscribed",
+            "tags",
         ]
+
+    @extend_schema_field(TAGS_SCHEMA)
+    def get_tags(self, obj):
+        return [tag.name for tag in obj.tags.all()]
 
     @extend_schema_field(AUTHOR_SCHEMA)
     def get_author(self, obj):
@@ -511,6 +590,14 @@ class _ForumBodyContract(serializers.Serializer):
 class TopicCreateSerializer(_ForumBodyContract):
     title = serializers.CharField(max_length=255)
     slug = serializers.SlugField(max_length=255)
+    # Optional secondary taxonomy (audit M5). Bounds live in normalize_topic_tags
+    # so a host settings override applies at request time, not import time.
+    tags = _BoundedTagListField(
+        child=serializers.CharField(), required=False, allow_empty=True
+    )
+
+    def validate_tags(self, value):
+        return normalize_topic_tags(value)
 
 
 class ReplyCreateSerializer(_ForumBodyContract):

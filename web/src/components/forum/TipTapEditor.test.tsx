@@ -154,7 +154,21 @@ describe('TipTapEditor', () => {
     expect(screen.queryByTitle('Heading 2')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Heading 3')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Strikethrough')).not.toBeInTheDocument();
-    expect(screen.queryByTitle('Quote')).not.toBeInTheDocument();
+    // Quote is deliberately NOT in this list any more (todo 276 / M1): a
+    // top-level blockquote is lifted into its own `quote` StreamField block by
+    // forumBody.ts, so unlike the marks above it survives the server contract.
+    // Its presence is asserted in the next test.
+  });
+
+  it('offers a Quote control, which emits a top-level blockquote (todo 276 / M1)', async () => {
+    render(<TipTapEditor onChange={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Quote')).toBeInTheDocument();
+    });
+    // Glyph-only buttons take their accessible name from `title` via aria-label
+    // (audit H19), so the control is reachable by name, not just by title.
+    expect(screen.getByRole('button', { name: 'Quote' })).toBeInTheDocument();
   });
 
   it('renders list toolbar buttons', async () => {

@@ -54,13 +54,14 @@ def test_topic_detail_returns_live_topic():
     }
     assert resp.data["opening_post_id"] == opening.id
     # Anonymous is_subscribed short-circuits with zero extra queries (todo
-    # 253 slice 3) — the pin below stays 4, not 5, for this request.
+    # 253 slice 3) — the pin below stays 5, not 6, for this request.
     assert resp.data["is_subscribed"] is False
-    # Exactly 4: page-view-restriction check, topic fetch (select_related board +
+    # Exactly 5: page-view-restriction check, topic fetch (select_related board +
     # author/last_post_author down to ForumProfile.avatar — LEFT JOINs, no extra
-    # queries), opening-post id lookup, post refetch by id.
+    # queries), opening-post id lookup, post refetch by id, and the tags prefetch
+    # (todo 276 / M5).
     # Pinned EXACTLY (docs/rules/testing.md) — if this changes, explain the new count here.
-    assert len(ctx.captured_queries) == 4
+    assert len(ctx.captured_queries) == 5
 
 
 @pytest.mark.django_db
@@ -86,9 +87,9 @@ def test_topic_detail_is_subscribed_for_authenticated_user():
     with CaptureQueriesContext(connection) as ctx:
         resp = client.get(f"/forum/topics/{topic.id}/")
     assert resp.data["is_subscribed"] is True
-    # Pinned EXACTLY (docs/rules/testing.md): the anonymous pin (4) + one
-    # TopicSubscription.objects.filter(...).exists() query.
-    assert len(ctx.captured_queries) == 5
+    # Pinned EXACTLY (docs/rules/testing.md): the anonymous pin (5, incl. the
+    # todo-276 tags prefetch) + one TopicSubscription.objects.filter(...).exists().
+    assert len(ctx.captured_queries) == 6
 
     client.force_authenticate(non_subscriber)
     resp = client.get(f"/forum/topics/{topic.id}/")
@@ -199,12 +200,13 @@ def test_view_count_recounts_after_dedup_window_expires(
 @pytest.mark.django_db
 def test_view_count_does_not_add_queries_to_response():
     # on_commit fires AFTER the response transaction; the pinned query count
-    # for the response itself must be unchanged (still 4).
+    # for the response itself must be unchanged (still 5 — 4 plus the todo-276
+    # tags prefetch).
     # This pin is about THIS TEST, not about production. django_db wraps the
     # body in an atomic block, so on_commit really does defer here (and rolls
     # back unrun) — in production, autocommit + ATOMIC_REQUESTS=False makes the
     # same callback run inline. See TopicDetailView.retrieve's comment and
-    # docs/LEARNINGS.md (todo 271, 2026-07-29). Do not cite this 4 as evidence
+    # docs/LEARNINGS.md (todo 271, 2026-07-29). Do not cite this 5 as evidence
     # that the view_count/TopicRead writes are free in production.
     cache.clear()
     board = _board(slug="vc-board5")
@@ -218,7 +220,9 @@ def test_view_count_does_not_add_queries_to_response():
         resp = APIClient().get(f"/forum/topics/{topic.id}/")
 
     assert resp.status_code == 200
-    assert len(ctx.captured_queries) == 4
+    # Same 5 as the topic-detail pin above (4 + the todo-276 tags prefetch) —
+    # the point of this test is that view_count adds NO query, not the absolute.
+    assert len(ctx.captured_queries) == 5
 
 
 # ---- read-recording (todo 253 slice 5, H10) ---------------------------------

@@ -82,8 +82,12 @@ def test_plain_text_blocks_stored_verbatim_and_rich_text_sanitized():
     rich-text (paragraph) is nh3-cleaned server-side; plain-text blocks
     (quote/heading/code) pass through VERBATIM and consumers MUST escape them at
     render time. The web renderer's handling of the string-shaped quote case is
-    pinned in StreamFieldRenderer.test.tsx. Reachable via direct API POST — the
-    composer never emits quote/heading/code, so no UI test covers this."""
+    pinned in StreamFieldRenderer.test.tsx.
+
+    NOTE (todo 276 / M1): the composer NOW emits `quote` (a top-level blockquote
+    is lifted into its own block by web forumBody.ts), so that block type is no
+    longer direct-POST-only — which is exactly why the renderer must escape it.
+    heading/code remain reachable only by direct API POST."""
     ensure_default_workflow()
     board = _board()
     user = User.objects.create_user(username="xsscontract")

@@ -44,11 +44,14 @@ def test_topics_list_is_cursor_paginated_with_bounded_queries():
     assert len(resp.data["results"]) == 20  # page_size
     assert resp.data["next"] is not None  # cursor link
     assert resp.data["results"][0]["slug"] == "t0"  # most-recent activity first
-    # Exactly 3: board lookup (live+public), topics page (select_related pulls
-    # author/last_post_author in the same query), cursor has-next probe.
+    # Exactly 4: board lookup (live+public), topics page (select_related pulls
+    # author/last_post_author in the same query), cursor has-next probe, and the
+    # tags prefetch (todo 276 / M5 — ONE query for the whole page, which is the
+    # point of prefetch_related; scaling with row count is pinned separately in
+    # test_topic_tags.py).
     # Pinned EXACTLY (docs/rules/testing.md) — an N+1 hiding under a <= ceiling
     # passes silently; if this changes, explain the new number here.
-    assert len(ctx.captured_queries) == 3
+    assert len(ctx.captured_queries) == 4
 
 
 @pytest.mark.django_db
@@ -377,9 +380,9 @@ def test_topics_list_authenticated_query_count_is_still_pinned_at_3():
         resp = client.get(f"/forum/boards/{board.slug}/topics/")
 
     assert resp.status_code == 200
-    # Pinned EXACTLY (docs/rules/testing.md) — same 3 as the anonymous pin;
-    # if this changes, explain the new number here.
-    assert len(ctx.captured_queries) == 3
+    # Pinned EXACTLY (docs/rules/testing.md) — same 4 as the anonymous pin
+    # (3 + the todo-276 tags prefetch); if this changes, explain the new number here.
+    assert len(ctx.captured_queries) == 4
 
 
 @pytest.mark.django_db

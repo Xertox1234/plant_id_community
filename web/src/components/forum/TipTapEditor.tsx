@@ -249,10 +249,13 @@ export default function TipTapEditor({
             <em>I</em>
           </ToolbarButton>
 
-          {/* Strike / headings / blockquote / code-block are intentionally
-              omitted: the server's nh3 allowlist keeps only bold, italic, links,
-              lists and inline code, so those marks would silently flatten to
-              plain text (Spec 2 PR-3). */}
+          {/* Strike / headings / code-block are intentionally omitted: the
+              server's nh3 allowlist keeps only bold, italic, links, lists and
+              inline code, so those marks would silently flatten to plain text
+              (Spec 2 PR-3). Blockquote is the exception — see the Quote button
+              below: it is not kept as inline markup either, but a TOP-LEVEL
+              blockquote is lifted out into its own `quote` StreamField block by
+              forumBody.ts, so it survives the round-trip (todo 276 / M1). */}
 
           <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
 
@@ -270,6 +273,14 @@ export default function TipTapEditor({
             title="Numbered List"
           >
             1.
+          </ToolbarButton>
+
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+            isActive={editor.isActive('blockquote')}
+            title="Quote"
+          >
+            ❝
           </ToolbarButton>
 
           <div className="w-px bg-line-2 mx-1" aria-hidden="true" />

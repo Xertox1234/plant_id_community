@@ -65,3 +65,87 @@ describe('forumBody serialization', () => {
     }
   });
 });
+
+describe('forumBody quote blocks (audit M1)', () => {
+  it('lifts a top-level <blockquote> into its own quote block as PLAIN text', () => {
+    // BlockQuoteBlock is a Wagtail TextBlock — the value is text, never markup.
+    expect(htmlToBodyBlocks('<p>before</p><blockquote><p>quoted</p></blockquote>')).toEqual([
+      { type: 'paragraph', value: '<p>before</p>' },
+      { type: 'quote', value: 'quoted' },
+    ]);
+  });
+
+  it('joins a multi-paragraph blockquote instead of mashing the text together', () => {
+    // Raw textContent would yield "onetwo".
+    expect(htmlToBodyBlocks('<blockquote><p>one</p><p>two</p></blockquote>')).toEqual([
+      { type: 'quote', value: 'one\n\ntwo' },
+    ]);
+  });
+
+  it('drops an empty blockquote rather than emitting a blank quote block', () => {
+    expect(htmlToBodyBlocks('<blockquote><p>   </p></blockquote>')).toEqual([]);
+  });
+
+  it('hoists an image nested in a blockquote out instead of silently losing it', () => {
+    // textContent cannot see an <img>; without the hoist the user's upload vanishes.
+    expect(
+      htmlToBodyBlocks(
+        '<blockquote><p>see</p><img src="https://cdn/x.jpg" data-image-id="7"></blockquote>'
+      )
+    ).toEqual([
+      { type: 'quote', value: 'see' },
+      { type: 'image', value: 7 },
+    ]);
+  });
+
+  it('ESCAPES quote text on the way back into composer HTML', () => {
+    // The server leaves quote values unsanitized ("text by contract"), so an
+    // unescaped write-back would turn stored text into real editor markup.
+    const html = bodyBlocksToHtml([{ type: 'quote', value: '<script>alert(1)</script>' }]);
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).not.toContain('<script>');
+  });
+
+  it('round-trips a quote containing markup-looking text unchanged (idempotent)', () => {
+    const body: StreamFieldBlock[] = [
+      { type: 'paragraph', value: '<p>intro</p>' },
+      { type: 'quote', value: 'a < b\n\nsecond line' },
+    ];
+    const once = htmlToBodyBlocks(bodyBlocksToHtml(body));
+    expect(once).toEqual([
+      { type: 'paragraph', value: '<p>intro</p>' },
+      { type: 'quote', value: 'a < b\n\nsecond line' },
+    ]);
+    // Stable under a second pass — re-editing a saved post must not drift.
+    expect(htmlToBodyBlocks(bodyBlocksToHtml(once as StreamFieldBlock[]))).toEqual(once);
+  });
+
+  it('does not promote a single newline to a paragraph break on re-edit', () => {
+    // A value with single "\n" separators can arrive from a non-browser client.
+    // Splitting on /\n+/ would rewrite it to "\n\n" every time the post is
+    // opened and saved, since blockquoteText always rejoins with "\n\n".
+    const blocks = htmlToBodyBlocks(
+      bodyBlocksToHtml([{ type: 'quote', value: 'line one\nline two' }])
+    );
+    expect(blocks).toEqual([{ type: 'quote', value: 'line one\nline two' }]);
+  });
+
+  it('round-trips through a REAL TipTap editor: blockquote stays top-level', () => {
+    // The seam the unit tests cannot cover — that StarterKit's Blockquote emits
+    // at body level so htmlToBodyBlocks sees it (rather than nested in a <p>,
+    // where nh3 would strip it on save and the quote would vanish in prod).
+    const editor = new Editor({
+      extensions: [StarterKit, ForumImage],
+      content: '<p>a</p><blockquote><p>quoted</p></blockquote><p>b</p>',
+    });
+    try {
+      expect(htmlToBodyBlocks(editor.getHTML())).toEqual([
+        { type: 'paragraph', value: '<p>a</p>' },
+        { type: 'quote', value: 'quoted' },
+        { type: 'paragraph', value: '<p>b</p>' },
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+});

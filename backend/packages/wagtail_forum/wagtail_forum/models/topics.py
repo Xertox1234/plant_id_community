@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
+from taggit.managers import TaggableManager
 from wagtail.admin.panels import FieldPanel
 from wagtail.models import DraftStateMixin, LockableMixin, RevisionMixin, WorkflowMixin
 from wagtail.search import index
@@ -19,6 +20,15 @@ class Topic(
     )
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255)
+    # Secondary discovery axis alongside the primary board taxonomy (audit M5):
+    # species/genus/symptom labels. django-taggit is already a Wagtail
+    # dependency and is in INSTALLED_APPS.
+    #
+    # NOTE: tags are a plain M2M through taggit's generic TaggedItem, so they do
+    # NOT participate in this model's RevisionMixin/DraftStateMixin history —
+    # retagging a topic is immediate and unversioned. That is deliberate (tags
+    # are metadata, not post content); it is not a missed integration.
+    tags = TaggableManager(blank=True)
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -64,7 +74,13 @@ class Topic(
 
     search_fields = [
         index.SearchField("title"),
-        index.AutocompleteField("title"),
+        # No AutocompleteField (todo 276 / audit L8): nothing ever called
+        # `backend.autocomplete()`, and the default database backend builds a
+        # separate `autocomplete` tsvector per IndexEntry row for it — cost with
+        # no reader. Wave 1 already shipped header search + full-text
+        # SearchView, so there is no product gap. Re-add this line (no migration
+        # needed — search_fields is not a DB field) if a title typeahead is ever
+        # actually wired to a suggest endpoint.
         index.FilterField("live"),
         # SearchView filters by visible board (`board__in`); without this a
         # real search backend raises FilterFieldError.
@@ -77,6 +93,7 @@ class Topic(
         FieldPanel("slug"),
         FieldPanel("is_pinned"),
         FieldPanel("is_closed"),
+        FieldPanel("tags"),
     ]
 
     class Meta:

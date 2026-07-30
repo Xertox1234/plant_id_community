@@ -30,6 +30,7 @@ export interface BackendTopicListItem {
   last_post_at: string | null;
   last_post_author: BackendAuthor | null;
   is_unread: boolean;
+  tags?: string[];
 }
 
 export interface BackendTopicDetail {
@@ -48,6 +49,7 @@ export interface BackendTopicDetail {
   last_post_author: BackendAuthor | null;
   opening_post_id: number | null;
   is_subscribed: boolean;
+  tags?: string[];
 }
 
 // StreamFieldBlock re-exported for consumers that import backend shapes from this module.
@@ -163,6 +165,9 @@ export function mapTopicListItemToThread(t: BackendTopicListItem): Thread {
     is_locked: t.is_closed || t.locked,
     is_active: true,
     is_unread: t.is_unread,
+    // `?? []` — the field is absent on a response from a backend older than the
+    // tags migration, and every consumer maps over it (audit M5).
+    tags: t.tags ?? [],
   };
 }
 
@@ -187,6 +192,7 @@ export function mapTopicDetailToThread(t: BackendTopicDetail): Thread {
     is_locked: t.is_closed || t.locked,
     is_active: true,
     is_subscribed: t.is_subscribed,
+    tags: t.tags ?? [],
   };
 }
 

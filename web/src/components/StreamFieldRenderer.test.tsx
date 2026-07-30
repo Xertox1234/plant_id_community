@@ -576,4 +576,47 @@ describe('StreamFieldRenderer', () => {
       expect(headings).toHaveLength(50);
     });
   });
+
+  describe('Forum quote blocks (todo 276 / audit M1)', () => {
+    // The composer now emits `quote` (forumBody.ts lifts a top-level blockquote
+    // into its own block), so this value is no longer direct-POST-only. The
+    // server still leaves it unsanitized ("text by contract", api/sanitize.py),
+    // so the FORUM path must escape it rather than run it through the broad blog
+    // STREAMFIELD DOMPurify preset.
+    it('renders a forum quote as escaped text, never as markup', () => {
+      const blocks: StreamFieldBlock[] = [
+        { id: 'q1', type: 'quote', value: '<script>alert(1)</script><b>bold</b>' },
+      ];
+
+      const { container } = render(<StreamFieldRenderer blocks={blocks} mentionHighlight />);
+
+      // Visible as literal characters...
+      expect(screen.getByText('<script>alert(1)</script><b>bold</b>')).toBeInTheDocument();
+      // ...having produced no live nodes.
+      expect(container.querySelector('script')).toBeNull();
+      expect(container.querySelector('b')).toBeNull();
+    });
+
+    it('preserves the paragraph joins forumBody.ts writes into a quote value', () => {
+      const blocks: StreamFieldBlock[] = [{ id: 'q2', type: 'quote', value: 'one\n\ntwo' }];
+
+      const { container } = render(<StreamFieldRenderer blocks={blocks} mentionHighlight />);
+
+      // whitespace-pre-line is what renders the "\n\n" join as two lines rather
+      // than collapsing it to "one two".
+      const quote = container.querySelector('blockquote div');
+      expect(quote?.className).toContain('whitespace-pre-line');
+      expect(quote?.textContent).toBe('one\n\ntwo');
+    });
+
+    it('leaves the BLOG quote path on rich text (trusted Wagtail editors)', () => {
+      // No mentionHighlight -> blog content keeps the sanitized-HTML path, so
+      // the forum fix must not regress blog rendering.
+      const blocks: StreamFieldBlock[] = [{ id: 'q3', type: 'quote', value: '<em>styled</em>' }];
+
+      const { container } = render(<StreamFieldRenderer blocks={blocks} />);
+
+      expect(container.querySelector('em')).not.toBeNull();
+    });
+  });
 });

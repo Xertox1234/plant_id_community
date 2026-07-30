@@ -9,6 +9,13 @@ interface ThreadCardProps {
   compact?: boolean;
   /** Pass true for search results where author data is unavailable (sentinel). */
   hideAuthor?: boolean;
+  /**
+   * Filter the list by a tag (audit M5). When omitted the tags still render, but
+   * as inert chips — used where there is no list to filter (e.g. search results).
+   */
+  onTagClick?: (tag: string) => void;
+  /** The tag currently filtering the list, so its chip can read as active. */
+  activeTag?: string;
 }
 
 /**
@@ -17,8 +24,15 @@ interface ThreadCardProps {
  * Displays a thread preview in the thread list.
  * Shows title, excerpt, author, stats, and activity time.
  */
-function ThreadCard({ thread, compact = false, hideAuthor = false }: ThreadCardProps) {
+function ThreadCard({
+  thread,
+  compact = false,
+  hideAuthor = false,
+  onTagClick,
+  activeTag,
+}: ThreadCardProps) {
   const threadUrl = threadPath(thread.category, thread);
+  const tags = thread.tags ?? [];
 
   return (
     <div
@@ -103,6 +117,39 @@ function ThreadCard({ thread, compact = false, hideAuthor = false }: ThreadCardP
           <Timestamp iso={thread.last_activity_at} prefix="Last activity" />
         </div>
       </Link>
+
+      {/* Tags (audit M5) — deliberately OUTSIDE the card-level <Link>: a nested
+          <a>/<button> inside an anchor is invalid HTML (the browser auto-closes
+          the outer one) and breaks getByRole('link'). Chips are buttons only
+          when the parent can actually filter; otherwise they are inert text. */}
+      {tags.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {tags.map((tag) =>
+            onTagClick ? (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => onTagClick(tag)}
+                aria-pressed={tag === activeTag}
+                className={`inline-flex min-h-11 items-center rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  tag === activeTag
+                    ? 'bg-primary/20 text-primary ring-1 ring-primary/40'
+                    : 'bg-surface-3 text-ink-2 hover:bg-surface-1'
+                }`}
+              >
+                #{tag}
+              </button>
+            ) : (
+              <span
+                key={tag}
+                className="rounded-full bg-surface-3 px-3 py-1 text-xs font-medium text-ink-2"
+              >
+                #{tag}
+              </span>
+            )
+          )}
+        </div>
+      )}
     </div>
   );
 }

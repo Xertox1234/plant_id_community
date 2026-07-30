@@ -308,14 +308,14 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H18 error-retry-affordance → todo 259 (completed 2026-07-24)
 - [x] #H21 tombstone-prune-scheduling → todo 261 (completed 2026-07-26)
 - [x] #H26 author-shape-inconsistency → todo 257 (completed 2026-07-24, PR #490)
-- [ ] #M1 quote-reply → todo 276 (re-pointed 2026-07-23; split out of 256)
+- [x] #M1 quote-reply → todo 276 (completed 2026-07-30)
 - [ ] #M2 bookmarks → todo 283 (re-pointed 2026-07-26; promoted out of 263 with M8)
 - [x] #M3 drafts-autosave → shipped Wave 1 #473, verified 2026-07-26 (no todo:
       `web/utils/forumDrafts.ts` autosaves both composers to sessionStorage and
       restores on mount — page-level restore test added at 263 close-out. The
       audit's `beforeunload` suggestion is superseded, not deferred)
 - [ ] #M4 edit-history-viewer → todo 282 (re-pointed 2026-07-26; promoted out of 263)
-- [ ] #M5 tags-taxonomy → todo 276 (re-pointed 2026-07-23; split out of 256)
+- [x] #M5 tags-taxonomy → todo 276 (completed 2026-07-30)
 - [ ] #M6 plant-domain-linkage → todo 273 (re-pointed 2026-07-26; Wave 2 slice 3 —
       263 routed it there on 2026-07-17, this line was stale)
 - [ ] #M7 image-authoring-alt-text → todo 281 (re-pointed 2026-07-26; promoted out
@@ -324,7 +324,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #M9 block-mute → todo 284 (re-pointed 2026-07-26; promoted out of 263)
 - [ ] #M10 private-messaging → todo 284 (re-pointed 2026-07-26; promoted out of 263,
       gated behind M9 in that todo's first acceptance criterion)
-- [ ] #M11 post-permalinks → todo 276 (re-pointed 2026-07-23; split out of 256; Wave 1 shipped the chase, residual = copy-link)
+- [x] #M11 post-permalinks → todo 276 (completed 2026-07-30; Wave 1 shipped the chase + copy-link, verified here)
 - [x] #M12 semantic-search-upgrade → todo 275 (completed 2026-07-29; premium
       `semantic` section on `/forum/search/`, own array so FTS paging is intact)
 - [ ] #M13 rag-plant-care → todo 289 (re-pointed 2026-07-29; todo 275 completed
@@ -367,7 +367,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #L5 badges-gamification → todo 257 (completed 2026-07-24, PR #491; styled trust badge satisfies; fuller gamification deferred per the finding's own guidance)
 - [x] #L6 blog-md-doc-drift → todo 255 (completed 2026-07-20, slice 1)
 - [x] #L7 openai-key-ops-check → todo 255 (completed 2026-07-20, slice 1)
-- [ ] #L8 autocomplete-typeahead → todo 276 (re-pointed 2026-07-23; split out of 256)
+- [x] #L8 autocomplete-typeahead → todo 276 (completed 2026-07-30; decision: AutocompleteField dropped, no typeahead)
 - [x] #L10 toolbar-tap-targets → todo 259 (completed 2026-07-24)
 - [x] #L11 button-busy-state → todo 259 (completed 2026-07-24)
 - [x] #L12 timestamp-accessibility → todo 259 (completed 2026-07-24)

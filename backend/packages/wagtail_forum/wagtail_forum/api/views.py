@@ -329,6 +329,9 @@ class BoardListView(PublicForumReadCacheMixin, generics.ListAPIView):
         "(cursor-paginated). Optional ?sort= reorders within the pinned-first "
         "contract — one of: -last_activity_at (default), -created_at, "
         "created_at, -view_count, -post_count; an unknown value is ignored. "
+        "Optional ?tag= filters to topics carrying that tag — an exact, "
+        "case-insensitive match on a whole tag name (not a substring search); "
+        "an unknown tag returns an empty page. "
         "Returns 404 for a hidden/non-live board."
     ),
 )
@@ -351,10 +354,31 @@ class TopicListView(PublicForumReadCacheMixin, generics.ListAPIView):
         # unified author object (todo 257 H26) serializes with zero per-row
         # queries — select_related adds JOINs, not queries, so the list pin stays
         # flat (test_topics_list.py).
-        qs = Topic.objects.filter(board=board, live=True).select_related(
-            "author__wagtail_forum_profile__avatar",
-            "last_post_author__wagtail_forum_profile__avatar",
+        qs = (
+            Topic.objects.filter(board=board, live=True).select_related(
+                "author__wagtail_forum_profile__avatar",
+                "last_post_author__wagtail_forum_profile__avatar",
+            )
+            # ONE extra query for the whole page, not one per row — TopicListSerializer
+            # .get_tags reads obj.tags.all() (audit M5).
+            .prefetch_related("tags")
         )
+        # Optional secondary-taxonomy filter (audit M5): ?tag=monstera.
+        #
+        # EXACT (iexact), never icontains — a substring match would make
+        # `?tag=rot` also return "root rot", and these are labels, not search.
+        #
+        # Case-INsensitive because the API is not the only writer: the Wagtail
+        # admin panel writes tags through taggit's own widget, which bypasses
+        # normalize_topic_tags, and taggit's Tag.name is case-sensitive. A
+        # moderator-added "Monstera" would otherwise be permanently unreachable
+        # from the "#Monstera" chip the UI renders from that very name.
+        # `.distinct()` goes with it: a topic carrying BOTH "Monstera" and
+        # "monstera" (two distinct Tag rows) would otherwise join twice and
+        # appear duplicated in the page.
+        tag = self.request.query_params.get("tag")
+        if tag:
+            qs = qs.filter(tags__name__iexact=" ".join(tag.split())).distinct()
         qs = _annotate_topic_unread(qs, self.request.user)
         # Kept in sync with TopicCursorPagination.ordering — the paginator
         # re-applies its own ordering, so this is what unpaginated callers see.
@@ -373,6 +397,7 @@ class TopicListView(PublicForumReadCacheMixin, generics.ListAPIView):
                     "body": [
                         {"type": "paragraph", "value": "<p>Roots are crowded.</p>"}
                     ],
+                    "tags": ["monstera", "repotting"],
                 },
             ),
             OpenApiExample(
@@ -471,6 +496,11 @@ class TopicListView(PublicForumReadCacheMixin, generics.ListAPIView):
                         live=False,
                     )
                     topic.save()
+                    # Tags are an M2M — they need the topic's PK, so they are set
+                    # after save() but inside the same transaction as the topic +
+                    # opening post (audit M5). Absent key = no tags.
+                    if validated.get("tags"):
+                        topic.tags.set(validated["tags"])
                     opening = Post(
                         topic=topic,
                         author=request.user,
@@ -501,12 +531,14 @@ class TopicDetailView(PrivateForumReadCacheMixin, generics.RetrieveAPIView):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return Topic.objects.none()
-        return Topic.objects.filter(
-            live=True, board__in=_visible_boards()
-        ).select_related(
-            "board",
-            "author__wagtail_forum_profile__avatar",
-            "last_post_author__wagtail_forum_profile__avatar",
+        return (
+            Topic.objects.filter(live=True, board__in=_visible_boards())
+            .select_related(
+                "board",
+                "author__wagtail_forum_profile__avatar",
+                "last_post_author__wagtail_forum_profile__avatar",
+            )
+            .prefetch_related("tags")  # TopicDetailSerializer.get_tags (audit M5)
         )
 
     def retrieve(self, request, *args, **kwargs):
