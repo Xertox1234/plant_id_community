@@ -95,10 +95,19 @@ class SimilarTopics(VectorIndex):
         super().__init__()
 
 
-def _search_cache_key(query: str, board_slug: str | None, limit: int) -> str:
-    """Cache key for one vector query. Hashed, so an arbitrary user query can
-    never produce an oversized or control-character-bearing memcached key."""
-    raw = f"{query}\x1f{board_slug or ''}\x1f{limit}"
+def _search_cache_key(query: str, limit: int) -> str:
+    """Cache key for one vector query. Hashed, so an arbitrary user query can never
+    produce an oversized or control-character-bearing memcached key.
+
+    Keyed on exactly what reaches the vector store: the query text and ``limit``
+    (which sizes the overfetch slice). ``board_slug`` is deliberately NOT part of
+    the key — it never reaches ``search_documents``, it only filters the
+    visibility refetch afterwards, so the cached pk list is identical across board
+    slugs. Including it would fragment the cache and make a board-scoped search
+    re-embed a query the unscoped one already paid for, defeating the purpose of
+    caching here.
+    """
+    raw = f"{query}\x1f{limit}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
     return f"{constants.SIMILAR_CACHE_PREFIX}:pks:{digest}"
 
@@ -136,14 +145,16 @@ def find_similar_topics(
     # import-safety contract.
     from apps.blog.services.ai_rate_limiter import AIRateLimiter
 
-    # Embedding-result cache. Keyed on everything that changes the vector query,
-    # storing ordered PKs only — the visibility refetch below always re-runs, so a
-    # board restricted after the cache write still cannot leak. This is what makes
+    # Embedding-result cache. Keyed on exactly what reaches the vector store (see
+    # _search_cache_key — NOT board_slug), storing ordered PKs only: the visibility
+    # refetch below always re-runs, so a board restricted after the cache write
+    # still cannot leak, and a board-scoped call reuses the unscoped call's
+    # embedding instead of paying for it twice. This is what makes
     # EMBED_BUDGET_LIMIT's "the result cache bounds normal traffic" sizing true for
     # EVERY caller, not just the compose-time endpoint that has its own outer
     # response cache: a premium client paging `/search/?semantic=1` re-issues the
     # identical query per page and must not re-embed it each time.
-    cache_key = _search_cache_key(query, board_slug, limit)
+    cache_key = _search_cache_key(query, limit)
     ordered_pks = cache.get(cache_key)
 
     if ordered_pks is None:

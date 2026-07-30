@@ -251,15 +251,20 @@ def test_repeat_query_hits_the_pk_cache_and_does_not_re_embed():
 
 @override_settings(FORUM_VECTOR_SEARCH_ENABLED=True)
 @pytest.mark.django_db
-def test_pk_cache_is_keyed_on_query_board_and_limit():
-    """A different query/board/limit must not be served another's cached pks."""
+def test_pk_cache_is_keyed_on_exactly_what_reaches_the_vector_store():
+    """Query and limit change the vector query, so each needs its own entry.
+
+    `board_slug` must NOT be in the key: it never reaches `search_documents`, only
+    the visibility refetch afterwards, so the cached pk list is identical across
+    board slugs. Keying on it would fragment the cache and make a board-scoped
+    search re-embed a query the unscoped one already paid for."""
     with patch(INDEX) as mock_index:
         mock_index.return_value.search_documents.return_value = []
         find_similar_topics("tomato blight")
-        find_similar_topics("rose pruning")
-        find_similar_topics("tomato blight", board_slug="general")
-        find_similar_topics("tomato blight", limit=2)
-    assert mock_index.return_value.search_documents.call_count == 4
+        find_similar_topics("rose pruning")  # different query -> re-embeds
+        find_similar_topics("tomato blight", limit=2)  # different slice -> re-embeds
+        find_similar_topics("tomato blight", board_slug="general")  # reuses entry 1
+    assert mock_index.return_value.search_documents.call_count == 3
 
 
 @override_settings(FORUM_VECTOR_SEARCH_ENABLED=True)

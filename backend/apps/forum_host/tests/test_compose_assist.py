@@ -54,13 +54,24 @@ def test_disabled_returns_503_without_calling_the_provider():
     mock_generate.assert_not_called()
 
 
-@pytest.mark.django_db
-def test_flag_defaults_to_off_in_settings():
-    """Pins the default itself, not just the behaviour under an override — a
-    settings change that flipped the default would otherwise ship silently."""
+def test_flag_ships_disabled_by_default():
+    """Pins the shipped DECLARATION, not the resolved value — a change to
+    `default=False` must go red, but a developer who sets
+    FORUM_COMPOSE_ASSIST_ENABLED=1 in their own .env to work on the feature must
+    not. Asserting `settings.FORUM_COMPOSE_ASSIST_ENABLED is False` would make an
+    environment fact masquerade as a code assertion."""
+    import importlib
+    import re
+    from pathlib import Path
+
     from django.conf import settings
 
-    assert settings.FORUM_COMPOSE_ASSIST_ENABLED is False
+    # `settings` is a LazySettings proxy with no __file__ — resolve the real module.
+    module = importlib.import_module(settings.SETTINGS_MODULE)
+    source = Path(module.__file__).read_text()
+    assert re.search(
+        r'"FORUM_COMPOSE_ASSIST_ENABLED"\s*,\s*default=False', source
+    ), "the shipped default for FORUM_COMPOSE_ASSIST_ENABLED must stay False"
 
 
 # --------------------------------------------------------------------------- #
