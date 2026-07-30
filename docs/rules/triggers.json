@@ -741,5 +741,40 @@
     "pattern_ref": "docs/rules/database.md",
     "severity": "warn",
     "source": "todos/archive 271"
+  },
+  {
+    "id": "strip-tags-not-html-to-text",
+    "domains": [
+      "api",
+      "security"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "strip_tags\\(",
+    "content_absent": "BLOCK_BOUNDARY|html\\.unescape|plain_text_excerpt",
+    "message": "strip_tags() substitutes NOTHING for a tag and decodes no entities: \"<p>a</p><p>b</p>\" -> \"ab\" and \"<p>&nbsp;</p>\" -> truthy \"&nbsp;\". If this text is consumed as prose (LLM prompt, email, excerpt, search doc), substitute block boundaries with newlines FIRST, then strip, then html.unescape — and test with a MULTI-block fixture (a single <p> cannot exhibit the bug).",
+    "pattern_ref": "backend/docs/patterns/security/input-validation.md",
+    "source": "codify: todo-275-forum-ai-round2",
+    "added": "2026-07-29",
+    "severity": "warn"
+  },
+  {
+    "id": "tiptap-insertcontent-html-string",
+    "domains": [
+      "react",
+      "typescript"
+    ],
+    "path_glob": [
+      "web/src/**/*.tsx",
+      "web/src/**/*.ts"
+    ],
+    "content_present": "insertContent\\(\\s*[\"'`]|insertContent\\([a-zA-Z_$][a-zA-Z0-9_$]*\\)",
+    "content_absent": "type:\\s*['\"]paragraph['\"]|type:\\s*['\"]text['\"]",
+    "message": "TipTap parses a STRING passed to insertContent() as HTML, so any text you did not author (model/API output) becomes real document structure in the post the user publishes. Build nodes instead: insertContent([{type:\"paragraph\", content:[{type:\"text\", text: line}]}]) — the array branch goes through schema.nodeFromJSON, never DOMParser.",
+    "pattern_ref": "web/docs/patterns/testing.md",
+    "source": "codify: todo-275-forum-ai-round2",
+    "added": "2026-07-29",
+    "severity": "warn"
   }
 ]

@@ -2192,3 +2192,83 @@ architecture. Note `PLANNING/20_FORUM_MOBILE_ROADMAP.md:421` still credits
 `send_forum_mention_notification` as the shipped mention mechanism — the todo-270
 audit corrected its own doc but that claim survives elsewhere, which is itself
 the argument for checking liveness at every citation site rather than once.
+
+---
+
+## [2026-07-29] `strip_tags` substitutes nothing — HTML→text fuses across blocks (todo 275)
+
+**What broke**: `apps/forum_host/compose_assist.py` flattened the composer's HTML
+draft with `strip_tags(raw).strip()` before sending it to the LLM. Django's
+`strip_tags` *removes* markup without putting anything in its place, so:
+
+```
+'<p>Line one</p><p>Line two</p>' -> 'Line oneLine two'
+'<ul><li>a</li><li>b</li></ul>'  -> 'ab'
+'<p>&nbsp;</p>'                  -> '&nbsp;'        # truthy → "empty" draft billed a call
+'<p>Tom &amp; Jerry</p>'         -> 'Tom &amp; Jerry'
+```
+
+Every multi-paragraph draft — the normal case for a forum post — reached the model
+with words welded together across each block boundary.
+
+**Why no test caught it**: every fixture in the new `test_compose_assist.py` used a
+single `<p>…</p>` with no entities. A one-block fixture cannot exhibit a
+between-blocks bug, and the endpoint's other 20 tests all passed. The reviewer
+found it by *running* `strip_tags` on realistic input rather than reading the call.
+
+**Root cause, generalized**: `strip_tags` is a tag *remover*, not an HTML→text
+converter. Two things it does not do, both of which the caller must: insert
+separators at block boundaries, and decode entities. The package's own
+`plain_text_excerpt` (`wagtail_forum/api/views.py`) never hit this because it walks
+StreamField blocks and `" ".join(parts)` them — raw composer HTML has no block
+structure to walk, so the boundary has to be reconstructed.
+
+**Fix**: substitute a newline for block-closing tags and `<br>` *before* stripping,
+then `html.unescape` the result, then drop blank lines. Entity decoding also fixes
+a second defect on the same line: an `&amp;` left encoded rides through the prompt
+into a reply the client inserts verbatim as a text node, so the published post
+would contain a literal `&amp;`.
+
+**Reusable check**: any HTML→plain-text conversion whose output is *consumed as
+text* (LLM prompt, email body, notification excerpt, search index, digest) needs a
+multi-block fixture AND an entity fixture. Assert the negative — that
+`'sadWhat'`/`'alphabeta'` do **not** appear — because asserting only that both
+words are present passes on the fused string.
+
+## [2026-07-29] jsdom `Range` has no layout: an unhandled prosemirror error fails the run while every test prints "passed" (todo 275)
+
+**What broke**: adding a TipTap toolbar action that replaces the document
+(`editor.chain().focus().selectAll().insertContent(nodes).run()`) made the Vitest
+run exit **1** while printing `Tests 25 passed (25)` and `Test Files 1 passed (1)`.
+The only signal was an `Unhandled Errors` block:
+
+```
+TypeError: target.getClientRects is not a function
+  ❯ singleRect prosemirror-view/dist/index.js:521
+  ❯ coordsAtPos → EditorView.scrollToSelection → updateStateInner
+```
+
+**Root cause**: jsdom implements no layout. ProseMirror's `scrollToSelection` →
+`coordsAtPos` calls `singleRect(textRange(node, from, to))` — the argument is a
+**`Range`**, not the node — and jsdom's `Range` has neither `getClientRects` nor
+`getBoundingClientRect`. Any transaction that scrolls the selection throws. A first
+attempt polyfilling `Text.prototype`/`Element.prototype` did nothing, because the
+target is neither; only `Range.prototype` is on the path.
+
+**Fixes, in the order they apply**:
+
+1. In the component: `focus(null, { scrollIntoView: false })` on the chain. Verified
+   against the installed `@tiptap/core` (`focus(position, options)`; `options.scrollIntoView`
+   defaults true). This is also the better product behaviour — replacing the
+   document otherwise scroll-jumps the page to the caret right after the user
+   clicked a toolbar button directly above it.
+2. For a path whose scroll is *not* configurable (TipTap's own Mod-z keybinding,
+   where scroll-into-view is internal to the History extension), polyfill
+   `Range.prototype.getClientRects`/`getBoundingClientRect` in the test file. An
+   empty rect list is the case `singleRect` already handles for an off-screen
+   selection, so it is inert padding, not simulated layout.
+
+**The dangerous part is the reporting, not the error.** `Tests N passed` with
+`Errors 1` still exits non-zero, so CI fails on a suite that reads green locally
+at a glance. Always check the exit code — `vitest --run …; echo $?` — after adding
+a test that dispatches editor transactions; do not trust the pass count.
