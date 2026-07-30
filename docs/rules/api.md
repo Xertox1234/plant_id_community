@@ -91,3 +91,12 @@ Compact checklist auto-injected before edits. Long-form:
   after the provider actually returned, so an outage cannot drain the cap through
   failed attempts. An empty-but-successful response IS a charge — it was billed.
   See `backend/docs/patterns/domain/forum.md`.
+- **One status covering both permanent and transient failures needs a machine-readable
+  `code`.** `compose_assist` returned 503 for three unrelated reasons — feature flag
+  off (permanent) vs provider error/timeout/empty completion (transient) — so the web
+  client's `permanent = status === 503` disabled its button for the whole session on
+  the first provider blip, blaming the user's account. Add a stable `code` to the body
+  (`"disabled"` vs `"unavailable"`) and have clients branch on THAT; the
+  transient/permanent split is a product fact, not an HTTP one. Corollary: a client
+  latch that caches a failure verdict must be keyed to (or cleared on) whatever the
+  verdict depends on — a 403 meaning "not premium" must not outlive the account.

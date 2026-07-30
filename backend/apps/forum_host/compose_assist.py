@@ -48,6 +48,21 @@ from .api import _throttled
 
 logger = logging.getLogger(__name__)
 
+# Machine-readable discriminators on the 503 body. The endpoint returns 503 for
+# THREE different reasons and only one of them is permanent, so the status code
+# alone is not enough for a client to decide whether retrying can ever work:
+#
+#   CODE_DISABLED    - the deployment has the feature off. Permanent for the
+#                      session; a client should stop offering the action.
+#   CODE_UNAVAILABLE - the provider errored, timed out, or returned an empty
+#                      completion. TRANSIENT; the next call may well succeed.
+#
+# The web client latched on the bare 503 and permanently disabled its toolbar
+# button on the first provider blip (todo 275 code review). Codes, not statuses,
+# because the transient/permanent split is a product fact, not an HTTP one.
+CODE_DISABLED = "disabled"
+CODE_UNAVAILABLE = "unavailable"
+
 
 # Block boundaries in the composer's HTML. Substituted with a newline BEFORE
 # tags are stripped: ``strip_tags`` deletes markup without putting anything in
@@ -105,13 +120,19 @@ class ComposeAssistView(APIView):
             "the forum-wide AI budget is exhausted (with Retry-After); 503 when "
             "composer assist is disabled for this deployment or the provider is "
             "unavailable. Requires a premium account. Nothing is persisted — the "
-            "client decides whether to accept the rewrite."
+            "client decides whether to accept the rewrite.\n\n"
+            "A 503 body carries a 'code' discriminating the two cases, because "
+            "only one of them is worth giving up on: 'disabled' (the deployment "
+            "has the feature off — permanent, stop offering the action) versus "
+            "'unavailable' (provider error, timeout, or empty completion — "
+            "TRANSIENT, a retry may succeed). Clients must branch on 'code', not "
+            "on the 503 status."
         ),
     )
     def post(self, request):
         if not getattr(settings, "FORUM_COMPOSE_ASSIST_ENABLED", False):
             return Response(
-                {"detail": "AI composer assist is not enabled."},
+                {"detail": "AI composer assist is not enabled.", "code": CODE_DISABLED},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
@@ -175,7 +196,10 @@ class ComposeAssistView(APIView):
             # Degrade, never 500: the composer keeps working without assist.
             logger.exception("[ERROR] Forum compose assist provider call failed")
             return Response(
-                {"detail": "AI assist is unavailable right now."},
+                {
+                    "detail": "AI assist is unavailable right now.",
+                    "code": CODE_UNAVAILABLE,
+                },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
@@ -198,7 +222,10 @@ class ComposeAssistView(APIView):
             # replaced content with it.
             logger.warning("[ERROR] Forum compose assist returned an empty rewrite")
             return Response(
-                {"detail": "AI assist could not improve this draft."},
+                {
+                    "detail": "AI assist could not improve this draft.",
+                    "code": CODE_UNAVAILABLE,
+                },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
