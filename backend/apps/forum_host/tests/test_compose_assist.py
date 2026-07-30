@@ -51,6 +51,9 @@ def test_disabled_returns_503_without_calling_the_provider():
             ASSIST_URL, {"text": "my tomato plant is sad"}, format="json"
         )
     assert resp.status_code == 503
+    # PERMANENT: the client must be able to tell this apart from a provider blip
+    # and stop offering the action (todo 275 code review).
+    assert resp.json()["code"] == "disabled"
     mock_generate.assert_not_called()
 
 
@@ -286,11 +289,14 @@ def test_provider_call_carries_the_hard_deadline():
 
 @override_settings(FORUM_COMPOSE_ASSIST_ENABLED=True)
 @pytest.mark.django_db
-def test_provider_exception_returns_503():
+def test_provider_exception_returns_503_marked_transient():
+    """TRANSIENT, not permanent: latching on the bare 503 meant one provider blip
+    permanently disabled the client's button (todo 275 code review)."""
     client = _premium_client()
     with patch(GENERATE, side_effect=RuntimeError("provider down")):
         resp = client.post(ASSIST_URL, {"text": "draft"}, format="json")
     assert resp.status_code == 503
+    assert resp.json()["code"] == "unavailable"
 
 
 @override_settings(FORUM_COMPOSE_ASSIST_ENABLED=True)
@@ -301,6 +307,11 @@ def test_empty_completion_returns_503_rather_than_a_blank_rewrite():
     with patch(GENERATE, return_value="   "):
         resp = client.post(ASSIST_URL, {"text": "draft"}, format="json")
     assert resp.status_code == 503
+    # Also TRANSIENT — the next draft may well come back fine. This one matters
+    # doubly because the budget IS charged for it (the call was billed), so a
+    # permanent latch here would have the user pay for the request that killed
+    # their button.
+    assert resp.json()["code"] == "unavailable"
 
 
 @override_settings(FORUM_COMPOSE_ASSIST_ENABLED=True)

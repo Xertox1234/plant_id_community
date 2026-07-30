@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { AuthProvider, useAuth, AuthErrorCode } from './AuthContext';
 import * as authService from '../services/authService';
+import * as forumService from '../services/forumService';
 import type { User, LoginCredentials, SignupData } from '../types/auth';
 
 // Mock the auth service
@@ -30,6 +31,38 @@ describe('AuthContext', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe('Per-account API capability latches (todo 275 code review)', () => {
+    it('clears the compose-assist latch when the identity changes', async () => {
+      // The latch caches "this ACCOUNT is not premium" for the session. Without
+      // this, a non-premium user who clicks AI assist (403 → latched), then logs
+      // out and back in as a premium account in the same SPA session, keeps a
+      // permanently disabled button the server would now allow — only a hard
+      // reload recovered.
+      const first: User = { id: 1, email: 'basic@example.com', name: 'Basic' };
+      const second: User = { id: 2, email: 'premium@example.com', name: 'Premium' };
+      vi.mocked(authService.getStoredUser).mockReturnValue(first);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(first);
+
+      const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+      await waitFor(() => expect(result.current.user).toEqual(first));
+
+      // Simulate the 403 that latches the flag for account #1.
+      forumService.markComposeAssistUnavailable();
+      expect(forumService.isComposeAssistUnavailable()).toBe(true);
+
+      vi.mocked(authService.login).mockResolvedValue(second);
+      await act(async () => {
+        await result.current.login({
+          email: 'premium@example.com',
+          password: 'x',
+        } as LoginCredentials);
+      });
+
+      await waitFor(() => expect(result.current.user).toEqual(second));
+      expect(forumService.isComposeAssistUnavailable()).toBe(false);
+    });
   });
 
   describe('Initialization', () => {

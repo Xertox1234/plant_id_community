@@ -521,23 +521,28 @@ describe('forumService (wagtail_forum API contract)', () => {
     expect(init.credentials).toBe('include');
   });
 
-  it('improveDraft marks 403 and 503 as permanent, 429 as retryable', async () => {
-    // The status IS the product behaviour: the composer permanently hides its
-    // button for the first two but keeps it for a transient capacity error.
-    for (const [status, permanent] of [
-      [403, true],
-      [503, true],
-      [429, false],
-      [400, false],
+  it('improveDraft marks only 403 and code:disabled as permanent', async () => {
+    // A bare 503 must NOT be permanent: the endpoint returns it for a provider
+    // error, a timeout and an empty completion as well as for the feature flag
+    // being off, so latching on the status disabled the button on the first blip
+    // (todo 275 code review). The `code` is the discriminator.
+    for (const [status, code, permanent] of [
+      [403, undefined, true], // not a premium account
+      [503, 'disabled', true], // deployment has the feature off
+      [503, 'unavailable', false], // provider error / timeout / empty completion
+      [503, undefined, false], // unlabelled 503 → assume transient, don't give up
+      [429, undefined, false], // at capacity, retry later
+      [400, undefined, false], // bad draft
     ] as const) {
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status,
-        json: async () => ({ detail: `failed ${status}` }),
+        json: async () => ({ detail: `failed ${status}`, ...(code && { code }) }),
       });
       await expect(improveDraft('<p>draft</p>')).rejects.toMatchObject({
         name: 'ComposeAssistError',
         status,
+        code,
         permanent,
         message: `failed ${status}`,
       });

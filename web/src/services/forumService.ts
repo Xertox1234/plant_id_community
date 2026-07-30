@@ -353,24 +353,38 @@ export async function searchForum(options: SearchForumOptions): Promise<SearchFo
 // ---------------------------------------------------------------------------
 
 /**
- * Error from the compose-assist endpoint, carrying the HTTP status.
+ * Error from the compose-assist endpoint, carrying the HTTP status and the
+ * backend's machine-readable `code`.
  *
  * `authenticatedFetch` collapses every failure to a bare `Error`, which is fine
- * for endpoints whose only failure mode is "it broke". Here the status IS the
- * product behaviour — 403 means "premium perk", 503 means "not enabled for this
- * deployment", 429 means "try later" — and the composer hides the button
- * permanently for the first two but not the third.
+ * for endpoints whose only failure mode is "it broke". Here the failure kind IS
+ * the product behaviour, and the composer permanently stops offering its button
+ * for a permanent failure but not a transient one.
+ *
+ * **`permanent` deliberately does NOT include a bare 503.** The endpoint returns
+ * 503 for three different reasons and only one is permanent: the feature flag
+ * being off (`code: "disabled"`), versus a provider error, timeout, or empty
+ * completion (`code: "unavailable"`). Latching on the status meant a single
+ * provider blip disabled the button for the whole tab, with a tooltip blaming
+ * the user's account — and the session-scoped latch below made that stick
+ * (todo 275 code review).
  */
 export class ComposeAssistError extends Error {
   readonly status: number;
-  /** True when retrying can never succeed for this user/deployment (403/503). */
+  /** Backend discriminator: 'disabled' | 'unavailable' | undefined (non-503). */
+  readonly code?: string;
+  /** True only when retrying can never succeed for this user/deployment. */
   readonly permanent: boolean;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.name = 'ComposeAssistError';
     this.status = status;
-    this.permanent = status === 403 || status === 503;
+    this.code = code;
+    // 403 = not a premium account (permanent until the entitlement changes, which
+    // clears the latch — see resetComposeAssistAvailability's callers).
+    // 503 = permanent ONLY when the deployment has the feature off.
+    this.permanent = status === 403 || code === 'disabled';
   }
 }
 
@@ -396,7 +410,16 @@ export function markComposeAssistUnavailable(): void {
   composeAssistUnavailable = true;
 }
 
-/** Test-only reset — module state otherwise leaks between cases in a file. */
+/**
+ * Clear the latch. Called by `AuthContext` on every auth-state change, and by
+ * tests (module state otherwise leaks between cases in a file).
+ *
+ * Production callers matter: the 403 latch means "this ACCOUNT is not premium",
+ * so it must not outlive the account. Without this, a non-premium user who
+ * clicks the button, then upgrades or logs out and back in as someone else in
+ * the same SPA session (no page reload), keeps a permanently disabled button the
+ * server would now allow (todo 275 code review).
+ */
 export function resetComposeAssistAvailability(): void {
   composeAssistUnavailable = false;
 }
@@ -426,7 +449,8 @@ export async function improveDraft(draftHtml: string): Promise<string> {
     const body = await response.json().catch(() => ({}));
     throw new ComposeAssistError(
       response.status,
-      body.detail || body.message || `HTTP ${response.status}`
+      body.detail || body.message || `HTTP ${response.status}`,
+      body.code
     );
   }
   const data = (await response.json()) as { text?: string };

@@ -2272,3 +2272,44 @@ target is neither; only `Range.prototype` is on the path.
 `Errors 1` still exits non-zero, so CI fails on a suite that reads green locally
 at a glance. Always check the exit code — `vitest --run …; echo $?` — after adding
 a test that dispatches editor transactions; do not trust the pass count.
+
+## [2026-07-29] A fix for one review finding created a worse one: status-as-taxonomy + a session-scoped latch (todo 275)
+
+**What broke**: two findings from `/code-review` on the already-merged PR #509, which
+compound into one bug:
+
+1. `ComposeAssistError.permanent = status === 403 || status === 503`. But
+   `compose_assist.py` returns 503 for **three** unrelated reasons and only one is
+   permanent: the feature flag being off, versus a provider exception, versus an
+   empty completion. So one provider blip made `permanent` true.
+2. The latch that consumes `permanent` was module-scoped, and nothing in production
+   ever cleared it.
+
+Net effect: a single provider timeout permanently disabled the composer's AI button
+for the rest of the tab's life, with a tooltip blaming the user's account — and the
+empty-completion path *charges the budget first*, so the user paid for the request
+that killed their own button.
+
+**The instructive part**: finding 2's module scope was introduced *by the repair for
+an earlier reviewer finding* in the same session. A per-component latch was correctly
+identified as broken (the composer remounts after every reply, resetting it), and
+hoisting it to module scope fixed that — while silently converting a per-composer
+annoyance into a session-long dead control. **Widening a value's scope widens the
+blast radius of every wrong value it can hold.** When a review says "this state is
+too short-lived", check what happens if the state is *wrong*, not only if it is lost.
+
+**Root causes, both reusable**:
+
+- **An HTTP status is not a failure taxonomy.** If one status code covers both
+  "give up" and "try again", clients cannot branch correctly and will pick wrong.
+  Emit a stable machine-readable `code` in the body and branch on that.
+- **A cached failure verdict must be keyed to what it depends on.** A 403 meaning
+  "this account is not premium" is only valid for that account. The fix clears the
+  latch from a single `useEffect` on `user?.id` in `AuthContext` rather than at each
+  of login/register/logout/refresh, so a future auth path cannot forget it.
+
+**Also note where it was caught**: three domain reviewers, a security review and a
+full test suite all passed this. The bundled `/code-review` correctness pass found
+it — after merge. That is the todo-244 "the two passes are complementary" evidence
+showing up again, and an argument for running the correctness pass *before* merging,
+not after.

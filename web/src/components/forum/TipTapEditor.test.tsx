@@ -435,6 +435,44 @@ describe('TipTapEditor', () => {
     expect(screen.getByTitle(/not available for this account/i)).toBeDisabled();
   });
 
+  it('keeps the button after a TRANSIENT 503 (provider blip) (M14)', async () => {
+    // The regression this guards: `permanent` used to include any 503, so a single
+    // provider error/timeout/empty-completion killed the button for the whole tab
+    // — with a tooltip blaming the user's account (todo 275 code review).
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    vi.spyOn(forumService, 'improveDraft').mockRejectedValue(
+      new forumService.ComposeAssistError(503, 'AI assist is unavailable right now.', 'unavailable')
+    );
+    const { container } = render(
+      <TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />
+    );
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTitle(AI_TITLE));
+
+    expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
+    expect(screen.getByTitle(AI_TITLE)).toBeEnabled();
+    expect(forumService.isComposeAssistUnavailable()).toBe(false);
+  });
+
+  it('disables the button on a 503 that means the feature is off (M14)', async () => {
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    vi.spyOn(forumService, 'improveDraft').mockRejectedValue(
+      new forumService.ComposeAssistError(503, 'AI composer assist is not enabled.', 'disabled')
+    );
+    const { container } = render(
+      <TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />
+    );
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTitle(AI_TITLE));
+
+    await waitFor(() =>
+      expect(screen.getByTitle(/not available for this account/i)).toBeDisabled()
+    );
+    expect(forumService.isComposeAssistUnavailable()).toBe(true);
+  });
+
   it('keeps the button after a transient 429 (M14)', async () => {
     vi.spyOn(logger, 'error').mockImplementation(() => {});
     vi.spyOn(forumService, 'improveDraft').mockRejectedValue(

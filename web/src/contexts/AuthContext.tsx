@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from 'react';
 import * as authService from '../services/authService';
+import { resetComposeAssistAvailability } from '../services/forumService';
 import { logger } from '../utils/logger';
 import { rotateRequestId } from '../utils/requestId';
 import { AuthErrorCode } from '../types/auth';
@@ -171,6 +172,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     initAuth();
   }, []);
+
+  // Clear per-account API capability latches whenever the identity changes.
+  // One effect keyed on the user id rather than a call in each of login/register/
+  // logout/refresh, so a future auth path cannot forget it. The forum
+  // compose-assist latch caches "this account is not premium" for the session, so
+  // it must not outlive the account: without this, a non-premium user who clicks
+  // AI assist, then upgrades or logs out and back in as someone else in the same
+  // SPA session, keeps a disabled button the server would now allow
+  // (todo 275 code review).
+  useEffect(() => {
+    resetComposeAssistAvailability();
+  }, [user?.id]);
 
   // Automatic token refresh for authenticated users
   // SECURITY: OWASP-compliant 15-minute access tokens require automatic refresh
