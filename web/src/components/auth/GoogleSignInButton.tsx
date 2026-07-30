@@ -64,15 +64,20 @@ export default function GoogleSignInButton({
   };
 
   return (
-    <div className="space-y-2">
-      {error && (
-        <div
-          className="p-3 bg-error/10 border border-error rounded-lg text-ink text-sm"
-          role="alert"
-        >
-          {error}
-        </div>
-      )}
+    <div>
+      {/* Persistent live region, text swaps in place (audit M26). The wrapper
+          dropped `space-y-2` in favour of a conditional `mb-2` here: an
+          always-mounted first child would otherwise push the button down by
+          that gap even with no error to show. */}
+      <div
+        aria-live="assertive"
+        aria-atomic="true"
+        className={
+          error ? 'mb-2 p-3 bg-error/10 border border-error rounded-lg text-ink text-sm' : 'sr-only'
+        }
+      >
+        {error}
+      </div>
       <button
         type="button"
         onClick={handleClick}

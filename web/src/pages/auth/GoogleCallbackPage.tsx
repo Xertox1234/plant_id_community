@@ -71,34 +71,39 @@ export default function GoogleCallbackPage() {
     })();
   }, [searchParams, refreshUser, navigate]);
 
-  if (error) {
-    return (
-      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-surface">
-        <div className="w-full max-w-md min-w-[280px] text-center">
-          <div className="bg-surface-2 shadow-sm border border-line rounded-lg p-8 space-y-4">
-            <h1 className="text-xl font-bold text-ink">Sign-in failed</h1>
-            <div
-              className="p-4 bg-error/10 border border-error rounded-lg text-ink text-sm"
-              role="alert"
-            >
-              {error}
+  return (
+    <>
+      {/* Live region hoisted ABOVE the error/spinner branch so it exists from
+          the first paint — setting `error` is then a text swap rather than a
+          mount, which is the whole point of M26. The visible card below is the
+          sighted counterpart, the same split AnnouncerProvider uses app-wide.
+          `sr-only` is absolutely positioned, so this costs no layout. */}
+      <div aria-live="assertive" aria-atomic="true" className="sr-only">
+        {error}
+      </div>
+      {error ? (
+        <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-surface">
+          <div className="w-full max-w-md min-w-[280px] text-center">
+            <div className="bg-surface-2 shadow-sm border border-line rounded-lg p-8 space-y-4">
+              <h1 className="text-xl font-bold text-ink">Sign-in failed</h1>
+              <div className="p-4 bg-error/10 border border-error rounded-lg text-ink text-sm">
+                {error}
+              </div>
+              <Link
+                to="/login"
+                className="inline-block font-medium text-primary hover:text-primary/80 transition-colors"
+              >
+                Back to sign in
+              </Link>
             </div>
-            <Link
-              to="/login"
-              className="inline-block font-medium text-primary hover:text-primary/80 transition-colors"
-            >
-              Back to sign in
-            </Link>
           </div>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <LoadingSpinner
-      label="Signing you in…"
-      className="min-h-[calc(100vh-4rem)] px-4 py-12 bg-surface"
-    />
+      ) : (
+        <LoadingSpinner
+          label="Signing you in…"
+          className="min-h-[calc(100vh-4rem)] px-4 py-12 bg-surface"
+        />
+      )}
+    </>
   );
 }

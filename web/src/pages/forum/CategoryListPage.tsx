@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { fetchCategoryTree } from '../../services/forumService';
+import { Link } from 'react-router-dom';
+import { fetchForumIndex } from '../../services/forumService';
+import { createSafeMarkup, SANITIZE_PRESETS } from '../../utils/sanitize';
 import CategoryCard from '../../components/forum/CategoryCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -17,6 +19,9 @@ import type { Category } from '@/types';
 export default function CategoryListPage() {
   useScrollToTop();
   const [categories, setCategories] = useState<Category[]>([]);
+  // CMS-authored welcome copy (ForumIndex.intro, audit L2). Sanitized
+  // server-side too — this is the second layer, not the only one.
+  const [intro, setIntro] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   // Bumping this re-runs the load effect — drives both the initial fetch and
@@ -32,8 +37,10 @@ export default function CategoryListPage() {
         setLoading(true);
         setError(null);
 
-        const data = await fetchCategoryTree();
-        if (!ignore) setCategories(data);
+        const { categories: boards, intro: welcome } = await fetchForumIndex();
+        if (ignore) return;
+        setCategories(boards);
+        setIntro(welcome);
       } catch (err) {
         if (ignore) return;
         logger.error('Error loading forum categories', {
@@ -84,13 +91,35 @@ export default function CategoryListPage() {
         <p className="text-lg text-ink-2">
           Connect with fellow plant enthusiasts, share knowledge, and get help with your plants.
         </p>
+        {/* CMS welcome copy (audit L2) — an editor's own onboarding words, which
+            no hardcoded string can replace. Sanitized here as well as on the
+            server; STANDARD matches the backend's intro allowlist (headings,
+            lists, links — no media). */}
+        {intro && (
+          <div
+            className="prose prose-sm max-w-none mt-4 text-ink-2"
+            dangerouslySetInnerHTML={createSafeMarkup(intro, SANITIZE_PRESETS.STANDARD)}
+          />
+        )}
       </div>
 
       {/* Categories List */}
       {categories.length === 0 ? (
-        <div className="text-center py-12 text-ink-3">
-          <p className="text-lg">No categories available yet.</p>
-          <p className="text-sm mt-2">Check back soon!</p>
+        /* Empty state (audit L2). A brand-new community lands here, so it says
+           what the forum is for and offers a way out, rather than "check back
+           soon" — which reads as broken. */
+        <div className="text-center py-12 px-6 border border-line rounded-lg bg-surface-2">
+          <p className="text-lg font-medium text-ink">No boards yet</p>
+          <p className="text-sm mt-2 max-w-prose mx-auto text-ink-2">
+            This community is just getting started. Boards are where plant questions, care tips and
+            ID help get discussed — they&rsquo;ll show up here as soon as a moderator adds one.
+          </p>
+          <Link
+            to="/identify"
+            className="inline-block mt-4 text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+          >
+            Identify a plant in the meantime →
+          </Link>
         </div>
       ) : (
         <div className="space-y-4">

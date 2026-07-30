@@ -78,11 +78,20 @@ export default function Input({
         {...props}
       />
 
-      {error && (
-        <p id={`${inputId}-error`} className="mt-1 text-sm text-error" role="alert">
-          {error}
-        </p>
-      )}
+      {/* Validation error — ALWAYS mounted, only the text swaps (audit M26).
+          A conditionally-mounted `role="alert"` is generally not announced:
+          MDN is explicit that a live region must already be in the DOM before
+          its content changes. `sr-only` while empty keeps it out of the layout.
+          Not `useAnnounce`: Input is a primitive that renders in trees with no
+          AnnouncerProvider, and per-field errors belong next to their field. */}
+      <p
+        id={`${inputId}-error`}
+        aria-live="polite"
+        aria-atomic="true"
+        className={error ? 'mt-1 text-sm text-error' : 'sr-only'}
+      >
+        {error}
+      </p>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import CategoryListPage from './CategoryListPage';
 import { createMockCategory } from '../../tests/forumUtils';
+import type { Category } from '../../types/forum';
 import * as forumService from '../../services/forumService';
 import { logger } from '../../utils/logger';
 
@@ -19,6 +20,14 @@ vi.mock('../../utils/logger', () => ({
     debug: vi.fn(),
   },
 }));
+
+/**
+ * The forum home payload: boards plus the CMS welcome copy, in one response
+ * (todo 278 L2 — `GET boards/` returns `{results, intro}`).
+ */
+function indexPayload(categories: Category[], intro = '') {
+  return { categories, intro };
+}
 
 /**
  * Helper to render CategoryListPage with Router context
@@ -38,7 +47,7 @@ describe('CategoryListPage', () => {
 
   it('shows loading spinner while fetching categories', () => {
     // Mock API to never resolve (stays in loading state)
-    vi.spyOn(forumService, 'fetchCategoryTree').mockImplementation(() => new Promise(() => {}));
+    vi.spyOn(forumService, 'fetchForumIndex').mockImplementation(() => new Promise(() => {}));
 
     renderCategoryListPage();
 
@@ -64,7 +73,7 @@ describe('CategoryListPage', () => {
       }),
     ];
 
-    vi.spyOn(forumService, 'fetchCategoryTree').mockResolvedValue(mockCategories);
+    vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload(mockCategories));
 
     renderCategoryListPage();
 
@@ -78,7 +87,7 @@ describe('CategoryListPage', () => {
   });
 
   it('renders page header with title and description', async () => {
-    vi.spyOn(forumService, 'fetchCategoryTree').mockResolvedValue([]);
+    vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
 
     renderCategoryListPage();
 
@@ -94,7 +103,7 @@ describe('CategoryListPage', () => {
   it('displays error message when API call fails', async () => {
     const errorMessage = 'Failed to load categories';
 
-    vi.spyOn(forumService, 'fetchCategoryTree').mockRejectedValue(new Error(errorMessage));
+    vi.spyOn(forumService, 'fetchForumIndex').mockRejectedValue(new Error(errorMessage));
 
     renderCategoryListPage();
 
@@ -107,9 +116,11 @@ describe('CategoryListPage', () => {
 
   it('recovers via Retry after a failed load (audit H18)', async () => {
     const fetchSpy = vi
-      .spyOn(forumService, 'fetchCategoryTree')
+      .spyOn(forumService, 'fetchForumIndex')
       .mockRejectedValueOnce(new Error('Network error'))
-      .mockResolvedValueOnce([createMockCategory({ id: 'cat-1', name: 'Plant Care' })]);
+      .mockResolvedValueOnce(
+        indexPayload([createMockCategory({ id: 'cat-1', name: 'Plant Care' })])
+      );
 
     renderCategoryListPage();
 
@@ -124,19 +135,59 @@ describe('CategoryListPage', () => {
   });
 
   it('shows empty state when no categories exist', async () => {
-    vi.spyOn(forumService, 'fetchCategoryTree').mockResolvedValue([]);
+    vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
 
     renderCategoryListPage();
 
     await waitFor(() => {
-      expect(screen.getByText('No categories available yet.')).toBeInTheDocument();
+      expect(screen.getByText('No boards yet')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Check back soon!')).toBeInTheDocument();
+    // Audit L2: the empty state explains what the forum is for and offers a
+    // way onward, instead of reading as a broken page.
+    expect(screen.getByText(/This community is just getting started/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /identify a plant/i })).toHaveAttribute(
+      'href',
+      '/identify'
+    );
   });
 
-  it('calls fetchCategoryTree on mount', async () => {
-    const fetchSpy = vi.spyOn(forumService, 'fetchCategoryTree').mockResolvedValue([]);
+  it('renders the CMS welcome copy as HTML (audit L2)', async () => {
+    vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
+      indexPayload([], '<p>Welcome! Please read the <a href="/rules">rules</a>.</p>')
+    );
+
+    renderCategoryListPage();
+
+    await waitFor(() => expect(screen.getByText(/Welcome!/)).toBeInTheDocument());
+    // Rendered as markup, not escaped text — the link is a real anchor.
+    expect(screen.getByRole('link', { name: 'rules' })).toHaveAttribute('href', '/rules');
+  });
+
+  it('sanitizes the CMS welcome copy before rendering it', async () => {
+    vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
+      indexPayload([], '<p>Hi</p><img src="x" onerror="window.__xss = true">')
+    );
+
+    renderCategoryListPage();
+
+    await waitFor(() => expect(screen.getByText('Hi')).toBeInTheDocument());
+    // The backend sanitizes too; this is the second layer, and the one that
+    // protects against a compromised/mis-implemented first layer.
+    expect(document.querySelector('img[onerror]')).toBeNull();
+  });
+
+  it('renders no welcome block when the CMS intro is empty', async () => {
+    vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([], ''));
+
+    renderCategoryListPage();
+
+    await waitFor(() => expect(screen.getByText('No boards yet')).toBeInTheDocument());
+    expect(document.querySelector('.prose')).toBeNull();
+  });
+
+  it('calls fetchForumIndex on mount', async () => {
+    const fetchSpy = vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
 
     renderCategoryListPage();
 
@@ -152,7 +203,7 @@ describe('CategoryListPage', () => {
       createMockCategory({ id: 'cat-3', name: 'Category 3' }),
     ];
 
-    vi.spyOn(forumService, 'fetchCategoryTree').mockResolvedValue(mockCategories);
+    vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload(mockCategories));
 
     renderCategoryListPage();
 
@@ -167,7 +218,7 @@ describe('CategoryListPage', () => {
   it('hides loading spinner after data loads', async () => {
     const mockCategories = [createMockCategory()];
 
-    vi.spyOn(forumService, 'fetchCategoryTree').mockResolvedValue(mockCategories);
+    vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload(mockCategories));
 
     renderCategoryListPage();
 
@@ -183,7 +234,7 @@ describe('CategoryListPage', () => {
   it('logs errors to console when API fails', async () => {
     const errorMessage = 'Network error';
 
-    vi.spyOn(forumService, 'fetchCategoryTree').mockRejectedValue(new Error(errorMessage));
+    vi.spyOn(forumService, 'fetchForumIndex').mockRejectedValue(new Error(errorMessage));
 
     renderCategoryListPage();
 

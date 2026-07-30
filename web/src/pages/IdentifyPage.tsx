@@ -164,14 +164,19 @@ export default function IdentifyPage() {
                 savingPlant={savingPlant}
               />
 
-              {saveError && (
-                <div
-                  className="mt-4 bg-error/10 border border-error/30 rounded-lg p-4"
-                  role="alert"
-                >
-                  <p className="text-sm text-error">{saveError}</p>
-                </div>
-              )}
+              {/* Persistent live region, text swaps in place (audit M26) — a
+                  conditionally-mounted `role="alert"` is generally not
+                  announced, and a failed save is exactly what a screen-reader
+                  user must hear. */}
+              <div
+                aria-live="assertive"
+                aria-atomic="true"
+                className={
+                  saveError ? 'mt-4 bg-error/10 border border-error/30 rounded-lg p-4' : 'sr-only'
+                }
+              >
+                <p className="text-sm text-error">{saveError}</p>
+              </div>
 
               {results && (
                 <div className="mt-6 flex justify-center">

@@ -24,6 +24,7 @@ import {
 } from './forumMappers';
 import type {
   Category,
+  ForumIndexPayload,
   Thread,
   Post,
   PaginatedResponse,
@@ -75,11 +76,26 @@ async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Pr
 // Categories (boards)
 // ---------------------------------------------------------------------------
 
+/**
+ * Fetch the forum home payload: boards + the CMS welcome copy.
+ *
+ * BoardListView returns `{results, intro}` — flat, no cursor. `intro` rides
+ * this envelope rather than taking its own endpoint because it renders on the
+ * same screen (todo 278 L2; the package README's `## List envelopes` table is
+ * the contract).
+ */
+export async function fetchForumIndex(): Promise<ForumIndexPayload> {
+  const data = await authenticatedFetch<{ results: BackendBoard[]; intro?: string }>(
+    `${FORUM_BASE}/boards/`
+  );
+  return {
+    categories: (data.results || []).map(mapBoardToCategory),
+    intro: data.intro || '',
+  };
+}
+
 export async function fetchCategories(): Promise<Category[]> {
-  // BoardListView returns {results: [...]} (pagination_class = None, but still
-  // wraps in {results} via its custom list() override — verified in views.py:111).
-  const data = await authenticatedFetch<{ results: BackendBoard[] }>(`${FORUM_BASE}/boards/`);
-  return (data.results || []).map(mapBoardToCategory);
+  return (await fetchForumIndex()).categories;
 }
 
 /** No backend tree endpoint — returns the flat list (no children). */

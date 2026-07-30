@@ -28,10 +28,34 @@ function renderAt(path: string) {
   );
 }
 
+/**
+ * The failure message renders twice on purpose (audit M26): once in the
+ * persistent `aria-live` region that is mounted from the first paint — so
+ * setting the error is a text SWAP a screen reader actually announces — and
+ * once in the visible card. Asserting both copies is what keeps the announcer
+ * from being silently deleted as a duplicate.
+ */
+async function expectErrorAnnounced(text: string) {
+  const copies = await screen.findAllByText(text);
+  expect(copies).toHaveLength(2);
+  expect(copies.filter((el) => el.getAttribute('aria-live') === 'assertive')).toHaveLength(1);
+}
+
 describe('GoogleCallbackPage', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
     mockRefreshUser.mockReset();
+  });
+
+  it('mounts the live region before there is an error to put in it (audit M26)', () => {
+    // MDN: a live region must already exist in the DOM for a later content
+    // change to be announced. Mounting it with the error is the anti-pattern.
+    mockRefreshUser.mockReturnValue(new Promise(() => {})); // never settles — spinner state
+    const { container } = renderAt('/auth/google/callback?success=true');
+
+    const region = container.querySelector('[aria-live="assertive"]');
+    expect(region).toBeInTheDocument();
+    expect(region).toHaveTextContent('');
   });
 
   it('refreshes the user and routes home on ?success=true', async () => {
@@ -46,11 +70,9 @@ describe('GoogleCallbackPage', () => {
   it('maps a backend ?error code to a readable message and offers a route back to login', async () => {
     renderAt('/auth/google/callback?error=invalid_state');
 
-    expect(
-      await screen.findByText(
-        'Your sign-in session expired or could not be verified. Please try again.'
-      )
-    ).toBeInTheDocument();
+    await expectErrorAnnounced(
+      'Your sign-in session expired or could not be verified. Please try again.'
+    );
     // AC#2 "returns to login": the error view links back to /login.
     expect(screen.getByRole('link', { name: /back to sign in/i })).toHaveAttribute(
       'href',
@@ -63,7 +85,7 @@ describe('GoogleCallbackPage', () => {
   it('shows a generic message when neither success nor a known error is present', async () => {
     renderAt('/auth/google/callback');
 
-    expect(await screen.findByText('Google sign-in failed. Please try again.')).toBeInTheDocument();
+    await expectErrorAnnounced('Google sign-in failed. Please try again.');
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
@@ -72,9 +94,7 @@ describe('GoogleCallbackPage', () => {
 
     renderAt('/auth/google/callback?success=true');
 
-    expect(
-      await screen.findByText('We could not confirm your sign-in. Please try again.')
-    ).toBeInTheDocument();
+    await expectErrorAnnounced('We could not confirm your sign-in. Please try again.');
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
@@ -83,20 +103,16 @@ describe('GoogleCallbackPage', () => {
 
     renderAt('/auth/google/callback?success=true');
 
-    expect(
-      await screen.findByText('We could not confirm your sign-in. Please try again.')
-    ).toBeInTheDocument();
+    await expectErrorAnnounced('We could not confirm your sign-in. Please try again.');
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('treats an error code as failure even when success=true is also present', async () => {
     renderAt('/auth/google/callback?success=true&error=invalid_state');
 
-    expect(
-      await screen.findByText(
-        'Your sign-in session expired or could not be verified. Please try again.'
-      )
-    ).toBeInTheDocument();
+    await expectErrorAnnounced(
+      'Your sign-in session expired or could not be verified. Please try again.'
+    );
     expect(mockRefreshUser).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
   });

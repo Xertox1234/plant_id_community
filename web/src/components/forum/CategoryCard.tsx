@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { Link } from 'react-router-dom';
+import Timestamp from '../ui/Timestamp';
 import { categoryPath } from '../../utils/forumUrls';
 import type { Category } from '@/types';
 
@@ -37,14 +38,23 @@ function CategoryCard({ category }: CategoryCardProps) {
             {category.description && <p className="text-ink-2 mt-1">{category.description}</p>}
 
             {/* Stats */}
-            <div className="flex gap-4 mt-3 text-sm text-ink-3">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-sm text-ink-3">
               <span>
                 <strong className="text-ink-2">{category.thread_count || 0}</strong> threads
               </span>
-              <span>•</span>
+              <span aria-hidden="true">•</span>
               <span>
                 <strong className="text-ink-2">{category.post_count || 0}</strong> posts
               </span>
+              <span aria-hidden="true">•</span>
+              {/* Last activity (audit L2) — the signal that tells a newcomer
+                  whether a board is alive. A board with no live topics says so
+                  in words rather than rendering an empty slot. */}
+              {category.last_post_at ? (
+                <Timestamp iso={category.last_post_at} prefix="Last activity" />
+              ) : (
+                <span>No activity yet</span>
+              )}
             </div>
           </div>
         </div>

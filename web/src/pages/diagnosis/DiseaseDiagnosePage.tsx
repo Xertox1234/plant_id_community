@@ -95,11 +95,15 @@ export default function DiseaseDiagnosePage() {
           {loading ? 'Diagnosing…' : 'Diagnose'}
         </button>
 
-        {error && (
-          <div className="bg-error/10 border border-error/30 rounded-lg p-4" role="alert">
-            <p className="text-sm text-error">{error}</p>
-          </div>
-        )}
+        {/* Persistent live region, text swaps in place (audit M26) — a
+            conditionally-mounted `role="alert"` is generally not announced. */}
+        <div
+          aria-live="assertive"
+          aria-atomic="true"
+          className={error ? 'bg-error/10 border border-error/30 rounded-lg p-4' : 'sr-only'}
+        >
+          <p className="text-sm text-error">{error}</p>
+        </div>
 
         {results && (
           <div className="pt-4 border-t border-line">

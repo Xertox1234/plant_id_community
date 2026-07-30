@@ -59,12 +59,22 @@ except ImportError:  # pragma: no cover
 from ..blocks import ForumBodyBlock
 from ..collections import get_forum_image_collection
 from ..conf import get_setting
-from ..models import ForumBoard, ForumProfile, Post, Reaction, Report, Topic, TopicRead
+from ..models import (
+    ForumBoard,
+    ForumIndex,
+    ForumProfile,
+    Post,
+    Reaction,
+    Report,
+    Topic,
+    TopicRead,
+)
 from ..models.posts import BLOCK_FORBIDDEN
 from ..workflow import submit_edit_for_moderation, submit_for_moderation
 from .exceptions import Conflict, UnprocessableEntity
 from .idempotency import fingerprint, idempotency_cache_key, remember, replay, reserve
 from .pagination import PostCursorPagination, TopicCursorPagination
+from .sanitize import serialize_forum_intro
 from .serializers import (
     BoardSerializer,
     MeProfileSerializer,
@@ -302,6 +312,18 @@ class PrivateForumReadCacheMixin(PublicForumReadCacheMixin):
     _forum_read_public = False
 
 
+def _visible_forum_index():
+    """The ForumIndex whose welcome copy the board list carries (todo 278 L2).
+
+    Wagtail lets a host mount more than one forum tree, so like `_get_board`'s
+    slug-ambiguity guard this resolves deterministically instead of assuming
+    uniqueness: the first live, non-restricted index in tree order. Returns
+    None when the host has no forum index at all (the API is still usable —
+    `intro` is simply empty).
+    """
+    return ForumIndex.objects.live().public().order_by("path").first()
+
+
 class BoardListView(
     UnversionedForumAPIMixin, PublicForumReadCacheMixin, generics.ListAPIView
 ):
@@ -315,11 +337,38 @@ class BoardListView(
     filter_backends = []
 
     def get_queryset(self):
-        return _visible_boards().order_by("path")
+        # `last_post_at` per board (todo 278 L2) as a correlated scalar
+        # subquery — same idiom as _annotate_topic_unread, so it folds into the
+        # single SELECT rather than adding a GROUP BY over the Page join.
+        # `last_post_at__isnull=False` is load-bearing, not defensive: Postgres
+        # orders DESC as NULLS FIRST, so a live topic that never got a
+        # published post would otherwise win the sort and blank the column.
+        latest_activity = (
+            Topic.objects.filter(
+                board=OuterRef("pk"), live=True, last_post_at__isnull=False
+            )
+            .order_by("-last_post_at")
+            .values("last_post_at")[:1]
+        )
+        return (
+            _visible_boards()
+            .annotate(last_post_at=Subquery(latest_activity))
+            .order_by("path")
+        )
 
     def list(self, request, *args, **kwargs):
         data = self.get_serializer(self.get_queryset(), many=True).data
-        return Response({"results": data})
+        index = _visible_forum_index()
+        # `intro` rides along with the board list rather than getting its own
+        # endpoint: it is the same page's payload, always fetched together, and
+        # a second round-trip would double the forum home page's cold start.
+        # Documented as part of the flat envelope in the package README.
+        return Response(
+            {
+                "results": data,
+                "intro": serialize_forum_intro(index.intro) if index else "",
+            }
+        )
 
 
 @extend_schema(

@@ -20,6 +20,7 @@ from rest_framework import serializers
 from wagtail.blocks import ChooserBlock, RichTextBlock, StructBlock
 from wagtail.images import get_image_model
 from wagtail.images.blocks import ImageChooserBlock
+from wagtail.rich_text import expand_db_html
 
 from ..blocks import ForumBodyBlock
 from ..collections import get_forum_image_collection
@@ -41,6 +42,38 @@ def sanitize_rich_text(html):
     return nh3.clean(
         html,
         tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRIBUTES,
+        url_schemes=ALLOWED_URL_SCHEMES,
+        link_rel="noopener noreferrer nofollow",
+    )
+
+
+# The forum index's welcome copy is CMS-authored, not user-submitted, so the
+# allowlist is wider than a post body's: headings and blockquote survive. Media
+# embeds and images do not — the intro is a short welcome blurb, not an article,
+# and an <iframe> from `expand_db_html` is not something a forum nav header
+# should be able to inject into every client.
+INTRO_ALLOWED_TAGS = ALLOWED_TAGS | {"h2", "h3", "h4", "blockquote", "hr"}
+
+
+def serialize_forum_intro(html):
+    """Expand + sanitize a ``RichTextField`` intro for API delivery.
+
+    Wagtail stores rich text in a DB representation whose page/document links
+    are ``<a linktype="page" id="N">`` placeholders — a client rendering it raw
+    gets a dead anchor. ``expand_db_html`` resolves those to real hrefs (it
+    hits the DB per referenced page; the intro is a handful of links on a
+    publicly-cacheable response, so that cost is bounded).
+
+    Sanitizing CMS-authored HTML is defense in depth, not distrust of the
+    editor: this payload reaches web *and* mobile clients, and only the web one
+    runs DOMPurify.
+    """
+    if not html:
+        return ""
+    return nh3.clean(
+        expand_db_html(html),
+        tags=INTRO_ALLOWED_TAGS,
         attributes=ALLOWED_ATTRIBUTES,
         url_schemes=ALLOWED_URL_SCHEMES,
         link_rel="noopener noreferrer nofollow",
