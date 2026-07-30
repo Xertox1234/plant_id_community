@@ -28,7 +28,18 @@ Compact checklist auto-injected before edits.
 - Web: Vitest for units, Playwright for e2e. Mobile: `flutter test`.
 - **Freeze time in count-to-limit rate-limit tests** (`freezegun.freeze_time`) so
   all N requests share one window — django-ratelimit's jittered window can roll
-  over mid-hammer and flake the `assertEqual(..., 429)`.
+  over mid-hammer and flake the `assertEqual(..., 429)`. Mechanism (verified in
+  `_get_window`): the limiter buckets by a window END (`ts - (ts % period) +
+  crc32(key) % period`) that `_make_cache_key` folds into the cache key, so
+  crossing it swaps the key and RESETS the count to zero — the request that
+  should be the (N+1)th is seen as the 1st and returns the endpoint's normal
+  status. Took down `main` on 2026-07-30 with `401 != 429`.
+  **Use the context-manager form, never the bare `@freeze_time()` decorator**:
+  `freeze_time()` resolves "now" when the object is CONSTRUCTED, and a decorator
+  is constructed at import time — so `@freeze_time()` pins the test to whenever
+  the module was imported, not to when the test runs (measured: a decorator
+  built 1.2s before the call froze to the construction instant). `with
+  freeze_time():` resolves in `__enter__`, which is what you want.
 - **DraftStateMixin fixtures: `objects.create()` is born `live=True`** — it
   bypasses the draft→moderation→publish flow entirely, so workflow/counter
   tests built on it can stay green while the real API path (born `live=False`)
