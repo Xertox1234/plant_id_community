@@ -2374,3 +2374,45 @@ relative-path `ls`, since Bash cwd persists across calls in a way that makes
 relative paths lie. Corollary to the existing mutation-restore rule in
 `docs/rules/testing.md`: prefer `git checkout --` over `cp` backups for the same
 reason — anything depending on cwd is fragile across tool calls.
+
+## 2026-07-30 — "Dead" code that the framework calls (todo 276, audit L8)
+
+**What broke.** `index.AutocompleteField("title")` on `Topic` was removed as dead
+index cost. The stated rationale — "nothing ever calls `backend.autocomplete()`" —
+came from grepping this repository, and it was **wrong**. The caller is Wagtail:
+`TopicViewSet` is a `SnippetViewSet` with `search_fields = ["title"]`, so the
+`/cms/` Topics listing has a search box, and Wagtail's generic `search_queryset`
+(`wagtail/admin/views/generic/base.py`) calls `search_backend.autocomplete()`
+whenever `model.get_autocomplete_search_fields()` is non-empty. With the field
+gone it fell into the `else` branch: whole-word `search()` plus a
+`RuntimeWarning`. Concretely, a moderator typing `mons` stopped matching
+"Monstera repotting".
+
+**Why nothing caught it.** Three independent passes missed it — my own grep, a
+`wagtail-reviewer` agent that reported "confirmed by grep, no code calls
+`backend.autocomplete()` on Topic", and a full green suite. `pytest.ini` only
+ignores `Deprecation`/`PendingDeprecation`, so the `RuntimeWarning` never failed
+anything, and `test_admin.py` covered listing search for `Post` and
+`ForumProfile` but not `Topic`. The bug was invisible from inside the repo.
+
+**Root cause.** Treating "no call site in our code" as proof of no reader, for a
+*declarative* field whose whole purpose is to be read by the framework. Wagtail
+(and Django) are full of these: `search_fields`, `panels`, `api_fields`,
+`Meta.ordering` — none of them have a call site you can grep for locally.
+
+**Fix.** Restored the field, comment rewritten to name Wagtail as the reader, and
+pinned with `test_topic_listing_search_matches_a_title_prefix` — which queries a
+PREFIX (`mons`) precisely because a prefix only resolves through the autocomplete
+path, so the test fails if the field is removed again (verified by mutation:
+13 passed, 1 failed).
+
+**Generalizes to:** before deleting any declarative attribute, grep the INSTALLED
+framework for the attribute name, not just your own source. And note that a
+`RuntimeWarning` is not a test failure under this project's `pytest.ini` — a
+framework degrading gracefully is exactly the shape that stays green while the
+product regresses.
+
+**Also note where it was caught**: the bundled `/code-review` correctness pass,
+after the checklist reviewers had already signed off — the todo-244
+"the two passes are complementary" evidence again, and an argument for running
+the correctness pass before merge rather than after.

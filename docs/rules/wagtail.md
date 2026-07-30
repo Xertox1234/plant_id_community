@@ -119,3 +119,15 @@ Compact checklist auto-injected before edits. Long-form:
   normalize on BOTH paths, or make the READ side path-agnostic (`__iexact`) — and
   if you choose `__iexact` on an M2M, add `.distinct()`, since "Monstera" and
   "monstera" are two Tag rows and a row carrying both joins twice (todo 276 M5).
+- **Never conclude a framework hook is dead by grepping only THIS repo.** Wagtail
+  calls plenty of declarative hooks itself. `index.AutocompleteField` looked
+  unused (`grep '\.autocomplete('` matched nothing of ours) and was removed as
+  dead index cost — but the caller is Wagtail's generic `search_queryset`
+  (`admin/views/generic/base.py`), which uses `backend.autocomplete()` whenever
+  `model.get_autocomplete_search_fields()` is non-empty and otherwise silently
+  degrades to whole-word `search()` + a `RuntimeWarning`. Any `SnippetViewSet`
+  with `search_fields` is therefore a reader. Removing it broke CMS prefix search
+  ("mons" no longer matched "Monstera repotting") with every test still green,
+  because `pytest.ini` only silences Deprecation warnings, not `RuntimeWarning`.
+  Before deleting a declarative field, grep the INSTALLED framework for the
+  attribute name, and pin the behaviour with an admin-listing test (todo 276 L8).

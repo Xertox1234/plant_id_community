@@ -367,7 +367,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #L5 badges-gamification → todo 257 (completed 2026-07-24, PR #491; styled trust badge satisfies; fuller gamification deferred per the finding's own guidance)
 - [x] #L6 blog-md-doc-drift → todo 255 (completed 2026-07-20, slice 1)
 - [x] #L7 openai-key-ops-check → todo 255 (completed 2026-07-20, slice 1)
-- [x] #L8 autocomplete-typeahead → todo 276 (completed 2026-07-30; decision: AutocompleteField dropped, no typeahead)
+- [x] #L8 autocomplete-typeahead → todo 276 (completed 2026-07-30; decision: no typeahead endpoint, and AutocompleteField KEPT — Wagtail's own snippet-listing search calls backend.autocomplete(), so it was never dead. An initial removal regressed CMS prefix search and was reverted in-PR; now pinned by a test)
 - [x] #L10 toolbar-tap-targets → todo 259 (completed 2026-07-24)
 - [x] #L11 button-busy-state → todo 259 (completed 2026-07-24)
 - [x] #L12 timestamp-accessibility → todo 259 (completed 2026-07-24)

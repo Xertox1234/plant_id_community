@@ -79,14 +79,13 @@ PostCard test only asserted `stringContaining('#post-21')`, which would pass eve
 if the path were wrong, so it was tightened to assert the exact URL and that a
 query string (`?order=`) is dropped as view state.
 
-**L8 — decision: DROP `index.AutocompleteField("title")`.** Rationale recorded in
-`models/topics.py`. No `WAGTAILSEARCH_BACKENDS` is configured, so Wagtail uses the
-default database backend, which on Postgres maintains a separate `autocomplete`
-tsvector per `IndexEntry` row — a real cost with zero readers (`backend.autocomplete()`
-is called nowhere; verified the field was the only one in the whole backend).
-Wave 1 already shipped header search + the full-text SearchView, so there is no
-product gap. `search_fields` is not a DB field, so removal needed **no migration**
-and re-adding it later is one line.
+**L8 — decision: no typeahead endpoint; `AutocompleteField` KEPT.**
+*(Superseded the initial call — see the 2026-07-30 code-review entry below. The
+field was first REMOVED on the rationale that nothing called
+`backend.autocomplete()`; that premise was wrong — Wagtail's own snippet-listing
+search is the caller — and the removal was reverted in-PR.)* The typeahead half
+of the decision stands: no suggest endpoint was wired, because Wave 1 already
+shipped header search + the full-text SearchView.
 
 **M1 (quote-reply) — the crux was the value's TYPE, not the toolbar.**
 `BlockQuoteBlock` subclasses `TextBlock` (verified in the installed wagtail), so a
@@ -239,6 +238,54 @@ slugs exactly once across both cursor pages. No production bug — but it was th
 last untested shape.
 
 Final: `594 passed` backend, `731 passed` web.
+
+### 2026-07-30 - Bundled /code-review (medium) — 3 findings, all fixed
+
+Run AFTER the checklist reviewers and CI had signed off. Fresh evidence of the
+todo-244 "the two passes are complementary" finding: the checklist pass had
+actively *confirmed* the thing this pass disproved.
+
+**#1 medium — REVERSED the L8 decision.** My rationale for dropping
+`index.AutocompleteField("title")` — "nothing ever calls `backend.autocomplete()`"
+— was derived from grepping this repo, and was wrong. The caller is Wagtail:
+`TopicViewSet` is a `SnippetViewSet` with `search_fields = ["title"]`, and the
+generic `search_queryset` (`wagtail/admin/views/generic/base.py:261-282`) calls
+`search_backend.autocomplete()` whenever `get_autocomplete_search_fields()` is
+non-empty, else degrades to whole-word `search()` + a `RuntimeWarning`. Verified
+on-branch that `Topic.get_autocomplete_search_fields()` had become `[]`, so a
+moderator typing "mons" no longer matched "Monstera repotting" in the CMS.
+Nothing caught it: `pytest.ini` silences only Deprecation warnings, and
+`test_admin.py` covered listing search for Post and ForumProfile but not Topic.
+Notably the `wagtail-reviewer` agent had independently asserted "confirmed by
+grep, no code calls `backend.autocomplete()`" — the same blind spot. Field
+restored, comment rewritten to name Wagtail as the reader, and pinned by
+`test_topic_listing_search_matches_a_title_prefix` (a PREFIX query, since only
+the autocomplete path resolves one). Mutation-verified: removing the field again
+gives `13 passed, 1 failed`; restored with `git checkout --` per
+`docs/rules/testing.md`.
+
+**#2 medium — dishonest Load More count under a tag filter.** The "N remaining"
+label subtracted the rendered rows from `category.thread_count`, the board's
+*unfiltered* total: on a 400-thread board with 25 tagged, `?tag=` showed
+"380 remaining" for a 25-result set — precisely the fake-count class the comment
+directly above it says audit M30 fixed. Count suppressed while a tag is active;
+both branches now pinned.
+
+**#3 low — unguarded nested-image hoist.** The blockquote image hoist read
+`data-image-id` without the truthiness guard the top-level branch has, so
+`<img data-image-id="">` produced `value: 0` and a non-numeric one `NaN` →
+`null`. Both fail `validate_forum_body`, so ONE unusable image would 400 the
+entire save instead of being dropped.
+
+Also verified-clean by that pass (recorded so it isn't re-litigated): the
+idempotency fingerprint DOES include `tags` (so a tags-only retry under a reused
+key correctly 422s); the two topic serializers have no other consumers, so
+`get_tags` introduces no un-prefetched N+1; and the tag-creation race in
+`_create_topic` is a non-issue — `get_or_create` absorbs the name-unique
+`IntegrityError` in its own savepoint, so it never reaches the slug-retry
+`except`.
+
+Final: `595 passed` backend, `734 passed` web.
 
 ### 2026-07-23 - Created by splitting todo 256
 
