@@ -86,8 +86,10 @@ export interface BackendPost {
  * The search sections are DELIBERATELY lighter than the topic/post list items,
  * not an oversight — see `## List envelopes` in
  * `backend/packages/wagtail_forum/README.md` for the contract and the reasons
- * (audit M40). Anything absent here is absent on purpose; the mappers below
- * substitute honest sentinels rather than aliasing a different field.
+ * (audit M40). Anything absent here is absent on purpose; the two SEARCH mappers
+ * substitute honest sentinels rather than aliasing a different field. (That rule
+ * is specific to them — `mapTopicListItemToThread` does alias `last_post_at`
+ * onto `created_at` as a documented best proxy.)
  */
 export interface BackendSearchTopic {
   id: number;

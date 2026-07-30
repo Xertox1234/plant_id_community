@@ -128,6 +128,13 @@ def test_premium_user_gets_unavailable_when_vector_search_is_disabled():
 def test_premium_semantic_hits_use_the_same_shape_as_fts_topic_hits():
     """Identical keys let clients reuse one result renderer for both sections."""
     topic = _topic()
+    # Pinned ON for the same reason as the FTS twin in
+    # wagtail_forum/tests/api/test_search_sync.py: is_pinned defaults to False,
+    # so asserting the False case would also pass against a hardcoded literal in
+    # _serialize. Saved (not just set in memory) so the FTS section this is
+    # compared against reports the same value.
+    topic.is_pinned = True
+    topic.save()
     client = _premium_client()
     with patch(FIND, return_value=[topic]) as mock_find:
         resp = client.get(SEARCH_URL, {"q": "tomato", "semantic": "1"})
@@ -137,6 +144,7 @@ def test_premium_semantic_hits_use_the_same_shape_as_fts_topic_hits():
     hit = body["semantic"][0]
     assert hit["id"] == topic.id
     assert hit["slug"] == topic.slug
+    assert hit["is_pinned"] is True
     assert hit["board_id"] == topic.board_id
     assert hit["board_slug"] == topic.board.slug
     # Compare against a REAL FTS hit from the same response, not a hardcoded key

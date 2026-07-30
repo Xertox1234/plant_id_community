@@ -349,7 +349,12 @@ describe('forumMappers (wagtail_forum contract)', () => {
     expect(thread.category.slug).toBe('general-discussion');
     // M40 (todo 277): search hits carry the topic's own pinned state, so the
     // shared ThreadCard renders its badge the same way it does on a board list.
+    // Both cases asserted — a `true`-only assertion also passes against a
+    // hardcoded `is_pinned: true` in the mapper.
     expect(thread.is_pinned).toBe(true);
+    expect(mapSearchTopicToThread({ ...backendSearchTopic, is_pinned: false }).is_pinned).toBe(
+      false
+    );
   });
 
   it('mapSearchPostToPost carries topic and board identity for links', () => {

@@ -418,19 +418,30 @@ Every forum view (17 package + 3 host AI views) inherits `versioning_class =
 None` from `wagtail_forum/api/versioning.py::UnversionedForumAPIMixin`, which
 states the rationale once instead of 20 times.
 
-The guard is the interesting part. This host DOES set `DEFAULT_VERSIONING_CLASS
-= NamespaceVersioning`, but it mounts the forum inside its own `v1` namespace, so
-`NamespaceVersioning` resolves an allowed version and **every request still
-returns 200 with or without the mixin** — verified by dropping it from
-`BoardListView`: `test_api_mounted.py` + `test_boards.py` stayed green. The 404
-it prevents only appears on a host that mounts the package outside a version
-namespace, which no behavioural test here can exercise. Hence
-`apps/forum_host/tests/test_forum_versioning_optout.py`: it walks the **host**
-urlconf (so it sees throttled subclasses and `SemanticSearchMixin`, not just
-package classes) and asserts the mixin is present, precedes `APIView` in the MRO
-(DRF's `APIView` declares `versioning_class` in its own body — bases in the wrong
-order silently hand the host default back), and is re-declared nowhere else.
+The guard is the interesting part, and the coverage split is not the obvious one.
+This host sets `DEFAULT_VERSIONING_CLASS = NamespaceVersioning` with
+`ALLOWED_VERSIONS = ["v1", "v2"]`. Whether a dropped opt-out is *visible* then
+depends entirely on which urlconf a test goes through:
+
+| Mount | Namespace | Opt-out dropped |
+|---|---|---|
+| Package test urlconf (`wagtail_forum.tests.api.urls`) | `wagtail_forum_api` (auto from the package `app_name`) — not an allowed version | **404s** — the package API suite catches it, as an undiagnosed mass-404 |
+| Real host mount (`plant_community_backend/urls.py`) | `v1:wagtail_forum_api` — `NamespaceVersioning` splits on `:` and accepts `v1` | **200, unchanged** — nothing behavioural fails |
+
+So the package's own suite happens to cover *package* views — an accident of its
+test urlconf's namespace, not a designed guarantee. What it cannot cover is the
+host-mounted surface: the three host-only AI views
+(`summary`/`compose_assist`/`similar`) and every throttled host subclass. Measured:
+reordering `SimilarTopicsView`'s bases left its own 18 tests **and** all 251
+package API tests green — only the structural guard failed.
+
+Hence `apps/forum_host/tests/test_forum_versioning_optout.py`: it walks the
+**host** urlconf (so it sees throttled subclasses and `SemanticSearchMixin`, not
+just package classes) and asserts the mixin is present, precedes `APIView` in the
+MRO (DRF's `APIView` declares `versioning_class` in its own body — bases in the
+wrong order silently hand the host default back), and is re-declared nowhere else.
 
 Generalizable: when an attribute's *correct* value is indistinguishable from its
-default under the current configuration, behavioural tests cannot protect it.
-Assert the structure.
+default **on the mount that ships**, behavioural tests cannot protect it there.
+Assert the structure — and when claiming "no test catches this", enumerate the
+urlconfs, because coverage can differ per mount within one repo.

@@ -108,15 +108,27 @@ per-response, not resumable days later). Took the AC's documentation branch.
   false. `grep -rn versioning_class` over package + host now returns only
   `versioning.py`.
 
-**The verification that actually mattered.** A green suite is no evidence here.
-This host sets `DEFAULT_VERSIONING_CLASS = NamespaceVersioning` but mounts the
-forum inside its own `v1` namespace, so requests return 200 with or without the
-opt-out. Measured by dropping the mixin from `BoardListView`:
+**The verification that actually mattered — and my first version of it was
+wrong.** I originally claimed a dropped opt-out is invisible to *all* behavioural
+tests, measured by dropping the mixin from `BoardListView` and seeing
+`test_api_mounted.py` + `test_boards.py` stay green. The django-drf reviewer
+refuted it, and re-measuring confirmed the reviewer: `test_boards.py` makes zero
+API calls (an inert control), and the package's own API tests DO catch it —
+their test urlconf resolves to namespace `wagtail_forum_api`, which is in no
+`ALLOWED_VERSIONS`, so every package API request 404s with
+`NotFound: Invalid version in URL path`.
 
-```
---- behavioural tests ---   3 passed        (test_api_mounted + test_boards)
---- drift guard ---         2 failed
-```
+The correct, narrower picture (both measured):
+
+| Mount | Namespace | Opt-out dropped |
+|---|---|---|
+| package test urlconf | `wagtail_forum_api` | 404 — package API suite catches it |
+| real host mount | `v1:wagtail_forum_api` (`v1` allowed) | 200 — nothing behavioural fails |
+
+So the guard's real value is the **host-mounted surface** the package suite
+cannot reach: the three host-only AI views and every throttled host subclass.
+Measured by reordering `SimilarTopicsView`'s bases — its own 18 tests and all
+251 package API tests stayed green; only the guard failed.
 
 So AC2 is backed by `apps/forum_host/tests/test_forum_versioning_optout.py`: it
 walks the **host** urlconf (seeing throttled subclasses and `SemanticSearchMixin`,
@@ -161,3 +173,26 @@ The only reason it surfaced was that the drift guard failed in the full-suite
 run (and passed in isolation, because it had been run before the revert). Undo a
 scratch edit with a file copy, never `git checkout`, when the file has unstaged
 work.
+
+### 2026-07-30 - Code review (PR #513, 4 reviewers) — 5 findings, all addressed
+
+No critical/high. Every finding was verified against the code before acting.
+
+| # | Reviewer | Sev | Finding | Resolution |
+|---|---|---|---|---|
+| 1 | django-drf | medium | The "a dropped opt-out is invisible to behavioural tests" claim in `versioning.py` + the guard's docstring is **false** for package views — the package test urlconf resolves to `wagtail_forum_api`, no allowed version, so it 404s. My control (`test_boards.py`) makes zero API calls | **Reviewer was right.** Re-measured, corrected the claim in 5 places (`versioning.py`, guard docstring, `patterns/domain/forum.md`, `docs/rules/testing.md`, this log) to the per-mount split |
+| 2 | cross-cutting | medium | `test_premium_semantic_hits_…` compared key SETS only; `_topic()` leaves `is_pinned=False`, so a hardcoded `"is_pinned": False` in `_serialize` passed everything — the same discipline I'd applied to the FTS twin | Pinned ON + `assert hit["is_pinned"] is True`; mutation-checked (hardcoded → 1 failed, clean → 12 passed) |
+| 3 | wagtail | medium | README's `## Search backend` still claimed results are "capped at 50 with no pagination and no `has_more` flag" — contradicting the `## List envelopes` section this PR made authoritative | Replaced with the real contract, verified against `PAGE_SIZE`/`MAX_PAGE` |
+| 4 | react-ts | medium | `is_pinned` mapper test asserted only the `true` case — a hardcoded `true` would pass | Added the `false` case; mutation-checked (1 failed / 15 passed) |
+| 5 | react-ts | low | New docblock claimed the mappers never alias fields, but `mapTopicListItemToThread` aliases `last_post_at`→`created_at` | Scoped the claim to the two search mappers |
+
+Acted on one **info** finding too (wagtail): nothing pinned the new envelope table
+to real responses. Normally info goes unactioned, but that same review had just
+found this exact README rotted (#3), so `tests/api/test_list_envelopes.py` now
+asserts each of the four envelopes' top-level key set against a live response,
+plus that the four are actually distinct. A deliberate, stated scope addition.
+
+Findings 2 and 4 are the same defect — a non-discriminating assertion on a field
+whose default equals the asserted value — caught independently in backend and web
+by different reviewers, in a PR where I had already written the guard comment for
+it in a third file. Worth remembering as a class, not three incidents.

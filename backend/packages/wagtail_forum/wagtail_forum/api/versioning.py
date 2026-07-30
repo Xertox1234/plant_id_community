@@ -13,12 +13,23 @@ namespace and 404s (``NotFound``) when no segment of it is in
 that mounts the package outside a version namespace would break every forum
 request. It opts out rather than inheriting a host default it cannot satisfy.
 
-**A dropped opt-out is invisible to behavioural tests.** The reference host
-happens to mount the package *inside* its ``v1`` namespace, so
-``NamespaceVersioning`` resolves an allowed version and every request still
-returns 200 with or without this mixin (measured: dropping it left
-``test_api_mounted.py`` + ``test_boards.py`` green). The breakage only appears on
-a differently-mounted host. That is why the guard below is structural.
+**What catches a dropped opt-out, precisely.** It depends on where the view is
+mounted, and the two cases differ:
+
+- **Package views**: the package's own API test urlconf
+  (``wagtail_forum.tests.api.urls``) mounts at namespace ``wagtail_forum_api``
+  (Django auto-namespaces from this package's ``app_name``), which is in no
+  host's ``ALLOWED_VERSIONS`` — so dropping the opt-out 404s them immediately
+  (``NotFound: Invalid version in URL path``). The package API suite does catch
+  this, though as an undiagnosed mass-404 rather than a named failure.
+- **Host-only views and host subclasses**: invisible. The reference host mounts
+  the forum *inside* its ``v1`` namespace, and ``NamespaceVersioning`` splits a
+  nested namespace on ``:`` and accepts the allowed ``v1`` segment — so those
+  requests return 200 with or without the mixin. Measured: reordering
+  ``SimilarTopicsView``'s bases left its own 18 tests AND all 251 package API
+  tests green; only the structural guard failed.
+
+That second case is what the guard below exists for.
 
 **Consequence.** The forum API is unversioned by contract: response shapes are
 pinned by the package's tests and README (see ``## List envelopes`` there), not

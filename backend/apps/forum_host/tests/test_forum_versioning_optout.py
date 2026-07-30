@@ -5,14 +5,23 @@ Every mounted forum view must inherit `versioning_class = None` from the single
 `UnversionedForumAPIMixin` (`wagtail_forum/api/versioning.py`), which states the
 rationale once.
 
-Nothing else can catch a dropped opt-out. This host DOES set
-`DEFAULT_VERSIONING_CLASS = NamespaceVersioning`, but it mounts the forum inside
-its own `v1` namespace — so `NamespaceVersioning` resolves an ALLOWED_VERSION and
-every request still returns 200 with or without the mixin. Verified by dropping
-it on `BoardListView`: `test_api_mounted.py` + `test_boards.py` stayed green
-while this file went red. The 404 the opt-out prevents only appears on a host
-that mounts the package outside a version namespace — i.e. the reusability
-contract, which no behavioural test in this repo can exercise.
+What this covers that the package's own tests do not: **host-only views and host
+subclasses.**
+
+This host sets `DEFAULT_VERSIONING_CLASS = NamespaceVersioning` with
+`ALLOWED_VERSIONS = ["v1", "v2"]`, and the two mounts behave differently:
+
+- The package's test urlconf (`wagtail_forum.tests.api.urls`) resolves to
+  namespace `wagtail_forum_api` — not an allowed version — so dropping the
+  opt-out 404s the package API suite. It IS caught there (measured), just as an
+  undiagnosed mass-404.
+- This host mounts the forum under `v1`, and `NamespaceVersioning` splits the
+  nested `v1:wagtail_forum_api` on `:` and accepts `v1`. So on the real mount,
+  requests return 200 either way — and the three host-only AI views
+  (`summary`/`compose_assist`/`similar`) plus every throttled host subclass have
+  NO package test standing behind them. Measured: reordering
+  `SimilarTopicsView`'s bases left its own 18 tests and all 251 package API tests
+  green; only this file went red.
 
 Walks the HOST urlconf (`apps/forum_host/api_urls.py`) because that is what prod
 serves: some routes mount package views straight, others mount host subclasses

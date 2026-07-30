@@ -388,8 +388,13 @@ quality of forum search is entirely the host's backend choice.
   unindexed `icontains` scan over topic titles. Fine for development, not for
   production traffic.
 
-Known limitation on all backends: results are capped at 50 with no pagination and
-no `has_more` flag.
+Paging is backend-independent and is described under
+[List envelopes](#list-envelopes): each section returns up to `SearchView.PAGE_SIZE`
+(20) results per page with an honest `*_has_more` flag, and `?page=` is bounded at
+`MAX_PAGE` (50) to cap the SQL OFFSET — so roughly the first 1,000 hits per
+section are reachable. (An earlier revision of this section claimed results were
+"capped at 50 with no pagination and no `has_more` flag"; that predates the
+paging work and was wrong.)
 
 ## Management commands
 

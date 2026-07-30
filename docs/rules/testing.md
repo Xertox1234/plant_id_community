@@ -162,12 +162,33 @@ Compact checklist auto-injected before edits.
   grep matched `NotificationVerb.MENTION` there; line 82 is an argument to
   `send_forum_push_batch.delay(...)`, a different mechanism. A grep hit gives you
   a line, not a callee.
-- **Restore a mutation-check with `git checkout -- <path>`, never a `cp` backup.**
-  A relative `cp` after a `cd` in the same one-liner silently fails when the shell
-  resets cwd, and re-running the check then overwrites the backup with the
-  already-mutated file — the mutation survives into the commit. Commit first, then
-  mutate and `git checkout --` to restore; finish by asserting `git status` is
-  clean, not just that the test passes.
+- **Mutation-check restore: stage or commit FIRST, then `git checkout -- <path>`.**
+  The commit-first half is load-bearing, not ceremony. `git checkout --` reverts
+  to the INDEX, so with unstaged work in that file it silently discards the whole
+  edit, not just your mutation — no error, exit 0. That ate 12 views' worth of an
+  uncommitted refactor on todo 277, and surfaced only as a test that passed in
+  isolation but failed in the suite. If you cannot stage first, copy to an
+  ABSOLUTE path outside the repo and restore from that — the reason to distrust
+  `cp` is relative paths (a `cp` after a `cd` in the same one-liner silently fails
+  when the shell resets cwd, and re-running then overwrites the good backup with
+  the already-mutated file), not `cp` itself. Either way, finish by asserting
+  `git status` is clean, not just that the test passes.
+- **Test coverage can differ PER URLCONF — enumerate the mounts before claiming
+  "no test catches this".** Every forum view sets `versioning_class = None`. Under
+  this project's `NamespaceVersioning` + `ALLOWED_VERSIONS = ["v1","v2"]`, dropping
+  that opt-out 404s the *package* API suite (its test urlconf resolves to
+  `wagtail_forum_api`, not an allowed version) but is completely invisible on the
+  *host* mount (`v1:wagtail_forum_api` — `NamespaceVersioning` splits on `:` and
+  accepts `v1`). So host-only views and throttled host subclasses have nothing
+  behind them: reordering `SimilarTopicsView`'s bases left its own 18 tests and all
+  251 package API tests green. Two lessons: (a) when an attribute's correct value is
+  indistinguishable from its default **on the mount that ships**, assert the
+  STRUCTURE — `apps/forum_host/tests/test_forum_versioning_optout.py` walks the host
+  urlconf and also pins MRO ORDER, since DRF's `APIView` declares
+  `versioning_class` in its own class body and a mixin listed after it silently
+  loses; (b) verify a "nothing catches this" claim against every urlconf, and make
+  sure your control actually exercises the code — my first measurement paired a
+  real API test with `test_boards.py`, which makes zero API calls (todo 277 / L20).
 - **When two validators can return the SAME status, assert the message, not just
   the code.** A test posting 5,000 tags asserted only `400` — and kept passing with
   the new early-bound guard removed, because the ordinary max-count check rejects

@@ -2416,3 +2416,65 @@ product regresses.
 after the checklist reviewers had already signed off — the todo-244
 "the two passes are complementary" evidence again, and an argument for running
 the correctness pass before merge rather than after.
+
+## 2026-07-30 — `git checkout -- <path>` silently ate an uncommitted refactor (todo 277, tooling)
+
+**What broke.** Mid-implementation I ran two mutation checks to prove a new drift
+guard could actually fail: temporarily break a view, run the suite, restore. I
+restored with `git checkout -- <path>`. That reverts the file to the **index**,
+so it discarded not just the two-line mutation but the entire unstaged refactor
+of `api/views.py` and `similar.py` — 12 views' worth. No error, no output, exit 0.
+
+**Why it nearly shipped.** The subsequent `Edit` re-added `is_pinned` on top of
+the reverted file, so the *other* half of the change looked present and its test
+passed. The guard test had been run and passed BEFORE the revert, so its result
+was stale-but-remembered. It only surfaced because the full-suite run failed while
+the same test passed in isolation — an ordering-dependent failure that sent me
+hunting for import aliasing and `sys.modules` duplicates before I checked the
+obvious thing: whether the source on disk still said what I thought it said.
+
+**The rule already existed and I skipped half of it.** The 2026-07-26 entry above
+prescribes "mutation-check by **committing first**, mutating, restoring with
+`git checkout -- <path>`". The *commit first* clause is the load-bearing half —
+`git checkout --` is a safe restore only when the good state is in the index or
+HEAD. With unstaged work in the file it is a destructive operation wearing the
+costume of an undo. (Note it also cuts the other way from that entry's "prefer
+`git checkout --` over `cp` backups": that advice is about cwd-relative `cp`
+paths being fragile, and it holds only under the commit-first precondition.)
+
+**Fix / generalizes to:** before a mutation check, either `git add` the file or
+copy it to an ABSOLUTE path outside the repo and restore from that. And when a
+test passes alone but fails in a suite, verify the source on disk before
+theorising about import state — `grep` the thing you believe you wrote. A passing
+test from before an intervening revert is not evidence about the current tree.
+
+## 2026-07-30 — "No test catches this" is a claim about every urlconf, not one (todo 277, L20)
+
+**What I asserted.** That dropping the forum's `versioning_class = None` opt-out
+is invisible to behavioural tests, because this host mounts the forum inside its
+`v1` namespace and `NamespaceVersioning` accepts `v1`. Evidence offered: dropping
+the mixin from `BoardListView` left `test_api_mounted.py` + `test_boards.py`
+green. I wrote that claim into a module docstring, a test docstring, a pattern
+doc, a rules file, and a PR description.
+
+**Why it was wrong.** A code-review agent refuted it and re-measurement confirmed
+the agent. Two faults: (1) `test_boards.py` makes **zero** API calls — it was an
+inert control that could not have failed, so my "2 tests stayed green" was really
+one; (2) the package's own API suite mounts through
+`wagtail_forum.tests.api.urls`, whose namespace is `wagtail_forum_api` (Django
+auto-namespaces from the package's `app_name`) — not in `ALLOWED_VERSIONS`. Under
+that urlconf a dropped opt-out 404s everything with
+`NotFound: Invalid version in URL path`. Coverage differed **per mount inside one
+repo**, and I had generalised from the mount I happened to test.
+
+**What survived.** The guard is still justified, on narrower and now-measured
+grounds: the host mount stays 200 either way, so host-only views (the three AI
+endpoints) and throttled host subclasses have nothing behind them — reordering
+`SimilarTopicsView`'s bases left its own 18 tests AND all 251 package API tests
+green, and only the structural guard failed.
+
+**Generalizes to:** a "nothing catches this" claim needs the mount matrix
+enumerated, not one sample — and every control in a mutation check must be a test
+that actually exercises the code path, or it is decoration. Also: an agent
+reviewer contradicting a claim you measured yourself is worth re-measuring before
+defending; here the reviewer was simply right.
