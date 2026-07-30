@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TipTapEditor from './TipTapEditor';
@@ -14,7 +14,38 @@ import { logger } from '../../utils/logger';
  * - Link insertion
  * - Editable/readonly modes
  */
+/**
+ * jsdom implements no layout, and its `Range` has neither `getClientRects` nor
+ * `getBoundingClientRect`. ProseMirror's `scrollToSelection` → `coordsAtPos` calls
+ * `singleRect(textRange(...))` — i.e. on a **Range**, not on the node — so any
+ * transaction that scrolls the selection throws `target.getClientRects is not a
+ * function`. That surfaces as an UNHANDLED error, which fails the vitest run
+ * (exit 1) while still printing every test as passed.
+ *
+ * The component avoids this on its own AI-assist path (`scrollIntoView: false`),
+ * but the undo test below goes through TipTap's Mod-z keybinding, whose
+ * scroll-into-view is internal to the History extension and not configurable.
+ * An empty rect list is the case `singleRect` already handles for an off-screen
+ * selection, so this is inert padding, not simulated layout.
+ */
+beforeAll(() => {
+  const proto = Range.prototype as unknown as Record<string, unknown>;
+  if (typeof proto.getClientRects !== 'function') {
+    proto.getClientRects = () => Object.assign([], { item: () => null });
+  }
+  if (typeof proto.getBoundingClientRect !== 'function') {
+    proto.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+  }
+});
+
 describe('TipTapEditor', () => {
+  beforeEach(() => {
+    // The compose-assist unavailability latch is session-scoped module state in
+    // forumService (deliberately — see the component), so a 403 case would
+    // otherwise disable the button for every later case in this file.
+    forumService.resetComposeAssistAvailability();
+  });
+
   it('renders with default placeholder', async () => {
     const { container } = render(<TipTapEditor onChange={vi.fn()} />);
 
@@ -255,5 +286,174 @@ describe('TipTapEditor', () => {
 
     // A dangerous scheme is rejected with a message, not silently linked.
     expect(screen.getByText(/valid http/i)).toBeInTheDocument();
+  });
+
+  // ------------------------------------------------------------------------- #
+  // AI composer assist (todo 275 / M14)
+  // ------------------------------------------------------------------------- #
+
+  const AI_TITLE = /improve draft with ai/i;
+
+  it('offers an AI assist button, disabled while the draft is empty (M14)', async () => {
+    render(<TipTapEditor onChange={vi.fn()} editable />);
+    const button = await screen.findByTitle(AI_TITLE);
+    // Nothing to improve yet — and an enabled button would spend a premium call
+    // on an empty document.
+    expect(button).toBeDisabled();
+  });
+
+  it('sends the current draft and swaps in the rewrite (M14)', async () => {
+    const improveSpy = vi
+      .spyOn(forumService, 'improveDraft')
+      .mockResolvedValue('My tomato plant is wilting.');
+    const onChange = vi.fn();
+    const { container } = render(
+      <TipTapEditor content="<p>tomato plant sad</p>" onChange={onChange} editable />
+    );
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTitle(AI_TITLE));
+
+    await waitFor(() =>
+      expect(improveSpy).toHaveBeenCalledWith(expect.stringContaining('tomato plant sad'))
+    );
+    await waitFor(() =>
+      expect(container.querySelector('.ProseMirror').textContent).toBe(
+        'My tomato plant is wilting.'
+      )
+    );
+    // The parent form is told about the swap, or the post would submit the old draft.
+    expect(onChange).toHaveBeenCalled();
+  });
+
+  it('inserts model output as TEXT, never as parsed markup (M14)', async () => {
+    // The endpoint contracts for plain text, but a model can still emit tags.
+    // insertContent(<string>) would parse them into real document structure that
+    // the user then publishes; node-based insertion cannot.
+    vi.spyOn(forumService, 'improveDraft').mockResolvedValue(
+      '<b>bold</b> and <img src=x onerror=alert(1)>'
+    );
+    const { container } = render(
+      <TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />
+    );
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTitle(AI_TITLE));
+
+    const editor = await waitFor(() => {
+      const el = container.querySelector('.ProseMirror');
+      expect(el.textContent).toContain('<b>bold</b>');
+      return el;
+    });
+    expect(editor.querySelector('b')).toBeNull();
+    expect(editor.querySelector('img')).toBeNull();
+  });
+
+  it('splits a multi-paragraph rewrite into separate paragraphs (M14)', async () => {
+    vi.spyOn(forumService, 'improveDraft').mockResolvedValue(
+      'First paragraph.\n\nSecond paragraph.\nThird line.'
+    );
+    const { container } = render(
+      <TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />
+    );
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTitle(AI_TITLE));
+
+    await waitFor(() => expect(container.querySelectorAll('.ProseMirror p')).toHaveLength(3));
+    expect(container.querySelector('.ProseMirror').textContent).toContain('First paragraph.');
+    expect(container.querySelector('.ProseMirror').textContent).toContain('Third line.');
+  });
+
+  it('is one undo step, so the original draft is recoverable (M14)', async () => {
+    // The rewrite is text-only, so images and link marks in the draft are dropped.
+    // Undo is the documented escape hatch for that — if the swap were more than one
+    // transaction, Ctrl+Z would only partially restore and the tradeoff would be a
+    // silent data loss instead.
+    vi.spyOn(forumService, 'improveDraft').mockResolvedValue('Rewritten.');
+    const { container } = render(
+      <TipTapEditor content="<p>the original draft</p>" onChange={vi.fn()} editable />
+    );
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTitle(AI_TITLE));
+    await waitFor(() =>
+      expect(container.querySelector('.ProseMirror').textContent).toBe('Rewritten.')
+    );
+
+    // Driven through the real Mod-z keybinding on the editor surface, not a test-only
+    // escape hatch on the component — the claim being verified is that the USER can
+    // undo it.
+    const surface = container.querySelector('.ProseMirror') as HTMLElement;
+    surface.focus();
+    await userEvent.keyboard('{Control>}z{/Control}');
+
+    await waitFor(() =>
+      expect(container.querySelector('.ProseMirror').textContent).toBe('the original draft')
+    );
+  });
+
+  it('permanently disables the button and explains why on a 403 (M14)', async () => {
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    vi.spyOn(forumService, 'improveDraft').mockRejectedValue(
+      new forumService.ComposeAssistError(403, 'This feature requires a premium account.')
+    );
+    const { container } = render(
+      <TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />
+    );
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTitle(AI_TITLE));
+
+    expect(await screen.findByText(/requires a premium account/i)).toBeInTheDocument();
+    // Retrying can never succeed for this account, so the control is disabled —
+    // but kept MOUNTED, so the focus the user just placed on it isn't dropped.
+    await waitFor(() =>
+      expect(screen.getByTitle(/not available for this account/i)).toBeDisabled()
+    );
+  });
+
+  it('stays disabled across a composer remount after a 403 (M14)', async () => {
+    // ThreadDetailPage remounts the reply composer (key={composerKey}) after every
+    // post, which resets component state — the latch therefore lives in the
+    // service, or a non-premium user gets the failing button back on every reply.
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    vi.spyOn(forumService, 'improveDraft').mockRejectedValue(
+      new forumService.ComposeAssistError(403, 'This feature requires a premium account.')
+    );
+    const first = render(<TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />);
+    await waitFor(() => expect(first.container.querySelector('.ProseMirror')).toBeInTheDocument());
+    await userEvent.click(screen.getByTitle(AI_TITLE));
+    await waitFor(() =>
+      expect(screen.getByTitle(/not available for this account/i)).toBeDisabled()
+    );
+    first.unmount();
+
+    const second = render(<TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />);
+    await waitFor(() => expect(second.container.querySelector('.ProseMirror')).toBeInTheDocument());
+    // Fresh mount, still disabled — no second wasted round-trip.
+    expect(screen.getByTitle(/not available for this account/i)).toBeDisabled();
+  });
+
+  it('keeps the button after a transient 429 (M14)', async () => {
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    vi.spyOn(forumService, 'improveDraft').mockRejectedValue(
+      new forumService.ComposeAssistError(429, 'AI assist is temporarily at capacity.')
+    );
+    const { container } = render(
+      <TipTapEditor content="<p>draft</p>" onChange={vi.fn()} editable />
+    );
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTitle(AI_TITLE));
+
+    expect(await screen.findByText(/temporarily at capacity/i)).toBeInTheDocument();
+    // Transient — a later retry can work, so the button must stay usable, not just
+    // stay mounted (it is always mounted now): still enabled, still its normal
+    // title, and the session latch untouched.
+    const button = screen.getByTitle(AI_TITLE);
+    expect(button).toBeEnabled();
+    expect(screen.queryByTitle(/not available for this account/i)).not.toBeInTheDocument();
+    expect(forumService.isComposeAssistUnavailable()).toBe(false);
   });
 });

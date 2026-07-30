@@ -172,6 +172,108 @@ def test_find_returns_empty_for_blank_query():
 
 
 # --------------------------------------------------------------------------- #
+# Dedicated query-embedding budget (todo 275 / AC4)                            #
+# --------------------------------------------------------------------------- #
+
+# Patching the whole index class keeps these tests key-free: an exhausted budget
+# must short-circuit BEFORE SimilarTopics() is constructed (its __init__ builds
+# the OpenAI-backed transformer), which is exactly what the first test pins.
+INDEX = "apps.forum_host.vector_indexes.SimilarTopics"
+
+
+@override_settings(FORUM_VECTOR_SEARCH_ENABLED=True)
+@pytest.mark.django_db
+def test_exhausted_embed_budget_returns_empty_without_searching():
+    from apps.forum_host import constants
+
+    cache.set(constants.EMBED_BUDGET_CACHE_KEY, constants.EMBED_BUDGET_LIMIT, 3600)
+    with patch(INDEX) as mock_index:
+        assert find_similar_topics("tomato blight") == []
+    # No index instantiation at all — so no embedding call and no OpenAI spend.
+    mock_index.assert_not_called()
+
+
+@override_settings(FORUM_VECTOR_SEARCH_ENABLED=True)
+@pytest.mark.django_db
+def test_successful_search_consumes_one_unit_of_embed_budget():
+    from apps.forum_host import constants
+
+    with patch(INDEX) as mock_index:
+        mock_index.return_value.search_documents.return_value = []
+        assert find_similar_topics("tomato blight") == []
+    assert cache.get(constants.EMBED_BUDGET_CACHE_KEY) == 1
+
+
+@override_settings(FORUM_VECTOR_SEARCH_ENABLED=True)
+@pytest.mark.django_db
+def test_provider_failure_does_not_consume_embed_budget():
+    """Peek-then-consume, not check-and-increment: a sustained provider outage
+    must not drain the cap via failed attempts and lock the feature off."""
+    from apps.forum_host import constants
+
+    with patch(INDEX) as mock_index:
+        mock_index.return_value.search_documents.side_effect = RuntimeError("provider")
+        assert find_similar_topics("tomato blight") == []
+    assert cache.get(constants.EMBED_BUDGET_CACHE_KEY) is None
+
+
+@override_settings(FORUM_VECTOR_SEARCH_ENABLED=True)
+@pytest.mark.django_db
+def test_query_is_capped_inside_the_helper_not_at_the_call_sites():
+    """The cap lives in find_similar_topics (todo 275 review) so every caller —
+    the endpoint, the M12 search section, a future RAG retrieval — inherits it and
+    cannot silently invalidate EMBED_BUDGET_LIMIT's cost math by forgetting it."""
+    from apps.forum_host import constants
+
+    long_query = "x" * (constants.SIMILAR_QUERY_MAX_CHARS + 250)
+    with patch(INDEX) as mock_index:
+        mock_index.return_value.search_documents.return_value = []
+        find_similar_topics(long_query)
+    embedded = mock_index.return_value.search_documents.call_args.args[0]
+    assert len(embedded) == constants.SIMILAR_QUERY_MAX_CHARS
+
+
+@override_settings(FORUM_VECTOR_SEARCH_ENABLED=True)
+@pytest.mark.django_db
+def test_repeat_query_hits_the_pk_cache_and_does_not_re_embed():
+    """A premium client paging `/search/?semantic=1` re-issues the identical query
+    per page; without this cache each page re-embeds it (todo 275 review)."""
+    from apps.forum_host import constants
+
+    with patch(INDEX) as mock_index:
+        mock_index.return_value.search_documents.return_value = []
+        find_similar_topics("tomato blight")
+        find_similar_topics("tomato blight")
+    # One vector search, one budget unit — not two.
+    assert mock_index.return_value.search_documents.call_count == 1
+    assert cache.get(constants.EMBED_BUDGET_CACHE_KEY) == 1
+
+
+@override_settings(FORUM_VECTOR_SEARCH_ENABLED=True)
+@pytest.mark.django_db
+def test_pk_cache_is_keyed_on_query_board_and_limit():
+    """A different query/board/limit must not be served another's cached pks."""
+    with patch(INDEX) as mock_index:
+        mock_index.return_value.search_documents.return_value = []
+        find_similar_topics("tomato blight")
+        find_similar_topics("rose pruning")
+        find_similar_topics("tomato blight", board_slug="general")
+        find_similar_topics("tomato blight", limit=2)
+    assert mock_index.return_value.search_documents.call_count == 4
+
+
+@override_settings(FORUM_VECTOR_SEARCH_ENABLED=True)
+@pytest.mark.django_db
+def test_embed_budget_does_not_touch_the_shared_blog_completion_counter():
+    """The whole point of AC4: embedding spend has its OWN counter, so it can
+    neither starve nor be starved by the blog's `ai_rate_limit:global` quota."""
+    with patch(INDEX) as mock_index:
+        mock_index.return_value.search_documents.return_value = []
+        find_similar_topics("tomato blight")
+    assert cache.get("ai_rate_limit:global") is None
+
+
+# --------------------------------------------------------------------------- #
 # End-to-end pgvector build + search (deterministic fake embedder)             #
 # --------------------------------------------------------------------------- #
 

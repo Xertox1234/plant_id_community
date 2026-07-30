@@ -71,7 +71,11 @@ class SimilarTopicsView(APIView):
                 {"detail": "Query parameter 'q' is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        query = query[: constants.SIMILAR_QUERY_MAX_CHARS]
+        # No length cap here: find_similar_topics applies
+        # SIMILAR_QUERY_MAX_CHARS itself, so the cap lives in exactly one place
+        # and a caller cannot forget it (todo 275 review). This response cache is
+        # keyed on what the client actually sent, which at worst gives two entries
+        # for a query and its truncated prefix.
         board_slug = request.query_params.get("board", "").strip() or None
 
         # Cache the (query, board) result set briefly so debounced compose-time

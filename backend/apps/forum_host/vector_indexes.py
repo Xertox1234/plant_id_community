@@ -19,9 +19,11 @@ call ever fires in dev/CI. Populate the index with
 See docs/superpowers/specs/2026-07-22-forum-similar-topics-pgvector-design.md.
 """
 
+import hashlib
 import logging
 
 from django.conf import settings
+from django.core.cache import cache
 from django_ai_core.contrib.index import (
     CoreEmbeddingTransformer,
     ModelSource,
@@ -93,38 +95,102 @@ class SimilarTopics(VectorIndex):
         super().__init__()
 
 
+def _search_cache_key(query: str, board_slug: str | None, limit: int) -> str:
+    """Cache key for one vector query. Hashed, so an arbitrary user query can
+    never produce an oversized or control-character-bearing memcached key."""
+    raw = f"{query}\x1f{board_slug or ''}\x1f{limit}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    return f"{constants.SIMILAR_CACHE_PREFIX}:pks:{digest}"
+
+
 def find_similar_topics(
     query: str, board_slug: str | None = None, limit: int | None = None
 ):
     """Return live, visible topics semantically similar to ``query``.
 
-    Returns ``[]`` when the feature is disabled, the query is blank, the index is
-    empty, or the provider errors — never raises to the caller. Results are
-    refetched through ``_visible_boards()`` (board privacy) in vector-score order.
+    Returns ``[]`` when the feature is disabled, the query is blank, the
+    dedicated embedding budget is exhausted, the index is empty, or the provider
+    errors — never raises to the caller. Results are refetched through
+    ``_visible_boards()`` (board privacy) in vector-score order.
+
+    This is the ONLY embedding entry point for the forum: the compose-time
+    similar-topics endpoint, the premium semantic-search section (M12) and any
+    future RAG retrieval (M13) all route through here, so every caller inherits
+    the flag, the query length cap, the embedding budget, the embedding cache and
+    the visibility refetch by construction. Callers must not reach
+    ``SimilarTopics().search_documents()`` directly, and must not re-implement the
+    length cap — it lives here precisely so a new caller cannot forget it and
+    silently invalidate ``EMBED_BUDGET_LIMIT``'s cost math.
     """
     if not getattr(settings, "FORUM_VECTOR_SEARCH_ENABLED", False):
         return []
     query = (query or "").strip()
     if not query:
         return []
+    # Bound the embedded text here, not at each call site: embedding cost scales
+    # with input length and EMBED_BUDGET_LIMIT is sized against this cap.
+    query = query[: constants.SIMILAR_QUERY_MAX_CHARS]
     limit = limit or constants.SIMILAR_TOPICS_LIMIT
 
-    try:
-        docs = list(
-            SimilarTopics().search_documents(query)[
-                : limit * constants.SIMILAR_OVERFETCH
-            ]
-        )
-    except Exception:
-        logger.exception("[ERROR] similar-topics vector search failed")
-        return []
+    # Deliberately imported at call time, not module scope — see this module's
+    # import-safety contract.
+    from apps.blog.services.ai_rate_limiter import AIRateLimiter
 
-    # pks in vector-score order (search_documents returns ordered by distance).
-    ordered_pks: list = []
-    for doc in docs:
-        pk = (doc.metadata or {}).get("pk")
-        if pk is not None and pk not in ordered_pks:
-            ordered_pks.append(pk)
+    # Embedding-result cache. Keyed on everything that changes the vector query,
+    # storing ordered PKs only — the visibility refetch below always re-runs, so a
+    # board restricted after the cache write still cannot leak. This is what makes
+    # EMBED_BUDGET_LIMIT's "the result cache bounds normal traffic" sizing true for
+    # EVERY caller, not just the compose-time endpoint that has its own outer
+    # response cache: a premium client paging `/search/?semantic=1` re-issues the
+    # identical query per page and must not re-embed it each time.
+    cache_key = _search_cache_key(query, board_slug, limit)
+    ordered_pks = cache.get(cache_key)
+
+    if ordered_pks is None:
+        # Dedicated query-embedding budget (todo 275 / AC4). Peek, never
+        # check-and-increment: budget is consumed only after a call that actually
+        # reached the provider, so a sustained provider outage cannot drain the
+        # cap via failed attempts.
+        if not AIRateLimiter.peek_budget(
+            constants.EMBED_BUDGET_CACHE_KEY, constants.EMBED_BUDGET_LIMIT
+        ):
+            logger.warning(
+                "[PERF] Forum semantic search skipped: query-embedding budget "
+                "exhausted; degrading to no semantic results"
+            )
+            return []
+
+        try:
+            docs = list(
+                SimilarTopics().search_documents(query)[
+                    : limit * constants.SIMILAR_OVERFETCH
+                ]
+            )
+        except Exception:
+            logger.exception("[ERROR] similar-topics vector search failed")
+            return []
+
+        # Charged only on a call that returned — including an empty result set,
+        # which still embedded the query. A CachedEmbeddingTransformer hit may not
+        # have hit the provider; charging it anyway over-counts spend, which is
+        # the safe direction for a cost cap.
+        AIRateLimiter.consume_budget(
+            constants.EMBED_BUDGET_CACHE_KEY, constants.EMBED_BUDGET_LIMIT
+        )
+
+        # pks in vector-score order (search_documents returns ordered by distance).
+        ordered_pks = []
+        for doc in docs:
+            pk = (doc.metadata or {}).get("pk")
+            if pk is not None and pk not in ordered_pks:
+                ordered_pks.append(pk)
+        try:
+            # An empty list is cached too — a query with no semantic match is the
+            # cheapest thing to re-answer and the most wasteful to re-embed.
+            cache.set(cache_key, ordered_pks, constants.SIMILAR_CACHE_TTL_SECONDS)
+        except Exception:
+            logger.warning("[ERROR] similar-topics pk-cache write failed")
+
     if not ordered_pks:
         return []
 

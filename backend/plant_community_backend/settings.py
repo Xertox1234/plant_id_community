@@ -808,6 +808,17 @@ FORUM_VECTOR_SEARCH_ENABLED = config(
 )
 FORUM_EMBED_MODEL = config("FORUM_EMBED_MODEL", default="text-embedding-3-small")
 
+# Forum AI composer assist (todo 275 / M14). The route is always mounted but
+# 503s while this is off. Default OFF for the same reason as the two settings
+# above: this is the most expensive AI feature per call (an interactive,
+# uncacheable completion per keystroke-batch), so it must not start spending the
+# moment it merges. Enable per-deployment with a working OPENAI_API_KEY once the
+# forum has enough real drafting traffic to justify it; the forum-wide
+# COMPOSE_BUDGET_LIMIT and the per-user `compose_assist` throttle bound it then.
+FORUM_COMPOSE_ASSIST_ENABLED = config(
+    "FORUM_COMPOSE_ASSIST_ENABLED", default=False, cast=bool
+)
+
 # Firebase Admin SDK service-account JSON path — the CANONICAL credentials
 # setting: both the auth token exchange (apps/users) and the FCM sender
 # (apps/garden/firebase_config.py) read this. Falls back to the

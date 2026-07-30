@@ -16,6 +16,7 @@ from wagtail_forum.api import user_search as forum_user_search_views
 from wagtail_forum.api import views as forum_views
 
 from .constants import DEFAULT_FORUM_RATELIMITS
+from .semantic_search import SemanticSearchMixin
 
 
 def _rate(name):
@@ -90,7 +91,12 @@ class MeProfileView(forum_views.MeProfileView):
 
 
 @_throttled("search", "GET", key=client_ip_key)
-class SearchView(forum_views.SearchView):
+class SearchView(SemanticSearchMixin, forum_views.SearchView):
+    # The mixin adds the opt-in premium `semantic` section (todo 275 / M12); it
+    # must precede the package view in the MRO so its `get` wraps the FTS one.
+    # `_throttled` is applied to THIS class, so it wraps the already-composed
+    # `get` — a subclass that overrode `get` instead would silently drop the
+    # throttle.
     pass
 
 

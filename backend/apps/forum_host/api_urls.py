@@ -32,15 +32,22 @@ from .api import (
     UserMentionSearchView,
 )
 
-# Host-only AI route (todo 255 slice 3 / H14) — no package counterpart; the
-# summarization logic reuses the blog app's AI helpers, which the package may
-# not import. The route-drift guard allow-lists this one host-only addition.
+# Host-only AI routes (todo 255 slice 3 / H14, slice 4 / H15; todo 275 / M14) —
+# no package counterpart; their logic reuses the blog app's AI helpers, which the
+# package may not import. The route-drift guard allow-lists these host-only
+# additions (see HOST_ONLY_ROUTES in tests/test_ratelimits.py).
+from .compose_assist import ComposeAssistView
 from .similar import SimilarTopicsView
 from .summary import TopicSummaryView
 
 app_name = "wagtail_forum_api"
 
 urlpatterns = [
+    path(
+        "compose/assist/",
+        ComposeAssistView.as_view(),
+        name="compose-assist",
+    ),
     path("boards/", BoardListView.as_view(), name="board-list"),
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
     path("topics/<int:topic_id>/", TopicDetailView.as_view(), name="topic-detail"),

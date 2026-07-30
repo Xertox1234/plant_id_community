@@ -23,6 +23,7 @@ THROTTLED_OPERATIONS = [
     ("/forum/topics/{topic_id}/subscription/", "delete"),
     ("/forum/topics/{topic_id}/summary/", "get"),  # H14 premium AI summary
     ("/forum/topics/similar/", "get"),  # H15 semantic similar topics
+    ("/forum/compose/assist/", "post"),  # M14 AI composer assist (todo 275)
 ]
 
 
