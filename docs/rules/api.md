@@ -70,3 +70,24 @@ Compact checklist auto-injected before edits. Long-form:
   namespace when `include()`d. Resolve within the live request instead:
   `ns = request.resolver_match.namespace; reverse(f"{ns}:name" if ns else "name", …)`
   (see `_created_location`, todo 258 L19).
+- **`strip_tags` is not an HTML→text converter** — it substitutes nothing for a tag
+  and decodes no entities, so `'<p>a</p><p>b</p>'` → `'ab'` and `'<p>&nbsp;</p>'` →
+  the truthy `'&nbsp;'` (passing a `if not text` empty-guard). Wherever the output is
+  consumed as prose (LLM prompt, email body, excerpt, search doc), substitute block
+  boundaries with newlines first, then strip, then `html.unescape`. Test it with a
+  MULTI-block fixture and an entity fixture — a single-`<p>` fixture cannot exhibit
+  the bug (shipped past 20 passing tests, todo 275). Prefer walking StreamField
+  blocks (`plain_text_excerpt`) when the source is structured.
+- **Never override the decorated method on a `method_decorator`-wrapped view.**
+  `@_throttled("search", "GET")` wraps whatever `get` the MRO resolves at
+  class-creation time, so `class X(ThrottledSearchView)` defining its own `get`
+  REPLACES the wrapper and ships the endpoint unthrottled — silently, since every
+  functional test still passes. Add behaviour as a mixin composed *ahead* of the
+  base and apply the decorator to the composed class; re-declare `@extend_schema`
+  there too, or the OpenAPI description reverts while the response shape changed.
+- **One AI cost centre, one budget counter, peek-then-consume.** Never share a cache
+  key between features (non-commensurable unit costs, and one feature's cap then
+  triggers another's degrade posture), and never `check-and-increment`: charge only
+  after the provider actually returned, so an outage cannot drain the cap through
+  failed attempts. An empty-but-successful response IS a charge — it was billed.
+  See `backend/docs/patterns/domain/forum.md`.

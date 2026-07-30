@@ -325,9 +325,17 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [ ] #M10 private-messaging → todo 284 (re-pointed 2026-07-26; promoted out of 263,
       gated behind M9 in that todo's first acceptance criterion)
 - [ ] #M11 post-permalinks → todo 276 (re-pointed 2026-07-23; split out of 256; Wave 1 shipped the chase, residual = copy-link)
-- [ ] #M12 semantic-search-upgrade → todo 275 (re-pointed 2026-07-22; not in 255's AC)
-- [ ] #M13 rag-plant-care → todo 275 (re-pointed 2026-07-22; 255 held it unstarted per gate)
-- [ ] #M14 ai-composer-assist → todo 275 (re-pointed 2026-07-22; not in 255's AC)
+- [x] #M12 semantic-search-upgrade → todo 275 (completed 2026-07-29; premium
+      `semantic` section on `/forum/search/`, own array so FTS paging is intact)
+- [ ] #M13 rag-plant-care → todo 289 (re-pointed 2026-07-29; todo 275 completed
+      the design round —
+      `docs/superpowers/specs/2026-07-29-forum-rag-plant-care-design.md` — and
+      explicitly descoped implementation: empty corpus, H15 still dormant in
+      prod, no owner for the wrong-answer review loop. Four objective enablement
+      gates recorded in 289)
+- [x] #M14 ai-composer-assist → todo 275 (completed 2026-07-29; premium
+      `POST /forum/compose/assist/` + TipTap toolbar action, dormant behind
+      `FORUM_COMPOSE_ASSIST_ENABLED`)
 - [x] #M16 preview-support → todo 254 (completed 2026-07-13)
 - [x] #M17 i18n → todo 262 (completed 2026-07-26)
 - [x] #M18 package-readme → todo 262 (completed 2026-07-26; the finding's

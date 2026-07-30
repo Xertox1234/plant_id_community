@@ -1455,3 +1455,52 @@ reminder.mark_snoozed(snooze_hours)
 2. Define min/max bounds as named constants in `constants.py`.
 3. Return HTTP 400 with a message naming both the field and the allowed range.
 4. Apply to ALL numeric parameters: hours, counts, page sizes, limits, offsets.
+
+## `strip_tags` Is Not an HTML→Text Converter (todo 275)
+
+`django.utils.html.strip_tags` *removes* tags. It substitutes **nothing** in their
+place and decodes **no** entities, so it is wrong on its own wherever the output is
+consumed as prose — an LLM prompt, an email body, a notification excerpt, a search
+document, a digest.
+
+```python
+>>> strip_tags('<p>Line one</p><p>Line two</p>')
+'Line oneLine two'                 # every block boundary fuses two words
+>>> strip_tags('<ul><li>a</li><li>b</li></ul>')
+'ab'
+>>> strip_tags('<p>&nbsp;</p>').strip()
+'&nbsp;'                           # truthy → an "empty" input passes a `if not text` guard
+>>> strip_tags('<p>Tom &amp; Jerry</p>')
+'Tom &amp; Jerry'                  # entity survives into whatever consumes the text
+```
+
+Correct shape — reconstruct boundaries first, then strip, then decode:
+
+```python
+_BLOCK_BOUNDARY_RE = re.compile(
+    r"(?i)</(?:p|div|li|ul|ol|h[1-6]|blockquote|pre)\s*>|<br\s*/?>"
+)
+
+def html_to_text(raw: str) -> str:
+    if not raw:
+        return ""
+    text = html.unescape(strip_tags(_BLOCK_BOUNDARY_RE.sub("\n", raw)))
+    # Nested blocks emit several boundaries in a row.
+    return "\n".join(line.strip() for line in text.splitlines() if line.strip())
+```
+
+Order matters: substitute → strip → unescape. Unescaping *first* would turn
+`&lt;p&gt;` into a real tag and let the stripper eat the user's literal text.
+
+When the source is a **StreamField** rather than raw HTML, prefer walking blocks:
+`wagtail_forum.api.views.plain_text_excerpt` strips each block's value and
+`" ".join(...)`s them, which sidesteps the fusion problem entirely (and avoids the
+per-post image bulk-fetch that iterating a resolved `StreamValue` triggers). Only
+reconstruct boundaries when you genuinely have unstructured HTML — e.g. a rich-text
+editor's `getHTML()` arriving in a request body.
+
+**Testing this needs a multi-block fixture and an entity fixture.** A single-`<p>`
+fixture cannot exhibit a between-blocks bug — this shipped with 20 passing endpoint
+tests, all of which used one paragraph. Assert the *negative* (`'sadWhat' not in
+prompt`), because asserting that both words are present also passes on the fused
+string.

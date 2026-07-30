@@ -331,6 +331,39 @@ class TestRealIndexFiresOnKnownBugs(unittest.TestCase):
                         "    @action(detail=True)\n    def f(self): ...\n")
         self.assertNotIn("drf-action-no-ratelimit", self.fires(tn, ti))
 
+    def test_bare_strip_tags_fires(self):
+        # todo 275: strip_tags substitutes nothing for a tag, so adjacent blocks fuse.
+        tn, ti = write(
+            "backend/apps/forum_host/compose_assist.py",
+            'def flatten(raw):\n    return strip_tags(raw or "").strip()\n',
+        )
+        self.assertIn("strip-tags-not-html-to-text", self.fires(tn, ti))
+
+    def test_strip_tags_with_boundary_and_unescape_silent(self):
+        tn, ti = write(
+            "backend/apps/forum_host/compose_assist.py",
+            'def flatten(raw):\n'
+            '    return html.unescape(strip_tags(_BLOCK_BOUNDARY_RE.sub("\\n", raw)))\n',
+        )
+        self.assertNotIn("strip-tags-not-html-to-text", self.fires(tn, ti))
+
+    def test_tiptap_insertcontent_string_fires(self):
+        # todo 275: a string arg is parsed as HTML → model output becomes structure.
+        tn, ti = write(
+            "web/src/components/forum/TipTapEditor.tsx",
+            "editor.chain().focus().insertContent(improved).run();\n",
+        )
+        self.assertIn("tiptap-insertcontent-html-string", self.fires(tn, ti))
+
+    def test_tiptap_insertcontent_nodes_silent(self):
+        tn, ti = write(
+            "web/src/components/forum/TipTapEditor.tsx",
+            "const nodes = lines.map((line) => ({ type: 'paragraph', "
+            "content: [{ type: 'text', text: line }] }));\n"
+            "editor.chain().focus().insertContent(nodes).run();\n",
+        )
+        self.assertNotIn("tiptap-insertcontent-html-string", self.fires(tn, ti))
+
     def test_migration_fstring_sql(self):
         tn, ti = write(
             "backend/apps/blog/migrations/0002_x.py",

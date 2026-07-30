@@ -347,3 +347,90 @@ export async function searchForum(options: SearchForumOptions): Promise<SearchFo
     has_more_posts: data.posts_has_more ?? false,
   };
 }
+
+// ---------------------------------------------------------------------------
+// AI composer assist (todo 275 / M14)
+// ---------------------------------------------------------------------------
+
+/**
+ * Error from the compose-assist endpoint, carrying the HTTP status.
+ *
+ * `authenticatedFetch` collapses every failure to a bare `Error`, which is fine
+ * for endpoints whose only failure mode is "it broke". Here the status IS the
+ * product behaviour — 403 means "premium perk", 503 means "not enabled for this
+ * deployment", 429 means "try later" — and the composer hides the button
+ * permanently for the first two but not the third.
+ */
+export class ComposeAssistError extends Error {
+  readonly status: number;
+  /** True when retrying can never succeed for this user/deployment (403/503). */
+  readonly permanent: boolean;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ComposeAssistError';
+    this.status = status;
+    this.permanent = status === 403 || status === 503;
+  }
+}
+
+/**
+ * Session-scoped latch: once the server has said this account/deployment can
+ * never use compose assist (403/503), remember it here rather than in component
+ * state. The reply composer is remounted (`key={composerKey}`) after every post,
+ * which resets component state — so a per-instance flag would re-offer, and
+ * re-fail, the button on every reply. Session-lifetime API capability, so it
+ * lives with the API client rather than in a component.
+ *
+ * Written by the caller (which already branches on `ComposeAssistError.permanent`)
+ * rather than inside `improveDraft`, so there is exactly one place that decides
+ * "permanent" and the flag is still set when a test stubs the request out.
+ */
+let composeAssistUnavailable = false;
+
+export function isComposeAssistUnavailable(): boolean {
+  return composeAssistUnavailable;
+}
+
+export function markComposeAssistUnavailable(): void {
+  composeAssistUnavailable = true;
+}
+
+/** Test-only reset — module state otherwise leaks between cases in a file. */
+export function resetComposeAssistAvailability(): void {
+  composeAssistUnavailable = false;
+}
+
+/**
+ * Ask the backend to improve the current draft. Returns PLAIN TEXT — the caller
+ * must insert it as a text node, never as HTML (see the endpoint's contract in
+ * apps/forum_host/compose_assist.py).
+ *
+ * Ships inert: the endpoint 503s until FORUM_COMPOSE_ASSIST_ENABLED is set, and
+ * 403s for non-premium accounts. Both are surfaced to the user verbatim rather
+ * than swallowed, so nobody is left clicking a silently dead button.
+ */
+export async function improveDraft(draftHtml: string): Promise<string> {
+  const csrfToken = await getCsrfToken();
+  const response = await fetch(`${FORUM_BASE}/compose/assist/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(csrfToken && { 'X-CSRFToken': csrfToken }),
+    },
+    body: JSON.stringify({ text: draftHtml }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new ComposeAssistError(
+      response.status,
+      body.detail || body.message || `HTTP ${response.status}`
+    );
+  }
+  const data = (await response.json()) as { text?: string };
+  const text = (data.text || '').trim();
+  if (!text) throw new ComposeAssistError(response.status, 'AI assist returned nothing.');
+  return text;
+}

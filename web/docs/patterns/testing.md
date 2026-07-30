@@ -248,3 +248,100 @@ Gotchas:
   `HTMLElement`s). Cost a green-looking arrival-scroll test a full debug loop in
   the forum Wave 1 deep-link work — the production code was right, the spy target
   was wrong.
+
+## jsdom Has No Layout: ProseMirror Transactions Throw on `Range` (todo 275)
+
+Any TipTap/ProseMirror transaction that scrolls the selection — a document
+replacement, `undo`, anything with `scrollIntoView` — throws in jsdom:
+
+```
+TypeError: target.getClientRects is not a function
+  ❯ singleRect prosemirror-view/dist/index.js:521
+  ❯ coordsAtPos → EditorView.scrollToSelection → updateStateInner
+```
+
+`coordsAtPos` calls `singleRect(textRange(node, from, to))`, so **the target is a
+`Range`**, not the node. jsdom's `Range` implements neither `getClientRects` nor
+`getBoundingClientRect`. Polyfilling `Text.prototype`/`Element.prototype` does
+nothing — neither is on the call path.
+
+**Check the exit code, not the pass count.** This surfaces as an *unhandled error*,
+so the run prints `Test Files 1 passed (1)` / `Tests 25 passed (25)` and still
+exits **1** — green at a glance locally, red in CI:
+
+```bash
+./node_modules/.bin/vitest --run src/components/forum/TipTapEditor.test.tsx; echo $?
+```
+
+Two fixes, in preference order:
+
+1. **Disable the scroll in the component** where you control the chain:
+   `editor.chain().focus(null, { scrollIntoView: false }).selectAll().insertContent(nodes).run()`.
+   Verify the signature against the installed `@tiptap/core` (`focus(position, options)`),
+   not the hosted docs. This is usually the better product behaviour too — replacing
+   the document otherwise scroll-jumps the page to the caret right after a click the
+   user made on the toolbar directly above it.
+2. **Polyfill `Range.prototype` in the test file** when the scroll is internal and
+   not configurable — e.g. TipTap's own Mod-z keybinding, where scroll-into-view
+   lives inside the History extension:
+
+```ts
+beforeAll(() => {
+  const proto = Range.prototype as unknown as Record<string, unknown>;
+  if (typeof proto.getClientRects !== 'function') {
+    proto.getClientRects = () => Object.assign([], { item: () => null });
+  }
+  if (typeof proto.getBoundingClientRect !== 'function') {
+    proto.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+  }
+});
+```
+
+An empty rect list is the case `singleRect` already handles for an off-screen
+selection, so this is inert padding rather than simulated layout — it does not let a
+test assert anything false about geometry.
+
+Prefer the polyfill over a test-only prop on the component. Driving undo through the
+real Mod-z keybinding verifies the claim that matters ("the *user* can undo this");
+an `onEditorReady` escape hatch added only for the test verifies a different one.
+
+## Session-Scoped API State Belongs in the Service, Not Component State (todo 275)
+
+A component that latches "the server told me this can never work" in `useState`
+loses the latch on remount. The forum reply composer is remounted after every post
+(`key={composerKey}` in `ThreadDetailPage`, the M25 autofocus behaviour), so a
+per-instance flag re-offered — and re-failed — a 403-ing premium action on every
+reply, while the code comment claimed the user was "not left clicking a dead
+button".
+
+Put a session-lifetime API fact in the service module and seed component state
+from it:
+
+```ts
+// forumService.ts
+let composeAssistUnavailable = false;
+export const isComposeAssistUnavailable = () => composeAssistUnavailable;
+export const markComposeAssistUnavailable = () => { composeAssistUnavailable = true; };
+/** Test-only — module state otherwise leaks between cases in a file. */
+export const resetComposeAssistAvailability = () => { composeAssistUnavailable = false; };
+
+// component
+const [unavailable, setUnavailable] = useState(isComposeAssistUnavailable);
+```
+
+Two things this costs you, both worth paying deliberately:
+
+- **Write it from the caller, not inside the request function.** The caller already
+  branches on the error, and a test that stubs the request out (`vi.spyOn(service,
+  'improveDraft')`) never runs code inside it — so a latch set inside the request
+  function is silently absent in exactly the tests that exercise the latch.
+- **Reset it in `beforeEach`.** Module state persists across cases in a file, so one
+  403 case will otherwise disable the control for every later case.
+
+Pin the remount behaviour explicitly: render, trigger the failure, `unmount()`,
+render again, and assert the control is still disabled. And prefer **mounted +
+disabled** over unmounting the control — unmounting something the user just
+activated drops keyboard focus to `<body>` with nothing to return to, and shifts
+the toolbar under the pointer. (It also keeps the test honest: once a control is
+always mounted, "still present" is a near-hollow assertion — assert
+`toBeEnabled()`/`toBeDisabled()` instead.)

@@ -47,3 +47,16 @@ Compact checklist auto-injected before edits. Long-form:
   segment outranks a dynamic one, so `/forum/users/:x` can shadow `/forum/:a/:b`
   regardless of `<Route>` order; reordering does NOT fix it (use a distinct prefix
   or keep URLs structurally distinct).
+- **Never `insertContent(htmlString)` with text you did not author** — TipTap parses
+  a string argument as HTML, so model/API output becomes real document structure in
+  whatever the user then publishes. Build nodes instead:
+  `insertContent([{type:'paragraph', content:[{type:'text', text: line}]}])`, which
+  can only ever produce characters (verified against the installed `@tiptap/core`:
+  the array branch goes through `schema.nodeFromJSON`, never `DOMParser`).
+- **Session-lifetime API state ("this account can never do X") goes in the service
+  module, not `useState`** — a composer remounted via `key=` after every post loses
+  component state and re-offers the failing action. Seed state from the service
+  getter, write it from the caller's error branch (not inside the request function,
+  which a stubbing test never runs), and reset it in `beforeEach`. Prefer leaving the
+  control **mounted and disabled** over unmounting it: unmounting what the user just
+  activated drops keyboard focus to `<body>`. See `web/docs/patterns/testing.md`.

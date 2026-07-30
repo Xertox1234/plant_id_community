@@ -3,7 +3,13 @@ import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import { ReactNode, useEffect, useRef, useState } from 'react';
-import { uploadPostImage } from '../../services/forumService';
+import {
+  ComposeAssistError,
+  improveDraft,
+  isComposeAssistUnavailable,
+  markComposeAssistUnavailable,
+  uploadPostImage,
+} from '../../services/forumService';
 import { logger } from '../../utils/logger';
 import { ForumImage } from './forumImageNode';
 import { ForumMention } from './forumMentionNode';
@@ -88,6 +94,15 @@ export default function TipTapEditor({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  // AI assist (M14). `aiUnavailable` latches on a 403/503 so a user who cannot
+  // use the feature (non-premium, or a deployment with the flag off) is not left
+  // clicking a permanently dead button. Seeded from the service's session-scoped
+  // latch, not just local state: this composer is REMOUNTED after every reply
+  // (`key={composerKey}` in ThreadDetailPage), which would otherwise reset the
+  // flag and re-offer the failing button on each one.
+  const [aiWorking, setAiWorking] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiUnavailable, setAiUnavailable] = useState(isComposeAssistUnavailable);
   // Link editor: null = closed; a string is the in-progress href (styled input
   // that replaces the native window.prompt — M24).
   const [linkDraft, setLinkDraft] = useState<string | null>(null);
@@ -124,6 +139,59 @@ export default function TipTapEditor({
       setImageError(err instanceof Error ? err.message : 'Image upload failed');
     } finally {
       setUploadingImage(false);
+    }
+  };
+
+  // Ask the backend to rewrite the draft, then swap it in as PLAIN TEXT (M14).
+  //
+  // Plain text, not `insertContent(html)`: that parses its string argument as
+  // HTML, so any markup a model emitted would become real document structure in
+  // a post the user then publishes. Building paragraph nodes with `text` content
+  // means model output can only ever be characters.
+  //
+  // The whole document is replaced in ONE chain, so it is a single undo step —
+  // Ctrl+Z restores the original draft, which is what makes replacing (rather
+  // than appending a second copy) safe. Note the rewrite is text-only, so any
+  // images or link marks in the draft are dropped; undo is the escape hatch.
+  const handleAiAssist = async () => {
+    if (!editor || aiWorking) return;
+    setAiError(null);
+    const draft = editor.getHTML();
+    setAiWorking(true);
+    try {
+      const improved = await improveDraft(draft);
+      const paragraphs = improved
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => ({ type: 'paragraph', content: [{ type: 'text', text: line }] }));
+      if (paragraphs.length === 0) {
+        setAiError('AI assist returned nothing.');
+        return;
+      }
+      // `scrollIntoView: false`: replacing the whole document would otherwise
+      // scroll-jump the page to the caret right after a click the user made on
+      // the toolbar directly above it. (It also keeps jsdom out of
+      // prosemirror's `coordsAtPos`, which has no `getClientRects` there and
+      // throws an unhandled error that fails the Vitest run.)
+      editor
+        .chain()
+        .focus(null, { scrollIntoView: false })
+        .selectAll()
+        .insertContent(paragraphs)
+        .run();
+    } catch (err) {
+      logger.error('[forum] AI compose assist failed', err);
+      setAiError(err instanceof Error ? err.message : 'AI assist failed');
+      // 403 (not premium) / 503 (disabled or provider down) can never succeed on
+      // a retry from this session — stop offering the button, and remember it past
+      // this composer's lifetime (it is remounted after every reply).
+      if (err instanceof ComposeAssistError && err.permanent) {
+        markComposeAssistUnavailable();
+        setAiUnavailable(true);
+      }
+    } finally {
+      setAiWorking(false);
     }
   };
 
@@ -241,6 +309,26 @@ export default function TipTapEditor({
           <ToolbarButton onClick={() => fileInputRef.current?.click()} title="Insert image">
             {uploadingImage ? '⏳' : '🖼️'}
           </ToolbarButton>
+
+          {/* AI draft improvement (M14) — premium perk, server-gated. Once the
+              server says this account/deployment can never use it, the button stays
+              MOUNTED but permanently disabled rather than disappearing: unmounting
+              a control the user just activated drops keyboard focus to <body> with
+              nothing to return to, and shifts the toolbar under the pointer. */}
+          <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
+          <ToolbarButton
+            onClick={handleAiAssist}
+            disabled={aiWorking || aiUnavailable || editor.isEmpty}
+            title={
+              aiUnavailable
+                ? 'AI assist is not available for this account'
+                : aiWorking
+                  ? 'Improving draft…'
+                  : 'Improve draft with AI (premium; undo to revert)'
+            }
+          >
+            {aiWorking ? '⏳' : '✨'}
+          </ToolbarButton>
           <input
             ref={fileInputRef}
             type="file"
@@ -318,6 +406,19 @@ export default function TipTapEditor({
         {imageError}
       </p>
 
+      {/* AI assist error — same persistent-live-region shape as the upload error
+          above (M26), so a screen reader announces the text swap. This is the only
+          place a "requires a premium account" / "not enabled" reason is surfaced. */}
+      <p
+        aria-live="polite"
+        aria-atomic="true"
+        className={
+          aiError ? 'bg-surface border-b border-line-2 px-3 py-2 text-sm text-error' : 'sr-only'
+        }
+      >
+        {aiError}
+      </p>
+
       {/* Editor Content */}
       <EditorContent
         editor={editor}
@@ -332,14 +433,16 @@ interface ToolbarButtonProps {
   onClick: () => void;
   isActive?: boolean;
   title?: string;
+  disabled?: boolean;
   children: ReactNode;
 }
 
-function ToolbarButton({ onClick, isActive, title, children }: ToolbarButtonProps) {
+function ToolbarButton({ onClick, isActive, title, disabled, children }: ToolbarButtonProps) {
   return (
     <button
       onClick={onClick}
       type="button"
+      disabled={disabled}
       title={title}
       // Glyph children ("B", "•") would otherwise BE the accessible name —
       // title never wins name-from-content (AccName 1.2; audit 2026-07-11 H19).
@@ -347,6 +450,7 @@ function ToolbarButton({ onClick, isActive, title, children }: ToolbarButtonProp
       // min-h-11/min-w-11 = 44px WCAG 2.5.5 tap target (audit L10; was ~32px).
       className={`
         inline-flex min-h-11 min-w-11 items-center justify-center rounded px-3 text-sm font-medium transition-colors
+        disabled:cursor-not-allowed disabled:opacity-50
         ${isActive ? 'bg-primary/20 text-ink' : 'bg-surface-2 text-ink-2 hover:bg-surface-3'}
       `}
     >

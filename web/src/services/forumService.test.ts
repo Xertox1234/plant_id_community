@@ -15,6 +15,8 @@ import {
   uploadPostImage,
   searchForum,
   searchForumUsers,
+  improveDraft,
+  ComposeAssistError,
 } from './forumService';
 import { clearCsrfToken } from '../utils/csrf';
 
@@ -499,5 +501,55 @@ describe('forumService (wagtail_forum API contract)', () => {
       json: async () => ({ message: 'Permission denied' }),
     });
     await expect(createPost({ thread: 12, content: 'x' })).rejects.toThrow('Permission denied');
+  });
+
+  // --- AI composer assist (todo 275 / M14) ----------------------------------
+
+  it('improveDraft posts the draft and returns the trimmed rewrite', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ text: '  Improved copy.  ' }),
+    });
+    await expect(improveDraft('<p>draft</p>')).resolves.toBe('Improved copy.');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/api/v1/forum/compose/assist/');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ text: '<p>draft</p>' });
+    // Mutating request → CSRF header + cookie auth (web/CLAUDE.md convention).
+    expect(init.headers['X-CSRFToken']).toBe('test-csrf-token');
+    expect(init.credentials).toBe('include');
+  });
+
+  it('improveDraft marks 403 and 503 as permanent, 429 as retryable', async () => {
+    // The status IS the product behaviour: the composer permanently hides its
+    // button for the first two but keeps it for a transient capacity error.
+    for (const [status, permanent] of [
+      [403, true],
+      [503, true],
+      [429, false],
+      [400, false],
+    ] as const) {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status,
+        json: async () => ({ detail: `failed ${status}` }),
+      });
+      await expect(improveDraft('<p>draft</p>')).rejects.toMatchObject({
+        name: 'ComposeAssistError',
+        status,
+        permanent,
+        message: `failed ${status}`,
+      });
+    }
+  });
+
+  it('improveDraft rejects an empty rewrite rather than blanking the draft', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ text: '   ' }),
+    });
+    await expect(improveDraft('<p>draft</p>')).rejects.toBeInstanceOf(ComposeAssistError);
   });
 });

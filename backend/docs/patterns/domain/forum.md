@@ -279,6 +279,76 @@ To clear an exhausted forum budget without waiting out the hour:
 To roll back, unset `WAGTAILFORUM_SPAM_BACKEND` — the heuristic default returns
 with no code change.
 
+## One AI feature, one budget counter (todo 275 / M12, M14, AC4)
+
+The forum now has four AI cost centres, and each owns its **own** cache key:
+
+| Counter | Key | Unit | Degrade posture when exhausted |
+|---------|-----|------|-------------------------------|
+| Blog completions | `ai_rate_limit:global` | completion | blog-defined |
+| Spam screening | `ai_rate_limit:forum_spam` | completion | publish via heuristic |
+| Query embeddings | `ai_rate_limit:forum_embed` | embedding | empty semantic results |
+| Composer assist | `ai_rate_limit:forum_compose` | completion | 429 + `Retry-After` |
+
+Three reasons this is a rule and not bookkeeping taste, each of which was a real
+coupling before the split:
+
+1. **Non-commensurable unit costs.** An embedding is ~3 orders of magnitude
+   cheaper than a completion. One shared counter cannot express a sane cap for
+   both — sized for embeddings it never protects against completion spend; sized
+   for completions it throttles embeddings to uselessness.
+2. **Independent degrade postures.** Look at the right-hand column: an exhausted
+   embedding budget must *silently* drop semantic results while keyword search
+   keeps working, whereas an exhausted composer budget must *tell the user* to
+   retry later. A shared counter forces one subsystem's cap to trigger another's
+   posture (the audit-H13 bug in general form).
+3. **Per-feature accounting.** With one counter, "who spent the quota" is
+   unanswerable, and any feature can starve any other.
+
+**Every counter uses peek-then-consume** (`AIRateLimiter.peek_budget` before the
+call, `consume_budget` only after the provider actually answered), for the reason
+spelled out in the spam section above: charging on attempt lets a provider outage
+drain the cap through pure failure and silently flip the feature into its
+over-budget posture. `find_similar_topics()` is the single embedding entry point
+in the forum precisely so this holds for every caller — the compose-time
+similar-topics endpoint, the M12 search section, and any future RAG retrieval.
+**Do not call `SimilarTopics().search_documents()` directly**; it bypasses the
+flag, the budget and the board-visibility refetch at once.
+
+Adding a counter **raises** the aggregate ceiling rather than partitioning a fixed
+one — see the `SPAM_LLM_BUDGET_LIMIT` caveat above; the same arithmetic applies to
+`EMBED_BUDGET_LIMIT` and `COMPOSE_BUDGET_LIMIT`.
+
+## Augmenting a package read view host-side: mix in, never override (todo 275 / M12)
+
+The premium `?semantic=1` section on `/forum/search/` is a `SemanticSearchMixin`
+composed *ahead* of the package view, not a `get()` override on the throttled
+subclass:
+
+```python
+@_throttled("search", "GET", key=client_ip_key)
+class SearchView(SemanticSearchMixin, forum_views.SearchView): ...
+```
+
+`_throttled` is `method_decorator(..., name="get")` on the host class, so it wraps
+whatever `get` the MRO resolves at class-creation time. A subclass of the
+*already-decorated* host view that defines its own `get` **replaces** the wrapped
+method and silently ships the endpoint unthrottled. Two further rules for this
+shape:
+
+- **Re-declare `@extend_schema`** on the mixin's `get`. The override replaces the
+  package's decorated method, so without it the OpenAPI description silently
+  reverts to a generic one while the response shape has changed.
+- **Never widen a `PublicForumReadCacheMixin` response by entitlement without
+  checking the cache headers.** Anonymous successful GETs are marked
+  `public, s-maxage=…` for the CDN. An entitlement-varying key is only safe here
+  because it is added *exclusively* for authenticated users, which forces
+  `private, no-store` — pinned by
+  `test_semantic_search.py::test_semantic_response_is_never_shared_cacheable`
+  rather than left to be inferred from the mixin's docstring.
+- **Guard on `response.status_code == 200` and a dict body** before augmenting: a
+  throttled 429 or an error envelope must pass through untouched.
+
 ## Idempotency contract on new write surfaces (todo 258)
 
 The reusable idempotency helpers (`api/idempotency.py` — `idempotency_cache_key`,
