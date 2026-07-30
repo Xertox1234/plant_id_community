@@ -140,7 +140,21 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
 
       return (
         <blockquote className="border-l-4 border-primary pl-6 py-4 my-8 italic text-ink-2 bg-surface rounded-r-lg">
-          {quoteText && renderTextOrSafeHtml(quoteText, 'text-xl mb-2')}
+          {/* SECURITY: a forum quote is a Wagtail BlockQuoteBlock (TextBlock) —
+              PLAIN TEXT that api/sanitize.py deliberately leaves untouched
+              ("text by contract"), so a direct API POST can put `<script>` in it.
+              Render it as text (React escapes) rather than through
+              renderTextOrSafeHtml, which would treat any value containing `<` as
+              HTML under the broad blog STREAMFIELD preset. Blog quotes come from
+              trusted Wagtail editors and keep the rich-text path (todo 276 / M1).
+              whitespace-pre-line preserves the "\n\n" paragraph joins that
+              forumBody.ts writes. */}
+          {quoteText &&
+            (mentionHighlight ? (
+              <div className="text-xl mb-2 whitespace-pre-line">{quoteText}</div>
+            ) : (
+              renderTextOrSafeHtml(quoteText, 'text-xl mb-2')
+            ))}
           {attribution && (
             <footer className="text-sm text-ink-3 not-italic">— {attribution}</footer>
           )}

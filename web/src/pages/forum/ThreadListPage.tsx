@@ -37,6 +37,9 @@ export default function ThreadListPage() {
   // search box redirects to the dedicated /forum/search page (handleSearch), so
   // there is no in-page search state to track.
   const ordering = searchParams.get('order') || '-last_activity_at';
+  // Tag filter (audit M5) — URL-driven like `order`, so it survives a reload and
+  // is shareable, and passed through to the backend's ?tag= filter.
+  const activeTag = searchParams.get('tag') || '';
 
   // Track the resolved board slug so Load More can reuse it without re-fetching category
   const boardSlugRef = useRef<string | null>(null);
@@ -65,6 +68,12 @@ export default function ThreadListPage() {
       try {
         setLoading(true);
         setLoadingMore(false); // a fresh load supersedes any in-flight Load More
+        // Drop the old cursor too: it addresses the PREVIOUS result set (other
+        // sort/tag), so a Load More clicked during this reload would append
+        // wrong-filter rows and then overwrite the new cursor with a stale one.
+        // The generation guard alone cannot catch that click — handleLoadMore
+        // reads loadGenRef AT CLICK TIME, which is already this reload's gen.
+        setNextCursor(null);
         setError(null);
 
         // Resolve the board once; a pure sort change reuses the cached category.
@@ -78,7 +87,11 @@ export default function ThreadListPage() {
           setCategory(categoryData);
         }
 
-        const threadsData = await fetchThreads({ board: categoryData.slug, sort: ordering });
+        const threadsData = await fetchThreads({
+          board: categoryData.slug,
+          sort: ordering,
+          tag: activeTag || undefined,
+        });
         if (loadGenRef.current !== gen) return;
         // Stamp the resolved category onto each thread so threadPath builds
         // correct URLs (/forum/{id}-{slug}/...) instead of /forum/-topic/...
@@ -98,7 +111,7 @@ export default function ThreadListPage() {
     };
 
     loadData();
-  }, [categorySlug, ordering, reloadKey]);
+  }, [categorySlug, ordering, activeTag, reloadKey]);
 
   // The board page has no in-place search. Submitting redirects to the global
   // /forum/search page, pre-filtered to this board — real full-text search lives
@@ -128,6 +141,29 @@ export default function ThreadListPage() {
     },
     [setSearchParams]
   );
+
+  // Toggle the tag filter. Clicking the active tag clears it, so the chip is a
+  // real toggle rather than a one-way trip. The cursor is deliberately NOT
+  // carried over — a new filter means a new result set, so it restarts at page 1.
+  const handleTagClick = useCallback(
+    (tag: string) => {
+      setSearchParams((prev) => {
+        const newParams = new URLSearchParams(prev);
+        if (newParams.get('tag') === tag) newParams.delete('tag');
+        else newParams.set('tag', tag);
+        return newParams;
+      });
+    },
+    [setSearchParams]
+  );
+
+  const clearTagFilter = useCallback(() => {
+    setSearchParams((prev) => {
+      const newParams = new URLSearchParams(prev);
+      newParams.delete('tag');
+      return newParams;
+    });
+  }, [setSearchParams]);
 
   // Load more threads using the cursor from the last response
   const handleLoadMore = useCallback(async () => {
@@ -251,26 +287,62 @@ export default function ThreadListPage() {
         </div>
       </div>
 
+      {/* Active tag filter (audit M5) — always visible while filtering, so an
+          empty result reads as "this filter matched nothing" rather than "this
+          board is empty". */}
+      {activeTag && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg bg-surface-2 px-4 py-3">
+          <span className="text-sm text-ink-2">Filtered by tag</span>
+          <span className="rounded-full bg-primary/20 px-3 py-1 text-xs font-medium text-primary">
+            #{activeTag}
+          </span>
+          <button
+            type="button"
+            onClick={clearTagFilter}
+            className="min-h-11 rounded px-3 text-sm text-ink-3 hover:bg-surface-3"
+          >
+            Clear filter
+          </button>
+        </div>
+      )}
+
       {/* Threads List */}
       {loading ? (
         <LoadingSpinner />
       ) : threads.length === 0 ? (
         <div className="text-center py-12 text-ink-3">
-          <p className="text-lg">No threads found.</p>
-          <p className="text-sm mt-2">Be the first to start a discussion!</p>
+          {activeTag ? (
+            <>
+              <p className="text-lg">No threads tagged #{activeTag}.</p>
+              <p className="text-sm mt-2">Clear the filter to see the whole board.</p>
+            </>
+          ) : (
+            <>
+              <p className="text-lg">No threads found.</p>
+              <p className="text-sm mt-2">Be the first to start a discussion!</p>
+            </>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
           {threads.map((thread) => (
-            <ThreadCard key={thread.id} thread={thread} />
+            <ThreadCard
+              key={thread.id}
+              thread={thread}
+              onTagClick={handleTagClick}
+              activeTag={activeTag}
+            />
           ))}
         </div>
       )}
 
       {/* Load More (cursor pagination). Honest remaining count from the board's
           topic_count when known; a bare label otherwise, never a fake "0 left"
-          (audit M30 — the service used to hardcode meta.count to 0). */}
-      {nextCursor && (
+          (audit M30 — the service used to hardcode meta.count to 0). The count is
+          suppressed entirely while a tag filter is active: thread_count is the
+          board's UNFILTERED total, so "380 remaining" on a 25-result filter would
+          be exactly the dishonest number M30 removed. */}
+      {nextCursor && !loading && (
         <div className="mt-8 text-center">
           <Button
             onClick={handleLoadMore}
@@ -282,6 +354,7 @@ export default function ThreadListPage() {
             {loadingMore
               ? 'Loading...'
               : (() => {
+                  if (activeTag) return 'Load More';
                   const remaining = Math.max(0, (category?.thread_count ?? 0) - threads.length);
                   return remaining > 0 ? `Load More (${remaining} remaining)` : 'Load More';
                 })()}

@@ -203,6 +203,8 @@ alone is not sufficient.
 | `WAGTAILFORUM_SYNC_TOMBSTONE_RETENTION_DAYS` | `30` | How long `TopicDeletedLog` tombstones are kept. A client that has not synced within this window must do a full resync. See [Management commands](#management-commands). |
 | `WAGTAILFORUM_UNREAD_LAUNCH_AT` | `"2026-07-16T00:00:00Z"` | Last-resort "unread" baseline for a user with no `TopicRead` **and** no `ForumProfile` row. Bounds the initial unread flood to topics active since launch. A real `ForumProfile.read_watermark_at` always wins once one exists. Must be an ISO-8601 datetime **with** a timezone offset; a malformed value raises loudly rather than silently degrading. |
 | `WAGTAILFORUM_MENTION_MAX_PER_POST` | `10` | Max distinct `@mentions` resolved per post — bounds parse cost and notification fan-out on a mass-mention post. |
+| `WAGTAILFORUM_TOPIC_MAX_TAGS` | `5` | Max tags accepted per topic on create. `taggit` creates a `Tag` row per unseen name, so an unbounded list is a cheap write-amplification vector against the shared tag table. |
+| `WAGTAILFORUM_TOPIC_TAG_MAX_LENGTH` | `50` | Max characters per tag (must stay `<=` taggit's `Tag.name` max_length of 100). Tags are normalized on write — trimmed, inner whitespace collapsed, lowercased, de-duplicated — so `?tag=` matches one canonical spelling. |
 
 ## Signals
 

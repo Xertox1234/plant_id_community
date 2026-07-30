@@ -107,3 +107,10 @@ Compact checklist auto-injected before edits. Long-form:
   open your own `atomic()` if you need real defer-until-commit, and reach for
   Celery if you need the work off the request — `atomic()` does not do that.
   See `docs/LEARNINGS.md` 2026-07-29 (todo 271).
+- **`DataError` is NOT a subclass of `IntegrityError`.** A retry loop written as
+  `except IntegrityError: continue` (e.g. the topic-create slug auto-suffix) does
+  not catch a value that overflows a column's width — it escapes as an unhandled
+  500 where a 400 belonged. So validate lengths against the ACTUAL column width,
+  and clamp rather than trust a configurable bound: `min(get_setting("X"), COLUMN_MAX)`.
+  A host raising a setting past the column width must not be able to turn a
+  validation error into a server error (todo 276, taggit `Tag.name` VARCHAR(100)).

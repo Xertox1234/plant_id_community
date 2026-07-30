@@ -100,3 +100,13 @@ Compact checklist auto-injected before edits. Long-form:
   transient/permanent split is a product fact, not an HTTP one. Corollary: a client
   latch that caches a failure verdict must be keyed to (or cleared on) whatever the
   verdict depends on — a 403 meaning "not premium" must not outlive the account.
+- **`ListField(max_length=…)` cannot bound the work a request triggers.** DRF
+  appends it as a `MaxLengthValidator` in `self.validators`, which run in
+  `run_validation` AFTER `to_internal_value` has already child-validated every
+  element — so a caller can still pay for ~1M items inside
+  `DATA_UPLOAD_MAX_MEMORY_SIZE`. Check the raw length FIRST in a `to_internal_value`
+  override (same "bound it before you parse it" shape as `MAX_BODY_BLOCKS` in
+  `wagtail_forum/api/sanitize.py`). Same trap for any post-parse bound: a limit
+  enforced after the expensive step is documentation, not a limit. Pair it with
+  O(1) dedup — an `if x not in list` accumulator over request-controlled input is
+  O(n^2) (todo 276: 30k tags = 2.24s).

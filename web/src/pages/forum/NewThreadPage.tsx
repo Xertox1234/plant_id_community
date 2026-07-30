@@ -38,7 +38,7 @@ export default function NewThreadPage() {
   const [boards, setBoards] = useState<Category[]>([]);
   const newThreadDraftKey = draftKey('new-thread', categoryParam ?? 'unknown');
   // Parse the saved draft once (per key), not once per field.
-  const initialDraft = useMemo<{ title?: string; body?: string }>(() => {
+  const initialDraft = useMemo<{ title?: string; body?: string; tags?: string }>(() => {
     try {
       return JSON.parse(loadDraft(newThreadDraftKey) || '{}');
     } catch {
@@ -47,6 +47,10 @@ export default function NewThreadPage() {
   }, [newThreadDraftKey]);
   const [title, setTitle] = useState<string>(() => initialDraft.title || '');
   const [body, setBody] = useState<string>(() => initialDraft.body || '');
+  // Comma-separated raw input (audit M5). Kept as the user's literal string in
+  // state (and in the draft) so a half-typed tag isn't destroyed mid-keystroke;
+  // it is split/trimmed only at submit. The server normalizes and bounds it.
+  const [tagsInput, setTagsInput] = useState<string>(() => initialDraft.tags || '');
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,9 +101,9 @@ export default function NewThreadPage() {
 
   // Persist the draft on every change; an all-empty draft is removed.
   useEffect(() => {
-    const isEmpty = title.trim() === '' && isBlankHtml(body);
-    saveDraft(newThreadDraftKey, isEmpty ? '' : JSON.stringify({ title, body }));
-  }, [title, body, newThreadDraftKey]);
+    const isEmpty = title.trim() === '' && isBlankHtml(body) && tagsInput.trim() === '';
+    saveDraft(newThreadDraftKey, isEmpty ? '' : JSON.stringify({ title, body, tags: tagsInput }));
+  }, [title, body, tagsInput, newThreadDraftKey]);
 
   const canSubmit = !!category && title.trim() !== '' && !isBlankHtml(body);
 
@@ -114,6 +118,10 @@ export default function NewThreadPage() {
           boardSlug: category.slug,
           title: title.trim(),
           content: body,
+          tags: tagsInput
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean),
         });
         clearDraft(newThreadDraftKey);
         if (res.status === 'published') {
@@ -134,7 +142,7 @@ export default function NewThreadPage() {
         setSubmitting(false);
       }
     },
-    [category, title, body, navigate, newThreadDraftKey, announce]
+    [category, title, body, tagsInput, navigate, newThreadDraftKey, announce]
   );
 
   if (loading) {
@@ -240,6 +248,24 @@ export default function NewThreadPage() {
             maxLength={255}
             className="w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
           />
+        </div>
+
+        <div>
+          <label htmlFor="thread-tags" className="block text-sm font-medium text-ink-2 mb-1">
+            Tags <span className="font-normal text-ink-3">(optional)</span>
+          </label>
+          <input
+            id="thread-tags"
+            type="text"
+            value={tagsInput}
+            onChange={(e) => setTagsInput(e.target.value)}
+            placeholder="monstera, root rot, propagation"
+            aria-describedby="thread-tags-hint"
+            className="w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
+          />
+          <p id="thread-tags-hint" className="mt-1 text-xs text-ink-3">
+            Comma-separated. Up to 5 tags, e.g. species, genus, or symptom.
+          </p>
         </div>
 
         <div>

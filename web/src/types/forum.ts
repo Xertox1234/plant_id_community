@@ -53,6 +53,8 @@ export interface Thread {
   is_active?: boolean;
   is_subscribed?: boolean;
   is_unread?: boolean;
+  /** Secondary discovery taxonomy beside the board (audit M5). Normalized lowercase. */
+  tags?: string[];
 }
 
 /**
@@ -122,6 +124,8 @@ export interface CreateTopicInput {
   boardSlug: string;
   title: string;
   content: string;
+  /** Optional secondary taxonomy (audit M5). Server normalizes + bounds them. */
+  tags?: string[];
 }
 
 /** Create-reply input (POST /topics/{id}/posts/). content is HTML. */

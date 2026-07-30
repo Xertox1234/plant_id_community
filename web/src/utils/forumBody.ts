@@ -12,7 +12,32 @@ import type { StreamFieldBlock } from '@/types/blog';
 /** A forum body block as SENT to the API (an image references the wagtail id). */
 export type ForumBodyWriteBlock =
   | { type: 'paragraph'; value: string }
+  | { type: 'quote'; value: string }
   | { type: 'image'; value: number };
+
+/**
+ * Escape text destined for composer HTML. `quote` is a Wagtail `BlockQuoteBlock`
+ * (a `TextBlock`) — its value is PLAIN TEXT, never markup, and the server
+ * deliberately leaves it unsanitized ("text by contract", api/sanitize.py). So a
+ * value containing `<` must be escaped on the way back into the editor, or it
+ * re-parses as real document structure on the next edit.
+ */
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * A blockquote's visible text, one entry per child block. TipTap emits
+ * `<blockquote><p>a</p><p>b</p></blockquote>`, so raw `textContent` would mash
+ * "ab" together — join the children instead.
+ */
+function blockquoteText(el: Element): string {
+  const parts = Array.from(el.children)
+    .map((child) => child.textContent?.trim() ?? '')
+    .filter(Boolean);
+  // No element children (bare text inside the quote) — fall back to textContent.
+  return parts.length > 0 ? parts.join('\n\n') : (el.textContent?.trim() ?? '');
+}
 
 /**
  * Composer HTML -> forum body blocks. Runs of rich text become `paragraph`
@@ -35,10 +60,33 @@ export function htmlToBodyBlocks(html: string): ForumBodyWriteBlock[] {
     if (imageId) {
       flush();
       blocks.push({ type: 'image', value: Number(imageId) });
+    } else if (el?.tagName === 'BLOCKQUOTE') {
+      // A top-level blockquote becomes its OWN `quote` block, not inline markup
+      // in a paragraph: the server's nh3 allowlist has no <blockquote>, so a
+      // quote left inside rich text would be silently flattened to plain text.
+      flush();
+      const text = blockquoteText(el);
+      if (text) blocks.push({ type: 'quote', value: text });
+      // An image nested in the quote is invisible to `textContent` — hoist it
+      // out as its own block rather than dropping the user's content silently.
+      // Gate on the attribute exactly like the top-level branch above: a pasted
+      // `<img data-image-id="">` would otherwise yield value 0, and a
+      // non-numeric one NaN (serialized as null). Both fail the server's
+      // validate_forum_body, so ONE unusable image would 400 the whole save
+      // instead of just being dropped.
+      for (const img of Array.from(el.querySelectorAll('img[data-image-id]'))) {
+        const nestedId = img.getAttribute('data-image-id');
+        if (nestedId) blocks.push({ type: 'image', value: Number(nestedId) });
+      }
     } else if (el) {
       buffer.push(el.outerHTML);
     } else if (node.textContent?.trim()) {
-      buffer.push(node.textContent);
+      // A bare text node at body level. `buffer` is joined into a `paragraph`
+      // block, whose value is HTML — so this text must be ESCAPED, or "a < b"
+      // is re-parsed as markup downstream (CodeQL js/xss-through-dom: DOM text
+      // reinterpreted as HTML). Escaping is also the correct rendering: the
+      // user typed those characters, they did not author tags.
+      buffer.push(escapeHtml(node.textContent));
     }
   }
   flush();
@@ -61,6 +109,23 @@ export function bodyBlocksToHtml(body: StreamFieldBlock[] | null | undefined): s
       }
       if (block.type === 'paragraph') {
         return typeof block.value === 'string' ? block.value : '';
+      }
+      if (block.type === 'quote') {
+        // Plain text in, escaped markup out — see escapeHtml. One <p> per
+        // paragraph so htmlToBodyBlocks re-derives the same "\n\n"-joined value
+        // (round-trip stability).
+        const text = typeof block.value === 'string' ? block.value : '';
+        if (!text.trim()) return '';
+        const paragraphs = text
+          // Split on a BLANK line only. Splitting on /\n+/ would rewrite a
+          // single "\n" (possible from a non-browser client) into "\n\n" on
+          // every re-edit, since blockquoteText always rejoins with "\n\n".
+          .split(/\n{2,}/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => `<p>${escapeHtml(line)}</p>`)
+          .join('');
+        return `<blockquote>${paragraphs}</blockquote>`;
       }
       return '';
     })

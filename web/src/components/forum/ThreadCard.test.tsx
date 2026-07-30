@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import ThreadCard from './ThreadCard';
 import { createMockThread } from '../../tests/forumUtils';
@@ -210,5 +210,42 @@ describe('ThreadCard', () => {
 
     const card = container.querySelector('.p-3');
     expect(card).toBeInTheDocument();
+  });
+
+  it('renders tags as inert chips when the list cannot be filtered (audit M5)', () => {
+    const thread = createMockThread({ tags: ['monstera', 'root rot'] });
+
+    renderThreadCard(thread);
+
+    // No onTagClick (e.g. search results) -> text, not buttons.
+    expect(screen.getByText('#monstera')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '#monstera' })).not.toBeInTheDocument();
+  });
+
+  it('renders tags as buttons that filter, without nesting them in the card link', () => {
+    const onTagClick = vi.fn();
+    const thread = createMockThread({ tags: ['monstera'] });
+
+    const { container } = render(
+      <BrowserRouter>
+        <ThreadCard thread={thread} onTagClick={onTagClick} activeTag="monstera" />
+      </BrowserRouter>
+    );
+
+    const chip = screen.getByRole('button', { name: '#monstera' });
+    // Active tag reads as pressed so the toggle state is announced.
+    expect(chip).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(chip);
+    expect(onTagClick).toHaveBeenCalledWith('monstera');
+
+    // A <button> inside the card-level <a> would be invalid HTML and would break
+    // getByRole('link') — the chips must live outside it.
+    expect(container.querySelector('a button')).toBeNull();
+  });
+
+  it('renders no tag row when the thread has no tags', () => {
+    const { container } = renderThreadCard(createMockThread({ tags: [] }));
+
+    expect(container.textContent).not.toContain('#');
   });
 });

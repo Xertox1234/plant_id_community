@@ -776,5 +776,38 @@
     "source": "codify: todo-275-forum-ai-round2",
     "added": "2026-07-29",
     "severity": "warn"
+  },
+  {
+    "id": "taggit-dual-write-path",
+    "domains": [
+      "wagtail",
+      "api"
+    ],
+    "path_glob": [
+      "backend/**/models/*.py"
+    ],
+    "content_present": "TaggableManager\\(",
+    "message": "A TaggableManager exposed via BOTH a FieldPanel and a DRF serializer has two write paths — the CMS admin widget runs no serializer code, and taggit Tag.name is case-SENSITIVE. Normalize on both paths, or make reads path-agnostic with __iexact + .distinct() (an M2M iexact can match two Tag rows and duplicate a row).",
+    "pattern_ref": "docs/rules/wagtail.md",
+    "source": "codify: forum/todo-276-content-authoring-remainder",
+    "added": "2026-07-29",
+    "severity": "warn"
+  },
+  {
+    "id": "drf-listfield-late-bound",
+    "domains": [
+      "api",
+      "security"
+    ],
+    "path_glob": [
+      "backend/**/serializers.py"
+    ],
+    "content_present": "serializers\\.ListField\\(",
+    "content_absent": "def to_internal_value",
+    "message": "ListField(max_length=…) is enforced by a validator that runs AFTER to_internal_value has child-validated every element, so it cannot bound the work a request triggers. Check the raw length first in a to_internal_value override, and dedup with a set/dict — an \"if x not in list\" accumulator over request input is O(n^2).",
+    "pattern_ref": "docs/rules/api.md",
+    "source": "codify: forum/todo-276-content-authoring-remainder",
+    "added": "2026-07-29",
+    "severity": "warn"
   }
 ]

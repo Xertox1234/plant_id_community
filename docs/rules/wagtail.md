@@ -108,3 +108,26 @@ Compact checklist auto-injected before edits. Long-form:
   request), so `reverse()` in the function body is URLconf-safe; a hardcoded
   path silently 404s when the mount changes or a reusable package lands in
   another host (audit 2026-07-17 M1/M2 — the forum copied the blog's bug).
+- **A field editable in BOTH the CMS admin and the DRF API has two write paths —
+  and only one runs your serializer.** Adding `FieldPanel("tags")` gives staff a
+  writer that bypasses every serializer-side normalization/bound, so read-side
+  code that assumes the canonical form silently breaks on admin-authored data.
+  `django-taggit` makes this concrete: `Tag.name` is case-SENSITIVE (unless the
+  host sets `TAGGIT_CASE_INSENSITIVE`) and the admin widget treats a comma as its
+  list separator. A moderator's "Monstera" was unreachable from an exact-match
+  `?tag=` filter — from the very chip the UI renders out of that name. Either
+  normalize on BOTH paths, or make the READ side path-agnostic (`__iexact`) — and
+  if you choose `__iexact` on an M2M, add `.distinct()`, since "Monstera" and
+  "monstera" are two Tag rows and a row carrying both joins twice (todo 276 M5).
+- **Never conclude a framework hook is dead by grepping only THIS repo.** Wagtail
+  calls plenty of declarative hooks itself. `index.AutocompleteField` looked
+  unused (`grep '\.autocomplete('` matched nothing of ours) and was removed as
+  dead index cost — but the caller is Wagtail's generic `search_queryset`
+  (`admin/views/generic/base.py`), which uses `backend.autocomplete()` whenever
+  `model.get_autocomplete_search_fields()` is non-empty and otherwise silently
+  degrades to whole-word `search()` + a `RuntimeWarning`. Any `SnippetViewSet`
+  with `search_fields` is therefore a reader. Removing it broke CMS prefix search
+  ("mons" no longer matched "Monstera repotting") with every test still green,
+  because `pytest.ini` only silences Deprecation warnings, not `RuntimeWarning`.
+  Before deleting a declarative field, grep the INSTALLED framework for the
+  attribute name, and pin the behaviour with an admin-listing test (todo 276 L8).

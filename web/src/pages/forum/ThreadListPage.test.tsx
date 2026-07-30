@@ -361,4 +361,141 @@ describe('ThreadListPage', () => {
     expect(screen.queryByText('Previous')).not.toBeInTheDocument();
     expect(screen.queryByText('Next')).not.toBeInTheDocument();
   });
+
+  describe('tag filter (audit M5)', () => {
+    it('passes ?tag= from the URL through to the backend query', async () => {
+      vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
+        createMockCategory({ slug: 'plant-care', name: 'Plant Care' })
+      );
+      const fetchThreadsSpy = vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
+        items: [createMockThread({ id: '1', title: 'Tagged Thread', tags: ['monstera'] })],
+        meta: { count: 1, next: null, previous: null },
+      });
+
+      renderThreadListPage(['/forum/3-plant-care?tag=monstera']);
+
+      await waitFor(() =>
+        expect(fetchThreadsSpy).toHaveBeenCalledWith({
+          board: 'plant-care',
+          sort: '-last_activity_at',
+          tag: 'monstera',
+        })
+      );
+    });
+
+    it('shows the active filter and a clear control while filtering', async () => {
+      vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
+        createMockCategory({ slug: 'plant-care', name: 'Plant Care' })
+      );
+      vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
+        items: [createMockThread({ id: '1', title: 'Tagged Thread', tags: ['monstera'] })],
+        meta: { count: 1, next: null, previous: null },
+      });
+
+      renderThreadListPage(['/forum/3-plant-care?tag=monstera']);
+
+      await waitFor(() => expect(screen.getByText(/filtered by tag/i)).toBeInTheDocument());
+      expect(screen.getByRole('button', { name: /clear filter/i })).toBeInTheDocument();
+    });
+
+    it('re-queries with the tag when a tag chip is clicked', async () => {
+      vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
+        createMockCategory({ slug: 'plant-care', name: 'Plant Care' })
+      );
+      const fetchThreadsSpy = vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
+        items: [createMockThread({ id: '1', title: 'Tagged Thread', tags: ['monstera'] })],
+        meta: { count: 1, next: null, previous: null },
+      });
+
+      renderThreadListPage(['/forum/3-plant-care']);
+
+      await waitFor(() => expect(screen.getByText('Tagged Thread')).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: '#monstera' }));
+
+      await waitFor(() =>
+        expect(fetchThreadsSpy).toHaveBeenLastCalledWith(
+          expect.objectContaining({ tag: 'monstera' })
+        )
+      );
+    });
+
+    it('explains an empty result as a filter miss, not an empty board', async () => {
+      vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
+        createMockCategory({ slug: 'plant-care', name: 'Plant Care' })
+      );
+      vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
+        items: [],
+        meta: { count: 0, next: null, previous: null },
+      });
+
+      renderThreadListPage(['/forum/3-plant-care?tag=nope']);
+
+      await waitFor(() => expect(screen.getByText(/no threads tagged #nope/i)).toBeInTheDocument());
+      expect(screen.queryByText(/be the first to start a discussion/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it('drops the stale Load More while a tag reload is in flight (review repair)', async () => {
+    // The old cursor addresses the PREVIOUS result set. Left visible, a click
+    // during the reload would append wrong-filter rows and then overwrite the
+    // new cursor with a stale one — and the loadGen guard cannot catch it,
+    // because handleLoadMore reads loadGenRef at CLICK time, by which point the
+    // reload has already bumped it to the same value.
+    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
+      createMockCategory({ slug: 'plant-care', name: 'Plant Care' })
+    );
+    vi.spyOn(forumService, 'fetchThreads')
+      .mockResolvedValueOnce({
+        items: [createMockThread({ id: '1', title: 'Tagged Thread', tags: ['monstera'] })],
+        meta: { count: 50, next: 'https://api.test/cursor=stale', previous: null },
+      })
+      // The tag-filtered reload never settles, so we observe the in-flight state.
+      .mockImplementationOnce(() => new Promise(() => {}));
+
+    renderThreadListPage(['/forum/3-plant-care']);
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /load more/i })).toBeInTheDocument()
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: '#monstera' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument()
+    );
+  });
+
+  it('drops the remaining-count from Load More while a tag filter is active', async () => {
+    // category.thread_count is the board's UNFILTERED total, so subtracting the
+    // filtered page length invents a number ("380 remaining" for a 25-result
+    // filter) — the exact dishonest-count class audit M30 removed.
+    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
+      createMockCategory({ slug: 'plant-care', name: 'Plant Care', thread_count: 400 })
+    );
+    vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
+      items: [createMockThread({ id: '1', title: 'Tagged Thread', tags: ['monstera'] })],
+      meta: { count: 25, next: 'https://api.test/cursor=next', previous: null },
+    });
+
+    renderThreadListPage(['/forum/3-plant-care?tag=monstera']);
+
+    const button = await screen.findByRole('button', { name: /load more/i });
+    expect(button).toHaveTextContent('Load More');
+    expect(button).not.toHaveTextContent('remaining');
+  });
+
+  it('still shows the honest remaining-count when no tag filter is active', async () => {
+    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
+      createMockCategory({ slug: 'plant-care', name: 'Plant Care', thread_count: 400 })
+    );
+    vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
+      items: [createMockThread({ id: '1', title: 'A Thread' })],
+      meta: { count: 400, next: 'https://api.test/cursor=next', previous: null },
+    });
+
+    renderThreadListPage(['/forum/3-plant-care']);
+
+    const button = await screen.findByRole('button', { name: /load more/i });
+    expect(button).toHaveTextContent('399 remaining');
+  });
 });

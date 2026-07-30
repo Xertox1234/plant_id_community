@@ -119,6 +119,8 @@ export async function fetchThreads(
     cursor?: string;
     /** Board-list sort — one of the TopicCursorPagination SORT_ORDERINGS keys. */
     sort?: string;
+    /** Secondary-taxonomy filter (audit M5) — a single normalized tag name. */
+    tag?: string;
     // Legacy caller fields — accepted but ignored.
     category?: number;
     page?: number;
@@ -126,12 +128,18 @@ export async function fetchThreads(
     ordering?: string;
   } = {}
 ): Promise<PaginatedResponse<Thread>> {
-  const { board, cursor, sort } = options;
+  const { board, cursor, sort, tag } = options;
   if (!board) throw new Error('A board slug is required');
-  // A cursor URL is absolute and already encodes the active sort ordering, so
-  // ?sort= only ever needs to be appended on a first-page (non-cursor) request.
+  // A cursor URL is absolute and already encodes the active sort ordering AND
+  // tag filter, so query params are only appended on a first-page request.
   let url = cursor || `${FORUM_BASE}/boards/${board}/topics/`;
-  if (!cursor && sort) url += `?sort=${encodeURIComponent(sort)}`;
+  if (!cursor) {
+    const params = new URLSearchParams();
+    if (sort) params.set('sort', sort);
+    if (tag) params.set('tag', tag);
+    const qs = params.toString();
+    if (qs) url += `?${qs}`;
+  }
   const data = await authenticatedFetch<DrfPage<BackendTopicListItem>>(url);
   return {
     items: (data.results || []).map(mapTopicListItemToThread),
@@ -147,14 +155,22 @@ export async function fetchThread(topicId: number): Promise<Thread> {
 }
 
 export async function createThread(data: CreateTopicInput): Promise<CreateTopicResult> {
-  const { boardSlug, title, content } = data;
+  const { boardSlug, title, content, tags } = data;
   const res = await authenticatedFetch<{
     id: number;
     slug: string;
     status: 'published' | 'pending';
   }>(`${FORUM_BASE}/boards/${boardSlug}/topics/`, {
     method: 'POST',
-    body: JSON.stringify({ title, slug: slugifyTitle(title), body: htmlToBodyBlocks(content) }),
+    body: JSON.stringify({
+      title,
+      slug: slugifyTitle(title),
+      body: htmlToBodyBlocks(content),
+      // Omit the key entirely when there are none — the server treats an absent
+      // `tags` as "no tags", and sending [] would be an equivalent but noisier
+      // payload on the common untagged path.
+      ...(tags?.length ? { tags } : {}),
+    }),
   });
   return { id: String(res.id), slug: res.slug, status: res.status };
 }

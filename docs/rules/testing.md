@@ -157,3 +157,10 @@ Compact checklist auto-injected before edits.
   already-mutated file — the mutation survives into the commit. Commit first, then
   mutate and `git checkout --` to restore; finish by asserting `git status` is
   clean, not just that the test passes.
+- **When two validators can return the SAME status, assert the message, not just
+  the code.** A test posting 5,000 tags asserted only `400` — and kept passing with
+  the new early-bound guard removed, because the ordinary max-count check rejects
+  that payload too. The test named one guard and pinned another. Mutation-testing
+  is what exposed it (neuter the guard, expect red); a status-only assertion on an
+  endpoint with layered validation is close to a tautology. Assert the specific
+  error text so the test fails for the reason it claims (todo 276).

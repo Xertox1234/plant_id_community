@@ -103,6 +103,7 @@ describe('NewThreadPage', () => {
       boardSlug: 'plant-care',
       title: 'My Topic',
       content: '<p>hello</p>',
+      tags: [],
     });
   });
 
@@ -134,6 +135,7 @@ describe('NewThreadPage', () => {
         boardSlug: 'plant-care',
         title: 'My Topic',
         content: '<p>hello</p>',
+        tags: [],
       })
     );
   });
@@ -165,6 +167,7 @@ describe('NewThreadPage', () => {
         boardSlug: 'plant-care',
         title: 'Half-written topic',
         content: '<p>saved body</p>',
+        tags: [],
       })
     );
     // Posted drafts must not resurrect on the next visit.

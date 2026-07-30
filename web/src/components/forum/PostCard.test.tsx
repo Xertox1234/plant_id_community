@@ -523,6 +523,32 @@ describe('PostCard', () => {
     expect(await screen.findByText(/copied/i)).toBeInTheDocument();
   });
 
+  it('copies the CANONICAL thread URL + anchor, not the page-scoped one (audit M11)', async () => {
+    // AC1: the copied link must be one a fresh visitor can open. Post pagination
+    // is cursor-based and never appears in the URL, so the canonical thread path
+    // plus #post-N is the whole address — ThreadDetailPage's Wave-1 arrival
+    // effect then chases later cursor pages until the anchor renders (pinned by
+    // ThreadDetailPage.test.tsx "deep-link to a post on a later cursor page…").
+    // Any query string on the current URL must be dropped: it is view state
+    // (?order=, ?tag=), not part of the post's identity.
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    window.history.pushState({}, '', '/forum/3-plant-care/12-watering-tips?order=-created_at');
+
+    render(
+      <BrowserRouter>
+        <PostCard post={createMockPost({ id: '21' })} />
+      </BrowserRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /copy link/i }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        `${window.location.origin}/forum/3-plant-care/12-watering-tips#post-21`
+      )
+    );
+  });
+
   it('shows non-zero reaction counts read-only when logged out (no onReact)', () => {
     const post = createMockPost({ reaction_counts: { like: 2, love: 0 } });
 
