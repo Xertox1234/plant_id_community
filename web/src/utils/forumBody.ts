@@ -75,7 +75,12 @@ export function htmlToBodyBlocks(html: string): ForumBodyWriteBlock[] {
     } else if (el) {
       buffer.push(el.outerHTML);
     } else if (node.textContent?.trim()) {
-      buffer.push(node.textContent);
+      // A bare text node at body level. `buffer` is joined into a `paragraph`
+      // block, whose value is HTML — so this text must be ESCAPED, or "a < b"
+      // is re-parsed as markup downstream (CodeQL js/xss-through-dom: DOM text
+      // reinterpreted as HTML). Escaping is also the correct rendering: the
+      // user typed those characters, they did not author tags.
+      buffer.push(escapeHtml(node.textContent));
     }
   }
   flush();

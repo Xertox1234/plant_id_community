@@ -32,6 +32,16 @@ describe('forumBody serialization', () => {
     expect(html).toContain('src="https://cdn/z.jpg"');
   });
 
+  it('escapes a bare top-level text node instead of letting it become markup', () => {
+    // `buffer` is joined into a `paragraph` block whose value is HTML, so a text
+    // node's characters must be escaped on the way in (CodeQL js/xss-through-dom).
+    // Also the correct rendering: the user typed "<", they did not open a tag.
+    expect(htmlToBodyBlocks('a < b')).toEqual([{ type: 'paragraph', value: 'a &lt; b' }]);
+    expect(htmlToBodyBlocks('<p>ok</p>plain & text')).toEqual([
+      { type: 'paragraph', value: '<p>ok</p>plain &amp; text' },
+    ]);
+  });
+
   it('round-trips a body through HTML and back, preserving image ids and order', () => {
     const body: StreamFieldBlock[] = [
       { type: 'paragraph', value: '<p>look</p>' },
