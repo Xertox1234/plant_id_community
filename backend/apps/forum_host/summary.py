@@ -22,6 +22,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from wagtail_forum.api.versioning import UnversionedForumAPIMixin
 from wagtail_forum.api.views import _get_visible_topic, plain_text_excerpt
 from wagtail_forum.models import Post
 
@@ -62,11 +63,10 @@ def _pending_lock_key(content: str) -> str:
 
 
 @_throttled("topic_summary", "GET")
-class TopicSummaryView(APIView):
+class TopicSummaryView(UnversionedForumAPIMixin, APIView):
     """GET a cached AI summary of a topic thread (premium perk)."""
 
     permission_classes = [IsPremiumUser]
-    versioning_class = None  # opt out of NamespaceVersioning, like package views
 
     @extend_schema(
         responses={200: dict, 202: dict},

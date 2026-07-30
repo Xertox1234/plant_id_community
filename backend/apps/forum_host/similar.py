@@ -19,6 +19,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from wagtail_forum.api.versioning import UnversionedForumAPIMixin
 
 from . import constants
 from .api import _throttled
@@ -44,11 +45,10 @@ def _serialize(topic) -> dict:
 
 
 @_throttled("similar_topics", "GET", key=client_ip_key)
-class SimilarTopicsView(APIView):
+class SimilarTopicsView(UnversionedForumAPIMixin, APIView):
     """Semantic similar-topics search over live, visible forum topics."""
 
     permission_classes = [AllowAny]
-    versioning_class = None  # opt out of NamespaceVersioning, like package views
 
     @extend_schema(
         responses={200: dict, 400: dict, 503: dict},

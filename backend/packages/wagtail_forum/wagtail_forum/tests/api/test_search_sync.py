@@ -360,6 +360,9 @@ def test_search_topics_include_metadata_and_board():
     topic.reply_count = 3
     topic.view_count = 7
     topic.last_post_at = timezone.now()
+    # Pinned ON, so the assertion below is discriminating: the field defaults to
+    # False, so asserting the False case would also pass against a hardcoded one.
+    topic.is_pinned = True
     topic.save()
 
     resp = APIClient().get("/forum/search/", {"q": "Monstera"})
@@ -369,6 +372,10 @@ def test_search_topics_include_metadata_and_board():
     assert entry["reply_count"] == 3
     assert entry["view_count"] == 7
     assert entry["last_post_at"] is not None
+    # M40 (todo 277): the last field the search topic item was missing vs the
+    # board list. Search order stays relevance-ranked — this is the topic's own
+    # pinned state, which the web SearchPage renders via the shared ThreadCard.
+    assert entry["is_pinned"] is True
     assert entry["board_id"] == board.id
     assert entry["board_slug"] == "general-meta"
 

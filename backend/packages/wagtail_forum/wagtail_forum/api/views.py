@@ -81,6 +81,7 @@ from .serializers import (
     serialize_image_for_api,
 )
 from .upload_validation import validate_image_upload
+from .versioning import UnversionedForumAPIMixin
 
 logger = logging.getLogger("wagtail_forum")
 
@@ -301,12 +302,11 @@ class PrivateForumReadCacheMixin(PublicForumReadCacheMixin):
     _forum_read_public = False
 
 
-class BoardListView(PublicForumReadCacheMixin, generics.ListAPIView):
+class BoardListView(
+    UnversionedForumAPIMixin, PublicForumReadCacheMixin, generics.ListAPIView
+):
     serializer_class = BoardSerializer
     pagination_class = None  # boards are few; return a flat results list
-    # Opt out of host versioning: the package may be mounted outside a version
-    # namespace, where NamespaceVersioning would 404 every request.
-    versioning_class = None
     # Opt out of host-configured filter backends (DEFAULT_FILTER_BACKENDS): a
     # global OrderingFilter lets any client ?ordering= replace the cursor
     # pagination's pinned-first ordering, and 500s on dotted serializer sources
@@ -335,10 +335,11 @@ class BoardListView(PublicForumReadCacheMixin, generics.ListAPIView):
         "Returns 404 for a hidden/non-live board."
     ),
 )
-class TopicListView(PublicForumReadCacheMixin, generics.ListAPIView):
+class TopicListView(
+    UnversionedForumAPIMixin, PublicForumReadCacheMixin, generics.ListAPIView
+):
     serializer_class = TopicListSerializer
     pagination_class = TopicCursorPagination
-    versioning_class = None
     filter_backends = []  # host filter-backend opt-out — see BoardListView
     # GET (list) is public; only the merged POST (create) needs auth — exactly
     # IsAuthenticatedOrReadOnly (also the project default), declared explicitly.
@@ -522,9 +523,10 @@ class TopicListView(PublicForumReadCacheMixin, generics.ListAPIView):
         "topic on a hidden/non-live board (no existence leak)."
     ),
 )
-class TopicDetailView(PrivateForumReadCacheMixin, generics.RetrieveAPIView):
+class TopicDetailView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, generics.RetrieveAPIView
+):
     serializer_class = TopicDetailSerializer
-    versioning_class = None
     filter_backends = []  # host filter-backend opt-out — see BoardListView
     lookup_url_kwarg = "topic_id"
 
@@ -634,10 +636,11 @@ class TopicDetailView(PrivateForumReadCacheMixin, generics.RetrieveAPIView):
         "404 if the topic is non-live or on a hidden/non-live board."
     ),
 )
-class PostListView(PrivateForumReadCacheMixin, generics.ListAPIView):
+class PostListView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, generics.ListAPIView
+):
     serializer_class = PostSerializer
     pagination_class = PostCursorPagination
-    versioning_class = None
     filter_backends = []  # host filter-backend opt-out — see BoardListView
     # GET (list) is public; only the merged POST (reply) needs auth — exactly
     # IsAuthenticatedOrReadOnly (also the project default), declared explicitly.
@@ -756,11 +759,10 @@ class PostListView(PrivateForumReadCacheMixin, generics.ListAPIView):
         return response
 
 
-class PostWriteView(APIView):
+class PostWriteView(UnversionedForumAPIMixin, APIView):
     """Edit (PATCH) or soft-delete (DELETE) a single post. Author or moderator."""
 
     permission_classes = [IsAuthenticated]
-    versioning_class = None
 
     def _get_editable(self, request, post_id):
         # Existence gate only (single-query _get_visible_post; no existence leak,
@@ -917,7 +919,7 @@ class PostWriteView(APIView):
         return Response(status=http_status.HTTP_204_NO_CONTENT)
 
 
-class PostImageUploadView(APIView):
+class PostImageUploadView(UnversionedForumAPIMixin, APIView):
     """Upload an inline post image (4-layer validated) into the forum collection.
 
     Topic-independent (Spec 2 PR-3): a new-thread composer has no topic id yet,
@@ -926,7 +928,6 @@ class PostImageUploadView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
-    versioning_class = None
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -989,9 +990,8 @@ class PostImageUploadView(APIView):
         return response
 
 
-class ReactionToggleView(APIView):
+class ReactionToggleView(UnversionedForumAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
-    versioning_class = None
 
     @extend_schema(
         request=ReactionSerializer,
@@ -1042,9 +1042,8 @@ class ReactionToggleView(APIView):
         return Response(result, status=http_status.HTTP_200_OK)
 
 
-class PostReportView(APIView):
+class PostReportView(UnversionedForumAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
-    versioning_class = None
 
     @extend_schema(
         request=ReportSerializer,
@@ -1103,10 +1102,9 @@ class PostReportView(APIView):
         ),
     ),
 )
-class MeProfileView(generics.RetrieveUpdateAPIView):
+class MeProfileView(UnversionedForumAPIMixin, generics.RetrieveUpdateAPIView):
     serializer_class = MeProfileSerializer
     permission_classes = [IsAuthenticated]
-    versioning_class = None
     filter_backends = []  # host filter-backend opt-out — see BoardListView
     http_method_names = ["get", "patch", "head", "options"]
 
@@ -1161,7 +1159,7 @@ PUBLIC_PROFILE_SCHEMA = {
 }
 
 
-class PublicProfileView(APIView):
+class PublicProfileView(UnversionedForumAPIMixin, APIView):
     """Public forum profile: identity + trust + recent activity, read-only.
 
     Deliberately does NOT expose fcm_token (a credential) or flags_received (a
@@ -1174,7 +1172,6 @@ class PublicProfileView(APIView):
     """
 
     permission_classes = [AllowAny]
-    versioning_class = None
     RECENT_LIMIT = 10
 
     @extend_schema(
@@ -1276,8 +1273,7 @@ def plain_text_excerpt(stream_value, limit: int) -> str:
     return " ".join(parts)[:limit]
 
 
-class SearchView(PublicForumReadCacheMixin, APIView):
-    versioning_class = None
+class SearchView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
     PAGE_SIZE = 20  # results per section per page; *_has_more drives client paging
     MAX_PAGE = 50  # ceiling on ?page= — bounds the SQL OFFSET (like CursorPagination.offset_cutoff)
     MAX_EXCERPT_CHARS = 200
@@ -1334,6 +1330,12 @@ class SearchView(PublicForumReadCacheMixin, APIView):
                         "title": t.title,
                         "reply_count": t.reply_count,
                         "view_count": t.view_count,
+                        # Last of the four fields M40 found dropped vs the topic
+                        # list. A pinned topic is pinned wherever it surfaces —
+                        # the web SearchPage renders the same ThreadCard as the
+                        # board list, whose 📌 badge could never fire without it.
+                        # Free: t is already loaded, no extra query.
+                        "is_pinned": t.is_pinned,
                         "last_post_at": (
                             t.last_post_at.isoformat() if t.last_post_at else None
                         ),
@@ -1373,8 +1375,7 @@ class SearchView(PublicForumReadCacheMixin, APIView):
         )
 
 
-class SyncView(APIView):
-    versioning_class = None
+class SyncView(UnversionedForumAPIMixin, APIView):
     MAX_TOPICS = 200  # page size for the delta poll; has_more signals truncation
 
     @extend_schema(

@@ -308,6 +308,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       reply_count: 0,
       view_count: 0,
       last_post_at: null,
+      is_pinned: false,
       board_id: 1,
       board_slug: 'general',
     });
@@ -334,6 +335,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
     reply_count: 3,
     view_count: 12,
     last_post_at: '2026-07-01T10:00:00Z',
+    is_pinned: true,
     board_id: 54,
     board_slug: 'general-discussion',
   };
@@ -345,6 +347,14 @@ describe('forumMappers (wagtail_forum contract)', () => {
     expect(thread.last_activity_at).toBe('2026-07-01T10:00:00Z');
     expect(thread.category.id).toBe('54');
     expect(thread.category.slug).toBe('general-discussion');
+    // M40 (todo 277): search hits carry the topic's own pinned state, so the
+    // shared ThreadCard renders its badge the same way it does on a board list.
+    // Both cases asserted — a `true`-only assertion also passes against a
+    // hardcoded `is_pinned: true` in the mapper.
+    expect(thread.is_pinned).toBe(true);
+    expect(mapSearchTopicToThread({ ...backendSearchTopic, is_pinned: false }).is_pinned).toBe(
+      false
+    );
   });
 
   it('mapSearchPostToPost carries topic and board identity for links', () => {

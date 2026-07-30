@@ -390,3 +390,58 @@ per-side and guarded by a **backend test that reads the committed web file** and
 asserts equality (`apps/forum_host/tests/test_reaction_contract.py`). Honest
 framing: a drift GUARD (fails CI if either side changes alone), not true
 single-sourcing.
+
+## Four list envelopes, documented rather than converged (audit M40 / todo 277)
+
+The forum API ships four list-collection shapes — cursor `{results, next,
+previous}`, flat `{results}` (boards), search `{topics, posts, *_has_more,
+page}`, sync `{topics, deleted, has_more, next_since, next_since_id}`. The
+resolution was to **document the divergence, not converge it**: search carries
+two independently-paged result sets in one response and sync carries tombstones
+plus a client-persisted compound cursor, and neither survives a single `results`
+list. The contract table (which endpoint, which shape, why not cursor) lives in
+the package README's `## List envelopes` — that is the authoritative statement;
+`web/src/services/forumMappers.ts` points at it from the consuming side.
+
+Sub-decision worth keeping: **search items are deliberately lighter than list
+items.** The post item carries a `plain_text_excerpt` slice rather than the
+`PostSerializer` body precisely so search doesn't resolve every hit's StreamField
+(the per-post image bulk-fetch that helper exists to avoid), and neither section
+carries an `author`. The one field actually added back was `is_pinned` — a topic
+is pinned wherever it surfaces, and the web SearchPage renders the same
+`ThreadCard` as the board list, whose 📌 badge could otherwise never fire. Search
+order stays relevance-ranked; pinned is topic state, not list order.
+
+## Versioning opt-out: one mixin, guarded structurally (audit L20 / todo 277)
+
+Every forum view (17 package + 3 host AI views) inherits `versioning_class =
+None` from `wagtail_forum/api/versioning.py::UnversionedForumAPIMixin`, which
+states the rationale once instead of 20 times.
+
+The guard is the interesting part, and the coverage split is not the obvious one.
+This host sets `DEFAULT_VERSIONING_CLASS = NamespaceVersioning` with
+`ALLOWED_VERSIONS = ["v1", "v2"]`. Whether a dropped opt-out is *visible* then
+depends entirely on which urlconf a test goes through:
+
+| Mount | Namespace | Opt-out dropped |
+|---|---|---|
+| Package test urlconf (`wagtail_forum.tests.api.urls`) | `wagtail_forum_api` (auto from the package `app_name`) — not an allowed version | **404s** — the package API suite catches it, as an undiagnosed mass-404 |
+| Real host mount (`plant_community_backend/urls.py`) | `v1:wagtail_forum_api` — `NamespaceVersioning` splits on `:` and accepts `v1` | **200, unchanged** — nothing behavioural fails |
+
+So the package's own suite happens to cover *package* views — an accident of its
+test urlconf's namespace, not a designed guarantee. What it cannot cover is the
+host-mounted surface: the three host-only AI views
+(`summary`/`compose_assist`/`similar`) and every throttled host subclass. Measured:
+reordering `SimilarTopicsView`'s bases left its own 18 tests **and** all 251
+package API tests green — only the structural guard failed.
+
+Hence `apps/forum_host/tests/test_forum_versioning_optout.py`: it walks the
+**host** urlconf (so it sees throttled subclasses and `SemanticSearchMixin`, not
+just package classes) and asserts the mixin is present, precedes `APIView` in the
+MRO (DRF's `APIView` declares `versioning_class` in its own body — bases in the
+wrong order silently hand the host default back), and is re-declared nowhere else.
+
+Generalizable: when an attribute's *correct* value is indistinguishable from its
+default **on the mount that ships**, behavioural tests cannot protect it there.
+Assert the structure — and when claiming "no test catches this", enumerate the
+urlconfs, because coverage can differ per mount within one repo.

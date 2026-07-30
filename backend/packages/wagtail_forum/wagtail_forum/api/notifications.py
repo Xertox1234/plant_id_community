@@ -23,6 +23,7 @@ except ImportError:  # pragma: no cover
 from ..models import Notification
 from .pagination import ForumCursorPagination
 from .serializers import NotificationSerializer
+from .versioning import UnversionedForumAPIMixin
 from .views import _visible_boards
 
 UNREAD_COUNT_SCHEMA = {
@@ -62,11 +63,10 @@ def _visible_notifications(user):
         "List the authenticated user's notifications, newest first (cursor-paginated)."
     ),
 )
-class NotificationListView(generics.ListAPIView):
+class NotificationListView(UnversionedForumAPIMixin, generics.ListAPIView):
     serializer_class = NotificationSerializer
     pagination_class = ForumCursorPagination
     permission_classes = [IsAuthenticated]
-    versioning_class = None
     filter_backends = []  # host filter-backend opt-out — see api/views.py BoardListView
 
     def get_queryset(self):
@@ -81,9 +81,8 @@ class NotificationListView(generics.ListAPIView):
         )
 
 
-class NotificationUnreadCountView(APIView):
+class NotificationUnreadCountView(UnversionedForumAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
-    versioning_class = None
 
     @extend_schema(
         responses={200: UNREAD_COUNT_SCHEMA},
@@ -96,9 +95,8 @@ class NotificationUnreadCountView(APIView):
         return Response({"count": count})
 
 
-class NotificationMarkReadView(APIView):
+class NotificationMarkReadView(UnversionedForumAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
-    versioning_class = None
 
     @extend_schema(
         request={

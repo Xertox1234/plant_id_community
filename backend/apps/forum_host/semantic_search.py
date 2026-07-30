@@ -82,6 +82,7 @@ def _serialize(topic) -> dict:
         "last_post_at": (
             topic.last_post_at.isoformat() if topic.last_post_at else None
         ),
+        "is_pinned": topic.is_pinned,
         "board_id": topic.board_id,
         "board_slug": topic.board.slug,
     }

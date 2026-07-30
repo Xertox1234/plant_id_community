@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ..models import TopicSubscription
+from .versioning import UnversionedForumAPIMixin
 from .views import _get_visible_topic, extend_schema
 
 SUBSCRIPTION_SCHEMA = {
@@ -13,9 +14,8 @@ SUBSCRIPTION_SCHEMA = {
 }
 
 
-class TopicSubscriptionView(APIView):
+class TopicSubscriptionView(UnversionedForumAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
-    versioning_class = None
 
     @extend_schema(
         responses={200: SUBSCRIPTION_SCHEMA},
