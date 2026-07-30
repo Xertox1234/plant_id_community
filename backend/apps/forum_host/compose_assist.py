@@ -115,12 +115,18 @@ class ComposeAssistView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        raw = request.data.get("text")
-        if not isinstance(raw, str):
+        # Guard the CONTAINER before the value: a top-level JSON array, string or
+        # number makes request.data a list/str/int, so `.get` would raise
+        # AttributeError — which DRF's handler does not cover, giving a 500 instead
+        # of a 400 (security review, todo 275).
+        if not isinstance(request.data, dict) or not isinstance(
+            request.data.get("text"), str
+        ):
             return Response(
                 {"detail": "Field 'text' is required and must be a string."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        raw = request.data["text"]
         text = _draft_text(raw)
         if not text:
             return Response(

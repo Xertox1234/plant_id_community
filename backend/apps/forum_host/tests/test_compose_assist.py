@@ -143,6 +143,20 @@ def test_non_string_text_returns_400():
 
 @override_settings(FORUM_COMPOSE_ASSIST_ENABLED=True)
 @pytest.mark.django_db
+def test_non_object_json_body_returns_400_not_500():
+    """A top-level array/string/number makes request.data a list/str/int, so a bare
+    `request.data.get(...)` raises AttributeError — which DRF's exception handler
+    does not cover, giving a 500 (security review, todo 275)."""
+    client = _premium_client()
+    with patch(GENERATE) as mock_generate:
+        for body in ([1, 2], "just a string", 5):
+            resp = client.post(ASSIST_URL, body, format="json")
+            assert resp.status_code == 400, f"{body!r} gave {resp.status_code}"
+    mock_generate.assert_not_called()
+
+
+@override_settings(FORUM_COMPOSE_ASSIST_ENABLED=True)
+@pytest.mark.django_db
 def test_html_only_draft_counts_as_empty_and_returns_400():
     """TipTap's empty document is `<p></p>` — tags strip to nothing, so this must
     be treated as an empty draft rather than sent to the provider as markup."""
