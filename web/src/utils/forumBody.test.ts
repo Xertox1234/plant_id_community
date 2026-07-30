@@ -140,6 +140,24 @@ describe('forumBody quote blocks (audit M1)', () => {
     expect(blocks).toEqual([{ type: 'quote', value: 'line one\nline two' }]);
   });
 
+  it('escapes a bare-text blockquote through the full re-edit round trip', () => {
+    // Pins the exact flow CodeQL js/xss-through-dom traces: blockquoteText's
+    // `el.textContent` fallback (a blockquote with no element children) -> a
+    // `quote` value -> bodyBlocksToHtml -> DOMParser. The escape is applied
+    // where the value becomes HTML, so the payload stays inert text.
+    const blocks = htmlToBodyBlocks('<blockquote><script>alert(1)</script></blockquote>');
+    expect(blocks).toEqual([{ type: 'quote', value: 'alert(1)' }]);
+
+    const evil = htmlToBodyBlocks(
+      '<blockquote>a &lt;img src=x onerror=alert(1)&gt; b</blockquote>'
+    );
+    const html = bodyBlocksToHtml(evil as StreamFieldBlock[]);
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img');
+    // ...and re-parsing that HTML yields the same plain text, not an image block.
+    expect(htmlToBodyBlocks(html)).toEqual(evil);
+  });
+
   it('round-trips through a REAL TipTap editor: blockquote stays top-level', () => {
     // The seam the unit tests cannot cover — that StarterKit's Blockquote emits
     // at body level so htmlToBodyBlocks sees it (rather than nested in a <p>,
