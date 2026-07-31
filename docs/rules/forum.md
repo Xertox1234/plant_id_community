@@ -107,3 +107,13 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   rendering it in whichever locale was active at write time corrupts the
   moderation audit trail. Translate what is *displayed*, never what is *stored*
   or *keyed on*.
+- **Resolve a host User by pk with `get_user_model()._base_manager`, never
+  `_default_manager`.** A host whose User model filters its default manager
+  (soft-delete, active-only) returns `None` for exactly those rows, and package
+  code that falls back on `None` then silently degrades for the affected
+  accounts rather than failing. `_base_manager` is unfiltered by contract — it
+  is what Django itself uses to resolve related objects. Same host-agnosticism
+  rule as `settings.AUTH_USER_MODEL` and `get_full_name()`: the package cannot
+  assume this host's manager semantics. Caught in review on todo 285's
+  `ForumProfile.initial_read_watermark_for_user_id`, where the fallback would
+  have reinstated the very bug the todo closed.
