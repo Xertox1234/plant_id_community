@@ -2539,3 +2539,46 @@ region-is-mounted-and-empty-before-the-action test. `findByText` after the
 triggering action passes whether or not the region pre-existed, so it cannot
 distinguish the fix from the bug. Where a test can't tell right from wrong, the
 wrong one ships — and no amount of careful reading substitutes.
+
+## Tooling / CI (2026-07-30 additions)
+
+### [2026-07-30] Retiring a required status check: unrequire FIRST, delete the workflow SECOND
+
+**Context**: removed `.github/workflows/security-review.yml` (Anthropic's
+`claude-code-security-review`) for cost. It billed the `ANTHROPIC_API_KEY`
+secret on *every commit*, not every PR (`run-every-commit: true`, todo 266),
+and low credit had already hard-blocked all merges to `main` once (PR #479).
+
+**Mistake avoided**: deleting the workflow file first. `pull_request` workflows
+run from the **PR head**, so a head that deletes the file reports *no status*
+for the "Claude Code Security Review" context. Combined with the 2026-06-06
+entry above — a required check with no reported status is pending forever — and
+`enforce_admins: true`, that deadlocks every subsequent PR, including the
+deletion PR itself. The repo would have had no un-blocked path to merge the fix.
+
+**Fix**: `DELETE .../branches/main/protection/required_status_checks/contexts`
+with a bare `["Claude Code Security Review"]` body (the narrow sub-resource
+endpoint, per the 2026-07-14 entry — never a full `PATCH`) *before* opening the
+deletion PR. `GET` before and after; the diff showed only the removed context in
+both the `checks` and `contexts` arrays, with `enforce_admins`,
+`required_pull_request_reviews`, `allow_force_pushes`, and `allow_deletions`
+unchanged.
+
+**Rule**: adding a required check is file-then-protection; removing one is
+protection-then-file. The asymmetry is because a check that reports no status
+blocks, while a check nobody requires is merely noise. Generalizes to renaming a
+required job — a `name:` change is a delete plus an add, so it needs both halves
+in that order.
+
+**Also found while sweeping**: `kimi-review.yml`'s header claimed a CRITICAL
+finding "blocks the merge". It never has. The job declares no `name:`, so its
+context is `kimi-review`, which was never in the required list; and no
+`OPENROUTER_API_KEY` secret exists, so it self-skips at its own guard on every
+PR. A workflow's comment is a claim about *repo settings it cannot see* — verify
+against `gh api .../protection` and `gh secret list`, not the YAML.
+
+**Trigger**: none registered — the write-time trigger system only observes
+Edit/Write calls against repo files, and the load-bearing half of this is a
+`gh api` action against repo settings, which is invisible to it (same limitation
+as the 2026-07-14 entry).
+**Agent**: n/a — repo-settings + CI action, not a reviewable application diff.
