@@ -103,7 +103,13 @@ def _topic_with_image_posts(n):
     )
     for i in range(n):
         image = get_image_model().objects.create(
-            title=f"img{i}", file=get_test_image_file(), collection=collection
+            # title = the upload filename (admin identification);
+            # description = the author-supplied alt text (M7). Kept distinct so
+            # the alt assertion below discriminates between the two.
+            title=f"img{i}",
+            description=f"authored alt {i}",
+            file=get_test_image_file(),
+            collection=collection,
         )
         Post.objects.create(
             topic=topic,
@@ -127,7 +133,11 @@ def test_post_list_serializes_image_blocks_to_renditions():
     assert [b["type"] for b in blocks] == ["paragraph", "image"]
     image_value = blocks[1]["value"]
     assert set(image_value) == {"id", "url", "alt", "width", "height"}
-    assert image_value["alt"] == "img0"
+    # M7: alt is the AUTHORED value (Image.description), never the filename
+    # (Image.title). Both assertions matter — the second is what would catch a
+    # regression back to filename-as-alt.
+    assert image_value["alt"] == "authored alt 0"
+    assert "img0" not in image_value["alt"]
     assert image_value["url"].startswith("http://testserver")  # absolute, cross-origin
     assert image_value["width"] > 0 and image_value["height"] > 0
 

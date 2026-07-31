@@ -430,6 +430,14 @@ def serialize_image_for_api(image, request=None):
     Serves a bounded `max-1200x1200` rendition (not the 5000px-capped original).
     The URL is made absolute against the request so the web client — served from
     a different origin than the media backend — resolves it correctly.
+
+    `alt` is the AUTHOR-SUPPLIED value on `Image.description` (M7), Wagtail's own
+    alt-text field. It deliberately does NOT fall back to `image.title`: title is
+    the upload filename, and filename-as-alt is an accessibility anti-pattern —
+    a screen reader announcing "IMG_2481.jpg" is worse than announcing nothing,
+    and `alt=""` is the correct markup for a decorative image. Rows uploaded
+    before M7 have `description=""`, so historic posts now serve `alt: ""`
+    instead of a filename. That is the intended improvement, not a regression.
     """
     rendition = image.get_rendition("max-1200x1200")
     url = rendition.url
@@ -438,7 +446,7 @@ def serialize_image_for_api(image, request=None):
     return {
         "id": image.id,
         "url": url,
-        "alt": image.title or "",
+        "alt": image.description or "",
         "width": rendition.width,
         "height": rendition.height,
     }

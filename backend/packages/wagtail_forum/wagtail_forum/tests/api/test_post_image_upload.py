@@ -288,3 +288,120 @@ def test_upload_idempotency_key_reuse_with_different_image_is_422():
     assert r1.status_code == 201
     assert r2.status_code == 422
     assert get_image_model().objects.count() == 1
+
+
+# ---------------------------------------------------------------------------
+# Author-supplied alt text (M7 / todo 281)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_alt_part_is_stored_on_the_image_and_returned():
+    """The whole point: a human-authored value enters the round-trip."""
+    resp = _auth_client().post(
+        URL,
+        {"image": _upload(), "alt": "A monstera leaf with brown edges"},
+        format="multipart",
+    )
+    assert resp.status_code == 201
+    assert resp.data["alt"] == "A monstera leaf with brown edges"
+    image = get_image_model().objects.get(id=resp.data["id"])
+    # Stored on Wagtail's own alt-text field, NOT title — title stays the
+    # filename for admin identification.
+    assert image.description == "A monstera leaf with brown edges"
+    assert image.title == "ok.jpg"
+
+
+@pytest.mark.django_db
+def test_upload_without_alt_returns_empty_string_not_the_filename():
+    """Filename-as-alt is the anti-pattern this todo exists to remove.
+
+    An empty alt is correct for a decorative image and is strictly better for a
+    screen reader than "ok.jpg".
+    """
+    resp = _auth_client().post(
+        URL, {"image": _upload(name="IMG_2481.jpg")}, format="multipart"
+    )
+    assert resp.status_code == 201
+    assert resp.data["alt"] == ""
+    assert "IMG_2481" not in resp.data["alt"]
+    assert get_image_model().objects.get(id=resp.data["id"]).description == ""
+
+
+@pytest.mark.django_db
+def test_blank_and_whitespace_only_alt_normalise_to_empty():
+    resp = _auth_client().post(
+        URL, {"image": _upload(), "alt": "   "}, format="multipart"
+    )
+    assert resp.status_code == 201
+    assert resp.data["alt"] == ""
+
+
+@pytest.mark.django_db
+def test_over_long_alt_is_truncated_not_a_dataerror():
+    """`description` is CharField(max_length=255) — an unbounded value would
+    raise DataError on a strict backend. Truncate, matching the title idiom."""
+    resp = _auth_client().post(
+        URL, {"image": _upload(), "alt": "x" * 400}, format="multipart"
+    )
+    assert resp.status_code == 201
+    assert len(resp.data["alt"]) == 255
+    assert get_image_model().objects.get(id=resp.data["id"]).description == "x" * 255
+
+
+@pytest.mark.django_db
+def test_alt_is_surrounding_whitespace_stripped():
+    resp = _auth_client().post(
+        URL, {"image": _upload(), "alt": "  a fern frond  "}, format="multipart"
+    )
+    assert resp.status_code == 201
+    assert resp.data["alt"] == "a fern frond"
+
+
+@pytest.mark.django_db
+def test_alt_is_not_part_of_the_idempotency_fingerprint():
+    """A same-key retry carrying different alt must REPLAY, not 422.
+
+    Deliberate (M7): the fingerprint stays on file content alone, so a flaky-
+    network retry that re-sends corrected alt is not rejected. The accepted
+    consequence is that the replay returns the ORIGINAL alt.
+    """
+    client = _auth_client()
+    first = client.post(
+        URL,
+        {"image": _upload(), "alt": "first alt"},
+        format="multipart",
+        HTTP_IDEMPOTENCY_KEY="k-alt-1",
+    )
+    assert first.status_code == 201
+
+    retry = client.post(
+        URL,
+        {"image": _upload(), "alt": "corrected alt"},
+        format="multipart",
+        HTTP_IDEMPOTENCY_KEY="k-alt-1",
+    )
+    assert retry.status_code == 201  # replayed, not 422
+    assert retry.data["id"] == first.data["id"]  # no duplicate row
+    assert retry.data["alt"] == "first alt"  # the documented trade
+
+
+@pytest.mark.django_db
+def test_alt_sent_as_a_file_part_is_ignored_not_a_500():
+    """`request.data` MERGES POST and FILES under MultiPartParser.
+
+    So an `alt` sent as a file arrives as an UploadedFile, and calling .strip()
+    on it raised AttributeError -> 500. Found by review of this PR; the happy-
+    path tests above all send `alt` as a plain field and never exercised it.
+    """
+    resp = _auth_client().post(
+        URL,
+        {
+            "image": _upload(),
+            "alt": SimpleUploadedFile("evil.txt", b"hi", content_type="text/plain"),
+        },
+        format="multipart",
+    )
+    assert resp.status_code == 201
+    assert resp.data["alt"] == ""
+    assert get_image_model().objects.get(id=resp.data["id"]).description == ""

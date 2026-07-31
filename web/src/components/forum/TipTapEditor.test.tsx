@@ -38,6 +38,19 @@ beforeAll(() => {
   }
 });
 
+/**
+ * jsdom implements neither `URL.createObjectURL` nor `revokeObjectURL` (no blob
+ * URL store), so the M7 alt prompt's preview would throw on open. Stub both —
+ * `revokeObjectURL` is a spy because "the preview is released" is itself an
+ * assertion (one leaked blob per inserted image otherwise).
+ */
+const revokeObjectURL = vi.fn();
+beforeAll(() => {
+  const url = URL as unknown as Record<string, unknown>;
+  url.createObjectURL = vi.fn(() => 'blob:preview-mock');
+  url.revokeObjectURL = revokeObjectURL;
+});
+
 describe('TipTapEditor', () => {
   beforeEach(() => {
     // The compose-assist unavailability latch is session-scoped module state in
@@ -270,7 +283,10 @@ describe('TipTapEditor', () => {
     const file = new File(['x'], 'ok.jpg', { type: 'image/jpeg' });
     fireEvent.change(input, { target: { files: [file] } });
 
-    await waitFor(() => expect(uploadSpy).toHaveBeenCalledWith(file));
+    // M7: selecting a file now opens the alt prompt; the upload happens on
+    // confirm. Skip is the shortest path to "just upload it".
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledWith(file, ''));
   });
 
   it('surfaces an upload failure as an error message (L13)', async () => {
@@ -282,8 +298,116 @@ describe('TipTapEditor', () => {
     const input = screen.getByTestId('forum-image-input');
     const file = new File(['x'], 'ok.jpg', { type: 'image/jpeg' });
     fireEvent.change(input, { target: { files: [file] } });
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
 
     expect(await screen.findByText('server exploded')).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Author-supplied alt text (M7 / todo 281)
+  // -------------------------------------------------------------------------
+
+  it('prompts for alt text before uploading, not after (M7)', async () => {
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage');
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByTestId('forum-image-input'), {
+      target: { files: [new File(['x'], 'ok.jpg', { type: 'image/jpeg' })] },
+    });
+
+    // The prompt is up and NOTHING has been uploaded — the alt must ride the
+    // upload request, so capturing it afterwards would be too late.
+    expect(await screen.findByLabelText('Describe this image')).toBeInTheDocument();
+    expect(uploadSpy).not.toHaveBeenCalled();
+  });
+
+  it('sends author-entered alt text on upload (M7)', async () => {
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue({
+      id: 1,
+      url: 'https://cdn.example/x.jpg',
+      alt: 'A monstera leaf with brown edges',
+      width: 10,
+      height: 10,
+    });
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    const file = new File(['x'], 'ok.jpg', { type: 'image/jpeg' });
+    fireEvent.change(screen.getByTestId('forum-image-input'), { target: { files: [file] } });
+
+    await userEvent.type(
+      await screen.findByLabelText('Describe this image'),
+      'A monstera leaf with brown edges'
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Add image' }));
+
+    await waitFor(() =>
+      expect(uploadSpy).toHaveBeenCalledWith(file, 'A monstera leaf with brown edges')
+    );
+  });
+
+  it('Skip uploads with an empty alt and discards anything typed (M7)', async () => {
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue({
+      id: 1,
+      url: 'https://cdn.example/x.jpg',
+      alt: '',
+      width: 10,
+      height: 10,
+    });
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    const file = new File(['x'], 'ok.jpg', { type: 'image/jpeg' });
+    fireEvent.change(screen.getByTestId('forum-image-input'), { target: { files: [file] } });
+
+    await userEvent.type(await screen.findByLabelText('Describe this image'), 'half-typed');
+    await userEvent.click(screen.getByRole('button', { name: 'Skip' }));
+
+    // Skip means "no description", not "submit whatever is in the box" — an
+    // empty alt is correct for a decorative image and must not block posting.
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledWith(file, ''));
+  });
+
+  it('revokes the preview object URL when the prompt closes (M7)', async () => {
+    vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue({
+      id: 1,
+      url: 'https://cdn.example/x.jpg',
+      alt: '',
+      width: 10,
+      height: 10,
+    });
+    const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByTestId('forum-image-input'), {
+      target: { files: [new File(['x'], 'ok.jpg', { type: 'image/jpeg' })] },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+
+    // Without this the composer leaks one blob per inserted image.
+    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview-mock'));
+  });
+
+  it('revokes the preview when the composer unmounts with the prompt open (M7)', async () => {
+    // The path the Skip test above does NOT cover, and the one that was broken:
+    // the cleanup originally revoked inside a setState functional updater, but
+    // React DISCARDS a setState on an unmounting component without invoking the
+    // updater — so it silently did nothing (measured: 0 revoke calls). Reading a
+    // ref in the cleanup is what makes this work. Navigating away mid-prompt is
+    // a real path; this editor is also remounted via `key=` after every reply.
+    const { container, unmount } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByTestId('forum-image-input'), {
+      target: { files: [new File(['x'], 'ok.jpg', { type: 'image/jpeg' })] },
+    });
+    await screen.findByLabelText('Describe this image');
+
+    revokeObjectURL.mockClear();
+    unmount();
+
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview-mock');
   });
 
   it('opens a styled link editor instead of window.prompt, and validates the URL (M24)', async () => {

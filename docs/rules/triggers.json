@@ -827,5 +827,40 @@
     "source": "codify: todo-280-forum-spam-attempts-counter",
     "added": "2026-07-31",
     "severity": "warn"
+  },
+  {
+    "id": "drf-multipart-data-get-string-method",
+    "domains": [
+      "api",
+      "security"
+    ],
+    "path_glob": [
+      "backend/**/views.py",
+      "backend/**/*_views.py",
+      "backend/**/serializers.py"
+    ],
+    "content_present": "request\\.data\\.get\\([^\\n]*\\.(strip|lower|upper|split|startswith|encode)\\(",
+    "content_absent": "isinstance\\(",
+    "message": "String method called on request.data.get(...) — under MultiPartParser request.data MERGES POST and FILES, so a text field sent as a FILE part is an UploadedFile and .strip() raises AttributeError (500, not 400). Guard with isinstance(value, str). Happy-path tests send it as a field and never catch this.",
+    "pattern_ref": "backend/docs/patterns/security/file-upload.md",
+    "source": "codify: todo-281-forum-image-alt-text",
+    "added": "2026-07-31",
+    "severity": "warn"
+  },
+  {
+    "id": "react-setstate-in-unmount-cleanup",
+    "domains": [
+      "react",
+      "typescript"
+    ],
+    "path_glob": [
+      "web/**/*.tsx"
+    ],
+    "content_present": "return \\(\\) =>[^\\n]*\\n?[^\\n]*set[A-Z]\\w*\\(\\(",
+    "message": "setState with a functional updater inside an unmount cleanup — React DISCARDS the update without invoking the updater, so any release/cleanup work inside it silently never runs (measured 0 calls, todo 281). Mirror the value into a useRef and read the ref in the cleanup; test the unmount path specifically.",
+    "pattern_ref": "web/docs/patterns/react-typescript.md",
+    "source": "codify: todo-281-forum-image-alt-text",
+    "added": "2026-07-31",
+    "severity": "warn"
   }
 ]

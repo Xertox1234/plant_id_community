@@ -44,6 +44,11 @@ function blockquoteText(el: Element): string {
  * blocks; each inline `<img data-image-id>` becomes its own `image` block (value
  * = the wagtail image id — the url/alt in the editor are display-only and are
  * re-derived by the backend, so they are intentionally dropped here).
+ *
+ * What the backend re-derives `alt` FROM changed in M7: it is now the author's
+ * own text, captured at upload time and stored on the image row, not the upload
+ * filename. Dropping the editor's copy here is still correct — but it is also
+ * why alt cannot be edited after insert without re-uploading the image.
  */
 export function htmlToBodyBlocks(html: string): ForumBodyWriteBlock[] {
   const doc = new DOMParser().parseFromString(html, 'text/html');

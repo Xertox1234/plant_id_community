@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "281"
 tags: [forum, a11y, web, drf, wagtail]
@@ -132,20 +132,20 @@ be captured and stored.
 
 ## Acceptance Criteria
 
-- [ ] `POST` to the post-image upload endpoint with an `alt` part stores it and
+- [x] `POST` to the post-image upload endpoint with an `alt` part stores it and
       returns it — asserted by a backend test that reads `Image.description`
       from the DB and the `alt` key from the response body
-- [ ] Uploading with no `alt` part returns `alt: ""` (not the filename) —
+- [x] Uploading with no `alt` part returns `alt: ""` (not the filename) —
       backend test asserts the filename does NOT appear in the serialized alt
-- [ ] An over-long alt is bounded to 255 chars (or rejected with 400) rather
+- [x] An over-long alt is bounded to 255 chars (or rejected with 400) rather
       than raising a `DataError` — backend test
-- [ ] The composer sends author-entered alt text on upload — Vitest test on the
+- [x] The composer sends author-entered alt text on upload — Vitest test on the
       image-insert flow asserting the value reaches `uploadPostImage`
-- [ ] A rendered post image carries the authored alt — Vitest test on the post
+- [x] A rendered post image carries the authored alt — Vitest test on the post
       renderer
-- [ ] `manage.py spectacular` passes with `alt` present in the upload request
+- [x] `manage.py spectacular` passes with `alt` present in the upload request
       schema
-- [ ] `pytest` forum suite and `npm run test` both green
+- [x] `pytest` forum suite and `npm run test` both green
 
 ## Work Log
 
@@ -158,6 +158,108 @@ be captured and stored.
   field exists in the pinned wagtail 7.4.2 — this is the detail that makes the
   change non-breaking and was not known when the audit filed M7 as a "contract
   change".
+
+### 2026-07-31 - Implemented by completing-todos skill (run 2026-07-31-1827)
+
+Option 1 (`Image.description`) as recommended. Verified the load-bearing fact
+first — the whole "no migration" claim rests on it:
+
+```
+wagtail (7, 4, 2, 'final', 1)
+267:    description = models.CharField(
+0027_image_description.py
+```
+
+**Shipped**
+
+1. `PostImageUploadView.post` accepts an optional `alt` multipart part →
+   stripped, `[:255]`, stored as `description=`. `title` still holds the
+   filename for Wagtail-admin identification. `alt` added to the
+   `extend_schema` multipart properties.
+2. `serialize_image_for_api` returns `image.description or ""` — with **no
+   fallback to `title`**. That is the point of the change, not an oversight:
+   `alt=""` is correct for a decorative image and strictly better for a screen
+   reader than `IMG_2481.jpg`.
+3. Composer prompts for alt **before** upload (`TipTapEditor`), with a local
+   `URL.createObjectURL` preview so the author can see what they're describing.
+   Mirrors the M24 link-popover shape. `uploadPostImage(file, alt?)` sends the
+   part only when non-empty.
+4. `wagtail_forum/README.md` + the `forumBody.ts` alt note updated.
+
+**Decisions made during implementation**
+
+- **No alt PATCH endpoint** (Recommended Action step 5, explicitly optional).
+  It would add a route needing host-mount parity (`test_host_api_routes_match_package`),
+  throttling, and OpenAPI for a correction path. Instead alt is captured at
+  upload only, and the composer hint says so verbatim: "This can only be set
+  now — to change it later, remove the image and add it again."
+- **Skip ≠ submit-what's-typed.** "Skip" and Escape upload with `alt=''`,
+  discarding anything half-typed; "Add image" sends the typed value. Two buttons
+  that did the same thing was the first draft and it was wrong.
+- **`alt` stays out of the idempotency fingerprint** (the todo's recommendation).
+  Including it would 422 a legitimate same-file retry carrying corrected alt.
+  Accepted consequence, now tested and documented: a replay returns the
+  *original* alt.
+
+**Deliberate contract change to an existing test.**
+`test_post_list_serializes_image_blocks_to_renditions` asserted
+`alt == "img0"` — filename-as-alt, the exact defect. Its fixture now sets a
+`description` distinct from `title`, and it asserts both the authored value AND
+that the filename does not appear. Two composer tests also changed shape: file
+selection no longer uploads directly, it opens the prompt.
+
+**Visible API change for historic content:** images uploaded before this serve
+`alt: ""` instead of their filename. Intended improvement, called out in the PR.
+
+### Verification
+
+`manage.py spectacular` — AC6 checked by parsing the schema, not by exit code:
+
+```
+PATH: /forum/images/
+PROPERTIES: ['image', 'alt']
+ALT SPEC: {'type': 'string', 'maxLength': 255, 'description': 'Author-supplied alt text (M7)...'}
+```
+
+Full backend suite, single invocation, fresh DB (`pytest -q --create-db`):
+
+```
+Pytest: 1449 passed, 0 failed, 8 skipped
+```
+
+Full web suite (`npm run test`):
+
+```
+Test Files  58 passed (58)
+     Tests  806 passed (806)
+```
+
+`npx tsc --noEmit` → `No errors found`; `npm run lint` → 0 errors (1 warning in
+a coverage artifact, not source).
+
+Mutation check — restoring the filename fallback
+(`image.description or image.title or ""`) turns the new tests red, so they are
+not hollow:
+
+```
+assert resp.data["alt"] == ""
+E   AssertionError: assert 'IMG_2481.jpg' == ''
+```
+
+### 2026-07-31 - Completed by completing-todos skill (run 2026-07-31-1827)
+
+- Verification: all 7 acceptance criteria passed with quoted evidence above.
+- Review: checklist orchestrator returned 0 findings. The deep pass on PR #526
+  found **2 real defects in this PR's own code**, both fixed with regression
+  tests before merge:
+  1. `alt` sent as a FILE part 500'd (`request.data` merges POST and FILES under
+     MultiPartParser, so `.strip()` hit an `UploadedFile`). Now `isinstance(str)`
+     guarded via `_alt_text()`.
+  2. The unmount cleanup never revoked the preview object URL — it revoked
+     inside a `setState` functional updater, which React discards on an
+     unmounting component (measured 0 calls). Now a `useRef`.
+  Both codified as write-time triggers.
+- Shipped as PR #526.
 
 ## Notes
 

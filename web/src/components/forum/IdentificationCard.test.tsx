@@ -7,7 +7,9 @@ const IDENTIFICATION: ThreadIdentification = {
   image: {
     id: 7,
     url: 'http://localhost:8000/media/images/plant.jpg',
-    alt: 'plant.jpg',
+    // Post-M7 the backend never sends a filename here: `alt` is the author's
+    // own text or "". "" is the common case for an identification photo.
+    alt: '',
     width: 800,
     height: 600,
   },
@@ -43,14 +45,32 @@ describe('IdentificationCard', () => {
     expect(screen.getByText(/plant_id/)).toBeInTheDocument();
   });
 
-  it('renders the submitted photo with role-describing alt, not the filename', () => {
+  it('describes the photo by its role when the author supplied no alt (M7)', () => {
     render(<IdentificationCard identification={IDENTIFICATION} />);
 
     const img = screen.getByRole('img');
     expect(img).toHaveAttribute('src', IDENTIFICATION.image!.url);
-    // The backend's `alt` is the Wagtail image title, which the upload endpoint
-    // sets to the filename — reading out "plant.jpg" helps nobody.
+    // An identification photo has exactly one role on the page, so naming that
+    // role beats silence when there is nothing authored to say.
     expect(img).toHaveAccessibleName('Photo the author submitted for identification');
+  });
+
+  it('prefers the author-supplied alt over the role fallback (M7)', () => {
+    render(
+      <IdentificationCard
+        identification={{
+          ...IDENTIFICATION,
+          image: { ...IDENTIFICATION.image!, alt: 'A yellowing monstera leaf with brown spots' },
+        }}
+      />
+    );
+
+    // Before M7 this position held the upload filename, which is why the card
+    // hardcoded a role sentence. Now that it carries the author's own words,
+    // they win — they say what the role sentence cannot.
+    expect(screen.getByRole('img')).toHaveAccessibleName(
+      'A yellowing monstera leaf with brown spots'
+    );
   });
 
   it('falls back to text-only when the photo is gone (SET_NULL)', () => {

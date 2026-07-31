@@ -2790,3 +2790,76 @@ an already-mocked shared helper silently redefines every blanket
 verdict budget ran out"; after this change it means "both counters are
 exhausted". The affected test asserted publish and went red, so it was caught —
 one asserting the fail-closed side would have gone green for the wrong reason.
+
+---
+
+## 2026-07-31 — Two defects that only the *unexercised* path could reveal (todo 281 / M7)
+
+**Area:** DRF multipart parsing + React unmount semantics. Both were introduced
+and caught within PR #526; both had passing tests around them the whole time.
+
+### 1. `request.data` merges POST and FILES — a text field can arrive as a file
+
+The forum image upload gained an optional `alt` text part:
+
+```python
+description=(request.data.get("alt") or "").strip()[:255]
+```
+
+Under `MultiPartParser`, DRF's `request.data` is a merge of POST **and** FILES.
+A client sending `alt` as a *file* part therefore yields an `UploadedFile`,
+which is truthy, so the `or ""` guard passes it straight to `.strip()`:
+
+```
+AttributeError: 'InMemoryUploadedFile' object has no attribute 'strip'
+STATUS: 500
+```
+
+A malformed request returning 500 instead of 400. **Fix:** accept only
+`isinstance(value, str)`; anything else is treated as absent.
+
+**Why six tests missed it:** every one sent `alt` as a field, because that is
+what the client does. The test suite mirrored the happy client, not the wire
+format the endpoint actually accepts.
+
+### 2. React discards a `setState` on an unmounting component *without running the updater*
+
+The composer's alt prompt holds an `URL.createObjectURL` preview that must be
+revoked. The unmount cleanup did the revoking inside a functional updater:
+
+```jsx
+useEffect(() => () => {
+  setAltPrompt((current) => {          // <-- never invoked
+    if (current) URL.revokeObjectURL(current.previewUrl);
+    return null;
+  });
+}, []);
+```
+
+This is a no-op. React drops the update on an unmounting fiber and never calls
+the function, so the blob leaks on any unmount-while-open (navigating away
+mid-prompt; the composer is also remounted via `key=` after every reply).
+Measured directly rather than reasoned about:
+
+```
+REVOKE CALLS AFTER UNMOUNT: 0
+```
+
+**Fix:** mirror the URL into a `useRef` and read the ref in the cleanup. A ref is
+a plain object and is still readable while unmounting.
+
+**Why the existing test missed it:** it exercised the *Skip* path, which works.
+It proved the mechanism (revoke is wired up) without proving the case (revoke
+happens on unmount). A test of one exit path says nothing about the others, and
+"cleanup on unmount" is exactly the path no ordinary interaction test touches.
+
+### Generalisable
+
+Both defects share a shape: **the code was correct for the path the tests drove,
+and the untested path was the one with different semantics.** When a value must
+be released, enumerate exit paths (confirm / cancel / keyboard / unmount) and
+test each; when an endpoint parses a field, enumerate wire shapes (field / file /
+absent / repeated), not just the one your own client sends.
+
+Codified as write-time triggers `drf-multipart-data-get-string-method` and
+`react-setstate-in-unmount-cleanup`.
