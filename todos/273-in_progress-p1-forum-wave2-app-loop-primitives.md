@@ -136,3 +136,57 @@ serializers expose `is_solved` + `solved_post_id` (list and detail) plus
 **Not in this slice, by design:** the Flutter client. Wave 3 shipped without any
 solved fields (`grep -rn "solved" plant_community_mobile/lib/` → 0), so no live
 client pins this contract; mobile rendering belongs to todos 291–295.
+
+### 2026-07-31 - Out-of-diff consumer found by the FULL backend suite
+
+Running only `apps/forum_host packages/wagtail_forum` was not enough. The full
+`pytest --create-db` caught that `is_solved` reached `TopicListSerializer` but
+NOT the two hand-built topic-hit dicts:
+
+- `SearchView` builds its own topic dict (audit M40 territory). Its own comment
+  notes the web SearchPage renders the shared `ThreadCard` — and the web mapper
+  defaults a missing `is_solved` to `false`, so every search hit would have
+  rendered unsolved rather than failing loudly.
+- `apps/forum_host/semantic_search.py::_serialize` must match that dict
+  key-for-key; `test_premium_semantic_hits_use_the_same_shape_as_fts_topic_hits`
+  is what caught it, its hardcoded field-set pin earning its keep.
+
+Both fixed, with tests on each path. `SyncView` deliberately unchanged — it is
+a thin delta signal (id/slug/title/updated_at) and the clearing helper's
+`updated_at` bump is what makes it notice. No topic queryset uses
+`.only()`/`.defer()`, so `is_solved` cannot trigger a deferred-field fetch.
+
+Final: backend **1403 passed, 0 failed, 8 skipped** (full suite); web **775
+passed**; type-check and lint clean.
+
+### 2026-07-31 - End-to-end verification in the running app
+
+The spec's Wave 2 acceptance is "exercised end-to-end from the web UI", and
+every layer had until now only been verified in isolation
+(`ThreadDetailPage.test.tsx` mocks `forumService` wholesale, so no test had
+sent a real request). Ran the real stack — Django on :8000, Vite on :5174,
+against Postgres + Redis — and drove the real React client in Chrome:
+
+- Thread page before marking: both posts render, **no** accepted-answer label.
+- After setting the solved state, the same page renders "✓ Accepted answer" on
+  the **reply**, with the highlight border — not on the opening post.
+- Board topic list renders the "✓ Solved" badge.
+- `/forum/search?q=monstera` renders the "✓ Solved" badge too — confirming the
+  `SearchView` fix above through the real mapper and shared `ThreadCard`,
+  which is the path a unit test could not have proven end-to-end.
+- Clearing rule live: unpublishing the accepted post cleared `solved_post_id`
+  AND `solved_at`, and the badge disappeared from the board list on reload.
+
+**Stated plainly — what was NOT done in-browser:** the authenticated
+click-through of "Mark as answer". Driving a login form means typing a password,
+which I do not do. So the write seam (`Number(post.id)` out,
+`solved_post_id` back, the `/api/v1/forum/` mount) is covered by the endpoint
+tests through the host mount
+(`test_solution_notifications.py::test_the_endpoint_is_reachable_through_the_host_mount`)
+and the client-side unit tests, not by a real browser click. The READ seam is
+fully verified in-app as above. If an in-app authed click-through is wanted
+before merge, it needs a human to sign in — or a Playwright E2E case, which
+this project keeps out of CI.
+
+Seed fixtures (2 users, 1 board, 1 topic) were removed from the dev DB
+afterwards; both dev servers stopped.
