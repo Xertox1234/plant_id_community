@@ -213,3 +213,20 @@ Read-only check of the Railway project `PlantID Community` on 2026-07-31:
 
 So flipping the setting means enabling it in production, with real spend, on the
 first try. That is the operator's call, not an automated run's.
+
+**Operator decision, 2026-07-31: not yet — leave this todo open.** Nothing was
+spent and no Railway variable was written. The engineering gate is now fully
+clear (274 + this run's AC1), so enabling is a pure ops action whenever the
+spend is acceptable:
+
+1. Set `WAGTAILFORUM_SPAM_BACKEND=apps.forum_host.spam.LLMSpamBackend` on the
+   `plant_id_community` service.
+2. Restart and watch the four log lines in `backend/docs/patterns/domain/forum.md`
+   → "LLM spam backend" → Enable procedure. `[CIRCUIT] Forum spam LLM attempts
+   cap reached` is the one to alert on — it means screening is holding every
+   post.
+3. Roll back by unsetting the variable; the heuristic default returns with no
+   code change.
+
+Caps in force on day one: 200 verdicts/hr (then degrade to heuristic → publish)
+and 400 provider calls/hr (then hold). Review both against real volume — AC4.
