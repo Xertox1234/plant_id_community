@@ -76,6 +76,8 @@ from .idempotency import fingerprint, idempotency_cache_key, remember, replay, r
 from .pagination import PostCursorPagination, TopicCursorPagination
 from .sanitize import serialize_forum_intro
 from .serializers import (
+    AUTHOR_SCHEMA,
+    FORUM_BODY_SCHEMA,
     BoardSerializer,
     MeProfileSerializer,
     PostEditSerializer,
@@ -88,6 +90,7 @@ from .serializers import (
     TopicListSerializer,
     build_forum_image_map,
     serialize_forum_author,
+    serialize_forum_body,
     serialize_image_for_api,
 )
 from .upload_validation import validate_image_upload
@@ -998,6 +1001,168 @@ class PostWriteView(UnversionedForumAPIMixin, APIView):
                 skip_permission_checks=True
             )
         return Response(status=http_status.HTTP_204_NO_CONTENT)
+
+
+def _is_forum_moderator(user):
+    """The single moderator predicate for the revision endpoints.
+
+    Mirrors the check the edit/redact path already uses
+    (``PostWriteView.patch``'s ``acting_as_moderator``) rather than inventing a
+    second notion of "moderator" that could drift from it.
+    """
+    return user.has_perm("wagtail_forum.change_post")
+
+
+def _revision_privacy_block(post, user):
+    """``None`` if *user* may read *post*'s revision history, else a reason.
+
+    **The privacy decision (todo 282).** A revision is a verbatim snapshot of a
+    body that may since have been redacted — a moderator editing out doxxing,
+    a phone number, or abuse leaves that content sitting in the previous
+    revision. Serving history unconditionally would hand every redacted string
+    straight back through a new endpoint and silently undo the moderation.
+
+    So: **moderators always; the author only while no one else has edited the
+    post.** A revision written by someone other than the author IS the signal
+    that something needed removing, and the thing removed is in the revisions
+    before it — so the whole list goes moderator-only from that point. An
+    ordinary self-edited post (the overwhelming majority) is unaffected, which
+    is the case this feature exists for.
+
+    Conservative on both edges: a revision with a NULL user counts as
+    third-party (unattributable), and on an account-deleted post
+    (``author_id is None``) *any* revision does — only a moderator can have
+    written one.
+    """
+    if _is_forum_moderator(user):
+        return None
+    # The `author_id is None` arm is belt-and-braces — an authenticated user's
+    # pk is never None, so the second comparison already covers it — but the
+    # account-deleted case is the one where "author" has no meaning at all, and
+    # a security gate is the wrong place to rely on that inference.
+    if post.author_id is None or user.pk != post.author_id:
+        return BLOCK_FORBIDDEN
+    # `exclude(user_id=X)` keeps NULL-user rows (Django compiles the NULL-safe
+    # form), which is what we want — an unattributable revision is third-party.
+    if post.revisions.exclude(user_id=post.author_id).exists():
+        return BLOCK_FORBIDDEN
+    return None
+
+
+def _readable_post_revisions(request, post_id):
+    """Fetch the post + its revisions queryset, or raise 403/404.
+
+    Shared by the list and detail views so the visibility gate, the privacy
+    gate and the ``select_related`` chain cannot drift between them.
+    """
+    post = _get_visible_post(post_id)
+    if _revision_privacy_block(post, request.user) is not None:
+        raise PermissionDenied()
+    revisions = post.revisions.select_related(
+        # Same chain as the post list's author join (H7): the avatar is the raw
+        # file URL, not a rendition, so this stays one query for the whole page.
+        "user__wagtail_forum_profile__avatar"
+    ).order_by("-created_at", "-id")
+    return post, revisions
+
+
+REVISION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "user": AUTHOR_SCHEMA,
+    },
+}
+REVISION_DETAIL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        **REVISION_SCHEMA["properties"],
+        "body": FORUM_BODY_SCHEMA,
+    },
+}
+
+
+@extend_schema(
+    responses={
+        200: {"type": "array", "items": REVISION_SCHEMA},
+        401: dict,
+        403: dict,
+        404: dict,
+    },
+    description=(
+        "List a post's edit history (newest first). Author or moderator only. "
+        "A post edited by anyone other than its author becomes moderator-only, "
+        "because earlier revisions still hold whatever the edit removed."
+    ),
+)
+class PostRevisionListView(UnversionedForumAPIMixin, APIView):
+    """``GET /posts/{id}/revisions/`` — the list behind the "Edited" stamp.
+
+    Read-only. Every edit already writes a `wagtailcore.Revision`
+    (``RevisionMixin`` on ``Post``); this exposes what was already being stored.
+
+    **Unpaginated, deliberately** — unlike ``TopicListView``/``PostListView``.
+    A revision list is bounded by how many times one post has been edited,
+    which is small in practice and not attacker-controlled beyond the author's
+    own edit rate (already throttled on the write side). Paginating would add
+    a second cursor shape to the API for no measured problem. Revisit if a
+    real post ever accumulates enough revisions to matter.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, post_id):
+        _post, revisions = _readable_post_revisions(request, post_id)
+        return Response(
+            [
+                {
+                    "id": revision.id,
+                    "created_at": revision.created_at,
+                    "user": serialize_forum_author(revision.user, request),
+                }
+                for revision in revisions
+            ]
+        )
+
+
+@extend_schema(
+    responses={200: REVISION_DETAIL_SCHEMA, 401: dict, 403: dict, 404: dict},
+    description=(
+        "One revision's body, in the same shape as the live post body so a "
+        "client can diff the two directly."
+    ),
+)
+class PostRevisionDetailView(UnversionedForumAPIMixin, APIView):
+    """``GET /posts/{id}/revisions/{revision_id}/`` — one revision's body.
+
+    The body goes through ``serialize_forum_body`` with a real image map, so it
+    is byte-identical in shape to ``PostSerializer``'s ``body`` and the client
+    can diff the two without a second renderer. Diffing is client-side by
+    design — a server-side diff library is not worth it for a p3.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, post_id, revision_id):
+        _post, revisions = _readable_post_revisions(request, post_id)
+        revision = get_object_or_404(revisions, id=revision_id)
+        # as_object() deserializes the stored JSON into a Post instance — never
+        # hand-parse the revision JSON, or the body shape drifts from the live
+        # one the moment a block type changes.
+        snapshot = revision.as_object()
+        return Response(
+            {
+                "id": revision.id,
+                "created_at": revision.created_at,
+                "user": serialize_forum_author(revision.user, request),
+                "body": serialize_forum_body(
+                    snapshot.body,
+                    image_map=build_forum_image_map([snapshot]),
+                    request=request,
+                ),
+            }
+        )
 
 
 class PostImageUploadView(UnversionedForumAPIMixin, APIView):
