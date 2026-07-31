@@ -1,5 +1,6 @@
 import math
 
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 from wagtail.blocks import RichTextBlock
@@ -12,6 +13,7 @@ from ..models import (
     ForumBoard,
     ForumProfile,
     Notification,
+    PollVote,
     Post,
     Reaction,
     Report,
@@ -55,6 +57,11 @@ TAGGIT_NAME_MAX_LENGTH = 100
 # configurable TOPIC_IDENTIFICATION_MAX_CANDIDATES — same split as
 # MAX_TAG_LIST_ITEMS vs TOPIC_MAX_TAGS. See _BoundedCandidateListField.
 MAX_CANDIDATE_LIST_ITEMS = 100
+
+# Hard ceiling on the RAW submitted poll-option list, independent of the
+# configurable POLL_MAX_OPTIONS — same split as the two above. See
+# _BoundedOptionListField.
+MAX_POLL_OPTION_LIST_ITEMS = 100
 
 
 def normalize_topic_tags(value):
@@ -219,6 +226,31 @@ IDENTIFICATION_SCHEMA = {
         "created_at": {"type": "string", "format": "date-time"},
     },
 }
+POLL_OPTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer"},
+        "text": {"type": "string"},
+        "order": {"type": "integer"},
+        # Server-aggregated from PollVote rows on every read. There is no
+        # stored counter and no writable path to this number.
+        "vote_count": {"type": "integer"},
+    },
+}
+POLL_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "properties": {
+        "id": {"type": "integer"},
+        "question": {"type": "string"},
+        "closes_at": {"type": "string", "format": "date-time", "nullable": True},
+        "is_closed": {"type": "boolean"},
+        "options": {"type": "array", "items": POLL_OPTION_SCHEMA},
+        "total_votes": {"type": "integer"},
+        # The requesting viewer's own choice, or null. Never anyone else's.
+        "my_vote_option_id": {"type": "integer", "nullable": True},
+    },
+}
 CAPABILITIES_SCHEMA = {
     "type": "object",
     "properties": {
@@ -370,6 +402,9 @@ class TopicDetailSerializer(serializers.ModelSerializer):
     # nowhere else, so the topic list and both search hit-builders stay
     # untouched. See get_identification.
     identification = serializers.SerializerMethodField()
+    # The topic's poll with server-computed results (audit M8). DETAIL-ONLY,
+    # like `identification` and for the same reason. See get_poll.
+    poll = serializers.SerializerMethodField()
 
     class Meta:
         model = Topic
@@ -396,6 +431,7 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             "solved_at",
             "can_mark_solution",
             "identification",
+            "poll",
         ]
 
     @extend_schema_field(TAGS_SCHEMA)
@@ -448,6 +484,51 @@ class TopicDetailSerializer(serializers.ModelSerializer):
         if attachment is None:
             return None
         return serialize_identification_for_api(attachment, self.context.get("request"))
+
+    @extend_schema_field(POLL_SCHEMA)
+    def get_poll(self, obj):
+        """The topic's poll, its server-computed results, and the viewer's vote.
+
+        `poll` is a REVERSE OneToOne, so a bare attribute read raises
+        RelatedObjectDoesNotExist when absent — the common case. getattr-with-
+        default is the safe read (Django makes that exception subclass
+        AttributeError precisely so this works), the same shape as
+        get_identification above.
+
+        COST: a topic with NO poll costs zero extra queries — the view
+        select_relateds `poll`, so the null check is answered by the row
+        already fetched, and we return before touching options. That is what
+        keeps test_topic_detail.py's 5/8 pins intact for every poll-less
+        topic. A topic WITH a poll pays one query for the aggregated options
+        and, for an authenticated viewer, one for their own vote. Deliberately
+        NOT a `prefetch_related("poll__options")` on the view: a to-many
+        prefetch runs its query for every request, which would move both pins
+        for the overwhelmingly common poll-less case to buy nothing.
+        """
+        poll = getattr(obj, "poll", None)
+        if poll is None:
+            return None
+        results = poll.results()
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        my_vote = None
+        if user is not None and user.is_authenticated:
+            my_vote = (
+                PollVote.objects.filter(poll=poll, user=user)
+                .values_list("option_id", flat=True)
+                .first()
+            )
+        return {
+            "id": poll.id,
+            "question": poll.question,
+            "closes_at": poll.closes_at,
+            "is_closed": poll.is_closed,
+            "options": results["options"],
+            "total_votes": results["total_votes"],
+            # The option this viewer picked, or null. Null for anonymous —
+            # never a leak of anyone else's choice.
+            "my_vote_option_id": my_vote,
+        }
 
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_is_subscribed(self, obj):
@@ -868,6 +949,92 @@ class TopicIdentificationSerializer(serializers.Serializer):
         return value
 
 
+class _BoundedOptionListField(serializers.ListField):
+    """Reject an oversized option list BEFORE per-item validation.
+
+    Same "bound it before you parse it" shape as _BoundedTagListField above —
+    DRF's own ListField(max_length=) runs as a validator AFTER every child has
+    been validated, so it cannot cap the work a caller triggers.
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, list) and len(data) > MAX_POLL_OPTION_LIST_ITEMS:
+            raise serializers.ValidationError(_("Too many poll options."))
+        return super().to_internal_value(data)
+
+
+class TopicPollSerializer(serializers.Serializer):
+    """Compose-time write shape for a topic's poll (audit M8).
+
+    Creation only — a poll is attached when the thread is composed and is not
+    editable afterwards. That is deliberate for the first cut: editing a
+    question or an option after votes exist silently changes what those votes
+    meant.
+
+    Note there is no `vote_count` (or any count) field here, and adding one
+    would be a bug: results are aggregated from PollVote rows server-side, so
+    a caller has no way to seed or influence them. Pinned by
+    test_poll_vote_count_in_create_payload_is_ignored.
+    """
+
+    question = serializers.CharField()
+    options = _BoundedOptionListField(child=serializers.CharField(allow_blank=True))
+    # Null / omitted means the poll never closes.
+    closes_at = serializers.DateTimeField(required=False, allow_null=True)
+
+    def validate_question(self, value):
+        question = " ".join(str(value).split())
+        if not question:
+            raise serializers.ValidationError(_("Poll question cannot be empty."))
+        max_length = get_setting("POLL_QUESTION_MAX_LENGTH")
+        if len(question) > max_length:
+            raise serializers.ValidationError(
+                _("Poll question must be at most %(n)d characters.") % {"n": max_length}
+            )
+        return question
+
+    def validate_options(self, value):
+        max_length = get_setting("POLL_OPTION_MAX_LENGTH")
+        options = []
+        for raw in value:
+            text = " ".join(str(raw).split())
+            # Drop blanks rather than 400ing: a composer with a fixed number of
+            # option inputs sends empties for the ones left untouched, and that
+            # is a normal submission, not a malformed one. The min-count check
+            # below still catches "nothing was actually filled in".
+            if not text:
+                continue
+            if len(text) > max_length:
+                raise serializers.ValidationError(
+                    _("Each poll option must be at most %(n)d characters.")
+                    % {"n": max_length}
+                )
+            options.append(text)
+
+        min_options = get_setting("POLL_MIN_OPTIONS")
+        if len(options) < min_options:
+            raise serializers.ValidationError(
+                _("A poll needs at least %(n)d options.") % {"n": min_options}
+            )
+        max_options = get_setting("POLL_MAX_OPTIONS")
+        if len(options) > max_options:
+            raise serializers.ValidationError(
+                _("A poll may have at most %(n)d options.") % {"n": max_options}
+            )
+        # Case-insensitive duplicate check: two identically-labelled options
+        # split the vote between choices a member cannot tell apart.
+        if len({text.casefold() for text in options}) != len(options):
+            raise serializers.ValidationError(_("Poll options must be unique."))
+        return options
+
+    def validate_closes_at(self, value):
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError(
+                _("Poll close time must be in the future.")
+            )
+        return value
+
+
 class TopicCreateSerializer(_ForumBodyContract):
     title = serializers.CharField(max_length=255)
     slug = serializers.SlugField(max_length=255)
@@ -879,6 +1046,10 @@ class TopicCreateSerializer(_ForumBodyContract):
     # Optional plant-ID snapshot (audit M6). Nested rather than flattened so the
     # whole attachment is present-or-absent — a create can't half-specify one.
     identification = TopicIdentificationSerializer(required=False, allow_null=True)
+    # Optional poll (audit M8). Nested for the same reason as identification:
+    # present-or-absent as a whole, so a create cannot half-specify one.
+    # Composer-only — there is no reply-side or edit-side poll write.
+    poll = TopicPollSerializer(required=False, allow_null=True)
 
     def validate_tags(self, value):
         return normalize_topic_tags(value)

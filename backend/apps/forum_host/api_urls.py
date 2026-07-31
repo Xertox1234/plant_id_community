@@ -27,6 +27,7 @@ from .api import (
     MeProfileView,
     NotificationMarkReadView,
     NotificationUnreadCountView,
+    PollVoteView,
     PostImageUploadView,
     PostListView,
     PostReportView,
@@ -69,6 +70,11 @@ urlpatterns = [
         "topics/<int:topic_id>/bookmark/",
         TopicBookmarkView.as_view(),
         name="topic-bookmark",
+    ),
+    path(
+        "topics/<int:topic_id>/poll/vote/",
+        PollVoteView.as_view(),
+        name="topic-poll-vote",
     ),
     path(
         "topics/<int:topic_id>/solution/",

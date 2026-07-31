@@ -3,6 +3,7 @@ from .bookmarks import TopicBookmark
 from .identifications import ForumIdentificationAttachment
 from .moderation import SpamCheckTask
 from .notifications import Notification, NotificationVerb
+from .polls import Poll, PollOption, PollVote
 from .posts import Post
 from .profiles import ForumProfile, TrustLevel
 from .reactions import Reaction
@@ -19,6 +20,9 @@ __all__ = [
     "ForumProfile",
     "Notification",
     "NotificationVerb",
+    "Poll",
+    "PollOption",
+    "PollVote",
     "Post",
     "Reaction",
     "Report",

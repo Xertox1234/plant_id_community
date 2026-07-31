@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "283"
 tags: [forum, drf, web, product-ux]
@@ -80,19 +80,57 @@ Ship M2 first — it is roughly a quarter of the work and has no schema risk.
 
 ## Acceptance Criteria
 
-- [ ] Bookmark toggle is idempotent: two `POST`s leave exactly one row —
+- [x] Bookmark toggle is idempotent: two `POST`s leave exactly one row —
       test asserts the count
-- [ ] `GET /me/bookmarks/` returns only the requesting user's bookmarks and
+      → `test_bookmark_is_idempotent_two_posts_leave_exactly_one_row` asserts
+      `TopicBookmark.objects.filter(user=user, topic=topic).count() == 1` after
+      two POSTs, and that the second still returns 200 (the client reads the
+      response as the new state, not as "did something change").
+- [x] `GET /me/bookmarks/` returns only the requesting user's bookmarks and
       401s for anonymous — test asserts both
-- [ ] Topic list/detail query count is unchanged by the `is_bookmarked`
+      → `test_me_bookmarks_returns_only_the_requesting_users_rows` (two users,
+      two bookmarks, one row returned) and `test_me_bookmarks_401s_for_anonymous`.
+      Exact `== 401`, not a `(401, 403)` set, per `docs/rules/testing.md`.
+- [x] Topic list/detail query count is unchanged by the `is_bookmarked`
       addition — exact `assertNumQueries` test
-- [ ] A second vote by the same user on the same poll is rejected (or replaces
+      → `test_is_bookmarked_adds_no_queries_to_topic_detail` pins **5**
+      (anonymous) and **8** (authenticated non-author) — the same counts
+      `test_topic_detail.py` asserted before the field existed, and both of
+      those tests still pass unchanged. House style is
+      `CaptureQueriesContext` + `len(ctx.captured_queries) == N` rather than
+      Django's `assertNumQueries`; same exactness, matching the neighbours.
+      The LIST side is unchanged because the field is deliberately detail-only
+      (see the M2 Work Log entry), so `test_topics_list.py`'s pins are
+      untouched by construction — verified by the full-suite run.
+- [x] A second vote by the same user on the same poll is rejected (or replaces
       the first — whichever is chosen), asserted by test, and the choice is
       recorded in the Work Log
-- [ ] Poll results are computed server-side; a client cannot post a count —
+      → Choice: **REJECT (409)**, recorded with its reasoning and revisit
+      trigger in the "storage shape + vote semantics" entry below.
+      `test_second_vote_by_same_user_is_rejected_not_replaced` asserts 409, that
+      the FIRST vote survives (`option_id` unchanged), and that the total does
+      not move. `test_unique_constraint_blocks_a_second_vote_at_the_db_level`
+      pins it at the storage layer too.
+- [x] Poll results are computed server-side; a client cannot post a count —
       test asserts a forged count is ignored
-- [ ] Web: bookmark toggle and poll vote each covered by a Vitest test
-- [ ] `manage.py spectacular` passes; `pytest` forum suite green
+      → `test_forged_vote_count_in_the_request_is_ignored` posts
+      `vote_count`/`total_votes`/`options` alongside the real `option_id` and
+      asserts the response reports 1, not 9999.
+      `test_a_vote_count_in_the_create_payload_is_ignored` covers the compose
+      path. True by construction: `PollOption` has no counter column at all.
+- [x] Web: bookmark toggle and poll vote each covered by a Vitest test
+      → Bookmark: `clicking Save bookmarks the thread and flips the button to
+      Saved`, `clicking Saved un-bookmarks…`, plus rollback and signed-out
+      cases (ThreadDetailPage.test.tsx). Poll: 10 tests in PollCard.test.tsx
+      (including "voting replaces local state with the SERVER-recomputed poll")
+      plus `renders the thread poll and votes through the topic id`.
+- [x] `manage.py spectacular` passes; `pytest` forum suite green
+      → `spectacular` exit **0**, with `/forum/topics/{topic_id}/bookmark/`,
+      `/forum/me/bookmarks/`, `/forum/topics/{topic_id}/poll/vote/` and
+      `my_vote_option_id` all present. Full backend `pytest --create-db`:
+      **1510 passed, 0 failed, 8 skipped** (ran the FULL suite, not the forum
+      subset — the topic-shape lesson from todo 273). Full web `vitest run`:
+      **837 passed**; `tsc --noEmit` and ESLint clean.
 
 ## Work Log
 
@@ -102,6 +140,81 @@ Ship M2 first — it is roughly a quarter of the work and has no schema risk.
 - Scope decision: **both M2 and M8 ship**. The Notes bless "ship M2, re-defer
   M8", but the Acceptance Criteria cover both and a todo cannot be marked
   `completed` with unflipped boxes. M2 lands first, as the todo directs.
+
+### 2026-07-31 - M8 (polls) implemented
+
+**Shipped:** `Poll`/`PollOption`/`PollVote` + migration 0021, poll creation in
+the topic composer, `POST /topics/{id}/poll/vote/`, `poll` on topic detail,
+web `PollCard` (render + vote + result bars) and a composer poll section.
+
+**How the query pins survived.** `Poll.topic` is a OneToOne, so
+`TopicDetailView` `select_related`s it and a poll-LESS topic — the
+overwhelmingly common case — costs zero extra queries: `get_poll` answers the
+null check from the row already fetched and returns before touching options.
+A `prefetch_related("poll__options")` would have been the obvious move and the
+wrong one: a to-many prefetch runs its query on every request, poll or not,
+moving both pins to buy nothing. `test_a_poll_less_topic_detail_query_count_is_
+unchanged_by_the_poll_field` pins 5/8 exactly, matching `test_topic_detail.py`.
+
+**Results are aggregation, never a counter.** `PollOption` has no
+`vote_count` column; `Poll.results()` does one `Count("votes")` over the
+options. That makes AC 5 true by construction rather than by serializer
+accident — there is no writable count anywhere in the API, at vote time or at
+compose time, so a forged one has nothing to land on. Both halves are pinned
+(`test_forged_vote_count_in_the_request_is_ignored`,
+`test_a_vote_count_in_the_create_payload_is_ignored`).
+
+**Bug caught by a test, worth keeping:** the web poll card was wired with
+`votePoll(Number(thread.id), …)`. `thread.id` is the display-shaped string
+every mapper produces; the page's canonical numeric id is `topicId`, parsed
+from the URL and already used by `fetchThread` and both toggles. In production
+`thread.id` happens to be numeric so this would have worked — which is exactly
+why it was worth fixing rather than leaving to chance.
+
+**Verification:** full backend `pytest --create-db` → `1510 passed, 0 failed, 8
+skipped`. Full web `vitest run` → `837 passed`; `tsc --noEmit` clean; ESLint
+clean. `manage.py spectacular` exit 0 with `/poll/vote/` and `my_vote_option_id`
+in the schema. Package README documents all four new settings (a test enforces
+this — `test_readme_documents_every_setting` caught their absence).
+
+### 2026-07-31 - M8 (polls): storage shape + vote semantics decided BEFORE coding
+
+Recorded here first because both are Acceptance Criteria, not just design notes.
+
+**Storage shape — a `Poll`/`PollOption`/`PollVote` model trio, not a
+StreamField block.** As the Recommended Action anticipated: votes need their
+own rows, a unique constraint, and aggregation, none of which a block can
+express. Concretely:
+
+- `Poll` — `OneToOneField(Topic, related_name="poll")`, `question`,
+  nullable `closes_at`. OneToOne (not FK) so the topic-detail view can
+  `select_related("poll")` and pay ZERO extra queries for the common
+  poll-less topic, exactly the `identification` precedent (audit M6).
+- `PollOption` — FK poll, `text`, `order`.
+- `PollVote` — FK poll, FK option, FK user, with
+  `UniqueConstraint(poll, user)`. `poll` is carried on the vote (rather than
+  reached through `option`) *because* that constraint has to be expressible in
+  one table.
+
+Vote counts are **never stored**. Results come from a `Count` aggregation over
+`PollVote` at read time, so a count cannot drift from the rows and no client
+input can reach it.
+
+**Second-vote semantics — REJECTED (409), not replaced.** The AC allows
+either; this is the choice and the reasoning:
+
+- A poll whose totals can move retroactively is a weaker promise than one
+  whose totals only grow. Rejecting keeps "12 votes" meaning 12 people.
+- "Change my vote" is a bigger feature than one `update_or_create`: it needs
+  its own affordance in the UI (you must be able to *see* your current choice
+  to want to change it) and a story for what a closed poll does with a
+  mid-flight change. Out of scope for a first cut.
+- The 409 body carries the caller's existing choice, so the client can render
+  "you voted X" rather than a bare error.
+
+REVISIT TRIGGER: members asking to undo a misclick. That is the real cost of
+this choice, and it is the signal to build the change-vote flow properly
+rather than to flip this line.
 
 ### 2026-07-31 - M2 (bookmarks) implemented
 

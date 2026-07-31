@@ -12,6 +12,7 @@ from django.conf import settings
 from django.utils.decorators import method_decorator
 from wagtail_forum.api import bookmarks as forum_bookmark_views
 from wagtail_forum.api import notifications as forum_notification_views
+from wagtail_forum.api import polls as forum_poll_views
 from wagtail_forum.api import solutions as forum_solution_views
 from wagtail_forum.api import subscriptions as forum_subscription_views
 from wagtail_forum.api import user_search as forum_user_search_views
@@ -131,6 +132,11 @@ class TopicSubscriptionView(forum_subscription_views.TopicSubscriptionView):
 @_throttled("bookmark_create", "POST")
 @_throttled("bookmark_delete", "DELETE")
 class TopicBookmarkView(forum_bookmark_views.TopicBookmarkView):
+    pass
+
+
+@_throttled("poll_vote", "POST")
+class PollVoteView(forum_poll_views.PollVoteView):
     pass
 
 
