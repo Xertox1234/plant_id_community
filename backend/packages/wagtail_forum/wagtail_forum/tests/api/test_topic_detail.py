@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -256,6 +258,50 @@ def test_topic_read_ensures_forum_profile_exists(django_capture_on_commit_callba
         client.get(f"/forum/topics/{topic.id}/")
 
     assert ForumProfile.objects.filter(user=reader).exists()
+
+
+@pytest.mark.django_db
+def test_first_read_leaves_a_sleepers_other_topics_unread(
+    django_capture_on_commit_callbacks,
+):
+    """Todo 285 changed what a *genuine* first read does to the rest of the
+    forest, and this is the endpoint that change lands on.
+
+    Before 285, `ForumProfile.for_user()` stamped `read_watermark_at = now()`
+    here, so a sleeper account's first read of ONE topic marked their entire
+    backlog read. Now the watermark is seeded from `date_joined`, so the read
+    marks exactly the topic that was read and every other topic stays unread.
+    That is the intended semantics, not a side effect — pin it, because
+    nothing else in the suite would notice it reverting.
+    """
+    board = _board(slug="tr-sleeper")
+    joined = timezone.now() - timedelta(days=365)
+    reader = User.objects.create_user(username="tr-sleeper")
+    User.objects.filter(pk=reader.pk).update(date_joined=joined)
+    # update() does not touch the in-memory instance, and force_authenticate
+    # hands THAT object to the view — without this the request user still
+    # carries date_joined=now and the test silently checks nothing.
+    reader.refresh_from_db()
+    posted_at = timezone.now() - timedelta(days=30)
+    read_topic = Topic.objects.create(
+        board=board, title="Read", slug="s-read", live=True, last_post_at=posted_at
+    )
+    other = Topic.objects.create(
+        board=board, title="Other", slug="s-other", live=True, last_post_at=posted_at
+    )
+    assert not ForumProfile.objects.filter(user=reader).exists()
+
+    client = APIClient()
+    client.force_authenticate(reader)
+    with django_capture_on_commit_callbacks(execute=True):
+        client.get(f"/forum/topics/{read_topic.id}/")
+
+    unread = {
+        t["id"]: t["is_unread"]
+        for t in client.get(f"/forum/boards/{board.slug}/topics/").data["results"]
+    }
+    assert unread[other.id] is True, "a single read collapsed the whole backlog"
+    assert unread[read_topic.id] is False, "the topic actually read stayed unread"
 
 
 @pytest.mark.django_db

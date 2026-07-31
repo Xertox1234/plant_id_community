@@ -86,9 +86,12 @@ class ForumProfile(models.Model):
     # not an inconsistency with the paragraph above: the two cases differ in
     # whether the user was ever shown that content. An 0016 row's owner had a
     # profile through launch; a sleeper never did, so collapsing their backlog
-    # would be hiding posts they have not seen. The flood is bounded either way
-    # because _annotate_topic_unread coalesces through UNREAD_LAUNCH_AT and
-    # there is no pre-launch forum content.
+    # would be hiding posts they have not seen. In practice the flood is
+    # bounded because no forum content predates UNREAD_LAUNCH_AT — NOT
+    # because the annotation falls through to that constant. _annotate_topic_unread
+    # Coalesces TopicRead, then the watermark, then UNREAD_LAUNCH_AT, so once
+    # any profile row exists the constant is never reached. If UNREAD_LAUNCH_AT
+    # is ever moved forward past a sleeper's date_joined, that bound is gone.
     read_watermark_at = models.DateTimeField(default=timezone.now)
 
     @staticmethod
@@ -115,7 +118,13 @@ class ForumProfile(models.Model):
         in ``django/db/models/query.py``), so this extra SELECT never runs on the
         common already-exists path.
         """
-        user = get_user_model()._default_manager.filter(pk=user_id).first()
+        # _base_manager, not _default_manager: a host whose User model
+        # filters its default manager (soft-delete / active-only) would
+        # otherwise get None back for those users and silently fall through
+        # to now(), reinstating the very bug this closes. _base_manager is
+        # unfiltered by contract — it is what Django itself uses to resolve
+        # related objects.
+        user = get_user_model()._base_manager.filter(pk=user_id).first()
         return cls.initial_read_watermark(user)
 
     @classmethod

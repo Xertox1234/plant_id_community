@@ -166,6 +166,47 @@ have flipped. It did not.
   (eager seed → red). 2 low comment-accuracy findings also repaired
   ("five modules" → four; the field-default reachability claim).
 
+### 2026-07-31 - Second review pass (wagtail-reviewer) and repair
+
+A third reviewer completed after the first commit; its findings were real and
+are addressed in a follow-up commit on the same branch.
+
+**Repaired (medium): a stale comment at `api/views.py:698`.** `_mark_read`'s
+comment still described the OLD behaviour as intentional — "read_watermark_at
+stamps 'now', clearing the launch-constant flood forest-wide, not just for this
+one topic". That is precisely what this todo changed, at precisely the call
+site the change lands on. Rewritten, and — more importantly — the new
+behaviour is now pinned by
+`test_first_read_leaves_a_sleepers_other_topics_unread`: a sleeper reads one
+topic and their OTHER topics stay unread. Mutation-verified (revert the seed to
+`timezone.now()` → red). Nothing else in the suite covered this; the change was
+otherwise a silent semantics shift at a user-visible endpoint.
+
+Writing that test surfaced a trap worth recording: `User.objects.filter(...)
+.update(date_joined=...)` does not touch the in-memory instance, and
+`force_authenticate(reader)` hands *that* object to the view — so the first
+version of the test passed a `date_joined=now` user and asserted nothing.
+`refresh_from_db()` is load-bearing, with a comment saying so.
+
+**Repaired (low): `_default_manager` → `_base_manager`** in
+`initial_read_watermark_for_user_id`. A host whose User model filters its
+default manager (soft-delete / active-only) would have got `None` back for
+those users and silently fallen through to `now()` — reinstating the exact bug
+this closes, for exactly the accounts most likely to be sleepers.
+`_base_manager` is unfiltered by contract; it is what Django itself uses to
+resolve related objects.
+
+**Repaired (low): a wrong mechanism claim in my own comment.** It said the
+flood "is bounded because `_annotate_topic_unread` coalesces through
+`UNREAD_LAUNCH_AT`". It does not — `Coalesce` prefers the watermark, so the
+launch constant is never reached once any profile row exists. The bound
+actually rests on an unenforced invariant (no forum content predates
+`UNREAD_LAUNCH_AT`), and the comment now says that, including what breaks if
+that setting is ever moved forward.
+
+Re-verified: `pytest packages/wagtail_forum apps/forum_host --create-db -q` →
+`621 passed, 2 warnings in 42.27s`.
+
 ### 2026-07-29 - Created
 
 - Re-scoped out of todo 271 #1 rather than bundled into it: todo 271 is a p3

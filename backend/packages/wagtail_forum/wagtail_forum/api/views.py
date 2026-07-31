@@ -693,10 +693,14 @@ class TopicDetailView(
             if cache.add(read_dedup_key, True, read_ttl):
 
                 def _mark_read():
-                    # Ensures the watermark-bearing profile row exists — the
-                    # first time this happens for a given user, their
-                    # read_watermark_at stamps "now", clearing the launch-
-                    # constant flood forest-wide, not just for this one topic.
+                    # Ensures the watermark-bearing profile row exists. Since
+                    # todo 285 that row's read_watermark_at is seeded from the
+                    # user's date_joined rather than "now", so this genuine
+                    # read marks exactly THIS topic read (via TopicRead below)
+                    # and leaves the rest of the user's backlog unread. Before
+                    # 285 a first read collapsed the backlog forest-wide, which
+                    # is the bug 285 fixed — see models/profiles.py. Pinned by
+                    # test_first_read_leaves_a_sleepers_other_topics_unread.
                     ForumProfile.for_user(user)
                     TopicRead.mark_read(user, topic_id)
 
