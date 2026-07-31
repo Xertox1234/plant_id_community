@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "288"
 tags: [flutter, testing, firebase, notifications]
@@ -92,16 +92,127 @@ indirectly, so a refactor that drops one of them fails no test.
 
 ## Acceptance Criteria
 
-- [ ] `test/services/auth_service_test.dart` exists and constructs the notifier
+- [x] `test/services/auth_service_test.dart` exists and constructs the notifier
       without touching real Firebase
-- [ ] All three push wiring points asserted: `syncAfterLogin` post-exchange,
+- [x] All three push wiring points asserted: `syncAfterLogin` post-exchange,
       `clearOnLogout` in `signOut`, `detach` on signed-out state
-- [ ] `clearOnLogout`-before-Firebase-sign-out ordering pinned
-- [ ] Session-expiry exemption pinned: a 401 on the FCM-clear PATCH does not
+- [x] `clearOnLogout`-before-Firebase-sign-out ordering pinned
+- [x] Session-expiry exemption pinned: a 401 on the FCM-clear PATCH does not
       trigger `_handleSessionExpired` / a "session expired" error state
-- [ ] `flutter test` passes; `flutter analyze` clean
+- [x] `flutter test` passes; `flutter analyze` clean
 
 ## Work Log
+
+### 2026-07-31 - Implemented and verified (run 2026-07-31-0411)
+
+13 tests in `test/services/auth_service_test.dart` (11 at first pass,
++2 from review), modelled on
+`push_registration_service_test.dart` (hand-rolled fakes, no mocking library).
+
+**Two obstacles the todo did not anticipate, both solved without a production
+seam:**
+
+1. `_secureStorage` is a plain `const FlutterSecureStorage()` field with no
+   injection point, and every notifier path writes or deletes a JWT — a real
+   write throws `MissingPluginException` under `flutter test`. Solved with the
+   package's own `FlutterSecureStorage.setMockInitialValues({})` (a
+   `@visibleForTesting` static shipped in flutter_secure_storage 10.x that
+   swaps in an in-memory platform). No `auth_service.dart` change needed.
+2. `authServiceProvider` is **autoDispose**. A bare `container.read()` builds
+   the notifier and immediately tears it down, so the *next* read rebuilds it —
+   re-running `build()`'s unawaited token exchange against a disposed `Ref`
+   ("Cannot use Ref after dispose"). The harness now holds a
+   `container.listen(..., fireImmediately: true)` subscription for its
+   lifetime, so there is exactly one notifier instance, as in the app.
+
+**Correction confirmed.** The todo's note that todo 272 was wrong about a
+`_signingOut` flag is accurate — there is none, and the exemption is
+request-side. The test asserts it through `Options.extra`, per the todo.
+
+**Beyond the todo's ask:** the session-expiry AC is pinned *end-to-end* rather
+than by flag presence alone. A local `HttpServer` returning 401 backs a real
+`ApiService`, and the test asserts the handler fires for an unexempt 401 and
+does NOT fire for an exempt one — the flag is worthless if the interceptor
+ignores it, and nothing previously covered either side.
+
+Every assertion was **mutation-verified** — regressions introduced one at a
+time into `auth_service.dart` / `push_registration_service.dart`:
+
+```
+drop syncAfterLogin                  -> RED: ...calls syncAfterLogin
+drop clearOnLogout                   -> RED: ...signOut calls clearOnLogout (+3 more)
+drop detach                          -> RED: ...signed-out auth state calls detach
+clearOnLogout AFTER firebase signOut -> RED: ...ordering ... BEFORE Firebase sign-out
+drop signOut epoch bump              -> RED: ...generation bump alone kills a mid-sign-out exchange
+drop skipSessionExpiry flag          -> RED: ...FCM-clear PATCH carries skipSessionExpiryKey
+```
+
+The fifth mutant initially came back **GREEN (not caught)**: `_isCurrentExchange`
+ANDs the generation check with `currentUser?.uid == user.uid`, and the fake's
+sign-out clears `currentUser` — so the uid arm alone killed the stale exchange
+and `signOut()`'s `_authGeneration++` could have been deleted silently. Added
+`the generation bump alone kills a mid-sign-out exchange`, which resumes the
+exchange while sign-out is parked on `clearOnLogout` (i.e. *before* Firebase
+clears `currentUser`), where only the generation guard can stop it. That mutant
+is now caught.
+
+Also updated the class-head comment in `auth_service.dart`, which still said
+"NO UNIT-TEST HARNESS". `build_runner build --delete-conflicting-outputs` was
+re-run for the CI codegen gate (which local `flutter analyze` does not catch);
+it reported the output "same" and `auth_service.g.dart` is byte-identical —
+`_$authServiceHash` is `8fbb70b6…` before and after, so riverpod_generator's
+source hash is not sensitive to a comment-only edit. Running the regen is still
+the right move: that insensitivity is a generator implementation detail, not a
+contract to rely on.
+
+Verification:
+
+```
+$ flutter analyze
+No issues found! (ran in 2.9s)
+
+$ flutter test
+00:16 +231 ~3: All tests passed!
+```
+
+### 2026-07-31 - Review and repair
+
+`flutter-dart-reviewer`. Two mediums and four lows; all but one repaired.
+
+**Repaired (medium): `_handleSessionExpired` was never exercised.** The
+exemption tests proved the flag and the interceptor, but nothing asserted that
+`build()` installs the handler at all — deleting
+`apiService.setSessionExpiredHandler(_handleSessionExpired)` would have left
+every test green while 401s silently stopped signing anyone out. Added a
+`session expiry` group: one test fires the registered handler and asserts the
+resulting state (`'Your session expired. Please sign in again.'`, JWT cleared,
+Firebase sign-out recorded), one asserts the handler is UNinstalled on
+disposal (a handler closing over a dead `Ref` is how "Cannot use Ref after
+dispose" reaches production). Both mutation-verified — the suite now catches
+8 of 8 mutants, up from 6.
+
+**Repaired (low):** `patchCalls.last` replaced with a `singleWhere` on the
+payload (with the real push service the build-time exchange also PATCHes that
+endpoint, so `.last` leaned on production ordering); `_FakeMessaging` is now
+held by the harness and its `tokenRefreshController` closed in `dispose()`
+(the real `syncAfterLogin` subscribes to it); `realPush` made nullable instead
+of a `late final` that threw `LateInitializationError` in the default harness
+mode; the misleading `final inFlight = harness.signIn(...)` captures removed —
+`pumpEventQueue()` after the gate completes is the real synchronisation point,
+now said so in a comment.
+
+**Not repaired, recorded deliberately (medium): checkpoint 3 of the epoch
+guard is not isolated.** `_exchangeFirebaseTokenForJWT` re-checks the
+generation at five points; checkpoints 1 and 2 are pinned, but the third —
+which runs *after* the JWT is written to secure storage and calls
+`_clearJWTIfMatches` to undo it — cannot be reached without a gate between the
+storage write and that check. `_secureStorage` is a plain `const` field, so
+isolating it needs either a production seam on `AuthService` or promoting
+`flutter_secure_storage_platform_interface` (currently transitive) to a
+dev_dependency so a gating platform can be installed. Both are wider than a
+p3 test-coverage todo, and `_clearJWTIfMatches` is a compensating cleanup
+whose failure mode is a stale token in storage, not a wrong auth state. Left
+uncovered on purpose rather than papered over.
 
 ### 2026-07-29 - Spun out of todo 272 (item 6)
 
