@@ -117,14 +117,21 @@ export default function TipTapEditor({
     previewUrl: string;
     alt: string;
   } | null>(null);
+  // The live preview URL, mirrored in a ref because the unmount cleanup below
+  // cannot read it from state: React DISCARDS a setState on an unmounting
+  // component without ever invoking the updater, so revoking inside a
+  // functional updater silently does nothing on that path (measured: 0 calls).
+  // A ref is a plain object and is still readable during cleanup.
+  const previewUrlRef = useRef<string | null>(null);
 
   // Close the alt prompt and release its object URL. Every exit path — confirm,
   // skip, Escape, unmount — must go through here or the blob leaks.
   const closeAltPrompt = () => {
-    setAltPrompt((current) => {
-      if (current) URL.revokeObjectURL(current.previewUrl);
-      return null;
-    });
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+    setAltPrompt(null);
   };
 
   const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -144,7 +151,9 @@ export default function TipTapEditor({
     // Ask for alt text BEFORE uploading (M7) — the value has to ride the upload
     // request, so there is no second chance to collect it.
     closeAltPrompt(); // revoke a previous preview if one was somehow still open
-    setAltPrompt({ file, previewUrl: URL.createObjectURL(file), alt: '' });
+    const previewUrl = URL.createObjectURL(file);
+    previewUrlRef.current = previewUrl;
+    setAltPrompt({ file, previewUrl, alt: '' });
   };
 
   // Upload the pending image and insert it. `alt` is passed explicitly so the
@@ -257,15 +266,14 @@ export default function TipTapEditor({
   }, [editor]);
 
   // Release a pending alt-prompt preview if the composer unmounts while it is
-  // open (this editor is remounted via `key=` after every reply, so that is a
-  // routine path, not an edge case). Reads the URL from a ref-free closure over
-  // state is unsafe here — use the functional updater in closeAltPrompt.
+  // open — e.g. navigating away mid-prompt (this editor is also remounted via
+  // `key=` after every reply). Reads the ref, not state: see previewUrlRef.
   useEffect(() => {
     return () => {
-      setAltPrompt((current) => {
-        if (current) URL.revokeObjectURL(current.previewUrl);
-        return null;
-      });
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+        previewUrlRef.current = null;
+      }
     };
   }, []);
 

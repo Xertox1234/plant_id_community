@@ -1225,6 +1225,21 @@ class PostRevisionDetailView(UnversionedForumAPIMixin, APIView):
         )
 
 
+def _alt_text(request) -> str:
+    """Author-supplied alt text off a multipart upload (M7), bounded and safe.
+
+    Deliberately `isinstance(str)` rather than a bare `.get("alt")`:
+    ``request.data`` MERGES POST and FILES under MultiPartParser, so a client
+    sending `alt` as a file part yields an ``UploadedFile`` and `.strip()` on it
+    raises ``AttributeError`` — a 500 on a malformed request. Anything that is
+    not a plain string is treated as no alt at all.
+    """
+    value = request.data.get("alt")
+    if not isinstance(value, str):
+        return ""
+    return value.strip()[:255]
+
+
 class PostImageUploadView(UnversionedForumAPIMixin, APIView):
     """Upload an inline post image (4-layer validated) into the forum collection.
 
@@ -1306,7 +1321,7 @@ class PostImageUploadView(UnversionedForumAPIMixin, APIView):
             # column is CharField(max_length=255) so an unbounded value would
             # raise DataError. Empty is legitimate — a decorative image should
             # carry alt="", which beats a filename for a screen reader.
-            description=(request.data.get("alt") or "").strip()[:255],
+            description=_alt_text(request),
             file=image_file,
             collection=get_forum_image_collection(),
             uploaded_by_user=request.user,

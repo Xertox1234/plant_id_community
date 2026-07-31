@@ -389,6 +389,27 @@ describe('TipTapEditor', () => {
     await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview-mock'));
   });
 
+  it('revokes the preview when the composer unmounts with the prompt open (M7)', async () => {
+    // The path the Skip test above does NOT cover, and the one that was broken:
+    // the cleanup originally revoked inside a setState functional updater, but
+    // React DISCARDS a setState on an unmounting component without invoking the
+    // updater — so it silently did nothing (measured: 0 revoke calls). Reading a
+    // ref in the cleanup is what makes this work. Navigating away mid-prompt is
+    // a real path; this editor is also remounted via `key=` after every reply.
+    const { container, unmount } = render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByTestId('forum-image-input'), {
+      target: { files: [new File(['x'], 'ok.jpg', { type: 'image/jpeg' })] },
+    });
+    await screen.findByLabelText('Describe this image');
+
+    revokeObjectURL.mockClear();
+    unmount();
+
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview-mock');
+  });
+
   it('opens a styled link editor instead of window.prompt, and validates the URL (M24)', async () => {
     const promptSpy = vi.spyOn(window, 'prompt');
     render(<TipTapEditor onChange={vi.fn()} />);

@@ -384,3 +384,24 @@ def test_alt_is_not_part_of_the_idempotency_fingerprint():
     assert retry.status_code == 201  # replayed, not 422
     assert retry.data["id"] == first.data["id"]  # no duplicate row
     assert retry.data["alt"] == "first alt"  # the documented trade
+
+
+@pytest.mark.django_db
+def test_alt_sent_as_a_file_part_is_ignored_not_a_500():
+    """`request.data` MERGES POST and FILES under MultiPartParser.
+
+    So an `alt` sent as a file arrives as an UploadedFile, and calling .strip()
+    on it raised AttributeError -> 500. Found by review of this PR; the happy-
+    path tests above all send `alt` as a plain field and never exercised it.
+    """
+    resp = _auth_client().post(
+        URL,
+        {
+            "image": _upload(),
+            "alt": SimpleUploadedFile("evil.txt", b"hi", content_type="text/plain"),
+        },
+        format="multipart",
+    )
+    assert resp.status_code == 201
+    assert resp.data["alt"] == ""
+    assert get_image_model().objects.get(id=resp.data["id"]).description == ""
