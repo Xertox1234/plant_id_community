@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, FormEvent } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
 import { createThread, fetchCategories, fetchCategory } from '../../services/forumService';
 import { parseLeadingId, threadPath, categoryPath } from '../../utils/forumUrls';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
@@ -11,11 +11,40 @@ import PageMeta from '../../components/PageMeta';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
-import type { Category } from '@/types';
+import type { Category, CreateIdentificationInput } from '@/types';
 
 /** Strip tags + whitespace to detect an effectively-empty rich-text body. */
 function isBlankHtml(html: string): boolean {
   return html.replace(/<[^>]*>/g, '').trim() === '';
+}
+
+/**
+ * The handoff the identify page pushes through router state (audit M6). The
+ * photo is ALREADY uploaded by then — only JSON travels — so a failed upload
+ * surfaces on the page where the user pressed the button, and this state stays
+ * serializable.
+ */
+interface IdentificationHandoff {
+  identification: CreateIdentificationInput;
+  /** Absolute URL of the uploaded photo, for the composer's preview only. */
+  identificationPreviewUrl?: string;
+}
+
+/**
+ * Read the handoff defensively. Router state is `null` after a reload or a
+ * direct visit, and nothing stops a hand-crafted history entry — so validate
+ * rather than cast. A malformed handoff degrades to "no attachment", never a
+ * crash mid-compose.
+ */
+function readHandoff(state: unknown): IdentificationHandoff | null {
+  if (!state || typeof state !== 'object') return null;
+  const candidateState = state as Partial<IdentificationHandoff>;
+  const candidates = candidateState.identification?.candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) return null;
+  return {
+    identification: candidateState.identification as CreateIdentificationInput,
+    identificationPreviewUrl: candidateState.identificationPreviewUrl,
+  };
 }
 
 /**
@@ -30,7 +59,18 @@ export default function NewThreadPage() {
   useScrollToTop();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const categoryParam = searchParams.get('category');
+
+  // The "Ask the community" handoff (audit M6). Deliberately NOT persisted into
+  // the sessionStorage draft: the draft outlives the uploaded image's relevance,
+  // and a stale image_id would fail the server's ownership check at submit. A
+  // reload therefore degrades to a plain composer — the text is kept, the
+  // attachment is not.
+  const handoff = useMemo(() => readHandoff(location.state), [location.state]);
+  const [identification, setIdentification] = useState<CreateIdentificationInput | null>(
+    () => handoff?.identification ?? null
+  );
 
   const [category, setCategory] = useState<Category | null>(null);
   // Boards for the composer picker when no `?category=` was supplied (L4) — lets
@@ -45,7 +85,12 @@ export default function NewThreadPage() {
       return {};
     }
   }, [newThreadDraftKey]);
-  const [title, setTitle] = useState<string>(() => initialDraft.title || '');
+  // A saved draft always wins over the handoff's suggestion — the user's own
+  // half-written title must never be overwritten by a machine guess.
+  const [title, setTitle] = useState<string>(
+    () =>
+      initialDraft.title || (handoff ? `Is this ${handoff.identification.candidates[0].name}?` : '')
+  );
   const [body, setBody] = useState<string>(() => initialDraft.body || '');
   // Comma-separated raw input (audit M5). Kept as the user's literal string in
   // state (and in the draft) so a half-typed tag isn't destroyed mid-keystroke;
@@ -122,6 +167,9 @@ export default function NewThreadPage() {
             .split(',')
             .map((t) => t.trim())
             .filter(Boolean),
+          // Omitted entirely on the common no-attachment compose, so the
+          // ordinary payload is unchanged by this feature.
+          ...(identification ? { identification } : {}),
         });
         clearDraft(newThreadDraftKey);
         if (res.status === 'published') {
@@ -142,7 +190,7 @@ export default function NewThreadPage() {
         setSubmitting(false);
       }
     },
-    [category, title, body, tagsInput, navigate, newThreadDraftKey, announce]
+    [category, title, body, tagsInput, identification, navigate, newThreadDraftKey, announce]
   );
 
   if (loading) {
@@ -232,6 +280,40 @@ export default function NewThreadPage() {
                 </option>
               ))}
             </select>
+          </div>
+        )}
+
+        {/* Attached identification (audit M6). Shown BEFORE the title so the
+            user can see — and drop — what they are about to publish alongside
+            their question; it carries their photo, so silently attaching it
+            would be the wrong default. */}
+        {identification && (
+          <div className="rounded-lg border border-line bg-surface-3 p-4">
+            <div className="flex items-start gap-4">
+              {handoff?.identificationPreviewUrl && (
+                <img
+                  src={handoff.identificationPreviewUrl}
+                  alt="Photo that will be attached to your question"
+                  className="h-20 w-20 shrink-0 rounded object-cover"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-ink">Identification attached</p>
+                <p className="mt-1 text-sm text-ink-2">
+                  {identification.candidates
+                    .map((c) => `${c.name} (${Math.round(c.confidence * 100)}%)`)
+                    .join(', ')}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIdentification(null)}
+                className="shrink-0"
+              >
+                Remove
+              </Button>
+            </div>
           </div>
         )}
 

@@ -61,6 +61,7 @@ from ..collections import get_forum_image_collection
 from ..conf import get_setting
 from ..models import (
     ForumBoard,
+    ForumIdentificationAttachment,
     ForumIndex,
     ForumProfile,
     Post,
@@ -482,6 +483,31 @@ class TopicListView(
                 },
             ),
             OpenApiExample(
+                "Create a topic with an identification attached",
+                request_only=True,
+                value={
+                    "title": "Is this a monstera or a philodendron?",
+                    "slug": "is-this-a-monstera-or-a-philodendron",
+                    "body": [{"type": "paragraph", "value": "<p>App wasn't sure.</p>"}],
+                    "identification": {
+                        "image_id": 42,
+                        "provider": "plant_id",
+                        "candidates": [
+                            {
+                                "name": "Swiss cheese plant",
+                                "scientific_name": "Monstera deliciosa",
+                                "confidence": 0.82,
+                            },
+                            {
+                                "name": "Heartleaf philodendron",
+                                "scientific_name": "Philodendron hederaceum",
+                                "confidence": 0.11,
+                            },
+                        ],
+                    },
+                },
+            ),
+            OpenApiExample(
                 "Idempotency-Key reused with a different body",
                 response_only=True,
                 status_codes=["422"],
@@ -501,7 +527,12 @@ class TopicListView(
             "new topic. Supports an Idempotency-Key header: a retry with the "
             "same key replays the original response (original status code); "
             "reuse with a different payload returns 422. A taken slug is "
-            "auto-suffixed (-2, -3, …) — read the final slug from the response."
+            "auto-suffixed (-2, -3, …) — read the final slug from the response. "
+            "An optional `identification` object attaches a plant-ID snapshot to "
+            "the topic; `image_id` must be an image the caller uploaded to the "
+            "forum image collection. The snapshot is caller-supplied — it "
+            "records what the app suggested to the author, not a verified "
+            "determination — and is returned by the topic-detail endpoint only."
         ),
     )
     def post(self, request, slug):
@@ -557,6 +588,15 @@ class TopicListView(
         also covers DRAFT topics, so a conflict response would leak a hidden
         draft's existence (audit L4). Each attempt runs in its own transaction
         so an IntegrityError can't poison an outer atomic block.
+
+        CAVEAT (audit M6): the ``except IntegrityError`` now also covers the
+        identification insert. If the referenced image row is deleted between
+        ``validate_image_id``'s existence check and this insert, the FK
+        violation is retried as if it were a slug clash and the caller
+        eventually gets "could not allocate a unique slug" rather than a bad
+        image reference. Accepted: the race window is tiny, each attempt rolls
+        back cleanly so no orphan rows survive, and narrowing the catch costs
+        more churn than the confusing-but-rare message is worth.
         """
         base_slug = validated["slug"]
         for attempt in range(MAX_SLUG_ATTEMPTS):
@@ -590,6 +630,21 @@ class TopicListView(
                         live=False,
                     )
                     opening.save()
+                    # The plant-ID snapshot (audit M6), inside the same
+                    # transaction as the topic + opening post: a topic whose
+                    # attachment failed to write would render as an ordinary
+                    # question, silently losing the thing it was asked about.
+                    identification = validated.get("identification")
+                    if identification:
+                        ForumIdentificationAttachment.objects.create(
+                            topic=topic,
+                            image_id=identification.get("image_id"),
+                            provider=identification.get("provider", ""),
+                            candidates=identification["candidates"],
+                            identification_result_id=identification.get(
+                                "identification_result_id", ""
+                            ),
+                        )
                 return topic, opening
             except IntegrityError:
                 continue
@@ -619,6 +674,11 @@ class TopicDetailView(
                 "board",
                 "author__wagtail_forum_profile__avatar",
                 "last_post_author__wagtail_forum_profile__avatar",
+                # Reverse OneToOne + its photo, so a topic WITH an identification
+                # card costs no extra query for the row itself (audit M6). The
+                # rendition lookup behind serialize_image_for_api is separate and
+                # only happens when a photo is actually attached.
+                "identification__image",
             )
             .prefetch_related("tags")  # TopicDetailSerializer.get_tags (audit M5)
         )

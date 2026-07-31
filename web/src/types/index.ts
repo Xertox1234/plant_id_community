@@ -12,7 +12,15 @@ export type { ApiResponse, WagtailApiResponse, DRFPaginatedResponse, ApiError } 
 export type { User, LoginCredentials, SignupData, AuthResponse } from './auth';
 
 // Forum types
-export type { Category, Thread, Post, SearchForumResponse } from './forum';
+export type {
+  Category,
+  Thread,
+  Post,
+  SearchForumResponse,
+  ThreadIdentification,
+  IdentificationCandidate,
+  CreateIdentificationInput,
+} from './forum';
 
 // Blog types
 export type {

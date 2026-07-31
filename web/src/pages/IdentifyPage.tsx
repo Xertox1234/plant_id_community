@@ -1,12 +1,20 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Users } from 'lucide-react';
 import FileUpload from '../components/PlantIdentification/FileUpload';
 import IdentificationResults from '../components/PlantIdentification/IdentificationResults';
 import { plantIdService } from '../services/plantIdService';
+import { uploadPostImage } from '../services/forumService';
 import { useAuth } from '../contexts/AuthContext';
 import { getPlantKey } from '../utils/plantUtils';
 import type { PlantIdentificationResult } from '@/types';
+
+/**
+ * Mirrors the backend's WAGTAILFORUM_TOPIC_IDENTIFICATION_MAX_CANDIDATES
+ * default. Trimming here keeps the create from 400ing on a payload the user
+ * never chose to send; the server is still the authority.
+ */
+const MAX_ATTACHED_CANDIDATES = 3;
 
 interface InfoCardProps {
   title: string;
@@ -28,6 +36,10 @@ export default function IdentifyPage() {
   const [saveError, setSaveError] = useState<string | null>(null); // Separate error state for save operations
   const [savedPlants, setSavedPlants] = useState(new Map<string, boolean>()); // Track which plants have been saved
   const [savingPlant, setSavingPlant] = useState<string | null>(null); // Track which plant is currently being saved
+  // "Ask the community" handoff (audit M6) — uploading the photo is a network
+  // round-trip, so it gets its own pending + error state.
+  const [asking, setAsking] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
 
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -55,6 +67,61 @@ export default function IdentifyPage() {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * "Ask the community" (audit M6) — hand this identification to the forum
+   * composer.
+   *
+   * The photo is uploaded HERE, not in the composer: it means only serializable
+   * JSON travels through router state, and an upload failure surfaces on the
+   * page where the user just pressed the button instead of at submit time.
+   * `POST /forum/images/` requires auth, so the sign-in check runs first —
+   * anonymous identification is allowed in dev (DEBUG), and without this the
+   * button would 401.
+   */
+  const handleAskCommunity = async () => {
+    if (!isAuthenticated) {
+      navigate('/login', { state: { from: '/identify' } });
+      return;
+    }
+    const suggestions = results?.suggestions ?? [];
+    // Confidence is 0–1 server-side; clamp rather than let a stray value fail
+    // the create with a 400 the user can do nothing about.
+    const candidates = suggestions
+      .filter((s) => !!s.plant_name)
+      .slice(0, MAX_ATTACHED_CANDIDATES)
+      .map((s) => {
+        const raw = s.probability ?? s.confidence ?? 0;
+        return {
+          name: s.plant_name,
+          scientific_name: s.scientific_name ?? '',
+          confidence: Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : 0,
+        };
+      });
+    if (candidates.length === 0) return;
+
+    setAskError(null);
+    setAsking(true);
+    try {
+      // The photo is optional on the attachment, so a missing file is not an
+      // error — the card renders text-only.
+      const uploaded = selectedFile ? await uploadPostImage(selectedFile) : null;
+      navigate('/forum/new-thread', {
+        state: {
+          identification: {
+            image_id: uploaded?.id ?? null,
+            provider: suggestions[0]?.source ?? '',
+            candidates,
+          },
+          identificationPreviewUrl: uploaded?.url,
+        },
+      });
+    } catch (err) {
+      setAskError(err instanceof Error ? err.message : 'Could not attach this identification');
+    } finally {
+      setAsking(false);
     }
   };
 
@@ -163,10 +230,15 @@ export default function IdentifyPage() {
             aria-live="assertive"
             aria-atomic="true"
             className={
-              saveError ? 'mt-4 bg-error/10 border border-error/30 rounded-lg p-4' : 'sr-only'
+              saveError || askError
+                ? 'mt-4 bg-error/10 border border-error/30 rounded-lg p-4'
+                : 'sr-only'
             }
           >
-            <p className="text-sm text-error">{saveError}</p>
+            {/* Both write-path failures land in this ONE persistent region
+                (the M26 lesson above). Only one of the two actions can be in
+                flight at a time, so they cannot clobber each other. */}
+            <p className="text-sm text-error">{saveError || askError}</p>
           </div>
 
           {/* Results Section */}
@@ -182,7 +254,19 @@ export default function IdentifyPage() {
               />
 
               {results && (
-                <div className="mt-6 flex justify-center">
+                <div className="mt-6 flex flex-wrap justify-center gap-3">
+                  {/* Not sure? Take it to the forum with the result attached
+                      (audit M6) — the app's flagship loop. */}
+                  {!!results.suggestions?.length && (
+                    <button
+                      onClick={handleAskCommunity}
+                      disabled={asking}
+                      className="px-6 py-2 bg-clay text-on-clay rounded-lg font-medium hover:bg-clay/90 disabled:bg-surface-3 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                    >
+                      <Users className="w-4 h-4" aria-hidden="true" />
+                      {asking ? 'Preparing…' : 'Ask the community'}
+                    </button>
+                  )}
                   <button
                     onClick={handleReset}
                     className="px-6 py-2 bg-surface-3 text-ink-2 rounded-lg font-medium hover:bg-surface-3/80 transition-colors"

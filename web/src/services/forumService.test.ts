@@ -396,6 +396,41 @@ describe('forumService (wagtail_forum API contract)', () => {
     });
   });
 
+  it('createThread nests an identification snapshot when one is attached (M6)', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ id: 12, slug: 'what-is-this', status: 'published' }));
+    const identification = {
+      image_id: 42,
+      provider: 'plant_id',
+      candidates: [
+        { name: 'Swiss cheese plant', scientific_name: 'Monstera deliciosa', confidence: 0.82 },
+      ],
+    };
+    await createThread({
+      boardSlug: 'plant-care',
+      title: 'What is this?',
+      content: '<p>hi</p>',
+      identification,
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      title: 'What is this?',
+      slug: 'what-is-this',
+      body: [{ type: 'paragraph', value: '<p>hi</p>' }],
+      identification,
+    });
+  });
+
+  it('createThread omits the identification key entirely when there is none', async () => {
+    // The common compose must not gain a `"identification": null` on the wire.
+    fetchMock.mockResolvedValueOnce(okJson({ id: 12, slug: 'plain', status: 'published' }));
+    await createThread({
+      boardSlug: 'plant-care',
+      title: 'Plain',
+      content: '<p>hi</p>',
+      identification: null,
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty('identification');
+  });
+
   it('createPost posts to /topics/{id}/posts/ with {body[]}', async () => {
     fetchMock.mockResolvedValueOnce(okJson({ id: 51, status: 'pending' }));
     const r = await createPost({ thread: 12, content: '<p>hi</p>' });

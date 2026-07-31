@@ -295,8 +295,9 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H4 mentions → todo 253 (completed 2026-07-22)
 - [x] #H6 solved-accepted-answer → todo 273 (completed 2026-07-31, Wave 2 slice 2;
       re-pointed 2026-07-23 when the roadmap moved solved answers to Wave 2 / not 256).
-      NOTE: todo 273 itself stays OPEN — slice 3 (#M6) is still outstanding, so the
-      all-findings-resolved rename must not fire on this doc.
+      Todo 273 closed 2026-07-31 once slice 3 (#M6) landed. The
+      all-findings-resolved rename still must NOT fire on this doc — #M2, #M7,
+      #M8, #M9, #M10 and #M13 remain open against other todos.
 - [x] #H7 public-user-identity → todo 257 (completed 2026-07-24, PR #492)
 - [x] #H8 search-discoverability-filters → todo 256 (completed 2026-07-23)
 - [x] #H9 seo-surface → todo 256 (completed 2026-07-23)
@@ -319,8 +320,12 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
       audit's `beforeunload` suggestion is superseded, not deferred)
 - [x] #M4 edit-history-viewer → todo 282 (completed 2026-07-31)
 - [x] #M5 tags-taxonomy → todo 276 (completed 2026-07-30)
-- [ ] #M6 plant-domain-linkage → todo 273 (re-pointed 2026-07-26; Wave 2 slice 3 —
-      263 routed it there on 2026-07-17, this line was stale)
+- [x] #M6 plant-domain-linkage → todo 273 (completed 2026-07-31, Wave 2 slice 3;
+      re-pointed 2026-07-26 — 263 routed it to 273 on 2026-07-17 and this line
+      was stale). Shipped as a caller-supplied `ForumIdentificationAttachment`
+      snapshot, not the FK the finding implied: the identify endpoint persists
+      nothing, so there is no server-side record to reference — see the todo's
+      Work Log.
 - [ ] #M7 image-authoring-alt-text → todo 281 (re-pointed 2026-07-26; promoted out
       of 263 at p2 — a11y, not polish)
 - [ ] #M8 polls → todo 283 (re-pointed 2026-07-26; promoted out of 263 with M2)

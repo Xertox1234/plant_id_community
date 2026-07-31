@@ -201,6 +201,59 @@ describe('forumMappers (wagtail_forum contract)', () => {
     expect(t.is_locked).toBe(true);
   });
 
+  it('mapTopicDetailToThread carries the identification snapshot through (M6)', () => {
+    const identification = {
+      image: { id: 7, url: 'http://x/p.jpg', alt: 'p.jpg', width: 800, height: 600 },
+      provider: 'plant_id',
+      candidates: [
+        { name: 'Swiss cheese plant', scientific_name: 'Monstera deliciosa', confidence: 0.82 },
+      ],
+      created_at: '2026-07-31T10:00:00Z',
+    };
+    const t = mapTopicDetailToThread({
+      id: 1,
+      title: 'T',
+      slug: 't',
+      board: { id: 1, slug: 'b', title: 'B' },
+      author: { username: 'jdoe', display_name: 'Jane Doe', avatar: null, trust_level: 2 },
+      is_pinned: false,
+      is_closed: false,
+      locked: false,
+      reply_count: 0,
+      view_count: 0,
+      created_at: '2026-01-01T00:00:00Z',
+      last_post_at: null,
+      last_post_author: null,
+      opening_post_id: null,
+      is_subscribed: false,
+      identification,
+    });
+    expect(t.identification).toEqual(identification);
+  });
+
+  it('mapTopicDetailToThread nulls the identification when the backend omits it', () => {
+    // Collapses "pre-M6 backend" and "no snapshot on this topic" into the one
+    // state the card cares about: nothing to render.
+    const t = mapTopicDetailToThread({
+      id: 1,
+      title: 'T',
+      slug: 't',
+      board: { id: 1, slug: 'b', title: 'B' },
+      author: { username: 'jdoe', display_name: 'Jane Doe', avatar: null, trust_level: 2 },
+      is_pinned: false,
+      is_closed: false,
+      locked: false,
+      reply_count: 0,
+      view_count: 0,
+      created_at: '2026-01-01T00:00:00Z',
+      last_post_at: null,
+      last_post_author: null,
+      opening_post_id: null,
+      is_subscribed: false,
+    });
+    expect(t.identification).toBeNull();
+  });
+
   // -------------------------------------------------------------------------
   // BackendPost → Post
   // -------------------------------------------------------------------------

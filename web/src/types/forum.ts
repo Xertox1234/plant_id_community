@@ -47,6 +47,38 @@ export interface ForumAuthor {
 }
 
 /**
+ * One suggested species inside an attached identification snapshot (audit M6).
+ * `confidence` is 0–1, not a percentage.
+ */
+export interface IdentificationCandidate {
+  name: string;
+  scientific_name?: string;
+  confidence: number;
+}
+
+/**
+ * The plant-ID snapshot a topic carries (audit M6) — detail payload ONLY.
+ *
+ * Author-supplied, not a verified determination: the backend records what the
+ * app suggested to the person who posted, so the card must be labelled as such
+ * and never presented as an authoritative ID. `image` is null when the photo
+ * was never attached or has since been deleted (the FK is SET_NULL) — the card
+ * falls back to text-only rather than disappearing.
+ */
+export interface ThreadIdentification {
+  image: {
+    id: number;
+    url: string;
+    alt: string;
+    width: number;
+    height: number;
+  } | null;
+  provider: string;
+  candidates: IdentificationCandidate[];
+  created_at: string;
+}
+
+/**
  * Forum thread
  */
 export interface Thread {
@@ -79,6 +111,12 @@ export interface Thread {
   solved_post_id?: number | null;
   /** Detail-only: whether the CURRENT viewer may accept/clear an answer here. */
   can_mark_solution?: boolean;
+  /**
+   * Detail-only: the plant-ID snapshot attached at compose time (audit M6).
+   * Absent on list/search payloads by design — the card renders above the
+   * opening post and nowhere else.
+   */
+  identification?: ThreadIdentification | null;
 }
 
 /**
@@ -143,6 +181,18 @@ export interface UpdatePostInput {
   content: string;
 }
 
+/**
+ * The write shape of an identification snapshot (audit M6). Distinct from the
+ * read shape `ThreadIdentification`: the request carries a bare `image_id` the
+ * caller already uploaded via `uploadPostImage`, while the response carries the
+ * resolved rendition object.
+ */
+export interface CreateIdentificationInput {
+  image_id?: number | null;
+  provider?: string;
+  candidates: IdentificationCandidate[];
+}
+
 /** Create-topic input (POST /boards/{slug}/topics/). content is HTML. */
 export interface CreateTopicInput {
   boardSlug: string;
@@ -150,6 +200,12 @@ export interface CreateTopicInput {
   content: string;
   /** Optional secondary taxonomy (audit M5). Server normalizes + bounds them. */
   tags?: string[];
+  /**
+   * Optional plant-ID snapshot to attach (audit M6) — the "Ask the community"
+   * flow. The server bounds candidate count/length and requires `image_id` to
+   * be an image THIS user uploaded to the forum collection.
+   */
+  identification?: CreateIdentificationInput | null;
 }
 
 /** Create-reply input (POST /topics/{id}/posts/). content is HTML. */
