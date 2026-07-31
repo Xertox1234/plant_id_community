@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthErrorCode } from '../../types/auth';
 import SignupPage from './SignupPage';
@@ -60,6 +60,27 @@ describe('SignupPage', () => {
 
     expect(await screen.findByText('A user with that email already exists.')).toBeInTheDocument();
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
+  });
+
+  // Audit M26 (todo 278): same persistent-live-region contract as LoginPage.
+  it('swaps the server error into a live region that was already mounted', async () => {
+    mockSignup.mockResolvedValue({
+      success: false,
+      error: { message: 'That email is already registered.', code: AuthErrorCode.EMAIL_EXISTS },
+    });
+    const { container } = renderSignupPage();
+
+    const region = container.querySelector('[aria-live="assertive"]');
+    expect(region).toBeInTheDocument();
+    expect(region).toHaveTextContent('');
+
+    fillValidForm();
+    submit();
+
+    await waitFor(() => expect(region).toHaveTextContent('That email is already registered.'));
+    // Same element — not a remount.
+    expect(container.querySelector('[aria-live="assertive"]')).toBe(region);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   // The 14-char strength rule belongs on signup (new password), NOT on login.

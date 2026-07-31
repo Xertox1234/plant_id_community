@@ -152,6 +152,23 @@ export default function IdentifyPage() {
             </div>
           )}
 
+          {/* Save-failure live region, OUTSIDE the results block on purpose
+              (audit M26). Nesting it in `{(results || loading || error) && …}`
+              made it a persistent region with a non-persistent ancestor: pick a
+              new file mid-save and that block unmounts, so the pending save's
+              rejection had nowhere to land — the error was dropped silently for
+              everyone, sighted or not. Unconditional here, so the node
+              pre-exists its content in every path. */}
+          <div
+            aria-live="assertive"
+            aria-atomic="true"
+            className={
+              saveError ? 'mt-4 bg-error/10 border border-error/30 rounded-lg p-4' : 'sr-only'
+            }
+          >
+            <p className="text-sm text-error">{saveError}</p>
+          </div>
+
           {/* Results Section */}
           {(results || loading || error) && (
             <div className="mt-8 pt-8 border-t border-line">
@@ -163,20 +180,6 @@ export default function IdentifyPage() {
                 savedPlants={savedPlants}
                 savingPlant={savingPlant}
               />
-
-              {/* Persistent live region, text swaps in place (audit M26) — a
-                  conditionally-mounted `role="alert"` is generally not
-                  announced, and a failed save is exactly what a screen-reader
-                  user must hear. */}
-              <div
-                aria-live="assertive"
-                aria-atomic="true"
-                className={
-                  saveError ? 'mt-4 bg-error/10 border border-error/30 rounded-lg p-4' : 'sr-only'
-                }
-              >
-                <p className="text-sm text-error">{saveError}</p>
-              </div>
 
               {results && (
                 <div className="mt-6 flex justify-center">

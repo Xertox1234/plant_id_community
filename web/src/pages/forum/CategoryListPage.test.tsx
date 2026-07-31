@@ -166,7 +166,12 @@ describe('CategoryListPage', () => {
 
   it('sanitizes the CMS welcome copy before rendering it', async () => {
     vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
-      indexPayload([], '<p>Hi</p><img src="x" onerror="window.__xss = true">')
+      indexPayload(
+        [],
+        '<p>Hi</p><img src="x" onerror="window.__xss = true">' +
+          '<p onclick="window.__xss = true">clickme</p>' +
+          '<p><a href="javascript:window.__xss = true">link</a></p>'
+      )
     );
 
     renderCategoryListPage();
@@ -174,7 +179,26 @@ describe('CategoryListPage', () => {
     await waitFor(() => expect(screen.getByText('Hi')).toBeInTheDocument());
     // The backend sanitizes too; this is the second layer, and the one that
     // protects against a compromised/mis-implemented first layer.
-    expect(document.querySelector('img[onerror]')).toBeNull();
+    // `img` at all, not just `img[onerror]` — the narrower assertion would also
+    // pass under the FULL preset, which allows images outright, so it would not
+    // actually pin STANDARD's "no media".
+    expect(document.querySelector('img')).toBeNull();
+    // Attribute and URI stripping on tags that ARE allowed.
+    expect(document.querySelector('[onclick]')).toBeNull();
+    expect(document.querySelector('a[href^="javascript:"]')).toBeNull();
+  });
+
+  it('renders no welcome block when the intro sanitizes away to nothing', async () => {
+    // Truthy raw string, empty after sanitizing — gating on the raw value
+    // would render an empty padded box.
+    vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
+      indexPayload([], '<img src="x"><script>window.__xss = true</script>')
+    );
+
+    renderCategoryListPage();
+
+    await waitFor(() => expect(screen.getByText('No boards yet')).toBeInTheDocument());
+    expect(document.querySelector('.prose')).toBeNull();
   });
 
   it('renders no welcome block when the CMS intro is empty', async () => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchForumIndex } from '../../services/forumService';
 import { createSafeMarkup, SANITIZE_PRESETS } from '../../utils/sanitize';
@@ -59,6 +59,9 @@ export default function CategoryListPage() {
     };
   }, [reloadKey]);
 
+  // Sanitize once so the render can gate on the result rather than the input.
+  const introMarkup = useMemo(() => createSafeMarkup(intro, SANITIZE_PRESETS.STANDARD), [intro]);
+
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -94,11 +97,13 @@ export default function CategoryListPage() {
         {/* CMS welcome copy (audit L2) — an editor's own onboarding words, which
             no hardcoded string can replace. Sanitized here as well as on the
             server; STANDARD matches the backend's intro allowlist (headings,
-            lists, links — no media). */}
-        {intro && (
+            lists, links — no media). Gated on the SANITIZED html, not the raw
+            string: an intro made only of disallowed markup is truthy but
+            sanitizes to '', which would render an empty padded box. */}
+        {introMarkup.__html && (
           <div
             className="prose prose-sm max-w-none mt-4 text-ink-2"
-            dangerouslySetInnerHTML={createSafeMarkup(intro, SANITIZE_PRESETS.STANDARD)}
+            dangerouslySetInnerHTML={introMarkup}
           />
         )}
       </div>
