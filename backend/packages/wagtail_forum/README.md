@@ -194,6 +194,30 @@ alone is not sufficient.
 | `WAGTAILFORUM_IMAGE_MAX_HEIGHT` | `5000` | Layer 4: max pixel height. |
 | `WAGTAILFORUM_IMAGE_COLLECTION_NAME` | `"Forum Images"` | Collection name, created lazily and idempotently under root. |
 
+#### Alt text (M7)
+
+`POST /forum/images/` accepts an optional **`alt`** multipart part alongside
+`image`. It is stripped, truncated to 255 chars, and stored on Wagtail's own
+`Image.description` field; `serialize_image_for_api` returns it as `alt`.
+
+Three consequences worth knowing before changing this:
+
+- **`alt` never falls back to `title`.** `title` is the upload filename, and
+  filename-as-alt is an accessibility anti-pattern — a screen reader announcing
+  `IMG_2481.jpg` is worse than announcing nothing. An image uploaded without
+  `alt` serves `alt: ""`, which is the correct markup for a decorative image.
+  Images uploaded before M7 therefore serve `""` rather than their filename.
+- **Alt is per-image, not per-usage.** The body block value stays a bare image
+  `int`, so re-embedding one upload in a second post reuses the first post's alt.
+  Accepted: forum uploads are effectively single-use, and per-usage alt would
+  mean a StreamField `int` → `dict` data migration across every post *and*
+  revision.
+- **There is no alt PATCH endpoint.** Alt is captured at upload time only;
+  correcting it means uploading the image again. `alt` is also deliberately
+  excluded from the idempotency fingerprint, so a same-key retry carrying
+  corrected alt replays the original response (including the original alt)
+  rather than 422-ing.
+
 ### Reads, caching, and sync
 
 | Setting | Default | Purpose |

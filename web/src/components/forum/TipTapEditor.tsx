@@ -107,8 +107,27 @@ export default function TipTapEditor({
   // that replaces the native window.prompt — M24).
   const [linkDraft, setLinkDraft] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
+  // Alt-text prompt (M7): null = closed. Collected BEFORE upload so the authored
+  // value rides the one multipart request — there is no alt PATCH endpoint, and
+  // htmlToBodyBlocks drops the editor node's alt on write, so upload time is the
+  // only moment the value can be captured. `previewUrl` is an object URL that
+  // MUST be revoked (see closeAltPrompt) or every inserted image leaks a blob.
+  const [altPrompt, setAltPrompt] = useState<{
+    file: File;
+    previewUrl: string;
+    alt: string;
+  } | null>(null);
 
-  const handleImageSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Close the alt prompt and release its object URL. Every exit path — confirm,
+  // skip, Escape, unmount — must go through here or the blob leaks.
+  const closeAltPrompt = () => {
+    setAltPrompt((current) => {
+      if (current) URL.revokeObjectURL(current.previewUrl);
+      return null;
+    });
+  };
+
+  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = ''; // allow re-selecting the same file after an error
     if (!file || !editor) return;
@@ -122,9 +141,22 @@ export default function TipTapEditor({
       setImageError(`Image is too large — ${IMAGE_LIMIT_HINT}.`);
       return;
     }
+    // Ask for alt text BEFORE uploading (M7) — the value has to ride the upload
+    // request, so there is no second chance to collect it.
+    closeAltPrompt(); // revoke a previous preview if one was somehow still open
+    setAltPrompt({ file, previewUrl: URL.createObjectURL(file), alt: '' });
+  };
+
+  // Upload the pending image and insert it. `alt` is passed explicitly so the
+  // Skip path sends "" rather than whatever happens to be typed — an empty alt
+  // is a legitimate choice (decorative image) and must never block posting.
+  const uploadPendingImage = async (alt: string) => {
+    if (!altPrompt || !editor) return;
+    const { file } = altPrompt;
+    closeAltPrompt();
     setUploadingImage(true);
     try {
-      const image = await uploadPostImage(file);
+      const image = await uploadPostImage(file, alt);
       // insertContent (not setImage) so the custom imageId attr rides along.
       editor
         .chain()
@@ -223,6 +255,19 @@ export default function TipTapEditor({
       }
     };
   }, [editor]);
+
+  // Release a pending alt-prompt preview if the composer unmounts while it is
+  // open (this editor is remounted via `key=` after every reply, so that is a
+  // routine path, not an edge case). Reads the URL from a ref-free closure over
+  // state is unsafe here — use the functional updater in closeAltPrompt.
+  useEffect(() => {
+    return () => {
+      setAltPrompt((current) => {
+        if (current) URL.revokeObjectURL(current.previewUrl);
+        return null;
+      });
+    };
+  }, []);
 
   if (!editor) {
     return <div className="p-4 text-ink-3">Loading editor...</div>;
@@ -348,6 +393,66 @@ export default function TipTapEditor({
             data-testid="forum-image-input"
             onChange={handleImageSelect}
           />
+        </div>
+      )}
+
+      {/* Alt-text prompt (M7) — collected before upload, because the value has
+          to ride the multipart request. "Skip" is a first-class choice: a
+          decorative image is correctly alt="", and empty must never block
+          posting. */}
+      {editable && altPrompt !== null && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-2 bg-surface p-2">
+          <img
+            src={altPrompt.previewUrl}
+            alt=""
+            className="h-14 w-14 shrink-0 rounded object-cover"
+          />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <label htmlFor="tiptap-image-alt" className="text-sm font-medium text-ink">
+              Describe this image
+            </label>
+            <input
+              id="tiptap-image-alt"
+              type="text"
+              autoFocus
+              maxLength={255}
+              value={altPrompt.alt}
+              onChange={(e) =>
+                setAltPrompt((current) => (current ? { ...current, alt: e.target.value } : current))
+              }
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void uploadPendingImage(altPrompt.alt);
+                } else if (e.key === 'Escape') {
+                  // Escape SKIPS (uploads with no alt); it does not cancel the
+                  // insert — the user already chose to add this image.
+                  void uploadPendingImage('');
+                }
+              }}
+              placeholder="e.g. A monstera leaf with brown edges"
+              aria-describedby="tiptap-image-alt-hint"
+              className="min-h-11 w-full rounded border border-line-2 bg-surface-1 px-3 text-sm text-ink"
+            />
+            <span id="tiptap-image-alt-hint" className="text-xs text-ink-3">
+              Helps people using screen readers. Leave blank if the image is decorative. This can
+              only be set now — to change it later, remove the image and add it again.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void uploadPendingImage(altPrompt.alt)}
+            className="min-h-11 rounded bg-primary/20 px-3 text-sm font-medium text-ink"
+          >
+            Add image
+          </button>
+          <button
+            type="button"
+            onClick={() => void uploadPendingImage('')}
+            className="min-h-11 rounded px-3 text-sm text-ink-2"
+          >
+            Skip
+          </button>
         </div>
       )}
 

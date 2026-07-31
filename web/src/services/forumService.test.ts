@@ -541,6 +541,32 @@ describe('forumService (wagtail_forum API contract)', () => {
     expect(url).toContain('/api/v1/forum/images/');
     expect(opts.body).toBeInstanceOf(FormData);
     expect((opts.body as FormData).has('image')).toBe(true);
+    // No alt argument → no alt part, so the request is byte-identical to the
+    // pre-M7 shape.
+    expect((opts.body as FormData).has('alt')).toBe(false);
+  });
+
+  it('uploadPostImage sends author-supplied alt text as an "alt" part (M7)', async () => {
+    const file = new File(['x'], 'IMG_2481.jpg', { type: 'image/jpeg' });
+    fetchMock.mockResolvedValueOnce(
+      okJson({ id: 7, url: 'http://x/a.jpg', alt: 'A fern frond', width: 800, height: 600 })
+    );
+    await uploadPostImage(file, '  A fern frond  ');
+    const [, opts] = fetchMock.mock.calls[0];
+    // Trimmed on the way out — the backend strips too, but sending clean data
+    // keeps the stored value and the echoed value identical.
+    expect((opts.body as FormData).get('alt')).toBe('A fern frond');
+  });
+
+  it('uploadPostImage omits the alt part when the author skipped it (M7)', async () => {
+    const file = new File(['x'], 'a.jpg', { type: 'image/jpeg' });
+    fetchMock.mockResolvedValueOnce(
+      okJson({ id: 7, url: 'http://x/a.jpg', alt: '', width: 800, height: 600 })
+    );
+    await uploadPostImage(file, '   ');
+    const [, opts] = fetchMock.mock.calls[0];
+    // Whitespace-only is "no description", not a description made of spaces.
+    expect((opts.body as FormData).has('alt')).toBe(false);
   });
 
   // --- Error propagation ----------------------------------------------------

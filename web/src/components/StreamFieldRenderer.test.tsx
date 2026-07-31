@@ -70,6 +70,43 @@ describe('StreamFieldRenderer', () => {
       expect(img).toHaveAttribute('src', 'https://cdn.example/img.jpg');
     });
 
+    it('renders the AUTHORED alt on a post image, and an empty alt stays empty (M7)', () => {
+      // Two halves of the same contract. The backend now serves
+      // Image.description (what the author typed) and deliberately does NOT
+      // fall back to the filename, so an image with no description arrives as
+      // alt: "". The renderer must pass that through untouched — a "helpful"
+      // fallback here (filename, "image", the post title) would re-introduce
+      // exactly the noise M7 removed for screen-reader users.
+      const blocks: StreamFieldBlock[] = [
+        {
+          id: '1',
+          type: 'image',
+          value: {
+            id: 7,
+            url: 'https://cdn.example/IMG_2481.jpg',
+            alt: 'A monstera leaf with brown edges',
+          },
+        },
+        {
+          id: '2',
+          type: 'image',
+          value: { id: 8, url: 'https://cdn.example/IMG_2482.jpg', alt: '' },
+        },
+      ];
+      render(<StreamFieldRenderer blocks={blocks} />);
+
+      expect(screen.getByRole('img', { name: 'A monstera leaf with brown edges' })).toHaveAttribute(
+        'src',
+        'https://cdn.example/IMG_2481.jpg'
+      );
+
+      // A decorative image is alt="" — presentational to a screen reader, and
+      // therefore absent from the accessibility tree entirely.
+      const decorative = document.querySelector('img[src="https://cdn.example/IMG_2482.jpg"]');
+      expect(decorative).toHaveAttribute('alt', '');
+      expect(screen.queryByRole('img', { name: /IMG_2482/ })).not.toBeInTheDocument();
+    });
+
     it('renders quote block with string value', () => {
       const blocks: StreamFieldBlock[] = [{ id: '1', type: 'quote', value: 'Test quote text' }];
       render(<StreamFieldRenderer blocks={blocks} />);

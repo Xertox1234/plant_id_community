@@ -423,10 +423,19 @@ export interface UploadedImage {
  * the returned id is referenced from an `image` body block (see utils/forumBody).
  * Multipart, so let the browser set Content-Type; CSRF + cookie auth as usual.
  */
-export async function uploadPostImage(imageFile: File): Promise<UploadedImage> {
+/**
+ * Upload an inline post image, optionally with author-supplied alt text (M7).
+ *
+ * `alt` is sent only when non-empty — an omitted part and an empty one mean the
+ * same thing to the backend (a decorative image, served as `alt: ""`), and not
+ * sending it keeps the request identical to the pre-M7 shape.
+ */
+export async function uploadPostImage(imageFile: File, alt?: string): Promise<UploadedImage> {
   const csrfToken = await getCsrfToken();
   const formData = new FormData();
   formData.append('image', imageFile);
+  const trimmedAlt = alt?.trim();
+  if (trimmedAlt) formData.append('alt', trimmedAlt);
   const response = await fetch(`${FORUM_BASE}/images/`, {
     method: 'POST',
     credentials: 'include',

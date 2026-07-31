@@ -1240,7 +1240,18 @@ class PostImageUploadView(UnversionedForumAPIMixin, APIView):
         request={
             "multipart/form-data": {
                 "type": "object",
-                "properties": {"image": {"type": "string", "format": "binary"}},
+                "properties": {
+                    "image": {"type": "string", "format": "binary"},
+                    "alt": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "description": (
+                            "Author-supplied alt text (M7). Optional — omit or "
+                            "send empty for a decorative image. Truncated to "
+                            "255 chars. Plain text by contract; never markup."
+                        ),
+                    },
+                },
             }
         },
         responses={201: dict, 400: dict, 401: dict, 409: dict, 422: dict},
@@ -1249,6 +1260,8 @@ class PostImageUploadView(UnversionedForumAPIMixin, APIView):
             "size, PIL decode) into the forum image collection. Returns "
             "{id, url, alt, width, height} with a Location header; reference the "
             "returned id from an `image` body block. Requires authentication. "
+            "An optional `alt` part carries author-supplied alt text (M7); it is "
+            "stored on the image and echoed back as `alt`. "
             "Supports an Idempotency-Key header: a retry with the same key "
             "replays the original response instead of storing a duplicate image "
             "row + file (409 if a same-key twin is mid-flight, 422 on key reuse "
@@ -1265,6 +1278,14 @@ class PostImageUploadView(UnversionedForumAPIMixin, APIView):
         # UploadedFile, not JSON, so fingerprint on a CONTENT hash — name+size
         # alone could collide. seek(0) before hashing (validate may have consumed
         # the stream) AND after (so .create() still stores the full file).
+        #
+        # `alt` is deliberately NOT in the fingerprint (M7). Including it would
+        # 422 a legitimate same-key retry that happens to carry corrected alt
+        # text, since key reuse with a mismatched fingerprint is a 422. The
+        # consequence, accepted: remember() caches the SERIALIZED RESPONSE, so a
+        # replay returns the original alt and a new one sent on the retry is
+        # silently dropped. Re-authoring alt means a fresh upload (no key), which
+        # is also the only way to change it — there is no alt PATCH endpoint.
         cache_key = idempotency_cache_key(request, "image-upload")
         payload_fp = None
         if cache_key:
@@ -1279,6 +1300,13 @@ class PostImageUploadView(UnversionedForumAPIMixin, APIView):
         reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
         image = get_image_model().objects.create(
             title=(image_file.name or "forum-image")[:255],
+            # Author-supplied alt (M7), stored on Wagtail's own alt-text field.
+            # Truncated rather than 400'd, matching the title idiom above: a
+            # too-long alt is a UI slip, not a malformed request, and the
+            # column is CharField(max_length=255) so an unbounded value would
+            # raise DataError. Empty is legitimate — a decorative image should
+            # carry alt="", which beats a filename for a screen reader.
+            description=(request.data.get("alt") or "").strip()[:255],
             file=image_file,
             collection=get_forum_image_collection(),
             uploaded_by_user=request.user,

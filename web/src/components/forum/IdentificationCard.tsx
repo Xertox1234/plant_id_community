@@ -47,13 +47,14 @@ export default function IdentificationCard({
         {image && (
           <img
             src={image.url}
-            // Hardcoded, NOT `image.alt`: the backend derives that from the
-            // Wagtail image title, which the upload endpoint sets to the
-            // filename — so it would read out "IMG_4021.jpg". Unlike an inline
-            // post image (author-supplied alt is audit M7 / todo 281), this
-            // image has exactly one role on the page, so describing that role
-            // is strictly better than any filename.
-            alt="Photo the author submitted for identification"
+            // Prefer the author's own description, fall back to the image's
+            // ROLE on the page. Before M7 (todo 281) `image.alt` was derived
+            // from the Wagtail title — i.e. the upload filename — so this was
+            // hardcoded to avoid reading out "IMG_4021.jpg". It now carries
+            // author-supplied text, which beats a generic role sentence; the
+            // fallback still covers an image uploaded without alt (including
+            // every pre-M7 row, which serves "").
+            alt={image.alt || 'Photo the author submitted for identification'}
             width={image.width}
             height={image.height}
             className="w-full max-w-56 self-start rounded-lg object-cover"
