@@ -109,6 +109,8 @@ export interface BackendSearchTopic {
   view_count: number;
   last_post_at: string | null;
   is_pinned: boolean;
+  /** Accepted-answer state (audit H6) — search hits render the same ThreadCard. */
+  is_solved?: boolean;
   board_id: number;
   board_slug: string;
 }
@@ -261,6 +263,7 @@ export function mapSearchTopicToThread(t: BackendSearchTopic): Thread {
     post_count: t.reply_count,
     view_count: t.view_count,
     is_pinned: t.is_pinned,
+    is_solved: t.is_solved ?? false,
     is_active: true,
   };
 }

@@ -357,6 +357,18 @@ describe('forumMappers (wagtail_forum contract)', () => {
     );
   });
 
+  it('mapSearchTopicToThread carries the solved flag, defaulting to false when absent', () => {
+    // Audit H6, same shape of assertion as is_pinned above: both cases, so a
+    // hardcoded literal in the mapper could not pass. The absent case matters
+    // because a pre-H6 backend omits the key entirely and the badge must then
+    // read unsolved rather than undefined.
+    expect(mapSearchTopicToThread({ ...backendSearchTopic, is_solved: true }).is_solved).toBe(true);
+    expect(mapSearchTopicToThread({ ...backendSearchTopic, is_solved: false }).is_solved).toBe(
+      false
+    );
+    expect(mapSearchTopicToThread(backendSearchTopic).is_solved).toBe(false);
+  });
+
   it('mapSearchPostToPost carries topic and board identity for links', () => {
     const post = mapSearchPostToPost({
       id: 9,

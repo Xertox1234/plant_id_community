@@ -162,6 +162,9 @@ def test_premium_semantic_hits_use_the_same_shape_as_fts_topic_hits():
         "view_count",
         "last_post_at",
         "is_pinned",
+        # Added by audit H6 (todo 273 slice 2). This pin is what caught
+        # `is_solved` landing on the FTS builder but not the semantic one.
+        "is_solved",
         "board_id",
         "board_slug",
     }

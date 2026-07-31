@@ -83,6 +83,11 @@ def _serialize(topic) -> dict:
             topic.last_post_at.isoformat() if topic.last_post_at else None
         ),
         "is_pinned": topic.is_pinned,
+        # Audit H6. Kept in lockstep with the FTS hit shape by
+        # test_premium_semantic_hits_use_the_same_shape_as_fts_topic_hits —
+        # that test is what caught this field being added to one builder and
+        # not the other.
+        "is_solved": topic.solved_post_id is not None,
         "board_id": topic.board_id,
         "board_slug": topic.board.slug,
     }
