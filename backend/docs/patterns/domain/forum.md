@@ -181,7 +181,7 @@ It ships **dormant** — the default stays the heuristic backend.
 `check()` runs synchronously inside the moderation workflow's
 `@transaction.atomic` publish path, so the LLM call is bounded by a hard
 wall-clock timeout (`SPAM_LLM_TIMEOUT_SECONDS`, a `ThreadPoolExecutor` +
-`future.result(timeout=…)`). Two deliberate, distinct failure postures:
+`future.result(timeout=…)`). Three deliberate, distinct postures:
 
 - **Provider failure** (timeout / exception / unparseable reply) → **fail
   closed**: returns a rejected `SpamResult` so the post follows the same
@@ -190,12 +190,15 @@ wall-clock timeout (`SPAM_LLM_TIMEOUT_SECONDS`, a `ThreadPoolExecutor` +
   moderation-queue entry). Matches `workflow.py`'s "FAIL CLOSED" posture.
 - **Forum AI budget exhausted** (`SPAM_LLM_BUDGET_LIMIT`) → **degrade to
   heuristic** (publish): a cost decision, not an outage.
+- **Attempts cap tripped** (`SPAM_LLM_ATTEMPTS_LIMIT`, todo 280) → **fail
+  closed**, and stop calling the provider entirely: sustained misbehaviour, so
+  spend must stop without ever reaching the publish posture.
 
 Definitive `CLEAN`/`SPAM` verdicts are cached in Redis by
 `sha256(text)` + prompt version; transient failures are never cached. All
 tunables live in `apps/forum_host/constants.py` (`SPAM_LLM_*`).
 
-### Keeping the two postures independent (todo 274 / H13)
+### Keeping the postures independent (todo 274 / H13, todo 280)
 
 The postures above only stay distinct because **budget is consumed after the
 provider answers, never before**. `AIRateLimiter.check_global_limit()`
@@ -205,7 +208,7 @@ flipped the backend from fail-closed (hold) to degrade-to-heuristic (**publish
 LLM-unscreened**) — a spam-publishing posture reached purely by the provider
 being down, and a sticky one, since every increment re-stamped the 1h TTL.
 
-Three couplings were fixed, and all three must hold together:
+Four rules hold this together, and they must hold *together*:
 
 1. **Peek, then consume — and only for a definitive verdict.**
    `AIRateLimiter.peek_budget(key, limit)` is read-only; `consume_budget(key,
@@ -217,6 +220,7 @@ Three couplings were fixed, and all three must hold together:
    provider stuck emitting garbage drain the budget into publish-unscreened.
    Spend during such an incident is one call per post submission — the same
    rate as healthy operation, so the cap is not protecting anything there.
+   Bounding *that* is the attempts counter's job (item 4).
 2. **A forum-private counter.** `SPAM_LLM_BUDGET_CACHE_KEY`
    (`ai_rate_limit:forum_spam`) is separate from the blog's shared
    `ai_rate_limit:global`, so neither subsystem can starve the other's quota and
@@ -227,6 +231,23 @@ Three couplings were fixed, and all three must hold together:
    which forwards it as a completion kwarg to the provider SDK, so a hung
    provider unblocks the worker instead of parking it. Without it,
    `SPAM_LLM_MAX_WORKERS` hung calls park the whole pool with no recovery.
+4. **A separate attempts counter for the spend rule 1 leaves uncounted**
+   (todo 280). `SPAM_LLM_ATTEMPTS_CACHE_KEY` (`ai_rate_limit:forum_spam_attempts`)
+   is incremented in `_call_llm()`, immediately before `submit()`, for **every**
+   call issued — timeouts and unparseable replies included. A
+   `future.result()` expiry means the request *was* issued and is billed; the
+   caller merely stopped waiting. Without this the verdict cap bounds spend
+   exactly when spend is well-behaved and stops bounding it when the provider
+   misbehaves. Three things about it are load-bearing:
+   - It trips the **opposite** posture: exhausted attempts → **hold**, never
+     the publish-degrade. Counting failures on the *verdict* counter instead is
+     the sticky fail-open this whole section removed —
+     `test_sustained_outage_burns_nothing_and_never_flips_to_publish` guards it.
+   - It is peeked **before** the verdict budget. A half-broken provider can
+     exhaust both; verdict-first would then take the publish branch while the
+     provider is known bad.
+   - It is peeked **after** the verdict-cache lookup. A cached verdict costs
+     nothing, so the circuit must not hold it.
 
 **Never use `cache.incr()` for these counters.** Django's `BaseCache.incr()` is
 `get()` then `set(key, value)` with *no* timeout, which silently re-stamps the
@@ -241,31 +262,44 @@ environment:
 
 1. Confirm `OPENAI_API_KEY` is set and working in that environment.
 2. Set `WAGTAILFORUM_SPAM_BACKEND=apps.forum_host.spam.LLMSpamBackend`.
-3. Restart, then watch `[SECURITY] Forum spam LLM flagged content` (flags),
-   `[ERROR] Forum spam LLM timed out` (provider health), and `[RATE_LIMIT]
-   Budget exhausted for ai_rate_limit:forum_spam` (cap hit) in the logs.
+3. Restart, then watch these four log lines:
+   - `[SECURITY] Forum spam LLM flagged content` — flags.
+   - `[ERROR] Forum spam LLM timed out` — provider health.
+   - `[RATE_LIMIT] Budget exhausted for ai_rate_limit:forum_spam` — verdict cap
+     hit; screening is now degrading to the heuristic and **publishing**.
+   - `[CIRCUIT] Forum spam LLM attempts cap reached` — the attempts cap tripped;
+     screening is **holding** every post and has stopped calling the provider.
+     (`peek_budget` also emits its generic `[RATE_LIMIT] Budget exhausted for
+     ai_rate_limit:forum_spam_attempts` alongside it; the `[CIRCUIT]` line is
+     the one to alert on, because it names the posture.)
 
 Operational knobs, all in `apps/forum_host/constants.py`:
 
 | Constant | Default | Effect |
 |----------|---------|--------|
-| `SPAM_LLM_BUDGET_LIMIT` | 200/hr | Screens before degrading to heuristic (publish). Counts **definitive verdicts only** — see the two caveats below. |
+| `SPAM_LLM_BUDGET_LIMIT` | 200/hr | Screens before degrading to heuristic (publish). Counts **definitive verdicts only** — see the caveat below. |
+| `SPAM_LLM_ATTEMPTS_LIMIT` | 400/hr | Provider calls (any outcome) before screening trips to a **hold**. Must stay **>** `SPAM_LLM_BUDGET_LIMIT`. |
 | `SPAM_LLM_TIMEOUT_SECONDS` | 3 | Caller **and** provider deadline. Bounds held-transaction time. |
 | `SPAM_LLM_MAX_WORKERS` | 4 | Concurrent screens. Size for peak concurrent moderation. |
 | `SPAM_LLM_CACHE_TTL_SECONDS` | 24h | Verdict cache lifetime (duplicate spam is free). |
 | `SPAM_LLM_PROMPT_VERSION` | 1 | Bump to invalidate cached verdicts after a prompt change. |
 
-Two caveats on `SPAM_LLM_BUDGET_LIMIT`, both consequences of counting only
-definitive verdicts — read them before raising the number:
+`SPAM_LLM_ATTEMPTS_LIMIT` **must stay above** `SPAM_LLM_BUDGET_LIMIT` (pinned by
+`test_attempts_limit_stays_above_the_verdict_limit`). Every definitive verdict is
+also an attempt, so inverting them makes the attempts cap trip first under
+healthy traffic — converting the intended cost-degrade (publish) into a hold on
+legitimate posts.
 
-- **It does not bound spend while the provider is misbehaving.** A timed-out or
-  unparseable call *did* reach the provider (and is likely billed) but is not
-  counted, so during a chronic-timeout or garbage-reply incident there is one
-  billable request per moderated post with no cap and no degrade. Spend is then
-  bounded only by post-submission rate. This is the deliberate trade for never
-  letting a provider failure flip the backend to publish-unscreened; capping it
-  too needs a *separate* attempts counter that trips a **hold** rather than the
-  publish-degrade. Tracked as a prerequisite in **todo 280**.
+**The attempts cap is a sticky hold, by design.** `consume_budget` re-stamps the
+1h TTL on every write, so under sustained misbehaviour the window is a rolling
+hour from the *last* attempt: once tripped, it clears only after ~1h of silence,
+even if the provider recovers immediately. Held posts are pending drafts in the
+moderation queue, not lost, so this is degraded-but-safe. Clear it early with
+`AIRateLimiter.reset_budget(constants.SPAM_LLM_ATTEMPTS_CACHE_KEY)`.
+
+One caveat remains on `SPAM_LLM_BUDGET_LIMIT` — read it before raising the
+number:
+
 - **It raises aggregate AI spend, it does not just partition it.** Forum
   screening previously shared the blog's `ai_rate_limit:global`
   (`AIRateLimiter.GLOBAL_LIMIT` = 100/hr), which capped both subsystems
@@ -309,7 +343,16 @@ coupling before the split:
 call, `consume_budget` only after the provider actually answered), for the reason
 spelled out in the spam section above: charging on attempt lets a provider outage
 drain the cap through pure failure and silently flip the feature into its
-over-budget posture. `find_similar_topics()` is the single embedding entry point
+over-budget posture.
+
+The one apparent exception is not one: `ai_rate_limit:forum_spam_attempts` is a
+**health/circuit cap, not a budget**, so it is deliberately charged on attempt
+and is deliberately a second key for a feature already in the table. It exists
+*because* of the peek-then-consume rule — that rule leaves failed calls
+uncounted, and a counter that trips a **hold** is what bounds them. The
+one-budget-per-feature rule still holds: spam screening has exactly one budget
+(`ai_rate_limit:forum_spam`). A feature needs a second key only when it needs a
+posture the budget cannot express. `find_similar_topics()` is the single embedding entry point
 in the forum precisely so this holds for every caller — the compose-time
 similar-topics endpoint, the M12 search section, and any future RAG retrieval.
 **Do not call `SimilarTopics().search_documents()` directly**; it bypasses the

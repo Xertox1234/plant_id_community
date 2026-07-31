@@ -114,13 +114,8 @@ SPAM_LLM_BUDGET_CACHE_KEY = "ai_rate_limit:forum_spam"
 # calls that returned a DEFINITIVE verdict are counted (see spam.py) — a
 # timed-out or unparseable call did reach the provider but is deliberately not
 # counted, so no provider failure can drain this into publish-unscreened.
-#
-# The flip side, and the reason this number is not larger: because failed calls
-# are uncounted, this cap does NOT bound spend while the provider is
-# misbehaving (spend is then bounded only by post-submission rate). Capping
-# that too needs a separate attempts counter that trips a HOLD rather than the
-# publish-degrade — tracked as a prerequisite in todo 280, before the backend
-# is enabled anywhere.
+# Spend during provider misbehaviour is bounded by SPAM_LLM_ATTEMPTS_LIMIT
+# below, which trips a HOLD instead of this publish-degrade.
 #
 # NOTE ON AGGREGATE SPEND: forum screening previously shared the blog's
 # `ai_rate_limit:global` (AIRateLimiter.GLOBAL_LIMIT = 100/hr), which capped
@@ -130,6 +125,35 @@ SPAM_LLM_BUDGET_CACHE_KEY = "ai_rate_limit:forum_spam"
 # point of the split is that forum load cannot starve blog quota, but size it
 # against real forum volume rather than treating it as free headroom.
 SPAM_LLM_BUDGET_LIMIT = 200
+
+# Attempts counter (todo 280 AC1) — the health/circuit cap, NOT a second budget.
+# Counts EVERY call issued to the provider, including the ones the verdict
+# budget above deliberately ignores: timeouts and unparseable replies. Those
+# requests were issued and are likely billed, so without this the verdict cap
+# bounds spend exactly when spend is well-behaved and stops bounding it when the
+# provider misbehaves.
+#
+# The two counters must stay separate and must trip OPPOSITE postures:
+#   - verdict budget exhausted → a cost decision on WORKING screening → publish
+#     via the heuristic;
+#   - attempts cap exhausted   → the provider is misbehaving → HOLD (fail
+#     closed), never publish.
+# Merging them reintroduces the sticky fail-open that audit H13 / todo 274
+# removed.
+SPAM_LLM_ATTEMPTS_CACHE_KEY = "ai_rate_limit:forum_spam_attempts"
+
+# Provider calls per hour before screening trips to a hold. Deliberately a
+# standalone literal rather than a multiple of SPAM_LLM_BUDGET_LIMIT so the two
+# can be tuned independently.
+#
+# MUST stay > SPAM_LLM_BUDGET_LIMIT (asserted by a test). Every definitive
+# verdict is also an attempt, so inverting them makes the attempts cap trip
+# first under healthy traffic — converting the intended cost-degrade (publish)
+# into a hold, and holding legitimate posts for a purely budgetary reason.
+# At 2x the verdict cap, healthy traffic degrades at 200 verdicts with the
+# attempts counter still at 200; a fully-broken provider trips the hold at 400
+# failed calls.
+SPAM_LLM_ATTEMPTS_LIMIT = 400
 
 # Truncation bound on an unparseable provider reply echoed into the warning log
 # (bounds log volume on a misbehaving provider).
