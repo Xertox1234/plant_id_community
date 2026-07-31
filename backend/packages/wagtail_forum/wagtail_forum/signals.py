@@ -137,7 +137,17 @@ def _refresh_profile(author_id):
 
     if author_id is None:
         return
-    profile, _ = ForumProfile.objects.get_or_create(user_id=author_id)
+    # Seed read_watermark_at the same way ForumProfile.for_user does — a trust
+    # recount is not "this user read something" (todo 285). Passed as a
+    # callable so the user lookup only runs on the create branch.
+    profile, _ = ForumProfile.objects.get_or_create(
+        user_id=author_id,
+        defaults={
+            "read_watermark_at": lambda: (
+                ForumProfile.initial_read_watermark_for_user_id(author_id)
+            )
+        },
+    )
     thresholds = get_setting("TRUST_THRESHOLDS")
     with transaction.atomic():
         locked = ForumProfile.objects.select_for_update().get(pk=profile.pk)
