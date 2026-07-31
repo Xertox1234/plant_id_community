@@ -49,14 +49,22 @@ def sanitize_rich_text(html):
 
 
 # The forum index's welcome copy is CMS-authored, not user-submitted, so the
-# allowlist is wider than a post body's: headings and blockquote survive. Media
+# allowlist is wider than a post body's: headings and a rule survive. Media
 # embeds and images do not — the intro is a short welcome blurb, not an article,
 # and an <iframe> from `expand_db_html` is not something a forum nav header
-# should be able to inject into every client.
-INTRO_ALLOWED_TAGS = ALLOWED_TAGS | {"h2", "h3", "h4", "blockquote", "hr"}
+# should be able to inject into every client. Mirrors `ForumIndex.intro`'s
+# `features` list, which is what an editor can actually author.
+INTRO_ALLOWED_TAGS = ALLOWED_TAGS | {"h2", "h3", "h4", "hr"}
+
+# Pre-expansion pass: everything above, minus Wagtail's `<embed>` placeholder,
+# plus the two attributes `expand_db_html` needs to resolve a link.
+INTRO_PRE_EXPAND_ATTRIBUTES = {
+    **ALLOWED_ATTRIBUTES,
+    "a": ALLOWED_ATTRIBUTES["a"] | {"linktype", "id"},
+}
 
 
-def serialize_forum_intro(html):
+def serialize_forum_intro(html: str) -> str:
     """Expand + sanitize a ``RichTextField`` intro for API delivery.
 
     Wagtail stores rich text in a DB representation whose page/document links
@@ -65,14 +73,35 @@ def serialize_forum_intro(html):
     hits the DB per referenced page; the intro is a handful of links on a
     publicly-cacheable response, so that cost is bounded).
 
-    Sanitizing CMS-authored HTML is defense in depth, not distrust of the
-    editor: this payload reaches web *and* mobile clients, and only the web one
+    Sanitized TWICE, and the first pass is the load-bearing one. Expanding an
+    ``<embed embedtype="media">`` calls Wagtail's oEmbed finder, which does a
+    `requests.get` with **no timeout** — on this public, unauthenticated,
+    CDN-fronted endpoint an unreachable provider would hang the request, and a
+    failed fetch caches nothing, so every cache miss pays it again. An
+    ``<embed embedtype="image">`` likewise triggers a real rendition (PIL
+    resize + storage write + DB row). Both costs land *before* the output pass
+    drops the resulting ``<iframe>``/``<img>``. So embeds are stripped
+    BEFORE expansion, not after — sanitizing only the output would discard the
+    markup while still paying for it.
+
+    Stripping here rather than relying on `ForumIndex.intro`'s `features` list
+    alone: that list governs the editor's toolbar, not what a fixture, an
+    import, or a direct DB write can put in the column.
+
+    The second pass is defense in depth against a CMS editor, not distrust of
+    one: this payload reaches web *and* mobile clients, and only the web one
     runs DOMPurify.
     """
     if not html:
         return ""
+    without_embeds = nh3.clean(
+        html,
+        tags=INTRO_ALLOWED_TAGS,
+        attributes=INTRO_PRE_EXPAND_ATTRIBUTES,
+        url_schemes=ALLOWED_URL_SCHEMES,
+    )
     return nh3.clean(
-        expand_db_html(html),
+        expand_db_html(without_embeds),
         tags=INTRO_ALLOWED_TAGS,
         attributes=ALLOWED_ATTRIBUTES,
         url_schemes=ALLOWED_URL_SCHEMES,

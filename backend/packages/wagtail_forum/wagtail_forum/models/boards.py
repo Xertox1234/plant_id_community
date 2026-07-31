@@ -11,7 +11,27 @@ SERVED_TOPICS_LIMIT = 50
 class ForumIndex(Page):
     """Root forum node. Lets a host site place the forum in its page tree."""
 
-    intro = RichTextField(blank=True)
+    # Feature list matches `INTRO_ALLOWED_TAGS` in api/sanitize.py. Wagtail's
+    # default set adds `image` and `embed`, which the API strips — offering an
+    # editor a button whose output silently vanishes is its own bug, and
+    # expanding either has a side effect (an untimed oEmbed fetch, a rendition
+    # write) that the strip cannot refund. This is the editor-side half; the
+    # API-side strip is the half that holds for content the editor never typed.
+    intro = RichTextField(
+        blank=True,
+        features=[
+            "h2",
+            "h3",
+            "h4",
+            "bold",
+            "italic",
+            "link",
+            "document-link",
+            "ol",
+            "ul",
+            "hr",
+        ],
+    )
 
     subpage_types = ["wagtail_forum.ForumBoard"]
     content_panels = Page.content_panels + [FieldPanel("intro")]

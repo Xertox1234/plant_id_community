@@ -320,10 +320,38 @@ def _visible_forum_index():
     uniqueness: the first live, non-restricted index in tree order. Returns
     None when the host has no forum index at all (the API is still usable —
     `intro` is simply empty).
+
+    Note the asymmetry in the multi-tree case: `results` spans every visible
+    tree (`_visible_boards()` is deliberately not scoped to one index), while
+    `intro` comes from one. That is the honest shape for a single-forum host,
+    which is every host today; a host that really runs two forums side by side
+    wants two mount points, not one endpoint arbitrating between them.
     """
     return ForumIndex.objects.live().public().order_by("path").first()
 
 
+@extend_schema(
+    responses={
+        200: {
+            "type": "object",
+            "properties": {
+                "results": {"type": "array", "items": {"type": "object"}},
+                "intro": {
+                    "type": "string",
+                    "description": (
+                        "Sanitized HTML welcome copy from the ForumIndex page; "
+                        "empty string when unset."
+                    ),
+                },
+            },
+        }
+    },
+    description=(
+        "List every visible board, flat and unpaginated, plus the forum "
+        "index's welcome copy. See the package README's `## List envelopes` "
+        "section for why this shape is not the cursor envelope."
+    ),
+)
 class BoardListView(
     UnversionedForumAPIMixin, PublicForumReadCacheMixin, generics.ListAPIView
 ):

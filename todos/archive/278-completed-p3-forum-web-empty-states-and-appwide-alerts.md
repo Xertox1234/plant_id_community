@@ -173,4 +173,89 @@ errors both with and without this branch's changes — byte-identical to the
 ### 2026-07-30 - Completed by completing-todos skill (run 2026-07-30-2346)
 
 - Verification: all 3 acceptance criteria passed with quoted command output above.
-- Review: pending — bundled `/code-review medium` runs on the PR diff.
+- Review: see the review round below. 1 high (fixed), 1 medium (fixed), 3 low
+  (fixed). No findings accepted-without-fix.
+
+### 2026-07-30 - Review round (PR #514)
+
+`django-drf-reviewer` + `react-typescript-reviewer` on the branch diff. The
+bundled `/code-review` slash command is user-invocable only, so the review ran
+through the agent fleet the skill prescribes.
+
+**HIGH — untimed outbound HTTP on a public endpoint, via `expand_db_html`.**
+The best finding of the round, and a genuine hole I put there. `ForumIndex.intro`
+had no `features` restriction, so Wagtail's default Draftail toolbar offered
+`embed` and `image`. Expanding an `<embed embedtype="media">` calls
+`OEmbedFinder.find_embed`, which does `requests.get(endpoint, params=..., headers=...)`
+— verified in `venv/.../wagtail/embeds/finders/oembed.py:61`, **no `timeout=`**.
+On `/forum/boards/` (public, unauthenticated, CDN-fronted) an unreachable
+provider hangs the request; a failed fetch raises before `update_or_create`, so
+nothing is cached and every miss pays it again. The image path likewise does a
+real PIL resize + storage write + Rendition row. All of it landed *before* nh3
+dropped the resulting `<iframe>`/`<img>` — the sanitize discarded the markup
+while still paying for it.
+
+Verified both halves independently before fixing:
+
+```
+$ grep -n "requests.get\|timeout" .../wagtail/embeds/finders/oembed.py
+61:            r = requests.get(          # no timeout kwarg
+
+$ python -c "...features.get_default_features()"
+DEFAULT: ['ai','ai','bold','document-link','embed','h2','h3','h4','hr','image','italic','link','ol','ul']
+```
+
+Fixed in two places, because they cover different threats:
+1. `serialize_forum_intro` is now a **two-pass** sanitize — embeds are stripped
+   BEFORE `expand_db_html` ever sees them, with a pre-expansion allowlist that
+   keeps `a[linktype][id]` so page/document links still resolve. This is the
+   load-bearing half: it holds for content a fixture, an import, or a direct DB
+   write put in the column.
+2. `ForumIndex.intro` now declares `features=[...]` without `image`/`embed`.
+   The editor-side half — offering a button whose output silently vanishes from
+   every client is its own bug. No migration: `makemigrations --check` is clean,
+   because `features` is editor-only and not part of the field's deconstruct.
+
+Both guards were checked for falsifiability by reverting to the single-pass
+version — the media guard fails with the exact chain
+`expand_db_html → EmbedHandler.expand_db_attributes → embeds.get_embed`, and
+the image guard fails on `image.renditions.count() == 0`:
+
+```
+FAILED test_media_embeds_are_stripped_before_expansion_ever_runs
+FAILED test_image_embeds_are_stripped_before_a_rendition_is_generated
+2 failed, 12 deselected
+```
+
+The first draft of the image guard used a nonexistent image id and passed in
+both modes — hollow, since Wagtail's handler swallows `DoesNotExist`. Replaced
+with a real image and a rendition-count assertion.
+
+**MEDIUM — `BoardListView` had no `@extend_schema`.** Every sibling list view
+(`TopicListView`, `SearchView`, `SyncView`) was decorated by todo 277's envelope
+work; drf-spectacular infers from `serializer_class` and cannot see the custom
+`{results, intro}` dict, so `intro` was landing undocumented in that gap. Added,
+matching the siblings.
+
+**LOW ×3** — all fixed: `blockquote` dropped from `INTRO_ALLOWED_TAGS` (not a
+registered Wagtail feature, so unreachable and contradicting its own comment);
+the multi-tree asymmetry (`results` spans every visible tree, `intro` comes from
+one) documented in `_visible_forum_index` and now asserted in
+`test_intro_comes_from_the_first_index_in_tree_order`, which previously checked
+only `intro`; type hints added.
+
+Reviewer checks that came back clean and are worth keeping: `.public()` correctly
+excludes an index restricted via any ancestor (`PageQuerySet.private_q()` matches
+`descendant_of_q(..., inclusive=True)`), and the `Subquery` annotation is
+portable across Postgres/SQLite precisely because NULLs are excluded before
+ordering rather than relied on to sort last.
+
+Post-fix gates:
+
+```
+$ pytest -q
+1343 passed, 8 skipped
+
+$ manage.py spectacular --validate --fail-on-warn
+186 warnings / 202 errors   # unchanged from the main baseline
+```
