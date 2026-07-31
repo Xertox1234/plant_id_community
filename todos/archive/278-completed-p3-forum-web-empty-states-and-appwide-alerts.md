@@ -259,3 +259,98 @@ $ pytest -q
 $ manage.py spectacular --validate --fail-on-warn
 186 warnings / 202 errors   # unchanged from the main baseline
 ```
+
+### 2026-07-30 - Review round 2 (web, PR #514)
+
+The first `react-typescript-reviewer` dispatch died without returning; re-run
+synchronously. Worth recording that it caught **a regression I had shipped and
+then personally cleared as safe.**
+
+**HIGH — Tailwind v4 changed `space-y-*`, and I checked against the v3 model.**
+
+```css
+:where(.space-y-6 > :not(:last-child)) { margin-block-end: … }
+```
+
+margin-BOTTOM on all but the LAST child — not v3's margin-top on
+`:not(:first-child)`. Earlier in this same session I inspected
+DiseaseDiagnosePage, saw the region was not the *first* child, concluded "no
+shift", and moved on. Wrong question entirely: appending an always-mounted
+region after the Diagnose button stops the BUTTON being `:last-child`, giving it
+24px of trailing whitespace in the idle state. `sr-only`'s `margin:-1px` cancels
+the region's own margin but does nothing for the sibling before it.
+
+Verified the rule myself rather than taking the reviewer's word, by compiling
+this project's own Tailwind:
+
+```
+$ npx @tailwindcss/cli -i in.css -o out.css --content probe.html
+:where(.space-y-6 > :not(:last-child)) {
+  margin-block-end: calc(calc(var(--spacing) * 6) * …);
+}
+```
+
+Fixed by giving button + region a shared wrapper so the container's direct-child
+list is unchanged, with `mt-6` on the region to reproduce the old spacing.
+Login/Signup/GoogleSignInButton were already safe because they hoist the region
+out of the spaced container — the right remedy reached by the wrong reasoning,
+now documented in place so the next person doesn't repeat the v3 assumption.
+
+**MEDIUM — IdentifyPage: a persistent region with a non-persistent ancestor.**
+Flagged independently by both reviewer runs. The region sat inside
+`{(results || loading || error) && …}`. The normal flow is fine (the ancestor
+mounts before a save can start — which is exactly why my own trace cleared it),
+but pick a new file mid-save and `handleFileSelect` nulls `results`, the ancestor
+unmounts, and the pending rejection renders nowhere at all. Hoisted out; no
+`space-y` in that file, so layout-neutral.
+
+**The coverage pattern is the real lesson.** Every migrated site that got a
+persistence test stayed correct; the two that didn't are the two that were
+wrong. Added tests: `IdentifyPage.test.tsx` (new file — it was the only migrated
+site with no test at all), DiseaseDiagnosePage (content-swap + a structural
+guard that the region is not a direct `space-y-6` child), and the LoginPage
+node-identity assertion ported to SignupPage and GoogleSignInButton.
+
+Both new structural guards were falsified by stashing ONLY the component fixes
+and re-running with the new tests in place:
+
+```
+× IdentifyPage > mounts the save-error live region on first paint, before any results exist
+× DiseaseDiagnosePage > keeps the live region out of the space-y child list
+  → expected <div …> not to be <div …>  // Object.is equality
+```
+
+**LOW, fixed:** CategoryListPage gated the welcome block on the RAW intro
+string — an intro of only-disallowed markup is truthy but sanitizes to `''`,
+rendering an empty padded box; now sanitized once via `useMemo` and gated on the
+result. Its sanitizer test asserted only `img[onerror]`, which would also pass
+under the FULL preset that allows images outright; now asserts no `img` at all,
+plus attribute- and `javascript:`-URI stripping on allowed tags.
+
+**Declined, with reasons:** `Timestamp`'s `aria-label` lengthening the
+CategoryCard link's accessible name — ThreadCard already does exactly this
+inside its own card link, and audit L12 put it there deliberately; diverging
+here would make the two cards inconsistent. And the empty-state link's tap
+target, which is an app-wide pattern (every auth-page link shares it), so fixing
+one instance in this PR buys nothing.
+
+Post-fix gates:
+
+```
+$ npx vitest --run
+PASS (753) FAIL (0)     # was 746
+
+$ npm run type-check && npm run lint
+(clean; 0 errors)
+```
+
+### 2026-07-30 - Merge
+
+CI: 16 checks green. `Claude Code Security Review` failed **closed** without
+running — `"result":"Credit balance is too low"`, `api_error_status: 400`, so
+`claudecode-results.json` had no `findings` array and the gate could not verify
+severity. Not a finding; the known credit blocker (see
+`project_security_review_check_credit_block.md`). The bundled `security-review`
+skill was run locally in its place and returned no HIGH/MEDIUM findings.
+
+User explicitly authorized bypassing the credit-blocked check.

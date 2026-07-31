@@ -12,6 +12,27 @@ Compact checklist auto-injected before edits. Long-form:
 - **Send CSRF headers** on state-changing requests (`X-CSRFToken`).
 - Clean up effects — abort fetches, clear timers, remove listeners on unmount.
 - Tailwind CSS 4 conventions; no hardcoded hex colors where a token exists.
+- **Tailwind v4 `space-y-*` is margin-BOTTOM on `:not(:last-child)`, not v3's
+  margin-top on `:not(:first-child)`** — the emitted rule is
+  `:where(.space-y-6 > :not(:last-child)) { margin-block-end }`. So adding an
+  always-mounted child at the END of a spaced container silently gives the
+  element BEFORE it a trailing margin it never had (the previous last child
+  stops matching `:last-child`). `sr-only` does not save you: it is absolutely
+  positioned, so the new child costs no layout itself, but the sibling-margin
+  selector still matches it. Reasoning from the v3 model gives the wrong answer
+  and looks right. Either hoist the new node out of the spaced container, or
+  wrap it with its neighbour so the container's direct-child list is unchanged.
+  Verify by compiling (`npx @tailwindcss/cli`) and reading the rule, not from
+  memory. Hit in todo 278 (DiseaseDiagnosePage); see `docs/LEARNINGS.md`.
+- **A live region is only "persistent" if no ANCESTOR is conditionally
+  rendered.** Migrating `{err && <p role="alert">}` to an always-mounted
+  `aria-live` node achieves nothing when the node sits inside
+  `{(a || b) && (…)}` — it is recreated with its content, which is the exact
+  anti-pattern being removed. Trace every conditional ancestor up to a stable
+  parent, and pair the migration with a test that asserts the region is present
+  and EMPTY before the triggering action: `findByText` after the fact passes
+  either way. In todo 278 the two migrated sites that shipped without such a
+  test were the two that were wrong.
 - **Render `error.message`, not the error object.** `String({message,code})` is the
   literal `[object Object]`; a `sanitize*` helper that returns non-strings unchanged
   won't save you — pass the string field in.
