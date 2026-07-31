@@ -107,6 +107,77 @@ describe('NewThreadPage', () => {
     });
   });
 
+  describe('poll composer (audit M8)', () => {
+    it('sends no poll key at all when the toggle is off', async () => {
+      vi.spyOn(forumService, 'createThread').mockResolvedValue({
+        id: '12',
+        slug: 'my-topic',
+        status: 'published',
+      });
+      renderPage();
+      await screen.findByText('Plant Care');
+      await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+      await userEvent.type(screen.getByLabelText('body'), 'hello');
+      await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
+
+      await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
+      // The ordinary compose payload must be untouched by this feature.
+      expect(forumService.createThread).toHaveBeenCalledWith(
+        expect.not.objectContaining({ poll: expect.anything() })
+      );
+    });
+
+    it('sends the question and options when the toggle is on', async () => {
+      vi.spyOn(forumService, 'createThread').mockResolvedValue({
+        id: '12',
+        slug: 'my-topic',
+        status: 'published',
+      });
+      renderPage();
+      await screen.findByText('Plant Care');
+      await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+      await userEvent.type(screen.getByLabelText('body'), 'hello');
+      await userEvent.click(screen.getByRole('checkbox', { name: /add a poll/i }));
+      await userEvent.type(screen.getByLabelText(/poll question/i), 'Best soil?');
+      await userEvent.type(screen.getByLabelText('Poll option 1'), 'Peat');
+      await userEvent.type(screen.getByLabelText('Poll option 2'), 'Coir');
+      await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
+
+      await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
+      expect(forumService.createThread).toHaveBeenCalledWith(
+        expect.objectContaining({
+          poll: { question: 'Best soil?', options: ['Peat', 'Coir'] },
+        })
+      );
+    });
+
+    it('adds an option row on demand, up to the server maximum', async () => {
+      renderPage();
+      await screen.findByText('Plant Care');
+      await userEvent.click(screen.getByRole('checkbox', { name: /add a poll/i }));
+
+      // Starts at the minimum viable poll: two rows.
+      expect(screen.getAllByPlaceholderText(/^Option \d+$/)).toHaveLength(2);
+      await userEvent.click(screen.getByRole('button', { name: /add option/i }));
+      expect(screen.getAllByPlaceholderText(/^Option \d+$/)).toHaveLength(3);
+
+      // Click up to the cap; the affordance then disappears rather than
+      // offering a row the server would reject.
+      for (let i = 3; i < 10; i += 1) {
+        await userEvent.click(screen.getByRole('button', { name: /add option/i }));
+      }
+      expect(screen.getAllByPlaceholderText(/^Option \d+$/)).toHaveLength(10);
+      expect(screen.queryByRole('button', { name: /add option/i })).not.toBeInTheDocument();
+    });
+
+    it('hides the poll fields until the toggle is switched on', async () => {
+      renderPage();
+      await screen.findByText('Plant Care');
+
+      expect(screen.queryByLabelText(/poll question/i)).not.toBeInTheDocument();
+    });
+  });
+
   it('offers a board picker when no ?category= is supplied, and lets you pick one (L4)', async () => {
     vi.mocked(ReactRouter.useSearchParams).mockReturnValue([new URLSearchParams(''), vi.fn()]);
     vi.spyOn(forumService, 'fetchCategories').mockResolvedValue([

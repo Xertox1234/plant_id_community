@@ -20,6 +20,9 @@ export type {
   ThreadIdentification,
   IdentificationCandidate,
   CreateIdentificationInput,
+  ThreadPoll,
+  ThreadPollOption,
+  CreatePollInput,
 } from './forum';
 
 // Blog types

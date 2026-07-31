@@ -78,6 +78,41 @@ export interface ThreadIdentification {
   created_at: string;
 }
 
+/** One choice in a thread's poll, with its server-aggregated count. */
+export interface ThreadPollOption {
+  id: number;
+  text: string;
+  order: number;
+  /**
+   * Aggregated server-side from vote rows on every read. There is no stored
+   * counter and no writable path to this number — render it, never derive or
+   * submit it.
+   */
+  vote_count: number;
+}
+
+/**
+ * A thread's poll (audit M8).
+ *
+ * One vote per user per poll, enforced by a DB constraint. A second vote is
+ * REJECTED (409), not replaced — so `my_vote_option_id`, once set, is final
+ * for this viewer and the vote controls should read as decided.
+ */
+export interface ThreadPoll {
+  id: number;
+  question: string;
+  /** ISO datetime, or null when the poll never closes. */
+  closes_at: string | null;
+  is_closed: boolean;
+  options: ThreadPollOption[];
+  total_votes: number;
+  /**
+   * THIS viewer's own choice, or null (also null for anonymous). Never anyone
+   * else's — only the aggregate is public.
+   */
+  my_vote_option_id: number | null;
+}
+
 /**
  * Forum thread
  */
@@ -103,6 +138,13 @@ export interface Thread {
    * drop it from your saved list. Populated on thread DETAIL only.
    */
   is_bookmarked?: boolean;
+  /**
+   * The topic's poll with server-computed results (audit M8), or null when it
+   * has none. Populated on thread DETAIL only. Every count here is aggregated
+   * server-side from vote rows — the client renders them, never computes or
+   * submits them.
+   */
+  poll?: ThreadPoll | null;
   is_unread?: boolean;
   /** Secondary discovery taxonomy beside the board (audit M5). Normalized lowercase. */
   tags?: string[];
@@ -199,6 +241,23 @@ export interface CreateIdentificationInput {
   candidates: IdentificationCandidate[];
 }
 
+/**
+ * The write shape of a poll (audit M8). Creation only — polls are attached at
+ * compose time and never edited, since changing a question or an option after
+ * votes exist silently rewrites what those votes meant.
+ *
+ * Note the absence of any count field, which is the point: results are
+ * aggregated server-side from vote rows, so there is nothing here a caller
+ * could use to seed them.
+ */
+export interface CreatePollInput {
+  question: string;
+  /** 2–10 after blanks are dropped; must be unique case-insensitively. */
+  options: string[];
+  /** ISO datetime in the future, or omitted for a poll that never closes. */
+  closes_at?: string | null;
+}
+
 /** Create-topic input (POST /boards/{slug}/topics/). content is HTML. */
 export interface CreateTopicInput {
   boardSlug: string;
@@ -212,6 +271,8 @@ export interface CreateTopicInput {
    * be an image THIS user uploaded to the forum collection.
    */
   identification?: CreateIdentificationInput | null;
+  /** Optional poll to attach (audit M8). Server bounds and normalizes it. */
+  poll?: CreatePollInput | null;
 }
 
 /** Create-reply input (POST /topics/{id}/posts/). content is HTML. */

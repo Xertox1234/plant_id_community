@@ -296,9 +296,9 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H6 solved-accepted-answer → todo 273 (completed 2026-07-31, Wave 2 slice 2;
       re-pointed 2026-07-23 when the roadmap moved solved answers to Wave 2 / not 256).
       Todo 273 closed 2026-07-31 once slice 3 (#M6) landed. The
-      all-findings-resolved rename still must NOT fire on this doc — #M2, #M8,
-      #M9, #M10 and #M13 remain open against other todos (#M7 closed
-      2026-07-31 via todo 281).
+      all-findings-resolved rename still must NOT fire on this doc — #M9, #M10
+      and #M13 remain open against other todos (#M7 closed 2026-07-31 via todo
+      281; #M2 and #M8 closed 2026-07-31 via todo 283).
 - [x] #H7 public-user-identity → todo 257 (completed 2026-07-24, PR #492)
 - [x] #H8 search-discoverability-filters → todo 256 (completed 2026-07-23)
 - [x] #H9 seo-surface → todo 256 (completed 2026-07-23)
@@ -314,7 +314,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H21 tombstone-prune-scheduling → todo 261 (completed 2026-07-26)
 - [x] #H26 author-shape-inconsistency → todo 257 (completed 2026-07-24, PR #490)
 - [x] #M1 quote-reply → todo 276 (completed 2026-07-30)
-- [ ] #M2 bookmarks → todo 283 (re-pointed 2026-07-26; promoted out of 263 with M8)
+- [x] #M2 bookmarks → todo 283 (completed 2026-07-31)
 - [x] #M3 drafts-autosave → shipped Wave 1 #473, verified 2026-07-26 (no todo:
       `web/utils/forumDrafts.ts` autosaves both composers to sessionStorage and
       restores on mount — page-level restore test added at 263 close-out. The
@@ -328,7 +328,10 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
       nothing, so there is no server-side record to reference — see the todo's
       Work Log.
 - [x] #M7 image-authoring-alt-text → todo 281 (completed 2026-07-31)
-- [ ] #M8 polls → todo 283 (re-pointed 2026-07-26; promoted out of 263 with M2)
+- [x] #M8 polls → todo 283 (completed 2026-07-31). Shipped as a
+      Poll/PollOption/PollVote model trio rather than the StreamField block the
+      finding left open: votes need their own rows, a unique constraint and
+      read-time aggregation, none of which a block can express.
 - [ ] #M9 block-mute → todo 284 (re-pointed 2026-07-26; promoted out of 263)
 - [ ] #M10 private-messaging → todo 284 (re-pointed 2026-07-26; promoted out of 263,
       gated behind M9 in that todo's first acceptance criterion)
