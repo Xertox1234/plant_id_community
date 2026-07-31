@@ -423,6 +423,11 @@ Every storage call is wrapped in try/catch and swallows failures: a draft is a c
 > repo-wide and is not part of the shipped mention path. It is dead code, not the delivery
 > mechanism. The real path is the `forum_host` fan-out cited above. This is the failure mode a
 > resolves-to-a-real-line check cannot catch: the citation was valid, the claim around it was not.
+>
+> **Update Jul 31, 2026 (todo 287)**: that method has since been **deleted**, along with
+> `send_new_topic_notification` and `send_forum_digest_email`, so the line no longer resolves
+> at all. Forum notification copy now lives in
+> `@/backend/apps/forum_host/notification_copy.py`.
 
 <details><summary>Original fix plan (kept for reference)</summary>
 

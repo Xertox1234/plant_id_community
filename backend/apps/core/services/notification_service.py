@@ -294,24 +294,26 @@ class NotificationService:
     ) -> bool:
         """Send forum reply notification.
 
-        COPY HAS THREE HOMES (todo 272 item 5 -> todo 287). This method owns the
-        EMAIL wording for forum replies; the same event is phrased independently
-        in the push tray (``apps/forum_host/tasks.py::_notification_content``)
-        and in the web bell (``web/src/components/layout/NotificationBell.tsx``).
-        They already disagree — a reply is "New reply in: X" here, 'New reply in
-        "X"' + "Someone replied" in the tray, 'Someone replied to "X"' in the
-        bell. Changing wording (or adding i18n) must touch all three; folding
-        the two backend homes into one copy table is todo 287.
+        THE WORDING IS NOT HERE (todo 287). Subject and body come from
+        ``apps/forum_host/notification_copy.py``, which both backend surfaces
+        read — this email path and the FCM tray
+        (``apps/forum_host/tasks.py::_notification_content``). Edit copy there.
+        The import is function-level and one-directional on purpose: this
+        service is NOT forum-specific (it also serves plant-care reminders,
+        identification results and newsletters), so the forum owns its copy and
+        this reads it, never the reverse.
 
-        This is the ONLY live forum email path: it is called from
+        This is the ONLY live forum email path — it is called from
         ``apps/forum_host/tasks.py`` (see ``notifications.py``'s slice-2 note).
-        The ``send_forum_*`` siblings below — ``send_forum_mention_notification``,
-        ``send_new_topic_notification``, ``send_forum_digest_email`` — have
-        **zero call sites repo-wide** (verified 2026-07-29); mention delivery
-        runs entirely through the package's own notification path, not through
-        here. Do not cite them as shipped behavior (docs/LEARNINGS.md
-        2026-07-29, todo 270: a resolving citation is not a verified claim).
+        Its three ``send_forum_*`` siblings (mention / new-topic / digest) were
+        deleted with todo 287: they had zero call sites repo-wide, so their
+        emoji-bearing copy was never shipped behavior and folding it into the
+        copy table would have enshrined wording no user has seen (docs/
+        LEARNINGS.md 2026-07-29, todo 270 — a resolving citation is not a
+        verified claim).
         """
+        from apps.forum_host.notification_copy import email_content
+
         # Keys must match the template vars in emails/forum_reply.{html,txt}
         # (author_name/post_excerpt), not these parameter names — Django
         # silently renders an undefined var as '', so a mismatch here ships
@@ -323,8 +325,16 @@ class NotificationService:
             "topic_url": topic_url,
         }
 
-        subject = f"New reply in: {topic_title}"
-        message = f"{reply_author} replied to a topic you're following"
+        copy = email_content("reply_added", topic_title=topic_title, actor=reply_author)
+        if copy is None:
+            # Unreachable while the table carries a reply_added email arm, but
+            # NOT merely defensive: send_forum_email_batch's retry config is
+            # justified by "the send loop can never raise" (see its docstring),
+            # and an unpacking TypeError here would abort the batch mid-loop,
+            # silently skipping every remaining recipient with no retry.
+            logger.error("[EMAIL] No forum email copy for 'reply_added'; skipping send")
+            return False
+        subject, message = copy
 
         results = self.send_notification(
             notification_type=EmailType.FORUM_REPLY,
@@ -426,99 +436,3 @@ class NotificationService:
                 f"Failed to update preferences for {log_safe_user_context(user)}: {e}"
             )
             return False
-
-    def send_forum_mention_notification(
-        self,
-        mentioned_user: User,
-        mentioning_user: User,
-        topic_title: str,
-        post_content_excerpt: str,
-        topic_url: str,
-    ) -> bool:
-        """Send notification when a user is mentioned in a forum post."""
-        context = {
-            "mentioned_user": mentioned_user,
-            "mentioning_user": mentioning_user,
-            "topic_title": topic_title,
-            "post_content_excerpt": post_content_excerpt,
-            "topic_url": topic_url,
-        }
-
-        subject = f"💬 {mentioning_user.username} mentioned you in: {topic_title}"
-        message = f"{mentioning_user.username} mentioned you in a forum discussion"
-
-        results = self.send_notification(
-            notification_type=EmailType.FORUM_MENTION,
-            recipient=mentioned_user,
-            title=subject,
-            message=message,
-            context=context,
-            channels=[NotificationChannel.EMAIL, NotificationChannel.IN_APP],
-            priority=NotificationPriority.NORMAL,
-        )
-
-        return results.get("email", False)
-
-    def send_new_topic_notification(
-        self,
-        subscriber: User,
-        author: User,
-        topic_title: str,
-        topic_excerpt: str,
-        category_name: str,
-        topic_url: str,
-    ) -> bool:
-        """Send notification when a new topic is created in a subscribed category."""
-        context = {
-            "subscriber": subscriber,
-            "author": author,
-            "topic_title": topic_title,
-            "topic_excerpt": topic_excerpt,
-            "category_name": category_name,
-            "topic_url": topic_url,
-        }
-
-        subject = f"🌱 New topic in {category_name}: {topic_title}"
-        message = f"{author.username} started a new discussion in {category_name}"
-
-        results = self.send_notification(
-            notification_type=EmailType.FORUM_REPLY,
-            recipient=subscriber,
-            title=subject,
-            message=message,
-            context=context,
-            template_name="new_forum_topic",
-        )
-
-        return results.get("email", False)
-
-    def send_forum_digest_email(
-        self,
-        user: User,
-        digest_period: str,
-        top_topics: list,
-        new_replies_count: int,
-        mentions_count: int,
-    ) -> bool:
-        """Send forum activity digest email."""
-        context = {
-            "user": user,
-            "digest_period": digest_period,
-            "top_topics": top_topics,
-            "new_replies_count": new_replies_count,
-            "mentions_count": mentions_count,
-        }
-
-        subject = f"🌿 Your {digest_period} Plant Community forum digest"
-        message = f"Here's what happened in the forums this {digest_period.lower()}"
-
-        results = self.send_notification(
-            notification_type=EmailType.FORUM_DIGEST,
-            recipient=user,
-            title=subject,
-            message=message,
-            context=context,
-            template_name="forum_digest",
-        )
-
-        return results.get("email", False)
