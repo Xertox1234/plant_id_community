@@ -81,3 +81,15 @@ Compact checklist auto-injected before edits. Long-form:
   which a stubbing test never runs), and reset it in `beforeEach`. Prefer leaving the
   control **mounted and disabled** over unmounting it: unmounting what the user just
   activated drops keyboard focus to `<body>`. See `web/docs/patterns/testing.md`.
+- **Branch on the HTTP STATUS, never on the error message text, whenever the
+  KIND of failure is product behaviour.** The backend serialises a DRF
+  exception as `str(exc)` (`apps/core/exceptions.py`), so a 403 arrives as
+  DRF's default detail — *"You do not have permission to perform this
+  action."* — carrying neither `403` nor the word "forbidden". A
+  `/403|forbidden/i.test(err.message)` branch therefore never fires in
+  production while passing any test that mocks a hand-written message. Throw a
+  status-carrying error (`ForumApiError extends Error` in `forumService.ts`;
+  extending Error keeps `.message` and every `instanceof Error` caller intact)
+  and check `err.status`. Mock rejections with the REAL message the backend
+  sends — todo 282 shipped past a green test that mocked
+  `Error('HTTP 403 Forbidden')`, a string that endpoint never produces.

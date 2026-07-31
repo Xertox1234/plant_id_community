@@ -2677,3 +2677,46 @@ and their `EmailType` members looked equally orphaned but were NOT — they stay
 wired in `_get_email_template_for_type` and drive preference gating. Sweep for
 residue after a deletion, and verify each candidate rather than deleting by
 association.
+
+---
+
+## 2026-07-31 — A UI branch keyed on error *text* never fires in production (todo 282)
+
+**What shipped, briefly.** Todo 282's edit-history dialog had to distinguish
+two outcomes that look identical to a naive client: a genuine failure, and a
+**deliberate refusal** (history goes moderator-only once someone other than the
+author has edited a post, because the earlier revisions still hold whatever
+that edit removed). It chose between them with
+`/403|forbidden/i.test(err.message)`.
+
+**Why it could never work.** `authenticatedFetch` throws
+`new Error(error.message || error.detail || <status fallback>)` — the status is
+discarded. And the backend's envelope (`apps/core/exceptions.py`, and the
+package's own `forum_exception_handler`) is built as `message: str(exc)`,
+so a DRF `PermissionDenied` arrives as its default detail: *"You do not have
+permission to perform this action."* No `403`. No "forbidden". Every real
+refusal would have rendered as "Couldn't load this post's edit history" —
+misreporting a deliberate moderation decision as a fault, which is precisely
+what the privacy design needed the UI **not** to do.
+
+**Why the test didn't catch it.** It mocked
+`fetchPostRevisions.mockRejectedValue(new Error('HTTP 403 Forbidden'))` — a
+string `authenticatedFetch` only produces when the body is unparseable. The
+test proved the regex worked on a contrived input, not that the case was
+handled. A textbook hollow test: it named the 403 case and pinned a string
+literal.
+
+**Fix.** A status-carrying `ForumApiError extends Error` in `forumService.ts` —
+purely additive (same `message`, so every existing caller and `instanceof
+Error` check is untouched) — and branch on `err.status === 403`. The test now
+rejects with the real production message; reverting to the regex turns it red.
+
+**Generalisable:** whenever the *kind* of failure is product behaviour, the
+kind must travel as structured data. Error prose is a presentation detail that
+belongs to whichever layer last touched it, and here that layer was DRF's
+defaults, three apps away from the component making the decision.
+
+**Related:** the same PR's review also found a query-count pin whose fixture
+never traversed the `select_related` leg it existed to guard, and a "renditions
+generated on first access" measurement error that read as an N+1 — both
+codified in `docs/rules/testing.md`.

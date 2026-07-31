@@ -223,3 +223,17 @@ Compact checklist auto-injected before edits.
   saying it is load-bearing. Cost a full debugging cycle in todo 285; the test
   failed with a *plausible* message ("a single read collapsed the whole
   backlog"), which reads like a real bug rather than a broken fixture.
+- **A query-count pin over a `select_related` chain must give the fixture data
+  that traverses EVERY leg.** `serialize_forum_author` short-circuits on
+  `profile.avatar_id` before ever touching `.avatar`, so a revision-list pin
+  built on a profile with no avatar never exercised the `__avatar` join —
+  deleting `select_related("user__wagtail_forum_profile__avatar")` from the
+  view left the test green (todo 282 review). Set the optional relation in the
+  fixture, then mutation-check by removing the `select_related` and confirming
+  red. Same trap for any nullable FK guarded by an `_id` check.
+- **Wagtail GENERATES a rendition on first access, which is indistinguishable
+  from an N+1.** `prefetch_renditions()` only prefetches renditions that
+  already exist, so the first request for a 4-image body pays 3 extra
+  creations. Todo 282's image pin first failed `10 query(s) for 1 image, 22 for
+  4` — a convincing N+1 that was measurement error. Warm EVERY request whose
+  count you compare (not just one), so the pin covers the steady state.
