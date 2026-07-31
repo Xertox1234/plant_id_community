@@ -14,6 +14,16 @@ interface PostCardProps {
   onDelete?: (post: Post) => void;
   onReact?: (postId: string, reactionType: string) => void;
   onReport?: (postId: string, reason: string) => Promise<void>;
+  /** Whether this post is the topic's accepted answer (audit H6). */
+  isSolution?: boolean;
+  /**
+   * Accept/clear this post as the answer. Passed ONLY when the viewer may do
+   * so (the thread page gates on the topic's `can_mark_solution`), so its mere
+   * presence is the affordance — same contract as onEdit/onDelete. Never
+   * offered on the opening post: the question is not its own answer, and the
+   * backend rejects it with a 422.
+   */
+  onToggleSolution?: (post: Post) => void;
 }
 
 // Mirrors wagtail_forum Report.REASON_CHOICES.
@@ -41,7 +51,15 @@ function getReactionEmoji(type: string): string {
  * Displays a single post in a thread.
  * Includes author info, content, reactions, and edit/delete options.
  */
-function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) {
+function PostCard({
+  post,
+  onEdit,
+  onDelete,
+  onReact,
+  onReport,
+  isSolution = false,
+  onToggleSolution,
+}: PostCardProps) {
   // Edit/delete/report visibility is driven by the backend capability flags
   // (PostSerializer.can_edit/can_delete/can_report) — the only authority on
   // author-or-mod (edit/delete) and not-the-author (report).
@@ -105,8 +123,18 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
       className={`
         group bg-surface-2 rounded-lg shadow-md p-6
         ${post.is_first_post ? 'border-l-4 border-primary' : ''}
+        ${isSolution ? 'border-l-4 border-secondary ring-1 ring-secondary/40' : ''}
       `}
     >
+      {/* Accepted-answer banner (audit H6). A visible label, not colour alone —
+          the ring/border carries no meaning for a colour-blind reader and none
+          at all for a screen reader. */}
+      {isSolution && (
+        <p className="mb-4 inline-flex items-center gap-2 rounded bg-secondary/20 px-3 py-1 text-sm font-semibold text-ink">
+          <span aria-hidden="true">✓</span> Accepted answer
+        </p>
+      )}
+
       {/* Post Header */}
       <div className="flex items-start justify-between flex-wrap gap-2 mb-4">
         {/* Author Info */}
@@ -192,6 +220,18 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
           >
             {copiedLink ? 'Copied ✓' : '🔗 Copy link'}
           </button>
+          {onToggleSolution && (
+            <button
+              onClick={() => onToggleSolution(post)}
+              className="min-h-11 px-3 py-1 text-sm text-ink-2 hover:bg-secondary/10 rounded inline-flex items-center"
+              // aria-pressed makes this a toggle to assistive tech, so the
+              // current state is announced rather than inferred from the label.
+              aria-pressed={isSolution}
+              title={isSolution ? 'Remove the accepted answer' : 'Mark this reply as the answer'}
+            >
+              {isSolution ? '✓ Accepted' : '✓ Mark as answer'}
+            </button>
+          )}
           {showEdit && (
             <button
               onClick={() => onEdit!(post)}

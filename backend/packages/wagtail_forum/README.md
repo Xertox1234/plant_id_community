@@ -209,7 +209,7 @@ alone is not sufficient.
 
 ## Signals
 
-Three signals are public API for hosts (push notifications, analytics, email).
+Four signals are public API for hosts (push notifications, analytics, email).
 They live in `wagtail_forum.signals`.
 
 | Signal | Fired when | kwargs |
@@ -217,6 +217,7 @@ They live in `wagtail_forum.signals`.
 | `topic_created` | A topic is published for the **first** time | `sender=Topic`, `topic=<Topic>`, `post=<opening Post or None>` |
 | `reply_added` | A non-opening post is published for the **first** time | `sender=Post`, `topic=<Topic>`, `post=<Post>` |
 | `moderation_decided` | A create or edit finishes routing | `sender=type(obj)`, `obj=<Topic or Post>`, `status="published"` or `"pending"` |
+| `solution_marked` | A post is accepted as a topic's answer | `sender=Topic`, `topic=<Topic>`, `post=<accepted Post>`, `actor=<User who accepted>` |
 
 ```python
 from django.dispatch import receiver
@@ -234,6 +235,12 @@ Contract notes:
   `topic_created`/`reply_added`.
 - **`post` may be `None`** on `topic_created` for an admin-created topic that has
   no opening post yet.
+- **`solution_marked` fires on accept only, never on clear**, and not on a
+  re-accept of the post that is already the answer — so a receiver may treat it
+  as "this answer was newly accepted" without deduplicating. It is fired from
+  the API view (inside `transaction.on_commit`) rather than from a model
+  signal, because only the request knows the `actor`. `post.author` may be
+  `None` if that account was since deleted.
 - **Fired synchronously inside the publish transaction.** A receiver that hands
   off to async work (Celery, FCM) should wrap it in `transaction.on_commit()`
   itself — and register that hook only after the write it depends on succeeded.

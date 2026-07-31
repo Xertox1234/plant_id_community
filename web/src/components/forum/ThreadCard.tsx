@@ -56,6 +56,16 @@ function ThreadCard({
               🔒 Locked
             </span>
           )}
+          {thread.is_solved && (
+            /* `text-ink` on a tinted surface, mirroring the Pinned badge — NOT
+               `text-ok`, whose token is the same dark green in every theme and
+               so fails contrast on the dark ones. */
+            <span className="px-2 py-1 bg-secondary/20 text-ink text-xs font-semibold rounded">
+              {/* The checkmark is decorative — "Solved" already carries the
+                  meaning, so a screen reader must not announce "check mark". */}
+              <span aria-hidden="true">✓</span> Solved
+            </span>
+          )}
           {thread.is_unread && (
             <span className="px-2 py-1 bg-primary/10 text-primary text-xs font-semibold rounded">
               New

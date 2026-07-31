@@ -6,6 +6,11 @@ from wagtail.admin.panels import FieldPanel
 from wagtail.models import DraftStateMixin, LockableMixin, RevisionMixin, WorkflowMixin
 from wagtail.search import index
 
+# Same 403-vs-409 block-code contract the post write path uses; solution_block
+# below returns it so api/views.py::_enforce_writable-style mapping stays shared.
+# Safe at module scope: posts.py refers to Topic by string, so there is no cycle.
+from .posts import BLOCK_FORBIDDEN
+
 
 class Topic(
     WorkflowMixin,
@@ -37,6 +42,21 @@ class Topic(
     )
     is_pinned = models.BooleanField(default=False)
     is_closed = models.BooleanField(default=False)  # no new replies
+
+    # Accepted answer (audit H6, roadmap Wave 2 slice 2). SET_NULL, not CASCADE:
+    # a hard-deleted answer must clear the badge, never take the whole topic
+    # with it. `editable=False` keeps it off the CMS panel — marking a solution
+    # is an API action with its own permission rule (solution_block), not a
+    # free-text admin field.
+    solved_post = models.ForeignKey(
+        "wagtail_forum.Post",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        editable=False,
+    )
+    solved_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     # Denormalized for cheap mobile list rendering.
     reply_count = models.PositiveIntegerField(default=0, editable=False)
@@ -122,6 +142,39 @@ class Topic(
 
     def __str__(self):
         return self.title
+
+    def solution_block(self, user):
+        """Why *user* may not mark/unmark this topic's answer, or ``None``.
+
+        Single source of the accept-answer policy (audit H6), the same
+        block-code discipline as :meth:`Post.edit_block` so the API guard and
+        the serializer affordance cannot diverge (todo 252).
+
+        **Who:** the topic's own author, or a moderator. Moderator means
+        ``wagtail_forum.change_post`` — deliberately the SAME predicate the
+        edit/redact path and ``api/views.py::_is_forum_moderator`` already use,
+        rather than a second notion (``change_topic``) that a moderator group
+        could hold differently and silently drift from.
+
+        **Not gated on closed/locked.** Unlike editing a post, accepting an
+        answer writes topic metadata, not content — and closing a solved
+        question is the normal end of its life, so a moderator who closes a
+        thread must still be able to mark which reply answered it. The frozen
+        guard in ``Post.edit_block`` is about content mutation and does not
+        transfer here.
+        """
+        if user is None or not user.is_authenticated:
+            return (BLOCK_FORBIDDEN, None)
+        if not (
+            user.pk == self.author_id or user.has_perm("wagtail_forum.change_post")
+        ):
+            return (BLOCK_FORBIDDEN, None)
+        return None
+
+    def can_mark_solution_by(self, user):
+        """Boolean form of :meth:`solution_block` for the serializer's
+        ``can_mark_solution`` affordance."""
+        return self.solution_block(user) is None
 
     def get_absolute_url(self):
         """Relative web route, matching web/src/utils/forumUrls.ts::threadPath

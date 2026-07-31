@@ -36,6 +36,15 @@ def dispatch(event, **kwargs):
         Notifies the post's author of their content's moderation outcome.
         kwargs: obj (Post|Topic), status ("published"|"pending").
 
+    answer_accepted
+        Notifies the author of the post just accepted as a topic's answer
+        (audit H6). kwargs: topic (Topic), post (Post), actor (User — whoever
+        accepted, NOT the post's author). Exactly one recipient, so it uses
+        the single-recipient `send_forum_push` rather than the batch task.
+        Silent when the acceptor and the answer's author are the same person
+        (the common self-answer case) and when the answer's author has
+        deleted their account.
+
     topic_created
         Auto-subscribes the topic's own author (todo 253 slice 3) so future
         replies fan out to them, and resolves @mentions in the opening post
@@ -242,6 +251,64 @@ def dispatch(event, **kwargs):
                 "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
                 event,
                 author.pk,
+            )
+
+    elif event == "answer_accepted":
+        post = kwargs.get("post")
+        actor = kwargs.get("actor")
+        recipient = getattr(post, "author", None)
+        if recipient is None:
+            # The answer's author deleted their account (SET_NULL) — nobody to
+            # tell. The topic's solved state still stands.
+            return
+
+        from wagtail_forum.models import NotificationVerb
+        from wagtail_forum.notifications import create_notifications
+
+        # `_build_payload` derives actor_name from the POST's author, which is
+        # the recipient here, not the actor — override it with whoever accepted
+        # the answer, or the tray line reads "You accepted your answer".
+        payload = {
+            **_build_payload(post),
+            "actor_name": (
+                getattr(actor, "display_name", "") if actor is not None else ""
+            ),
+        }
+
+        def _enqueue_push():
+            try:
+                send_forum_push.delay(event, recipient.pk, payload)
+            except Exception:
+                logger.exception(
+                    "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
+                    event,
+                    recipient.pk,
+                )
+
+        try:
+            # Same nested-atomic/except-outside shape as reply_added: this runs
+            # in the caller's transaction (TopicSolutionView's save), so an
+            # uncaught error here would poison it.
+            with transaction.atomic():
+                # create_notifications drops recipient == actor, so a topic
+                # author accepting their OWN reply notifies nobody — and the
+                # early return below keeps the push consistent with that.
+                create_notifications(
+                    recipients=[recipient],
+                    verb=NotificationVerb.SOLUTION,
+                    actor=actor,
+                    topic=topic,
+                    post=post,
+                )
+            if actor is None or recipient.pk != actor.pk:
+                # Registered inside the try, after the write succeeded, so a
+                # failed persist cannot still deliver a push (docs/rules/forum.md).
+                transaction.on_commit(_enqueue_push)
+        except Exception:
+            logger.exception(
+                "[ERROR] forum_host: failed to persist notification for event=%s topic=%s",
+                event,
+                topic_id,
             )
 
     elif event == "topic_created":

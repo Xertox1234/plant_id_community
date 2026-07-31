@@ -65,6 +65,15 @@ FORUM_NOTIFICATION_COPY: dict[str, ForumEventCopy] = {
         email_subject="New reply in: {topic_title}",
         email_body="{actor} replied to a topic you're following",
     ),
+    "answer_accepted": ForumEventCopy(
+        push_title='Your answer was accepted in "{topic_title}"',
+        push_title_without_topic="Your answer was accepted",
+        push_body="{actor} marked your reply as the answer",
+        # No email arm: this is a positive, low-urgency event and the bell +
+        # push already carry it. Adding a subject/body here would not send one
+        # anyway — the answer_accepted branch in notifications.py enqueues no
+        # email task (see this module's "whitelist is a feature" note).
+    ),
     "mention": ForumEventCopy(
         push_title='You were mentioned in "{topic_title}"',
         push_title_without_topic="You were mentioned on the forum",

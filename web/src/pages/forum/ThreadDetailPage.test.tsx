@@ -954,4 +954,92 @@ describe('ThreadDetailPage', () => {
       expect(screen.getByText(/150 replies/i)).toBeInTheDocument();
     });
   });
+
+  // --- Accepted answer (audit H6)
+
+  /** A thread with an opening post + one reply, seeded from the given thread state. */
+  function mockSolvableThread(threadOverrides = {}) {
+    const thread = createMockThread({ can_mark_solution: true, ...threadOverrides });
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(thread);
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [
+        createMockPost({ id: '1', is_first_post: true }),
+        createMockPost({ id: '2', is_first_post: false }),
+      ],
+      meta: { count: 0, next: null, previous: null },
+    });
+    return thread;
+  }
+
+  it('offers mark-as-answer on a reply but never on the opening post', async () => {
+    mockSolvableThread();
+
+    renderThreadDetailPage();
+
+    await waitFor(() => expect(document.getElementById('post-2')).toBeInTheDocument());
+    // One control, not two: the opening post is excluded even though the
+    // viewer may mark — a question is not its own answer.
+    expect(screen.getAllByRole('button', { name: /mark as answer/i })).toHaveLength(1);
+    expect(
+      within(document.getElementById('post-1')!).queryByRole('button', {
+        name: /mark as answer/i,
+      })
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers no mark-as-answer control when the backend says the viewer may not', async () => {
+    mockSolvableThread({ can_mark_solution: false });
+
+    renderThreadDetailPage();
+
+    await waitFor(() => expect(document.getElementById('post-2')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /mark as answer/i })).not.toBeInTheDocument();
+  });
+
+  it('marks the answer and highlights the post the SERVER confirmed', async () => {
+    mockSolvableThread();
+    const markSpy = vi
+      .spyOn(forumService, 'markSolution')
+      .mockResolvedValue({ is_solved: true, solved_post_id: 2, solved_at: '2026-07-31T10:00:00Z' });
+
+    renderThreadDetailPage();
+
+    await waitFor(() => expect(document.getElementById('post-2')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /mark as answer/i }));
+
+    await waitFor(() => expect(screen.getByText(/accepted answer/i)).toBeInTheDocument());
+    expect(markSpy).toHaveBeenCalledWith(12, 2);
+  });
+
+  it('leaves the badge alone when the server refuses the mark', async () => {
+    // Not optimistic on purpose: solved state is shared, and the backend can
+    // legitimately refuse (422/403). A rejected request must not paint a badge
+    // no other reader will see.
+    mockSolvableThread();
+    vi.spyOn(forumService, 'markSolution').mockRejectedValue(new Error('Nope'));
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+
+    renderThreadDetailPage();
+
+    await waitFor(() => expect(document.getElementById('post-2')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /mark as answer/i }));
+
+    await waitFor(() => expect(screen.getByText('Nope')).toBeInTheDocument());
+    expect(screen.queryByText(/accepted answer/i)).not.toBeInTheDocument();
+  });
+
+  it('clears the accepted answer when the already-accepted post is toggled', async () => {
+    mockSolvableThread({ is_solved: true, solved_post_id: 2 });
+    const clearSpy = vi
+      .spyOn(forumService, 'clearSolution')
+      .mockResolvedValue({ is_solved: false, solved_post_id: null, solved_at: null });
+
+    renderThreadDetailPage();
+
+    await waitFor(() => expect(screen.getByText(/accepted answer/i)).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /accepted/i }));
+
+    await waitFor(() => expect(screen.queryByText(/accepted answer/i)).not.toBeInTheDocument());
+    expect(clearSpy).toHaveBeenCalledWith(12);
+  });
 });

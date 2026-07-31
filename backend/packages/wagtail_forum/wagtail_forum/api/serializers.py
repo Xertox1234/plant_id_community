@@ -234,6 +234,12 @@ class TopicListSerializer(serializers.ModelSerializer):
     # (todo 253 slice 5, H10).
     is_unread = serializers.BooleanField(read_only=True)
     tags = serializers.SerializerMethodField()
+    # Accepted answer (audit H6). Both are plain column reads — `is_solved` is
+    # derived from the FK id, NOT from a liveness join, because signals.py
+    # clears the state when the answer stops being visible
+    # (_clear_solution_for_post). That keeps the list query pin flat.
+    is_solved = serializers.SerializerMethodField()
+    solved_post_id = serializers.IntegerField(read_only=True, allow_null=True)
 
     class Meta:
         model = Topic
@@ -251,7 +257,13 @@ class TopicListSerializer(serializers.ModelSerializer):
             "last_post_author",
             "is_unread",
             "tags",
+            "is_solved",
+            "solved_post_id",
         ]
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_is_solved(self, obj):
+        return obj.solved_post_id is not None
 
     @extend_schema_field(TAGS_SCHEMA)
     def get_tags(self, obj):
@@ -287,6 +299,11 @@ class TopicDetailSerializer(serializers.ModelSerializer):
     locked = serializers.BooleanField()
     is_subscribed = serializers.SerializerMethodField()
     tags = serializers.SerializerMethodField()
+    # Accepted answer (audit H6) — see TopicListSerializer for why `is_solved`
+    # is a column read rather than a liveness join.
+    is_solved = serializers.SerializerMethodField()
+    solved_post_id = serializers.IntegerField(read_only=True, allow_null=True)
+    can_mark_solution = serializers.SerializerMethodField()
 
     class Meta:
         model = Topic
@@ -307,6 +324,10 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             "opening_post_id",
             "is_subscribed",
             "tags",
+            "is_solved",
+            "solved_post_id",
+            "solved_at",
+            "can_mark_solution",
         ]
 
     @extend_schema_field(TAGS_SCHEMA)
@@ -333,6 +354,19 @@ class TopicDetailSerializer(serializers.ModelSerializer):
     def get_opening_post_id(self, obj):
         post = obj.posts.filter(is_opening_post=True, live=True).only("id").first()
         return post.id if post else None
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_is_solved(self, obj):
+        return obj.solved_post_id is not None
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_can_mark_solution(self, obj):
+        # Whether THIS viewer may accept/clear an answer here — single-sourced
+        # on the model so the button affordance matches TopicSolutionView's
+        # write guard exactly (todo 252). Zero queries for the topic author;
+        # anonymous short-circuits inside solution_block.
+        request = self.context.get("request")
+        return obj.can_mark_solution_by(getattr(request, "user", None))
 
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_is_subscribed(self, obj):

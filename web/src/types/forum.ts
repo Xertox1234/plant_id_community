@@ -68,6 +68,17 @@ export interface Thread {
   is_unread?: boolean;
   /** Secondary discovery taxonomy beside the board (audit M5). Normalized lowercase. */
   tags?: string[];
+  /**
+   * Accepted-answer state (audit H6). `is_solved` drives the Solved badge on
+   * both the list and the thread; `solved_post_id` is the id of the accepted
+   * post so the thread can highlight it. The backend clears both when the
+   * accepted post stops being visible, so a true `is_solved` always points at
+   * a readable post.
+   */
+  is_solved?: boolean;
+  solved_post_id?: number | null;
+  /** Detail-only: whether the CURRENT viewer may accept/clear an answer here. */
+  can_mark_solution?: boolean;
 }
 
 /**

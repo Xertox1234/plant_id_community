@@ -71,7 +71,12 @@ def test_topic_detail_is_subscribed_for_authenticated_user():
     """is_subscribed reflects the requesting user's TopicSubscription state
     (todo 253 slice 3) and costs exactly one extra query over the anonymous
     pin — the anonymous case (4, above) short-circuits before ever touching
-    TopicSubscription."""
+    TopicSubscription.
+
+    Since audit H6 an authenticated NON-AUTHOR viewer also pays the two
+    permission-table queries behind `can_mark_solution` (see the pin below);
+    the anonymous pin is untouched because `solution_block` short-circuits
+    before the lookup."""
     from wagtail_forum.models import TopicSubscription
 
     board = _board(slug="sub-board")
@@ -90,8 +95,14 @@ def test_topic_detail_is_subscribed_for_authenticated_user():
         resp = client.get(f"/forum/topics/{topic.id}/")
     assert resp.data["is_subscribed"] is True
     # Pinned EXACTLY (docs/rules/testing.md): the anonymous pin (5, incl. the
-    # todo-276 tags prefetch) + one TopicSubscription.objects.filter(...).exists().
-    assert len(ctx.captured_queries) == 6
+    # todo-276 tags prefetch) + one TopicSubscription.objects.filter(...).exists()
+    # + the two permission-table reads (user_permissions, group_permissions)
+    # that `can_mark_solution` triggers via has_perm for a non-author viewer
+    # (audit H6). Two, not one, and CONSTANT — Django caches the perm set on the
+    # request's user instance, which is why the same lookup behind PostSerializer
+    # .can_edit does not scale with page size either. The topic AUTHOR pays
+    # neither: solution_block short-circuits on `user.pk == self.author_id`.
+    assert len(ctx.captured_queries) == 8
 
     client.force_authenticate(non_subscriber)
     resp = client.get(f"/forum/topics/{topic.id}/")
