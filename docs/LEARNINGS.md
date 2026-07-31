@@ -2548,6 +2548,13 @@ wrong one ships — and no amount of careful reading substitutes.
 `claude-code-security-review`) for cost. It billed the `ANTHROPIC_API_KEY`
 secret on *every commit*, not every PR (`run-every-commit: true`, todo 266),
 and low credit had already hard-blocked all merges to `main` once (PR #479).
+Removed with no replacement gate — but note the repo's remaining SAST is **not**
+in `.github/workflows/` at all: CodeQL runs via GitHub's **default setup**
+(repo settings, no YAML file — `gh api repos/:owner/:repo/code-scanning/default-setup`
+→ `state: configured`, 5 languages, per-PR + weekly). Enumerating a repo's
+security coverage by listing the workflows directory undercounts it; the
+`Analyze (python|javascript-typescript|actions)` checks on every PR have no
+corresponding file to grep for.
 
 **Mistake avoided**: deleting the workflow file first. `pull_request` workflows
 run from the **PR head**, so a head that deletes the file reports *no status*
