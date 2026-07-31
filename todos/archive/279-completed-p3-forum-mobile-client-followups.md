@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "279"
 tags: [forum, flutter, mobile]
@@ -58,11 +58,66 @@ tracks them.
 
 ## Acceptance Criteria
 
-- [ ] Prioritize the above into concrete slices (Flutter-client wave of the
+- [x] Prioritize the above into concrete slices (Flutter-client wave of the
       forum app-loop roadmap) — this is a tracking/grouping todo, not a single
       unit of work; split per item as picked up.
 
+## Promotion map (2026-07-31)
+
+Every one of the 9 deferred items is promoted. Nothing is re-deferred — per
+`CLAUDE.md` → Review Doc Tracking, promote-all is the only terminal state for a
+parking todo, because re-deferring keeps it open forever.
+
+| Deferred item | Promoted to |
+| --- | --- |
+| 8. Reply-visibility after posting | **todo 291** (p2) |
+| 2. Edit / delete | todo 292 |
+| 3. FCM push-tap deep-linking | todo 293 |
+| 4. Subscriptions | todo 293 |
+| 5. Notifications list | todo 293 |
+| 1. Image-in-composer | todo 294 |
+| 9. Rich composer | todo 294 |
+| 6. Search | todo 295 |
+| 7. Public profiles | todo 295 |
+
+Grouped by what ships together rather than split 1:1 — 9 one-item todos would
+have been bookkeeping, not planning (precedent: todo 263 produced 4 from a
+comparable list, todo 272 produced 3).
+
+- **291 is p2, not p3** — the only item in the list that is a *defect* rather
+  than absent functionality, and its failure mode (a successful write that
+  leaves no visible trace) actively invites duplicate posts.
+- **293 groups three items** because subscriptions, the notifications list and
+  push-tap routing are one loop: subscribing generates what the list shows and
+  the tap opens. Shipping them apart means shipping a list with nothing in it.
+- **294 groups two** because both answer "what can the composer emit"; the
+  image half is sequenced first and is worth shipping alone if the rich-text
+  half slips.
+- **295 groups two** because both are read-only discovery over endpoints that
+  already exist.
+
 ## Work Log
+
+### 2026-07-31 - Closed by promote-all (run 2026-07-31-0411)
+
+- All 9 deferred items promoted into todos 291–295 (see the Promotion map
+  above). Each carries `source_review: "todo 279 (promoted 2026-07-31)"`,
+  `dependencies: ["260"]`, and concrete acceptance criteria — this todo's items
+  were feature *descriptions*, not testable criteria, which is why it could
+  never be finished as written.
+- Verification for this todo is the files existing, not a command: its AC is a
+  planning outcome. Evidence quoted in the run summary
+  (`git status --short` showing the five new todo files).
+- Facts re-checked against the code before promoting rather than trusted from
+  the 2026-07-25 text: the client layout under
+  `plant_community_mobile/lib/features/forum/` (models/providers/screens/
+  services/widgets, with `forum_api.dart` as the seam) is as described, and
+  each item's backend endpoint was confirmed to exist. Two details were added
+  that the original list did not carry and that change how the work is done:
+  search is **offset**-paged with `*_has_more` (not cursor-paged like the other
+  lists, so it needs its own paging code), and forum notification copy now
+  lives in a single backend table (`apps/forum_host/notification_copy.py`,
+  todo 287) rather than being duplicated per surface.
 
 ### 2026-07-25 - Created from todo 260 (deferred scope)
 
