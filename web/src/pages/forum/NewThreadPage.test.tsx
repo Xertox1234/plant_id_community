@@ -174,6 +174,139 @@ describe('NewThreadPage', () => {
     expect(loadDraft(key)).toBeNull();
   });
 
+  describe('"Ask the community" handoff (audit M6)', () => {
+    const HANDOFF = {
+      identification: {
+        image_id: 42,
+        provider: 'plant_id',
+        candidates: [
+          { name: 'Swiss cheese plant', scientific_name: 'Monstera deliciosa', confidence: 0.82 },
+        ],
+      },
+      identificationPreviewUrl: 'http://localhost:8000/media/images/plant.jpg',
+    };
+
+    function renderWithHandoff(state: unknown) {
+      return render(
+        <MemoryRouter initialEntries={[{ pathname: '/forum/new-thread', state }]}>
+          <AnnouncerProvider>
+            <NewThreadPage />
+          </AnnouncerProvider>
+        </MemoryRouter>
+      );
+    }
+
+    it('shows the attachment and sends it with the create', async () => {
+      vi.spyOn(forumService, 'createThread').mockResolvedValue({
+        id: '12',
+        slug: 'my-topic',
+        status: 'published',
+      });
+      renderWithHandoff(HANDOFF);
+      await screen.findByText('Plant Care');
+
+      // Visible before the user posts — it carries their photo, so attaching
+      // it silently would be the wrong default.
+      expect(screen.getByText(/identification attached/i)).toBeInTheDocument();
+      expect(screen.getByText(/Swiss cheese plant \(82%\)/)).toBeInTheDocument();
+      expect(screen.getByRole('img')).toHaveAttribute('src', HANDOFF.identificationPreviewUrl);
+
+      await userEvent.type(screen.getByLabelText('body'), 'hello');
+      await userEvent.click(screen.getByRole('button', { name: /post thread/i }));
+
+      await waitFor(() =>
+        expect(forumService.createThread).toHaveBeenCalledWith({
+          boardSlug: 'plant-care',
+          title: 'Is this Swiss cheese plant?',
+          content: '<p>hello</p>',
+          tags: [],
+          identification: HANDOFF.identification,
+        })
+      );
+    });
+
+    it('completes the real flagship flow: no ?category=, pick a board, post', async () => {
+      // The entry point navigates to a BARE /forum/new-thread — no
+      // ?category= — so the live path is the board-picker one (L4), not the
+      // pre-selected board every other test here mocks.
+      vi.mocked(ReactRouter.useSearchParams).mockReturnValue([new URLSearchParams(''), vi.fn()]);
+      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue([
+        { id: '3', name: 'Plant Care', slug: 'plant-care', created_at: '' },
+      ]);
+      vi.spyOn(forumService, 'createThread').mockResolvedValue({
+        id: '12',
+        slug: 'my-topic',
+        status: 'published',
+      });
+      renderWithHandoff(HANDOFF);
+
+      const picker = await screen.findByLabelText('Board');
+      expect(screen.getByText(/identification attached/i)).toBeInTheDocument();
+
+      await userEvent.selectOptions(picker, '3');
+      await userEvent.type(screen.getByLabelText('body'), 'hello');
+      await userEvent.click(screen.getByRole('button', { name: /post thread/i }));
+
+      await waitFor(() =>
+        expect(forumService.createThread).toHaveBeenCalledWith({
+          boardSlug: 'plant-care',
+          title: 'Is this Swiss cheese plant?',
+          content: '<p>hello</p>',
+          tags: [],
+          identification: HANDOFF.identification,
+        })
+      );
+    });
+
+    it('suggests a title, which a saved draft still overrides', async () => {
+      saveDraft(
+        draftKey('new-thread', '3-plant-care'),
+        JSON.stringify({ title: 'My own wording' })
+      );
+      renderWithHandoff(HANDOFF);
+      await screen.findByText('Plant Care');
+
+      expect(screen.getByLabelText(/title/i)).toHaveValue('My own wording');
+    });
+
+    it('lets the user drop the attachment before posting', async () => {
+      vi.spyOn(forumService, 'createThread').mockResolvedValue({
+        id: '12',
+        slug: 'my-topic',
+        status: 'published',
+      });
+      renderWithHandoff(HANDOFF);
+      await screen.findByText('Plant Care');
+
+      await userEvent.click(screen.getByRole('button', { name: /remove/i }));
+      expect(screen.queryByText(/identification attached/i)).not.toBeInTheDocument();
+
+      await userEvent.type(screen.getByLabelText('body'), 'hello');
+      await userEvent.click(screen.getByRole('button', { name: /post thread/i }));
+
+      await waitFor(() =>
+        expect(forumService.createThread).toHaveBeenCalledWith(
+          expect.not.objectContaining({ identification: expect.anything() })
+        )
+      );
+    });
+
+    it('degrades to a plain composer when there is no handoff (reload, direct visit)', async () => {
+      renderWithHandoff(null);
+      await screen.findByText('Plant Care');
+
+      expect(screen.queryByText(/identification attached/i)).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/title/i)).toHaveValue('');
+    });
+
+    it('ignores a malformed handoff rather than crashing mid-compose', async () => {
+      renderWithHandoff({ identification: { candidates: 'not-an-array' } });
+      await screen.findByText('Plant Care');
+
+      expect(screen.queryByText(/identification attached/i)).not.toBeInTheDocument();
+    });
+  });
+
   it('blocks submit until both title and body are filled', async () => {
     renderPage();
     await screen.findByText('Plant Care');

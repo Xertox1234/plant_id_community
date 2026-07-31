@@ -1042,4 +1042,64 @@ describe('ThreadDetailPage', () => {
     await waitFor(() => expect(screen.queryByText(/accepted answer/i)).not.toBeInTheDocument());
     expect(clearSpy).toHaveBeenCalledWith(12);
   });
+
+  /** The plant-ID snapshot card (audit M6). */
+  describe('identification card', () => {
+    const IDENTIFICATION = {
+      image: { id: 7, url: 'http://x/plant.jpg', alt: 'plant.jpg', width: 800, height: 600 },
+      provider: 'plant_id',
+      candidates: [
+        { name: 'Swiss cheese plant', scientific_name: 'Monstera deliciosa', confidence: 0.82 },
+      ],
+      created_at: '2026-07-31T10:00:00Z',
+    };
+
+    function mockThreadWith(threadOverrides = {}) {
+      vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread(threadOverrides));
+      vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+        items: [
+          createMockPost({ id: '1', is_first_post: true }),
+          createMockPost({ id: '2', is_first_post: false }),
+        ],
+        meta: { count: 0, next: null, previous: null },
+      });
+    }
+
+    it('renders the card above the opening post when the topic carries one', async () => {
+      mockThreadWith({ identification: IDENTIFICATION });
+
+      const { container } = renderThreadDetailPage();
+
+      const card = await screen.findByRole('region', { name: /what the app suggested/i });
+      const openingPost = document.getElementById('post-1')!;
+      // Position, not just presence: the card must precede the question it
+      // belongs to.
+      expect(card.compareDocumentPosition(openingPost)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(container).toContainElement(openingPost);
+    });
+
+    it('renders no card when the topic has no snapshot', async () => {
+      mockThreadWith({ identification: null });
+
+      renderThreadDetailPage();
+
+      await waitFor(() => expect(document.getElementById('post-1')).toBeInTheDocument());
+      expect(
+        screen.queryByRole('region', { name: /what the app suggested/i })
+      ).not.toBeInTheDocument();
+    });
+
+    it('points the card at the accepted answer once the topic is solved', async () => {
+      mockThreadWith({
+        identification: IDENTIFICATION,
+        is_solved: true,
+        solved_post_id: 2,
+      });
+
+      renderThreadDetailPage();
+
+      const link = await screen.findByRole('link', { name: /see the accepted answer/i });
+      expect(link).toHaveAttribute('href', '#post-2');
+    });
+  });
 });

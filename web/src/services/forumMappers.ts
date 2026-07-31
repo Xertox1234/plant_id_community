@@ -1,5 +1,5 @@
 import type { StreamFieldBlock } from '../types/blog';
-import type { Category, Thread, Post, ForumAuthor } from '../types/forum';
+import type { Category, Thread, Post, ForumAuthor, ThreadIdentification } from '../types/forum';
 import { DELETED_AUTHOR_USERNAME } from '../utils/forumAuthor';
 
 // ---------------------------------------------------------------------------
@@ -60,6 +60,12 @@ export interface BackendTopicDetail {
   solved_post_id?: number | null;
   solved_at?: string | null;
   can_mark_solution?: boolean;
+  /**
+   * The plant-ID snapshot (audit M6). Detail-only — deliberately absent from
+   * BackendTopicListItem and BackendSearchTopic. Absent (undefined) on a
+   * pre-M6 backend; explicitly null when the topic carries no snapshot.
+   */
+  identification?: ThreadIdentification | null;
 }
 
 // StreamFieldBlock re-exported for consumers that import backend shapes from this module.
@@ -223,6 +229,9 @@ export function mapTopicDetailToThread(t: BackendTopicDetail): Thread {
     is_solved: t.is_solved ?? false,
     solved_post_id: t.solved_post_id ?? null,
     can_mark_solution: t.can_mark_solution ?? false,
+    // `?? null` collapses "pre-M6 backend, field absent" and "no snapshot on
+    // this topic" into the one state the card cares about: nothing to render.
+    identification: t.identification ?? null,
   };
 }
 

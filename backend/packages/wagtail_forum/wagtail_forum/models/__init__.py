@@ -1,4 +1,5 @@
 from .boards import ForumBoard, ForumIndex
+from .identifications import ForumIdentificationAttachment
 from .moderation import SpamCheckTask
 from .notifications import Notification, NotificationVerb
 from .posts import Post
@@ -12,6 +13,7 @@ from .topics import Topic
 
 __all__ = [
     "ForumBoard",
+    "ForumIdentificationAttachment",
     "ForumIndex",
     "ForumProfile",
     "Notification",

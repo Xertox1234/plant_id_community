@@ -196,7 +196,7 @@ export async function fetchThread(topicId: number): Promise<Thread> {
 }
 
 export async function createThread(data: CreateTopicInput): Promise<CreateTopicResult> {
-  const { boardSlug, title, content, tags } = data;
+  const { boardSlug, title, content, tags, identification } = data;
   const res = await authenticatedFetch<{
     id: number;
     slug: string;
@@ -211,6 +211,9 @@ export async function createThread(data: CreateTopicInput): Promise<CreateTopicR
       // `tags` as "no tags", and sending [] would be an equivalent but noisier
       // payload on the common untagged path.
       ...(tags?.length ? { tags } : {}),
+      // Same omit-when-absent rule as tags: the common compose has no
+      // attachment, and the server treats an absent key as "none".
+      ...(identification ? { identification } : {}),
     }),
   });
   return { id: String(res.id), slug: res.slug, status: res.status };

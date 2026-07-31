@@ -206,6 +206,61 @@ alone is not sufficient.
 | `WAGTAILFORUM_MENTION_MAX_PER_POST` | `10` | Max distinct `@mentions` resolved per post — bounds parse cost and notification fan-out on a mass-mention post. |
 | `WAGTAILFORUM_TOPIC_MAX_TAGS` | `5` | Max tags accepted per topic on create. `taggit` creates a `Tag` row per unseen name, so an unbounded list is a cheap write-amplification vector against the shared tag table. |
 | `WAGTAILFORUM_TOPIC_TAG_MAX_LENGTH` | `50` | Max characters per tag (must stay `<=` taggit's `Tag.name` max_length of 100). Tags are normalized on write — trimmed, inner whitespace collapsed, lowercased, de-duplicated — so `?tag=` matches one canonical spelling. |
+| `WAGTAILFORUM_TOPIC_IDENTIFICATION_MAX_CANDIDATES` | `3` | Max suggested species in a topic's identification snapshot. See [Identification attachment](#identification-attachment) — the snapshot is caller-supplied, so this bounds how much unverified text one create can park on a topic. |
+| `WAGTAILFORUM_TOPIC_IDENTIFICATION_NAME_MAX_LENGTH` | `200` | Max characters per candidate `name` / `scientific_name`. Inner whitespace is collapsed on write, so a "name" of 200 newlines can't pass the length check. |
+| `WAGTAILFORUM_TOPIC_IDENTIFICATION_PROVIDER_MAX_LENGTH` | `50` | Max characters for the snapshot's `provider` label. Must stay `<=` the model column's `max_length` (50). |
+
+## Identification attachment
+
+A topic may carry **one** `ForumIdentificationAttachment` — a snapshot of a
+plant-ID result the author attached when composing (audit M6). It is what makes
+a help-identify topic answerable without a round trip: the photo and the app's
+own suggestions arrive with the question.
+
+**It is a snapshot, not a reference.** No FK into the host's identification
+domain, and not a StreamField body block:
+
+- Purging private identification history (GDPR) must never blank out or break
+  public forum content.
+- A plain model migrates normally; a body block would need a StreamField data
+  migration across every stored body.
+- It hangs off the *topic*, so it survives the opening post being edited,
+  redacted, or replaced.
+
+**Every field is caller-supplied.** This package does not import the host's
+identification app, and there is no server-side record to resolve — the composer
+sends the snapshot it received and the row records *what the author says the app
+told them*. The write bounds above are the defence; a host's UI should label the
+card as the author's attached app result, not a verified determination.
+
+Write it by nesting an `identification` object in the topic-create payload:
+
+```json
+{
+  "title": "Is this a monstera or a philodendron?",
+  "slug": "is-this-a-monstera-or-a-philodendron",
+  "body": [{"type": "paragraph", "value": "<p>App wasn't sure.</p>"}],
+  "identification": {
+    "image_id": 42,
+    "provider": "plant_id",
+    "candidates": [
+      {"name": "Swiss cheese plant", "scientific_name": "Monstera deliciosa", "confidence": 0.82}
+    ]
+  }
+}
+```
+
+`image_id` is optional and must be an image the caller uploaded into the forum
+image collection (`POST /forum/images/`) — the same IDOR rule as avatars and
+inline post images. The FK is `SET_NULL`, so a deleted photo leaves the
+candidates readable and the card falls back to text-only.
+
+**Read side: topic detail only.** `GET /forum/topics/{id}/` returns
+`identification` as `{image, provider, candidates, created_at}` or `null`. The
+topic list and both search hit-builders deliberately do **not** carry it — the
+card renders above the opening post and nowhere else. The model's
+`identification_result_id` is never serialized out: it is an internal
+correlation handle pointing into private history.
 
 ## Signals
 

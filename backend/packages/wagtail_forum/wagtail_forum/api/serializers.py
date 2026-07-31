@@ -1,3 +1,5 @@
+import math
+
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 from wagtail.blocks import RichTextBlock
@@ -48,6 +50,11 @@ MAX_TAG_LIST_ITEMS = 100
 # DataError (NOT an IntegrityError, so the topic-create slug retry does not catch
 # it) — a 500 where a 400 belongs. Clamp instead of trusting the setting.
 TAGGIT_NAME_MAX_LENGTH = 100
+
+# Hard ceiling on the RAW submitted candidate list, independent of the
+# configurable TOPIC_IDENTIFICATION_MAX_CANDIDATES — same split as
+# MAX_TAG_LIST_ITEMS vs TOPIC_MAX_TAGS. See _BoundedCandidateListField.
+MAX_CANDIDATE_LIST_ITEMS = 100
 
 
 def normalize_topic_tags(value):
@@ -192,6 +199,26 @@ FORUM_BODY_SCHEMA = {
     },
 }
 TAGS_SCHEMA = {"type": "array", "items": {"type": "string"}}
+IDENTIFICATION_CANDIDATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "scientific_name": {"type": "string"},
+        "confidence": {"type": "number", "format": "float"},
+    },
+}
+IDENTIFICATION_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "properties": {
+        # The {id, url, alt, width, height} rendition dict, or null when the
+        # image row was deleted after posting (the card renders text-only).
+        "image": {"type": "object", "additionalProperties": True, "nullable": True},
+        "provider": {"type": "string"},
+        "candidates": {"type": "array", "items": IDENTIFICATION_CANDIDATE_SCHEMA},
+        "created_at": {"type": "string", "format": "date-time"},
+    },
+}
 CAPABILITIES_SCHEMA = {
     "type": "object",
     "properties": {
@@ -304,6 +331,11 @@ class TopicDetailSerializer(serializers.ModelSerializer):
     is_solved = serializers.SerializerMethodField()
     solved_post_id = serializers.IntegerField(read_only=True, allow_null=True)
     can_mark_solution = serializers.SerializerMethodField()
+    # The plant-ID snapshot the author attached at compose time (audit M6).
+    # DETAIL-ONLY, deliberately: the card renders above the opening post and
+    # nowhere else, so the topic list and both search hit-builders stay
+    # untouched. See get_identification.
+    identification = serializers.SerializerMethodField()
 
     class Meta:
         model = Topic
@@ -328,6 +360,7 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             "solved_post_id",
             "solved_at",
             "can_mark_solution",
+            "identification",
         ]
 
     @extend_schema_field(TAGS_SCHEMA)
@@ -368,6 +401,19 @@ class TopicDetailSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         return obj.can_mark_solution_by(getattr(request, "user", None))
 
+    @extend_schema_field(IDENTIFICATION_SCHEMA)
+    def get_identification(self, obj):
+        # `identification` is a REVERSE OneToOne, so a bare attribute read
+        # raises RelatedObjectDoesNotExist when absent — which is the common
+        # case (most topics carry no snapshot). getattr-with-default is the
+        # safe read: Django makes that exception subclass AttributeError
+        # precisely so this works. Pinned by
+        # test_topic_detail_identification_is_null_when_absent.
+        attachment = getattr(obj, "identification", None)
+        if attachment is None:
+            return None
+        return serialize_identification_for_api(attachment, self.context.get("request"))
+
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_is_subscribed(self, obj):
         # Anonymous short-circuits with zero queries — todo 253 slice 3.
@@ -395,6 +441,26 @@ def serialize_image_for_api(image, request=None):
         "alt": image.title or "",
         "width": rendition.width,
         "height": rendition.height,
+    }
+
+
+def serialize_identification_for_api(attachment, request=None):
+    """A topic's identification snapshot for the thread card (audit M6).
+
+    `identification_result_id` is deliberately NOT serialized: it is an internal
+    correlation handle pointing into private identification history, and the
+    card has no use for it. Reading `attachment.image` costs a query unless the
+    caller select_related-joined it (TopicDetailView does).
+    """
+    return {
+        "image": (
+            serialize_image_for_api(attachment.image, request)
+            if attachment.image_id and attachment.image
+            else None
+        ),
+        "provider": attachment.provider,
+        "candidates": attachment.candidates or [],
+        "created_at": attachment.created_at,
     }
 
 
@@ -635,6 +701,130 @@ class _ForumBodyContract(serializers.Serializer):
         return ids
 
 
+class _BoundedCandidateListField(serializers.ListField):
+    """Reject an oversized candidate list BEFORE per-item validation.
+
+    Same reason as _BoundedTagListField: DRF's ListField(max_length=…) runs as a
+    validator AFTER every child has already been validated, so it bounds the
+    stored result but not the work a caller can trigger.
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, list) and len(data) > MAX_CANDIDATE_LIST_ITEMS:
+            raise serializers.ValidationError(_("Too many identification candidates."))
+        return super().to_internal_value(data)
+
+
+class IdentificationCandidateSerializer(serializers.Serializer):
+    """One suggested species in an attached identification snapshot (audit M6)."""
+
+    name = serializers.CharField(allow_blank=False, trim_whitespace=True)
+    scientific_name = serializers.CharField(
+        required=False, allow_blank=True, default="", trim_whitespace=True
+    )
+    confidence = serializers.FloatField(min_value=0.0, max_value=1.0)
+
+    def validate_name(self, value):
+        return self._bounded_name(value)
+
+    def validate_scientific_name(self, value):
+        return self._bounded_name(value) if value else ""
+
+    @staticmethod
+    def _bounded_name(value):
+        # Bounds read at CALL time so a host override (and @override_settings in
+        # tests) applies — same rule as normalize_topic_tags. Inner whitespace
+        # is collapsed too: without it a "name" of 200 newlines passes a length
+        # check and renders as a wall in the card.
+        max_length = get_setting("TOPIC_IDENTIFICATION_NAME_MAX_LENGTH")
+        name = " ".join(str(value).split())
+        if len(name) > max_length:
+            raise serializers.ValidationError(
+                _("Each name must be at most %(n)d characters.") % {"n": max_length}
+            )
+        return name
+
+    def validate_confidence(self, value):
+        # FloatField's min/max are `>`/`<` comparisons and EVERY comparison with
+        # NaN is False, so NaN passes both bounds; stored in a JSONField it then
+        # re-serializes as the literal `NaN`, which is not valid JSON and which
+        # a strict client cannot parse.
+        #
+        # DEFENCE IN DEPTH, not the only line: DRF's JSONParser already rejects
+        # the `NaN`/`Infinity` literals when STRICT_JSON is on (the default, and
+        # on in this project's host). This package is reusable, so it does not
+        # assume the host left that default alone — and a non-HTTP caller
+        # (management command, test, another service) never passes the parser.
+        if not math.isfinite(value):
+            raise serializers.ValidationError(_("Confidence must be a real number."))
+        return value
+
+
+class TopicIdentificationSerializer(serializers.Serializer):
+    """Compose-time write shape for a topic's identification snapshot (M6).
+
+    Caller-supplied throughout — there is no server-side identification record
+    to resolve (see models/identifications.py). These bounds are the whole
+    defence: they cap how much unverified text one create can park on a topic.
+    """
+
+    # Optional: an identification the user ran without keeping the photo, or a
+    # failed upload, still yields a useful candidate list.
+    image_id = serializers.IntegerField(required=False, allow_null=True)
+    provider = serializers.CharField(required=False, allow_blank=True, default="")
+    candidates = _BoundedCandidateListField(
+        child=IdentificationCandidateSerializer(), allow_empty=False
+    )
+    # No producer exists yet (the identify endpoint is stateless) — accepted so
+    # a client that gains one later needs no API change. See the model field.
+    identification_result_id = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=64
+    )
+
+    def validate_candidates(self, value):
+        max_candidates = get_setting("TOPIC_IDENTIFICATION_MAX_CANDIDATES")
+        if len(value) > max_candidates:
+            raise serializers.ValidationError(
+                _("At most %(n)d identification candidates.") % {"n": max_candidates}
+            )
+        return value
+
+    def validate_provider(self, value):
+        max_length = get_setting("TOPIC_IDENTIFICATION_PROVIDER_MAX_LENGTH")
+        provider = " ".join(str(value).split())
+        if len(provider) > max_length:
+            raise serializers.ValidationError(
+                _("Provider must be at most %(n)d characters.") % {"n": max_length}
+            )
+        return provider
+
+    def validate_image_id(self, value):
+        if value is None:
+            return value
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        # IDOR-safe, mirroring MeProfileSerializer.validate_avatar_id and the
+        # inline-image membership check in api/sanitize.py: the photo must be an
+        # image THIS user uploaded into the forum collection. Without it a
+        # caller could point the card at any image id in the site.
+        owns_image = (
+            get_image_model()
+            .objects.filter(
+                id=value,
+                uploaded_by_user=user,
+                collection=get_forum_image_collection(),
+            )
+            .exists()
+        )
+        if not owns_image:
+            raise serializers.ValidationError(
+                _(
+                    "The identification photo must be an image you uploaded to the forum."
+                )
+            )
+        return value
+
+
 class TopicCreateSerializer(_ForumBodyContract):
     title = serializers.CharField(max_length=255)
     slug = serializers.SlugField(max_length=255)
@@ -643,6 +833,9 @@ class TopicCreateSerializer(_ForumBodyContract):
     tags = _BoundedTagListField(
         child=serializers.CharField(), required=False, allow_empty=True
     )
+    # Optional plant-ID snapshot (audit M6). Nested rather than flattened so the
+    # whole attachment is present-or-absent — a create can't half-specify one.
+    identification = TopicIdentificationSerializer(required=False, allow_null=True)
 
     def validate_tags(self, value):
         return normalize_topic_tags(value)

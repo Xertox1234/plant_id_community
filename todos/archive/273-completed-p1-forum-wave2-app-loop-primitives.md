@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p1
 issue_id: "273"
 tags: [forum, api, drf, web]
@@ -25,7 +25,7 @@ Delivered as per-slice PRs off fresh `main`.
 - [x] **Slice 2 — Solved answers** (H6, moved from todo 256): `Topic.solved_post`
   FK + `solved_at`, `POST/DELETE /topics/{id}/solution/`, Solved badge +
   accepted-post highlight, accepted-answer notification, clear-on-unpublish rule.
-- [ ] **Slice 3 — Identification embed** (M6, moved from todo 263):
+- [x] **Slice 3 — Identification embed** (M6, moved from todo 263):
   `ForumIdentificationAttachment` snapshot model, compose-time photo copy through
   the forum image upload pipeline, card above the opening post, "Ask the
   community" web entry point.
@@ -190,3 +190,126 @@ this project keeps out of CI.
 
 Seed fixtures (2 users, 1 board, 1 topic) were removed from the dev DB
 afterwards; both dev servers stopped.
+
+### 2026-07-31 - Slice 3 implemented (identification embed, M6)
+
+Branch `forum/wave2-slice3-identification-embed`.
+
+**The spec's premise did not hold, and that reshaped the slice.** The roadmap
+says the attachment is "created at compose time from an
+`identification_result_id`". There is no such id:
+
+- `POST /api/v1/plant-identification/identify/` is **stateless** — it calls the
+  combined service and returns the AI result. It writes no rows.
+- `PlantIdentificationResult` has readers everywhere (serializers, auditlog, a
+  management command, a read-only ViewSet) and **zero writers**:
+  `grep -rnE "PlantIdentificationResult(\(|\.objects\.(create|bulk_create|get_or_create|update_or_create))" apps/ packages/`
+  → one hit, the class definition.
+- The one apparent writer, `apps/users/services.py:611`, is dead: it imports
+  `IdentificationResult` (no such class) and passes `image_1_url`,
+  `location_data`, `is_demo_data` — none of which exist on the model.
+
+So the snapshot is **caller-supplied**, and the design says so out loud rather
+than implying a verified determination. This also stays true to the spec's own
+*rationale* (a snapshot precisely so public forum content never depends on
+private history) — only its mechanism changed.
+
+**Backend (package).** New `models/identifications.py`:
+`ForumIdentificationAttachment` — `OneToOne(Topic, CASCADE)`, `image`
+FK `SET_NULL`, `provider`, `candidates` JSON, `created_at`, plus
+`identification_result_id` as a plain non-FK field per the spec's advisor
+amendment (documented as having no producer yet). Migration `0019`.
+`TopicCreateSerializer` gains an optional nested `identification`;
+`TopicDetailSerializer` gains a read-only `identification` object.
+
+**Decisions worth recording.**
+
+- **Detail-only, deliberately.** The card renders above the opening post and
+  nowhere else, so `SearchView` and `apps/forum_host/semantic_search._serialize`
+  — the other two topic-hit builders that bit slice 2 — are untouched. Pinned by
+  `test_the_identification_is_absent_from_the_topic_list_payload`.
+- **The write bounds ARE the defence**, since nothing is server-verified:
+  ≤3 candidates (host-overridable, read at request time like the tag bounds), a
+  raw-list ceiling checked *before* child validation, name length + inner
+  whitespace collapse, provider length, and confidence in [0, 1].
+- **NaN confidence is rejected explicitly.** Every comparison with NaN is False,
+  so `FloatField(min_value=0, max_value=1)` passes it; stored in a JSONField it
+  re-serializes as the literal `NaN`, which is not valid JSON. DRF's
+  `STRICT_JSON` parser already blocks the literal over HTTP (verified: it is
+  `True` in this host), so this is defence in depth for a host that flips it and
+  for non-HTTP callers — the test asserts at the serializer for that reason.
+- **`image_id` reuses the existing IDOR rule** verbatim from
+  `MeProfileSerializer.validate_avatar_id`: the photo must be an image THIS user
+  uploaded into the forum collection. No new upload code — "copied into the forum
+  image collection through the existing pipeline" is satisfied literally, by
+  calling `POST /forum/images/`.
+- **The photo is uploaded on the identify page, before navigating.** Only JSON
+  crosses into router state, so an upload failure surfaces where the user
+  pressed the button rather than at composer submit, and a reload degrades to a
+  plain composer instead of a half-broken card. That forced the auth gate:
+  `/identify` allows anonymous under DEBUG but `POST /forum/images/` does not,
+  so the button routes a signed-out user to login (same pattern as
+  `handleSavePlant`).
+- **The attachment is created inside the topic-create transaction** — a topic
+  whose attachment failed to write would render as an ordinary question,
+  silently losing the thing it was asked about. Pinned by patching the create to
+  raise and asserting no topic survives.
+- **The card never claims the plant IS the top candidate.** It heads "What the
+  app suggested", lists every candidate with its confidence, says plainly it is
+  not a confirmed identification, and — once solved — links to the accepted
+  answer so the machine guess is not the last thing a reader sees.
+- **The composer shows the attachment with a Remove control.** It carries the
+  user's photo; attaching it silently would be the wrong default.
+- **The handoff is NOT persisted into the sessionStorage draft.** The draft
+  outlives the uploaded image's relevance, and a stale `image_id` would fail the
+  server's ownership check at submit. A saved draft title also always beats the
+  suggested one.
+- **Idempotency needed no change** — the topic-create fingerprint is already
+  `fingerprint({"slug": slug, "body": request.data})`, which covers the nested
+  key automatically.
+
+**Verification** (all on this branch):
+
+- `pytest --create-db` (FULL suite, per the slice-2 lesson) → **1431 passed,
+  0 failed, 8 skipped** (1403 baseline + 28 new in
+  `tests/api/test_identification_attachment.py`).
+- `python manage.py check` → "System check identified no issues".
+- `python manage.py spectacular --file /dev/null` → exit 0, no new warnings
+  naming the new serializers.
+- `npx vitest --run` → **799 passed** (775 baseline + 24 new: 8 card, 6
+  composer, 3 identify page, 3 thread detail, 2 mappers, 2 service).
+- `npx tsc --noEmit` → "No errors found"; `npm run lint` → 0 errors.
+
+**Query cost.** Topic detail with an attachment pins at **6** queries
+(`test_topic_detail_query_count_with_an_identification_is_pinned`): the
+attachment row and its image ride the detail `select_related`, so the only extra
+over a plain topic is one rendition lookup, independent of candidate count. No
+existing pin moved — the no-attachment path is unchanged.
+
+**The package README** gained an "Identification attachment" section (the
+`test_readme_documents_every_setting` gate caught the three new settings, as
+designed).
+
+**Not in this slice, by design:** the Flutter client. Mobile rendering of the
+card belongs to the mobile forum todos (291–295); Wave 3's slice 3 covers the
+mobile "Ask the community" flow.
+
+**Stated plainly — what was NOT done in-browser:** the authenticated
+click-through. "Ask the community" needs a signed-in user, and driving a login
+form means typing a password, which I do not do. The read path (card rendering,
+no-photo fallback, solved link, absence when there is no snapshot) is covered by
+component + page tests; the write path (upload → router state → create →
+persisted row → detail payload) is covered end-to-end by the backend endpoint
+tests plus the client unit tests, but not by a real browser session. Same gap,
+and same reason, as slice 2.
+
+### 2026-07-31 - Completed (epic closed)
+
+- All four slices shipped: slice 1 (#474), slice 2 (#522), slice 3 (this PR),
+  slice 4 under todo 258 / #494.
+- Verification: full backend suite 1431 passed / 0 failed / 8 skipped; web 796
+  passed; `tsc --noEmit` clean; ESLint 0 errors; `spectacular` exit 0.
+- Source review `docs/audits/2026-07-11-forum-modernization.md`: #H6 and #M6
+  both checked off. The all-findings-resolved rename to `…-COMPLETED.md`
+  deliberately did **not** fire — #M2, #M7, #M8, #M9, #M10 and #M13 remain open
+  against todos 281/283/284/289.

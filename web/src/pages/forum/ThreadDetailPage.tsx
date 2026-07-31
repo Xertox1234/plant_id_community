@@ -18,6 +18,7 @@ import { DELETED_AUTHOR_USERNAME } from '../../utils/forumAuthor';
 import { bodyBlocksToHtml } from '../../utils/forumBody';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import PostCard from '../../components/forum/PostCard';
+import IdentificationCard from '../../components/forum/IdentificationCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -624,6 +625,16 @@ export default function ThreadDetailPage() {
       >
         {notice}
       </div>
+
+      {/* The plant-ID snapshot, above the opening post (audit M6). Outside the
+          posts list on purpose: it belongs to the TOPIC, so it must survive the
+          opening post being edited, redacted, or paginated away. */}
+      {thread?.identification && (
+        <IdentificationCard
+          identification={thread.identification}
+          solvedPostId={thread.solved_post_id}
+        />
+      )}
 
       {/* Posts List */}
       <div className="space-y-4 mb-8">

@@ -73,6 +73,16 @@ DEFAULTS = {
     # an unbounded list is a cheap write-amplification vector.
     "TOPIC_MAX_TAGS": 5,
     "TOPIC_TAG_MAX_LENGTH": 50,  # <= taggit's Tag.name max_length (100)
+    # Identification attachment (audit M6) — the plant-ID snapshot a topic may
+    # carry. Every field is caller-supplied (see models/identifications.py), so
+    # these are the write bounds, not display preferences: they cap how much
+    # unverified text one create request can park on a topic.
+    "TOPIC_IDENTIFICATION_MAX_CANDIDATES": 3,
+    # Matches PlantSpecies.scientific_name's max_length in the host app, which
+    # is the longest name a real provider sends.
+    "TOPIC_IDENTIFICATION_NAME_MAX_LENGTH": 200,
+    # <= the provider column's max_length (models/identifications.py).
+    "TOPIC_IDENTIFICATION_PROVIDER_MAX_LENGTH": 50,
 }
 
 
