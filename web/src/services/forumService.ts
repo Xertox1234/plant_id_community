@@ -24,6 +24,7 @@ import {
 } from './forumMappers';
 import type {
   Category,
+  ForumAuthor,
   ForumIndexPayload,
   Thread,
   Post,
@@ -52,6 +53,27 @@ interface DrfPage<T> {
   previous?: string | null;
 }
 
+/**
+ * A failed forum request, carrying the HTTP status.
+ *
+ * Extends Error with the same `message`, so every existing caller and
+ * `instanceof Error` check is unaffected — but a caller for whom the KIND of
+ * failure is product behaviour can branch on `status` instead of sniffing the
+ * message text. Sniffing does not work: the backend serialises DRF's
+ * `PermissionDenied` as its default detail ("You do not have permission to
+ * perform this action."), which contains neither the code nor the word
+ * "forbidden" (`apps/core/exceptions.py` builds the envelope as `str(exc)`).
+ */
+export class ForumApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ForumApiError';
+    this.status = status;
+  }
+}
+
 async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
   const csrfToken = await getCsrfToken();
   const response = await fetch(url, {
@@ -66,7 +88,10 @@ async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Pr
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(error.message || error.detail || `HTTP ${response.status}`);
+    throw new ForumApiError(
+      error.message || error.detail || `HTTP ${response.status}`,
+      response.status
+    );
   }
   if (response.status === 204) return undefined as T;
   return response.json();
@@ -277,6 +302,45 @@ export async function updatePost(postId: string, data: UpdatePostInput): Promise
     body: JSON.stringify({ body: htmlToBodyBlocks(data.content) }),
   });
   return { post: mapPostToPost(res, String(res.topic_id)), status: res.moderation_status };
+}
+
+// ---------------------------------------------------------------------------
+// Edit history (todo 282 / audit M4)
+// ---------------------------------------------------------------------------
+
+export interface PostRevisionSummary {
+  id: number;
+  created_at: string;
+  // Never null: `serialize_forum_author` maps a NULL revision user to the
+  // `[deleted]` sentinel OBJECT, the same as every other author field (M41).
+  user: ForumAuthor;
+}
+
+export interface PostRevisionDetail extends PostRevisionSummary {
+  body: Post['body'];
+}
+
+/**
+ * List a post's edit history, newest first.
+ *
+ * 403 is an expected outcome, not an error to swallow: the backend serves this
+ * to the post's author and to moderators, and it becomes moderator-only once
+ * anyone else has edited the post (earlier revisions still hold whatever that
+ * edit removed). Callers should surface the refusal rather than showing an
+ * empty history, which would read as "no edits".
+ */
+export async function fetchPostRevisions(postId: string): Promise<PostRevisionSummary[]> {
+  return authenticatedFetch<PostRevisionSummary[]>(`${FORUM_BASE}/posts/${postId}/revisions/`);
+}
+
+/** One revision's body, in the same shape as the live post body. */
+export async function fetchPostRevision(
+  postId: string,
+  revisionId: number
+): Promise<PostRevisionDetail> {
+  return authenticatedFetch<PostRevisionDetail>(
+    `${FORUM_BASE}/posts/${postId}/revisions/${revisionId}/`
+  );
 }
 
 export async function deletePost(postId: string): Promise<void> {

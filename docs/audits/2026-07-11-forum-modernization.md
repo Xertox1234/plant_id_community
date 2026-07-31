@@ -314,7 +314,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
       `web/utils/forumDrafts.ts` autosaves both composers to sessionStorage and
       restores on mount — page-level restore test added at 263 close-out. The
       audit's `beforeunload` suggestion is superseded, not deferred)
-- [ ] #M4 edit-history-viewer → todo 282 (re-pointed 2026-07-26; promoted out of 263)
+- [x] #M4 edit-history-viewer → todo 282 (completed 2026-07-31)
 - [x] #M5 tags-taxonomy → todo 276 (completed 2026-07-30)
 - [ ] #M6 plant-domain-linkage → todo 273 (re-pointed 2026-07-26; Wave 2 slice 3 —
       263 routed it there on 2026-07-17, this line was stale)

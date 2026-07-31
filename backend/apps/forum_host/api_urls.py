@@ -14,7 +14,13 @@ from wagtail_forum.api.notifications import NotificationListView
 
 # GET-only views are mounted straight from the package (no throttle); views with
 # a throttled write handler come from the host wrappers in .api.
-from wagtail_forum.api.views import BoardListView, PublicProfileView, TopicDetailView
+from wagtail_forum.api.views import (
+    BoardListView,
+    PostRevisionDetailView,
+    PostRevisionListView,
+    PublicProfileView,
+    TopicDetailView,
+)
 
 from .api import (
     MeProfileView,
@@ -69,6 +75,18 @@ urlpatterns = [
     ),
     path("images/", PostImageUploadView.as_view(), name="image-upload"),
     path("posts/<int:post_id>/", PostWriteView.as_view(), name="post-detail"),
+    # GET-only, so mounted straight from the package (no throttled wrapper) —
+    # same treatment as the other read views here.
+    path(
+        "posts/<int:post_id>/revisions/",
+        PostRevisionListView.as_view(),
+        name="post-revision-list",
+    ),
+    path(
+        "posts/<int:post_id>/revisions/<int:revision_id>/",
+        PostRevisionDetailView.as_view(),
+        name="post-revision-detail",
+    ),
     path(
         "posts/<int:post_id>/reactions/",
         ReactionToggleView.as_view(),

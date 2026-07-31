@@ -13,6 +13,8 @@ from .views import (
     PostImageUploadView,
     PostListView,
     PostReportView,
+    PostRevisionDetailView,
+    PostRevisionListView,
     PostWriteView,
     PublicProfileView,
     ReactionToggleView,
@@ -36,6 +38,16 @@ urlpatterns = [
     path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
     path("images/", PostImageUploadView.as_view(), name="image-upload"),
     path("posts/<int:post_id>/", PostWriteView.as_view(), name="post-detail"),
+    path(
+        "posts/<int:post_id>/revisions/",
+        PostRevisionListView.as_view(),
+        name="post-revision-list",
+    ),
+    path(
+        "posts/<int:post_id>/revisions/<int:revision_id>/",
+        PostRevisionDetailView.as_view(),
+        name="post-revision-detail",
+    ),
     path(
         "posts/<int:post_id>/reactions/",
         ReactionToggleView.as_view(),

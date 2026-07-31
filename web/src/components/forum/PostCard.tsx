@@ -1,6 +1,7 @@
-import { memo, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import StreamFieldRenderer from '../StreamFieldRenderer';
+import EditHistoryDialog from './EditHistoryDialog';
 import Timestamp from '../ui/Timestamp';
 import { userProfilePath } from '../../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME, TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
@@ -52,6 +53,12 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
   const [hasReported, setHasReported] = useState(false);
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  // Stable identity: EditHistoryDialog's focus effect depends on [open,
+  // onClose], so a fresh inline closure would tear it down and re-run on every
+  // unrelated PostCard re-render (report flow, reactions, copy-link),
+  // yanking a keyboard user's focus back to Close mid-review.
+  const closeHistory = useCallback(() => setShowHistory(false), []);
   // When the clipboard API is unavailable, reveal the URL inline for manual copy
   // instead of a native window.prompt (audit M24).
   const [copyFallbackUrl, setCopyFallbackUrl] = useState<string | null>(null);
@@ -153,11 +160,18 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
               {post.edited_at && (
                 <>
                   <span className="mx-1">•</span>
-                  <span className="italic">
+                  {/* The stamp is the entry point to the history it describes
+                      (todo 282). Revisions were always stored; until now
+                      nothing surfaced them outside the Wagtail admin. */}
+                  <button
+                    type="button"
+                    onClick={() => setShowHistory(true)}
+                    className="min-h-11 italic underline decoration-dotted underline-offset-2 hover:text-primary"
+                  >
                     Edited <Timestamp iso={post.edited_at} />
                     {post.edited_by &&
                       ` by ${post.edited_by.display_name || post.edited_by.username}`}
-                  </span>
+                  </button>
                 </>
               )}
             </div>
@@ -332,6 +346,8 @@ function PostCard({ post, onEdit, onDelete, onReact, onReport }: PostCardProps) 
           )}
         </div>
       )}
+
+      <EditHistoryDialog open={showHistory} postId={post.id} onClose={closeHistory} />
     </div>
   );
 }
