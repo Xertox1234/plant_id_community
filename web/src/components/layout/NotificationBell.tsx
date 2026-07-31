@@ -14,15 +14,18 @@ import type { ForumNotification } from '../../types/notifications';
 // exists to keep the bell feeling live, not to approach the abuse boundary.
 const UNREAD_POLL_INTERVAL_MS = 30_000;
 
-// COPY HAS THREE HOMES (todo 272 item 5 -> todo 287). The same forum event is
-// phrased independently here (the bell), in the push tray
-// (backend/apps/forum_host/tasks.py::_notification_content), and in the email
-// subject/body (backend/apps/core/services/notification_service.py
-// ::send_forum_reply_notification - the only live forum email path; its
-// send_forum_* siblings are uncalled). They already disagree - a reply reads 'Someone replied
-// to "X"' here, 'New reply in "X"' + "Someone replied" in the tray, and
-// "New reply in: X" by email. Changing wording (or adding i18n) here must touch
-// the other two; consolidating the two backend homes is todo 287.
+// COPY HAS TWO HOMES (todo 287, 2026-07-31 - was three). The two BACKEND
+// surfaces, the push tray and the email subject/body, now both read one table:
+// backend/apps/forum_host/notification_copy.py. This bell is the remaining
+// second home, deliberately: the frontend cannot import a Python table, so
+// converging it means serving the label from the API rather than duplicating
+// the table in TypeScript. That is not built.
+//
+// So: a wording change here still needs a matching edit in notification_copy.py
+// (one file now, not two), and the strings still disagree by design - a reply
+// reads 'Someone replied to "X"' here vs 'New reply in "X"' in the tray. If you
+// are doing an i18n pass, serve these labels from the API instead of
+// translating them twice.
 function notificationLabel(notification: ForumNotification): string {
   const actorName = notification.actor?.display_name || notification.actor?.username || 'Someone';
   const topicTitle = notification.topic?.title || 'your topic';

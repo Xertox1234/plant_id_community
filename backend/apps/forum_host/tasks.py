@@ -61,35 +61,25 @@ def _notification_content(event: str, data: dict) -> tuple[str, str] | None:
     data-only behavior. Unknown/future events also stay data-only until
     someone designs their copy.
 
-    COPY HAS THREE HOMES (todo 272 item 5 → todo 287). The same forum event is
-    phrased independently here (push tray), in
+    THE WORDING IS NOT HERE (todo 287). Both backend surfaces — this tray and
+    the email subject/body in
     ``apps/core/services/notification_service.py::send_forum_reply_notification``
-    (the email subject/body — and the only *live* forum email path; its
-    ``send_forum_*`` siblings are uncalled, see that method's docstring), and in
-    ``web/src/components/layout/NotificationBell.tsx`` (``notificationLabel``).
-    They already disagree — a reply is "New reply in: X" by email, 'New reply
-    in "X"' + "Someone replied" here, and 'Someone replied to "X"' in the bell.
-    Changing wording (or adding i18n) in one place must touch the other two;
-    consolidating the two backend homes into one copy table is todo 287.
+    — read ``apps/forum_host/notification_copy.py``. Edit copy there; this
+    function owns only the rendering concerns that are specific to push (title
+    truncation, the actor default). The web bell
+    (``web/src/components/layout/NotificationBell.tsx``) is still a third,
+    independent home because the frontend cannot import a Python table — see
+    that module's docstring.
     """
     from .constants import PUSH_TITLE_TOPIC_MAX_CHARS
+    from .notification_copy import push_content
 
     topic_title = str(data.get("topic_title") or "").strip()
     if len(topic_title) > PUSH_TITLE_TOPIC_MAX_CHARS:
         topic_title = topic_title[: PUSH_TITLE_TOPIC_MAX_CHARS - 1] + "…"
     actor = str(data.get("actor_name") or "").strip() or "Someone"
 
-    if event == "reply_added":
-        title = f'New reply in "{topic_title}"' if topic_title else "New forum reply"
-        return title, f"{actor} replied"
-    if event == "mention":
-        title = (
-            f'You were mentioned in "{topic_title}"'
-            if topic_title
-            else "You were mentioned on the forum"
-        )
-        return title, f"{actor} mentioned you"
-    return None
+    return push_content(event, topic_title, actor)
 
 
 def _send_fcm_message(fcm, token: str, str_data: dict, content, event: str):

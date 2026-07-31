@@ -18,8 +18,8 @@ User = get_user_model()
 
 # .html-only templates that render cleanly from the base context alone — used to
 # prove the strip_tags(html) fallback for a missing .txt (finding 2). Templates
-# that need bespoke context vars (blog_post→`post`, new_forum_topic→`subscriber`)
-# or a `{% url %}` namespace not present here (seasonal_care/forum_digest→`forum`,
+# that need bespoke context vars (blog_post→`post`) or a `{% url %}` namespace
+# not present here (seasonal_care/forum_digest→`forum`,
 # disease_alert→`diagnosis`) are intentionally excluded: those .html render
 # failures are a PRE-EXISTING issue (masked until now because every one of these
 # templates no-op'd at the missing-.txt step), out of scope for this todo — and
