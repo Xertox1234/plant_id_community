@@ -56,6 +56,11 @@ class LLMSpamBackend(SpamBackend):
     a hit forum-budget cap degrades to the heuristic (publish). The two postures
     are kept independent by consuming budget only for a DEFINITIVE verdict, so
     no provider-side failure can decay into the publish posture.
+
+    That split leaves failed calls uncounted, so a third counter bounds them:
+    the ATTEMPTS cap (todo 280) counts every call issued to the provider and
+    trips a HOLD, so chronic timeouts / unparseable replies cannot run up
+    uncapped spend. Fail-closed wins when both counters are exhausted.
     """
 
     def __init__(self) -> None:
@@ -92,6 +97,28 @@ class LLMSpamBackend(SpamBackend):
             cached = cache.get(cache_key)
             if cached is not None:
                 return SpamResult(cached["is_clean"], cached["reason"])
+
+            # The ATTEMPTS cap is checked first, and that order is load-bearing.
+            # A half-broken provider (many calls, some verdicts) can exhaust
+            # BOTH counters; checking the verdict budget first would then take
+            # the degrade-to-heuristic branch and PUBLISH unscreened — the exact
+            # H13 posture flip — while the provider is known to be misbehaving.
+            # Fail-closed must win whenever both are exhausted.
+            #
+            # It is checked AFTER the verdict-cache lookup above on purpose: a
+            # cached verdict costs nothing and is already known, so holding it
+            # because the provider is currently unhealthy would be wrong.
+            if not AIRateLimiter.peek_budget(
+                constants.SPAM_LLM_ATTEMPTS_CACHE_KEY,
+                constants.SPAM_LLM_ATTEMPTS_LIMIT,
+            ):
+                logger.error(
+                    "[CIRCUIT] Forum spam LLM attempts cap reached (%s/hr): "
+                    "provider appears unhealthy; failing closed (held for "
+                    "review)",
+                    constants.SPAM_LLM_ATTEMPTS_LIMIT,
+                )
+                return SpamResult(False, constants.SPAM_LLM_UNAVAILABLE_REASON)
 
             # Peek, never check-and-increment: budget is consumed only once a
             # definitive verdict comes back (in _parse). Otherwise a
@@ -140,6 +167,12 @@ class LLMSpamBackend(SpamBackend):
         prompt = constants.SPAM_LLM_PROMPT_TEMPLATE.format(content=text)
         # Read the timeout off the module at call time so tests can patch it.
         timeout = constants.SPAM_LLM_TIMEOUT_SECONDS
+        # Count the attempt HERE — inside the only method that reaches the
+        # provider — so no future call path can bypass it. Counted at issue
+        # time, before the outcome is known, because that is the whole point:
+        # a timed-out call was still issued and is still billed, and we can
+        # never learn afterwards whether it was.
+        self._consume_attempt()
         future = _get_executor().submit(
             generate_ai_text,
             prompt,
@@ -155,6 +188,24 @@ class LLMSpamBackend(SpamBackend):
         #   - future.result() bounds the CALLER, which is sitting inside the
         #     workflow's @transaction.atomic publish path.
         return future.result(timeout=timeout)
+
+    def _consume_attempt(self) -> None:
+        """Record one issued provider call against the attempts counter.
+
+        Guarded the same way the budget/verdict-cache writes in ``_parse`` are:
+        a counter-write failure must not raise into check()'s except-Exception
+        and hold a post over a Redis blip. Losing an increment only weakens the
+        circuit cap; raising would turn a cache outage into a moderation queue.
+        """
+        try:
+            AIRateLimiter.consume_budget(
+                constants.SPAM_LLM_ATTEMPTS_CACHE_KEY,
+                constants.SPAM_LLM_ATTEMPTS_LIMIT,
+            )
+        except Exception:
+            logger.warning(
+                "[ERROR] Forum spam attempts accounting failed; call proceeding"
+            )
 
     def _parse(self, reply: str, cache_key: str) -> SpamResult:
         verdict = (reply or "").strip()

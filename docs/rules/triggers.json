@@ -810,5 +810,22 @@
     "source": "codify: codify-2026-07-31-p3-sweep",
     "added": "2026-07-30",
     "severity": "warn"
+  },
+  {
+    "id": "ai-budget-peek-no-attempts-counter",
+    "domains": [
+      "security",
+      "caching"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "peek_budget\\(",
+    "content_absent": "ATTEMPTS_CACHE_KEY|_consume_attempt",
+    "message": "New peek-then-consume AI budget — what bounds the calls that never reach consume_budget()? A timed-out provider call was still issued and is still billed, so a success-only counter stops capping spend exactly when the provider misbehaves. If failures are billable, add a SEPARATE attempts counter that trips the opposite posture (hold, not degrade) — see the forum spam backend.",
+    "pattern_ref": "backend/docs/patterns/domain/forum.md",
+    "source": "codify: todo-280-forum-spam-attempts-counter",
+    "added": "2026-07-31",
+    "severity": "warn"
   }
 ]

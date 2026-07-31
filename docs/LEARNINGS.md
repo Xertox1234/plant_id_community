@@ -2720,3 +2720,73 @@ defaults, three apps away from the component making the decision.
 never traversed the `select_related` leg it existed to guard, and a "renditions
 generated on first access" measurement error that read as an N+1 — both
 codified in `docs/rules/testing.md`.
+
+---
+
+## 2026-07-31 — A budget charged only on success does not bound spend on failure (todo 280 / H13)
+
+**Area:** Architecture / cost control. Surfaced by `/code-review medium` of
+PR #500, fixed in PR #524.
+
+**What was wrong.** The forum's LLM spam backend consumed its
+`ai_rate_limit:forum_spam` budget **only** when the provider returned a
+definitive `CLEAN`/`SPAM` verdict. That was correct and hard-won: charging
+failed attempts let a sustained outage drain the cap in `LIMIT` failures, and an
+exhausted cap flips the backend from fail-closed (hold) to degrade-to-heuristic
+(**publish LLM-unscreened**) — a spam-publishing posture reached purely by the
+provider being down, and a sticky one, since every increment re-stamped the 1h
+TTL. Todo 274 fixed exactly that.
+
+**The consequence nobody drew.** The fix made the cap bound spend *only in the
+case that was already well-behaved*:
+
+| Provider state | Billable requests | Counted? | Capped? |
+|---|---|---|---|
+| Healthy | 1 per screened post | yes | yes |
+| Chronic timeout | 1 per screened post | **no** | **no** |
+| Garbage replies (never cached → every retry re-calls) | 1 per screened post | **no** | **no** |
+
+A `future.result()` expiry means the request **was** issued and is billed — the
+caller merely stopped waiting for it. So spend ran uncapped exactly when the
+provider was misbehaving, bounded only by post-submission rate. On a busy forum
+that is the expensive case.
+
+**Root cause, stated generally.** One counter was being asked to answer two
+different questions: *"have we spent enough?"* (a cost decision about working
+service, whose sane response is to degrade) and *"is the provider healthy?"* (an
+incident, whose sane response is to stop). Those have **opposite** safe
+postures. Any single counter must pick one and will be wrong about the other.
+Merging them back is the sticky fail-open; that is why
+`test_sustained_outage_burns_nothing_and_never_flips_to_publish` exists.
+
+**Fix.** A second counter on its own key
+(`ai_rate_limit:forum_spam_attempts`, `SPAM_LLM_ATTEMPTS_LIMIT` = 400/hr),
+charged on **every issued call** and tripping a **hold**. Incremented inside
+`_call_llm()` immediately before `submit()` — the only method that reaches the
+provider — so no future call path can bypass it.
+
+Three orderings are load-bearing, and only the first is obvious:
+
+1. Failures count on the **new** key only.
+2. The attempts cap is peeked **before** the verdict budget. A half-broken
+   provider can exhaust both; verdict-first would take the publish branch while
+   the provider is known bad.
+3. The attempts cap is peeked **after** the verdict-cache lookup. A cached
+   verdict costs nothing, so the circuit must not hold it.
+
+And the sizing constraint, pinned by a test: the attempts limit must stay
+**above** the verdict limit. Every definitive verdict is also an attempt, so
+inverting them trips the circuit first under healthy traffic and converts the
+intended cost-degrade into a hold on legitimate posts.
+
+**Generalisable:** whenever a paid external call is guarded by peek-then-consume,
+ask what bounds the calls that *never reach consume*. If failures are billable —
+and a timeout almost always is — the answer must be a separate counter with the
+opposite failure posture, not a bigger number on the existing one.
+
+**Also found, and codified in `docs/rules/testing.md`:** adding a second call to
+an already-mocked shared helper silently redefines every blanket
+`return_value=` mock of it. `@patch(peek_budget, return_value=False)` meant "the
+verdict budget ran out"; after this change it means "both counters are
+exhausted". The affected test asserted publish and went red, so it was caught —
+one asserting the fail-closed side would have gone green for the wrong reason.

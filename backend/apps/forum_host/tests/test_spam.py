@@ -42,6 +42,22 @@ class SpamBackendSettingTests(TestCase):
 GEN = "apps.forum_host.spam.generate_ai_text"
 BUDGET = "apps.forum_host.spam.AIRateLimiter.peek_budget"
 LIMIT = "apps.forum_host.constants.SPAM_LLM_BUDGET_LIMIT"
+ATTEMPTS_LIMIT = "apps.forum_host.constants.SPAM_LLM_ATTEMPTS_LIMIT"
+
+
+def _only_exhausted(key: str):
+    """A ``peek_budget`` side_effect that exhausts exactly ONE counter.
+
+    check() peeks two counters (attempts, then verdict budget) and they trip
+    opposite postures, so a blanket ``return_value=False`` no longer expresses
+    "the verdict budget ran out" — it exhausts both, and the fail-closed
+    attempts branch correctly wins.
+    """
+
+    def _peek(cache_key, limit):
+        return cache_key != key
+
+    return _peek
 
 
 class LLMSpamBackendTests(TestCase):
@@ -117,7 +133,7 @@ class LLMSpamBackendTests(TestCase):
         backend.check(_post())
         self.assertEqual(mock_gen.call_count, 2)
 
-    @patch(BUDGET, return_value=False)
+    @patch(BUDGET, side_effect=_only_exhausted(constants.SPAM_LLM_BUDGET_CACHE_KEY))
     @patch(GEN)
     def test_budget_exhausted_degrades_to_heuristic(self, mock_gen, _budget):
         result = LLMSpamBackend().check(_post())
@@ -202,6 +218,8 @@ class LLMSpamBudgetAccountingTests(TestCase):
         cache.clear()
 
     def _spent(self) -> int:
+        # The VERDICT counter specifically. Failed calls are counted too, but
+        # on the separate attempts counter — see LLMSpamAttemptsCapTests.
         return cache.get(constants.SPAM_LLM_BUDGET_CACHE_KEY, 0)
 
     @patch(GEN, return_value="CLEAN")
@@ -273,7 +291,11 @@ class LLMSpamBudgetAccountingTests(TestCase):
     @patch(LIMIT, 2)
     @patch("apps.forum_host.constants.SPAM_LLM_TIMEOUT_SECONDS", 0.05)
     def test_sustained_timeouts_burn_nothing(self):
-        """The timeout path must not consume budget either."""
+        """The timeout path must not consume VERDICT budget either.
+
+        It does consume an *attempt* — that is what bounds the spend this path
+        incurs; see LLMSpamAttemptsCapTests.
+        """
 
         def slow(*args, **kwargs):
             time.sleep(0.4)
@@ -338,6 +360,191 @@ class LLMSpamBudgetAccountingTests(TestCase):
 
         _, kwargs = mock_gen.call_args
         self.assertEqual(kwargs["timeout"], constants.SPAM_LLM_TIMEOUT_SECONDS)
+
+
+class LLMSpamAttemptsCapTests(TestCase):
+    """Todo 280 AC1 — the attempts counter bounds spend while the provider
+    misbehaves, by failing CLOSED, on a counter separate from the verdict
+    budget.
+
+    The verdict budget deliberately ignores timeouts and unparseable replies
+    (todo 274 / H13), which is what stops a provider failure from draining the
+    cap into publish-unscreened. The cost of that guarantee is that the verdict
+    cap stops bounding spend exactly when the provider misbehaves — those calls
+    were still issued and still billed. This counter closes that gap without
+    touching the verdict counter.
+    """
+
+    def setUp(self):
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def _attempts(self) -> int:
+        return cache.get(constants.SPAM_LLM_ATTEMPTS_CACHE_KEY, 0)
+
+    def _verdicts(self) -> int:
+        return cache.get(constants.SPAM_LLM_BUDGET_CACHE_KEY, 0)
+
+    def test_attempts_limit_stays_above_the_verdict_limit(self):
+        """Inverting the two converts the cost-degrade into a hold.
+
+        Every definitive verdict is also an attempt, so an attempts cap at or
+        below the verdict cap would trip FIRST under healthy traffic — holding
+        legitimate posts for a purely budgetary reason instead of publishing
+        them via the heuristic.
+        """
+        self.assertGreater(
+            constants.SPAM_LLM_ATTEMPTS_LIMIT,
+            constants.SPAM_LLM_BUDGET_LIMIT,
+        )
+
+    def test_attempts_counter_is_a_separate_key(self):
+        self.assertNotEqual(
+            constants.SPAM_LLM_ATTEMPTS_CACHE_KEY,
+            constants.SPAM_LLM_BUDGET_CACHE_KEY,
+        )
+
+    @patch(GEN, return_value="CLEAN")
+    def test_healthy_screen_counts_on_both_counters(self, mock_gen):
+        LLMSpamBackend().check(_post(body="a healthy body"))
+
+        self.assertEqual(self._attempts(), 1)
+        self.assertEqual(self._verdicts(), 1)
+
+    @patch(GEN, return_value="CLEAN")
+    def test_cached_verdict_counts_no_second_attempt(self, mock_gen):
+        backend = LLMSpamBackend()
+        backend.check(_post(body="a repeated body"))
+        backend.check(_post(body="a repeated body"))
+
+        mock_gen.assert_called_once()
+        self.assertEqual(self._attempts(), 1)
+
+    @patch(GEN, return_value="not a verdict at all")
+    def test_unparseable_reply_counts_an_attempt_but_no_verdict(self, mock_gen):
+        result = LLMSpamBackend().check(_post(body="a garbage-reply body"))
+
+        self.assertFalse(result.is_clean)
+        self.assertEqual(self._attempts(), 1)
+        self.assertEqual(self._verdicts(), 0)
+
+    @patch(GEN, side_effect=RuntimeError("provider down"))
+    def test_provider_error_counts_an_attempt_but_no_verdict(self, mock_gen):
+        result = LLMSpamBackend().check(_post(body="an outage body"))
+
+        self.assertFalse(result.is_clean)
+        self.assertEqual(self._attempts(), 1)
+        self.assertEqual(self._verdicts(), 0)
+
+    @patch("apps.forum_host.constants.SPAM_LLM_TIMEOUT_SECONDS", 0.05)
+    def test_timeout_counts_an_attempt_but_no_verdict(self):
+        """The gap this counter exists to close.
+
+        A `future.result()` expiry means the request WAS issued — the caller
+        simply stopped waiting for it — so it is billable and must be counted.
+        """
+
+        def slow(*args, **kwargs):
+            time.sleep(0.4)
+            return "CLEAN"
+
+        with patch(GEN, side_effect=slow):
+            result = LLMSpamBackend().check(_post(body="a slow body"))
+
+        self.assertFalse(result.is_clean)
+        self.assertEqual(result.reason, constants.SPAM_LLM_UNAVAILABLE_REASON)
+        self.assertEqual(self._attempts(), 1)
+        self.assertEqual(self._verdicts(), 0)
+
+    @patch(ATTEMPTS_LIMIT, 3)
+    @patch(GEN, side_effect=RuntimeError("provider down"))
+    def test_sustained_outage_stops_spending_at_the_cap(self, mock_gen):
+        """The criterion the todo turns on: spend actually STOPS.
+
+        Todo 274's sibling test proves the same run never drains the verdict
+        budget; this one proves the calls stop being made at all.
+        """
+        backend = LLMSpamBackend()
+        attempts = 3 + 5  # deliberately past the patched cap
+
+        for i in range(attempts):
+            result = backend.check(_post(body=f"an outage body {i}"))
+            self.assertFalse(result.is_clean, f"attempt {i} published")
+            self.assertEqual(result.reason, constants.SPAM_LLM_UNAVAILABLE_REASON)
+
+        self.assertEqual(mock_gen.call_count, 3)  # plateaued at the cap
+        self.assertEqual(self._verdicts(), 0)  # verdict budget never drained
+
+    @patch(ATTEMPTS_LIMIT, 3)
+    @patch(GEN, return_value="not a verdict at all")
+    def test_sustained_unparseable_replies_stop_spending_at_the_cap(self, mock_gen):
+        """The uncached-retry arm: garbage replies re-call every time."""
+        backend = LLMSpamBackend()
+
+        for i in range(3 + 5):
+            result = backend.check(_post(body=f"a garbage-reply body {i}"))
+            self.assertFalse(result.is_clean, f"attempt {i} published")
+
+        self.assertEqual(mock_gen.call_count, 3)
+        self.assertEqual(self._verdicts(), 0)
+
+    @patch(ATTEMPTS_LIMIT, 2)
+    def test_exhausted_attempts_holds_even_when_the_verdict_budget_is_also_out(self):
+        """Fail-closed wins — the reason the attempts peek runs FIRST.
+
+        A half-broken provider can exhaust both counters. Checking the verdict
+        budget first would take the degrade-to-heuristic branch and PUBLISH
+        unscreened while the provider is known to be misbehaving — the exact
+        H13 posture flip todo 274 removed.
+        """
+        cache.set(constants.SPAM_LLM_ATTEMPTS_CACHE_KEY, 2, 3600)
+        cache.set(
+            constants.SPAM_LLM_BUDGET_CACHE_KEY,
+            constants.SPAM_LLM_BUDGET_LIMIT,
+            3600,
+        )
+
+        with patch(GEN) as mock_gen:
+            result = LLMSpamBackend().check(_post(body="a half-broken body"))
+
+        self.assertFalse(result.is_clean)
+        self.assertEqual(result.reason, constants.SPAM_LLM_UNAVAILABLE_REASON)
+        mock_gen.assert_not_called()
+
+    @patch(GEN, return_value="CLEAN")
+    def test_a_cached_verdict_is_still_served_with_the_cap_tripped(self, mock_gen):
+        """A cached verdict costs nothing, so the circuit must not hold it."""
+        backend = LLMSpamBackend()
+        backend.check(_post(body="a cached body"))  # populate the verdict cache
+        cache.set(
+            constants.SPAM_LLM_ATTEMPTS_CACHE_KEY,
+            constants.SPAM_LLM_ATTEMPTS_LIMIT,
+            3600,
+        )
+
+        result = backend.check(_post(body="a cached body"))
+
+        self.assertTrue(result.is_clean)
+        mock_gen.assert_called_once()  # the second check made no call
+
+    @patch(GEN, return_value="CLEAN")
+    def test_attempts_write_failure_does_not_block_the_call(self, mock_gen):
+        """The counter write runs BEFORE the provider call.
+
+        An unguarded raise there would fall through to check()'s
+        except-Exception and hold every post during a Redis blip — without the
+        call ever being attempted.
+        """
+        with patch(
+            "apps.forum_host.spam.AIRateLimiter.consume_budget",
+            side_effect=RuntimeError("redis OOM"),
+        ):
+            result = LLMSpamBackend().check(_post(body="an attempts-write-fail body"))
+
+        mock_gen.assert_called_once()
+        self.assertTrue(result.is_clean)
 
 
 class HeuristicTextReuseTests(TestCase):
