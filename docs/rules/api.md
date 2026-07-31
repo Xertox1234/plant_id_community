@@ -110,3 +110,10 @@ Compact checklist auto-injected before edits. Long-form:
   enforced after the expensive step is documentation, not a limit. Pair it with
   O(1) dedup — an `if x not in list` accumulator over request-controlled input is
   O(n^2) (todo 276: 30k tags = 2.24s).
+- **DRF's `request.data` MERGES POST and FILES under `MultiPartParser`** — so a
+  field you expect as text can arrive as an `UploadedFile`, and any string
+  method on it raises `AttributeError` → **500**, not 400. `(request.data.get("alt")
+  or "").strip()` is the shape that bites (todo 281). Guard with
+  `isinstance(value, str)` and treat anything else as absent. Happy-path tests
+  send the field as a field and never exercise this — write the file-part case
+  explicitly for every text field on a multipart endpoint.

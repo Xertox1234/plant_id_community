@@ -93,3 +93,17 @@ Compact checklist auto-injected before edits. Long-form:
   and check `err.status`. Mock rejections with the REAL message the backend
   sends — todo 282 shipped past a green test that mocked
   `Error('HTTP 403 Forbidden')`, a string that endpoint never produces.
+- **Never do cleanup work inside a `setState` updater in an unmount effect.**
+  React DISCARDS a `setState` on an unmounting component *without invoking the
+  updater*, so `return () => setThing((cur) => { release(cur); return null; })`
+  silently does nothing — measured 0 calls in todo 281's object-URL revoke.
+  It reads as correct, and a test of any OTHER exit path (a button, Escape)
+  passes while the unmount path leaks. Mirror the value into a `useRef` and read
+  the ref in the cleanup; a ref is a plain object and survives unmount. Test the
+  unmount path *specifically* (`const { unmount } = render(...)`), because the
+  happy-path test cannot fail on this.
+- **`URL.createObjectURL` needs a matching `revokeObjectURL` on EVERY exit
+  path** — confirm, cancel, keyboard dismiss, and unmount. Route them all
+  through one `close()` helper rather than revoking at each call site; jsdom
+  implements neither method, so stub both in tests and spy the revoke (the leak
+  is otherwise invisible).
