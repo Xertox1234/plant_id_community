@@ -22,7 +22,7 @@ pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 # One entry per row of the README's `## List envelopes` table.
 CURSOR_ENVELOPE = {"results", "next", "previous"}
-FLAT_ENVELOPE = {"results"}
+FLAT_ENVELOPE = {"results", "intro"}
 SEARCH_ENVELOPE = {"topics", "posts", "topics_has_more", "posts_has_more", "page"}
 SYNC_ENVELOPE = {"topics", "deleted", "has_more", "next_since", "next_since_id"}
 
@@ -49,7 +49,10 @@ def test_board_list_is_the_flat_envelope():
     resp = APIClient().get("/forum/boards/")
     assert resp.status_code == 200
     # Flat, NOT cursor: boards are few and unpaginated, so a permanently-null
-    # `next` would imply paging that does not exist.
+    # `next` would imply paging that does not exist. `intro` (todo 278) is the
+    # forum index's welcome copy — same screen, same fetch, so it rides here
+    # instead of taking a second round-trip. Content is pinned in
+    # test_board_list.py; this file guards only the key set.
     assert set(resp.json()) == FLAT_ENVELOPE
 
 

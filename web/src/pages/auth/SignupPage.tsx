@@ -176,17 +176,21 @@ export default function SignupPage() {
 
         {/* Signup Form */}
         <div className="bg-surface-2 shadow-sm border border-line rounded-lg p-8">
+          {/* Server Error — persistent live region, text swaps in place (audit
+              M26); see LoginPage for why it sits outside the form's
+              `space-y-6`. */}
+          <div
+            aria-live="assertive"
+            aria-atomic="true"
+            className={
+              serverError
+                ? 'mb-6 p-4 bg-error/10 border border-error rounded-lg text-ink text-sm'
+                : 'sr-only'
+            }
+          >
+            {serverError}
+          </div>
           <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-            {/* Server Error */}
-            {serverError && (
-              <div
-                className="p-4 bg-error/10 border border-error rounded-lg text-ink text-sm"
-                role="alert"
-              >
-                {serverError}
-              </div>
-            )}
-
             {/* Username Field */}
             <Input
               type="text"

@@ -367,7 +367,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #M41 deleted-author-convention → todo 257 (completed 2026-07-24, PR #490)
 - [x] #M42 http-caching → todo 261 (completed 2026-07-26)
 - [x] #L1 anon-reaction-counts → todo 257 (completed 2026-07-24, PR #491; shipped Wave 1 #473, test-proven)
-- [ ] #L2 onboarding-empty-states → todo 278 (re-pointed 2026-07-24; deferred from 259 — "L", no AC, needs backend Wagtail work)
+- [x] #L2 onboarding-empty-states → todo 278 (completed 2026-07-30)
 - [x] #L4 markdown-board-picker → todo 259 (completed 2026-07-24)
 - [x] #L5 badges-gamification → todo 257 (completed 2026-07-24, PR #491; styled trust badge satisfies; fuller gamification deferred per the finding's own guidance)
 - [x] #L6 blog-md-doc-drift → todo 255 (completed 2026-07-20, slice 1)

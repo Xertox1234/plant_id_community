@@ -84,4 +84,55 @@ describe('DiseaseDiagnosePage', () => {
     render(<DiseaseDiagnosePage />);
     expect(screen.getByRole('button', { name: /diagnose/i })).toBeDisabled();
   });
+
+  // Audit M26 (todo 278). The failure text lands in a live region that was
+  // already in the DOM — a region mounted together with its content generally
+  // announces nothing.
+  it('swaps the error into a live region that was already mounted', async () => {
+    vi.mocked(diseaseService.submitDiagnosis).mockResolvedValue({
+      request_id: 'r3',
+      status: 'failed',
+    });
+    vi.mocked(diseaseService.getDiagnosisResults).mockResolvedValue({
+      request_id: 'r3',
+      status: 'failed',
+      results: [],
+    });
+
+    const { container } = render(<DiseaseDiagnosePage />);
+
+    const region = container.querySelector('[aria-live="assertive"]');
+    expect(region).toBeInTheDocument();
+    expect(region).toHaveTextContent('');
+    expect(region).toHaveClass('sr-only');
+
+    await userEvent.upload(
+      screen.getByLabelText('upload'),
+      new File(['i'], 'a.jpg', { type: 'image/jpeg' })
+    );
+    await userEvent.type(screen.getByLabelText(/symptoms/i), 'wilting');
+    await userEvent.click(screen.getByRole('button', { name: /diagnose/i }));
+
+    await waitFor(() => expect(region).toHaveTextContent(/diagnosis unavailable/i));
+    // Same node, not a remount — the property the whole migration turns on.
+    expect(container.querySelector('[aria-live="assertive"]')).toBe(region);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  // Tailwind v4 implements space-y as margin-BOTTOM on `:not(:last-child)`, so
+  // appending an always-mounted region after the button silently gave the
+  // button 24px of trailing whitespace in the idle state. The region shares a
+  // wrapper with the button now; this pins that the container's direct-child
+  // list is unchanged, which is the thing that regressed.
+  it('keeps the live region out of the space-y child list', () => {
+    const { container } = render(<DiseaseDiagnosePage />);
+
+    const spaced = container.querySelector('.space-y-6');
+    const region = container.querySelector('[aria-live="assertive"]');
+    expect(spaced).toBeInTheDocument();
+    expect(region?.parentElement).not.toBe(spaced);
+    // And the button is still the last element in its own slot, so nothing
+    // downstream of it picks up a margin it did not have before.
+    expect(spaced?.lastElementChild?.contains(region!)).toBe(true);
+  });
 });

@@ -92,6 +92,29 @@ describe('LoginPage', () => {
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
   });
 
+  // Audit M26 (todo 278): the server-error banner is a persistent live region.
+  // The content-swap — same node, new text — is what makes a screen reader
+  // announce it; the conditional mount it replaced generally announces nothing.
+  it('swaps the server error into a live region that was already mounted', async () => {
+    mockLogin.mockResolvedValue({
+      success: false,
+      error: { message: 'Invalid email or password.', code: AuthErrorCode.INVALID_CREDENTIALS },
+    });
+    const { container } = renderLoginPage();
+
+    const region = container.querySelector('[aria-live="assertive"]');
+    expect(region).toBeInTheDocument();
+    expect(region).toHaveTextContent('');
+
+    fillForm('test@example.com', 'somepassword');
+    submit();
+
+    await waitFor(() => expect(region).toHaveTextContent('Invalid email or password.'));
+    // Still the same element — not a remount.
+    expect(container.querySelector('[aria-live="assertive"]')).toBe(region);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('renders a "Sign in with Google" button alongside the password form', () => {
     renderLoginPage();
 

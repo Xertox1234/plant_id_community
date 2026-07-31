@@ -16,7 +16,20 @@ export interface Category {
   thread_count?: number;
   post_count?: number;
   created_at: string;
+  /** ISO timestamp of the newest live topic's activity; null when nobody has posted. */
+  last_post_at?: string | null;
   children?: Category[];
+}
+
+/**
+ * The forum home payload — boards plus the `ForumIndex` welcome copy the CMS
+ * owns. One backend response (`GET boards/`), because both render on the same
+ * screen and always change together (todo 278 L2).
+ */
+export interface ForumIndexPayload {
+  categories: Category[];
+  /** Sanitized HTML from the CMS; `''` when no intro is set. */
+  intro: string;
 }
 
 /**

@@ -87,19 +87,34 @@ export default function DiseaseDiagnosePage() {
           />
         </div>
 
-        <button
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          className="px-8 py-3 bg-clay text-on-clay rounded-lg font-medium hover:bg-clay/90 disabled:bg-surface-3 disabled:cursor-not-allowed transition-colors"
-        >
-          {loading ? 'Diagnosing…' : 'Diagnose'}
-        </button>
+        {/* Button + live region share ONE `space-y-6` slot, deliberately.
+            Tailwind v4 implements space-y as `:where(.space-y-6 >
+            :not(:last-child)) { margin-block-end }` — margin-BOTTOM on every
+            child but the last, not v3's margin-top on `:not(:first-child)`.
+            An always-mounted region appended after the button would therefore
+            stop the button being `:last-child` in the idle state and give it
+            24px of trailing whitespace out of nowhere (measured). Wrapping the
+            pair keeps the container's child list exactly as it was, and the
+            region carries its own `mt-6` so the visible spacing is unchanged. */}
+        <div>
+          <button
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            className="px-8 py-3 bg-clay text-on-clay rounded-lg font-medium hover:bg-clay/90 disabled:bg-surface-3 disabled:cursor-not-allowed transition-colors"
+          >
+            {loading ? 'Diagnosing…' : 'Diagnose'}
+          </button>
 
-        {error && (
-          <div className="bg-error/10 border border-error/30 rounded-lg p-4" role="alert">
+          {/* Persistent live region, text swaps in place (audit M26) — a
+              conditionally-mounted `role="alert"` is generally not announced. */}
+          <div
+            aria-live="assertive"
+            aria-atomic="true"
+            className={error ? 'mt-6 bg-error/10 border border-error/30 rounded-lg p-4' : 'sr-only'}
+          >
             <p className="text-sm text-error">{error}</p>
           </div>
-        )}
+        </div>
 
         {results && (
           <div className="pt-4 border-t border-line">

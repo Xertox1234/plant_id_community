@@ -2478,3 +2478,64 @@ enumerated, not one sample — and every control in a mutation check must be a t
 that actually exercises the code path, or it is decoration. Also: an agent
 reviewer contradicting a claim you measured yourself is worth re-measuring before
 defending; here the reviewer was simply right.
+
+## 2026-07-30 — Sanitizing the output of something that already did the work (todo 278)
+
+**What broke.** Serializing a Wagtail `RichTextField` to a public API, the chain
+was `expand_db_html(html)` → `nh3.clean(...)` with a tight allowlist. It reads
+like defense in depth. It is not, because `expand_db_html` is not a pure string
+transform — it *resolves* `<embed>` placeholders by doing work:
+`embedtype="media"` calls the oEmbed finder, which does `requests.get(endpoint,
+params=..., headers=...)` with **no `timeout=`**; `embedtype="image"` builds a
+real rendition (PIL resize, storage write, DB row). The nh3 pass then dropped
+the resulting `<iframe>`/`<img>` — after every one of those costs had been paid.
+On `/forum/boards/` (public, unauthenticated, CDN-fronted) an unreachable
+provider hangs the request, and a failed oEmbed raises before
+`update_or_create`, so nothing is cached and every miss pays again.
+
+**Generalizes to:** *sanitizing the output only controls the output.* Whenever
+the thing you sanitize is produced by a function that touches the network, the
+filesystem, or the DB, the allowlist is downstream of the danger and the order is
+the bug. Ask what the producer DOES, not just what it returns. The fix shape is a
+pre-pass that removes the dangerous constructs before the producer sees them —
+here, strip `<embed>` while keeping `a[linktype][id]` so links still resolve.
+
+Secondary: `RichTextField(features=[...])` is the editor-side half only. It
+controls the toolbar, not what a fixture, an import, or a direct DB write can
+store. Worth setting (a button whose output silently vanishes is its own bug),
+never worth relying on. Wagtail's DEFAULT features include `embed` and `image`,
+so an unrestricted field is opted in.
+
+## 2026-07-30 — Reasoning from the wrong major version, and the test that would have caught it (todo 278)
+
+**What broke.** Migrating conditional `role="alert"` nodes to persistent
+`aria-live` regions, I reasoned about layout impact using Tailwind **v3**'s
+`space-y` (`margin-top` on `:not(:first-child)`), concluded a region appended
+after a button was safe because it was not the *first* child, and cleared it.
+The project is on Tailwind **v4**, where the emitted rule is:
+
+```css
+:where(.space-y-6 > :not(:last-child)) { margin-block-end: … }
+```
+
+margin-BOTTOM on all but the LAST child. Appending the region stopped the
+*button* matching `:last-child`, giving it 24px of trailing whitespace in the
+idle state. `sr-only` (absolutely positioned) means the new node costs no layout
+itself — but the sibling-margin selector still matches it, so the element BEFORE
+it moves. An agent reviewer caught it and I confirmed by compiling the project's
+own Tailwind and reading the rule.
+
+**Generalizes to:** a confident mental model of a utility framework is a
+version-pinned fact, not a durable one. When a change hinges on the exact CSS a
+class emits, emit it (`npx @tailwindcss/cli -i in.css -o out.css --content
+probe.html`) and read it. Same for the a11y half of this: a "persistent" live
+region is only persistent if no ANCESTOR is conditional — `{err && <p
+role="alert">}` moved inside `{(a || b) && (…)}` is the same anti-pattern
+wearing a different hat.
+
+**The strongest signal in the whole round:** of the seven migrated sites, the two
+that shipped defects were exactly the two that shipped without a
+region-is-mounted-and-empty-before-the-action test. `findByText` after the
+triggering action passes whether or not the region pre-existed, so it cannot
+distinguish the fix from the bug. Where a test can't tell right from wrong, the
+wrong one ships — and no amount of careful reading substitutes.

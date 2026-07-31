@@ -131,3 +131,22 @@ Compact checklist auto-injected before edits. Long-form:
   because `pytest.ini` only silences Deprecation warnings, not `RuntimeWarning`.
   Before deleting a declarative field, grep the INSTALLED framework for the
   attribute name, and pin the behaviour with an admin-listing test (todo 276 L8).
+- **`expand_db_html` has SIDE EFFECTS — sanitize before it, not only after.**
+  Wagtail's DB rich-text representation carries `<embed>` placeholders that the
+  expander resolves by *doing work*: `embedtype="media"` calls the oEmbed finder,
+  which does `requests.get(...)` with **no `timeout=`** (verified in
+  `wagtail/embeds/finders/oembed.py`), and `embedtype="image"` generates a real
+  rendition (PIL resize + storage write + DB row). Sanitizing only the OUTPUT
+  discards the `<iframe>`/`<img>` while still paying for it — the allowlist looks
+  like a control but is not one. On a public, unauthenticated, CDN-fronted
+  endpoint an unreachable provider hangs the request, and a failed oEmbed fetch
+  caches nothing, so every cache miss pays again. Strip embeds in a pre-pass
+  (keep `a[linktype][id]` so page/document links still resolve), THEN expand,
+  THEN sanitize the output.
+  Pair it with `RichTextField(features=[...])` that excludes `image`/`embed` —
+  but do not rely on `features` alone: it governs the editor toolbar, not what a
+  fixture, an import, or a direct DB write can put in the column. Note Wagtail's
+  DEFAULT feature set includes both (`bold, document-link, embed, h2-h4, hr,
+  image, italic, link, ol, ul` — no `blockquote`), so an unrestricted
+  `RichTextField` is opted IN. Adding `features` needs no migration; it is not
+  part of the field's deconstruct. Hit in todo 278 (`ForumIndex.intro`).

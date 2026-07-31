@@ -118,6 +118,24 @@ describe('CategoryCard', () => {
     // Description should not be rendered
   });
 
+  it('shows a last-activity timestamp when the board has activity (audit L2)', () => {
+    const lastPost = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    renderCategoryCard(createMockCategory({ last_post_at: lastPost }));
+
+    const time = screen.getByText(/hours ago/i);
+    expect(time.tagName).toBe('TIME');
+    expect(time).toHaveAttribute('datetime', lastPost);
+    // The absolute date is what a screen reader gets — a bare "2 hours ago"
+    // is meaningless out of context (audit L12).
+    expect(time).toHaveAttribute('aria-label', expect.stringContaining('Last activity'));
+  });
+
+  it('says so in words when a board has no activity yet', () => {
+    renderCategoryCard(createMockCategory({ last_post_at: null }));
+
+    expect(screen.getByText('No activity yet')).toBeInTheDocument();
+  });
+
   it('category name heading is rendered inside the clickable link', () => {
     const category = createMockCategory({ name: 'Plant Care' });
     renderCategoryCard(category);

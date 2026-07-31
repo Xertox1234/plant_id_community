@@ -13,6 +13,8 @@ export interface BackendBoard {
   description?: string;
   topic_count?: number;
   post_count?: number;
+  /** Newest live topic's activity; null for a board nobody has posted in. */
+  last_post_at?: string | null;
 }
 
 export interface BackendTopicListItem {
@@ -154,6 +156,7 @@ export function mapBoardToCategory(b: BackendBoard): Category {
     thread_count: b.topic_count ?? 0,
     post_count: b.post_count ?? 0,
     created_at: '',
+    last_post_at: b.last_post_at ?? null,
   };
 }
 

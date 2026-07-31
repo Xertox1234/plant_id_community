@@ -153,17 +153,25 @@ export default function LoginPage() {
 
         {/* Login Form */}
         <div className="bg-surface-2 shadow-sm border border-line rounded-lg p-8">
+          {/* Server Error — a persistent live region whose text swaps (audit
+              M26). A conditionally-mounted `role="alert"` is generally NOT
+              announced: the region has to be in the DOM before its content
+              changes. Deliberately OUTSIDE the form's `space-y-6` — an
+              always-present first child would give the first field a 1.5rem
+              top margin it never had, so the empty state carries its own
+              `mb-6` instead. */}
+          <div
+            aria-live="assertive"
+            aria-atomic="true"
+            className={
+              serverError
+                ? 'mb-6 p-4 bg-error/10 border border-error rounded-lg text-ink text-sm'
+                : 'sr-only'
+            }
+          >
+            {serverError}
+          </div>
           <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-            {/* Server Error */}
-            {serverError && (
-              <div
-                className="p-4 bg-error/10 border border-error rounded-lg text-ink text-sm"
-                role="alert"
-              >
-                {serverError}
-              </div>
-            )}
-
             {/* Email Field */}
             <Input
               type="email"

@@ -6,6 +6,15 @@ import { FallbackProps } from 'react-error-boundary';
  *
  * Displayed when an error is caught by the ErrorBoundary.
  * Provides user-friendly error message and recovery options.
+ *
+ * The `role="alert"` below is the ONE site the M26 sweep (todo 278)
+ * deliberately left on the conditional-mount pattern. Both escapes are closed
+ * here: `useAnnounce` is unreachable because this fallback is mounted OUTSIDE
+ * `AnnouncerProvider` in `main.tsx` (by construction — a provider inside the
+ * boundary is exactly what a crash takes down), and a persistent live region
+ * is impossible because react-error-boundary replaces the entire subtree, so
+ * every node in this tree is new. What makes that acceptable: the fallback is
+ * a full-page takeover with an `<h1>`, not a banner beside surviving content.
  */
 export function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
   const handleReload = useCallback(() => {

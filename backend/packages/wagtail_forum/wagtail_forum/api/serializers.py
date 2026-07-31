@@ -203,9 +203,23 @@ CAPABILITIES_SCHEMA = {
 
 
 class BoardSerializer(serializers.ModelSerializer):
+    # Annotated by BoardListView.get_queryset — the newest live topic's
+    # activity timestamp, so the board list can show "last active" without a
+    # per-board round-trip (todo 278 L2). Null for a board nobody has posted
+    # in yet; the only caller is BoardListView, which always annotates it.
+    last_post_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
     class Meta:
         model = ForumBoard
-        fields = ["id", "title", "slug", "description", "topic_count", "post_count"]
+        fields = [
+            "id",
+            "title",
+            "slug",
+            "description",
+            "topic_count",
+            "post_count",
+            "last_post_at",
+        ]
 
 
 class TopicListSerializer(serializers.ModelSerializer):

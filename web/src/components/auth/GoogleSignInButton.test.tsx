@@ -76,4 +76,25 @@ describe('GoogleSignInButton', () => {
 
     expect(screen.getByRole('button', { name: 'Sign in with Google' })).toBeDisabled();
   });
+
+  // Audit M26 (todo 278): the failure message swaps into a region that was
+  // already mounted. `findByText` alone would pass either way, so this asserts
+  // node identity — a remounted region announces nothing.
+  it('swaps the error into a live region that was already mounted', async () => {
+    mockGetGoogleOAuthUrl.mockRejectedValue(new Error('boom'));
+    const { container } = render(<GoogleSignInButton />);
+
+    const region = container.querySelector('[aria-live="assertive"]');
+    expect(region).toBeInTheDocument();
+    expect(region).toHaveTextContent('');
+    expect(region).toHaveClass('sr-only');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }));
+
+    await waitFor(() =>
+      expect(region).toHaveTextContent('Could not start Google sign-in. Please try again.')
+    );
+    expect(container.querySelector('[aria-live="assertive"]')).toBe(region);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });
