@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "281"
 tags: [forum, a11y, web, drf, wagtail]
@@ -245,6 +245,21 @@ not hollow:
 assert resp.data["alt"] == ""
 E   AssertionError: assert 'IMG_2481.jpg' == ''
 ```
+
+### 2026-07-31 - Completed by completing-todos skill (run 2026-07-31-1827)
+
+- Verification: all 7 acceptance criteria passed with quoted evidence above.
+- Review: checklist orchestrator returned 0 findings. The deep pass on PR #526
+  found **2 real defects in this PR's own code**, both fixed with regression
+  tests before merge:
+  1. `alt` sent as a FILE part 500'd (`request.data` merges POST and FILES under
+     MultiPartParser, so `.strip()` hit an `UploadedFile`). Now `isinstance(str)`
+     guarded via `_alt_text()`.
+  2. The unmount cleanup never revoked the preview object URL — it revoked
+     inside a `setState` functional updater, which React discards on an
+     unmounting component (measured 0 calls). Now a `useRef`.
+  Both codified as write-time triggers.
+- Shipped as PR #526.
 
 ## Notes
 

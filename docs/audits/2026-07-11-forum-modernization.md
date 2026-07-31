@@ -296,8 +296,9 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H6 solved-accepted-answer → todo 273 (completed 2026-07-31, Wave 2 slice 2;
       re-pointed 2026-07-23 when the roadmap moved solved answers to Wave 2 / not 256).
       Todo 273 closed 2026-07-31 once slice 3 (#M6) landed. The
-      all-findings-resolved rename still must NOT fire on this doc — #M2, #M7,
-      #M8, #M9, #M10 and #M13 remain open against other todos.
+      all-findings-resolved rename still must NOT fire on this doc — #M2, #M8,
+      #M9, #M10 and #M13 remain open against other todos (#M7 closed
+      2026-07-31 via todo 281).
 - [x] #H7 public-user-identity → todo 257 (completed 2026-07-24, PR #492)
 - [x] #H8 search-discoverability-filters → todo 256 (completed 2026-07-23)
 - [x] #H9 seo-surface → todo 256 (completed 2026-07-23)
@@ -326,8 +327,7 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
       snapshot, not the FK the finding implied: the identify endpoint persists
       nothing, so there is no server-side record to reference — see the todo's
       Work Log.
-- [ ] #M7 image-authoring-alt-text → todo 281 (re-pointed 2026-07-26; promoted out
-      of 263 at p2 — a11y, not polish)
+- [x] #M7 image-authoring-alt-text → todo 281 (completed 2026-07-31)
 - [ ] #M8 polls → todo 283 (re-pointed 2026-07-26; promoted out of 263 with M2)
 - [ ] #M9 block-mute → todo 284 (re-pointed 2026-07-26; promoted out of 263)
 - [ ] #M10 private-messaging → todo 284 (re-pointed 2026-07-26; promoted out of 263,
