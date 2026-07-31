@@ -146,6 +146,23 @@ response instead of erroring. A misplaced `return` left the annotation
 unreachable and the endpoint shipped a *missing key*, not a 500. Only an
 explicit `resp.data["is_bookmarked"]` assertion caught it.
 
+**The same DRF trap bit twice — second instance caught in review.** After
+writing the note above, `/me/bookmarks/` shipped with the identical defect:
+`_annotate_topic_unread` was imported and documented ("Both are replicated
+below") but never actually *called*, so the formatter stripped the now-unused
+import and every saved-list row silently lost its `is_unread` key. Nothing
+failed: not the tests (they asserted only `id` and `board`), not the flatness
+pin (no annotation → no cost, so it passed *because* of the bug), not `tsc`
+(the web type declares `is_unread` non-optional, so the client believed it was
+there and just never rendered an unread badge).
+
+Two durable lessons: **(a)** for any read-only field fed by a queryset
+annotation, the test must assert the key's PRESENCE (`"is_unread" in row`),
+not merely its value — a value assertion on a missing key is a different error
+and an absent key is no error at all; **(b)** a docstring claiming an
+annotation is applied is not evidence that it is. Fixed with the call, the
+import re-added in the same edit, and `test_me_bookmarks_rows_carry_is_unread`.
+
 **Verification:** full backend `pytest --create-db` → `1472 passed, 0 failed, 8
 skipped`. Full web `vitest run` → `821 passed`. `manage.py spectacular` exit 0
 with all three bookmark surfaces in the schema. Query pins verified by

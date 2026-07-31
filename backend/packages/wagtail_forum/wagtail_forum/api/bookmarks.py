@@ -16,7 +16,12 @@ from ..models import Topic, TopicBookmark
 from .pagination import BookmarkCursorPagination
 from .serializers import BookmarkedTopicSerializer
 from .versioning import UnversionedForumAPIMixin
-from .views import _get_visible_topic, _visible_boards, extend_schema
+from .views import (
+    _annotate_topic_unread,
+    _get_visible_topic,
+    _visible_boards,
+    extend_schema,
+)
 
 BOOKMARK_SCHEMA = {
     "type": "object",
@@ -79,7 +84,7 @@ class MeBookmarkListView(UnversionedForumAPIMixin, generics.ListAPIView):
         if getattr(self, "swagger_fake_view", False):
             return Topic.objects.none()
         user = self.request.user
-        return (
+        qs = (
             Topic.objects.filter(
                 bookmarks__user=user,
                 # Visibility-gated like every other topic read: a topic hidden
@@ -112,6 +117,12 @@ class MeBookmarkListView(UnversionedForumAPIMixin, generics.ListAPIView):
                 )
             )
         )
+        # NOT optional. `is_unread` is a plain read-only BooleanField on the
+        # inherited TopicListSerializer, and DRF SKIPS such a field silently
+        # when its attribute is missing — so without this the key simply
+        # vanishes from every row, with no error anywhere. Pinned by
+        # test_me_bookmarks_rows_carry_is_unread.
+        return _annotate_topic_unread(qs, user)
 
     @extend_schema(
         description="List the authenticated user's bookmarked topics, "

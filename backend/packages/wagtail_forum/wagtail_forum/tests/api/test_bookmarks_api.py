@@ -4,10 +4,18 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 from rest_framework.test import APIClient
 from wagtail.models import Page, PageViewRestriction
 from wagtail_forum.api.bookmarks import MeBookmarkListView
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic, TopicBookmark
+from wagtail_forum.models import (
+    ForumBoard,
+    ForumIndex,
+    Post,
+    Topic,
+    TopicBookmark,
+    TopicRead,
+)
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
@@ -219,6 +227,75 @@ def test_me_bookmarks_omits_a_topic_that_became_invisible():
     assert [row["id"] for row in resp.data["results"]] == [visible.id]
     # The rows themselves are untouched — this is a read filter, not a purge.
     assert TopicBookmark.objects.filter(user=user).count() == 3
+
+
+@pytest.mark.django_db
+def test_me_bookmarks_rows_carry_is_unread():
+    """The saved list serves a subclass of TopicListSerializer, whose
+    `is_unread` is a plain read-only BooleanField fed by the view's
+    `_annotate_topic_unread`. DRF SKIPS such a field silently when its
+    attribute is missing, so dropping that call does not raise — the key just
+    vanishes from every row, `tsc` still believes it is there, and the badge
+    quietly never renders. Assert PRESENCE explicitly, not just the value.
+    """
+    user = User.objects.create_user(username="bm-unread")
+    board = _board("bm-unread-b")
+    topic = _topic("bm-unread-t", board=board)
+    # Real activity: `is_unread` compares last_post_at against the viewer's
+    # baseline, and a topic with a NULL last_post_at yields NULL (not False),
+    # which would make this test pass for the wrong reason.
+    topic.last_post_at = timezone.now()
+    topic.save(update_fields=["last_post_at"])
+    TopicBookmark.add(user, topic)
+
+    client = APIClient()
+    client.force_authenticate(user)
+    row = client.get("/forum/me/bookmarks/").data["results"][0]
+
+    assert "is_unread" in row
+    # A topic the viewer has never opened, active since the launch baseline,
+    # is unread — so this also proves the annotation is the real chain and not
+    # a constant.
+    assert row["is_unread"] is True
+
+    TopicRead.objects.create(user=user, topic=topic, last_read_at=timezone.now())
+    refreshed = client.get("/forum/me/bookmarks/").data["results"][0]
+    assert refreshed["is_unread"] is False
+
+
+@pytest.mark.django_db
+def test_me_bookmarks_cursor_pages_through_without_gaps_or_duplicates():
+    """BookmarkCursorPagination orders on `bookmarked_at`, a Subquery
+    annotation that DRF's cursor also puts in a WHERE clause to seek. A
+    3-row test never crosses the 20-row page boundary, so it cannot exercise
+    that seek at all — this creates 21 and actually follows `next`.
+    """
+    user = User.objects.create_user(username="bm-cursor")
+    board = _board("bm-cursor-b")
+    topics = [_topic(f"bm-cursor-{i}", board=board) for i in range(21)]
+    for topic in topics:
+        TopicBookmark.add(user, topic)
+
+    client = APIClient()
+    client.force_authenticate(user)
+    first = client.get("/forum/me/bookmarks/")
+
+    assert first.status_code == 200
+    assert len(first.data["results"]) == 20
+    assert first.data["next"]
+
+    second = client.get(first.data["next"])
+
+    assert second.status_code == 200, second.data
+    seen = [row["id"] for row in first.data["results"]] + [
+        row["id"] for row in second.data["results"]
+    ]
+    # Every bookmark appears exactly once across the two pages.
+    assert len(seen) == 21
+    assert len(set(seen)) == 21
+    assert set(seen) == {topic.id for topic in topics}
+    # Newest-saved first still holds ACROSS the boundary, not just within a page.
+    assert seen == [topic.id for topic in reversed(topics)]
 
 
 @pytest.mark.django_db
