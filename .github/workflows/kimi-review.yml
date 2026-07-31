@@ -1,10 +1,16 @@
 name: kimi-review
 
-# Server-side code-review gate. Runs the vendored kimi-review CLI over each PR
-# diff with Tier B agentic verification; a verified CRITICAL finding (engine exit
-# code 2) fails the check so branch protection blocks the merge. Unlike the local
-# pre-commit hook, this runs for every contributor regardless of whether they have
-# the kimi-review CLI installed.
+# Server-side code review. Runs the vendored kimi-review CLI over each PR diff
+# with Tier B agentic verification; a verified CRITICAL finding (engine exit code
+# 2) fails this job. Unlike the local pre-commit hook, it runs for every
+# contributor regardless of whether they have the kimi-review CLI installed.
+#
+# Advisory, not a merge gate (corrected 2026-07-30). The job declares no `name:`,
+# so its status context is `kimi-review`, which is NOT among main's required
+# status checks — a failure here does not block a merge. It is also inert today:
+# no `OPENROUTER_API_KEY` repository secret exists, so the run self-skips at the
+# guard below. Wiring it up as a real gate means adding that secret AND adding
+# `kimi-review` to the required contexts.
 
 on:
   pull_request:

@@ -60,7 +60,8 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   — one knob covers all three views (and any future one). `SERVE_INCLUDE_SCHEMA=False`
   does NOT gate them (it only hides the schema's own path). Surfaced in prod (todo 248).
 - **Don't trust `claude-code-security-review`'s own `results-file`/`findings-count`
-  step outputs.** The action's composite step hardcodes `results-file` to a stale
+  step outputs.** *(Retired 2026-07-30 — the action was removed from CI for cost;
+  kept here in case it is ever reinstated.)* The action's composite step hardcodes `results-file` to a stale
   relative-path string it never updates, and captures the script's own internal
   severity exit code into a shell variable without ever re-raising it — the job
   always exits success regardless of findings. Read
