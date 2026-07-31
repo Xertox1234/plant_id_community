@@ -196,3 +196,30 @@ Compact checklist auto-injected before edits.
   is what exposed it (neuter the guard, expect red); a status-only assertion on an
   endpoint with layered validation is close to a tautology. Assert the specific
   error text so the test fails for the reason it claims (todo 276).
+- **Mutation-verify any test that claims to pin behavior X: break X, expect red,
+  restore.** "It passes" only proves the test runs. Three tests this project
+  shipped as coverage turned out to pin nothing, and each was found this way, not
+  by reading: a query-count test that hand-rolled its own `get_or_create` instead
+  of calling the production function (correct by construction, so it could never
+  fail); a Flutter epoch-guard test satisfied by a *different* arm of an `and`
+  (the uid check, which sign-out breaks anyway — so the generation bump could be
+  deleted silently); a 400-status test that a second validator also satisfied.
+  Restore the source and re-run before proceeding; assert `git status` is clean.
+  Where the same mutation is worth re-running, script it (see todo 288's Work Log
+  for a 6-mutant loop) rather than hand-editing.
+- **A test that reimplements the call it is testing is hollow by construction.**
+  Copying the production `get_or_create(defaults={...})`/request/lambda into the
+  test body and asserting on *that* proves only that your copy is correct — the
+  real call site can regress freely. Drive the production function and assert on
+  its observable effect (captured queries, recorded calls, response), even when
+  that means a looser assertion: `assert not [q for q in captured if user_table
+  in q["sql"]]` beats an exact count over a hand-rolled call. Two independent
+  reviewers flagged the same instance of this in todo 285.
+- **`Model.objects.filter(pk=…).update(field=…)` does not touch your in-memory
+  instance — and `force_authenticate(instance)` hands THAT object to the view.**
+  So a test that backdates `date_joined` (or flips any field) with `.update()`
+  and then authenticates the stale object silently exercises the pre-change
+  value and asserts nothing. Add `instance.refresh_from_db()` with a comment
+  saying it is load-bearing. Cost a full debugging cycle in todo 285; the test
+  failed with a *plausible* message ("a single read collapsed the whole
+  backlog"), which reads like a real bug rather than a broken fixture.

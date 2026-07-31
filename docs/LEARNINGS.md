@@ -2589,3 +2589,91 @@ Edit/Write calls against repo files, and the load-bearing half of this is a
 `gh api` action against repo settings, which is invisible to it (same limitation
 as the 2026-07-14 entry).
 **Agent**: n/a — repo-settings + CI action, not a reviewable application diff.
+
+---
+
+## 2026-07-31 — A background reviewer agent is a second pytest invocation (todo 285)
+
+**What broke.** Mid-way through todo 285, a passing 8-test file started failing
+7 of 8 at *setup* with:
+
+```
+psycopg2.errors.UniqueViolation: duplicate key value violates unique constraint
+  "pg_type_typname_nsp_index"
+DETAIL:  Key (typname, typnamespace)=(wagtailsearch_indexentry, 2200) already exists.
+```
+
+No code had changed between the green run and the red one. The next run
+reported `1 passed` for the same 8 tests.
+
+**Root cause.** A `wagtail-reviewer` subagent had been launched with
+`run_in_background: true`. Reviewer agents have `Bash`, and this one ran the
+test suite to check the diff — concurrently with the foreground run. Both
+`pytest-django` processes raced to create the same test database. This project
+already had the rule "never run two pytest invocations concurrently — they share
+one test DB and produce phantom mass failures"; what was not written down is
+that **a background subagent counts as one of the two**, and it is invisible in
+the shell.
+
+**Fix.** Wait for the background agent, then `--create-db`. The failures
+vanished with no source change, which is itself the tell: a mass failure at
+*setup* with an unchanged diff is infrastructure, not code — do not start
+debugging the diff.
+
+**Second, worse consequence.** The same agent was still running when the
+foreground work moved to the next todo and switched branches. It said so in its
+own output: *"the shared checkout was switched by a concurrent process to a
+different branch, so the new/changed tests in this file were never confirmed to
+execute cleanly against this diff."* Its findings were still real — one was a
+comment at `wagtail_forum/api/views.py` that this exact diff had made false, at
+the precise call site the change lands on — and cost a follow-up commit on an
+already-pushed PR.
+
+**Rules taken from this:**
+
+- A background subagent with `Bash` shares the working tree, the branch, AND the
+  test database. Treat it as a second developer in the same checkout.
+- Run reviewers **synchronously** when the next step is `git checkout`, or do not
+  switch branches until they report. A reviewer that outlives its branch reviews
+  a checkout that no longer matches its diff.
+- Never run pytest while one is outstanding.
+
+**Related:** `docs/LEARNINGS.md` 2026-06-22 (the original `--reuse-db` phantom
+failures), todo 265 (51 fake failures vs a clean 533).
+
+---
+
+## 2026-07-31 — Consolidating duplicated copy can falsify an invariant in a file you never open (todo 287)
+
+**Context.** Todo 287 folded forum notification wording — previously duplicated
+in the email service and the FCM push tray — into one table. A pure refactor,
+no user-facing string changed, full suite green.
+
+**What review found.** The new email path did
+`subject, message = email_content("reply_added", ...)`, unpacking a value whose
+signature says it can be `None`. Unreachable today, so it was left unguarded
+under "don't write speculative branches."
+
+But `apps/forum_host/tasks.py::send_forum_email_batch` justifies its
+`autoretry_for=(OperationalError,)` with an explicit documented invariant: *the
+send loop can never raise*, because email has no collapse-key dedup, so a retry
+after a partial send double-emails everyone. A `TypeError` from that unpack is
+not in `autoretry_for` — it would abort the batch mid-loop and **silently skip
+every remaining recipient**, with no retry and no error surfaced to the
+recipients who never got their email.
+
+**The generalisable lesson.** "Is this branch reachable?" is the wrong question
+when a caller's safety argument depends on the callee never raising. The
+invariant lived in a docstring in a different app, in a file the change never
+opened, and no test could have caught it — the failure needs a table state that
+does not exist yet. Grep the callers of anything you refactor for a stated
+invariant ("can never raise", "always returns", "never blocks") before deciding
+a guard is speculative. Codified as a bullet in `docs/rules/celery.md`.
+
+**Also worth carrying:** deleting a method orphans its resources. Removing three
+uncalled `send_forum_*` methods orphaned `templates/emails/new_forum_topic.html`
+(its only reference was that method's `template_name=`). Two sibling templates
+and their `EmailType` members looked equally orphaned but were NOT — they stay
+wired in `_get_email_template_for_type` and drive preference gating. Sweep for
+residue after a deletion, and verify each candidate rather than deleting by
+association.

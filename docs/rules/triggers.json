@@ -794,5 +794,21 @@
     "source": "codify: forum/todo-276-content-authoring-remainder",
     "added": "2026-07-29",
     "severity": "warn"
+  },
+  {
+    "id": "package-default-manager-host-user",
+    "domains": [
+      "forum",
+      "database"
+    ],
+    "path_glob": [
+      "backend/packages/**/*.py"
+    ],
+    "content_present": "get_user_model\\(\\)\\._default_manager",
+    "message": "Reusable package: use get_user_model()._base_manager, not _default_manager. A host whose User model filters its default manager (soft-delete/active-only) returns None for those rows, and a None-fallback then silently degrades for exactly those accounts. _base_manager is unfiltered by contract.",
+    "pattern_ref": "docs/rules/forum.md",
+    "source": "codify: codify-2026-07-31-p3-sweep",
+    "added": "2026-07-30",
+    "severity": "warn"
   }
 ]

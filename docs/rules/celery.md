@@ -29,3 +29,15 @@ Compact checklist auto-injected before edits. Long-form:
   most 4 distinct collapse keys per offline device, so unique per-post keys
   silently drop all but 4 notifications accumulated offline; a fixed
   per-event key still dedupes the retry-after-timeout case it exists for.
+- **A retry config justified by "this loop can never raise" is load-bearing, and
+  a change to any CALLEE can falsify it from another file.** `send_forum_email_batch`
+  documents that all `OperationalError`-raising DB access happens before the send
+  loop, so `autoretry_for` can only fire before any email is sent — email has no
+  collapse-key dedup, so a retry after a partial send double-emails everyone. A
+  refactor of `notification_service` introduced an unpack that could raise
+  `TypeError` inside that loop: not in `autoretry_for`, so it would abort the
+  batch mid-loop and silently skip every remaining recipient, with no retry.
+  When you edit anything a task's loop calls, re-read the task's docstring for a
+  stated invariant and guard rather than propagate (return a falsy result + log).
+  "Unreachable today" is not a reason to skip the guard when an invariant depends
+  on it (todo 287).

@@ -203,3 +203,58 @@ Handle `409` (a twin still in flight → back off and retry the same key) and
 Reference: `lib/features/forum/services/forum_composer_controller.dart`. Note
 the web client sends no key at all — do not copy that; the backend is built for
 mobile retries. See `docs/rules/flutter.md`.
+
+## Unit-testing an `@riverpod` notifier (todo 288)
+
+Two obstacles bite every notifier harness in this repo. Neither needs a
+production seam.
+
+**1. An autoDispose provider must be held, or it rebuilds under you.**
+
+`container.read(someProvider)` on an autoDispose provider builds the notifier
+and immediately tears it down, so the *next* read builds a SECOND one. If
+`build()` starts async work (`AuthService` fires an unawaited token exchange
+when a user is already signed in), that work lands on a disposed `Ref` and
+throws `Cannot use Ref after dispose` — from a line the test never touched.
+Hold a subscription for the harness's lifetime instead:
+
+```dart
+_subscription = container.listen(
+  authServiceProvider,
+  (_, _) {},
+  fireImmediately: true,
+);
+// ...and in dispose(): _subscription.close(); container.dispose();
+```
+
+One notifier instance, as in the app. Also drain `build()`'s fire-and-forget
+work with `await pumpEventQueue()` before teardown, or it lands post-dispose.
+
+**2. `flutter_secure_storage` has a built-in in-memory platform.**
+
+A notifier that reads or writes tokens throws `MissingPluginException` under
+`flutter test`. Do not add an injection seam for it and do not hand-roll a
+method-channel mock — call the package's own `@visibleForTesting` static in
+`setUp`:
+
+```dart
+setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+```
+
+It installs `TestFlutterSecureStoragePlatform` (shipped in
+flutter_secure_storage 10.x). No extra dependency: reaching for
+`FlutterSecureStoragePlatform.instance` directly would require importing the
+transitive `flutter_secure_storage_platform_interface` package, which trips
+`depend_on_referenced_packages`.
+
+**Assert ordering across collaborators with one shared log.** Give every fake
+the same `List<String> events` and append to it. That is what makes a
+cross-object constraint testable — e.g. `clearOnLogout` must run BEFORE the
+Firebase sign-out that invalidates the JWT its PATCH needs:
+
+```dart
+expect(harness.events, containsAllInOrder(['clearOnLogout', 'firebase.signOut']));
+```
+
+Reference: `test/services/auth_service_test.dart`,
+`test/services/push_registration_service_test.dart`.

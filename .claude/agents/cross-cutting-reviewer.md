@@ -110,6 +110,36 @@ sharpens a rule already there, cite that rule rather than re-flagging it.
       (Firestore owner-scoping and IAM least-privilege are in
       `docs/rules/firebase.md` — audit against Step 1, don't restate here)
 
+**Would this test fail?** (added 2026-07-31; three shipped-as-coverage tests in
+one session pinned nothing)
+
+- [ ] For each NEW test, name the single change that would turn it red. If you
+      cannot, that is the finding — report it as a hollow test even when the
+      assertions look substantive
+- [ ] Does the test body **reimplement** the call it names (a copied
+      `get_or_create(defaults={…})`, request construction, or lambda) instead of
+      invoking the production function? A hand-rolled copy is correct by
+      construction and can never fail — the real call site regresses freely
+- [ ] For a test pinning one arm of a compound condition (`A and B`), could the
+      OTHER arm satisfy it alone? Fakes that clear related state (a sign-out
+      fake nulling `currentUser`) routinely mask the arm under test
+- [ ] For a status-code assertion on an endpoint with layered validation: could
+      a different validator return that same code? Assert the message
+- [ ] Does a fixture use `.update()` and then pass the STALE in-memory instance
+      to `force_authenticate` / a view / a service? The test then exercises the
+      pre-change value
+
+**Refactor blast radius**
+
+- [ ] Grep the callers of anything refactored for a stated invariant in prose
+      ("can never raise", "always returns", "never blocks"). A caller's retry
+      config or error handling may depend on it, from a file the diff never
+      opens — "unreachable today" is not a reason to skip a guard an invariant
+      rests on (`docs/rules/celery.md`)
+- [ ] After deleting a function, sweep for resources only it referenced
+      (templates via `template_name=`, enum members, settings keys) — and verify
+      each candidate individually rather than deleting by association
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

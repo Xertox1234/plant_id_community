@@ -114,3 +114,14 @@ Compact checklist auto-injected before edits. Long-form:
   and clamp rather than trust a configurable bound: `min(get_setting("X"), COLUMN_MAX)`.
   A host raising a setting past the column width must not be able to turn a
   validation error into a server error (todo 276, taggit `Tag.name` VARCHAR(100)).
+- **A `get_or_create(defaults=…)` value that costs a query must be a CALLABLE, not
+  a computed value.** Django resolves callable defaults only inside the
+  `except DoesNotExist` branch (`params = dict(resolve_callables(params))`,
+  `db/models/query.py` — verified against the installed 6.0.7), so
+  `defaults={"x": lambda: expensive_lookup()}` pays nothing on the common
+  already-exists path, while `defaults={"x": expensive_lookup()}` pays on EVERY
+  call. This matters most in signal handlers, where the row usually exists:
+  `wagtail_forum/signals.py::_refresh_profile` runs on every post
+  publish/unpublish. Pin it by driving the production function under
+  `CaptureQueriesContext` and asserting the extra table is untouched — not by
+  copying the `get_or_create` into the test.
