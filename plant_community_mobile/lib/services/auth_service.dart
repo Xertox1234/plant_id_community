@@ -76,15 +76,16 @@ final currentUserIdProvider = Provider<String?>(
 /// ```
 @riverpod
 class AuthService extends _$AuthService {
-  // NO UNIT-TEST HARNESS (pre-existing gap; todo 272 item 6 -> todo 288).
-  // There is no test/services/auth_service_test.dart, so this notifier's three
-  // push-registration wiring points — syncAfterLogin() after a successful JWT
-  // exchange, clearOnLogout() in signOut(), detach() on a signed-out auth
-  // state — plus the _authGeneration epoch guard and the session-expiry
+  // Harness: test/services/auth_service_test.dart (todo 288, closed 2026-07-31)
+  // pins this notifier's three push-registration wiring points —
+  // syncAfterLogin() after a successful JWT exchange, clearOnLogout() in
+  // signOut(), detach() on a signed-out auth state — plus their ORDER
+  // (clearOnLogout must precede the Firebase sign-out that invalidates the
+  // JWT it needs), the _authGeneration epoch guard, and the session-expiry
   // exemption for signOut()'s own FCM-clear PATCH (ApiService
-  // .skipSessionExpiryKey, see _handleSessionExpired) are pinned only
-  // indirectly, by PushRegistrationService's own tests and the on-device E2E.
-  // A harness built on the firebaseAuth seam below would pin them directly.
+  // .skipSessionExpiryKey, see _handleSessionExpired). Every one of those was
+  // verified to fail the suite when removed, so treat a red test here as a
+  // real regression, not harness noise.
   //
   // Protected getter allows test subclasses to inject a mock FirebaseAuth
   // without triggering Firebase.initializeApp() at construction time.
