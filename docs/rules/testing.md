@@ -237,3 +237,13 @@ Compact checklist auto-injected before edits.
   creations. Todo 282's image pin first failed `10 query(s) for 1 image, 22 for
   4` — a convincing N+1 that was measurement error. Warm EVERY request whose
   count you compare (not just one), so the pin covers the steady state.
+- **A blanket `return_value=` on a shared helper stops expressing intent the
+  moment the code under test calls that helper twice.** `@patch(peek_budget,
+  return_value=False)` meant "the verdict budget ran out" when there was one
+  budget check; todo 280 added a second `peek_budget` call for a different
+  counter with the OPPOSITE posture, and the same mock silently came to mean
+  "both counters are exhausted". Key the mock on its arguments instead — a
+  `side_effect=lambda key, limit: key != THE_ONE_I_MEAN`. This diff was lucky:
+  the test asserted publish and went red. A test asserting the fail-closed side
+  would have gone **green for the wrong reason**. Whenever you add a call to an
+  already-mocked shared helper, re-read every blanket mock of it.
