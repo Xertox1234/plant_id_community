@@ -247,6 +247,31 @@ Developer account → uploaded to Firebase console → Distribution archive →
 TestFlight device push. Nothing further can be verified locally without an Apple
 Developer Program membership.
 
+### 2026-07-31 - Run terminated `skip-todo` by operator decision
+
+The code half shipped as PR #529 (commits `a2db795`, `1c419ec`). The todo stays
+**open and unarchived** — 4 of 5 acceptance criteria are unmet, and per
+`completing-todos` acceptance criteria are gospel: there is no force-complete.
+
+Offered the operator three paths (do the portal work now and let the run retry
+AC1/AC3 / `skip-todo` / add `DEVELOPMENT_TEAM` first). **Chose `skip-todo`.**
+
+Correction to an earlier statement in this log's first pass: the operator *is*
+in the Apple Developer Program. The initial "no provisioning profiles" reading
+was wrong — it checked the legacy `~/Library/MobileDevice/Provisioning Profiles/`
+path instead of Xcode's actual
+`~/Library/Developer/Xcode/UserData/Provisioning Profiles/`. The corrected
+finding is above; the conclusion (AC1/AC3/AC4 unreachable here) survived, but for
+a narrower reason.
+
+**To resume:** do AC3 first (enable Push Notifications on the App ID for
+`com.plantcommunity.plantCommunityMobile`, create the APNs auth key, upload it to
+the Firebase console), then create an Apple Distribution cert + App Store
+profile, then AC1 (`flutter build ipa --release` + `codesign -d --entitlements`),
+then AC4 (TestFlight device push). AC5 ticks last. `DEVELOPMENT_TEAM` =
+`3442937R38` will need adding to the pbxproj for automatic signing — deliberately
+left out of scope here.
+
 ## Notes
 
 Deliberately NOT fixed during todo 272's closure: flipping the string with no
