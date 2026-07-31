@@ -205,11 +205,14 @@ narrower than "no account". What is missing is push provisioning *for this app*:
 - `DEVELOPMENT_TEAM` is still absent from the pbxproj (0 occurrences), so
   automatic signing has no team to resolve against.
 
-Consequence for AC1: a profile without `aps-environment` cannot sign a binary
-that requests it — the build fails with "provisioning profile doesn't include
-the aps-environment entitlement". So enabling Push on the App ID (AC3's
-territory) is a hard prerequisite for AC1, not a parallel task. The correct
-order is AC3 → AC1 → AC4.
+Consequence for AC1: the primary gap is that **no provisioning profile for
+`com.plantcommunity.plantCommunityMobile` exists at all** — the four decoded
+above were never candidates for signing this app. Beyond that, whatever profile
+is created must carry `aps-environment`, because a profile lacking it cannot
+sign a binary requesting it ("provisioning profile doesn't include the
+aps-environment entitlement"), and that requires Push Notifications enabled on
+the App ID — AC3's territory. So AC3 is a hard prerequisite for AC1, not a
+parallel task. The correct order is AC3 → AC1 → AC4.
 
 **Not attempted deliberately:** driving Xcode automatic signing to mint a
 Distribution certificate + App Store profile. That mutates the operator's Apple
