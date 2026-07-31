@@ -586,7 +586,13 @@ def test_delete_query_count_is_pinned():
     # 32 -> 33 (audit 2026-07-11 M15): attributed unpublish (user=request.user)
     # adds ONE `SELECT 1 FROM auth_user` existence check before the log-entry
     # INSERT — Wagtail's log writer guards against deleted users.
-    assert len(ctx.captured_queries) == 33, len(ctx.captured_queries)
+    # 33 -> 34 (audit H6): the `unpublished` receiver clears any topic whose
+    # accepted answer this post was — one UPDATE against the indexed
+    # `solved_post_id` FK column. Deliberately unconditional rather than
+    # SELECT-then-maybe-UPDATE: the guarded form costs the same query on the
+    # common path and adds a race, and this runs only on the (rare) moderation
+    # path, never on a read.
+    assert len(ctx.captured_queries) == 34, len(ctx.captured_queries)
 
 
 def test_edit_query_count_is_pinned():

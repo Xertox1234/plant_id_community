@@ -1582,6 +1582,13 @@ class SearchView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
                         # board list, whose 📌 badge could never fire without it.
                         # Free: t is already loaded, no extra query.
                         "is_pinned": t.is_pinned,
+                        # Same reasoning as is_pinned directly above, for the
+                        # Solved badge (audit H6): SearchPage renders the same
+                        # ThreadCard as the board list, so omitting this would
+                        # silently show every search hit as unsolved rather
+                        # than fail. Free — t is already loaded, no extra query
+                        # and no join (the state is a plain column).
+                        "is_solved": t.solved_post_id is not None,
                         "last_post_at": (
                             t.last_post_at.isoformat() if t.last_post_at else None
                         ),

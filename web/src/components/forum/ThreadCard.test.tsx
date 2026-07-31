@@ -66,6 +66,18 @@ describe('ThreadCard', () => {
     expect(screen.getByText(/📌.*pinned/i)).toBeInTheDocument();
   });
 
+  it('renders a Solved badge when the thread has an accepted answer', () => {
+    renderThreadCard(createMockThread({ is_solved: true }));
+
+    expect(screen.getByText(/solved/i)).toBeInTheDocument();
+  });
+
+  it('omits the Solved badge on an unsolved thread', () => {
+    renderThreadCard(createMockThread({ is_solved: false }));
+
+    expect(screen.queryByText(/solved/i)).not.toBeInTheDocument();
+  });
+
   it('renders locked badge when thread is locked', () => {
     const thread = createMockThread({ is_locked: true });
 

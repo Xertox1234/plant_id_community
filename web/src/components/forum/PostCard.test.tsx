@@ -594,4 +594,71 @@ describe('PostCard', () => {
     expect(screen.queryByRole('button', { name: /add reaction/i })).not.toBeInTheDocument();
     expect(screen.queryByText('👍')).not.toBeInTheDocument();
   });
+
+  // --- Accepted answer (audit H6)
+
+  it('labels the accepted answer in text, not by colour alone', () => {
+    render(
+      <BrowserRouter>
+        <PostCard post={createMockPost()} isSolution />
+      </BrowserRouter>
+    );
+
+    expect(screen.getByText(/accepted answer/i)).toBeInTheDocument();
+  });
+
+  it('shows no accepted-answer label on an ordinary post', () => {
+    render(
+      <BrowserRouter>
+        <PostCard post={createMockPost()} />
+      </BrowserRouter>
+    );
+
+    expect(screen.queryByText(/accepted answer/i)).not.toBeInTheDocument();
+  });
+
+  it('offers no mark-as-answer control without a handler', () => {
+    // The handler's presence IS the permission gate — the thread page passes it
+    // only when the backend says this viewer may mark.
+    render(
+      <BrowserRouter>
+        <PostCard post={createMockPost()} />
+      </BrowserRouter>
+    );
+
+    expect(screen.queryByRole('button', { name: /mark as answer/i })).not.toBeInTheDocument();
+  });
+
+  it('calls onToggleSolution with the post when marking', () => {
+    const post = createMockPost();
+    const onToggleSolution = vi.fn();
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onToggleSolution={onToggleSolution} />
+      </BrowserRouter>
+    );
+
+    const button = screen.getByRole('button', { name: /mark as answer/i });
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(button);
+
+    expect(onToggleSolution).toHaveBeenCalledWith(post);
+  });
+
+  it('reads as pressed and offers removal once accepted', () => {
+    const onToggleSolution = vi.fn();
+
+    render(
+      <BrowserRouter>
+        <PostCard post={createMockPost()} isSolution onToggleSolution={onToggleSolution} />
+      </BrowserRouter>
+    );
+
+    const button = screen.getByRole('button', { name: /accepted/i });
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(button);
+
+    expect(onToggleSolution).toHaveBeenCalledTimes(1);
+  });
 });

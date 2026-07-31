@@ -11,6 +11,7 @@ from apps.core.ratelimit import client_ip_key, ratelimit
 from django.conf import settings
 from django.utils.decorators import method_decorator
 from wagtail_forum.api import notifications as forum_notification_views
+from wagtail_forum.api import solutions as forum_solution_views
 from wagtail_forum.api import subscriptions as forum_subscription_views
 from wagtail_forum.api import user_search as forum_user_search_views
 from wagtail_forum.api import views as forum_views
@@ -123,6 +124,12 @@ class NotificationMarkReadView(forum_notification_views.NotificationMarkReadView
 @_throttled("subscription_create", "POST")
 @_throttled("subscription_delete", "DELETE")
 class TopicSubscriptionView(forum_subscription_views.TopicSubscriptionView):
+    pass
+
+
+@_throttled("solution_mark", "POST")
+@_throttled("solution_clear", "DELETE")
+class TopicSolutionView(forum_solution_views.TopicSolutionView):
     pass
 
 

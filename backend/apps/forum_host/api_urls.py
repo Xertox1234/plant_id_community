@@ -34,6 +34,7 @@ from .api import (
     SearchView,
     SyncView,
     TopicListView,
+    TopicSolutionView,
     TopicSubscriptionView,
     UserMentionSearchView,
 )
@@ -61,6 +62,11 @@ urlpatterns = [
         "topics/<int:topic_id>/subscription/",
         TopicSubscriptionView.as_view(),
         name="topic-subscription",
+    ),
+    path(
+        "topics/<int:topic_id>/solution/",
+        TopicSolutionView.as_view(),
+        name="topic-solution",
     ),
     path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
     path(

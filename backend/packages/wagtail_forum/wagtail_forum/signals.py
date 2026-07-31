@@ -18,6 +18,13 @@ logger = logging.getLogger("wagtail_forum")
 topic_created = Signal()
 reply_added = Signal()
 moderation_decided = Signal()
+# A topic's answer was accepted (audit H6). kwargs: topic, post. Fired from the
+# API view, NOT from a model signal — accepting is an explicit user action, and
+# only the view knows who acted (the `actor` kwarg), which a model-level
+# post_save could not recover. Unmarking fires nothing: there is no one to
+# notify that their answer was un-accepted, and a "your answer was rejected"
+# push is a product decision nobody made.
+solution_marked = Signal()
 
 
 def notify(signal, **kwargs):
@@ -166,6 +173,29 @@ def _refresh_profile(author_id):
         locked.save(update_fields=["post_count", "trust_level"])
 
 
+def _clear_solution_for_post(post_id):
+    """Drop a topic's accepted-answer state when that answer stops being visible.
+
+    The clearing rule for audit H6: a Solved badge must never point at a post a
+    reader cannot see. Implemented as an explicit state clear, NOT as a
+    liveness check at serialize time, so `is_solved` stays a plain column read
+    and the topic-list query pins stay flat (no join per row).
+
+    The FK's `on_delete=SET_NULL` covers a hard delete's `solved_post` but
+    leaves `solved_at` behind, so the delete receiver calls this too — one
+    helper, one definition of "not solved".
+
+    Bumps `updated_at` because `.update()` bypasses `auto_now` and /sync/
+    clients page on that column — without it a mobile cache would keep showing
+    Solved on a topic whose answer was just taken down.
+    """
+    from .models import Topic
+
+    Topic.objects.filter(solved_post_id=post_id).update(
+        solved_post=None, solved_at=None, updated_at=timezone.now()
+    )
+
+
 def _refresh_for_post(post):
     from .models import Topic
 
@@ -232,6 +262,12 @@ def update_counters_on_unpublish(sender, instance, **kwargs):
         _refresh_board_counters(instance.board_id)
         _refresh_topic_authors(instance.pk)
     elif isinstance(instance, Post):
+        # Taking the accepted answer down (moderation, or the author editing it
+        # back into the review queue) clears the topic's Solved state — audit
+        # H6's clearing rule. Unpublish leaves live=False on an existing row, so
+        # the FK's SET_NULL never fires here; this is the only thing that
+        # clears it.
+        _clear_solution_for_post(instance.pk)
         _refresh_for_post(instance)
 
 
@@ -272,6 +308,25 @@ def update_counters_on_topic_delete(sender, instance, **kwargs):
     from .models.tombstones import TopicDeletedLog
 
     TopicDeletedLog.objects.create(topic_id=instance.pk, board_id=instance.board_id)
+
+
+@receiver(pre_delete, sender="wagtail_forum.Post")
+def clear_solution_on_post_delete(sender, instance, **kwargs):
+    """Clear the topic's Solved state BEFORE the FK's SET_NULL fires.
+
+    `on_delete=SET_NULL` would null `solved_post` but leave `solved_at`
+    populated — a topic reading "solved at 14:03" with no answer. Doing it in
+    `pre_delete` (while the FK still resolves) lets the one
+    `_clear_solution_for_post` helper own both fields; SET_NULL stays as the
+    DB-level backstop for any delete path that bypasses signals.
+
+    Skipped while the parent topic is itself mid-cascade — the topic row is
+    about to disappear, so a per-post UPDATE against it is pure waste on a
+    200-reply thread (same reasoning as the counter receiver below).
+    """
+    if instance.topic_id in _deleting_map():
+        return
+    _clear_solution_for_post(instance.pk)
 
 
 @receiver(post_delete, sender="wagtail_forum.Post")

@@ -33,6 +33,9 @@ export interface BackendTopicListItem {
   last_post_author: BackendAuthor | null;
   is_unread: boolean;
   tags?: string[];
+  /** Accepted-answer state (audit H6). Absent on a pre-H6 backend. */
+  is_solved?: boolean;
+  solved_post_id?: number | null;
 }
 
 export interface BackendTopicDetail {
@@ -52,6 +55,11 @@ export interface BackendTopicDetail {
   opening_post_id: number | null;
   is_subscribed: boolean;
   tags?: string[];
+  /** Accepted-answer state + the viewer's affordance (audit H6). */
+  is_solved?: boolean;
+  solved_post_id?: number | null;
+  solved_at?: string | null;
+  can_mark_solution?: boolean;
 }
 
 // StreamFieldBlock re-exported for consumers that import backend shapes from this module.
@@ -101,6 +109,8 @@ export interface BackendSearchTopic {
   view_count: number;
   last_post_at: string | null;
   is_pinned: boolean;
+  /** Accepted-answer state (audit H6) — search hits render the same ThreadCard. */
+  is_solved?: boolean;
   board_id: number;
   board_slug: string;
 }
@@ -181,6 +191,10 @@ export function mapTopicListItemToThread(t: BackendTopicListItem): Thread {
     // `?? []` — the field is absent on a response from a backend older than the
     // tags migration, and every consumer maps over it (audit M5).
     tags: t.tags ?? [],
+    // `?? false` for the same reason: a pre-H6 backend omits it, and the badge
+    // renders on truthiness.
+    is_solved: t.is_solved ?? false,
+    solved_post_id: t.solved_post_id ?? null,
   };
 }
 
@@ -206,6 +220,9 @@ export function mapTopicDetailToThread(t: BackendTopicDetail): Thread {
     is_active: true,
     is_subscribed: t.is_subscribed,
     tags: t.tags ?? [],
+    is_solved: t.is_solved ?? false,
+    solved_post_id: t.solved_post_id ?? null,
+    can_mark_solution: t.can_mark_solution ?? false,
   };
 }
 
@@ -246,6 +263,7 @@ export function mapSearchTopicToThread(t: BackendSearchTopic): Thread {
     post_count: t.reply_count,
     view_count: t.view_count,
     is_pinned: t.is_pinned,
+    is_solved: t.is_solved ?? false,
     is_active: true,
   };
 }

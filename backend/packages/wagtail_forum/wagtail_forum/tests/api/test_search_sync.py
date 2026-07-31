@@ -381,6 +381,33 @@ def test_search_topics_include_metadata_and_board():
 
 
 @pytest.mark.django_db
+def test_search_topics_carry_the_solved_flag():
+    """Audit H6, same class of gap as M40's is_pinned above.
+
+    The web SearchPage renders the shared ThreadCard, and its mapper defaults a
+    missing `is_solved` to false — so dropping this field would silently show
+    every search hit as unsolved rather than fail. Solved is set ON here for the
+    same discriminating reason is_pinned is.
+    """
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum-solved"))
+    board = index.add_child(instance=ForumBoard(title="General", slug="general-solved"))
+    topic = Topic.objects.create(
+        board=board, title="Monstera propagation rescue", slug="monstera-solved"
+    )
+    answer = Post.objects.create(topic=topic, live=True)
+    topic.solved_post = answer
+    topic.solved_at = timezone.now()
+    topic.save()
+
+    resp = APIClient().get("/forum/search/", {"q": "Monstera"})
+
+    assert resp.status_code == 200
+    entry = next(t for t in resp.data["topics"] if t["id"] == topic.id)
+    assert entry["is_solved"] is True
+
+
+@pytest.mark.django_db
 def test_search_board_filter_narrows_topics_and_posts():
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum-filter"))

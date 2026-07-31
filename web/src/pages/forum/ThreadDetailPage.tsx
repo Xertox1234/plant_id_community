@@ -10,6 +10,8 @@ import {
   reportPost,
   subscribeToTopic,
   unsubscribeFromTopic,
+  markSolution,
+  clearSolution,
 } from '../../services/forumService';
 import { parseLeadingId, userProfilePath } from '../../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME } from '../../utils/forumAuthor';
@@ -354,6 +356,42 @@ export default function ThreadDetailPage() {
     }
   }, [thread, topicId]);
 
+  // Accept / clear this topic's answer (audit H6). Not optimistic, unlike the
+  // subscription toggle above: `solved_post_id` is SHARED topic state that
+  // other readers see, and the backend can legitimately refuse (422 on a
+  // non-live post, 403 if the viewer's rights changed since page load), so the
+  // badge moves only once the server confirms where it landed.
+  const handleToggleSolution = useCallback(
+    async (post: Post) => {
+      if (!thread || topicId == null) return;
+      const requestTopicId = topicId;
+      const isCurrent = String(thread.solved_post_id ?? '') === post.id;
+      try {
+        const result = isCurrent
+          ? await clearSolution(requestTopicId)
+          : await markSolution(requestTopicId, Number(post.id));
+        // Same in-flight guard as handleToggleSubscription: a late response
+        // must not write onto whatever thread the user has since opened.
+        if (currentTopicIdRef.current !== requestTopicId) return;
+        setThread((prev) =>
+          prev
+            ? { ...prev, is_solved: result.is_solved, solved_post_id: result.solved_post_id }
+            : prev
+        );
+      } catch (err) {
+        logger.error('Error updating accepted answer', {
+          component: 'ThreadDetailPage',
+          error: err,
+          context: { topicId: requestTopicId, postId: post.id },
+        });
+        if (currentTopicIdRef.current === requestTopicId) {
+          setNotice(err instanceof Error ? err.message : 'Failed to update the accepted answer');
+        }
+      }
+    },
+    [thread, topicId]
+  );
+
   const handleReport = useCallback(async (postId: string, reason: string) => {
     try {
       await reportPost(postId, reason);
@@ -620,6 +658,15 @@ export default function ThreadDetailPage() {
                 onDelete={handleDelete}
                 onReact={isAuthenticated ? handleReact : undefined}
                 onReport={isAuthenticated ? handleReport : undefined}
+                isSolution={String(thread?.solved_post_id ?? '') === post.id}
+                // Offered only to a viewer the backend says may mark, and never
+                // on the opening post — a question is not its own answer, and
+                // the endpoint 422s it.
+                onToggleSolution={
+                  thread?.can_mark_solution && !post.is_first_post
+                    ? handleToggleSolution
+                    : undefined
+                }
               />
             </div>
           )

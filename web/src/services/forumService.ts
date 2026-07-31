@@ -236,6 +236,31 @@ export async function unsubscribeFromTopic(topicId: number): Promise<void> {
   );
 }
 
+/** The accepted-answer state a mark/clear returns (audit H6). */
+export interface SolutionResult {
+  is_solved: boolean;
+  solved_post_id: number | null;
+  solved_at: string | null;
+}
+
+/**
+ * Accept a post as the topic's answer. Only the topic's author or a moderator
+ * may call this; anyone else gets a 403 from the backend.
+ */
+export async function markSolution(topicId: number, postId: number): Promise<SolutionResult> {
+  return authenticatedFetch<SolutionResult>(`${FORUM_BASE}/topics/${topicId}/solution/`, {
+    method: 'POST',
+    body: JSON.stringify({ post_id: postId }),
+  });
+}
+
+/** Clear the topic's accepted answer. Idempotent — clearing an unsolved topic is a no-op. */
+export async function clearSolution(topicId: number): Promise<SolutionResult> {
+  return authenticatedFetch<SolutionResult>(`${FORUM_BASE}/topics/${topicId}/solution/`, {
+    method: 'DELETE',
+  });
+}
+
 export interface ForumUserSearchResult {
   username: string;
   display_name: string;

@@ -293,7 +293,10 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H2 push-event-coverage → todo 253 (completed 2026-07-22)
 - [x] #H3 subscriptions-watching → todo 253 (completed 2026-07-22)
 - [x] #H4 mentions → todo 253 (completed 2026-07-22)
-- [ ] #H6 solved-accepted-answer → todo 273 (re-pointed 2026-07-23; roadmap moved solved answers to Wave 2 / not 256)
+- [x] #H6 solved-accepted-answer → todo 273 (completed 2026-07-31, Wave 2 slice 2;
+      re-pointed 2026-07-23 when the roadmap moved solved answers to Wave 2 / not 256).
+      NOTE: todo 273 itself stays OPEN — slice 3 (#M6) is still outstanding, so the
+      all-findings-resolved rename must not fire on this doc.
 - [x] #H7 public-user-identity → todo 257 (completed 2026-07-24, PR #492)
 - [x] #H8 search-discoverability-filters → todo 256 (completed 2026-07-23)
 - [x] #H9 seo-surface → todo 256 (completed 2026-07-23)

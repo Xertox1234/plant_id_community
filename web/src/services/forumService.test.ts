@@ -11,6 +11,8 @@ import {
   deletePost,
   toggleReaction,
   subscribeToTopic,
+  markSolution,
+  clearSolution,
   unsubscribeFromTopic,
   uploadPostImage,
   searchForum,
@@ -452,6 +454,29 @@ describe('forumService (wagtail_forum API contract)', () => {
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toContain('/topics/12/subscription/');
     expect(opts.method).toBe('DELETE');
+  });
+
+  it('markSolution POSTs the post id to /topics/{id}/solution/', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({ is_solved: true, solved_post_id: 77, solved_at: '2026-07-31T10:00:00Z' })
+    );
+    const result = await markSolution(12, 77);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/topics/12/solution/');
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body)).toEqual({ post_id: 77 });
+    expect(result.solved_post_id).toBe(77);
+  });
+
+  it('clearSolution DELETEs /topics/{id}/solution/', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({ is_solved: false, solved_post_id: null, solved_at: null })
+    );
+    const result = await clearSolution(12);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/topics/12/solution/');
+    expect(opts.method).toBe('DELETE');
+    expect(result.is_solved).toBe(false);
   });
 
   it('searchForumUsers GETs /users/search/?q=<query>', async () => {

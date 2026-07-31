@@ -5,6 +5,7 @@ from .notifications import (
     NotificationMarkReadView,
     NotificationUnreadCountView,
 )
+from .solutions import TopicSolutionView
 from .subscriptions import TopicSubscriptionView
 from .user_search import UserMentionSearchView
 from .views import (
@@ -34,6 +35,11 @@ urlpatterns = [
         "topics/<int:topic_id>/subscription/",
         TopicSubscriptionView.as_view(),
         name="topic-subscription",
+    ),
+    path(
+        "topics/<int:topic_id>/solution/",
+        TopicSolutionView.as_view(),
+        name="topic-solution",
     ),
     path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
     path("images/", PostImageUploadView.as_view(), name="image-upload"),

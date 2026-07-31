@@ -14,6 +14,11 @@ from django.utils.translation import gettext_lazy as _
 class NotificationVerb(models.TextChoices):
     REPLY = "reply", _("Reply")
     MENTION = "mention", _("Mention")
+    # The topic author accepted this post as the answer (audit H6, roadmap
+    # Wave 2 slice 2). Always carries `post`, so the (recipient, verb, post)
+    # dedupe constraint below applies — re-marking the same answer cannot
+    # produce a second bell entry.
+    SOLUTION = "solution", _("Answer accepted")
     # moderation/subscription verbs are added by later slices of todo 253.
 
 
