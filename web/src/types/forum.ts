@@ -97,6 +97,12 @@ export interface Thread {
   is_locked?: boolean;
   is_active?: boolean;
   is_subscribed?: boolean;
+  /**
+   * Save-for-later state (audit M2). Distinct from `is_subscribed`: saving a
+   * thread does not sign you up for its replies, and un-following does not
+   * drop it from your saved list. Populated on thread DETAIL only.
+   */
+  is_bookmarked?: boolean;
   is_unread?: boolean;
   /** Secondary discovery taxonomy beside the board (audit M5). Normalized lowercase. */
   tags?: string[];

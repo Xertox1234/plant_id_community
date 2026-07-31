@@ -11,12 +11,14 @@ import { getCsrfToken } from '../utils/csrf';
 import {
   mapBoardToCategory,
   mapTopicListItemToThread,
+  mapBookmarkedTopicToThread,
   mapTopicDetailToThread,
   mapPostToPost,
   mapSearchTopicToThread,
   mapSearchPostToPost,
   type BackendBoard,
   type BackendTopicListItem,
+  type BackendBookmarkedTopic,
   type BackendTopicDetail,
   type BackendPost,
   type BackendSearchTopic,
@@ -237,6 +239,46 @@ export async function unsubscribeFromTopic(topicId: number): Promise<void> {
       method: 'DELETE',
     }
   );
+}
+
+/**
+ * Save a topic for later (audit M2). Idempotent.
+ *
+ * Deliberately separate from subscribeToTopic above — the two toggles sit next
+ * to each other on the thread header but mean different things, and neither
+ * implies the other.
+ */
+export async function bookmarkTopic(topicId: number): Promise<void> {
+  await authenticatedFetch<{ bookmarked: boolean }>(`${FORUM_BASE}/topics/${topicId}/bookmark/`, {
+    method: 'POST',
+  });
+}
+
+/** Remove a topic from the user's saved list. Idempotent. */
+export async function unbookmarkTopic(topicId: number): Promise<void> {
+  await authenticatedFetch<{ bookmarked: boolean }>(`${FORUM_BASE}/topics/${topicId}/bookmark/`, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * The authenticated user's saved topics, newest-saved first (audit M2).
+ *
+ * `cursor` is an ABSOLUTE URL from a previous page's `next`/`previous` — pass
+ * it through unchanged, never re-prefixed with the API base (see the CURSOR
+ * NOTE on fetchThreads).
+ */
+export async function fetchBookmarks(cursor?: string): Promise<PaginatedResponse<Thread>> {
+  const data = await authenticatedFetch<DrfPage<BackendBookmarkedTopic>>(
+    cursor || `${FORUM_BASE}/me/bookmarks/`
+  );
+  return {
+    // mapBookmarkedTopicToThread, NOT mapTopicListItemToThread: this list spans
+    // boards, so each row's category comes from its own `board` rather than
+    // being stamped on by the page.
+    items: (data.results || []).map(mapBookmarkedTopicToThread),
+    meta: { count: data.count ?? 0, next: data.next, previous: data.previous },
+  };
 }
 
 /** The accepted-answer state a mark/clear returns (audit H6). */

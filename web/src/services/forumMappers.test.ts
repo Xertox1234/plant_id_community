@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   mapBoardToCategory,
   mapTopicListItemToThread,
+  mapBookmarkedTopicToThread,
   mapTopicDetailToThread,
   mapPostToPost,
   mapSearchTopicToThread,
@@ -77,6 +78,37 @@ describe('forumMappers (wagtail_forum contract)', () => {
     expect(t.author.display_name).toBe('Jane Doe');
     expect(t.author.avatar).toBe('http://x/media/a.jpg');
     expect(t.author.trust_level).toBe(2);
+  });
+
+  it('mapBookmarkedTopicToThread fills category from the row OWN board (audit M2)', () => {
+    // The saved list spans boards, so unlike the board list there is no single
+    // category for the page to stamp on afterwards. If this fell back to
+    // mapTopicListItemToThread's empty category, threadPath would build
+    // `/forum/-/12-…` and every saved link would 404.
+    const t = mapBookmarkedTopicToThread({
+      id: 12,
+      title: 'Succulent help',
+      slug: 'succulent-help',
+      author: { username: 'jdoe', display_name: 'Jane Doe', avatar: null, trust_level: 1 },
+      is_pinned: false,
+      is_closed: false,
+      locked: false,
+      reply_count: 4,
+      view_count: 99,
+      last_post_at: '2026-01-02T00:00:00Z',
+      last_post_author: null,
+      is_unread: false,
+      board: { id: 3, slug: 'plant-care', title: 'Plant Care' },
+    });
+
+    expect(t.category).toEqual({
+      id: '3',
+      name: 'Plant Care',
+      slug: 'plant-care',
+      created_at: '',
+    });
+    // The rest of the row still maps exactly as the base list item does.
+    expect(t).toMatchObject({ id: '12', title: 'Succulent help', post_count: 4 });
   });
 
   it('mapTopicListItemToThread maps the [deleted] sentinel author', () => {

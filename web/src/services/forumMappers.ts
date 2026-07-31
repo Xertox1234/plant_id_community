@@ -38,6 +38,17 @@ export interface BackendTopicListItem {
   solved_post_id?: number | null;
 }
 
+/**
+ * A saved-topic row (audit M2): the list shape PLUS its own board.
+ *
+ * The board list can omit `board` because the page already knows which board
+ * it is showing and stamps it onto every row; the saved list spans boards, so
+ * each row must carry its own or the thread URL cannot be built.
+ */
+export interface BackendBookmarkedTopic extends BackendTopicListItem {
+  board: { id: number; slug: string; title: string };
+}
+
 export interface BackendTopicDetail {
   id: number;
   title: string;
@@ -54,6 +65,12 @@ export interface BackendTopicDetail {
   last_post_author: BackendAuthor | null;
   opening_post_id: number | null;
   is_subscribed: boolean;
+  /**
+   * Save-for-later state (audit M2). Detail-only — deliberately absent from
+   * BackendTopicListItem and BackendSearchTopic, so the board list and both
+   * search hit-builders stay untouched. Absent (undefined) on a pre-M2 backend.
+   */
+  is_bookmarked?: boolean;
   tags?: string[];
   /** Accepted-answer state + the viewer's affordance (audit H6). */
   is_solved?: boolean;
@@ -204,6 +221,26 @@ export function mapTopicListItemToThread(t: BackendTopicListItem): Thread {
   };
 }
 
+/**
+ * A saved-topic row → Thread, with its real category filled in (audit M2).
+ *
+ * `mapTopicListItemToThread` deliberately leaves `category` empty because the
+ * board list stamps its one known board on afterwards. The saved list has no
+ * single board to stamp, so the per-row board is mapped here instead — an
+ * empty category would render every card's link as `/forum/-/…`, which 404s.
+ */
+export function mapBookmarkedTopicToThread(t: BackendBookmarkedTopic): Thread {
+  return {
+    ...mapTopicListItemToThread(t),
+    category: {
+      id: String(t.board.id),
+      name: t.board.title,
+      slug: t.board.slug,
+      created_at: '',
+    },
+  };
+}
+
 export function mapTopicDetailToThread(t: BackendTopicDetail): Thread {
   const category: Category = {
     id: String(t.board.id),
@@ -225,6 +262,9 @@ export function mapTopicDetailToThread(t: BackendTopicDetail): Thread {
     is_locked: t.is_closed || t.locked,
     is_active: true,
     is_subscribed: t.is_subscribed,
+    // `?? false` collapses "pre-M2 backend, field absent" into "not saved" —
+    // the toggle then renders its un-saved affordance rather than a blank.
+    is_bookmarked: t.is_bookmarked ?? false,
     tags: t.tags ?? [],
     is_solved: t.is_solved ?? false,
     solved_post_id: t.solved_post_id ?? null,

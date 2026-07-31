@@ -10,6 +10,13 @@ DEFAULT_FORUM_RATELIMITS = {
     "post_update": "30/h",
     "post_delete": "20/h",
     "reaction_toggle": "60/m",
+    # Deliberately the same rate as subscription_create/delete below: a
+    # bookmark toggle is the same cheap per-user row write, sitting next to the
+    # follow toggle on the same thread header. A member skimming a board can
+    # plausibly save a run of threads, and the limit exists to bound a runaway
+    # client rather than to pace normal use.
+    "bookmark_create": "60/m",
+    "bookmark_delete": "60/m",
     "report_create": "10/h",
     # SHARED SCOPE — accepted, monitor-only (todo 272 item 2, 2026-07-29).
     # `PATCH /forum/me/profile/` (MeProfileView) is the single writer endpoint

@@ -6,6 +6,7 @@ import CategoryCard from '../../components/forum/CategoryCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import PageMeta from '../../components/PageMeta';
+import { useAuth } from '../../contexts/AuthContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
 import type { Category } from '@/types';
@@ -18,6 +19,7 @@ import type { Category } from '@/types';
  */
 export default function CategoryListPage() {
   useScrollToTop();
+  const { isAuthenticated } = useAuth();
   const [categories, setCategories] = useState<Category[]>([]);
   // CMS-authored welcome copy (ForumIndex.intro, audit L2). Sanitized
   // server-side too — this is the second layer, not the only one.
@@ -105,6 +107,17 @@ export default function CategoryListPage() {
             className="prose prose-sm max-w-none mt-4 text-ink-2"
             dangerouslySetInnerHTML={introMarkup}
           />
+        )}
+        {/* Entry point to the member's saved threads (audit M2). Auth-gated —
+            the route is protected and the endpoint 401s — so it is not offered
+            to a signed-out visitor who could not open it. */}
+        {isAuthenticated && (
+          <Link
+            to="/forum/saved"
+            className="inline-block mt-4 text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+          >
+            🔖 Saved threads
+          </Link>
         )}
       </div>
 

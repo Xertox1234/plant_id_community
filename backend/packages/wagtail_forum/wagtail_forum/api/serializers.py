@@ -318,6 +318,34 @@ class TopicListSerializer(serializers.ModelSerializer):
         return serialize_forum_author(obj.last_post_author, self.context.get("request"))
 
 
+class BookmarkedTopicSerializer(TopicListSerializer):
+    """A saved-topic row: the standard list shape PLUS its board (audit M2).
+
+    The board is REQUIRED here and nowhere else in the list shape. A board
+    listing is already scoped to one board, so the web client stamps that
+    single known board onto every row it renders; the saved list spans many
+    boards at once, and without a per-row board the client cannot build a
+    thread URL (`/forum/{boardId}-{boardSlug}/{topicId}-{topicSlug}`) — every
+    link would resolve to a broken path.
+
+    Deliberately a SUBCLASS rather than a field added to TopicListSerializer:
+    that serializer is one of three builders of the same topic-hit shape (the
+    other two being SearchView and semantic_search._serialize), so widening it
+    means widening all three or shipping an inconsistent contract. Scoping the
+    addition to this one endpoint avoids that entirely. `board` is free here —
+    MeBookmarkListView select_relateds it.
+    """
+
+    board = serializers.SerializerMethodField()
+
+    class Meta(TopicListSerializer.Meta):
+        fields = TopicListSerializer.Meta.fields + ["board"]
+
+    @extend_schema_field(BOARD_SCHEMA)
+    def get_board(self, obj):
+        return {"id": obj.board.id, "slug": obj.board.slug, "title": obj.board.title}
+
+
 class TopicDetailSerializer(serializers.ModelSerializer):
     author = serializers.SerializerMethodField()
     last_post_author = serializers.SerializerMethodField()
@@ -325,6 +353,12 @@ class TopicDetailSerializer(serializers.ModelSerializer):
     opening_post_id = serializers.SerializerMethodField()
     locked = serializers.BooleanField()
     is_subscribed = serializers.SerializerMethodField()
+    # Save-for-later state (audit M2). Always annotated by the view's queryset
+    # (_annotate_topic_bookmarked) — a constant for anonymous, an EXISTS
+    # subquery otherwise — so a plain BooleanField needs no method/fallback and
+    # costs no extra query. Contrast is_subscribed directly above, which pays a
+    # real query per request; see the helper's docstring.
+    is_bookmarked = serializers.BooleanField(read_only=True)
     tags = serializers.SerializerMethodField()
     # Accepted answer (audit H6) — see TopicListSerializer for why `is_solved`
     # is a column read rather than a liveness join.
@@ -355,6 +389,7 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             "last_post_author",
             "opening_post_id",
             "is_subscribed",
+            "is_bookmarked",
             "tags",
             "is_solved",
             "solved_post_id",

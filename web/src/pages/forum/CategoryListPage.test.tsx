@@ -6,10 +6,16 @@ import CategoryListPage from './CategoryListPage';
 import { createMockCategory } from '../../tests/forumUtils';
 import type { Category } from '../../types/forum';
 import * as forumService from '../../services/forumService';
+import { useAuth } from '../../contexts/AuthContext';
 import { logger } from '../../utils/logger';
 
 // Mock the forumService
 vi.mock('../../services/forumService');
+
+// The page reads auth to decide whether to offer the "Saved threads" link
+// (audit M2). Mocked rather than wrapped in a real AuthProvider — same
+// treatment as ThreadDetailPage.test.tsx.
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
 
 // Mock logger
 vi.mock('../../utils/logger', () => ({
@@ -40,9 +46,41 @@ function renderCategoryListPage() {
   );
 }
 
+const mockAuth = (isAuthenticated: boolean) =>
+  ({ user: isAuthenticated ? { id: 1 } : null, isAuthenticated }) as unknown as ReturnType<
+    typeof useAuth
+  >;
+
 describe('CategoryListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default to authenticated; the signed-out case overrides.
+    vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+  });
+
+  it('offers the Saved threads link to an authenticated member (audit M2)', async () => {
+    vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
+      indexPayload([createMockCategory()])
+    );
+
+    renderCategoryListPage();
+
+    expect(await screen.findByRole('link', { name: /Saved threads/i })).toHaveAttribute(
+      'href',
+      '/forum/saved'
+    );
+  });
+
+  it('hides the Saved threads link from a signed-out visitor', async () => {
+    vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+    vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
+      indexPayload([createMockCategory()])
+    );
+
+    renderCategoryListPage();
+
+    await screen.findByRole('heading', { level: 1 });
+    expect(screen.queryByRole('link', { name: /Saved threads/i })).not.toBeInTheDocument();
   });
 
   it('shows loading spinner while fetching categories', () => {
