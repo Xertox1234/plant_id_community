@@ -291,11 +291,18 @@ healthy traffic — converting the intended cost-degrade (publish) into a hold o
 legitimate posts.
 
 **The attempts cap is a sticky hold, by design.** `consume_budget` re-stamps the
-1h TTL on every write, so under sustained misbehaviour the window is a rolling
-hour from the *last* attempt: once tripped, it clears only after ~1h of silence,
-even if the provider recovers immediately. Held posts are pending drafts in the
-moderation queue, not lost, so this is degraded-but-safe. Clear it early with
+1h TTL on every write, so the window is a rolling hour from the *last* issued
+call. Once tripped it reopens on a fixed ~1h timer — the hold path issues no
+calls, so nothing re-stamps it and continued post submissions do **not** extend
+it — but it stays shut for that hour even if the provider recovers immediately.
+Held posts are pending drafts in the moderation queue, not lost, so this is
+degraded-but-safe. Reopen it early with
 `AIRateLimiter.reset_budget(constants.SPAM_LLM_ATTEMPTS_CACHE_KEY)`.
+
+Both counters are `get`-then-`set` (never `cache.incr()`, per the rule above), so
+concurrent workers can lose updates and either cap may overshoot by roughly the
+concurrency factor. That is fine here: this is a circuit breaker, not an
+accountant.
 
 One caveat remains on `SPAM_LLM_BUDGET_LIMIT` — read it before raising the
 number:
