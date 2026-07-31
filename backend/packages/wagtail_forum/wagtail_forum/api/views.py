@@ -8,6 +8,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import (
     BooleanField,
     DateTimeField,
+    Exists,
     F,
     OuterRef,
     Q,
@@ -68,6 +69,7 @@ from ..models import (
     Reaction,
     Report,
     Topic,
+    TopicBookmark,
     TopicRead,
 )
 from ..models.posts import BLOCK_FORBIDDEN
@@ -203,6 +205,37 @@ def _annotate_topic_unread(qs, user):
             Value(launch_at, output_field=DateTimeField()),
         ),
     ).annotate(is_unread=Q(last_post_at__gt=F("_read_baseline")))
+
+
+def _annotate_topic_bookmarked(qs, user):
+    """Annotate `is_bookmarked` on a Topic queryset (todo 283, audit M2).
+
+    Always present — a constant for anonymous requests, an EXISTS subquery for
+    authenticated ones — so `TopicDetailSerializer.is_bookmarked` can be a
+    plain `BooleanField(read_only=True)` with no request-sniffing fallback.
+    Same construction as `_annotate_topic_unread` above, and chosen for the
+    same reason: an `Exists()` compiles to a scalar subquery inside the SELECT
+    the view already runs, so the endpoint's pinned query count is UNCHANGED
+    (test_topic_detail.py pins 5 anonymous / 8 authenticated).
+
+    Deliberately NOT the shape used by `is_subscribed`, which is a
+    SerializerMethodField running its own `.exists()` and therefore costs a
+    real extra query per request. That is the one it should have been; it is
+    left alone as out of scope, and its cost is what the 8-query pin records.
+
+    Note this is applied to topic DETAIL only. Adding a field to the topic
+    LIST means updating all three hit builders (TopicListSerializer, SearchView
+    and semantic_search._serialize) — the saved list at
+    `bookmarks.MeBookmarkListView` already answers "which topics did I save",
+    so a per-row flag on every board listing would be cost without a caller.
+    """
+    if not user.is_authenticated:
+        return qs.annotate(is_bookmarked=Value(False, output_field=BooleanField()))
+    return qs.annotate(
+        is_bookmarked=Exists(
+            TopicBookmark.objects.filter(user=user, topic=OuterRef("pk"))
+        )
+    )
 
 
 def _replay_or_none(cache_key, payload_fingerprint):
@@ -668,7 +701,7 @@ class TopicDetailView(
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return Topic.objects.none()
-        return (
+        qs = (
             Topic.objects.filter(live=True, board__in=_visible_boards())
             .select_related(
                 "board",
@@ -682,6 +715,12 @@ class TopicDetailView(
             )
             .prefetch_related("tags")  # TopicDetailSerializer.get_tags (audit M5)
         )
+        # MUST stay applied: TopicDetailSerializer.is_bookmarked is a plain
+        # read-only BooleanField, and DRF SKIPS such a field silently when its
+        # attribute is missing (Field.get_attribute raises SkipField for a
+        # non-required field) — the key just vanishes from the response rather
+        # than erroring. Pinned by test_bookmarks_api.py.
+        return _annotate_topic_bookmarked(qs, self.request.user)
 
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)

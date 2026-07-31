@@ -45,6 +45,18 @@ class TopicCursorPagination(ForumCursorPagination):
         )
 
 
+class BookmarkCursorPagination(ForumCursorPagination):
+    # The saved list reads newest-SAVED-first, not newest-active-first: the
+    # question a member asks it is "what did I put aside recently", so ordering
+    # on the topic's own activity (TopicCursorPagination) would reshuffle the
+    # list every time an unrelated thread got a reply. `bookmarked_at` is
+    # annotated by MeBookmarkListView from the TopicBookmark row; `-id` is the
+    # unique tiebreak that keeps the cursor deterministic when two bookmarks
+    # share a timestamp. Deliberately NOT pinned-first — a pinned topic has no
+    # special claim on a list the member curated themselves.
+    ordering = ("-bookmarked_at", "-id")
+
+
 class PostCursorPagination(ForumCursorPagination):
     # Posts read oldest-first (Post.Meta.ordering = ["created_at"]); id is the
     # unique tiebreak that keeps the cursor deterministic when created_at ties.

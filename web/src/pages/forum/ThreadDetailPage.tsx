@@ -10,6 +10,8 @@ import {
   reportPost,
   subscribeToTopic,
   unsubscribeFromTopic,
+  bookmarkTopic,
+  unbookmarkTopic,
   markSolution,
   clearSolution,
 } from '../../services/forumService';
@@ -95,6 +97,7 @@ export default function ThreadDetailPage() {
   const [editBody, setEditBody] = useState<string>('');
   const [editSubmitting, setEditSubmitting] = useState<boolean>(false);
   const [subscribing, setSubscribing] = useState<boolean>(false);
+  const [bookmarking, setBookmarking] = useState<boolean>(false);
   // A transient banner for write errors + moderation outcomes.
   const [notice, setNotice] = useState<string | null>(null);
   // Focus the reply composer after a successful post (M25); reset on navigation
@@ -138,6 +141,9 @@ export default function ThreadDetailPage() {
     // reset unconditionally on every navigation (handleToggleSubscription's
     // own finally guards against that stale request re-enabling it late).
     setSubscribing(false);
+    // Same reasoning for the Save button — an in-flight bookmark toggle for the
+    // PREVIOUS thread must not leave this one's button stuck loading.
+    setBookmarking(false);
     // Same for an in-flight load-more (the deep-link chase can start one) —
     // its finally is thread-guarded, so clear the flag here for the new thread.
     setLoadingMore(false);
@@ -322,6 +328,40 @@ export default function ThreadDetailPage() {
       setNotice(err instanceof Error ? err.message : 'Failed to react');
     }
   }, []);
+
+  const handleToggleBookmark = useCallback(async () => {
+    if (!thread || topicId == null) return;
+    const requestTopicId = topicId;
+    const wasBookmarked = thread.is_bookmarked ?? false;
+    setBookmarking(true);
+    // Optimistic, like the subscription toggle below — this is per-viewer state
+    // no one else sees, and the backend cannot legitimately refuse it.
+    setThread((prev) => (prev ? { ...prev, is_bookmarked: !wasBookmarked } : prev));
+    try {
+      if (wasBookmarked) {
+        await unbookmarkTopic(requestTopicId);
+      } else {
+        await bookmarkTopic(requestTopicId);
+      }
+    } catch (err) {
+      logger.error('Error toggling topic bookmark', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { threadId: thread.id },
+      });
+      // Same guard as the subscription toggle: only touch state if still
+      // viewing the thread this request was for, so a late failure cannot roll
+      // back a DIFFERENT thread the user has since navigated to.
+      if (currentTopicIdRef.current === requestTopicId) {
+        setThread((prev) => (prev ? { ...prev, is_bookmarked: wasBookmarked } : prev));
+        setNotice(err instanceof Error ? err.message : 'Failed to update saved threads');
+      }
+    } finally {
+      if (currentTopicIdRef.current === requestTopicId) {
+        setBookmarking(false);
+      }
+    }
+  }, [thread, topicId]);
 
   const handleToggleSubscription = useCallback(async () => {
     if (!thread || topicId == null) return;
@@ -604,6 +644,21 @@ export default function ThreadDetailPage() {
                 className="min-h-11"
               >
                 {thread.is_subscribed ? '🔕 Following' : '🔔 Follow'}
+              </Button>
+            )}
+            {isAuthenticated && (
+              <Button
+                onClick={handleToggleBookmark}
+                variant="outline"
+                loading={bookmarking}
+                disabled={bookmarking}
+                className="min-h-11"
+                // The label already reads as the CURRENT state ("Saved" /
+                // "Save"), but the emoji carries half of that distinction and
+                // is not announced — so state is also exposed explicitly.
+                aria-pressed={thread.is_bookmarked ?? false}
+              >
+                {thread.is_bookmarked ? '🔖 Saved' : '🔖 Save'}
               </Button>
             )}
           </div>

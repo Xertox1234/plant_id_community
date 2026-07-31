@@ -376,6 +376,79 @@ describe('ThreadDetailPage', () => {
     expect(unsubscribeSpy).toHaveBeenCalledWith(12);
   });
 
+  it('clicking Save bookmarks the thread and flips the button to Saved', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_bookmarked: false })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    const bookmarkSpy = vi.spyOn(forumService, 'bookmarkTopic').mockResolvedValue(undefined);
+
+    renderThreadDetailPage();
+
+    const saveButton = await screen.findByRole('button', { name: /🔖 Save/i });
+    expect(saveButton).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /🔖 Saved/i })).toHaveAttribute(
+        'aria-pressed',
+        'true'
+      );
+    });
+    expect(bookmarkSpy).toHaveBeenCalledWith(12);
+  });
+
+  it('clicking Saved un-bookmarks the thread and flips the button back to Save', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_bookmarked: true })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    const unbookmarkSpy = vi.spyOn(forumService, 'unbookmarkTopic').mockResolvedValue(undefined);
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /🔖 Saved/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /🔖 Save/i })).toHaveAttribute(
+        'aria-pressed',
+        'false'
+      );
+    });
+    expect(unbookmarkSpy).toHaveBeenCalledWith(12);
+  });
+
+  it('rolls back the optimistic Save toggle and shows a notice when the request fails', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_bookmarked: false })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    vi.spyOn(forumService, 'bookmarkTopic').mockRejectedValue(new Error('Network error'));
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /🔖 Save/i }));
+
+    await screen.findByText('Network error');
+    expect(screen.getByRole('button', { name: /🔖 Save/i })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+  });
+
+  it('hides the Save button for a logged-out user', async () => {
+    vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_bookmarked: false })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+
+    renderThreadDetailPage();
+
+    await screen.findByRole('heading', { level: 1 });
+    expect(screen.queryByRole('button', { name: /🔖 Save/i })).not.toBeInTheDocument();
+  });
+
   it('rolls back the optimistic Follow toggle and shows a notice when the request fails', async () => {
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
       createMockThread({ is_subscribed: false })

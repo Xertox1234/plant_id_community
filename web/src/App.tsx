@@ -20,6 +20,7 @@ const ThreadDetailPage = lazy(() => import('./pages/forum/ThreadDetailPage'));
 const NewThreadPage = lazy(() => import('./pages/forum/NewThreadPage'));
 const SearchPage = lazy(() => import('./pages/forum/SearchPage'));
 const UserProfilePage = lazy(() => import('./pages/forum/UserProfilePage'));
+const SavedThreadsPage = lazy(() => import('./pages/forum/SavedThreadsPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const MyPlantsPage = lazy(() => import('./pages/MyPlantsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
@@ -74,6 +75,12 @@ function App() {
           <Route element={<RootLayout />}>
             {/* Composing a thread requires auth (the API rejects anon writes). */}
             <Route path="/forum/new-thread" element={<NewThreadPage />} />
+            {/* Saved threads (audit M2) — the endpoint 401s for anonymous.
+                Safe against /forum/:categorySlug despite living in a different
+                route block: React Router ranks a static segment above a dynamic
+                one regardless of declaration order, and no real board URL is
+                ever /forum/saved (board paths are always ID-prefixed). */}
+            <Route path="/forum/saved" element={<SavedThreadsPage />} />
             <Route path="/diagnose" element={<DiseaseDiagnosePage />} />
             <Route path="/my-plants" element={<MyPlantsPage />} />
             <Route path="/profile" element={<ProfilePage />} />

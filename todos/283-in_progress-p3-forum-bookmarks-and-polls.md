@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p3
 issue_id: "283"
 tags: [forum, drf, web, product-ux]
@@ -95,6 +95,61 @@ Ship M2 first — it is roughly a quarter of the work and has no schema risk.
 - [ ] `manage.py spectacular` passes; `pytest` forum suite green
 
 ## Work Log
+
+### 2026-07-31 - Started by completing-todos skill (run 2026-07-31-1935)
+
+- Picked up by automated workflow. Branch `todo-283-forum-bookmarks-polls`.
+- Scope decision: **both M2 and M8 ship**. The Notes bless "ship M2, re-defer
+  M8", but the Acceptance Criteria cover both and a todo cannot be marked
+  `completed` with unflipped boxes. M2 lands first, as the todo directs.
+
+### 2026-07-31 - M2 (bookmarks) implemented
+
+**Shipped:** `TopicBookmark` model + migration 0020, `POST`/`DELETE
+/topics/{id}/bookmark/`, `GET /me/bookmarks/`, `is_bookmarked` on topic
+detail, web Save toggle + `/forum/saved` page + forum-index entry point.
+
+**Decisions worth recording:**
+
+1. **`is_bookmarked` is annotated, not a SerializerMethodField.**
+   `_annotate_topic_bookmarked` adds an `Exists()` subquery (or a constant
+   `False` for anonymous), which compiles into the SELECT the view already
+   runs. This is what makes AC 3 true: the detail pins stay at exactly 5
+   (anonymous) and 8 (authenticated). Contrast `is_subscribed`, a
+   SerializerMethodField costing a real extra query — that query is what the
+   existing 8-pin records. Left alone as out of scope.
+2. **Detail-only, deliberately.** Adding the field to the topic LIST would
+   mean updating all three builders of that shape (`TopicListSerializer`,
+   `SearchView`, `semantic_search._serialize`). The saved list already answers
+   "which topics did I save", so a per-row flag on every board listing is cost
+   without a caller. This is also why AC 3's list half holds: the field is not
+   there, and `test_topics_list.py`'s pins are untouched by construction.
+3. **`BookmarkedTopicSerializer` is a subclass, not a widening.** The saved
+   list spans boards, so each row needs its own `board` to build a thread URL;
+   without it every link renders `/forum/-/{id}-{slug}` and 404s. Scoping the
+   addition to one endpoint avoids the three-builder problem in (2).
+4. **`TopicBookmark.add` carries NO `except IntegrityError` wrapper**, unlike
+   its neighbour `TopicSubscription.subscribe`. Verified against the installed
+   Django 6.0.7 source: `get_or_create` already wraps its INSERT in
+   `transaction.atomic()` and already re-runs `.get()` on IntegrityError. The
+   wrapper is unreachable for the race it names and masks any OTHER
+   IntegrityError as a confusing `DoesNotExist`. A test drives the real race
+   path (`test_add_recovers_from_a_lost_create_race`).
+5. **POST is visibility-gated, DELETE is not** — mirrors the subscription
+   toggle exactly. Gating DELETE would strand a member unable to clear a
+   bookmark the moment its topic is unpublished.
+
+**Bug caught during implementation, worth remembering:** DRF *silently omits* a
+`BooleanField(read_only=True)` whose attribute is missing — `get_attribute`
+raises `SkipField` for a non-required field, so the key just vanishes from the
+response instead of erroring. A misplaced `return` left the annotation
+unreachable and the endpoint shipped a *missing key*, not a 500. Only an
+explicit `resp.data["is_bookmarked"]` assertion caught it.
+
+**Verification:** full backend `pytest --create-db` → `1472 passed, 0 failed, 8
+skipped`. Full web `vitest run` → `821 passed`. `manage.py spectacular` exit 0
+with all three bookmark surfaces in the schema. Query pins verified by
+`test_is_bookmarked_adds_no_queries_to_topic_detail` (5 / 8, unchanged).
 
 ### 2026-07-26 - Promoted out of todo 263 (roadmap review)
 

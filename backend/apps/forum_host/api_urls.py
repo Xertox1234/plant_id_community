@@ -7,6 +7,7 @@ package endpoint cannot silently ship unmounted or unthrottled.
 """
 
 from django.urls import path
+from wagtail_forum.api.bookmarks import MeBookmarkListView
 
 # The notification list is auth-gated but not a polling target — mounted
 # straight from the package like BoardListView/TopicDetailView above.
@@ -33,6 +34,7 @@ from .api import (
     ReactionToggleView,
     SearchView,
     SyncView,
+    TopicBookmarkView,
     TopicListView,
     TopicSolutionView,
     TopicSubscriptionView,
@@ -62,6 +64,11 @@ urlpatterns = [
         "topics/<int:topic_id>/subscription/",
         TopicSubscriptionView.as_view(),
         name="topic-subscription",
+    ),
+    path(
+        "topics/<int:topic_id>/bookmark/",
+        TopicBookmarkView.as_view(),
+        name="topic-bookmark",
     ),
     path(
         "topics/<int:topic_id>/solution/",
@@ -104,6 +111,9 @@ urlpatterns = [
         name="post-report",
     ),
     path("me/profile/", MeProfileView.as_view(), name="me-profile"),
+    # GET-only + auth-gated, and not a polling target — mounted straight from
+    # the package like the other read views here, no throttled wrapper.
+    path("me/bookmarks/", MeBookmarkListView.as_view(), name="me-bookmarks"),
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
     path("users/search/", UserMentionSearchView.as_view(), name="user-mention-search"),
