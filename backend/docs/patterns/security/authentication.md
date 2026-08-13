@@ -214,7 +214,9 @@ SESSION_CACHE_ALIAS = 'default'
 
 - `SECURE`: HTTPS-only prevents token interception
 - `HTTPONLY`: Prevents XSS attacks from stealing tokens
-- `SAMESITE='Lax'`: CSRF protection while allowing normal navigation
+- `SAMESITE='Lax'`: CSRF protection while allowing normal navigation —
+  **but a split-domain deploy needs `'None'`**; see "Pattern: Cookie
+  Attributes in a Split-Domain Deploy" below
 - Cache backend: Fast session lookups, automatic cleanup
 
 ---
@@ -644,6 +646,8 @@ def test_rate_limit(self):
 - [ ] Rate limiting on authentication endpoints
 - [ ] HTTPS enforced in production
 - [ ] HttpOnly, Secure, SameSite cookies
+- [ ] Cookie attributes derived from settings — no hardcoded `samesite=` or
+      stale `path=` in app code (see Cookie Attributes pattern)
 
 ### Testing Security Checklist
 
@@ -654,6 +658,50 @@ def test_rate_limit(self):
 - [ ] Test both success and failure paths
 - [ ] Test account lockout expiry
 - [ ] Test token expiry and refresh
+
+---
+
+### Pattern: Cookie Attributes in a Split-Domain Deploy (2026-08-13, PR #530)
+
+**Problem**: `set_jwt_cookies()` hardcoded `samesite="Strict"` in production.
+The prod deploy is split-domain (Cloudflare frontend → Railway API), and
+browsers never send `Strict` cookies cross-site — login returned 200, then
+every authenticated call 401'd. The refresh cookie's `path="/api/auth/"` also
+pointed at the deprecated mount instead of `/api/v1/auth/`, so token rotation
+was equally dead. Every test stayed green: the Django test client ignores
+cookie `path`/`samesite`/`secure`/`domain` entirely.
+
+**Rule**: cookie attributes are deployment-topology decisions. They live in
+settings (already env-driven per deploy); app code mirrors them — never
+re-decides them inline.
+
+```python
+# apps/users/authentication.py
+REFRESH_COOKIE_PATH = "/api/v1/auth/"  # must match the v1 mount in urls.py
+
+def _jwt_cookie_flags() -> Tuple[Optional[str], bool]:
+    samesite = settings.SESSION_COOKIE_SAMESITE  # env sets "None" on split-domain prod
+    secure = not settings.DEBUG or str(samesite).lower() == "none"  # browsers require the pair
+    return samesite, secure
+```
+
+Set **and clear** with the same attributes — a cross-site response may only
+set (and therefore expire) `SameSite=None` cookies, and `delete_cookie`
+derives its Secure flag from `samesite`.
+
+**Test pattern** — the only way to catch attribute drift, since the test
+client won't:
+
+```python
+refresh_path = response.cookies["refresh_token"]["path"]
+self.assertEqual(refresh_path, REFRESH_COOKIE_PATH)
+self.assertTrue(reverse("v1:users:token_refresh").startswith(refresh_path))
+
+@override_settings(SESSION_COOKIE_SAMESITE="None", DEBUG=False)  # the prod shape
+def test_cross_site_deploy_gets_samesite_none_and_secure(self): ...
+```
+
+See `docs/LEARNINGS.md` 2026-08-13 for the full incident.
 
 ---
 
@@ -668,5 +716,5 @@ def test_rate_limit(self):
 ---
 
 **Last Reviewed**: November 13, 2025
-**Pattern Count**: 15 authentication patterns
+**Pattern Count**: 16 authentication patterns
 **Status**: ✅ Production-validated across 278+ backend tests
