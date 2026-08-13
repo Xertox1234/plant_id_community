@@ -862,5 +862,37 @@
     "source": "codify: todo-281-forum-image-alt-text",
     "added": "2026-07-31",
     "severity": "warn"
+  },
+  {
+    "id": "hardcoded-cookie-samesite",
+    "domains": [
+      "security",
+      "api"
+    ],
+    "path_glob": [
+      "backend/apps/**/*.py"
+    ],
+    "content_present": "samesite\\s*=\\s*[\"'](Strict|Lax|None)[\"']",
+    "message": "Hardcoded cookie samesite= killed all cross-site prod auth (PR #530). Derive from settings.SESSION_COOKIE_SAMESITE (force secure=True when it is \"None\") and scope cookie path= to the live /api/v1/ mount.",
+    "pattern_ref": "backend/docs/patterns/security/authentication.md",
+    "source": "codify: 2026-08-13 jwt-cookie session",
+    "added": "2026-08-13",
+    "severity": "warn"
+  },
+  {
+    "id": "login-test-missing-cache-clear",
+    "domains": [
+      "testing"
+    ],
+    "path_glob": [
+      "backend/apps/**/test_*.py"
+    ],
+    "content_present": "client\\.post\\(\\s*[\"'][^\"']*login",
+    "content_absent": "cache\\.clear\\(\\)",
+    "message": "TestCase POSTing to a login endpoint without cache.clear() in setUp: django-ratelimit counters bleed across classes in one process (>5 logins -> 429s, order-dependent flake). Clear the cache first thing in setUp.",
+    "pattern_ref": "docs/rules/testing.md",
+    "source": "codify: 2026-08-13 jwt-cookie session",
+    "added": "2026-08-13",
+    "severity": "warn"
   }
 ]

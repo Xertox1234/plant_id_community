@@ -247,3 +247,13 @@ Compact checklist auto-injected before edits.
   the test asserted publish and went red. A test asserting the fail-closed side
   would have gone **green for the wrong reason**. Whenever you add a call to an
   already-mocked shared helper, re-read every blanket mock of it.
+- **The Django/DRF test client ignores cookie `path`, `samesite`, `secure`,
+  and `domain` — it replays every stored cookie on every request.** Endpoint
+  tests prove nothing about cookie attributes; assert them explicitly on
+  `response.cookies[...]`, and pin a cookie's `path` to its endpoint with
+  `reverse(...)`.startswith so mount moves can't silently strand it. See
+  `docs/LEARNINGS.md` 2026-08-13.
+- **TestCase classes that POST to login/auth endpoints must `cache.clear()`
+  first thing in `setUp`** — django-ratelimit counters live in the shared
+  cache and bleed across classes in one process (>5 logins in a run → 429s
+  for whichever class runs later, an order-dependent flake).

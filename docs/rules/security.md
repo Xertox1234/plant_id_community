@@ -81,3 +81,9 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   `.../required_status_checks/contexts`) for additive changes, and `GET`
   before AND after to diff the before/after state. See `docs/LEARNINGS.md`
   2026-07-14.
+- **Never hardcode cookie attributes (`samesite=`, `secure=`) in app code —
+  mirror `settings.SESSION_COOKIE_SAMESITE`** (forcing `secure=True` whenever
+  samesite is `"None"`), and scope any cookie `path=` to the live `/api/v1/`
+  mount, pinned in a test via `reverse()`. A hardcoded `Strict` silently
+  killed all email/password auth on the split-domain prod deploy while every
+  test stayed green. See `docs/LEARNINGS.md` 2026-08-13.

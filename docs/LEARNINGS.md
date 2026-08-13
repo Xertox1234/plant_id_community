@@ -2863,3 +2863,57 @@ absent / repeated), not just the one your own client sends.
 
 Codified as write-time triggers `drf-multipart-data-get-string-method` and
 `react-setstate-in-unmount-cleanup`.
+
+## JWT cookie attributes (2026-08-13, PR #530)
+
+### Hardcoded `SameSite=Strict` killed all email/password auth on prod — with every test green
+
+`set_jwt_cookies()` hardcoded `samesite="Strict" if not settings.DEBUG else
+"Lax"`. The prod deploy is split-domain (houseplant-md.com frontend → Railway
+API), and browsers never send `Strict` cookies cross-site — so login returned
+200, set cookies, and then every authenticated call 401'd. No email/password
+user had ever been able to post on prod. Two more attribute bugs hid in the
+same function: the refresh cookie's `path="/api/auth/"` pointed at the
+deprecated unversioned mount (live refresh endpoint is `/api/v1/auth/…`, so
+token rotation was equally dead), and `clear_jwt_cookies()` deleted with
+mismatched attributes.
+
+**Root cause shape: attribute drift between config and code.** The
+session-cookie path was deploy-aware (`SESSION_COOKIE_SAMESITE` env → `None`
+on Railway), so Google OAuth worked and masked the breakage; the JWT path
+re-derived the same decision independently and got it wrong. Cookie attributes
+(`samesite`, `secure`, `path`) are deployment topology decisions — they belong
+in settings, mirrored by app code, never re-decided inline.
+
+**Why the suite was blind:** the Django/DRF test client ignores cookie
+`path`, `samesite`, `secure`, and `domain` entirely — it replays every stored
+cookie on every request. `test_token_refresh.py` exercised the real endpoint
+through the dead cookie path and passed for years. Attribute correctness is
+only testable by asserting on `response.cookies[...]` directly, and the
+path↔mount pairing only stays honest if pinned against `reverse()`:
+
+```python
+refresh_path = response.cookies["refresh_token"]["path"]
+self.assertTrue(reverse("v1:users:token_refresh").startswith(refresh_path))
+```
+
+**Found while validating:** django-ratelimit login counters live in the shared
+cache and bleed across TestCase classes within one process — >5 logins in a
+run → 429s for whichever class runs later (on pre-#530 main,
+`test_cookie_jwt_authentication` + `test_token_refresh` together failed 5
+tests locally). Sibling suites already carried the antidote
+(`cache.clear()` first line of `setUp`); the two classes missing it were
+exactly the flaky ones.
+
+### Generalisable: topology-dependent values can't be hardcoded
+
+When a value's correctness depends on deployment topology (cookie attributes,
+CORS, redirect URIs), hardcoding it in app code creates a class of bug that no
+same-site test environment can see. Derive from the one settings knob the
+deploy already configures, and write the assertion the test client can't give
+you for free.
+
+Codified as write-time trigger `hardcoded-cookie-samesite` and
+`login-test-missing-cache-clear`; rules in `docs/rules/security.md` and
+`docs/rules/testing.md`; pattern in
+`backend/docs/patterns/security/authentication.md`.
