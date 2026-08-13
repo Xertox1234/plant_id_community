@@ -8,9 +8,8 @@ Tests the CookieJWTAuthentication class and cookie-based auth flow including:
 - httpOnly and Secure flags
 """
 
-from unittest.mock import MagicMock, patch
-
 from apps.users.authentication import (
+    REFRESH_COOKIE_PATH,
     CookieJWTAuthentication,
     RefreshTokenFromCookie,
     clear_jwt_cookies,
@@ -18,7 +17,9 @@ from apps.users.authentication import (
 )
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import RequestFactory, TestCase
+from django.core.cache import cache
+from django.test import RequestFactory, TestCase, override_settings
+from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -168,20 +169,72 @@ class CookieJWTAuthenticationTestCase(TestCase):
 
         self.assertEqual(extracted_token, refresh_token_str)
 
-    def test_cookie_samesite_attribute(self):
-        """Test that cookies have appropriate SameSite attribute."""
+    def test_cookie_samesite_mirrors_session_cookie(self):
+        """JWT cookies must use the same SameSite policy as the session cookie."""
         from django.http import HttpResponse
 
         response = HttpResponse()
         response = set_jwt_cookies(response, self.user)
 
-        access_cookie = response.cookies["access_token"]
+        for name in ("access_token", "refresh_token"):
+            self.assertEqual(
+                response.cookies[name]["samesite"], settings.SESSION_COOKIE_SAMESITE
+            )
 
-        # SameSite should be set based on DEBUG setting
-        if settings.DEBUG:
-            self.assertEqual(access_cookie["samesite"], "Lax")
-        else:
-            self.assertEqual(access_cookie["samesite"], "Strict")
+    @override_settings(SESSION_COOKIE_SAMESITE="None", DEBUG=False)
+    def test_cross_site_deploy_gets_samesite_none_and_secure(self):
+        """
+        The split-domain prod deploy sets SESSION_COOKIE_SAMESITE=None; the JWT
+        cookies must follow (SameSite=None + Secure) or every authenticated
+        call 401s cross-site. Regression test for the 2026-08-13 prod blocker
+        (hardcoded SameSite=Strict).
+        """
+        from django.http import HttpResponse
+
+        response = HttpResponse()
+        response = set_jwt_cookies(response, self.user)
+
+        for name in ("access_token", "refresh_token"):
+            self.assertEqual(response.cookies[name]["samesite"], "None")
+            # Browsers reject SameSite=None without Secure
+            self.assertTrue(response.cookies[name]["secure"])
+
+    def test_refresh_cookie_path_matches_v1_mount(self):
+        """
+        The refresh cookie's path must cover the live refresh endpoint, or the
+        browser never sends it there (was /api/auth/ vs the /api/v1/auth/
+        mount — token refresh dead in prod; the test client ignores cookie
+        paths, so only this assertion catches drift).
+        """
+        from django.http import HttpResponse
+
+        response = HttpResponse()
+        response = set_jwt_cookies(response, self.user)
+
+        refresh_path = response.cookies["refresh_token"]["path"]
+        self.assertEqual(refresh_path, REFRESH_COOKIE_PATH)
+        self.assertTrue(
+            reverse("v1:users:token_refresh").startswith(refresh_path),
+            f"refresh endpoint {reverse('v1:users:token_refresh')} is outside "
+            f"the refresh cookie path {refresh_path}",
+        )
+
+    @override_settings(SESSION_COOKIE_SAMESITE="None", DEBUG=False)
+    def test_clear_matches_set_cookie_attributes(self):
+        """
+        Clearing must target the same path/samesite the cookies were set with,
+        or the expired replacement never overwrites the original (and a
+        cross-site response may only set SameSite=None cookies at all).
+        """
+        from django.http import HttpResponse
+
+        response = clear_jwt_cookies(set_jwt_cookies(HttpResponse(), self.user))
+
+        self.assertEqual(response.cookies["access_token"]["path"], "/")
+        self.assertEqual(response.cookies["refresh_token"]["path"], REFRESH_COOKIE_PATH)
+        for name in ("access_token", "refresh_token"):
+            self.assertEqual(response.cookies[name]["max-age"], 0)
+            self.assertEqual(response.cookies[name]["samesite"], "None")
 
 
 class LoginLogoutCookieFlowTestCase(TestCase):
@@ -189,6 +242,7 @@ class LoginLogoutCookieFlowTestCase(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
+        cache.clear()  # Prevent rate limiter state leaking from other test classes
         self.client = APIClient()
         self.user = User.objects.create_user(
             username="testuser", email="test@example.com", password="TestPassword123!"
@@ -263,6 +317,7 @@ class CSRFProtectionTestCase(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
+        cache.clear()  # Prevent rate limiter state leaking from other test classes
         self.client = APIClient(enforce_csrf_checks=True)
         self.user = User.objects.create_user(
             username="testuser", email="test@example.com", password="TestPassword123!"

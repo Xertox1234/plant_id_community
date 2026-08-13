@@ -332,6 +332,7 @@ class TokenLifetimeTestCase(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
+        cache.clear()  # Prevent rate limiter state leaking from other test classes
         self.client = APIClient()
         self.user = User.objects.create_user(
             username="testuser", email="test@example.com", password="TestPassword123!"

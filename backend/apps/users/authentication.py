@@ -18,6 +18,26 @@ from rest_framework_simplejwt.tokens import RefreshToken, Token
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
+# Must match the v1 mount of apps.users.urls in plant_community_backend/urls.py —
+# the browser only sends the refresh cookie to paths under this prefix. (The
+# deprecated unversioned /api/auth/ mount no longer receives the cookie; clients
+# there must send the token in the request body.)
+REFRESH_COOKIE_PATH = "/api/v1/auth/"
+
+
+def _jwt_cookie_flags() -> Tuple[Optional[str], bool]:
+    """
+    Return the (samesite, secure) pair for the JWT cookies.
+
+    Mirrors the session cookie: the split-domain prod deploy (Cloudflare
+    frontend calling the Railway API) sets SESSION_COOKIE_SAMESITE=None in the
+    environment, and SameSite=None is the only value browsers send cross-site.
+    Browsers also require Secure alongside SameSite=None.
+    """
+    samesite = settings.SESSION_COOKIE_SAMESITE
+    secure = not settings.DEBUG or str(samesite).lower() == "none"
+    return samesite, secure
+
 
 class CookieJWTAuthentication(JWTAuthentication):
     """
@@ -127,6 +147,8 @@ def set_jwt_cookies(response: HttpResponse, user: User) -> HttpResponse:
     access_max_age = settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()
     refresh_max_age = settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()
 
+    samesite, secure = _jwt_cookie_flags()
+
     # Set httpOnly cookies
     # IMPORTANT: domain=None allows cookies to be sent from different ports on localhost
     # This enables frontend (localhost:5174) to send cookies to backend (localhost:8000)
@@ -135,8 +157,8 @@ def set_jwt_cookies(response: HttpResponse, user: User) -> HttpResponse:
         value=str(access_token),
         max_age=access_max_age,
         httponly=True,
-        secure=not settings.DEBUG,  # Use secure cookies in production
-        samesite="Strict" if not settings.DEBUG else "Lax",
+        secure=secure,
+        samesite=samesite,
         domain=None,  # Default domain (allows cross-port in localhost)
         path="/",
     )
@@ -146,10 +168,10 @@ def set_jwt_cookies(response: HttpResponse, user: User) -> HttpResponse:
         value=str(refresh),
         max_age=refresh_max_age,
         httponly=True,
-        secure=not settings.DEBUG,
-        samesite="Strict" if not settings.DEBUG else "Lax",
+        secure=secure,
+        samesite=samesite,
         domain=None,  # Default domain (allows cross-port in localhost)
-        path="/api/auth/",  # Restrict refresh token to auth endpoints
+        path=REFRESH_COOKIE_PATH,  # Restrict refresh token to auth endpoints
     )
 
     logger.info(f"JWT cookies set for {log_safe_user_context(user)}")
@@ -166,8 +188,12 @@ def clear_jwt_cookies(response: HttpResponse) -> HttpResponse:
     Returns:
         Modified response with JWT cookies cleared
     """
-    response.delete_cookie("access_token", path="/")
-    response.delete_cookie("refresh_token", path="/api/auth/")
+    # samesite must match set_jwt_cookies: a cross-site response may only set
+    # (and therefore expire) SameSite=None cookies, and delete_cookie derives
+    # its Secure flag from samesite.
+    samesite, _ = _jwt_cookie_flags()
+    response.delete_cookie("access_token", path="/", samesite=samesite)
+    response.delete_cookie("refresh_token", path=REFRESH_COOKIE_PATH, samesite=samesite)
     logger.info("JWT cookies cleared")
     return response
 
