@@ -94,7 +94,7 @@ describe('CategoryCard', () => {
 
     renderCategoryCard(category);
 
-    expect(screen.getByText('Subcategories:')).toBeInTheDocument();
+    expect(screen.getByText('Subcategories')).toBeInTheDocument();
     expect(screen.getByText('Watering')).toBeInTheDocument();
     expect(screen.getByText('Fertilizing')).toBeInTheDocument();
     expect(screen.getByText('💧')).toBeInTheDocument();
@@ -106,7 +106,7 @@ describe('CategoryCard', () => {
 
     renderCategoryCard(category);
 
-    expect(screen.queryByText('Subcategories:')).not.toBeInTheDocument();
+    expect(screen.queryByText('Subcategories')).not.toBeInTheDocument();
   });
 
   it('renders without description when not provided', () => {

@@ -29,12 +29,29 @@ import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
 import PageMeta from '../../components/PageMeta';
+import {
+  IconBell,
+  IconBellOff,
+  IconEye,
+  IconLock,
+  IconPin,
+  IconReply,
+} from '../../components/forum/ForumIcons';
 import type { Thread, Post } from '@/types';
 import type { PaginatedResponse } from '@/types/forum';
 
 /** Strip tags + whitespace to detect an effectively-empty rich-text body. */
 function isBlankHtml(html: string): boolean {
   return html.replace(/<[^>]*>/g, '').trim() === '';
+}
+
+/**
+ * Whether the post with `postId` is the topic's accepted answer. The single
+ * source for this coercion — the leaf node, the tape/banner styling, and the
+ * mark/clear toggle must never disagree on it.
+ */
+function isSolvedPost(thread: Thread | null, postId: string): boolean {
+  return String(thread?.solved_post_id ?? '') === postId;
 }
 
 // Posts are ordered oldest-first, so a brand-new reply is the NEWEST post and lands
@@ -104,6 +121,9 @@ export default function ThreadDetailPage() {
   const [pendingDelete, setPendingDelete] = useState<Post | null>(null);
   // A post the user asked to edit while another edit has unsaved changes (M27).
   const [pendingEditSwitch, setPendingEditSwitch] = useState<Post | null>(null);
+  // The reply just posted by THIS user, for the one-shot "pressed into the
+  // page" landing animation (Field Notes signature). Purely visual state.
+  const [justPostedId, setJustPostedId] = useState<string | null>(null);
 
   // Tracks the topic currently on screen. handleToggleSubscription reads this
   // after its await to detect that the user navigated to a different thread
@@ -144,6 +164,8 @@ export default function ThreadDetailPage() {
     // Arriving on a thread must not autofocus the reply box (steals focus/scroll);
     // only a successful reply re-enables it.
     setAutoFocusComposer(false);
+    // The press animation belongs to the thread it happened on.
+    setJustPostedId(null);
 
     // react.dev race guard: a stale initial load (fast nav to another thread,
     // unmount, or a Retry superseding an in-flight request) is dropped so
@@ -249,11 +271,8 @@ export default function ThreadDetailPage() {
     if (scrolledHashRef.current === location.hash) return;
     scrolledHashRef.current = location.hash;
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    el.classList.add('ring-2', 'ring-primary', 'rounded-lg');
-    const timer = setTimeout(
-      () => el.classList.remove('ring-2', 'ring-primary', 'rounded-lg'),
-      2500
-    );
+    el.classList.add('wf-anchor-flash');
+    const timer = setTimeout(() => el.classList.remove('wf-anchor-flash'), 2500);
     return () => clearTimeout(timer);
   }, [loading, posts, location.hash, nextCursor, loadingMore, handleLoadMore]);
 
@@ -278,6 +297,9 @@ export default function ThreadDetailPage() {
           setPosts(refreshed.items);
           setNextCursor(refreshed.next);
           setTotalPosts((n) => n + 1);
+          // Posts are oldest-first, so the just-posted reply is the last item —
+          // mark it for the one-shot press-in landing animation.
+          setJustPostedId(refreshed.items[refreshed.items.length - 1]?.id ?? null);
           // Success has no visible banner (the reply just appears), so announce
           // it for screen readers (M25).
           announce('Reply posted.', 'polite');
@@ -366,7 +388,7 @@ export default function ThreadDetailPage() {
     async (post: Post) => {
       if (!thread || topicId == null) return;
       const requestTopicId = topicId;
-      const isCurrent = String(thread.solved_post_id ?? '') === post.id;
+      const isCurrent = isSolvedPost(thread, post.id);
       try {
         const result = isCurrent
           ? await clearSolution(requestTopicId)
@@ -527,88 +549,114 @@ export default function ThreadDetailPage() {
           type: 'article',
         }}
       />
-      {/* Breadcrumb */}
-      <nav className="mb-6 text-sm text-ink-2" aria-label="Breadcrumb">
-        <ol className="flex items-center gap-2">
+      {/* Breadcrumb — collection path, in the ledger's mono voice. The
+          thread-title crumb stays normal case: user content is never shouted. */}
+      <nav className="wf-label mb-8" aria-label="Breadcrumb">
+        <ol className="flex items-center gap-2 min-w-0">
           <li>
-            <Link to="/forum" className="hover:text-primary">
+            <Link to="/forum" viewTransition className="hover:text-primary">
               Forums
             </Link>
           </li>
-          <li aria-hidden="true">›</li>
+          <li aria-hidden="true">/</li>
           <li>
-            <Link to={`/forum/${categorySlug}`} className="hover:text-primary">
+            <Link to={`/forum/${categorySlug}`} viewTransition className="hover:text-primary">
               {thread.category.name}
             </Link>
           </li>
-          <li aria-hidden="true">›</li>
-          <li aria-current="page" className="font-medium text-ink">
+          <li aria-hidden="true">/</li>
+          <li aria-current="page" className="normal-case tracking-normal text-ink-2 truncate">
             {thread.title}
           </li>
         </ol>
       </nav>
 
-      {/* Thread Header */}
-      <div className="mb-8 bg-surface-2 rounded-lg shadow-md p-6">
-        <div className="flex items-start flex-wrap gap-4 mb-4">
-          {thread.category.icon && (
-            <span className="text-4xl" aria-hidden="true">
-              {thread.category.icon}
-            </span>
+      {/* Thread Header — the specimen sheet's label block, closed by a double rule */}
+      <header className="mb-8 border-b-2 border-line-2 pb-6">
+        <div className="wf-label flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
+          <span>No. {thread.id}</span>
+          <span aria-hidden="true">·</span>
+          <span>
+            {thread.category.icon && (
+              <span className="mr-1" aria-hidden="true">
+                {thread.category.icon}
+              </span>
+            )}
+            {thread.category.name}
+          </span>
+          {thread.is_pinned && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="inline-flex items-center gap-1 text-clay">
+                <IconPin size={12} /> Pinned
+              </span>
+            </>
           )}
-
-          <div className="flex-1 min-w-0">
-            <h1 className="text-xl sm:text-3xl font-bold text-ink mb-2">{thread.title}</h1>
-
-            <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-sm text-ink-3">
-              <span>
-                by{' '}
-                {thread.author.username === DELETED_AUTHOR_USERNAME ? (
-                  <strong className="text-ink-2">
-                    {thread.author.display_name || thread.author.username}
-                  </strong>
-                ) : (
-                  <Link
-                    to={userProfilePath(thread.author.username)}
-                    className="font-bold text-ink-2 hover:text-primary hover:underline"
-                  >
-                    {thread.author.display_name || thread.author.username}
-                  </Link>
-                )}
+          {thread.is_locked && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="inline-flex items-center gap-1">
+                <IconLock size={12} /> Locked
               </span>
-              <span>•</span>
-              <span>💬 {totalPosts} replies</span>
-              <span>•</span>
-              <span>👁️ {thread.view_count} views</span>
-            </div>
-          </div>
-
-          {/* Badges */}
-          <div className="flex items-center gap-2">
-            {thread.is_pinned && (
-              <span className="px-3 py-1 bg-tertiary/20 text-ink text-sm font-semibold rounded">
-                📌 Pinned
-              </span>
-            )}
-            {thread.is_locked && (
-              <span className="px-3 py-1 bg-surface-3 text-ink-2 text-sm font-semibold rounded">
-                🔒 Locked
-              </span>
-            )}
-            {isAuthenticated && (
-              <Button
-                onClick={handleToggleSubscription}
-                variant={thread.is_subscribed ? 'outline' : 'primary'}
-                loading={subscribing}
-                disabled={subscribing}
-                className="min-h-11"
-              >
-                {thread.is_subscribed ? '🔕 Following' : '🔔 Follow'}
-              </Button>
-            )}
-          </div>
+            </>
+          )}
+          <span aria-hidden="true">·</span>
+          <span className="inline-flex items-center gap-1">
+            <IconReply size={12} /> {totalPosts} replies
+          </span>
+          <span aria-hidden="true">·</span>
+          <span className="inline-flex items-center gap-1">
+            <IconEye size={12} /> {thread.view_count} views
+          </span>
         </div>
-      </div>
+
+        <div className="flex items-start justify-between flex-wrap gap-4">
+          <div className="flex-1 min-w-0">
+            <h1
+              className="wf-title text-2xl sm:text-4xl text-ink mb-3"
+              style={{ viewTransitionName: `thread-${thread.id}` }}
+            >
+              {thread.title}
+            </h1>
+
+            <p className="text-sm text-ink-3">
+              started by{' '}
+              {thread.author.username === DELETED_AUTHOR_USERNAME ? (
+                <strong className="text-ink-2">
+                  {thread.author.display_name || thread.author.username}
+                </strong>
+              ) : (
+                <Link
+                  to={userProfilePath(thread.author.username)}
+                  className="font-semibold text-ink-2 hover:text-primary hover:underline"
+                >
+                  {thread.author.display_name || thread.author.username}
+                </Link>
+              )}
+            </p>
+          </div>
+
+          {isAuthenticated && (
+            <Button
+              onClick={handleToggleSubscription}
+              variant={thread.is_subscribed ? 'outline' : 'primary'}
+              loading={subscribing}
+              disabled={subscribing}
+              className="min-h-11 gap-2"
+            >
+              {thread.is_subscribed ? (
+                <>
+                  <IconBellOff size={14} /> Following
+                </>
+              ) : (
+                <>
+                  <IconBell size={14} /> Follow
+                </>
+              )}
+            </Button>
+          )}
+        </div>
+      </header>
 
       {/* Write-path notice (errors + moderation outcomes). Persistent live
           region: the container is always mounted so swapping its text is read
@@ -619,7 +667,7 @@ export default function ThreadDetailPage() {
         aria-atomic="true"
         className={
           notice
-            ? 'mb-6 rounded-lg border border-line bg-surface-2 px-4 py-3 text-ink-2'
+            ? 'mb-6 rounded-xs border border-line bg-surface-2 px-4 py-3 text-ink-2'
             : 'sr-only'
         }
       >
@@ -636,40 +684,59 @@ export default function ThreadDetailPage() {
         />
       )}
 
-      {/* Posts List */}
-      <div className="space-y-4 mb-8">
-        {posts.map((post) =>
-          editingPostId === post.id ? (
-            <form
-              key={post.id}
-              onSubmit={handleEditSubmit}
-              className="bg-surface-2 rounded-lg shadow-md p-6 space-y-3"
-            >
-              <span className="block text-sm font-medium text-ink-2">Edit post</span>
-              <TipTapEditor key={post.id} content={editBody} onChange={setEditBody} />
-              <div className="flex gap-2">
-                <Button
-                  type="submit"
-                  variant="primary"
-                  disabled={isBlankHtml(editBody) || editSubmitting}
-                  loading={editSubmitting}
-                >
-                  Save
-                </Button>
-                <Button type="button" variant="outline" onClick={cancelEdit}>
-                  Cancel
-                </Button>
-              </div>
-            </form>
+      {/* Posts List — the stem: a rail down the reply chain, one node per post.
+          The `.wf-node-row` wrapper carries the node; the accepted answer's
+          node grows a leaf. */}
+      <div className="wf-thread space-y-5 mb-8">
+        {posts.map((post) => {
+          const isSolution = isSolvedPost(thread, post.id);
+          return editingPostId === post.id ? (
+            <div key={post.id} className="wf-node-row">
+              <form onSubmit={handleEditSubmit} className="wf-sheet p-5 sm:p-6 space-y-3">
+                <span className="wf-label block">Edit post</span>
+                <TipTapEditor key={post.id} content={editBody} onChange={setEditBody} />
+                <div className="flex gap-2">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={isBlankHtml(editBody) || editSubmitting}
+                    loading={editSubmitting}
+                  >
+                    Save
+                  </Button>
+                  <Button type="button" variant="outline" onClick={cancelEdit}>
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </div>
           ) : (
-            <div key={post.id} id={`post-${post.id}`}>
+            <div
+              key={post.id}
+              id={`post-${post.id}`}
+              className={`wf-node-row ${isSolution ? 'wf-node-row--solution' : ''} ${
+                justPostedId === post.id ? 'wf-press' : ''
+              }`}
+              // The press is one-shot: clear its marker once the longest of its
+              // animations (the 2s highlight fade) ends, so the class can't
+              // replay when the row's classes are re-applied (edit → Cancel
+              // reuses this same div) and the row rejoins the scroll-reveal
+              // cascade, which excludes .wf-press rows.
+              onAnimationEnd={
+                justPostedId === post.id
+                  ? (e) => {
+                      if (e.animationName === 'wf-anchor-fade') setJustPostedId(null);
+                    }
+                  : undefined
+              }
+            >
               <PostCard
                 post={post}
                 onEdit={handleEdit}
                 onDelete={handleDelete}
                 onReact={isAuthenticated ? handleReact : undefined}
                 onReport={isAuthenticated ? handleReport : undefined}
-                isSolution={String(thread?.solved_post_id ?? '') === post.id}
+                isSolution={isSolution}
                 // Offered only to a viewer the backend says may mark, and never
                 // on the opening post — a question is not its own answer, and
                 // the endpoint 422s it.
@@ -680,8 +747,8 @@ export default function ThreadDetailPage() {
                 }
               />
             </div>
-          )
-        )}
+          );
+        })}
       </div>
 
       {/* Load More Button (cursor pagination) */}
@@ -708,11 +775,13 @@ export default function ThreadDetailPage() {
 
       {/* Reply composer — hidden when the thread is locked/closed */}
       {thread.is_locked ? (
-        <div className="mt-8 rounded-lg border border-line bg-surface-2 p-6 text-center">
-          <p className="text-ink-2">🔒 This thread is locked — new replies are disabled.</p>
+        <div className="wf-sheet mt-8 p-6 text-center">
+          <p className="inline-flex items-center gap-2 text-ink-2">
+            <IconLock size={14} /> This thread is locked — new replies are disabled.
+          </p>
         </div>
       ) : !isAuthenticated ? (
-        <div className="mt-8 rounded-lg border border-line bg-surface-2 p-6 text-center">
+        <div className="wf-sheet mt-8 p-6 text-center">
           <p className="text-ink-2">
             <Link to="/login" className="text-primary hover:underline">
               Log in
@@ -721,11 +790,9 @@ export default function ThreadDetailPage() {
           </p>
         </div>
       ) : (
-        <form
-          onSubmit={handleReply}
-          className="mt-8 bg-surface-2 rounded-lg shadow-md p-6 space-y-3"
-        >
-          <h2 className="text-lg font-semibold text-ink">Post a Reply</h2>
+        <form onSubmit={handleReply} className="wf-sheet mt-8 p-5 sm:p-6 space-y-3">
+          <p className="wf-label">Add to the record</p>
+          <h2 className="wf-title text-xl text-ink">Post a Reply</h2>
           <TipTapEditor
             key={composerKey}
             content={replyBody}

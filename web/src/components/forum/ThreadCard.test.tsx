@@ -63,7 +63,7 @@ describe('ThreadCard', () => {
 
     renderThreadCard(thread);
 
-    expect(screen.getByText(/📌.*pinned/i)).toBeInTheDocument();
+    expect(screen.getByText(/pinned/i)).toBeInTheDocument();
   });
 
   it('renders a Solved badge when the thread has an accepted answer', () => {
@@ -83,7 +83,7 @@ describe('ThreadCard', () => {
 
     renderThreadCard(thread);
 
-    expect(screen.getByText(/🔒.*locked/i)).toBeInTheDocument();
+    expect(screen.getByText(/locked/i)).toBeInTheDocument();
   });
 
   it('renders unread badge when thread is unread', () => {
@@ -220,7 +220,7 @@ describe('ThreadCard', () => {
 
     const { container } = renderThreadCard(thread, true);
 
-    const card = container.querySelector('.p-3');
+    const card = container.querySelector('.py-3');
     expect(card).toBeInTheDocument();
   });
 

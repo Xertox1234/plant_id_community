@@ -266,7 +266,8 @@ export default function SearchPage() {
       />
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-ink mb-2">Forum Search</h1>
+        <p className="wf-label mb-2">Search the record</p>
+        <h1 className="wf-title text-3xl sm:text-4xl text-ink mb-2">Forum Search</h1>
         <p className="text-ink-2">Search across threads and posts</p>
       </div>
 
@@ -384,17 +385,17 @@ export default function SearchPage() {
           {/* Thread Results */}
           {searchResults.threads && searchResults.threads.length > 0 && (
             <div className="mb-8">
-              <h2 className="text-xl font-semibold text-ink mb-4">
+              <h2 className="wf-title text-xl text-ink mb-4">
                 Threads ({searchResults.total_threads})
               </h2>
-              <div className="space-y-4">
+              <div className="wf-ledger">
                 {searchResults.threads.map((thread) => (
-                  <div key={thread.id}>
+                  <div key={thread.id} className="wf-entry-group">
                     <ThreadCard thread={thread} hideAuthor />
                     {(hasSearchMatch(thread.title, query) ||
                       hasSearchMatch(thread.excerpt, query)) && (
                       <p
-                        className="mt-2 text-sm text-ink-2 bg-tertiary/10 border border-tertiary/20 rounded-lg p-3"
+                        className="mx-2 -mt-1 mb-4 text-sm text-ink-2 bg-tertiary/10 border border-tertiary/20 rounded-xs p-3"
                         aria-label="Highlighted thread match"
                       >
                         {highlightText(thread.title, query)}
@@ -410,7 +411,7 @@ export default function SearchPage() {
           {/* Post Results */}
           {searchResults.posts && searchResults.posts.length > 0 && (
             <div className="mb-8">
-              <h2 className="text-xl font-semibold text-ink mb-4">
+              <h2 className="wf-title text-xl text-ink mb-4">
                 Posts ({searchResults.total_posts})
               </h2>
               <div className="space-y-4">

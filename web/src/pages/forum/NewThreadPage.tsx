@@ -204,10 +204,8 @@ export default function NewThreadPage() {
   if (submittedPending && category) {
     return (
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="rounded-lg border border-line bg-surface-2 p-6 text-center space-y-3">
-          <h1 className="text-xl font-semibold text-ink">
-            Thanks — your topic is awaiting moderation
-          </h1>
+        <div className="wf-sheet p-6 text-center space-y-3">
+          <h1 className="wf-title text-xl text-ink">Thanks — your topic is awaiting moderation</h1>
           <p className="text-ink-2">
             A moderator will review it shortly, and it will appear on the board once approved.
           </p>
@@ -235,41 +233,46 @@ export default function NewThreadPage() {
         title="Start a New Thread · PlantID"
         description="Start a new discussion in the Plant Community forums."
       />
-      {/* Breadcrumb */}
-      <nav className="mb-6 text-sm text-ink-2" aria-label="Breadcrumb">
+      {/* Breadcrumb — collection path, in the ledger's mono voice */}
+      <nav className="wf-label mb-8" aria-label="Breadcrumb">
         <ol className="flex items-center gap-2">
           <li>
-            <Link to="/forum" className="hover:text-primary">
+            <Link to="/forum" viewTransition className="hover:text-primary">
               Forums
             </Link>
           </li>
-          <li aria-hidden="true">›</li>
+          <li aria-hidden="true">/</li>
           <li>
-            <Link to={category ? categoryPath(category) : '/forum'} className="hover:text-primary">
+            <Link
+              to={category ? categoryPath(category) : '/forum'}
+              viewTransition
+              className="hover:text-primary"
+            >
               {category?.name}
             </Link>
           </li>
-          <li aria-hidden="true">›</li>
-          <li aria-current="page" className="font-medium text-ink">
+          <li aria-hidden="true">/</li>
+          <li aria-current="page" className="text-ink-2">
             New Thread
           </li>
         </ol>
       </nav>
 
-      <h1 className="text-3xl font-bold text-ink mb-6">Start a New Thread</h1>
+      <p className="wf-label mb-2">New entry{category && <> · {category.name}</>}</p>
+      <h1 className="wf-title text-3xl text-ink mb-6">Start a New Thread</h1>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-5">
         {/* Board picker — shown only when no board was pre-selected (L4). */}
         {boards.length > 0 && (
-          <div>
-            <label htmlFor="board-picker" className="block text-sm font-medium text-ink-2 mb-1">
+          <div className="wf-field">
+            <label htmlFor="board-picker" className="wf-label block mb-1.5 transition-colors">
               Board
             </label>
             <select
               id="board-picker"
               value={category?.id ?? ''}
               onChange={(e) => setCategory(boards.find((b) => b.id === e.target.value) ?? null)}
-              className="min-h-11 w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary bg-surface-2 text-ink"
+              className="min-h-11 w-full px-4 py-2 border border-line-2 rounded-xs focus:ring-2 focus:ring-primary bg-surface-2 text-ink"
             >
               <option value="" disabled>
                 Choose a board…
@@ -288,7 +291,7 @@ export default function NewThreadPage() {
             their question; it carries their photo, so silently attaching it
             would be the wrong default. */}
         {identification && (
-          <div className="rounded-lg border border-line bg-surface-3 p-4">
+          <div className="wf-sheet p-4">
             <div className="flex items-start gap-4">
               {handoff?.identificationPreviewUrl && (
                 <img
@@ -317,10 +320,12 @@ export default function NewThreadPage() {
           </div>
         )}
 
-        <div>
-          <label htmlFor="thread-title" className="block text-sm font-medium text-ink-2 mb-1">
+        <div className="wf-field">
+          <label htmlFor="thread-title" className="wf-label block mb-1.5 transition-colors">
             Title
           </label>
+          {/* The title being typed IS the specimen title — it renders in the
+              display face, so the entry reads like its future ledger line. */}
           <input
             id="thread-title"
             type="text"
@@ -328,13 +333,13 @@ export default function NewThreadPage() {
             onChange={(e) => setTitle(e.target.value)}
             placeholder="A clear, specific title"
             maxLength={255}
-            className="w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
+            className="wf-title w-full px-4 py-2.5 text-xl border border-line-2 rounded-xs focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink placeholder:text-ink-3"
           />
         </div>
 
-        <div>
-          <label htmlFor="thread-tags" className="block text-sm font-medium text-ink-2 mb-1">
-            Tags <span className="font-normal text-ink-3">(optional)</span>
+        <div className="wf-field">
+          <label htmlFor="thread-tags" className="wf-label block mb-1.5 transition-colors">
+            Tags <span className="normal-case tracking-normal">(optional)</span>
           </label>
           <input
             id="thread-tags"
@@ -343,20 +348,20 @@ export default function NewThreadPage() {
             onChange={(e) => setTagsInput(e.target.value)}
             placeholder="monstera, root rot, propagation"
             aria-describedby="thread-tags-hint"
-            className="w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
+            className="w-full px-4 py-2 font-mono text-sm border border-line-2 rounded-xs focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink placeholder:text-ink-3"
           />
           <p id="thread-tags-hint" className="mt-1 text-xs text-ink-3">
             Comma-separated. Up to 5 tags, e.g. species, genus, or symptom.
           </p>
         </div>
 
-        <div>
-          <span className="block text-sm font-medium text-ink-2 mb-1">Message</span>
+        <div className="wf-field">
+          <span className="wf-label block mb-1.5 transition-colors">Message</span>
           <TipTapEditor content={body} onChange={setBody} placeholder="Write your post..." />
         </div>
 
         {error && (
-          <div className="bg-error/10 border border-error/30 text-ink px-4 py-3 rounded">
+          <div className="bg-error/10 border border-error/30 text-ink px-4 py-3 rounded-xs">
             {error}
           </div>
         )}
