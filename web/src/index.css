@@ -1,94 +1,207 @@
 @import 'tailwindcss';
 
-@font-face { font-family:"Bricolage Grotesque"; src:url("/fonts/BricolageGrotesque-SemiBold.woff2") format("woff2"); font-weight:600; font-style:normal; font-display:swap; }
-@font-face { font-family:"Geist"; src:url("/fonts/Geist-Regular.woff2")  format("woff2"); font-weight:400; font-style:normal; font-display:swap; }
-@font-face { font-family:"Geist"; src:url("/fonts/Geist-Medium.woff2")   format("woff2"); font-weight:500; font-style:normal; font-display:swap; }
-@font-face { font-family:"Geist"; src:url("/fonts/Geist-SemiBold.woff2") format("woff2"); font-weight:600; font-style:normal; font-display:swap; }
-@font-face { font-family:"Geist Mono"; src:url("/fonts/GeistMono-Regular.woff2") format("woff2"); font-weight:400; font-style:normal; font-display:swap; }
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  src: url('/fonts/BricolageGrotesque-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('/fonts/Geist-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('/fonts/Geist-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('/fonts/Geist-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/fonts/GeistMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 
 /* ───────── Green Thumb semantic vars · :root = loam · light · cozy ───────── */
 :root {
-  --gt-surface:#F6F0E2; --gt-surface-2:#ECE3CC; --gt-surface-3:#DDD0AE;
-  --gt-ink:#1F1A12; --gt-ink-2:#4A3F2C; --gt-ink-3:#6E624C;
-  --gt-line:#D4C5A0; --gt-line-2:#BCA97E;
-  --gt-primary:#4A7034; --gt-on-primary:#F6F0E2;
-  --gt-secondary:#97B86A; --gt-tertiary:#E0B445;
-  --gt-clay:#C9542A; --gt-on-clay:#FFF8EA;
-  --gt-leaf:#5E683E; --gt-berry:#A14662; --gt-sky:#456369;
-  --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
-  --gt-pad-card:16px; --gt-pad-screen:16px; --gt-gap:12px;
-  --gt-shadow-1:0 1px 0 rgba(27,34,24,.04), 0 2px 6px rgba(27,34,24,.05);
-  --gt-shadow-2:0 2px 0 rgba(27,34,24,.05), 0 8px 22px rgba(27,34,24,.08);
-  --gt-shadow-3:0 4px 0 rgba(27,34,24,.06), 0 18px 40px rgba(27,34,24,.14);
+  --gt-surface: #f6f0e2;
+  --gt-surface-2: #ece3cc;
+  --gt-surface-3: #ddd0ae;
+  --gt-ink: #1f1a12;
+  --gt-ink-2: #4a3f2c;
+  --gt-ink-3: #6e624c;
+  --gt-line: #d4c5a0;
+  --gt-line-2: #bca97e;
+  --gt-primary: #4a7034;
+  --gt-on-primary: #f6f0e2;
+  --gt-secondary: #97b86a;
+  --gt-tertiary: #e0b445;
+  --gt-clay: #c9542a;
+  --gt-on-clay: #fff8ea;
+  --gt-leaf: #5e683e;
+  --gt-berry: #a14662;
+  --gt-sky: #456369;
+  --gt-ok: #3f5d3f;
+  --gt-warn: #c4a570;
+  --gt-error: #b5451c;
+  --gt-pad-card: 16px;
+  --gt-pad-screen: 16px;
+  --gt-gap: 12px;
+  --gt-shadow-1: 0 1px 0 rgba(27, 34, 24, 0.04), 0 2px 6px rgba(27, 34, 24, 0.05);
+  --gt-shadow-2: 0 2px 0 rgba(27, 34, 24, 0.05), 0 8px 22px rgba(27, 34, 24, 0.08);
+  --gt-shadow-3: 0 4px 0 rgba(27, 34, 24, 0.06), 0 18px 40px rgba(27, 34, 24, 0.14);
 }
 
 /* ───────── palette LIGHT blocks (forest is dark-only: this is its only set) ───────── */
-[data-palette="garden"] {
-  --gt-surface:#F4F1E4; --gt-surface-2:#ECE7D2; --gt-surface-3:#DFD9BD;
-  --gt-ink:#102015; --gt-ink-2:#2E4233; --gt-ink-3:#596B57;
-  --gt-line:#D2CCAE; --gt-line-2:#B8B391;
-  --gt-primary:#2F6B3A; --gt-on-primary:#F4F1E4;
-  --gt-secondary:#7FA66B; --gt-tertiary:#E5B84B;
-  --gt-clay:#D86B2C; --gt-on-clay:#FFF8EA;
-  --gt-leaf:#596C3A; --gt-berry:#AB4163; --gt-sky:#456369;
-  --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
+[data-palette='garden'] {
+  --gt-surface: #f4f1e4;
+  --gt-surface-2: #ece7d2;
+  --gt-surface-3: #dfd9bd;
+  --gt-ink: #102015;
+  --gt-ink-2: #2e4233;
+  --gt-ink-3: #596b57;
+  --gt-line: #d2ccae;
+  --gt-line-2: #b8b391;
+  --gt-primary: #2f6b3a;
+  --gt-on-primary: #f4f1e4;
+  --gt-secondary: #7fa66b;
+  --gt-tertiary: #e5b84b;
+  --gt-clay: #d86b2c;
+  --gt-on-clay: #fff8ea;
+  --gt-leaf: #596c3a;
+  --gt-berry: #ab4163;
+  --gt-sky: #456369;
+  --gt-ok: #3f5d3f;
+  --gt-warn: #c4a570;
+  --gt-error: #b5451c;
 }
-[data-palette="forest"] {
-  --gt-surface:#0F1A12; --gt-surface-2:#16241A; --gt-surface-3:#1F3024;
-  --gt-ink:#E8F0D8; --gt-ink-2:#C2D2AC; --gt-ink-3:#87987C;
-  --gt-line:#2A3A2F; --gt-line-2:#3D5142;
-  --gt-primary:#B8DC7C; --gt-on-primary:#0F1A12;
-  --gt-secondary:#A8CC6E; --gt-tertiary:#F0CC68;
-  --gt-clay:#F0935A; --gt-on-clay:#0F1A12;
-  --gt-leaf:#C8E198; --gt-berry:#E090A8; --gt-sky:#94BFC8;
-  --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
+[data-palette='forest'] {
+  --gt-surface: #0f1a12;
+  --gt-surface-2: #16241a;
+  --gt-surface-3: #1f3024;
+  --gt-ink: #e8f0d8;
+  --gt-ink-2: #c2d2ac;
+  --gt-ink-3: #87987c;
+  --gt-line: #2a3a2f;
+  --gt-line-2: #3d5142;
+  --gt-primary: #b8dc7c;
+  --gt-on-primary: #0f1a12;
+  --gt-secondary: #a8cc6e;
+  --gt-tertiary: #f0cc68;
+  --gt-clay: #f0935a;
+  --gt-on-clay: #0f1a12;
+  --gt-leaf: #c8e198;
+  --gt-berry: #e090a8;
+  --gt-sky: #94bfc8;
+  --gt-ok: #3f5d3f;
+  --gt-warn: #c4a570;
+  --gt-error: #b5451c;
 }
-[data-palette="heritage"] {
-  --gt-surface:#F0EBDB; --gt-surface-2:#E4DBC2; --gt-surface-3:#D3C9AC;
-  --gt-ink:#1A1F10; --gt-ink-2:#3A4128; --gt-ink-3:#655F45;
-  --gt-line:#CFC4A2; --gt-line-2:#B8AC85;
-  --gt-primary:#3D5A22; --gt-on-primary:#F0EBDB;
-  --gt-secondary:#768B4E; --gt-tertiary:#C99B3A;
-  --gt-clay:#B0481E; --gt-on-clay:#FFF8EA;
-  --gt-leaf:#59633B; --gt-berry:#9E3C5B; --gt-sky:#456369;
-  --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
+[data-palette='heritage'] {
+  --gt-surface: #f0ebdb;
+  --gt-surface-2: #e4dbc2;
+  --gt-surface-3: #d3c9ac;
+  --gt-ink: #1a1f10;
+  --gt-ink-2: #3a4128;
+  --gt-ink-3: #655f45;
+  --gt-line: #cfc4a2;
+  --gt-line-2: #b8ac85;
+  --gt-primary: #3d5a22;
+  --gt-on-primary: #f0ebdb;
+  --gt-secondary: #768b4e;
+  --gt-tertiary: #c99b3a;
+  --gt-clay: #b0481e;
+  --gt-on-clay: #fff8ea;
+  --gt-leaf: #59633b;
+  --gt-berry: #9e3c5b;
+  --gt-sky: #456369;
+  --gt-ok: #3f5d3f;
+  --gt-warn: #c4a570;
+  --gt-error: #b5451c;
 }
 
 /* ───────── dark COLOR blocks — palette-qualified (0,2,0) so they outrank the
    palette base block. A BARE [data-mode="dark"] color block would tie with
    [data-palette="forest"] and clobber it (cascade bug). Forest needs none. ───────── */
-[data-palette="loam"][data-mode="dark"] {
-  --gt-surface:#12100A; --gt-surface-2:#1C1810; --gt-surface-3:#272218;
-  --gt-ink:#F2EBD8; --gt-ink-2:#D4C8A4; --gt-ink-3:#8E8265;
-  --gt-line:#2E2818; --gt-line-2:#423A26;
-  --gt-primary:#B8D680; --gt-on-primary:#12100A;
-  --gt-secondary:#A3C26C; --gt-tertiary:#E8C76B;
-  --gt-clay:#E58A52; --gt-on-clay:#12100A;
-  --gt-leaf:#CCE090; --gt-berry:#D286A2; --gt-sky:#9CC0CA;
-  --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
+[data-palette='loam'][data-mode='dark'] {
+  --gt-surface: #12100a;
+  --gt-surface-2: #1c1810;
+  --gt-surface-3: #272218;
+  --gt-ink: #f2ebd8;
+  --gt-ink-2: #d4c8a4;
+  --gt-ink-3: #8e8265;
+  --gt-line: #2e2818;
+  --gt-line-2: #423a26;
+  --gt-primary: #b8d680;
+  --gt-on-primary: #12100a;
+  --gt-secondary: #a3c26c;
+  --gt-tertiary: #e8c76b;
+  --gt-clay: #e58a52;
+  --gt-on-clay: #12100a;
+  --gt-leaf: #cce090;
+  --gt-berry: #d286a2;
+  --gt-sky: #9cc0ca;
+  --gt-ok: #3f5d3f;
+  --gt-warn: #c4a570;
+  --gt-error: #b5451c;
 }
-[data-palette="garden"][data-mode="dark"],
-[data-palette="heritage"][data-mode="dark"] {   /* heritage dark = garden dark (_gardenDark) */
-  --gt-surface:#0E140F; --gt-surface-2:#161E18; --gt-surface-3:#1F2A21;
-  --gt-ink:#EEF4E2; --gt-ink-2:#C8D5B8; --gt-ink-3:#8A9A7E;
-  --gt-line:#2A3628; --gt-line-2:#3A4A37;
-  --gt-primary:#A8CC6E; --gt-on-primary:#14180F;
-  --gt-secondary:#9BBE82; --gt-tertiary:#E8C76B;
-  --gt-clay:#E58A52; --gt-on-clay:#14180F;
-  --gt-leaf:#BEDC8C; --gt-berry:#D286A2; --gt-sky:#9CC0CA;
-  --gt-ok:#3F5D3F; --gt-warn:#C4A570; --gt-error:#B5451C;
+[data-palette='garden'][data-mode='dark'],
+[data-palette='heritage'][data-mode='dark'] {
+  /* heritage dark = garden dark (_gardenDark) */
+  --gt-surface: #0e140f;
+  --gt-surface-2: #161e18;
+  --gt-surface-3: #1f2a21;
+  --gt-ink: #eef4e2;
+  --gt-ink-2: #c8d5b8;
+  --gt-ink-3: #8a9a7e;
+  --gt-line: #2a3628;
+  --gt-line-2: #3a4a37;
+  --gt-primary: #a8cc6e;
+  --gt-on-primary: #14180f;
+  --gt-secondary: #9bbe82;
+  --gt-tertiary: #e8c76b;
+  --gt-clay: #e58a52;
+  --gt-on-clay: #14180f;
+  --gt-leaf: #bedc8c;
+  --gt-berry: #d286a2;
+  --gt-sky: #9cc0ca;
+  --gt-ok: #3f5d3f;
+  --gt-warn: #c4a570;
+  --gt-error: #b5451c;
 }
 
 /* dark SHADOWS — palette-independent → one bare block, ONLY shadow vars (no colors) */
-[data-mode="dark"] {
-  --gt-shadow-1:0 1px 0 rgba(0,0,0,.04), 0 2px 6px rgba(0,0,0,.05);
-  --gt-shadow-2:0 2px 0 rgba(0,0,0,.05), 0 8px 22px rgba(0,0,0,.08);
-  --gt-shadow-3:0 4px 0 rgba(0,0,0,.06), 0 18px 40px rgba(0,0,0,.14);
+[data-mode='dark'] {
+  --gt-shadow-1: 0 1px 0 rgba(0, 0, 0, 0.04), 0 2px 6px rgba(0, 0, 0, 0.05);
+  --gt-shadow-2: 0 2px 0 rgba(0, 0, 0, 0.05), 0 8px 22px rgba(0, 0, 0, 0.08);
+  --gt-shadow-3: 0 4px 0 rgba(0, 0, 0, 0.06), 0 18px 40px rgba(0, 0, 0, 0.14);
 }
 
 /* ───────── density blocks (cozy is the :root default) ───────── */
-[data-density="comfortable"] { --gt-pad-card:18px; --gt-pad-screen:18px; --gt-gap:14px; }
-[data-density="compact"]     { --gt-pad-card:12px; --gt-pad-screen:14px; --gt-gap:10px; }
+[data-density='comfortable'] {
+  --gt-pad-card: 18px;
+  --gt-pad-screen: 18px;
+  --gt-gap: 14px;
+}
+[data-density='compact'] {
+  --gt-pad-card: 12px;
+  --gt-pad-screen: 14px;
+  --gt-gap: 10px;
+}
 
 /* ───────── register tokens → utilities resolve the var AT THE ELEMENT ───────── */
 @theme inline {
@@ -118,15 +231,19 @@
   --shadow-1: var(--gt-shadow-1);
   --shadow-2: var(--gt-shadow-2);
   --shadow-3: var(--gt-shadow-3);
-  --font-display: "Bricolage Grotesque", Georgia, serif;
-  --font-sans: "Geist", system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --font-display: 'Bricolage Grotesque', Georgia, serif;
+  --font-sans: 'Geist', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
 }
 
 /* ───────── radius scale (constant across palettes → static; overrides Tailwind defaults) ───────── */
 @theme {
-  --radius-xs:6px; --radius-sm:10px; --radius-md:16px;
-  --radius-lg:22px; --radius-xl:28px; --radius-pill:999px;
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
 }
 
 /* ───────── dark variant keyed to OUR toggle, not OS prefers-color-scheme ───────── */
@@ -134,21 +251,64 @@
 
 /* ───────── skip-nav (migrated off the hardcoded green) ───────── */
 .skip-nav {
-  position: absolute; top: -40px; left: 0;
-  background: var(--gt-primary); color: var(--gt-on-primary);
-  padding: 8px 16px; text-decoration: none; font-weight: 600;
-  border-radius: 0 0 8px 0; z-index: 100; transition: top 0.2s;
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--gt-primary);
+  color: var(--gt-on-primary);
+  padding: 8px 16px;
+  text-decoration: none;
+  font-weight: 600;
+  border-radius: 0 0 8px 0;
+  z-index: 100;
+  transition: top 0.2s;
 }
-.skip-nav:focus { top: 0; }
+.skip-nav:focus {
+  top: 0;
+}
 
-@layer base { body { font-family: var(--font-sans); background: var(--gt-surface); color: var(--gt-ink); } }
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    background: var(--gt-surface);
+    color: var(--gt-ink);
+  }
+}
 
 @layer components {
   /* Bricolage Grotesque ships no italic face; italic is synthesized intentionally (matches the mobile Green Thumb identity). */
-  .gt-display { font-family: var(--font-display); font-style: italic; font-weight: 600; font-size: 2rem;     line-height: 1.02; letter-spacing: -0.02em; }
-  .gt-h1      { font-family: var(--font-display); font-style: italic; font-weight: 600; font-size: 1.75rem;  line-height: 1.1;  letter-spacing: -0.02em; }
-  .gt-h2      { font-family: var(--font-display); font-style: italic; font-weight: 600; font-size: 1.375rem; line-height: 1.15; letter-spacing: -0.02em; }
-  .gt-h3      { font-family: var(--font-display); font-style: italic; font-weight: 600; font-size: 1.125rem; line-height: 1.2;  letter-spacing: -0.02em; }
+  .gt-display {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 2rem;
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+  }
+  .gt-h1 {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 1.75rem;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+  .gt-h2 {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 1.375rem;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+  .gt-h3 {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 1.125rem;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
 }
 
 /* ═══════════ Field Notes · forum ledger system ═══════════
@@ -173,11 +333,33 @@
   }
 
   /* Ruled ledger list: a strong head rule, fine rules between entries. */
-  .wf-ledger { border-top: 2px solid var(--gt-line-2); }
-  .wf-entry  { border-bottom: 1px solid var(--gt-line); container-type: inline-size; }
+  .wf-ledger {
+    border-top: 2px solid var(--gt-line-2);
+  }
+  .wf-entry {
+    border-bottom: 1px solid var(--gt-line);
+    container-type: inline-size;
+  }
+
+  /* Search results: a ThreadCard entry plus its highlighted-match excerpt form
+     ONE ruled group — the group carries the rule and the inner entry drops its
+     own, so the excerpt can never dangle below its entry's rule (code review,
+     PR #535). */
+  .wf-entry-group {
+    border-bottom: 1px solid var(--gt-line);
+  }
+  .wf-entry-group .wf-entry {
+    border-bottom: 0;
+  }
 
   /* Display voice for titles (upstream .gt-h* fix the size; this one scales). */
-  .wf-title { font-family: var(--font-display); font-style: italic; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
+  .wf-title {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
 
   /* Specimen sheet — the post surface. Crisper than the app's soft cards. */
   .wf-sheet {
@@ -188,10 +370,12 @@
   }
 
   /* Paper-tape mounting corners — the accepted answer is "mounted" on the page. */
-  .wf-taped { position: relative; }
+  .wf-taped {
+    position: relative;
+  }
   .wf-taped::before,
   .wf-taped::after {
-    content: "";
+    content: '';
     position: absolute;
     top: -5px;
     width: 30px;
@@ -200,17 +384,27 @@
     opacity: 0.85;
     box-shadow: 0 1px 2px rgba(27, 34, 24, 0.12);
     pointer-events: none;
+    z-index: 1; /* tape lies OVER what it mounts, both strips alike */
   }
-  .wf-taped::before { left: -9px;  transform: rotate(-45deg); }
-  .wf-taped::after  { right: -9px; transform: rotate(45deg); }
+  .wf-taped::before {
+    left: -9px;
+    transform: rotate(-45deg);
+  }
+  .wf-taped::after {
+    right: -9px;
+    transform: rotate(45deg);
+  }
 
   /* ── The stem: a rail down the reply chain, one node per post. ──
      Two layers: ::before is the faint full-length trace (the path ahead),
      ::after the solid line — scroll-drawn over it where supported. */
-  .wf-thread { position: relative; padding-left: 26px; }
+  .wf-thread {
+    position: relative;
+    padding-left: 26px;
+  }
   .wf-thread::before,
   .wf-thread::after {
-    content: "";
+    content: '';
     position: absolute;
     top: 14px;
     bottom: 14px;
@@ -219,10 +413,14 @@
     border-radius: 1px;
     background: var(--wf-stem);
   }
-  .wf-thread::before { opacity: 0.3; }
-  .wf-node-row { position: relative; }
+  .wf-thread::before {
+    opacity: 0.3;
+  }
+  .wf-node-row {
+    position: relative;
+  }
   .wf-node-row::before {
-    content: "";
+    content: '';
     position: absolute;
     left: -22px;
     top: 24px;
@@ -242,29 +440,83 @@
   }
 
   /* Deep-link / anchor highlight, ledger-toned (replaces the ring flash). */
-  .wf-anchor-flash .wf-sheet { animation: wf-anchor-fade 2.4s ease-out both; }
+  .wf-anchor-flash .wf-sheet {
+    animation: wf-anchor-fade 2.4s ease-out both;
+  }
 
   /* The signature press: a just-posted reply lands like a specimen pressed
      into the page — highlight always; movement only when motion is allowed. */
-  .wf-press .wf-sheet { animation: wf-anchor-fade 2s ease-out both; }
+  .wf-press .wf-sheet {
+    animation: wf-anchor-fade 2s ease-out both;
+  }
 }
 
 @keyframes wf-anchor-fade {
-  from { background-color: var(--wf-highlight); }
-  to   { background-color: var(--gt-surface-2); }
+  from {
+    background-color: var(--wf-highlight);
+  }
+  to {
+    background-color: var(--gt-surface-2);
+  }
 }
 @keyframes wf-press-in {
-  0%   { opacity: 0; transform: translateY(-10px) scale(1.012); box-shadow: var(--shadow-3); background-color: var(--wf-highlight); }
-  55%  { opacity: 1; transform: translateY(1px); }
-  100% { transform: none; box-shadow: var(--shadow-1); background-color: var(--gt-surface-2); }
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) scale(1.012);
+    box-shadow: var(--shadow-3);
+    background-color: var(--wf-highlight);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(1px);
+  }
+  100% {
+    transform: none;
+    box-shadow: var(--shadow-1);
+    background-color: var(--gt-surface-2);
+  }
 }
-@keyframes wf-stem-draw { from { transform: scaleY(0); } to { transform: scaleY(1); } }
-@keyframes wf-node-pop  { from { transform: scale(0); } to { transform: scale(1); } }
-@keyframes wf-node-pop-leaf { from { transform: rotate(45deg) scale(0); } to { transform: rotate(45deg) scale(1); } }
-@keyframes wf-rise { from { opacity: 0.35; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes wf-stem-draw {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+@keyframes wf-node-pop {
+  from {
+    transform: scale(0);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes wf-node-pop-leaf {
+  from {
+    transform: rotate(45deg) scale(0);
+  }
+  to {
+    transform: rotate(45deg) scale(1);
+  }
+}
+@keyframes wf-rise {
+  from {
+    opacity: 0.35;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
 
 @media (prefers-reduced-motion: no-preference) {
-  .wf-press .wf-sheet { animation: wf-press-in 0.7s cubic-bezier(0.2, 0.8, 0.25, 1) both, wf-anchor-fade 2s ease-out both; }
+  .wf-press .wf-sheet {
+    animation:
+      wf-press-in 0.7s cubic-bezier(0.2, 0.8, 0.25, 1) both,
+      wf-anchor-fade 2s ease-out both;
+  }
 
   /* Scroll-driven stem draw + reveals — pure CSS, progressive (@supports). */
   @supports (animation-timeline: view()) {
@@ -281,7 +533,12 @@
     .wf-node-row--solution::before {
       animation-name: wf-node-pop-leaf;
     }
-    .wf-node-row > .wf-sheet, .wf-node-row > form.wf-sheet {
+    /* :not(.wf-press):not(.wf-anchor-flash) — this rule is later and unlayered,
+       so without the exclusions it would win the `animation` shorthand over the
+       one-shot press-in and deep-link flash and silently kill both wherever
+       view() timelines are supported (code review, PR #535). */
+    .wf-node-row:not(.wf-press):not(.wf-anchor-flash) > .wf-sheet,
+    .wf-node-row:not(.wf-press):not(.wf-anchor-flash) > form.wf-sheet {
       animation: wf-rise ease-out both;
       animation-timeline: view();
       animation-range: entry 0% entry 45%;
@@ -290,25 +547,45 @@
 }
 
 /* Ledger entries: :has() lets the whole row respond to its title link. */
-.wf-entry:has(.wf-entry-link:hover) { background: color-mix(in oklab, var(--gt-surface-2) 50%, transparent); }
+.wf-entry:has(.wf-entry-link:hover) {
+  background: color-mix(in oklab, var(--gt-surface-2) 50%, transparent);
+}
 .wf-entry:has(.wf-entry-link:hover) .wf-entry-no,
-.wf-entry:has(.wf-entry-link:focus-visible) .wf-entry-no { color: var(--gt-primary); }
-.wf-entry:has(.wf-entry-link:focus-visible) { outline: 2px solid var(--gt-primary); outline-offset: -2px; }
+.wf-entry:has(.wf-entry-link:focus-visible) .wf-entry-no {
+  color: var(--gt-primary);
+}
+.wf-entry:has(.wf-entry-link:focus-visible) {
+  outline: 2px solid var(--gt-primary);
+  outline-offset: -2px;
+}
 
 /* Composer fields: the mono label lights when its field takes focus. */
-.wf-field:has(:focus-visible) .wf-label { color: var(--gt-primary); }
+.wf-field:has(:focus-visible) .wf-label {
+  color: var(--gt-primary);
+}
 
 /* Entry container queries: tighten the title in narrow containers. */
-.wf-entry-title { font-size: 1.375rem; }
+.wf-entry-title {
+  font-size: 1.375rem;
+}
 @container (max-width: 28rem) {
-  .wf-entry-title { font-size: 1.125rem; }
+  .wf-entry-title {
+    font-size: 1.125rem;
+  }
 }
 
 /* View transitions (list ↔ detail): quick and quiet; none under reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
-  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.22s; }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.22s;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  ::view-transition-group(*), ::view-transition-image-pair(*),
-  ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+  ::view-transition-group(*),
+  ::view-transition-image-pair(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }

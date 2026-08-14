@@ -86,16 +86,21 @@ export default function UserProfilePage() {
       <header className="mb-8 border-b-2 border-line-2 pb-6">
         <p className="wf-label mb-3">Collector</p>
         <div className="flex items-center gap-5">
-          <div className="wf-taped w-20 h-20 bg-primary/10 border border-line rounded-xs flex items-center justify-center overflow-hidden shrink-0">
-            {profile.avatar ? (
-              <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <img
-                src={specimenAvatar(profile.username)}
-                alt=""
-                className="w-full h-full object-cover"
-              />
-            )}
+          {/* Tape corners live on the un-clipped outer frame; the inner mount
+              carries overflow-hidden, or the overhanging strips get sliced to
+              slivers (code review, PR #535). */}
+          <div className="wf-taped w-20 h-20 shrink-0">
+            <div className="h-full w-full bg-primary/10 border border-line rounded-xs flex items-center justify-center overflow-hidden">
+              {profile.avatar ? (
+                <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <img
+                  src={specimenAvatar(profile.username)}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              )}
+            </div>
           </div>
           <div className="min-w-0">
             <div className="flex items-baseline gap-2 flex-wrap">

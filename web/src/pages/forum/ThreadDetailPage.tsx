@@ -45,6 +45,15 @@ function isBlankHtml(html: string): boolean {
   return html.replace(/<[^>]*>/g, '').trim() === '';
 }
 
+/**
+ * Whether the post with `postId` is the topic's accepted answer. The single
+ * source for this coercion — the leaf node, the tape/banner styling, and the
+ * mark/clear toggle must never disagree on it.
+ */
+function isSolvedPost(thread: Thread | null, postId: string): boolean {
+  return String(thread?.solved_post_id ?? '') === postId;
+}
+
 // Posts are ordered oldest-first, so a brand-new reply is the NEWEST post and lands
 // on the last cursor page. Reload every page through to the end after posting so the
 // author actually sees their reply (refetching only page 1 would show the oldest 20).
@@ -379,7 +388,7 @@ export default function ThreadDetailPage() {
     async (post: Post) => {
       if (!thread || topicId == null) return;
       const requestTopicId = topicId;
-      const isCurrent = String(thread.solved_post_id ?? '') === post.id;
+      const isCurrent = isSolvedPost(thread, post.id);
       try {
         const result = isCurrent
           ? await clearSolution(requestTopicId)
@@ -679,8 +688,9 @@ export default function ThreadDetailPage() {
           The `.wf-node-row` wrapper carries the node; the accepted answer's
           node grows a leaf. */}
       <div className="wf-thread space-y-5 mb-8">
-        {posts.map((post) =>
-          editingPostId === post.id ? (
+        {posts.map((post) => {
+          const isSolution = isSolvedPost(thread, post.id);
+          return editingPostId === post.id ? (
             <div key={post.id} className="wf-node-row">
               <form onSubmit={handleEditSubmit} className="wf-sheet p-5 sm:p-6 space-y-3">
                 <span className="wf-label block">Edit post</span>
@@ -704,9 +714,21 @@ export default function ThreadDetailPage() {
             <div
               key={post.id}
               id={`post-${post.id}`}
-              className={`wf-node-row ${
-                String(thread?.solved_post_id ?? '') === post.id ? 'wf-node-row--solution' : ''
-              } ${justPostedId === post.id ? 'wf-press' : ''}`}
+              className={`wf-node-row ${isSolution ? 'wf-node-row--solution' : ''} ${
+                justPostedId === post.id ? 'wf-press' : ''
+              }`}
+              // The press is one-shot: clear its marker once the longest of its
+              // animations (the 2s highlight fade) ends, so the class can't
+              // replay when the row's classes are re-applied (edit → Cancel
+              // reuses this same div) and the row rejoins the scroll-reveal
+              // cascade, which excludes .wf-press rows.
+              onAnimationEnd={
+                justPostedId === post.id
+                  ? (e) => {
+                      if (e.animationName === 'wf-anchor-fade') setJustPostedId(null);
+                    }
+                  : undefined
+              }
             >
               <PostCard
                 post={post}
@@ -714,7 +736,7 @@ export default function ThreadDetailPage() {
                 onDelete={handleDelete}
                 onReact={isAuthenticated ? handleReact : undefined}
                 onReport={isAuthenticated ? handleReport : undefined}
-                isSolution={String(thread?.solved_post_id ?? '') === post.id}
+                isSolution={isSolution}
                 // Offered only to a viewer the backend says may mark, and never
                 // on the opening post — a question is not its own answer, and
                 // the endpoint 422s it.
@@ -725,8 +747,8 @@ export default function ThreadDetailPage() {
                 }
               />
             </div>
-          )
-        )}
+          );
+        })}
       </div>
 
       {/* Load More Button (cursor pagination) */}

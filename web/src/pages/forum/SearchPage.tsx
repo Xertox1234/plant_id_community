@@ -388,14 +388,14 @@ export default function SearchPage() {
               <h2 className="wf-title text-xl text-ink mb-4">
                 Threads ({searchResults.total_threads})
               </h2>
-              <div className="space-y-4">
+              <div className="wf-ledger">
                 {searchResults.threads.map((thread) => (
-                  <div key={thread.id}>
+                  <div key={thread.id} className="wf-entry-group">
                     <ThreadCard thread={thread} hideAuthor />
                     {(hasSearchMatch(thread.title, query) ||
                       hasSearchMatch(thread.excerpt, query)) && (
                       <p
-                        className="mt-2 text-sm text-ink-2 bg-tertiary/10 border border-tertiary/20 rounded-lg p-3"
+                        className="mx-2 -mt-1 mb-4 text-sm text-ink-2 bg-tertiary/10 border border-tertiary/20 rounded-xs p-3"
                         aria-label="Highlighted thread match"
                       >
                         {highlightText(thread.title, query)}
