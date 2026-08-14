@@ -267,23 +267,13 @@
   .canopy-card {
     position: relative;
     overflow: hidden;
-    background: var(--gt-grad-card);
+    background: var(--gt-grad-sweep), var(--gt-grad-card);
     border: 1px solid var(--gt-line);
   }
-  .canopy-card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: var(--gt-grad-sweep);
-    pointer-events: none;
-  }
   .canopy-interactive {
-    transition:
-      transform 0.15s ease,
-      border-color 0.15s ease;
+    transition: border-color 0.15s ease;
   }
   .canopy-interactive:hover {
-    transform: translateY(-1px);
     border-color: var(--gt-line-2);
   }
   .canopy-cta {
@@ -314,6 +304,14 @@
 @media (prefers-reduced-motion: no-preference) {
   .canopy-ground {
     animation: canopy-drift 70s ease-in-out infinite alternate;
+  }
+  .canopy-interactive {
+    transition:
+      transform 0.15s ease,
+      border-color 0.15s ease;
+  }
+  .canopy-interactive:hover {
+    transform: translateY(-1px);
   }
 }
 @keyframes canopy-drift {
