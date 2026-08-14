@@ -48,6 +48,11 @@ class ForumIndex(Page):
 class ForumBoard(Page):
     """A board/category — a low-volume structural node."""
 
+    # Plain TextField, not RichTextField, by design: the API serves the value
+    # verbatim and every client (web CategoryCard, the Flutter board list)
+    # renders it as escaped text. Rich text here would flip the contract to
+    # HTML for all consumers and require the intro expand+sanitize pipeline —
+    # for a one-line card blurb. Rich text belongs in ForumIndex.intro.
     description = models.TextField(blank=True)
     # Denormalized counters (maintained as topics/posts change; see Task 7 / Plan 1B).
     topic_count = models.PositiveIntegerField(default=0, editable=False)

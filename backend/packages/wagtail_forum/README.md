@@ -38,8 +38,8 @@ pip install wagtail-forum          # core (Wagtail pages + snippets + admin)
 pip install wagtail-forum[api]     # + the headless DRF API
 ```
 
-Add the app to `INSTALLED_APPS`. It relies on Wagtail's snippets and images apps,
-so both must be present:
+Add the app to `INSTALLED_APPS`. It relies on Wagtail's snippets, images, and
+search apps plus `django-taggit` (topic tags), so all four must be present:
 
 ```python
 INSTALLED_APPS = [
@@ -47,12 +47,15 @@ INSTALLED_APPS = [
     "wagtail.snippets",
     "wagtail.images",
     "wagtail.search",
-    "modelcluster",
     "taggit",
     # ...
     "wagtail_forum",
 ]
 ```
+
+(`modelcluster` is deliberately absent from this list: it is a Wagtail-core
+prerequisite every Wagtail host already installs, and no forum model uses it —
+`Topic.tags` is a plain `TaggableManager`, not `ClusterTaggableManager`.)
 
 Then migrate:
 
@@ -156,6 +159,17 @@ user mention search, and notifications (list/unread-count/mark-read).
 
 The package ships **no authentication and no throttling** by design — see
 [Rate limiting](#rate-limiting).
+
+### Wagtail API v2
+
+The page types are deliberately **not** registered with Wagtail API v2 and
+declare no `api_fields`. The DRF API above is the sole content contract:
+`ForumIndex.intro` is delivered — expanded and nh3-sanitized — inside the
+board-list envelope, and `ForumBoard.description` inside each board object.
+Declaring `api_fields` would open a second delivery path that serves rich text
+in raw DB form (v2 does not run `expand_db_html`) and bypasses the sanitizer.
+A host's generic `pages` endpoint still lists the forum pages with base `Page`
+fields only; that is the intended exposure.
 
 ## Settings
 
