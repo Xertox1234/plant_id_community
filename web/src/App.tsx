@@ -26,12 +26,13 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const DiseaseDiagnosePage = lazy(() => import('./pages/diagnosis/DiseaseDiagnosePage'));
 const GoogleCallbackPage = lazy(() => import('./pages/auth/GoogleCallbackPage'));
 const ThemePreviewPage = lazy(() => import('./pages/debug/ThemePreviewPage'));
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 /**
  * App Component
  *
  * Root application component with routing configuration.
- * - RootLayout: Provides header/footer for all routes
+ * - RootLayout: Renders routes inside the Canopy AppShell (header/footer chrome)
  * - ProtectedLayout: Wraps protected routes, redirects to login if not authenticated
  * - Lazy loading: Non-critical routes load on-demand to reduce initial bundle size
  */
@@ -67,6 +68,9 @@ function App() {
           <Route path="/forum" element={<CategoryListPage />} />
           <Route path="/forum/:categorySlug" element={<ThreadListPage />} />
           <Route path="/forum/:categorySlug/:threadSlug" element={<ThreadDetailPage />} />
+
+          {/* Catch-all: must stay last so it doesn't shadow the routes above. */}
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
 
         {/* Protected routes - requires authentication */}
