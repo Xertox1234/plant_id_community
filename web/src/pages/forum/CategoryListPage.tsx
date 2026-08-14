@@ -90,8 +90,9 @@ export default function CategoryListPage() {
       />
       {/* Page Header */}
       <div className="mb-8">
-        <h1 className="text-4xl font-bold text-ink mb-2">Community Forums</h1>
-        <p className="text-lg text-ink-2">
+        <p className="wf-label mb-2">Plant ID Community · Field Notes</p>
+        <h1 className="wf-title text-3xl sm:text-4xl text-ink mb-2">Community Forums</h1>
+        <p className="text-ink-2 max-w-prose leading-relaxed">
           Connect with fellow plant enthusiasts, share knowledge, and get help with your plants.
         </p>
         {/* CMS welcome copy (audit L2) — an editor's own onboarding words, which
@@ -113,8 +114,8 @@ export default function CategoryListPage() {
         /* Empty state (audit L2). A brand-new community lands here, so it says
            what the forum is for and offers a way out, rather than "check back
            soon" — which reads as broken. */
-        <div className="text-center py-12 px-6 border border-line rounded-lg bg-surface-2">
-          <p className="text-lg font-medium text-ink">No boards yet</p>
+        <div className="wf-sheet text-center py-12 px-6">
+          <p className="wf-title text-lg text-ink">No boards yet</p>
           <p className="text-sm mt-2 max-w-prose mx-auto text-ink-2">
             This community is just getting started. Boards are where plant questions, care tips and
             ID help get discussed — they&rsquo;ll show up here as soon as a moderator adds one.
@@ -127,7 +128,7 @@ export default function CategoryListPage() {
           </Link>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="wf-ledger">
           {categories.map((category) => (
             <CategoryCard key={category.id} category={category} />
           ))}

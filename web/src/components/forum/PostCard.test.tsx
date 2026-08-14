@@ -298,16 +298,15 @@ describe('PostCard', () => {
     expect(onReact).toHaveBeenCalledWith('post-9', 'like');
   });
 
-  it('applies green border for first post', () => {
+  it('marks the opening post with the primary-bordered chip', () => {
     const post = createMockPost({ is_first_post: true });
 
-    const { container } = renderPostCard(post);
+    renderPostCard(post);
 
-    const card = container.querySelector('.border-primary');
-    expect(card).toBeInTheDocument();
+    expect(screen.getByText('Original Post')).toHaveClass('border-primary/40');
   });
 
-  it('renders author avatar with first letter', () => {
+  it('renders the default specimen engraving when the author has no avatar', () => {
     const post = createMockPost({
       author: {
         username: 'gardener',
@@ -317,10 +316,11 @@ describe('PostCard', () => {
       },
     });
 
-    renderPostCard(post);
+    const { container } = renderPostCard(post);
 
-    // Should show first letter of display_name
-    expect(screen.getByText('G')).toBeInTheDocument();
+    // Deterministic per-username fallback from /public/avatars (Field Notes).
+    const img = container.querySelector('img[src^="/avatars/specimen-"]');
+    expect(img).toBeInTheDocument();
   });
 
   it('renders the avatar image when the author has an avatar (todo 257)', () => {
@@ -341,7 +341,7 @@ describe('PostCard', () => {
     expect(screen.queryByText('G')).not.toBeInTheDocument();
   });
 
-  it('uses username first letter when display_name is missing', () => {
+  it('keys the specimen engraving off the username (stable identity)', () => {
     const post = createMockPost({
       author: {
         username: 'plantlover',
@@ -351,10 +351,15 @@ describe('PostCard', () => {
       },
     });
 
-    renderPostCard(post);
+    const { container, unmount } = renderPostCard(post);
+    const first = container.querySelector('img[src^="/avatars/specimen-"]')?.getAttribute('src');
+    expect(first).toBeTruthy();
+    unmount();
 
-    // Should show first letter of username
-    expect(screen.getByText('p')).toBeInTheDocument();
+    // Same username -> same specimen, every render.
+    const { container: again } = renderPostCard(post);
+    const second = again.querySelector('img[src^="/avatars/specimen-"]')?.getAttribute('src');
+    expect(second).toBe(first);
   });
 
   it('shows edit/delete buttons when can_edit/can_delete are true and handlers are provided', () => {

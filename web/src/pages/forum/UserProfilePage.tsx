@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { fetchUserProfile } from '../../services/forumService';
+import { specimenAvatar } from '../../utils/forumAvatars';
 import { threadPath, postAnchor } from '../../utils/forumUrls';
 import { TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
 import type { ForumUserProfile } from '../../types/forum';
@@ -80,55 +81,63 @@ export default function UserProfilePage() {
     <div className="max-w-3xl mx-auto p-6">
       <title>{`${name} — Forum profile`}</title>
 
-      {/* Header */}
-      <header className="flex items-center gap-4 mb-6">
-        <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center overflow-hidden shrink-0">
-          {profile.avatar ? (
-            <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
-          ) : (
-            <span className="text-3xl font-bold text-leaf">{name[0]}</span>
-          )}
-        </div>
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold text-ink">{name}</h1>
-            {typeof profile.trust_level === 'number' && profile.trust_level >= 1 && (
-              <span className="px-2 py-0.5 bg-sky/10 text-ink text-xs rounded">
-                {TRUST_LEVEL_LABELS[profile.trust_level] ?? `Level ${profile.trust_level}`}
-              </span>
+      {/* Header — the collector's card: a mounted specimen photo beside the
+          collector's label lines, closed by a double rule. */}
+      <header className="mb-8 border-b-2 border-line-2 pb-6">
+        <p className="wf-label mb-3">Collector</p>
+        <div className="flex items-center gap-5">
+          <div className="wf-taped w-20 h-20 bg-primary/10 border border-line rounded-xs flex items-center justify-center overflow-hidden shrink-0">
+            {profile.avatar ? (
+              <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <img
+                src={specimenAvatar(profile.username)}
+                alt=""
+                className="w-full h-full object-cover"
+              />
             )}
           </div>
-          <p className="text-sm text-ink-3">
-            @{profile.username} · {profile.post_count} posts
-            {profile.joined_at && <> · joined {relative(profile.joined_at)}</>}
-          </p>
+          <div className="min-w-0">
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <h1 className="wf-title text-2xl sm:text-3xl text-ink">{name}</h1>
+              {typeof profile.trust_level === 'number' && profile.trust_level >= 1 && (
+                <span className="wf-label rounded-full border border-sky/40 px-2 py-0.5 text-sky">
+                  {TRUST_LEVEL_LABELS[profile.trust_level] ?? `Level ${profile.trust_level}`}
+                </span>
+              )}
+            </div>
+            <p className="wf-label mt-1.5 normal-case">
+              @{profile.username} · {profile.post_count} posts
+              {profile.joined_at && <> · joined {relative(profile.joined_at)}</>}
+            </p>
+          </div>
         </div>
       </header>
 
-      {profile.bio && <p className="mb-2 text-ink break-words">{profile.bio}</p>}
+      {profile.bio && <p className="mb-2 text-ink break-words leading-relaxed">{profile.bio}</p>}
       {profile.signature && (
         <p className="mb-6 text-sm text-ink-3 italic break-words">{profile.signature}</p>
       )}
 
       {/* Recent topics */}
-      <section className="mb-6">
-        <h2 className="text-lg font-semibold text-ink mb-2">Recent topics</h2>
+      <section className="mb-8">
+        <h2 className="wf-title text-lg text-ink mb-2">Recent topics</h2>
         {profile.recent_topics.length === 0 ? (
           <p className="text-sm text-ink-3">No topics yet.</p>
         ) : (
-          <ul className="space-y-1">
+          <ul className="wf-ledger">
             {profile.recent_topics.map((t) => (
-              <li key={t.id}>
+              <li key={t.id} className="wf-entry flex flex-wrap items-baseline gap-x-2 py-2.5 px-1">
                 <Link
                   to={threadPath(
                     { id: String(t.board_id), slug: t.board_slug, name: '' },
                     { id: String(t.id), slug: t.slug, title: t.title }
                   )}
-                  className="text-primary hover:underline"
+                  className="text-ink font-medium hover:text-primary hover:underline"
                 >
                   {t.title}
                 </Link>
-                <span className="text-sm text-ink-3"> · {relative(t.created_at)}</span>
+                <span className="wf-label">{relative(t.created_at)}</span>
               </li>
             ))}
           </ul>
@@ -137,23 +146,23 @@ export default function UserProfilePage() {
 
       {/* Recent replies */}
       <section>
-        <h2 className="text-lg font-semibold text-ink mb-2">Recent replies</h2>
+        <h2 className="wf-title text-lg text-ink mb-2">Recent replies</h2>
         {profile.recent_posts.length === 0 ? (
           <p className="text-sm text-ink-3">No replies yet.</p>
         ) : (
-          <ul className="space-y-1">
+          <ul className="wf-ledger">
             {profile.recent_posts.map((p) => (
-              <li key={p.id}>
+              <li key={p.id} className="wf-entry flex flex-wrap items-baseline gap-x-2 py-2.5 px-1">
                 <Link
                   to={`${threadPath(
                     { id: String(p.board_id), slug: p.board_slug, name: '' },
                     { id: String(p.topic_id), slug: p.topic_slug, title: p.topic_title }
                   )}${postAnchor(p.id)}`}
-                  className="text-primary hover:underline"
+                  className="text-ink font-medium hover:text-primary hover:underline"
                 >
                   {p.topic_title}
                 </Link>
-                <span className="text-sm text-ink-3"> · {relative(p.created_at)}</span>
+                <span className="wf-label">{relative(p.created_at)}</span>
               </li>
             ))}
           </ul>

@@ -220,16 +220,16 @@ export default function ThreadListPage() {
           category?.description || `Browse discussions in ${category?.name ?? 'the forum'}.`
         }
       />
-      {/* Breadcrumb */}
-      <nav className="mb-6 text-sm text-ink-2" aria-label="Breadcrumb">
+      {/* Breadcrumb — collection path, in the ledger's mono voice */}
+      <nav className="wf-label mb-8" aria-label="Breadcrumb">
         <ol className="flex items-center gap-2">
           <li>
-            <Link to="/forum" className="hover:text-primary">
+            <Link to="/forum" viewTransition className="hover:text-primary">
               Forums
             </Link>
           </li>
-          <li aria-hidden="true">›</li>
-          <li aria-current="page" className="font-medium text-ink">
+          <li aria-hidden="true">/</li>
+          <li aria-current="page" className="text-ink-2">
             {category?.name}
           </li>
         </ol>
@@ -237,16 +237,22 @@ export default function ThreadListPage() {
 
       {/* Category Header */}
       <div className="mb-8">
-        <div className="flex items-center gap-3 mb-2">
+        <p className="wf-label mb-2">
+          Board
+          {category?.thread_count != null && <> · {category.thread_count} topics</>}
+        </p>
+        <div className="flex items-baseline gap-3 mb-2">
           {category?.icon && (
-            <span className="text-4xl" aria-hidden="true">
+            <span className="text-3xl" aria-hidden="true">
               {category.icon}
             </span>
           )}
-          <h1 className="text-4xl font-bold text-ink">{category?.name}</h1>
+          <h1 className="wf-title text-3xl sm:text-4xl text-ink">{category?.name}</h1>
         </div>
 
-        {category?.description && <p className="text-lg text-ink-2">{category.description}</p>}
+        {category?.description && (
+          <p className="text-ink-2 max-w-prose leading-relaxed">{category.description}</p>
+        )}
       </div>
 
       {/* Toolbar */}
@@ -259,7 +265,7 @@ export default function ThreadListPage() {
               name="search"
               placeholder="Search this board…"
               aria-label="Search this board"
-              className="flex-1 px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
+              className="flex-1 px-4 py-2 border border-line-2 rounded-xs focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink placeholder:text-ink-3"
             />
             <Button type="submit" variant="primary">
               Search
@@ -272,7 +278,7 @@ export default function ThreadListPage() {
           <select
             value={ordering}
             onChange={handleOrderChange}
-            className="min-h-11 px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary bg-surface-2 text-ink"
+            className="min-h-11 px-4 py-2 border border-line-2 rounded-xs focus:ring-2 focus:ring-primary bg-surface-2 text-ink"
           >
             <option value="-last_activity_at">Recent Activity</option>
             <option value="-created_at">Newest First</option>
@@ -291,15 +297,15 @@ export default function ThreadListPage() {
           empty result reads as "this filter matched nothing" rather than "this
           board is empty". */}
       {activeTag && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg bg-surface-2 px-4 py-3">
-          <span className="text-sm text-ink-2">Filtered by tag</span>
-          <span className="rounded-full bg-primary/20 px-3 py-1 text-xs font-medium text-primary">
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xs border border-line bg-surface-2 px-4 py-3">
+          <span className="wf-label">Filtered by tag</span>
+          <span className="wf-label rounded-full border border-primary/50 bg-primary/10 px-3 py-1 text-primary">
             #{activeTag}
           </span>
           <button
             type="button"
             onClick={clearTagFilter}
-            className="min-h-11 rounded px-3 text-sm text-ink-3 hover:bg-surface-3"
+            className="min-h-11 rounded-xs px-3 text-sm text-ink-3 hover:bg-surface-3"
           >
             Clear filter
           </button>
@@ -324,7 +330,7 @@ export default function ThreadListPage() {
           )}
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="wf-ledger">
           {threads.map((thread) => (
             <ThreadCard
               key={thread.id}

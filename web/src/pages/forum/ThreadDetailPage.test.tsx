@@ -199,7 +199,7 @@ describe('ThreadDetailPage', () => {
     renderThreadDetailPage();
 
     await waitFor(() => {
-      expect(screen.getByText(/📌 Pinned/i)).toBeInTheDocument();
+      expect(screen.getByText(/pinned/i)).toBeInTheDocument();
     });
   });
 
@@ -215,7 +215,7 @@ describe('ThreadDetailPage', () => {
     renderThreadDetailPage();
 
     await waitFor(() => {
-      expect(screen.getByText(/🔒 Locked/i)).toBeInTheDocument();
+      expect(screen.getByText(/^locked$/i)).toBeInTheDocument();
     });
   });
 
@@ -313,7 +313,7 @@ describe('ThreadDetailPage', () => {
 
     renderThreadDetailPage();
 
-    expect(await screen.findByRole('button', { name: /🔔 Follow/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^follow$/i })).toBeInTheDocument();
   });
 
   it('shows a Following button for an authenticated user on a subscribed thread', async () => {
@@ -324,7 +324,7 @@ describe('ThreadDetailPage', () => {
 
     renderThreadDetailPage();
 
-    expect(await screen.findByRole('button', { name: /🔕 Following/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^following$/i })).toBeInTheDocument();
   });
 
   it('hides the Follow button for a logged-out user', async () => {
@@ -349,10 +349,10 @@ describe('ThreadDetailPage', () => {
 
     renderThreadDetailPage();
 
-    await userEvent.click(await screen.findByRole('button', { name: /🔔 Follow/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^follow$/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /🔕 Following/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^following$/i })).toBeInTheDocument();
     });
     expect(subscribeSpy).toHaveBeenCalledWith(12);
   });
@@ -368,10 +368,10 @@ describe('ThreadDetailPage', () => {
 
     renderThreadDetailPage();
 
-    await userEvent.click(await screen.findByRole('button', { name: /🔕 Following/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^following$/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /🔔 Follow/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^follow$/i })).toBeInTheDocument();
     });
     expect(unsubscribeSpy).toHaveBeenCalledWith(12);
   });
@@ -385,10 +385,10 @@ describe('ThreadDetailPage', () => {
 
     renderThreadDetailPage();
 
-    await userEvent.click(await screen.findByRole('button', { name: /🔔 Follow/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^follow$/i }));
 
     await screen.findByText('Network error');
-    expect(screen.getByRole('button', { name: /🔔 Follow/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^follow$/i })).toBeInTheDocument();
   });
 
   it('does not leave the Follow button stuck loading after navigating to a different thread mid-request', async () => {
@@ -405,8 +405,8 @@ describe('ThreadDetailPage', () => {
 
     const { rerender } = renderThreadDetailPage();
 
-    await userEvent.click(await screen.findByRole('button', { name: /🔔 Follow/i }));
-    expect(screen.getByRole('button', { name: /🔕 Following/i })).toBeDisabled();
+    await userEvent.click(await screen.findByRole('button', { name: /^follow$/i }));
+    expect(screen.getByRole('button', { name: /^following$/i })).toBeDisabled();
 
     vi.mocked(ReactRouter.useParams).mockReturnValue({
       categorySlug: '3-plant-care',
@@ -421,7 +421,7 @@ describe('ThreadDetailPage', () => {
     );
 
     await waitFor(() => expect(fetchThreadSpy).toHaveBeenCalledWith(34));
-    expect(await screen.findByRole('button', { name: /🔔 Follow/i })).not.toBeDisabled();
+    expect(await screen.findByRole('button', { name: /^follow$/i })).not.toBeDisabled();
   });
 
   it('a stale request failing after navigating away does not corrupt the new thread state', async () => {
@@ -443,8 +443,8 @@ describe('ThreadDetailPage', () => {
 
     const { rerender } = renderThreadDetailPage();
 
-    await userEvent.click(await screen.findByRole('button', { name: /🔔 Follow/i }));
-    expect(screen.getByRole('button', { name: /🔕 Following/i })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: /^follow$/i }));
+    expect(screen.getByRole('button', { name: /^following$/i })).toBeInTheDocument();
 
     vi.mocked(ReactRouter.useParams).mockReturnValue({
       categorySlug: '3-plant-care',
@@ -458,13 +458,13 @@ describe('ThreadDetailPage', () => {
       </MemoryRouter>
     );
     await waitFor(() => expect(fetchThreadSpy).toHaveBeenCalledWith(34));
-    expect(await screen.findByRole('button', { name: /🔔 Follow/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^follow$/i })).toBeInTheDocument();
 
     // Thread A's request now fails — must not touch thread B's displayed state.
     rejectSubscribe(new Error('Network error'));
     await waitFor(() => expect(loggerErrorSpy).toHaveBeenCalled());
 
-    expect(screen.getByRole('button', { name: /🔔 Follow/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^follow$/i })).toBeInTheDocument();
     expect(screen.queryByText('Network error')).not.toBeInTheDocument();
   });
 
