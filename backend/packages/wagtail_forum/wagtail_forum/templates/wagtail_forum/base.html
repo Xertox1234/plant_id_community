@@ -1,0 +1,25 @@
+{% load wagtailuserbar %}<!DOCTYPE html>
+{# Shared skeleton for the minimal server-rendered fallback pages (audit #}
+{# 2026-07-11 H17, todo 299). The host SPA is the real forum UI; these pages #}
+{# exist so direct serving (admin "View live", sitemaps, crawlers) renders #}
+{# instead of raising TemplateDoesNotExist. The userbar gives an editor who #}
+{# lands here from "View live" a route back to the admin; the tag renders #}
+{# nothing for anonymous or userless requests. Hosts may override this and #}
+{# either child template under templates/wagtail_forum/. #}
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}{{ page.title }}{% endblock %}</title>
+    {% if page.search_description %}
+      <meta name="description" content="{{ page.search_description }}" />
+    {% endif %}
+  </head>
+  <body>
+    <main>
+      <h1>{{ page.title }}</h1>
+      {% block content %}{% endblock %}
+    </main>
+    {% wagtailuserbar %}
+  </body>
+</html>
