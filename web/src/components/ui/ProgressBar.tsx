@@ -9,12 +9,13 @@ interface ProgressBarProps {
 }
 
 export default function ProgressBar({ value, max, tone = 'sage', label }: ProgressBarProps) {
-  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
+  const clamped = Math.min(Math.max(0, value), max > 0 ? max : 0);
+  const pct = max > 0 ? Math.round((clamped / max) * 100) : 0;
   return (
     <div
       role="progressbar"
       aria-label={label}
-      aria-valuenow={value}
+      aria-valuenow={clamped}
       aria-valuemin={0}
       aria-valuemax={max}
       className="h-[5px] overflow-hidden rounded-pill bg-line"

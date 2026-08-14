@@ -11,7 +11,16 @@ describe('ProgressBar', () => {
   });
   it('clamps overflow to 100%', () => {
     render(<ProgressBar value={80} max={50} label="x" />);
-    const fill = screen.getByRole('progressbar', { name: 'x' }).firstElementChild as HTMLElement;
+    const bar = screen.getByRole('progressbar', { name: 'x' });
+    const fill = bar.firstElementChild as HTMLElement;
     expect(fill.style.width).toBe('100%');
+    expect(bar).toHaveAttribute('aria-valuenow', '50');
+  });
+  it('clamps negative values to 0%', () => {
+    render(<ProgressBar value={-10} max={50} label="y" />);
+    const bar = screen.getByRole('progressbar', { name: 'y' });
+    const fill = bar.firstElementChild as HTMLElement;
+    expect(fill.style.width).toBe('0%');
+    expect(bar).toHaveAttribute('aria-valuenow', '0');
   });
 });

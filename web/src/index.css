@@ -121,6 +121,7 @@
   --gt-ink: var(--canopy-pine);
   --gt-ink-2: #35594b;
   --gt-ink-3: #5e8271;
+  --gt-secondary: color-mix(in oklab, var(--canopy-forest) 60%, var(--canopy-sage));
   --gt-line: color-mix(in oklab, var(--canopy-sage) 38%, transparent);
   --gt-line-2: color-mix(in oklab, var(--canopy-sage) 62%, transparent);
   --gt-primary: var(--canopy-forest);

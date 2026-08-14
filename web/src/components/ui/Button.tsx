@@ -47,11 +47,11 @@ export default function Button({
 }: ButtonProps) {
   // Base styles
   const baseStyles =
-    'inline-flex items-center justify-center font-semibold transition-all rounded-pill focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-50 disabled:cursor-not-allowed';
+    'inline-flex items-center justify-center font-semibold transition-colors motion-safe:transition-all rounded-pill focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-50 disabled:cursor-not-allowed';
 
   // Variant styles
   const variants: Record<ButtonVariant, string> = {
-    primary: 'canopy-cta shadow-1 hover:-translate-y-px hover:shadow-2',
+    primary: 'canopy-cta shadow-1 motion-safe:hover:-translate-y-px hover:shadow-2',
     secondary: 'bg-surface-2 text-ink border border-line hover:bg-surface-3',
     outline: 'border border-line-2 text-ink hover:bg-surface-2',
     ghost: 'text-ink-2 hover:bg-surface-2 hover:text-ink',

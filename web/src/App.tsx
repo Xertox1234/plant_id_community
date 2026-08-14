@@ -32,7 +32,7 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
  * App Component
  *
  * Root application component with routing configuration.
- * - RootLayout: Renders routes inside the Canopy AppShell (header/footer chrome)
+ * - RootLayout: Renders routes inside the Canopy AppShell (sidebar, topbar, right rail)
  * - ProtectedLayout: Wraps protected routes, redirects to login if not authenticated
  * - Lazy loading: Non-critical routes load on-demand to reduce initial bundle size
  */
@@ -69,7 +69,7 @@ function App() {
           <Route path="/forum/:categorySlug" element={<ThreadListPage />} />
           <Route path="/forum/:categorySlug/:threadSlug" element={<ThreadDetailPage />} />
 
-          {/* Catch-all: must stay last so it doesn't shadow the routes above. */}
+          {/* Catch-all 404 — React Router ranks path="*" below every other match regardless of position; kept last for readability. */}
           <Route path="*" element={<NotFoundPage />} />
         </Route>
 
