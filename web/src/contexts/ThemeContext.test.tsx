@@ -5,11 +5,10 @@ import userEvent from '@testing-library/user-event';
 import { ThemeProvider, useTheme } from './ThemeContext';
 
 function Harness() {
-  const { palette, density, mode, setPalette, setDensity, toggleMode } = useTheme();
+  const { density, mode, setDensity, toggleMode } = useTheme();
   return (
     <div>
-      <span data-testid="state">{`${palette}/${density}/${mode}`}</span>
-      <button onClick={() => setPalette('forest')}>forest</button>
+      <span data-testid="state">{`${density}/${mode}`}</span>
       <button onClick={() => setDensity('compact')}>compact</button>
       <button onClick={toggleMode}>toggle</button>
     </div>
@@ -25,24 +24,16 @@ const renderHarness = () =>
 describe('ThemeContext', () => {
   beforeEach(() => {
     localStorage.clear();
-    delete document.documentElement.dataset.palette;
     delete document.documentElement.dataset.density;
     delete document.documentElement.dataset.mode;
   });
 
   it('applies defaults to <html> on mount', () => {
     renderHarness();
-    expect(screen.getByTestId('state')).toHaveTextContent('loam/cozy/light');
-    expect(document.documentElement).toHaveAttribute('data-palette', 'loam');
+    expect(screen.getByTestId('state')).toHaveTextContent('cozy/dark');
     expect(document.documentElement).toHaveAttribute('data-density', 'cozy');
-    expect(document.documentElement).toHaveAttribute('data-mode', 'light');
-  });
-
-  it('setPalette updates attribute and persists', async () => {
-    renderHarness();
-    await userEvent.click(screen.getByText('forest'));
-    expect(document.documentElement).toHaveAttribute('data-palette', 'forest');
-    expect(localStorage.getItem('gt-palette')).toBe('forest');
+    expect(document.documentElement).toHaveAttribute('data-mode', 'dark');
+    expect(document.documentElement).not.toHaveAttribute('data-palette');
   });
 
   it('setDensity updates attribute and persists', async () => {
@@ -55,21 +46,29 @@ describe('ThemeContext', () => {
   it('toggleMode flips mode and persists', async () => {
     renderHarness();
     await userEvent.click(screen.getByText('toggle'));
-    expect(document.documentElement).toHaveAttribute('data-mode', 'dark');
-    expect(localStorage.getItem('gt-mode')).toBe('dark');
+    expect(document.documentElement).toHaveAttribute('data-mode', 'light');
+    expect(localStorage.getItem('gt-mode')).toBe('light');
   });
 
   it('reads persisted values on mount', () => {
-    localStorage.setItem('gt-palette', 'garden');
+    localStorage.setItem('gt-mode', 'light');
     renderHarness();
-    expect(screen.getByTestId('state')).toHaveTextContent('garden/cozy/light');
-    expect(document.documentElement).toHaveAttribute('data-palette', 'garden');
+    expect(screen.getByTestId('state')).toHaveTextContent('cozy/light');
+    expect(document.documentElement).toHaveAttribute('data-mode', 'light');
   });
 
   it('ignores an invalid stored value and falls back to default', () => {
-    localStorage.setItem('gt-palette', 'ultraviolet'); // not a valid Palette
+    localStorage.setItem('gt-density', 'ultrawide'); // not a valid Density
     renderHarness();
-    expect(screen.getByTestId('state')).toHaveTextContent('loam/cozy/light');
-    expect(document.documentElement).toHaveAttribute('data-palette', 'loam');
+    expect(screen.getByTestId('state')).toHaveTextContent('cozy/dark');
+    expect(document.documentElement).toHaveAttribute('data-density', 'cozy');
+  });
+
+  it('clears a stale palette attribute and localStorage key from prior sessions', () => {
+    document.documentElement.dataset.palette = 'forest';
+    localStorage.setItem('gt-palette', 'forest');
+    renderHarness();
+    expect(document.documentElement).not.toHaveAttribute('data-palette');
+    expect(localStorage.getItem('gt-palette')).toBeNull();
   });
 });

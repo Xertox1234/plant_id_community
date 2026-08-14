@@ -30,7 +30,7 @@ vi.mock('../../utils/logger', () => ({
 describe('Header', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.clear(); // reset persisted theme mode so each test starts at the light default
+    localStorage.clear(); // reset persisted theme mode so each test starts at the dark default
     vi.mocked(authService.getStoredUser).mockReturnValue(null);
     vi.mocked(authService.getCurrentUser).mockResolvedValue(null);
     vi.mocked(notificationService.fetchUnreadCount).mockResolvedValue(0);
@@ -439,23 +439,23 @@ describe('Header', () => {
   });
 
   describe('Theme Toggle', () => {
-    it('renders a dark-mode toggle that offers dark mode at the light default', () => {
+    it('renders a dark-mode toggle that offers light mode at the dark default', () => {
       renderWithRouter(<Header />);
 
       // Desktop + mobile toggles share the action label.
-      expect(screen.getAllByLabelText('Switch to dark mode').length).toBeGreaterThan(0);
+      expect(screen.getAllByLabelText('Switch to light mode').length).toBeGreaterThan(0);
     });
 
     it('flips the toggle label and aria-pressed after clicking', () => {
       renderWithRouter(<Header />);
 
-      const toggle = screen.getAllByLabelText('Switch to dark mode')[0];
-      expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      const toggle = screen.getAllByLabelText('Switch to light mode')[0];
+      expect(toggle).toHaveAttribute('aria-pressed', 'true');
 
       fireEvent.click(toggle);
 
-      expect(screen.getAllByLabelText('Switch to light mode').length).toBeGreaterThan(0);
-      expect(toggle).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getAllByLabelText('Switch to dark mode').length).toBeGreaterThan(0);
+      expect(toggle).toHaveAttribute('aria-pressed', 'false');
     });
   });
 });

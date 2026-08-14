@@ -1,23 +1,19 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 
-export type Palette = 'loam' | 'garden' | 'forest' | 'heritage';
 export type Density = 'comfortable' | 'cozy' | 'compact';
 export type Mode = 'light' | 'dark';
 
 interface ThemeContextValue {
-  palette: Palette;
   density: Density;
   mode: Mode;
-  setPalette: (p: Palette) => void;
   setDensity: (d: Density) => void;
   setMode: (m: Mode) => void;
   toggleMode: () => void;
 }
 
-const PALETTES: readonly Palette[] = ['loam', 'garden', 'forest', 'heritage'];
 const DENSITIES: readonly Density[] = ['comfortable', 'cozy', 'compact'];
 const MODES: readonly Mode[] = ['light', 'dark'];
-const KEYS = { palette: 'gt-palette', density: 'gt-density', mode: 'gt-mode' } as const;
+const KEYS = { density: 'gt-density', mode: 'gt-mode' } as const;
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
@@ -41,13 +37,9 @@ interface ThemeProviderProps {
   children: ReactNode;
 }
 export function ThemeProvider({ children }: ThemeProviderProps) {
-  const [palette, setPaletteState] = useState<Palette>(() => read(KEYS.palette, 'loam', PALETTES));
   const [density, setDensityState] = useState<Density>(() => read(KEYS.density, 'cozy', DENSITIES));
-  const [mode, setModeState] = useState<Mode>(() => read(KEYS.mode, 'light', MODES));
+  const [mode, setModeState] = useState<Mode>(() => read(KEYS.mode, 'dark', MODES));
 
-  useEffect(() => {
-    document.documentElement.dataset.palette = palette;
-  }, [palette]);
   useEffect(() => {
     document.documentElement.dataset.density = density;
   }, [density]);
@@ -55,10 +47,17 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     document.documentElement.dataset.mode = mode;
   }, [mode]);
 
-  const setPalette = useCallback((p: Palette) => {
-    setPaletteState(p);
-    persist(KEYS.palette, p);
+  // One-time cleanup: stale attribute/storage from old sessions before the
+  // palette dimension was retired.
+  useEffect(() => {
+    delete document.documentElement.dataset.palette;
+    try {
+      localStorage.removeItem('gt-palette');
+    } catch {
+      /* ignore */
+    }
   }, []);
+
   const setDensity = useCallback((d: Density) => {
     setDensityState(d);
     persist(KEYS.density, d);
@@ -76,9 +75,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   }, []);
 
   return (
-    <ThemeContext.Provider
-      value={{ palette, density, mode, setPalette, setDensity, setMode, toggleMode }}
-    >
+    <ThemeContext.Provider value={{ density, mode, setDensity, setMode, toggleMode }}>
       {children}
     </ThemeContext.Provider>
   );
