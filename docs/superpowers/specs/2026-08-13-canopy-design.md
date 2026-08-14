@@ -30,6 +30,23 @@ Working name for the design language: **Canopy**.
 | Palette switcher | Retired — one identity; `data-palette` plumbing and the 4 palettes (loam/garden/forest/heritage) are removed; density setting kept |
 | Landing strategy | Foundation PR, then per-area PRs |
 | Demo content | Seeded via backend command: mock blog posts + forum threads with Runware-generated images and default avatars |
+| Product name | **Houseplant MD** (domain houseplant-md.com) — the UI brand everywhere; "Canopy" names only the design language |
+| Logo | Cross-bearing mark in "clinic red" on green; candidates in the mockup's Brand section (recommended: Cross-leaf) |
+
+### 2.1 Brand: Houseplant MD
+
+- The web UI's visible name becomes **Houseplant MD** (sidebar brand block, page titles/meta,
+  auth screens); tagline "The plant clinic". The repo/project name is unchanged.
+- **Logo**: an original SVG mark carrying a cross. Three candidates live in the mockup
+  (Brand section): *Cross-leaf* (four leaves forming a cross, coral pulse center — recommended),
+  *Clinic cross* (rounded coral cross on mint with a leaf notch), *Leaf, badged* (leaf with a
+  coral cross badge). Final pick is the user's; the mark ships as an inline SVG component plus
+  favicon/app-icon exports.
+- **Legal constraint (binding)**: the red Greek cross on white is a Geneva-Conventions-protected
+  emblem, enforced against apps. The mark must never render as a red cross on a white/light
+  ground; the cross uses Canopy's clinic red `#DE6B5A`/Bloom on green or mint-green grounds.
+- Copy voice may lean into the clinic metaphor where it fits (Diagnose = "checkup",
+  solutions = "treatment"), without turning every string into a pun.
 
 ## 3. Token architecture (`web/src/index.css`)
 
@@ -83,7 +100,7 @@ compiling. Two layers where today there is one:
 
 New `AppShell` replaces the `Header`/`Footer` top-nav chrome in `RootLayout`:
 
-- **Sidebar** (~236px, fixed): brand mark, primary nav — Home, Identify, Forum (unread count
+- **Sidebar** (~236px, fixed): Houseplant MD brand mark + name, primary nav — Home, Identify, Forum (unread count
   badge), Blog, My garden, Diagnose — plus footer nav (Settings, Log out / Log in). Active item
   gets the gradient-card pill treatment. Collapses to icon rail at ~1180px; hidden behind a
   hamburger drawer below ~860px (reusing the existing drawer pattern from `Header.tsx`).
