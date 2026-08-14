@@ -12,6 +12,7 @@ The core imports nothing host-specific and uses `settings.AUTH_USER_MODEL`.
 - [Installation](#installation)
 - [Bootstrap: workflow and moderator group](#bootstrap-workflow-and-moderator-group)
 - [Creating the page tree](#creating-the-page-tree)
+- [Previews](#previews)
 - [Mounting the API](#mounting-the-api)
 - [Settings](#settings)
 - [Signals](#signals)
@@ -140,9 +141,25 @@ likes:
 Create a `ForumIndex` under your site root in the Wagtail admin, then add
 `ForumBoard` children. Both render a minimal server-side fallback template so
 "View live", sitemaps, and crawlers do not 500; the DRF API is the intended UI.
+The two page templates extend a shared `wagtail_forum/base.html` skeleton that
+also renders `{% wagtailuserbar %}`, so an editor landing on "View live" has a
+route back to the admin. Hosts may override any of the three templates under
+`templates/wagtail_forum/`.
 
 Board visibility is enforced through Wagtail: a board with a `PageViewRestriction`
 (or any descendant of a restricted ancestor) is invisible to the entire API.
+
+## Previews
+
+`Post` previews through Wagtail's built-in `PreviewableMixin` with a
+server-rendered template (`admin/post_preview.html`) — deliberately **not**
+through a headless-preview library, even in a host (like this repo) whose blog
+previews through the SPA via `wagtail_headless_preview`. Three reasons: the
+preview pane renders draft StreamField content for moderators with zero
+SPA work; the package stays free of an extra dependency; and headless preview
+targets Pages, while `Post` is a snippet, so its support there would need
+verifying first. Revisit only if moderators need previews in the real SPA
+rendering (todo 299 records the costed alternative).
 
 ## Mounting the API
 

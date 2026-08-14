@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "299"
 tags: [forum, wagtail, theming, templates]
@@ -101,16 +101,79 @@ the current posture.
 
 ## Acceptance Criteria
 
-- [ ] Decision recorded (Option 1 or 2) in this todo and the package README
-- [ ] Both fallback templates extend a shared package base and load every tag
+- [x] Decision recorded (Option 1 or 2) in this todo and the package README
+- [x] Both fallback templates extend a shared package base and load every tag
       library they use
-- [ ] `{% wagtailuserbar %}` renders on both fallback pages for an
+- [x] `{% wagtailuserbar %}` renders on both fallback pages for an
       authenticated editor (test-pinned)
-- [ ] Preview convention decided and documented; if Option 2, the SPA preview
+- [x] Preview convention decided and documented; if Option 2, the SPA preview
       route exists and a moderator can preview a draft post end to end
-- [ ] `test_page_serving.py` and the full forum package suite green
+- [x] `test_page_serving.py` and the full forum package suite green
 
 ## Work Log
+
+### 2026-08-14 - Completed by completing-todos skill (run 2026-08-14-0021)
+
+- Verification: all 5 acceptance criteria passed (page-serving suite 6 passed;
+  full forum package suite 478 passed on a clean run).
+- Review: 5 findings total, 1 blocking — addressed via repair (base.html
+  staged, assertion strengthened, parametrize ids); 2 lows accepted as known
+  issues, recorded above.
+
+### 2026-08-14 - Started by completing-todos skill (run 2026-08-14-0021)
+
+- Picked up by automated workflow. User selected **Option 1** (minimal theming
+  + pin the posture). Note: implementation of the branch-independent files
+  (templates, tests) began while PR #533 — which introduced this todo file —
+  finished CI; the in-progress rename happened right after its merge, so the
+  skill's step order was inverted for mechanical reasons only.
+
+### 2026-08-14 - Implemented (Option 1)
+
+- New `templates/wagtail_forum/base.html`: shared skeleton (head, `<main>`,
+  `<h1>`), `{% load wagtailuserbar %}` + `{% wagtailuserbar %}` before
+  `</body>`, H17 rationale comment. `forum_index.html` and `forum_board.html`
+  now `{% extends %}` it and keep only their `{% block content %}` bodies;
+  index still loads `wagtailcore_tags` for `|richtext`, board needs no tag
+  library (its content block uses none).
+- Wagtail 7.4's userbar tag returns `""` when the request lacks a `.user` or
+  the user lacks `wagtailadmin.access_admin` (verified in
+  `venv/.../wagtail/admin/templatetags/wagtailuserbar.py`), so the two
+  pre-existing bare-`RequestFactory` serve tests keep passing unchanged.
+- `test_page_serving.py`: +4 tests — userbar present for a superuser and
+  absent for `AnonymousUser`, parametrized over both page types; asserts the
+  stable `wagtail-userbar` markup id.
+- README: "Creating the page tree" now describes the shared base + userbar +
+  override points; new "Previews" section (in TOC) pins the
+  `PreviewableMixin`-not-headless decision and its three reasons.
+- Verification: `pytest packages/wagtail_forum/wagtail_forum/tests/test_page_serving.py --create-db -q`
+  → `6 passed`. (An earlier full-suite run reported `478 passed` but is
+  discounted — a stash/branch switch mutated the working tree mid-run; clean
+  re-run recorded below.)
+- Full-suite verification (clean re-run on the settled `todo/299-…` branch):
+  `pytest packages/wagtail_forum --create-db -q` → `478 passed`, exit 0.
+
+### 2026-08-14 - Code review (wagtail-reviewer + cross-cutting-reviewer)
+
+- 5 findings: 1 critical, 1 medium, 3 low. Repaired:
+  - [critical] `base.html` was still untracked while both page templates
+    already `{% extends %}` it (a merge without it = TemplateDoesNotExist,
+    the exact H17 regression) → `git add`ed; `git status` shows `A`.
+  - [medium] userbar assertion pinned only the wrapper shell, which renders
+    even when the page can't be resolved → now also asserts
+    `reverse("wagtailadmin_pages:edit", args=[page.pk])` in the HTML.
+  - [low] opaque parametrize ids → `ids=["index", "board"]`.
+  - Re-verified after repair: `pytest …/test_page_serving.py --create-db -q`
+    → `6 passed`.
+- Known issues (accepted, low, not acted on):
+  - `_tree()` parents pages under `Page.objects.get(id=1)` (treebeard root,
+    unroutable) — pre-existing fixture style shared across the package's
+    direct-`serve()` tests; fine while nothing exercises URL routing.
+    The reviewer's proposed write-time trigger was deliberately NOT captured:
+    it would fire on the package's own established, deliberate test pattern.
+  - `test_userbar_absent_for_anonymous_user` is satisfied by Wagtail's own
+    permission gate; it counts only as the paired negative case — the
+    admin-presence test is the one pinning this diff's change.
 
 ### 2026-08-13 - Filed
 
