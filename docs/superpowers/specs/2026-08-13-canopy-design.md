@@ -37,11 +37,10 @@ Working name for the design language: **Canopy**.
 
 - The web UI's visible name becomes **Houseplant MD** (sidebar brand block, page titles/meta,
   auth screens); tagline "The plant clinic". The repo/project name is unchanged.
-- **Logo**: an original SVG mark carrying a cross. Three candidates live in the mockup
-  (Brand section): *Cross-leaf* (four leaves forming a cross, coral pulse center — recommended),
-  *Clinic cross* (rounded coral cross on mint with a leaf notch), *Leaf, badged* (leaf with a
-  coral cross badge). Final pick is the user's; the mark ships as an inline SVG component plus
-  favicon/app-icon exports.
+- **Logo (chosen by the user): "Leaf, badged"** — the leaf outline in mint→sage gradient stroke
+  on a deep-pine rounded tile, with a coral (`#DE6B5A`) circular badge bottom-right carrying a
+  mint cross. The other two candidates (*Cross-leaf*, *Clinic cross*) remain in the mockup for
+  reference. The mark ships as an inline SVG component plus favicon/app-icon exports.
 - **Legal constraint (binding)**: the red Greek cross on white is a Geneva-Conventions-protected
   emblem, enforced against apps. The mark must never render as a red cross on a white/light
   ground; the cross uses Canopy's clinic red `#DE6B5A`/Bloom on green or mint-green grounds.
