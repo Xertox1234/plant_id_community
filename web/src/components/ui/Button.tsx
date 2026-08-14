@@ -47,14 +47,14 @@ export default function Button({
 }: ButtonProps) {
   // Base styles
   const baseStyles =
-    'inline-flex items-center justify-center font-medium transition-colors rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+    'inline-flex items-center justify-center font-semibold transition-all rounded-pill focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-50 disabled:cursor-not-allowed';
 
   // Variant styles
   const variants: Record<ButtonVariant, string> = {
-    primary: 'bg-clay text-on-clay hover:bg-clay/90 focus:ring-primary',
-    secondary: 'bg-surface-2 text-ink hover:bg-surface-3 focus:ring-primary',
-    outline: 'border-2 border-primary text-primary hover:bg-primary/10 focus:ring-primary',
-    ghost: 'text-ink-2 hover:bg-surface-2 focus:ring-primary',
+    primary: 'canopy-cta shadow-1 hover:-translate-y-px hover:shadow-2',
+    secondary: 'bg-surface-2 text-ink border border-line hover:bg-surface-3',
+    outline: 'border border-line-2 text-ink hover:bg-surface-2',
+    ghost: 'text-ink-2 hover:bg-surface-2 hover:text-ink',
   };
 
   // Size styles
