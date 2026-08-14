@@ -2,11 +2,9 @@
 import { test, expect, type Page } from '@playwright/test';
 
 // Set theme data-attributes on <html> exactly as ThemeContext will (Task 3).
-async function setTheme(page: Page, attrs: { palette?: string; mode?: string; density?: string }) {
+async function setTheme(page: Page, attrs: { mode?: string; density?: string }) {
   await page.evaluate((a) => {
     const el = document.documentElement;
-    if (a.palette) el.dataset.palette = a.palette;
-    else delete el.dataset.palette;
     if (a.mode) el.dataset.mode = a.mode;
     else delete el.dataset.mode;
     if (a.density) el.dataset.density = a.density;
@@ -14,58 +12,41 @@ async function setTheme(page: Page, attrs: { palette?: string; mode?: string; de
   }, attrs);
 }
 
-test.describe('Green Thumb runtime tokens', () => {
+test.describe('Canopy runtime tokens', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/debug/theme');
   });
 
-  test('default (loam light) surface resolves', async ({ page }) => {
+  test('default (dark) surface resolves to pine', async ({ page }) => {
     await setTheme(page, {});
     await expect(page.getByTestId('probe-surface')).toHaveCSS(
       'background-color',
-      'rgb(246, 240, 226)'
+      'rgb(11, 43, 38)'
     );
   });
 
-  test('palette switch changes resolved color', async ({ page }) => {
-    await setTheme(page, { palette: 'forest' });
+  test('light mode resolves to mint cream', async ({ page }) => {
+    await setTheme(page, { mode: 'light' });
     await expect(page.getByTestId('probe-surface')).toHaveCSS(
       'background-color',
-      'rgb(15, 26, 18)'
-    );
-    await setTheme(page, { palette: 'loam', mode: 'dark' });
-    await expect(page.getByTestId('probe-surface')).toHaveCSS(
-      'background-color',
-      'rgb(18, 16, 10)'
-    );
-  });
-
-  test('forest+dark stays forest (cascade-bug guard)', async ({ page }) => {
-    await setTheme(page, { palette: 'forest', mode: 'dark' });
-    // MUST be forest #0F1A12, NOT loam-dark #12100A
-    await expect(page.getByTestId('probe-surface')).toHaveCSS(
-      'background-color',
-      'rgb(15, 26, 18)'
+      'rgb(218, 241, 222)'
     );
   });
 
   test('density changes resolved padding (discriminating wiring)', async ({ page }) => {
     await setTheme(page, { density: 'compact' });
-    await expect(page.getByTestId('probe-pad')).toHaveCSS('padding-left', '12px'); // ≠ cozy 16, ≠ comfortable 18
+    await expect(page.getByTestId('probe-pad')).toHaveCSS('padding-left', '12px');
     await setTheme(page, { density: 'comfortable' });
     await expect(page.getByTestId('probe-pad')).toHaveCSS('padding-left', '18px');
   });
 
-  test('alpha modifier resolves on a themed token (not transparent, not solid)', async ({
-    page,
-  }) => {
+  test('alpha modifier resolves on a themed token', async ({ page }) => {
     await setTheme(page, {});
     const bg = await page
       .getByTestId('probe-alpha')
       .evaluate((el) => getComputedStyle(el).backgroundColor);
-    // bg-clay/10 must compile to a partial color-mix of var(--gt-clay):
-    expect(bg).not.toBe('rgba(0, 0, 0, 0)'); // modifier ignored → fully transparent
-    expect(bg).not.toBe('rgb(201, 84, 42)'); // modifier dropped → solid clay #C9542A
+    expect(bg).not.toBe('rgba(0, 0, 0, 0)'); // modifier ignored → transparent
+    expect(bg).not.toBe('rgb(231, 183, 95)'); // modifier dropped → solid pollen #E7B75F
   });
 
   test('display headings use Bricolage Grotesque', async ({ page }) => {
