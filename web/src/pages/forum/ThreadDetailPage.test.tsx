@@ -6,6 +6,7 @@ import * as ReactRouter from 'react-router-dom';
 import ThreadDetailPage from './ThreadDetailPage';
 import { createMockThread, createMockPost } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
+import * as blogService from '../../services/blogService';
 import { useAuth } from '../../contexts/AuthContext';
 import { AnnouncerProvider } from '../../contexts/AnnouncerContext';
 import { logger } from '../../utils/logger';
@@ -22,6 +23,11 @@ vi.mock('react-router-dom', async () => {
 // The aria-label is the placeholder so the reply composer ("Write a reply...") and
 // the edit editor ("body", no placeholder) are individually addressable.
 vi.mock('../../services/forumService');
+// Defensive mock for FromTheBlogModule's rail fetch and the page's own
+// "more in this board" rail fetch. RailSlot portals into `#app-rail`, which
+// doesn't exist in jsdom for this suite — so the rail never actually mounts
+// visible content — but both mocks guard against a real network call.
+vi.mock('../../services/blogService');
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../../components/forum/TipTapEditor', () => ({
   default: ({
@@ -68,6 +74,14 @@ describe('ThreadDetailPage', () => {
     });
     // Default to authenticated so the write UI renders; the logged-out test overrides.
     vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+    // The rail's "more in this board" fetch and FromTheBlogModule's popular-posts
+    // fetch. Set fresh each test (not chained at module scope): vitest.config.ts's
+    // global `mockReset: true` wipes any factory-chained mock value before every test.
+    vi.mocked(forumService.fetchThreads).mockResolvedValue({
+      items: [],
+      meta: { next: null, count: 0 },
+    });
+    vi.mocked(blogService.fetchPopularPosts).mockResolvedValue([]);
   });
 
   it('shows error (not infinite spinner) when threadSlug has no leading id', async () => {
@@ -183,7 +197,7 @@ describe('ThreadDetailPage', () => {
     });
 
     const breadcrumb = screen.getByLabelText('Breadcrumb');
-    expect(breadcrumb).toHaveTextContent('Forums');
+    expect(breadcrumb).toHaveTextContent('Forum');
     expect(breadcrumb).toHaveTextContent('Plant Care');
   });
 
