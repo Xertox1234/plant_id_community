@@ -894,5 +894,51 @@
     "source": "codify: 2026-08-13 jwt-cookie session",
     "added": "2026-08-13",
     "severity": "warn"
+  },
+  {
+    "id": "vitest-implicit-return-mock-beforeeach",
+    "domains": [
+      "testing",
+      "react"
+    ],
+    "path_glob": [
+      "web/**/*.test.*"
+    ],
+    "content_present": "beforeEach\\(\\s*\\(\\)\\s*=>\\s*[A-Za-z_$][\\w.$]*\\.mock[A-Z]\\w*\\(",
+    "message": "Implicit-return beforeEach with a mock call: Vitest 4 registers the returned mock as a TEARDOWN and re-invokes it post-test (replays configured rejections). Use a block body: beforeEach(() => { mock.mockReset(); }).",
+    "pattern_ref": "web/docs/patterns/testing.md",
+    "source": "codify: feat/canopy-forum",
+    "added": "2026-08-15",
+    "severity": "warn"
+  },
+  {
+    "id": "raw-canopy-token-in-css-property",
+    "domains": [
+      "react"
+    ],
+    "path_glob": [
+      "web/src/**/*.css"
+    ],
+    "content_present": "(?m)^\\s*(?!--)[a-z-]+\\s*:[^;\\n]*var\\(--canopy-",
+    "message": "Raw --canopy-* ramp var in a CSS property position: the ramp is mode-blind (PR #537 flash ring was invisible in light mode). Use the --gt-* semantic token; raw ramp vars belong only in the :root/[data-mode] token-definition blocks.",
+    "pattern_ref": "web/docs/patterns/tailwind.md",
+    "source": "codify: feat/canopy-forum",
+    "added": "2026-08-15",
+    "severity": "warn"
+  },
+  {
+    "id": "unscoped-forum-e2e-selector",
+    "domains": [
+      "testing"
+    ],
+    "path_glob": [
+      "web/e2e/*"
+    ],
+    "content_present": "(?<!#main-content )a\\[href\\^=\"/forum",
+    "message": "Unscoped forum link selector in an e2e spec: the AppShell header carries /forum/search + /forum/new-thread links on EVERY page, so this matches chrome before page content. Scope to #main-content (e.g. #main-content a[href^=\"/forum/...\").",
+    "pattern_ref": "web/docs/patterns/testing.md",
+    "source": "codify: feat/canopy-forum",
+    "added": "2026-08-15",
+    "severity": "warn"
   }
 ]

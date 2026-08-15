@@ -57,6 +57,17 @@ sharpens a rule already there, cite that rule rather than re-flagging it.
 - [ ] React tests assert behaviour, not implementation details; no unresolved
       `act()` warnings; new user-facing flows get an E2E case
       (`web/E2E_TESTING_GUIDE.md`)
+- [ ] Vitest hooks never implicit-return a mock call — `beforeEach(() =>
+      mock.mockReset())` registers the mock as a TEARDOWN that Vitest re-invokes
+      post-test, replaying configured rejections as unhandled ones; require a
+      block body, and mock return values set in `beforeEach` (this repo's
+      `mockReset`/`restoreMocks: true` wipes factory-chained values)
+- [ ] Playwright forum locators are scoped to `#main-content` — the AppShell
+      header renders `/forum/search` + `/forum/new-thread` links on every page,
+      so unscoped `a[href^="/forum/..."]`/`.first()` grabs chrome; and any diff
+      that swaps a page's control TYPE (select → chips, etc.) must show a grep
+      of `web/e2e/` for that page's old selectors (e2e specs are out-of-diff
+      consumers — a tap-target spec broke deterministically this way, PR #537)
 
 **Performance**
 

@@ -76,6 +76,11 @@ Use Grep as fallback for any LSP call that returns an error or empty/inconclusiv
 - [ ] Responsive design: mobile-first Tailwind classes, minimum tap target 44x44px
 - [ ] A new/changed TipTap `suggestion.render()` (`onStart`/`onUpdate`/`onExit`) has real test coverage for its DOM lifecycle (Playwright, a mounted view), not just pure-logic unit tests — a headless `Editor` in Vitest cannot trigger these callbacks at all (`web/docs/patterns/testing.md`)
 
+**CSS / Design Tokens (Canopy)**
+
+- [ ] New CSS property values use `--gt-*` semantic tokens, never raw `--canopy-*` ramp vars — the raw ramp is mode-blind and fails contrast in the mode the author didn't look at (PR #537 flash ring: ~1.4:1 in light). Raw ramp vars are legal only on the RHS of the `:root`/`[data-mode]` token-definition blocks (`web/docs/patterns/tailwind.md`)
+- [ ] A static rule that must visually beat a Tailwind utility on the same element (state ring, hide rule) must sit OUTSIDE every `@layer` — `@layer components` always loses to utilities regardless of specificity; check any new `@layer components` rule whose target also carries utility classes for the same property (two shipped instances: PR #536 rail hide vs `xl:flex`, PR #537 flash ring vs `ring-*`)
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

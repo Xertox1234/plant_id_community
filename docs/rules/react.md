@@ -107,3 +107,15 @@ Compact checklist auto-injected before edits. Long-form:
   through one `close()` helper rather than revoking at each call site; jsdom
   implements neither method, so stub both in tests and spy the revoke (the leak
   is otherwise invisible).
+- **New chrome/component CSS uses `--gt-*` semantic tokens, never raw
+  `--canopy-*` ramp vars in property positions.** The raw ramp is mode-blind:
+  a sage flash ring authored against dark mode measured ~1.4:1 in light mode
+  (invisible) and shipped to final review before anyone saw both sides
+  (PR #537). Raw ramp vars belong only on the right-hand side of the
+  `:root`/`[data-mode]` token-definition blocks.
+- **A static state-styling rule that must beat a Tailwind utility goes
+  UNLAYERED.** `@layer components` always loses to the utilities layer
+  regardless of specificity — this has now bitten twice (PR #536 empty-rail
+  hide rule vs `xl:flex`; PR #537 reduced-motion flash ring vs the accepted
+  answer's `ring-*` box-shadow). Put the rule outside any `@layer` with a
+  comment saying why, mirroring the existing `.app-rail:not(:has(*))` rule.
