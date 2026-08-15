@@ -29,12 +29,13 @@ import Button from '../../components/ui/Button';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Avatar from '../../components/ui/Avatar';
 import Timestamp from '../../components/ui/Timestamp';
-import RailSlot from '../../components/layout/RailSlot';
+import RailSlot, { RAIL_MEDIA_QUERY } from '../../components/layout/RailSlot';
 import RailModule from '../../components/ui/RailModule';
 import FromTheBlogModule from '../../components/forum/rail/FromTheBlogModule';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { logger } from '../../utils/logger';
 import PageMeta from '../../components/PageMeta';
 import type { Thread, Post } from '@/types';
@@ -71,6 +72,14 @@ async function collectAllPosts(threadId: number): Promise<{ items: Post[]; next:
   }
   return { items, next };
 }
+
+// Deep-link / just-posted highlight duration — must outlast the CSS
+// canopy-flash-fade animation (2.4s).
+const CANOPY_FLASH_MS = 2500;
+
+// The board rail shows at most this many other topics (sibling precedent:
+// FromTheBlogModule's RAIL_POST_LIMIT).
+const RAIL_BOARD_TOPICS_LIMIT = 5;
 
 /**
  * ThreadDetailPage Component
@@ -139,6 +148,9 @@ export default function ThreadDetailPage() {
   // `posts` change (the chase needs that), so without this it would re-scroll
   // to the anchor on each reply/Load-More while the hash lingers in the URL.
   const scrolledHashRef = useRef<string | null>(null);
+  // End of the current deep-link flash window (epoch ms) — lets an effect
+  // re-run inside the window re-arm the highlight for the remaining time.
+  const flashUntilRef = useRef(0);
 
   // Load thread and initial posts
   useEffect(() => {
@@ -149,6 +161,7 @@ export default function ThreadDetailPage() {
     // A new thread starts a fresh deep-link chase and a fresh scroll target.
     chaseCursorRef.current = null;
     scrolledHashRef.current = null;
+    flashUntilRef.current = 0;
     // Restore this topic's reply draft (per-topic key); remount the composer
     // so TipTap's init-only content picks it up.
     setReplyBody(topicId != null ? (loadDraft(draftKey('reply', String(topicId))) ?? '') : '');
@@ -268,17 +281,24 @@ export default function ThreadDetailPage() {
     }
     // Scroll to a given anchor only once — not again on later posts changes
     // (a reply, a Load More) while the same hash sits in the URL.
-    if (scrolledHashRef.current === location.hash) return;
-    scrolledHashRef.current = location.hash;
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (scrolledHashRef.current !== location.hash) {
+      scrolledHashRef.current = location.hash;
+      flashUntilRef.current = Date.now() + CANOPY_FLASH_MS;
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    // (Re-)arm the highlight for whatever remains of the flash window. The
+    // cleanup strips the class on every re-run (posts growing, a Load More
+    // click), so without this re-add a mid-window commit would kill the ring
+    // permanently and the user never sees which post they were sent to.
+    const remaining = flashUntilRef.current - Date.now();
+    if (remaining <= 0) return;
     el.classList.add('canopy-flash');
-    const timer = setTimeout(() => el.classList.remove('canopy-flash'), 2500);
+    const timer = setTimeout(() => el.classList.remove('canopy-flash'), remaining);
     return () => {
       clearTimeout(timer);
-      // The cleanup must also remove the class: an effect re-run inside the
-      // 2.5s window (posts growing) cancels the timer, and the early-return
-      // above never re-arms it — under reduced motion the static ring would
-      // otherwise persist forever.
+      // The cleanup must also remove the class: a re-run inside the window
+      // cancels the timer, and under reduced motion the static ring would
+      // otherwise persist forever if nothing re-armed it.
       el.classList.remove('canopy-flash');
     };
   }, [loading, posts, location.hash, nextCursor, loadingMore, handleLoadMore]);
@@ -287,29 +307,28 @@ export default function ThreadDetailPage() {
   // reduced-motion rendering is a static ring, so animationend never fires).
   useEffect(() => {
     if (justPostedId == null) return;
-    const timer = setTimeout(() => setJustPostedId(null), 2500);
+    const timer = setTimeout(() => setJustPostedId(null), CANOPY_FLASH_MS);
     return () => clearTimeout(timer);
   }, [justPostedId]);
 
   // Rail: other recent topics on this board. Best-effort — a failure just
-  // leaves the module unrendered; never blocks the thread itself.
+  // leaves the module unrendered; never blocks the thread itself. One board =
+  // one fetch: the raw page is cached per board slug and filtered at render,
+  // so same-board thread navs reuse it (its counts may lag until the board
+  // changes). Below the xl breakpoint the rail is display:none, so the fetch
+  // is skipped outright rather than paid for content nobody can see.
   const [boardThreads, setBoardThreads] = useState<Thread[]>([]);
-  const category = thread?.category;
+  const railVisible = useMediaQuery(RAIL_MEDIA_QUERY);
+  const boardSlug = thread?.category?.slug;
   useEffect(() => {
     // Reset before fetching: navigating to a thread on another board (or a
     // fetch failure) must not leave the previous board's list in the rail.
     setBoardThreads([]);
-    if (!category?.slug) return;
+    if (!railVisible || !boardSlug) return;
     let ignore = false;
-    fetchThreads({ board: category.slug })
+    fetchThreads({ board: boardSlug })
       .then((data) => {
-        if (ignore) return;
-        setBoardThreads(
-          data.items
-            .filter((t) => t.id !== thread?.id)
-            .slice(0, 5)
-            .map((t) => ({ ...t, category }))
-        );
+        if (!ignore) setBoardThreads(data.items);
       })
       .catch(() => {
         /* rail is optional — the thread page must not surface this */
@@ -317,7 +336,7 @@ export default function ThreadDetailPage() {
     return () => {
       ignore = true;
     };
-  }, [thread?.id, category]);
+  }, [boardSlug, railVisible]);
 
   // Submit a reply. A published reply is refetched into the list; a pending reply
   // (untrusted author) is unlisted, so we only confirm it was submitted.
@@ -595,6 +614,14 @@ export default function ThreadDetailPage() {
     }
     return acc;
   }, []);
+
+  // Rail: the cached board page, minus this thread and pinned topics — pinned
+  // announcements sort first server-side (-is_pinned) and would otherwise
+  // permanently occupy every slot. List items carry an empty category, so
+  // links below build paths from this thread's own (same-board) category.
+  const railThreads = boardThreads
+    .filter((t) => t.id !== thread.id && !t.is_pinned)
+    .slice(0, RAIL_BOARD_TOPICS_LIMIT);
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -902,15 +929,15 @@ export default function ThreadDetailPage() {
             </ul>
           </RailModule>
         )}
-        {boardThreads.length > 0 && (
+        {railThreads.length > 0 && (
           <RailModule
             icon={<MessagesSquare aria-hidden="true" />}
             title={`More in ${thread.category.name}`}
           >
             <ul className="flex flex-col gap-3">
-              {boardThreads.map((t) => (
+              {railThreads.map((t) => (
                 <li key={t.id}>
-                  <Link to={threadPath(t.category, t)} className="group block">
+                  <Link to={threadPath(thread.category, t)} className="group block">
                     <span className="line-clamp-2 text-[13px] font-medium text-ink transition-colors group-hover:text-primary">
                       {t.title}
                     </span>

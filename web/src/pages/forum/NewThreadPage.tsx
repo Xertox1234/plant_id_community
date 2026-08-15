@@ -7,6 +7,7 @@ import TipTapEditor from '../../components/forum/TipTapEditor';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
+import ButtonLink from '../../components/ui/ButtonLink';
 import PageMeta from '../../components/PageMeta';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
@@ -209,11 +210,9 @@ export default function NewThreadPage() {
           <p className="text-ink-2">
             A moderator will review it shortly, and it will appear on the board once approved.
           </p>
-          <Link to={categoryPath(category)} className="inline-block">
-            <Button variant="primary" className="min-h-11">
-              Back to {category.name}
-            </Button>
-          </Link>
+          <ButtonLink to={categoryPath(category)} variant="primary" className="min-h-11">
+            Back to {category.name}
+          </ButtonLink>
         </div>
       </div>
     );
@@ -376,11 +375,9 @@ export default function NewThreadPage() {
           >
             Post Thread
           </Button>
-          <Link to={category ? categoryPath(category) : '/forum'}>
-            <Button type="button" variant="outline">
-              Cancel
-            </Button>
-          </Link>
+          <ButtonLink to={category ? categoryPath(category) : '/forum'} variant="outline">
+            Cancel
+          </ButtonLink>
         </div>
       </form>
     </div>

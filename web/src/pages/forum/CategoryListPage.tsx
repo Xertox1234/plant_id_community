@@ -9,7 +9,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import HeroCard from '../../components/ui/HeroCard';
 import StatCard from '../../components/ui/StatCard';
 import Card from '../../components/ui/Card';
-import Button from '../../components/ui/Button';
+import ButtonLink from '../../components/ui/ButtonLink';
 import Timestamp from '../../components/ui/Timestamp';
 import RailSlot from '../../components/layout/RailSlot';
 import RailModule from '../../components/ui/RailModule';
@@ -116,12 +116,12 @@ export default function CategoryListPage() {
         description="Get help with an ailing plant, show off a thriving one, and swap care notes with people who love the same leaves you do."
         actions={
           <>
-            <Link to="/forum/new-thread">
-              <Button variant="primary">Start a thread</Button>
-            </Link>
-            <Link to="/forum/search">
-              <Button variant="ghost">Search the forum</Button>
-            </Link>
+            <ButtonLink to="/forum/new-thread" variant="primary">
+              Start a thread
+            </ButtonLink>
+            <ButtonLink to="/forum/search" variant="ghost">
+              Search the forum
+            </ButtonLink>
           </>
         }
         art={

@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -85,11 +86,27 @@ export function UnreadNotificationsProvider({ children }: UnreadNotificationsPro
     };
   }, [isAuthenticated, refresh]);
 
-  const decrement = useCallback(() => setUnreadCount((prev) => Math.max(0, prev - 1)), []);
-  const clear = useCallback(() => setUnreadCount(0), []);
+  // Local mutations follow the same rule as the logout reset above: bump the
+  // epoch BEFORE setting, or a poll response already in flight repaints the
+  // count the user just cleared (for up to a full poll interval). Tradeoff:
+  // the discarded response means the badge can lag server truth until the
+  // next tick — correct-but-stale beats resurrecting a dismissed badge.
+  const decrement = useCallback(() => {
+    requestEpochRef.current++;
+    setUnreadCount((prev) => Math.max(0, prev - 1));
+  }, []);
+  const clear = useCallback(() => {
+    requestEpochRef.current++;
+    setUnreadCount(0);
+  }, []);
+
+  const value = useMemo(
+    () => ({ unreadCount, refresh, decrement, clear }),
+    [unreadCount, refresh, decrement, clear]
+  );
 
   return (
-    <UnreadNotificationsContext.Provider value={{ unreadCount, refresh, decrement, clear }}>
+    <UnreadNotificationsContext.Provider value={value}>
       {children}
     </UnreadNotificationsContext.Provider>
   );

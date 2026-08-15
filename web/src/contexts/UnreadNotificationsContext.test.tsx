@@ -13,10 +13,11 @@ vi.mock('./AuthContext', () => ({
 }));
 
 function Probe() {
-  const { unreadCount, decrement, clear } = useUnreadNotifications();
+  const { unreadCount, refresh, decrement, clear } = useUnreadNotifications();
   return (
     <div>
       <span data-testid="count">{unreadCount}</span>
+      <button onClick={refresh}>refresh</button>
       <button onClick={decrement}>dec</button>
       <button onClick={clear}>clear</button>
     </div>
@@ -70,5 +71,45 @@ describe('UnreadNotificationsContext', () => {
   it('renders with safe defaults when no provider is mounted', () => {
     render(<Probe />);
     expect(screen.getByTestId('count')).toHaveTextContent('0');
+  });
+
+  it('an in-flight poll response cannot resurrect a cleared badge', async () => {
+    let resolveInFlight: (count: number) => void = () => {};
+    mockFetchUnreadCount
+      .mockResolvedValueOnce(5)
+      .mockImplementationOnce(() => new Promise<number>((resolve) => (resolveInFlight = resolve)));
+    render(
+      <UnreadNotificationsProvider>
+        <Probe />
+      </UnreadNotificationsProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('5'));
+
+    act(() => screen.getByText('refresh').click()); // poll now in flight
+    act(() => screen.getByText('clear').click()); // user marks all read
+    expect(screen.getByTestId('count')).toHaveTextContent('0');
+
+    await act(async () => resolveInFlight(5)); // stale response lands
+    expect(screen.getByTestId('count')).toHaveTextContent('0');
+  });
+
+  it('an in-flight poll response cannot overwrite a decrement', async () => {
+    let resolveInFlight: (count: number) => void = () => {};
+    mockFetchUnreadCount
+      .mockResolvedValueOnce(5)
+      .mockImplementationOnce(() => new Promise<number>((resolve) => (resolveInFlight = resolve)));
+    render(
+      <UnreadNotificationsProvider>
+        <Probe />
+      </UnreadNotificationsProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('5'));
+
+    act(() => screen.getByText('refresh').click());
+    act(() => screen.getByText('dec').click());
+    expect(screen.getByTestId('count')).toHaveTextContent('4');
+
+    await act(async () => resolveInFlight(5));
+    expect(screen.getByTestId('count')).toHaveTextContent('4');
   });
 });

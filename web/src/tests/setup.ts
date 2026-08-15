@@ -23,19 +23,25 @@ afterEach(() => {
   cleanup();
 });
 
-// Mock window.matchMedia (not available in jsdom)
+// Mock window.matchMedia (not available in jsdom). A plain function, NOT a
+// vi.fn(): the config's `mockReset: true` wipes every mock's implementation
+// before each test, so a vi.fn polyfill returns undefined from the second
+// test on and crashes anything that reads `.matches` (useMediaQuery).
+// Always reports false — tests that need a matching query (e.g. the rail's
+// xl breakpoint) install their own stub and restore this one after.
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
-  value: vi.fn().mockImplementation((query) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(), // Deprecated
-    removeListener: vi.fn(), // Deprecated
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
+  value: (query: string) =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {}, // Deprecated
+      removeListener: () => {}, // Deprecated
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as unknown as MediaQueryList,
 });
 
 // Mock IntersectionObserver (not available in jsdom)

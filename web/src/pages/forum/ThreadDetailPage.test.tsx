@@ -24,9 +24,10 @@ vi.mock('react-router-dom', async () => {
 // the edit editor ("body", no placeholder) are individually addressable.
 vi.mock('../../services/forumService');
 // Defensive mock for FromTheBlogModule's rail fetch and the page's own
-// "more in this board" rail fetch. RailSlot portals into `#app-rail`, which
-// doesn't exist in jsdom for this suite — so the rail never actually mounts
-// visible content — but both mocks guard against a real network call.
+// "more in this board" rail fetch. Neither fires here: the setup.ts
+// matchMedia polyfill reports the xl rail query unmatched, so RailSlot
+// mounts nothing and the board fetch is skipped (and `#app-rail` doesn't
+// exist in jsdom anyway) — but both mocks guard against a real network call.
 vi.mock('../../services/blogService');
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../../components/forum/TipTapEditor', () => ({

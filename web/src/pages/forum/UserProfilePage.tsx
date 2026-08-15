@@ -1,21 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { formatDistanceToNow } from 'date-fns';
 import { fetchUserProfile } from '../../services/forumService';
 import { specimenAvatar } from '../../utils/forumAvatars';
 import { threadPath, postAnchor } from '../../utils/forumUrls';
 import { TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
 import Avatar from '../../components/ui/Avatar';
 import Card from '../../components/ui/Card';
+import Timestamp from '../../components/ui/Timestamp';
 import type { ForumUserProfile } from '../../types/forum';
-
-function relative(iso: string): string {
-  try {
-    return formatDistanceToNow(new Date(iso), { addSuffix: true });
-  } catch {
-    return 'recently';
-  }
-}
 
 /**
  * Public forum profile page (todo 257 H7): identity + trust + recent activity.
@@ -99,7 +91,14 @@ export default function UserProfilePage() {
             </div>
             <p className="gt-label mt-1.5 normal-case tracking-normal">
               @{profile.username} · {profile.post_count} posts
-              {profile.joined_at && <> · joined {relative(profile.joined_at)}</>}
+              {/* No `prefix`: Timestamp's aria-label replaces its content, and the
+                  literal "joined" before it already labels the date. */}
+              {profile.joined_at && (
+                <>
+                  {' '}
+                  · joined <Timestamp iso={profile.joined_at} />
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -128,7 +127,9 @@ export default function UserProfilePage() {
                 >
                   {t.title}
                 </Link>
-                <span className="gt-label">{relative(t.created_at)}</span>
+                <span className="gt-label">
+                  <Timestamp iso={t.created_at} prefix="Posted" />
+                </span>
               </li>
             ))}
           </ul>
@@ -153,7 +154,9 @@ export default function UserProfilePage() {
                 >
                   {p.topic_title}
                 </Link>
-                <span className="gt-label">{relative(p.created_at)}</span>
+                <span className="gt-label">
+                  <Timestamp iso={p.created_at} prefix="Posted" />
+                </span>
               </li>
             ))}
           </ul>

@@ -8,6 +8,7 @@ import ThreadCard from '../../components/forum/ThreadCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
+import ButtonLink from '../../components/ui/ButtonLink';
 import Chip from '../../components/ui/Chip';
 import Tile from '../../components/ui/Tile';
 import RailSlot from '../../components/layout/RailSlot';
@@ -292,9 +293,9 @@ export default function ThreadListPage() {
               </Button>
             </div>
           </form>
-          <Link to={`/forum/new-thread?category=${categorySlug}`}>
-            <Button variant="primary">+ New Thread</Button>
-          </Link>
+          <ButtonLink to={`/forum/new-thread?category=${categorySlug}`} variant="primary">
+            + New Thread
+          </ButtonLink>
         </div>
 
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Sort threads">

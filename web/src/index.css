@@ -375,6 +375,19 @@
     box-shadow: 0 0 0 2px transparent;
   }
 }
+
+/* Row-card keyboard focus — unlayered for the same reason as the flash ring
+   above. The row's primary action must be the card's direct-child <a>: inner
+   controls (tag filters, subcategory pills) keep their own focus treatment,
+   since lighting the whole card would misstate what Enter activates.
+   Secondary is the app-wide focus accent (Button/Chip rings, the flash). */
+.canopy-interactive:has(> a:focus-visible) {
+  outline: 2px solid var(--gt-secondary);
+  outline-offset: -2px;
+}
+.canopy-interactive > a:focus-visible {
+  outline: none;
+}
 @keyframes canopy-float {
   from {
     transform: translateY(0);
