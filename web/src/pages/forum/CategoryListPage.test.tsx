@@ -461,6 +461,9 @@ describe('CategoryListPage', () => {
       vi.mocked(forumService.fetchRecentTopics).mockResolvedValue([
         makeRecentTopic({ is_pinned: false }),
         makeRecentTopic({ id: 2, slug: 'unrelated-pinned', is_pinned: true }),
+        // is_pinned: false with a matching slug — exercises the other half of
+        // the `is_pinned && slug.startsWith(...)` AND, not just is_pinned's.
+        makeRecentTopic({ id: 3, slug: 'bloom-watch-2025', is_pinned: false }),
       ]);
 
       renderCategoryListPage();
@@ -491,14 +494,16 @@ describe('CategoryListPage', () => {
       await waitFor(() =>
         expect(screen.getByRole('heading', { name: 'Your season' })).toBeInTheDocument()
       );
-      expect(screen.getByText('7')).toBeInTheDocument();
-      expect(screen.getByText('Identifications')).toBeInTheDocument();
-      expect(screen.getByText('12')).toBeInTheDocument();
-      expect(screen.getByText('3')).toBeInTheDocument();
-      expect(screen.getByText('Solutions')).toBeInTheDocument();
-      expect(screen.getByText('—')).toBeInTheDocument();
-      expect(screen.getByText('Day streak')).toBeInTheDocument();
-      expect(screen.getByText('Coming soon')).toBeInTheDocument();
+      // Each StatCard's label div is a sibling of its value div under one
+      // shared wrapper (StatCard.tsx) — scoping to that wrapper via `within`
+      // proves each VALUE belongs to its own label, not just that every
+      // number and every label exist somewhere on the page.
+      const statCard = (label: string) => screen.getByText(label).parentElement as HTMLElement;
+      expect(within(statCard('Identifications')).getByText('7')).toBeInTheDocument();
+      expect(within(statCard('Posts')).getByText('12')).toBeInTheDocument();
+      expect(within(statCard('Solutions')).getByText('3')).toBeInTheDocument();
+      expect(within(statCard('Day streak')).getByText('—')).toBeInTheDocument();
+      expect(within(statCard('Day streak')).getByText('Coming soon')).toBeInTheDocument();
       // The trio is fully replaced, not shown alongside the four cards.
       expect(screen.queryByText('Threads')).not.toBeInTheDocument();
     });
