@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
+import { Search, SearchX } from 'lucide-react';
 import { searchForum, fetchCategories } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
+import Card from '../../components/ui/Card';
 import { logger } from '../../utils/logger';
 import { sanitizeSearchQuery } from '../../utils/validation';
 import { threadPath } from '../../utils/forumUrls';
@@ -261,13 +263,13 @@ export default function SearchPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <PageMeta
-        title={query ? `Search: ${query} · PlantID` : 'Forum Search · PlantID'}
+        title={query ? `Search: ${query} · Houseplant MD` : 'Forum Search · Houseplant MD'}
         description="Search across Plant Community forum threads and posts."
       />
       {/* Header */}
       <div className="mb-8">
-        <p className="wf-label mb-2">Search the record</p>
-        <h1 className="wf-title text-3xl sm:text-4xl text-ink mb-2">Forum Search</h1>
+        <p className="gt-label mb-2">Houseplant MD · Community</p>
+        <h1 className="gt-h1 text-ink mb-2">Forum Search</h1>
         <p className="text-ink-2">Search across threads and posts</p>
       </div>
 
@@ -279,29 +281,18 @@ export default function SearchPage() {
             value={searchInput}
             onChange={handleSearchInput}
             placeholder="Search forum..."
-            className="w-full px-4 py-3 pl-12 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
+            className="w-full rounded-pill border border-line bg-surface-2/60 px-4 py-3 pl-12 text-ink transition-colors placeholder:text-ink-3 focus:border-transparent focus:ring-2 focus:ring-secondary focus:outline-none"
             aria-label="Search query"
           />
-          <svg
-            className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-ink-3"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+          <Search
+            className="absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 text-ink-3"
             aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
+          />
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-surface-2 rounded-lg shadow-sm p-6 mb-6">
+      <Card className="mb-6 p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-ink">Filters</h2>
           {hasActiveFilters && (
@@ -324,7 +315,7 @@ export default function SearchPage() {
               id="category-filter"
               value={category}
               onChange={handleCategoryFilter}
-              className="w-full px-3 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink"
+              className="w-full rounded-sm border border-line bg-surface-2/60 px-3 py-2 text-ink focus:ring-2 focus:ring-secondary focus:outline-none"
             >
               <option value="">All Categories</option>
               {categories.map((cat) => (
@@ -335,7 +326,7 @@ export default function SearchPage() {
             </select>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Search Results */}
       {loading && (
@@ -352,20 +343,7 @@ export default function SearchPage() {
 
       {!loading && !error && !query && (
         <div className="text-center py-12">
-          <svg
-            className="mx-auto h-12 w-12 text-ink-3 mb-4"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
+          <Search className="mx-auto h-12 w-12 text-ink-3 mb-4" aria-hidden="true" />
           <p className="text-ink-2">Enter a search query to begin</p>
         </div>
       )}
@@ -385,17 +363,15 @@ export default function SearchPage() {
           {/* Thread Results */}
           {searchResults.threads && searchResults.threads.length > 0 && (
             <div className="mb-8">
-              <h2 className="wf-title text-xl text-ink mb-4">
-                Threads ({searchResults.total_threads})
-              </h2>
-              <div className="wf-ledger">
+              <h2 className="gt-h3 text-ink mb-4">Threads ({searchResults.total_threads})</h2>
+              <div className="flex flex-col gap-3">
                 {searchResults.threads.map((thread) => (
-                  <div key={thread.id} className="wf-entry-group">
+                  <div key={thread.id} className="flex flex-col gap-1.5">
                     <ThreadCard thread={thread} hideAuthor />
                     {(hasSearchMatch(thread.title, query) ||
                       hasSearchMatch(thread.excerpt, query)) && (
                       <p
-                        className="mx-2 -mt-1 mb-4 text-sm text-ink-2 bg-tertiary/10 border border-tertiary/20 rounded-xs p-3"
+                        className="rounded-sm border border-tertiary/25 bg-tertiary/10 p-3 text-sm text-ink-2"
                         aria-label="Highlighted thread match"
                       >
                         {highlightText(thread.title, query)}
@@ -411,9 +387,7 @@ export default function SearchPage() {
           {/* Post Results */}
           {searchResults.posts && searchResults.posts.length > 0 && (
             <div className="mb-8">
-              <h2 className="wf-title text-xl text-ink mb-4">
-                Posts ({searchResults.total_posts})
-              </h2>
+              <h2 className="gt-h3 text-ink mb-4">Posts ({searchResults.total_posts})</h2>
               <div className="space-y-4">
                 {searchResults.posts.map((post) => {
                   // content_raw holds the backend excerpt (may contain truncated HTML tags).
@@ -433,7 +407,7 @@ export default function SearchPage() {
                         )}#post-${post.id}`
                       : `/forum`;
                   return (
-                    <div key={post.id} className="bg-surface-2 rounded-lg border border-line-2 p-4">
+                    <div key={post.id} className="canopy-card rounded-md p-4">
                       <Link
                         to={topicLink}
                         className="text-base font-semibold text-primary hover:underline"
@@ -456,20 +430,7 @@ export default function SearchPage() {
           {/* No Results */}
           {searchResults.total_threads === 0 && searchResults.total_posts === 0 && (
             <div className="text-center py-12">
-              <svg
-                className="mx-auto h-12 w-12 text-ink-3 mb-4"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
+              <SearchX className="mx-auto h-12 w-12 text-ink-3 mb-4" aria-hidden="true" />
               <p className="text-ink-2 mb-2">No results found for "{query}"</p>
               <p className="text-ink-3 text-sm">Try different keywords or remove some filters</p>
             </div>
