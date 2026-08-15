@@ -9,6 +9,7 @@ Controller ruling (2026-08-15): the brief's test list says "4 topics solved"
 """
 
 import pytest
+from apps.forum_host.seed_content import BOARDS, DEMO_EMAIL_DOMAIN, TOPICS, USERS
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -23,8 +24,6 @@ from wagtail_forum.models import (
     Reaction,
     Topic,
 )
-
-from apps.forum_host.seed_content import BOARDS, DEMO_EMAIL_DOMAIN, TOPICS, USERS
 
 User = get_user_model()
 
@@ -71,6 +70,17 @@ def _world_counts():
 def test_refuses_without_confirm_when_not_debug():
     with pytest.raises(CommandError, match="--confirm"):
         call_command("seed_demo_content")
+
+
+@override_settings(DEBUG=False)
+@pytest.mark.django_db
+def test_confirm_seeds_when_not_debug():
+    # The layer-1 guard's actual production path (PR-2.5 plan: Railway runs
+    # this with --confirm) — distinct from "refuses without --confirm" above,
+    # which only proves the guard fires, not that it lets the real call
+    # through.
+    call_command("seed_demo_content", confirm=True)
+    assert Topic.objects.count() == len(TOPICS)
 
 
 @override_settings(DEBUG=True)
@@ -189,6 +199,16 @@ def test_world_shape():
     ]
     assert opening_image_titles == ["Seed: post-balcony-before.webp"]
     assert reply_image_titles == ["Seed: post-balcony-after.webp"]
+
+    # Board counters (topic_count/post_count) are maintained only by the
+    # published signal's _refresh_board_counters, not by the command's final
+    # .update() pass — this is what the board cards Tasks 9-12 screenshot
+    # actually read, so a signal regression here must fail loudly, not
+    # render as an empty-looking board.
+    board_slugs = {b["slug"] for b in BOARDS}
+    for board in ForumBoard.objects.filter(slug__in=board_slugs):
+        assert board.topic_count > 0
+        assert board.post_count > 0
 
     for topic in Topic.objects.all():
         posts = list(topic.posts.order_by("created_at"))
