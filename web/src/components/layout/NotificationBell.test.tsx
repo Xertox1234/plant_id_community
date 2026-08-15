@@ -3,10 +3,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
+import { UnreadNotificationsProvider } from '../../contexts/UnreadNotificationsContext';
 import * as notificationService from '../../services/notificationService';
 import type { ForumNotification } from '../../types/notifications';
 
 vi.mock('../../services/notificationService');
+vi.mock('../../contexts/AuthContext', () => ({
+  useAuth: () => ({ isAuthenticated: true }),
+}));
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -17,7 +21,9 @@ vi.mock('react-router-dom', async () => {
 function renderBell() {
   return render(
     <MemoryRouter>
-      <NotificationBell />
+      <UnreadNotificationsProvider>
+        <NotificationBell />
+      </UnreadNotificationsProvider>
     </MemoryRouter>
   );
 }

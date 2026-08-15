@@ -1,0 +1,81 @@
+/* eslint-disable react-refresh/only-export-components */
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { fetchUnreadCount } from '../services/notificationService';
+import { useAuth } from './AuthContext';
+
+// Generous relative to the backend's 120/m rate limit on this endpoint — the
+// bell and the sidebar badge share THIS one poll (moved here from
+// NotificationBell so a second consumer never means a second request stream).
+export const UNREAD_POLL_INTERVAL_MS = 30_000;
+
+interface UnreadNotificationsValue {
+  unreadCount: number;
+  refresh: () => void;
+  decrement: () => void;
+  clear: () => void;
+}
+
+const noop = () => {};
+const UnreadNotificationsContext = createContext<UnreadNotificationsValue>({
+  unreadCount: 0,
+  refresh: noop,
+  decrement: noop,
+  clear: noop,
+});
+
+interface UnreadNotificationsProviderProps {
+  children: ReactNode;
+}
+
+export function UnreadNotificationsProvider({ children }: UnreadNotificationsProviderProps) {
+  const { isAuthenticated } = useAuth();
+  const [unreadCount, setUnreadCount] = useState(0);
+  // useRef for the timer id, not useState (CLAUDE.md gotcha: useState
+  // re-renders + recreates the callback + leaks the timer on unmount).
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const refresh = useCallback(() => {
+    if (!isAuthenticated) return;
+    fetchUnreadCount()
+      .then(setUnreadCount)
+      .catch(() => {
+        /* transient poll failure — next tick retries; nothing user-actionable */
+      });
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setUnreadCount(0);
+      return;
+    }
+    refresh();
+    pollTimerRef.current = setInterval(refresh, UNREAD_POLL_INTERVAL_MS);
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, [isAuthenticated, refresh]);
+
+  const decrement = useCallback(() => setUnreadCount((prev) => Math.max(0, prev - 1)), []);
+  const clear = useCallback(() => setUnreadCount(0), []);
+
+  return (
+    <UnreadNotificationsContext.Provider value={{ unreadCount, refresh, decrement, clear }}>
+      {children}
+    </UnreadNotificationsContext.Provider>
+  );
+}
+
+export function useUnreadNotifications(): UnreadNotificationsValue {
+  return useContext(UnreadNotificationsContext);
+}

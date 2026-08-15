@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider } from '../contexts/ThemeContext';
 import AppShell from './AppShell';
 import RailSlot from '../components/layout/RailSlot';
+import * as notificationService from '../services/notificationService';
 
 const mockAuth = {
   isAuthenticated: false,
@@ -12,6 +13,11 @@ const mockAuth = {
   logout: vi.fn(),
 };
 vi.mock('../contexts/AuthContext', () => ({ useAuth: () => mockAuth }));
+vi.mock('../services/notificationService', () => ({
+  fetchUnreadCount: vi.fn(),
+  fetchNotifications: vi.fn(),
+  markNotificationsRead: vi.fn(),
+}));
 vi.mock('../components/layout/NotificationBell', () => ({
   default: () => <div data-testid="notification-bell" />,
 }));
@@ -33,6 +39,13 @@ beforeEach(() => {
   mockAuth.logout = vi.fn();
   localStorage.clear();
   delete document.documentElement.dataset.mode;
+  vi.mocked(notificationService.fetchUnreadCount).mockResolvedValue(0);
+  vi.mocked(notificationService.fetchNotifications).mockResolvedValue({
+    results: [],
+    next: null,
+    previous: null,
+  });
+  vi.mocked(notificationService.markNotificationsRead).mockResolvedValue(0);
 });
 
 describe('AppShell', () => {
@@ -147,5 +160,14 @@ describe('AppShell', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Close menu' }));
     expect(document.body.style.overflow).toBe('');
+  });
+
+  it('shows the unread count badge on the Forum nav item', async () => {
+    mockAuth.isAuthenticated = true;
+    vi.mocked(notificationService.fetchUnreadCount).mockResolvedValue(3);
+    renderShell();
+    const forumLinks = await screen.findAllByRole('link', { name: /Forum/ });
+    expect(forumLinks.length).toBeGreaterThan(0);
+    expect(within(forumLinks[0]).getByText('3')).toBeInTheDocument();
   });
 });
