@@ -2951,3 +2951,32 @@ every page — third spec bitten since the PR #536 shell landed; and a control-t
 swap (sort `<select>` → chips) deterministically broke a tap-target spec that was
 an out-of-diff consumer of the old markup. Rule + trigger
 `unscoped-forum-e2e-selector`.
+
+## 2026-08-15 — A vi.fn() polyfill under `mockReset: true` is a dormant landmine (PR #537 review fixes)
+
+**What broke:** the first production caller of `window.matchMedia` (the new
+`useMediaQuery` hook gating the forum rail) took down 74 tests across 4 suites
+with `Cannot read properties of undefined (reading 'matches')`. **Root cause:**
+`src/tests/setup.ts` polyfilled matchMedia as
+`vi.fn().mockImplementation((query) => ({...}))`, and the Vitest config sets
+`mockReset: true` — which wipes every mock's *implementation* before EVERY test
+(including the first). So the polyfill had been returning `undefined` in every
+test since the config landed; nothing noticed because no production code called
+it. The same defect sat armed in `navigator.share` and `navigator.clipboard`
+(`mockResolvedValue(...)` wiped → returns `undefined` instead of a promise) —
+`PostCard`'s `await navigator.clipboard.writeText(...)` survived only because
+`await undefined` happens to resolve.
+
+**Rule:** global polyfills in `setup.ts` must be **plain functions**, never
+`vi.fn().mockImplementation(...)`/`.mockResolvedValue(...)` — under
+`mockReset: true` the configured behavior is fiction. A bare argument-less
+`vi.fn()` (e.g. `window.scrollTo`) is safe: there is no implementation to wipe
+and reset-to-undefined is already its behavior. Tests that need a different
+posture (e.g. the rail's xl query matching) install their own stub and restore
+the global one after — do NOT teach the global polyfill per-test behavior.
+
+**Detection heuristic:** a polyfill that has never had a production caller is
+untested by definition — when a new hook/component becomes the first caller of
+a setup.ts global, expect the polyfill to be wrong and verify it in isolation
+first. Third face of the `mockReset`/hook-teardown trap recorded in the PR #537
+entry above; rule added to `docs/rules/testing.md`.

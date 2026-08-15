@@ -73,17 +73,21 @@ window.scrollTo = vi.fn();
 // Mock HTMLElement.prototype.scrollIntoView
 HTMLElement.prototype.scrollIntoView = vi.fn();
 
-// Mock navigator.share (for share button tests)
+// Mock navigator.share (for share button tests). Plain functions, not
+// vi.fn().mockResolvedValue: `mockReset: true` wipes configured resolutions
+// before every test, so the vi.fn version silently returned undefined
+// instead of a promise (same landmine as matchMedia above). Tests that
+// assert on calls install their own spy and restore after.
 if (!navigator.share) {
-  navigator.share = vi.fn().mockResolvedValue(undefined);
+  navigator.share = () => Promise.resolve();
 }
 
-// Mock navigator.clipboard (for copy functionality tests)
+// Mock navigator.clipboard (for copy functionality tests) — same rule.
 if (!navigator.clipboard) {
   Object.defineProperty(navigator, 'clipboard', {
     value: {
-      writeText: vi.fn().mockResolvedValue(undefined),
-      readText: vi.fn().mockResolvedValue(''),
+      writeText: () => Promise.resolve(),
+      readText: () => Promise.resolve(''),
     },
     writable: true,
   });

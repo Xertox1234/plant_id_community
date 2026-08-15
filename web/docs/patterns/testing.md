@@ -373,3 +373,16 @@ Related config trap: `vitest.config.ts` sets `mockReset: true` and
 `restoreMocks: true`, which strip any return value chained inside a `vi.mock`
 factory **before the first test runs**. Set mock return values in `beforeEach`
 (block body, per the above), never in the factory.
+
+Third face of the same trap — **setup.ts global polyfills must be plain
+functions**, never `vi.fn().mockImplementation(...)`/`.mockResolvedValue(...)`:
+`mockReset: true` wipes the implementation before every test, so the polyfill
+returns `undefined` from the very first test on. It stays invisible until
+production code gains its first caller — `useMediaQuery` becoming
+`window.matchMedia`'s first caller broke 74 tests across 4 suites, and the same
+defect sat dormant in the `navigator.share`/`navigator.clipboard` polyfills. A
+bare argument-less `vi.fn()` (e.g. `window.scrollTo`) is safe: there is no
+implementation to wipe. A test that needs a different posture (a matching media
+query, a rejecting clipboard) installs its own stub and restores the global
+afterward — don't teach the shared polyfill per-test behavior. See
+`docs/LEARNINGS.md` 2026-08-15.

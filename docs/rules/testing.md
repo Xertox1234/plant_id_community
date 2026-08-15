@@ -266,7 +266,15 @@ Compact checklist auto-injected before edits.
   this repo sets `mockReset`/`restoreMocks: true`, which wipes return values
   chained inside a `vi.mock` factory before the first test — set
   `mockResolvedValue(...)` in `beforeEach`, not the factory. Reproduced in
-  isolation twice (PR #537). See `web/docs/patterns/testing.md`.
+  isolation twice (PR #537). Third face of the same trap: **setup.ts global
+  polyfills must be PLAIN functions, never `vi.fn().mockImplementation(...)` /
+  `.mockResolvedValue(...)`** — the reset wipes the implementation before every
+  test, so the polyfill silently returns `undefined`; it stays green until the
+  first production caller lands (`useMediaQuery` becoming matchMedia's first
+  caller broke 74 tests). A bare argument-less `vi.fn()` spy is fine (nothing
+  to wipe). Tests needing a different posture install their own stub and
+  restore. See `web/docs/patterns/testing.md` and `docs/LEARNINGS.md`
+  2026-08-15.
 - **Scope forum e2e locators to `#main-content` — the AppShell header carries
   `/forum/search` and `/forum/new-thread` links on EVERY page**, so an unscoped
   `a[href^="/forum/..."]` (or `.first()`) grabs header chrome before the page's
