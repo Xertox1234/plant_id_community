@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Activity, Check, Flame, Layers, MessagesSquare, Reply, ScanSearch } from 'lucide-react';
+import { Check, Flame, Layers, MessagesSquare, Reply, ScanSearch } from 'lucide-react';
 import { fetchForumIndex, fetchRecentTopics, fetchMyStats } from '../../services/forumService';
 import { createSafeMarkup, SANITIZE_PRESETS } from '../../utils/sanitize';
 import CategoryCard from '../../components/forum/CategoryCard';
@@ -12,15 +12,15 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import ButtonLink from '../../components/ui/ButtonLink';
 import Chip from '../../components/ui/Chip';
-import Timestamp from '../../components/ui/Timestamp';
 import RailSlot from '../../components/layout/RailSlot';
-import RailModule from '../../components/ui/RailModule';
+import CommunityExpertsModule from '../../components/forum/rail/CommunityExpertsModule';
+import ActiveNowModule from '../../components/forum/rail/ActiveNowModule';
 import FromTheBlogModule from '../../components/forum/rail/FromTheBlogModule';
 import PageMeta from '../../components/PageMeta';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { useAuth } from '../../contexts/AuthContext';
 import { logger } from '../../utils/logger';
-import { categoryPath, recentTopicPath } from '../../utils/forumUrls';
+import { recentTopicPath } from '../../utils/forumUrls';
 import { boardIdentity } from '../../utils/forumTones';
 import type { Category, ForumMyStats, RecentTopic } from '@/types';
 
@@ -147,10 +147,6 @@ export default function CategoryListPage() {
 
   const totalThreads = categories.reduce((sum, c) => sum + (c.thread_count || 0), 0);
   const totalPosts = categories.reduce((sum, c) => sum + (c.post_count || 0), 0);
-  const activeBoards = categories
-    .filter((c) => c.last_post_at)
-    .sort((a, b) => (b.last_post_at! > a.last_post_at! ? 1 : -1))
-    .slice(0, 4);
   const visibleCategories = activeBoard
     ? categories.filter((c) => c.slug === activeBoard)
     : categories;
@@ -353,24 +349,8 @@ export default function CategoryListPage() {
       </div>
 
       <RailSlot>
-        {activeBoards.length > 0 && (
-          <RailModule icon={<Activity aria-hidden="true" />} title="Active now">
-            <ul className="flex flex-col gap-3">
-              {activeBoards.map((board) => (
-                <li key={board.id}>
-                  <Link to={categoryPath(board)} className="group block">
-                    <span className="text-[13px] font-medium text-ink transition-colors group-hover:text-primary">
-                      {board.name}
-                    </span>
-                    <span className="gt-label mt-0.5 block normal-case tracking-normal">
-                      <Timestamp iso={board.last_post_at!} prefix="Last activity" />
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </RailModule>
-        )}
+        <CommunityExpertsModule />
+        <ActiveNowModule topics={recentTopics} />
         <FromTheBlogModule />
       </RailSlot>
     </div>

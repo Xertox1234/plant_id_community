@@ -89,6 +89,12 @@ describe('CategoryListPage', () => {
     // override either mock to exercise the authed / event-hero paths.
     vi.mocked(useAuth).mockReturnValue(mockAuth(false));
     vi.mocked(forumService.fetchRecentTopics).mockResolvedValue([]);
+    // Defensive mock for CommunityExpertsModule's rail fetch (Task 10), same
+    // reasoning as the blogService mock above: RailSlot portals into
+    // `#app-rail`, which doesn't exist in jsdom for this suite, so the module
+    // never actually mounts — but this guards against a real network call
+    // (or a thrown TypeError against an auto-mocked `undefined`) if that changes.
+    vi.mocked(forumService.fetchExperts).mockResolvedValue([]);
   });
 
   it('shows loading spinner while fetching categories', () => {
