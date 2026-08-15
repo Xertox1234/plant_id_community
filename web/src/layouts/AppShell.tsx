@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import {
   Activity,
@@ -39,7 +39,10 @@ function navClass({ isActive }: { isActive: boolean }) {
   }`;
 }
 
-function NavItems({ onNavigate }: { onNavigate?: () => void }) {
+interface NavItemsProps {
+  onNavigate?: () => void;
+}
+function NavItems({ onNavigate }: NavItemsProps) {
   return (
     <>
       {NAV.map(({ to, label, icon: Icon, end }) => (
@@ -52,7 +55,10 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-function SideFoot({ onNavigate }: { onNavigate?: () => void }) {
+interface SideFootProps {
+  onNavigate?: () => void;
+}
+function SideFoot({ onNavigate }: SideFootProps) {
   const { isAuthenticated, logout } = useAuth();
   const handleLogout = async () => {
     await logout();
@@ -82,15 +88,17 @@ function SideFoot({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export default function AppShell({ children }: { children: ReactNode }) {
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const { isAuthenticated } = useAuth();
-  const { mode, toggleMode } = useTheme();
-  const themeLabel = mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
-  const closeDrawer = () => setDrawerOpen(false);
-
-  const brand = (
-    <Link to="/" className="flex items-center gap-2.5 px-2" aria-label="Houseplant MD home">
+interface BrandProps {
+  onNavigate?: () => void;
+}
+function Brand({ onNavigate }: BrandProps) {
+  return (
+    <Link
+      to="/"
+      onClick={onNavigate}
+      className="flex items-center gap-2.5 px-2"
+      aria-label="Houseplant MD home"
+    >
       <BrandMark size={34} />
       <span className="text-[14.5px] leading-tight font-semibold text-ink">
         Houseplant MD
@@ -100,6 +108,43 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </span>
     </Link>
   );
+}
+
+interface AppShellProps {
+  children: ReactNode;
+}
+export default function AppShell({ children }: AppShellProps) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const { isAuthenticated } = useAuth();
+  const { mode, toggleMode } = useTheme();
+  const themeLabel = mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+  const closeDrawer = () => setDrawerOpen(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Escape closes the drawer.
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeDrawer();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [drawerOpen]);
+
+  // Body scroll lock while the drawer is open.
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [drawerOpen]);
+
+  // Initial focus: send focus to the drawer's close button when it opens.
+  useEffect(() => {
+    if (drawerOpen) closeButtonRef.current?.focus();
+  }, [drawerOpen]);
 
   return (
     <div className="min-h-screen">
@@ -110,7 +155,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <div className="app-shell mx-auto flex min-h-screen w-full max-w-[1500px]">
         {/* Sidebar (desktop) */}
         <aside className="sticky top-0 hidden h-screen w-[236px] flex-none flex-col gap-6 border-r border-line bg-surface px-3.5 py-5 md:flex">
-          {brand}
+          <Brand />
           <nav aria-label="Main" className="flex flex-col gap-0.5">
             <NavItems />
           </nav>
@@ -125,10 +170,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
               onClick={closeDrawer}
               aria-hidden="true"
             />
-            <aside className="absolute inset-y-0 left-0 flex w-[260px] flex-col gap-6 border-r border-line bg-surface px-3.5 py-5">
+            <aside
+              role="dialog"
+              aria-modal="true"
+              aria-label="Menu"
+              className="absolute inset-y-0 left-0 flex w-[260px] flex-col gap-6 border-r border-line bg-surface px-3.5 py-5"
+            >
               <div className="flex items-center justify-between">
-                {brand}
+                <Brand onNavigate={closeDrawer} />
                 <button
+                  ref={closeButtonRef}
                   onClick={closeDrawer}
                   aria-label="Close menu"
                   className="rounded-md p-2 text-ink-3 hover:bg-surface-2"
@@ -146,7 +197,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         {/* Main column */}
         <div className="flex min-w-0 flex-1 flex-col bg-surface">
-          <header className="flex items-center gap-3 border-b border-line px-4 py-3.5 md:px-7">
+          <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-line bg-surface px-4 py-3.5 md:px-7">
             <button
               onClick={() => setDrawerOpen(true)}
               className="rounded-md p-2 text-ink-3 hover:bg-surface-2 md:hidden"

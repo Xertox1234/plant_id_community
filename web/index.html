@@ -2,6 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Pre-hydration mode stamp: prevents a dark first paint for persisted-light users.
+      try {
+        var m = localStorage.getItem('gt-mode');
+        document.documentElement.dataset.mode = m === 'light' ? 'light' : 'dark';
+      } catch (e) {
+        document.documentElement.dataset.mode = 'dark';
+      }
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Houseplant MD</title>

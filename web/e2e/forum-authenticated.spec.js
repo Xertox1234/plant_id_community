@@ -58,8 +58,9 @@ test.describe('Authenticated forum write lifecycle', () => {
     await boardLink.click();
     await expect(page).toHaveURL(/\/forum\/\d+-/);
 
-    // 2. Create a new thread.
-    await page.locator('a[href^="/forum/new-thread"]').first().click();
+    // 2. Create a new thread. Scoped to #main-content — the topbar also has a
+    // bare "New post" link (AppShell), which would otherwise win .first().
+    await page.locator('#main-content a[href^="/forum/new-thread"]').first().click();
     await expect(page).toHaveURL(/\/forum\/new-thread/);
     await page.locator('#thread-title').fill(threadTitle);
     await typeInto(page.locator('.ProseMirror').first(), page, openingBody);

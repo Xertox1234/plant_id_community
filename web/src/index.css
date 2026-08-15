@@ -51,7 +51,8 @@
 }
 
 /* ───────── semantic layer — :root = DARK (Canopy default, spec §3.4) ───────── */
-:root {
+:root,
+[data-mode='dark'] {
   --gt-ground: var(--canopy-abyss);
   --gt-surface: var(--canopy-pine);
   --gt-surface-2: var(--canopy-moss);
@@ -129,6 +130,12 @@
   --gt-sky: #6b4fa0;
   --gt-ok: #2f6b46;
   --gt-warn: #8a6011;
+  /* clay is used BOTH as text (ThreadCard labels) and as button background
+     (bg-clay text-on-clay) — darkening clay for text contrast requires
+     flipping on-clay light so buttons stay legible. */
+  --gt-clay: #8a6011;
+  --gt-on-clay: #f2faf4;
+  --gt-error: #a63c2a;
   --gt-line: color-mix(in oklab, var(--canopy-sage) 38%, transparent);
   --gt-line-2: color-mix(in oklab, var(--canopy-sage) 62%, transparent);
   --gt-primary: var(--canopy-forest);

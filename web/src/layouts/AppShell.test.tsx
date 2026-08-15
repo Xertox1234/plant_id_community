@@ -110,4 +110,42 @@ describe('AppShell', () => {
     await userEvent.click(screen.getByRole('button', { name: /log out/i }));
     expect(mockAuth.logout).toHaveBeenCalledTimes(1);
   });
+
+  it('Escape closes the open drawer', async () => {
+    renderShell();
+    await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+    expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+  });
+
+  it('clicking the drawer brand link closes the drawer', async () => {
+    renderShell();
+    await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Menu' });
+    await userEvent.click(within(dialog).getByRole('link', { name: 'Houseplant MD home' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+  });
+
+  it('open drawer has dialog role with aria-modal', async () => {
+    renderShell();
+    await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Menu' });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+  });
+
+  it('locks body scroll while the drawer is open and restores it after close', async () => {
+    renderShell();
+    expect(document.body.style.overflow).toBe('');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+    expect(document.body.style.overflow).toBe('hidden');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Close menu' }));
+    expect(document.body.style.overflow).toBe('');
+  });
 });

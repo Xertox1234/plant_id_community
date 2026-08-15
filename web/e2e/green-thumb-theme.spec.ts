@@ -60,5 +60,6 @@ test.describe('Canopy runtime tokens', () => {
     await setTheme(page, { mode: 'light' });
     await expect(page.getByTestId('probe-leaf')).toHaveCSS('color', 'rgb(60, 107, 80)');
     await expect(page.getByTestId('probe-sky')).toHaveCSS('color', 'rgb(107, 79, 160)');
+    await expect(page.getByTestId('probe-error')).toHaveCSS('color', 'rgb(166, 60, 42)');
   });
 });
