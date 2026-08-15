@@ -1667,6 +1667,127 @@ def plain_text_excerpt(stream_value, limit: int) -> str:
     return " ".join(parts)[:limit]
 
 
+RECENT_TOPICS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "integer"},
+                    "slug": {"type": "string"},
+                    "title": {"type": "string"},
+                    "board": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "integer"},
+                            "name": {"type": "string"},
+                            "slug": {"type": "string"},
+                        },
+                    },
+                    "reply_count": {"type": "integer"},
+                    "last_post_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": True,
+                    },
+                    "is_pinned": {"type": "boolean"},
+                    "thumbnail_url": {"type": "string", "nullable": True},
+                },
+            },
+        }
+    },
+}
+
+
+class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
+    """Cross-board latest topics for the landing rail ("Active now").
+
+    Owns its shape as lightweight dicts (same pattern as PublicProfileView) —
+    deliberately NOT TopicListSerializer, so this never becomes a fourth hit
+    builder (todo 273). Thumbnails resolve batched from the opening posts'
+    first image block (StreamField raw_data — never iterate the StreamValue,
+    which fires per-object image fetches; docs/LEARNINGS.md 2026-06-25), with
+    the topic's identification-attachment image as fallback.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        responses={200: RECENT_TOPICS_SCHEMA},
+        description=(
+            "Latest live topics across all visible boards, most recent "
+            "activity first. ?limit= defaults to RECENT_TOPICS_DEFAULT_LIMIT, "
+            "capped at RECENT_TOPICS_MAX_LIMIT."
+        ),
+    )
+    def get(self, request):
+        from ..models import ForumIdentificationAttachment, Post
+
+        try:
+            limit = int(request.query_params.get("limit", ""))
+        except ValueError:
+            limit = get_setting("RECENT_TOPICS_DEFAULT_LIMIT")
+        limit = max(1, min(limit, get_setting("RECENT_TOPICS_MAX_LIMIT")))
+
+        topics = list(
+            Topic.objects.filter(
+                board__in=_visible_boards(), live=True, last_post_at__isnull=False
+            )
+            .select_related("board")
+            .order_by("-last_post_at")[:limit]
+        )
+        topic_ids = [t.pk for t in topics]
+
+        # First image block id per topic, from opening posts' raw stream data.
+        image_id_by_topic = {}
+        for post in Post.objects.filter(
+            topic_id__in=topic_ids, is_opening_post=True, live=True
+        ).only("topic_id", "body"):
+            for block in post.body.raw_data:
+                if block.get("type") == "image" and block.get("value"):
+                    image_id_by_topic[post.topic_id] = block["value"]
+                    break
+        for att in ForumIdentificationAttachment.objects.filter(
+            topic_id__in=topic_ids, image_id__isnull=False
+        ).only("topic_id", "image_id"):
+            image_id_by_topic.setdefault(att.topic_id, att.image_id)
+
+        from wagtail.images import get_image_model
+
+        images = get_image_model().objects.in_bulk(set(image_id_by_topic.values()))
+
+        def thumb(topic):
+            image = images.get(image_id_by_topic.get(topic.pk))
+            if image is None:
+                return None
+            url = image.get_rendition("fill-80x80").url
+            return request.build_absolute_uri(url)
+
+        return Response(
+            {
+                "results": [
+                    {
+                        "id": t.pk,
+                        "slug": t.slug,
+                        "title": t.title,
+                        "board": {
+                            "id": t.board_id,
+                            "name": t.board.title,
+                            "slug": t.board.slug,
+                        },
+                        "reply_count": t.reply_count,
+                        "last_post_at": t.last_post_at,
+                        "is_pinned": t.is_pinned,
+                        "thumbnail_url": thumb(t),
+                    }
+                    for t in topics
+                ]
+            }
+        )
+
+
 class SearchView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
     PAGE_SIZE = 20  # results per section per page; *_has_more drives client paging
     MAX_PAGE = 50  # ceiling on ?page= — bounds the SQL OFFSET (like CursorPagination.offset_cutoff)

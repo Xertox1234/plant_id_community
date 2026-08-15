@@ -19,6 +19,7 @@ from wagtail_forum.api.views import (
     PostRevisionDetailView,
     PostRevisionListView,
     PublicProfileView,
+    RecentTopicsView,
     TopicDetailView,
 )
 
@@ -57,6 +58,10 @@ urlpatterns = [
     ),
     path("boards/", BoardListView.as_view(), name="board-list"),
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
+    # GET-only + AllowAny, mounted straight from the package (no throttle
+    # wrapper) — same treatment as BoardListView/TopicDetailView above. Before
+    # topics/<int:topic_id>/, mirroring the package's literal-over-capture order.
+    path("topics/recent/", RecentTopicsView.as_view(), name="topics-recent"),
     path("topics/<int:topic_id>/", TopicDetailView.as_view(), name="topic-detail"),
     path(
         "topics/<int:topic_id>/subscription/",

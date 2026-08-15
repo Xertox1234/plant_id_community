@@ -83,6 +83,10 @@ DEFAULTS = {
     "TOPIC_IDENTIFICATION_NAME_MAX_LENGTH": 200,
     # <= the provider column's max_length (models/identifications.py).
     "TOPIC_IDENTIFICATION_PROVIDER_MAX_LENGTH": 50,
+    # topics/recent/ ("Active now" rail): default and cap for ?limit=. Capped
+    # because each row may resolve a thumbnail rendition.
+    "RECENT_TOPICS_DEFAULT_LIMIT": 5,
+    "RECENT_TOPICS_MAX_LIMIT": 20,
 }
 
 

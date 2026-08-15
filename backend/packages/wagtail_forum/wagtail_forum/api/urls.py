@@ -20,6 +20,7 @@ from .views import (
     PostWriteView,
     PublicProfileView,
     ReactionToggleView,
+    RecentTopicsView,
     SearchView,
     SyncView,
     TopicDetailView,
@@ -31,6 +32,9 @@ app_name = "wagtail_forum_api"
 urlpatterns = [
     path("boards/", BoardListView.as_view(), name="board-list"),
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
+    path("topics/recent/", RecentTopicsView.as_view(), name="topics-recent"),
+    # MUST come before topics/<int:topic_id>/ — literal-over-capture, same rule
+    # this file already documents for users/search/ vs users/<str:username>/.
     path("topics/<int:topic_id>/", TopicDetailView.as_view(), name="topic-detail"),
     path(
         "topics/<int:topic_id>/subscription/",
