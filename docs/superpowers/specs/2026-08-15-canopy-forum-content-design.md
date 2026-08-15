@@ -89,13 +89,19 @@ Behavior:
 
 - Runs `seed_default_forum`'s guarantees first (ForumIndex exists under the site root)
   or requires them — plan decides; either way it never duplicates that logic's repairs.
-- **Guard:** when `settings.DEBUG` is `False`, refuse to run unless `--confirm` is
-  passed, printing what it would create. With `DEBUG=True` no flag is needed.
+- **Guard (two layers):** when `settings.DEBUG` is `False`, refuse to run unless
+  `--confirm` is passed, printing what it would create. Independently of the flag,
+  the command **aborts whenever any real user account exists** — a user that is not
+  in the demo email namespace and not a superuser. Once the app has a single real
+  member, the seed self-bricks; `--confirm` cannot override this (adversarial
+  review 2026-08-15: "a sleep-deprived engineer could easily pass --confirm").
 - **Idempotent by natural keys:** users by username, boards by slug, topics by slug
   within their board. Posts have no natural key, so idempotency is topic-granular: a
   topic that already exists is skipped whole — its posts, reactions, solution, and
   images are never re-touched. A re-run creates nothing new and modifies nothing; it
-  reports "already seeded" per section.
+  reports "already seeded" per section. Skip-not-overwrite is deliberate: content
+  edited by hand after seeding always wins over the catalogue; the seed is a
+  bootstrap, not a sync.
 - Creates content through the normal ORM paths so existing signals maintain the
   denormalized `topic_count` / `post_count` / trust recounts. **Timestamps** are then
   spread with post-hoc `queryset.update()` writes (bypassing `auto_now`/signals):
@@ -111,6 +117,10 @@ Behavior:
   history (`PlantIdentificationResult` has zero writers — todo-273 finding).
 - All tunables (topic ages, reply spacing, counts) are named constants at the top of the
   command or in the host app's `constants.py` — no magic numbers inline.
+- After the timestamp pass, the command refreshes whatever search index covers forum
+  content (plan verifies which backend indexes topics/posts and whether save-time
+  indexing needs a re-run once timestamps moved); a no-op is fine if search reads
+  straight from the DB.
 
 ### Topic catalogue (16 topics)
 
@@ -200,6 +210,11 @@ Up to 4 users with `trust_level >= REGULAR`, ordered `-trust_level, -post_count`
 Client renders `title`, falling back to the trust-level label when blank. No presence
 data — the online dot is a frontend mock (§9).
 
+**Caching:** the two public endpoints (`topics/recent/`, `users/experts/`) get a short
+server-side cache (60s, named constant, per `docs/patterns/architecture/caching.md`)
+— they render on every forum-landing load and their data tolerates a minute of
+staleness. `me/stats/` is per-user and stays uncached.
+
 ## 7. Frontend — forum landing parity (`CategoryListPage` + rail)
 
 - **Hero (event variant):** eyebrow "Community event"; title "The bloom watch is on.";
@@ -237,7 +252,10 @@ data — the online dot is a frontend mock (§9).
   board); Topics (existing forum search API, debounced ≥250ms via `useRef` timer, top
   5, final row links to the full search page); People (existing `users/search/`
   endpoint; the section is hidden when signed out if that endpoint requires auth —
-  plan verifies its permission class).
+  plan verifies its permission class). Result handling carries a stale-response
+  guard (request epoch or equivalent): a slow earlier query resolving after a newer
+  one must be dropped, never rendered out of order — same bug class as the
+  unread-badge race fixed in PR #537.
 - **A11y:** `role="dialog"` + `aria-modal`, focus trapped, Escape closes, focus
   returns to the trigger, arrow-key navigation with `aria-activedescendant` or roving
   tabindex, backdrop click closes. Motion ≤200ms and gated by `prefers-reduced-motion`.
@@ -271,8 +289,10 @@ Recorded deviations from the artifact (each deliberate):
 Backend (full `pytest` run required — Topic-adjacent serializer surface is touched):
 
 - Seed: run-twice idempotency (identical row counts + no modified timestamps),
-  production guard (`DEBUG=False` without `--confirm` refuses), General-Discussion
-  deletion only-if-empty, solutions/pins/attachments actually created.
+  production guard (`DEBUG=False` without `--confirm` refuses), real-user abort
+  (any non-demo, non-superuser account present → refuses even WITH `--confirm`),
+  General-Discussion deletion only-if-empty AND the kept-when-nonempty path,
+  solutions/pins/attachments actually created.
 - Endpoints: auth/anon matrix, response shapes, `topics/recent/` query-count
   assertion (documented N, per the repo's strict-count convention), experts ordering.
 
