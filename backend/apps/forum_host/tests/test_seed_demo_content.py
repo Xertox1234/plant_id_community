@@ -1,0 +1,208 @@
+"""Tests for `manage.py seed_demo_content` (Task 7, Canopy forum content).
+
+Page-creating (ForumBoard/ForumIndex are Wagtail pages) — run locally with
+--create-db on a partial re-run (see backend/CLAUDE.md's stale-test-DB gotcha).
+
+Controller ruling (2026-08-15): the brief's test list says "4 topics solved"
+— that is a typo. The catalogue and spec §5's table mark 5 solved topics;
+`test_world_shape` asserts 5 with the spec'd solvers.
+"""
+
+import pytest
+from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import override_settings
+from wagtail.images import get_image_model
+from wagtail.models import Site
+from wagtail_forum.models import (
+    ForumBoard,
+    ForumIdentificationAttachment,
+    ForumProfile,
+    Post,
+    Reaction,
+    Topic,
+)
+
+from apps.forum_host.seed_content import BOARDS, DEMO_EMAIL_DOMAIN, TOPICS, USERS
+
+User = get_user_model()
+
+LEGACY_STARTER_SLUG = "general-discussion"
+
+# Spec §5's solved-topic table (controller ruling: 5, not the brief's typo'd 4).
+EXPECTED_SOLVERS = {
+    "estate-sale-trailing-plant": "sam_whitaker",
+    "fuzzy-leaves-purple-undersides": "june_park",
+    "tree-bark-peels-like-paper": "theo_brandt",
+    "pothos-yellow-halo-leaves": "june_park",
+    "white-cotton-blobs-jade": "june_park",
+}
+
+# The 8 distinct seed_assets/*.webp files referenced across the catalogue
+# (some, like the balcony before/after pair, appear once each on the same
+# topic — see balcony-jungle-v2's opening post + its first reply).
+EXPECTED_IMAGE_ASSETS = {
+    "post-monstera-albo.webp",
+    "post-fiddle-leaf.webp",
+    "post-hosta-damage.webp",
+    "post-mealybugs.webp",
+    "post-balcony-before.webp",
+    "post-balcony-after.webp",
+    "post-pothos-years.webp",
+    "post-orchid-bloom.webp",
+}
+
+
+def _world_counts():
+    return (
+        User.objects.count(),
+        ForumBoard.objects.count(),
+        Topic.objects.count(),
+        Post.objects.count(),
+        Reaction.objects.count(),
+        ForumIdentificationAttachment.objects.count(),
+        get_image_model().objects.count(),
+    )
+
+
+@override_settings(DEBUG=False)
+@pytest.mark.django_db
+def test_refuses_without_confirm_when_not_debug():
+    with pytest.raises(CommandError, match="--confirm"):
+        call_command("seed_demo_content")
+
+
+@override_settings(DEBUG=True)
+@pytest.mark.django_db
+def test_refuses_when_real_users_exist_even_with_confirm():
+    User.objects.create_user(username="alice", password="x")
+    with pytest.raises(CommandError, match="real user"):
+        call_command("seed_demo_content", confirm=True)
+
+
+@override_settings(DEBUG=True)
+@pytest.mark.django_db
+def test_superuser_does_not_trip_the_guard():
+    User.objects.create_superuser(
+        username="admin", email="admin@example.com", password="x"
+    )
+    call_command("seed_demo_content")
+    assert Topic.objects.count() == len(TOPICS)
+
+
+@override_settings(DEBUG=True)
+@pytest.mark.django_db
+def test_seeds_the_five_boards_and_removes_empty_starter():
+    call_command("seed_default_forum")
+    assert ForumBoard.objects.filter(slug=LEGACY_STARTER_SLUG).exists()
+
+    call_command("seed_demo_content")
+
+    slugs = set(ForumBoard.objects.values_list("slug", flat=True))
+    expected = {b["slug"] for b in BOARDS}
+    assert expected <= slugs
+    assert LEGACY_STARTER_SLUG not in slugs
+
+    # Regression guard (audit 2026-07-17 H1): a board attached outside the
+    # Site's routable tree has page.url == None and is never served. That
+    # bug hit the pre-existing starter board; nothing previously asserted it
+    # for boards created by THIS command.
+    site_root = Site.objects.get(is_default_site=True).root_page
+    for board in ForumBoard.objects.filter(slug__in=expected):
+        assert board.is_descendant_of(site_root)
+        assert board.get_url() is not None
+
+
+@override_settings(DEBUG=True)
+@pytest.mark.django_db
+def test_keeps_starter_board_with_topics():
+    call_command("seed_default_forum")
+    starter = ForumBoard.objects.get(slug=LEGACY_STARTER_SLUG)
+    Topic.objects.create(board=starter, title="Keep me", slug="keep-me")
+
+    call_command("seed_demo_content")
+
+    assert ForumBoard.objects.filter(slug=LEGACY_STARTER_SLUG).exists()
+    assert ForumBoard.objects.count() == len(BOARDS) + 1
+
+
+@override_settings(DEBUG=True)
+@pytest.mark.django_db
+def test_run_twice_is_idempotent():
+    call_command("seed_demo_content")
+    counts_1 = _world_counts()
+    updated_1 = dict(Topic.objects.values_list("slug", "updated_at"))
+
+    call_command("seed_demo_content")
+    counts_2 = _world_counts()
+    updated_2 = dict(Topic.objects.values_list("slug", "updated_at"))
+
+    assert counts_1 == counts_2
+    assert updated_1 == updated_2
+
+
+@override_settings(DEBUG=True)
+@pytest.mark.django_db
+def test_world_shape():
+    call_command("seed_demo_content")
+
+    assert Topic.objects.count() == len(TOPICS)
+
+    pinned = Topic.objects.get(slug="bloom-watch-2026")
+    assert pinned.is_pinned is True
+
+    solved_topics = Topic.objects.filter(solved_post__isnull=False).select_related(
+        "solved_post__author"
+    )
+    assert solved_topics.count() == 5
+    actual_solvers = {t.slug: t.solved_post.author.username for t in solved_topics}
+    assert actual_solvers == EXPECTED_SOLVERS
+
+    attachment = ForumIdentificationAttachment.objects.get(
+        topic__slug="tree-bark-peels-like-paper"
+    )
+    assert attachment.provider == "plant_id"
+    assert len(attachment.candidates) == 2
+
+    # _get_image()'s dedupe-by-title branch is otherwise unexercised (every
+    # asset is referenced exactly once per run-one, and run-two short-circuits
+    # before _get_image is ever reached): assert the real files actually
+    # landed as Wagtail Image rows, one per distinct asset, not one per
+    # reference.
+    seeded_images = get_image_model().objects.filter(title__startswith="Seed: ")
+    assert seeded_images.count() == len(EXPECTED_IMAGE_ASSETS)
+    assert {
+        img.title.removeprefix("Seed: ") for img in seeded_images
+    } == EXPECTED_IMAGE_ASSETS
+
+    # balcony-jungle-v2's opening post and first reply each carry a distinct
+    # image block — confirms the StreamField "image" block actually resolves
+    # to the seeded Image (not merely that a block of that type exists).
+    balcony = Topic.objects.get(slug="balcony-jungle-v2")
+    opening_post, first_reply = list(balcony.posts.order_by("created_at"))[:2]
+    opening_image_titles = [
+        block.value.title for block in opening_post.body if block.block_type == "image"
+    ]
+    reply_image_titles = [
+        block.value.title for block in first_reply.body if block.block_type == "image"
+    ]
+    assert opening_image_titles == ["Seed: post-balcony-before.webp"]
+    assert reply_image_titles == ["Seed: post-balcony-after.webp"]
+
+    for topic in Topic.objects.all():
+        posts = list(topic.posts.order_by("created_at"))
+        assert posts, f"{topic.slug} has no posts"
+        newest = max(p.created_at for p in posts)
+        assert topic.last_post_at == newest
+        for earlier, later in zip(posts, posts[1:]):
+            assert earlier.created_at < later.created_at
+
+    demo_usernames = {u["username"] for u in USERS}
+    for user in User.objects.filter(username__in=demo_usernames):
+        assert user.has_usable_password() is False
+        assert user.email.endswith(f"@{DEMO_EMAIL_DOMAIN}")
+
+    for username in ("iris_delgado", "sam_whitaker"):
+        profile = ForumProfile.objects.get(user__username=username)
+        assert profile.trust_level == 4
