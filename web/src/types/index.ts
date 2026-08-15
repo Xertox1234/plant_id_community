@@ -20,6 +20,9 @@ export type {
   ThreadIdentification,
   IdentificationCandidate,
   CreateIdentificationInput,
+  ForumMyStats,
+  RecentTopic,
+  ForumExpert,
 } from './forum';
 
 // Blog types

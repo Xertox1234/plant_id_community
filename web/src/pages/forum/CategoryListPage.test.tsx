@@ -4,9 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import CategoryListPage from './CategoryListPage';
 import { createMockCategory } from '../../tests/forumUtils';
-import type { Category } from '../../types/forum';
+import type { Category, ForumMyStats, RecentTopic } from '../../types/forum';
 import * as forumService from '../../services/forumService';
 import * as blogService from '../../services/blogService';
+import { useAuth } from '../../contexts/AuthContext';
 import { logger } from '../../utils/logger';
 
 // Mock the forumService
@@ -17,6 +18,8 @@ vi.mock('../../services/forumService');
 // the module never actually mounts and this fetch is never called — but the
 // mock guards against a real network call if that changes.
 vi.mock('../../services/blogService');
+
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
 
 // Mock logger
 vi.mock('../../utils/logger', () => ({
@@ -47,6 +50,34 @@ function renderCategoryListPage() {
   );
 }
 
+const mockAuth = (isAuthenticated: boolean) =>
+  ({ user: isAuthenticated ? { id: 1 } : null, isAuthenticated }) as unknown as ReturnType<
+    typeof useAuth
+  >;
+
+function makeRecentTopic(overrides: Partial<RecentTopic> = {}): RecentTopic {
+  return {
+    id: 1,
+    slug: 'watering-tips',
+    title: 'Watering tips',
+    board: { id: 1, name: 'Plant Care', slug: 'plant-care' },
+    reply_count: 3,
+    last_post_at: '2026-08-01T00:00:00Z',
+    is_pinned: false,
+    thumbnail_url: null,
+    ...overrides,
+  };
+}
+
+function makeMyStats(overrides: Partial<ForumMyStats> = {}): ForumMyStats {
+  return {
+    posts: 12,
+    solutions_accepted: 3,
+    identifications_shared: 7,
+    ...overrides,
+  };
+}
+
 describe('CategoryListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -54,6 +85,10 @@ describe('CategoryListPage', () => {
     // global `mockReset: true` wipes any factory-chained mock value before
     // every test.
     vi.mocked(blogService.fetchPopularPosts).mockResolvedValue([]);
+    // Default every test to logged-out + no recent topics; individual tests
+    // override either mock to exercise the authed / event-hero paths.
+    vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+    vi.mocked(forumService.fetchRecentTopics).mockResolvedValue([]);
   });
 
   it('shows loading spinner while fetching categories', () => {
@@ -398,6 +433,103 @@ describe('CategoryListPage', () => {
 
       await waitFor(() => expect(screen.getByText('Solo Board')).toBeInTheDocument());
       expect(screen.queryByRole('group', { name: 'Filter boards' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('bloom watch event hero', () => {
+    it('renders the event hero, linking to the topic path, when a pinned bloom-watch topic is in the recent feed', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
+      const bloomWatch = makeRecentTopic({
+        id: 42,
+        slug: 'bloom-watch-2026',
+        title: 'Bloom Watch 2026',
+        board: { id: 7, name: 'Showcase', slug: 'showcase' },
+        is_pinned: true,
+      });
+      vi.mocked(forumService.fetchRecentTopics).mockResolvedValue([bloomWatch]);
+
+      renderCategoryListPage();
+
+      const cta = await screen.findByRole('link', { name: 'Join the bloom watch' });
+      expect(cta).toHaveAttribute('href', '/forum/7-showcase/42-bloom-watch-2026');
+      expect(screen.getByText('The bloom watch is on.')).toBeInTheDocument();
+      expect(screen.queryByText('Ask the canopy')).not.toBeInTheDocument();
+    });
+
+    it('keeps the "Ask the canopy" hero when no pinned bloom-watch topic is present', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
+      vi.mocked(forumService.fetchRecentTopics).mockResolvedValue([
+        makeRecentTopic({ is_pinned: false }),
+        makeRecentTopic({ id: 2, slug: 'unrelated-pinned', is_pinned: true }),
+      ]);
+
+      renderCategoryListPage();
+
+      await waitFor(() => expect(screen.getByText('Ask the canopy')).toBeInTheDocument());
+      expect(screen.queryByRole('link', { name: 'Join the bloom watch' })).not.toBeInTheDocument();
+    });
+
+    it('keeps the "Ask the canopy" hero when fetchRecentTopics rejects', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
+      vi.mocked(forumService.fetchRecentTopics).mockRejectedValue(new Error('network error'));
+
+      renderCategoryListPage();
+
+      await waitFor(() => expect(screen.getByText('Ask the canopy')).toBeInTheDocument());
+      expect(screen.queryByRole('link', { name: 'Join the bloom watch' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Your season stat cards', () => {
+    it('renders four "Your season" cards with real values when authenticated and stats load', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+      vi.mocked(forumService.fetchMyStats).mockResolvedValue(makeMyStats());
+
+      renderCategoryListPage();
+
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Your season' })).toBeInTheDocument()
+      );
+      expect(screen.getByText('7')).toBeInTheDocument();
+      expect(screen.getByText('Identifications')).toBeInTheDocument();
+      expect(screen.getByText('12')).toBeInTheDocument();
+      expect(screen.getByText('3')).toBeInTheDocument();
+      expect(screen.getByText('Solutions')).toBeInTheDocument();
+      expect(screen.getByText('—')).toBeInTheDocument();
+      expect(screen.getByText('Day streak')).toBeInTheDocument();
+      expect(screen.getByText('Coming soon')).toBeInTheDocument();
+      // The trio is fully replaced, not shown alongside the four cards.
+      expect(screen.queryByText('Threads')).not.toBeInTheDocument();
+    });
+
+    it('shows the original trio and no "Your season" heading when anonymous', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
+        indexPayload([createMockCategory({ id: 'cat-1', name: 'Plant Care' })])
+      );
+
+      renderCategoryListPage();
+
+      await waitFor(() => expect(screen.getByText('Threads')).toBeInTheDocument());
+      expect(screen.getByText('Posts')).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Your season' })).not.toBeInTheDocument();
+      expect(forumService.fetchMyStats).not.toHaveBeenCalled();
+    });
+
+    it('hides the stats row (trio absent, no crash) when the authed stats fetch rejects', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
+        indexPayload([createMockCategory({ id: 'cat-1', name: 'Plant Care' })])
+      );
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+      vi.mocked(forumService.fetchMyStats).mockRejectedValue(new Error('network error'));
+
+      renderCategoryListPage();
+
+      // Page still renders fine: hero and boards are present.
+      await waitFor(() => expect(screen.getByText('Ask the canopy')).toBeInTheDocument());
+      expect(screen.getByRole('heading', { level: 3, name: 'Plant Care' })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Your season' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Threads')).not.toBeInTheDocument();
     });
   });
 });

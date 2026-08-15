@@ -39,6 +39,9 @@ import type {
   SearchForumResponse,
   ReactionToggleResult,
   ForumUserProfile,
+  ForumMyStats,
+  RecentTopic,
+  ForumExpert,
 } from '../types/forum';
 import { slugifyTitle } from '../utils/forumUrls';
 import { htmlToBodyBlocks } from '../utils/forumBody';
@@ -479,6 +482,29 @@ export async function searchForum(options: SearchForumOptions): Promise<SearchFo
     has_more_threads: data.topics_has_more ?? false,
     has_more_posts: data.posts_has_more ?? false,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Landing page — event hero + "Your season" (Task 9)
+// ---------------------------------------------------------------------------
+
+/** Fetch the current user's all-time forum stats ("Your season" cards). Auth required. */
+export async function fetchMyStats(): Promise<ForumMyStats> {
+  return authenticatedFetch<ForumMyStats>(`${FORUM_BASE}/me/stats/`);
+}
+
+/** Fetch the most recently active topics for the landing rail / event hero. Public. */
+export async function fetchRecentTopics(limit = 5): Promise<RecentTopic[]> {
+  const data = await authenticatedFetch<{ results: RecentTopic[] }>(
+    `${FORUM_BASE}/topics/recent/?limit=${limit}`
+  );
+  return data.results || [];
+}
+
+/** Fetch the community's expert roster. Public. */
+export async function fetchExperts(): Promise<ForumExpert[]> {
+  const data = await authenticatedFetch<{ results: ForumExpert[] }>(`${FORUM_BASE}/users/experts/`);
+  return data.results || [];
 }
 
 // ---------------------------------------------------------------------------

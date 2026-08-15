@@ -1,4 +1,4 @@
-import type { Category, Thread } from '../types/forum';
+import type { Category, RecentTopic, Thread } from '../types/forum';
 
 /** Lowercase, hyphenate, strip non-alphanumerics. Falls back to "topic" when empty. */
 export function slugifyTitle(input: string): string {
@@ -40,4 +40,18 @@ export function postAnchor(postId: number | string): string {
 /** Public forum profile page for a username (todo 257 H7). */
 export function userProfilePath(username: string): string {
   return `/forum/users/${encodeURIComponent(username)}`;
+}
+
+/**
+ * Path for a topics/recent row: /forum/{board.id}-{board.slug}/{id}-{slug}.
+ *
+ * Byte-identical to `categoryPath(topic.board)` + `/${topic.id}-${topic.slug}`
+ * (categoryPath's `{id}-{slug}` format, threadPath's nesting) — written as a
+ * literal template rather than composed from those helpers because
+ * `RecentTopic.board.id` is a `number` while `Category.id` is a `string`,
+ * so `categoryPath`'s `Pick<Category, 'id' | 'slug' | 'name'>` parameter type
+ * doesn't accept it without a cast.
+ */
+export function recentTopicPath(topic: RecentTopic): string {
+  return `/forum/${topic.board.id}-${topic.board.slug}/${topic.id}-${topic.slug}`;
 }
