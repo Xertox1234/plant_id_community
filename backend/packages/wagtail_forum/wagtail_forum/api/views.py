@@ -1463,6 +1463,49 @@ class MeProfileView(UnversionedForumAPIMixin, generics.RetrieveUpdateAPIView):
         return ForumProfile.for_user(self.request.user)
 
 
+ME_STATS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "posts": {"type": "integer"},
+        "solutions_accepted": {"type": "integer"},
+        "identifications_shared": {"type": "integer"},
+    },
+}
+
+
+class MeStatsView(UnversionedForumAPIMixin, APIView):
+    """All-time forum stats for the requesting user ("Your season" cards).
+
+    All-time by design (spec §9): no season windowing, and the client's card
+    sublabels must not claim one. Three cheap reads — the denormalized
+    profile.post_count plus two indexed COUNTs — so no caching.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: ME_STATS_SCHEMA},
+        description="All-time forum stats for the requesting user.",
+    )
+    def get(self, request):
+        from ..models import ForumIdentificationAttachment, ForumProfile
+
+        profile = ForumProfile.for_user(request.user)
+        return Response(
+            {
+                "posts": profile.post_count,
+                "solutions_accepted": Topic.objects.filter(
+                    solved_post__author=request.user, live=True
+                ).count(),
+                # Topic-level attachments (OneToOne on Topic — spec corrected
+                # at plan time): attachments the user shared on their topics.
+                "identifications_shared": ForumIdentificationAttachment.objects.filter(
+                    topic__author=request.user, topic__live=True
+                ).count(),
+            }
+        )
+
+
 PUBLIC_PROFILE_SCHEMA = {
     "type": "object",
     "properties": {

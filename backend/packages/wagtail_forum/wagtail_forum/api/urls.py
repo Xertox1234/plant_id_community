@@ -11,6 +11,7 @@ from .user_search import UserMentionSearchView
 from .views import (
     BoardListView,
     MeProfileView,
+    MeStatsView,
     PostImageUploadView,
     PostListView,
     PostReportView,
@@ -65,6 +66,7 @@ urlpatterns = [
         name="post-report",
     ),
     path("me/profile/", MeProfileView.as_view(), name="me-profile"),
+    path("me/stats/", MeStatsView.as_view(), name="me-stats"),
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
     path("users/search/", UserMentionSearchView.as_view(), name="user-mention-search"),
