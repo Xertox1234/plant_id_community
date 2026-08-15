@@ -1,29 +1,23 @@
 /**
  * SettingsPage Component
  *
- * Application settings page — theme controls (palette, density, dark mode).
+ * Application settings page — theme controls (density, dark mode).
  * Allows users to configure app preferences and notifications.
  *
  * Features (planned):
  * - Email notifications preferences
  * - Privacy settings
- * - Theme preferences (palette / density / dark mode) ← LIVE in Phase A
+ * - Theme preferences (density / dark mode) ← LIVE in Phase A
  * - Language selection
  * - Account deletion
  */
-import { useTheme, type Palette, type Density } from '../contexts/ThemeContext';
+import { useTheme, type Density } from '../contexts/ThemeContext';
 import Eyebrow from '../components/ui/Eyebrow';
 
-const PALETTE_SWATCH: Record<Palette, string> = {
-  loam: '#C9542A',
-  garden: '#D86B2C',
-  forest: '#F0935A',
-  heritage: '#B0481E',
-};
 const DENSITIES: Density[] = ['comfortable', 'cozy', 'compact'];
 
 function ThemeControls() {
-  const { palette, density, mode, setPalette, setDensity, toggleMode } = useTheme();
+  const { density, mode, setDensity, toggleMode } = useTheme();
   return (
     <div className="space-y-8 p-screen">
       <section>
@@ -34,29 +28,6 @@ function ThemeControls() {
         >
           {mode === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
         </button>
-      </section>
-
-      <section>
-        <Eyebrow>Palette</Eyebrow>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {(Object.keys(PALETTE_SWATCH) as Palette[]).map((p) => (
-            <button
-              key={p}
-              onClick={() => setPalette(p)}
-              aria-pressed={palette === p}
-              className={`flex items-center gap-2 rounded-sm px-3 py-2 capitalize ${
-                palette === p ? 'border-2 border-primary font-bold' : 'border border-line'
-              }`}
-            >
-              <span
-                aria-hidden="true"
-                className="h-4 w-4 rounded-full"
-                style={{ background: PALETTE_SWATCH[p] }}
-              />
-              {p}
-            </button>
-          ))}
-        </div>
       </section>
 
       <section>

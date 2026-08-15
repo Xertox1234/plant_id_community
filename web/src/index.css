@@ -36,162 +36,128 @@
   font-display: swap;
 }
 
-/* ───────── Green Thumb semantic vars · :root = loam · light · cozy ───────── */
+/* ───────── Canopy raw ramp (spec §3.1) ───────── */
 :root {
-  --gt-surface: #f6f0e2;
-  --gt-surface-2: #ece3cc;
-  --gt-surface-3: #ddd0ae;
-  --gt-ink: #1f1a12;
-  --gt-ink-2: #4a3f2c;
-  --gt-ink-3: #6e624c;
-  --gt-line: #d4c5a0;
-  --gt-line-2: #bca97e;
-  --gt-primary: #4a7034;
-  --gt-on-primary: #f6f0e2;
-  --gt-secondary: #97b86a;
-  --gt-tertiary: #e0b445;
-  --gt-clay: #c9542a;
-  --gt-on-clay: #fff8ea;
-  --gt-leaf: #5e683e;
-  --gt-berry: #a14662;
-  --gt-sky: #456369;
-  --gt-ok: #3f5d3f;
-  --gt-warn: #c4a570;
-  --gt-error: #b5451c;
+  --canopy-abyss: #051f20;
+  --canopy-pine: #0b2b26;
+  --canopy-moss: #163832;
+  --canopy-forest: #235347;
+  --canopy-sage: #8eb69b;
+  --canopy-mint: #daf1de;
+  --canopy-pollen: #e7b75f;
+  --canopy-bloom: #e88e76;
+  --canopy-orchid: #b7a5e0;
+  --canopy-red: #de6b5a;
+}
+
+/* ───────── semantic layer — :root = DARK (Canopy default, spec §3.4) ───────── */
+:root,
+[data-mode='dark'] {
+  --gt-ground: var(--canopy-abyss);
+  --gt-surface: var(--canopy-pine);
+  --gt-surface-2: var(--canopy-moss);
+  --gt-surface-3: color-mix(in oklab, var(--canopy-moss) 55%, var(--canopy-forest));
+  --gt-ink: var(--canopy-mint);
+  --gt-ink-2: color-mix(in oklab, var(--canopy-sage) 85%, var(--canopy-mint));
+  --gt-ink-3: color-mix(in oklab, var(--canopy-sage) 65%, var(--canopy-forest));
+  --gt-line: color-mix(in oklab, var(--canopy-forest) 45%, transparent);
+  --gt-line-2: color-mix(in oklab, var(--canopy-forest) 75%, transparent);
+  --gt-primary: var(--canopy-mint);
+  --gt-on-primary: var(--canopy-abyss);
+  --gt-secondary: var(--canopy-sage);
+  --gt-tertiary: var(--canopy-pollen);
+  --gt-clay: var(--canopy-pollen);
+  --gt-on-clay: var(--canopy-abyss);
+  --gt-leaf: var(--canopy-sage);
+  --gt-berry: var(--canopy-bloom);
+  --gt-sky: var(--canopy-orchid);
+  --gt-ok: var(--canopy-sage);
+  --gt-warn: var(--canopy-pollen);
+  --gt-error: var(--canopy-red);
   --gt-pad-card: 16px;
   --gt-pad-screen: 16px;
   --gt-gap: 12px;
-  --gt-shadow-1: 0 1px 0 rgba(27, 34, 24, 0.04), 0 2px 6px rgba(27, 34, 24, 0.05);
-  --gt-shadow-2: 0 2px 0 rgba(27, 34, 24, 0.05), 0 8px 22px rgba(27, 34, 24, 0.08);
-  --gt-shadow-3: 0 4px 0 rgba(27, 34, 24, 0.06), 0 18px 40px rgba(27, 34, 24, 0.14);
+  --gt-shadow-1: 0 1px 0 rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.18);
+  --gt-shadow-2: 0 2px 0 rgba(0, 0, 0, 0.12), 0 8px 22px rgba(0, 0, 0, 0.26);
+  --gt-shadow-3: 0 4px 0 rgba(0, 0, 0, 0.14), 0 18px 40px rgba(0, 0, 0, 0.38);
+  --gt-grad-card: linear-gradient(
+    150deg,
+    color-mix(in oklab, var(--canopy-moss) 88%, var(--canopy-forest)) 0%,
+    var(--canopy-moss) 46%,
+    color-mix(in oklab, var(--canopy-moss) 80%, var(--canopy-pine)) 100%
+  );
+  --gt-grad-sweep: radial-gradient(
+    120% 90% at 12% -10%,
+    color-mix(in oklab, var(--canopy-mint) 9%, transparent) 0%,
+    transparent 55%
+  );
+  --gt-grad-cta: linear-gradient(
+    135deg,
+    var(--canopy-mint) 0%,
+    color-mix(in oklab, var(--canopy-sage) 70%, var(--canopy-mint)) 100%
+  );
+  --gt-grad-ambient:
+    radial-gradient(
+      90rem 60rem at 18% -12%,
+      color-mix(in oklab, var(--canopy-sage) 16%, transparent) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      70rem 50rem at 105% 42%,
+      color-mix(in oklab, var(--canopy-forest) 34%, transparent) 0%,
+      transparent 62%
+    );
+  --gt-tile-sage: linear-gradient(135deg, var(--canopy-mint), var(--canopy-sage));
+  --gt-tile-pollen: linear-gradient(135deg, #f2d28f, var(--canopy-pollen));
+  --gt-tile-bloom: linear-gradient(135deg, #f5b3a0, var(--canopy-bloom));
+  --gt-tile-orchid: linear-gradient(135deg, #d3c7ee, var(--canopy-orchid));
 }
 
-/* ───────── palette LIGHT blocks (forest is dark-only: this is its only set) ───────── */
-[data-palette='garden'] {
-  --gt-surface: #f4f1e4;
-  --gt-surface-2: #ece7d2;
-  --gt-surface-3: #dfd9bd;
-  --gt-ink: #102015;
-  --gt-ink-2: #2e4233;
-  --gt-ink-3: #596b57;
-  --gt-line: #d2ccae;
-  --gt-line-2: #b8b391;
-  --gt-primary: #2f6b3a;
-  --gt-on-primary: #f4f1e4;
-  --gt-secondary: #7fa66b;
-  --gt-tertiary: #e5b84b;
-  --gt-clay: #d86b2c;
-  --gt-on-clay: #fff8ea;
-  --gt-leaf: #596c3a;
-  --gt-berry: #ab4163;
-  --gt-sky: #456369;
-  --gt-ok: #3f5d3f;
-  --gt-warn: #c4a570;
-  --gt-error: #b5451c;
-}
-[data-palette='forest'] {
-  --gt-surface: #0f1a12;
-  --gt-surface-2: #16241a;
-  --gt-surface-3: #1f3024;
-  --gt-ink: #e8f0d8;
-  --gt-ink-2: #c2d2ac;
-  --gt-ink-3: #87987c;
-  --gt-line: #2a3a2f;
-  --gt-line-2: #3d5142;
-  --gt-primary: #b8dc7c;
-  --gt-on-primary: #0f1a12;
-  --gt-secondary: #a8cc6e;
-  --gt-tertiary: #f0cc68;
-  --gt-clay: #f0935a;
-  --gt-on-clay: #0f1a12;
-  --gt-leaf: #c8e198;
-  --gt-berry: #e090a8;
-  --gt-sky: #94bfc8;
-  --gt-ok: #3f5d3f;
-  --gt-warn: #c4a570;
-  --gt-error: #b5451c;
-}
-[data-palette='heritage'] {
-  --gt-surface: #f0ebdb;
-  --gt-surface-2: #e4dbc2;
-  --gt-surface-3: #d3c9ac;
-  --gt-ink: #1a1f10;
-  --gt-ink-2: #3a4128;
-  --gt-ink-3: #655f45;
-  --gt-line: #cfc4a2;
-  --gt-line-2: #b8ac85;
-  --gt-primary: #3d5a22;
-  --gt-on-primary: #f0ebdb;
-  --gt-secondary: #768b4e;
-  --gt-tertiary: #c99b3a;
-  --gt-clay: #b0481e;
-  --gt-on-clay: #fff8ea;
-  --gt-leaf: #59633b;
-  --gt-berry: #9e3c5b;
-  --gt-sky: #456369;
-  --gt-ok: #3f5d3f;
-  --gt-warn: #c4a570;
-  --gt-error: #b5451c;
+/* ───────── light mode — derived, not inverted (spec §3.4) ───────── */
+[data-mode='light'] {
+  --gt-ground: #cde9d4;
+  --gt-surface: var(--canopy-mint);
+  --gt-surface-2: #f2faf4;
+  --gt-surface-3: #e9f5ec;
+  --gt-ink: var(--canopy-pine);
+  --gt-ink-2: #35594b;
+  --gt-ink-3: #5e8271;
+  --gt-secondary: color-mix(in oklab, var(--canopy-forest) 60%, var(--canopy-sage));
+  /* accents darkened for light surfaces (AA on --gt-surface-2) */
+  --gt-tertiary: #8a6011;
+  --gt-leaf: #3c6b50;
+  --gt-berry: #b0503a;
+  --gt-sky: #6b4fa0;
+  --gt-ok: #2f6b46;
+  --gt-warn: #8a6011;
+  /* clay is used BOTH as text (ThreadCard labels) and as button background
+     (bg-clay text-on-clay) — darkening clay for text contrast requires
+     flipping on-clay light so buttons stay legible. */
+  --gt-clay: #8a6011;
+  --gt-on-clay: #f2faf4;
+  --gt-error: #a63c2a;
+  --gt-line: color-mix(in oklab, var(--canopy-sage) 38%, transparent);
+  --gt-line-2: color-mix(in oklab, var(--canopy-sage) 62%, transparent);
+  --gt-primary: var(--canopy-forest);
+  --gt-on-primary: var(--canopy-mint);
+  --gt-shadow-1: 0 1px 0 rgba(11, 43, 38, 0.05), 0 2px 6px rgba(11, 43, 38, 0.08);
+  --gt-shadow-2: 0 2px 0 rgba(11, 43, 38, 0.06), 0 8px 22px rgba(11, 43, 38, 0.12);
+  --gt-shadow-3: 0 4px 0 rgba(11, 43, 38, 0.07), 0 18px 40px rgba(11, 43, 38, 0.18);
+  --gt-grad-card: linear-gradient(150deg, #fdfffd 0%, #f2faf4 55%, #e9f5ec 100%);
+  --gt-grad-sweep: radial-gradient(
+    120% 90% at 12% -10%,
+    rgba(255, 255, 255, 0.85) 0%,
+    transparent 55%
+  );
+  --gt-grad-cta: linear-gradient(135deg, var(--canopy-moss), var(--canopy-forest));
+  --gt-grad-ambient: radial-gradient(
+    70rem 40rem at 15% -20%,
+    rgba(255, 255, 255, 0.75) 0%,
+    transparent 60%
+  );
 }
 
-/* ───────── dark COLOR blocks — palette-qualified (0,2,0) so they outrank the
-   palette base block. A BARE [data-mode="dark"] color block would tie with
-   [data-palette="forest"] and clobber it (cascade bug). Forest needs none. ───────── */
-[data-palette='loam'][data-mode='dark'] {
-  --gt-surface: #12100a;
-  --gt-surface-2: #1c1810;
-  --gt-surface-3: #272218;
-  --gt-ink: #f2ebd8;
-  --gt-ink-2: #d4c8a4;
-  --gt-ink-3: #8e8265;
-  --gt-line: #2e2818;
-  --gt-line-2: #423a26;
-  --gt-primary: #b8d680;
-  --gt-on-primary: #12100a;
-  --gt-secondary: #a3c26c;
-  --gt-tertiary: #e8c76b;
-  --gt-clay: #e58a52;
-  --gt-on-clay: #12100a;
-  --gt-leaf: #cce090;
-  --gt-berry: #d286a2;
-  --gt-sky: #9cc0ca;
-  --gt-ok: #3f5d3f;
-  --gt-warn: #c4a570;
-  --gt-error: #b5451c;
-}
-[data-palette='garden'][data-mode='dark'],
-[data-palette='heritage'][data-mode='dark'] {
-  /* heritage dark = garden dark (_gardenDark) */
-  --gt-surface: #0e140f;
-  --gt-surface-2: #161e18;
-  --gt-surface-3: #1f2a21;
-  --gt-ink: #eef4e2;
-  --gt-ink-2: #c8d5b8;
-  --gt-ink-3: #8a9a7e;
-  --gt-line: #2a3628;
-  --gt-line-2: #3a4a37;
-  --gt-primary: #a8cc6e;
-  --gt-on-primary: #14180f;
-  --gt-secondary: #9bbe82;
-  --gt-tertiary: #e8c76b;
-  --gt-clay: #e58a52;
-  --gt-on-clay: #14180f;
-  --gt-leaf: #bedc8c;
-  --gt-berry: #d286a2;
-  --gt-sky: #9cc0ca;
-  --gt-ok: #3f5d3f;
-  --gt-warn: #c4a570;
-  --gt-error: #b5451c;
-}
-
-/* dark SHADOWS — palette-independent → one bare block, ONLY shadow vars (no colors) */
-[data-mode='dark'] {
-  --gt-shadow-1: 0 1px 0 rgba(0, 0, 0, 0.04), 0 2px 6px rgba(0, 0, 0, 0.05);
-  --gt-shadow-2: 0 2px 0 rgba(0, 0, 0, 0.05), 0 8px 22px rgba(0, 0, 0, 0.08);
-  --gt-shadow-3: 0 4px 0 rgba(0, 0, 0, 0.06), 0 18px 40px rgba(0, 0, 0, 0.14);
-}
-
-/* ───────── density blocks (cozy is the :root default) ───────── */
+/* ───────── density blocks (cozy is the :root default) — UNCHANGED ───────── */
 [data-density='comfortable'] {
   --gt-pad-card: 18px;
   --gt-pad-screen: 18px;
@@ -225,6 +191,11 @@
   --color-ok: var(--gt-ok);
   --color-warn: var(--gt-warn);
   --color-error: var(--gt-error);
+  --color-abyss: var(--canopy-abyss);
+  --color-pollen: var(--canopy-pollen);
+  --color-bloom: var(--canopy-bloom);
+  --color-orchid: var(--canopy-orchid);
+  --color-ground: var(--gt-ground);
   --spacing-card: var(--gt-pad-card);
   --spacing-screen: var(--gt-pad-screen);
   --spacing-gapy: var(--gt-gap);
@@ -270,16 +241,14 @@
 @layer base {
   body {
     font-family: var(--font-sans);
-    background: var(--gt-surface);
+    background: var(--gt-ground);
     color: var(--gt-ink);
   }
 }
 
 @layer components {
-  /* Bricolage Grotesque ships no italic face; italic is synthesized intentionally (matches the mobile Green Thumb identity). */
   .gt-display {
     font-family: var(--font-display);
-    font-style: italic;
     font-weight: 600;
     font-size: 2rem;
     line-height: 1.02;
@@ -287,7 +256,6 @@
   }
   .gt-h1 {
     font-family: var(--font-display);
-    font-style: italic;
     font-weight: 600;
     font-size: 1.75rem;
     line-height: 1.1;
@@ -295,7 +263,6 @@
   }
   .gt-h2 {
     font-family: var(--font-display);
-    font-style: italic;
     font-weight: 600;
     font-size: 1.375rem;
     line-height: 1.15;
@@ -303,11 +270,73 @@
   }
   .gt-h3 {
     font-family: var(--font-display);
-    font-style: italic;
     font-weight: 600;
     font-size: 1.125rem;
     line-height: 1.2;
     letter-spacing: -0.02em;
+  }
+}
+
+/* ═══════════ Canopy chrome & materials (PR 1) ═══════════ */
+@layer components {
+  .canopy-card {
+    position: relative;
+    overflow: hidden;
+    background: var(--gt-grad-sweep), var(--gt-grad-card);
+    border: 1px solid var(--gt-line);
+  }
+  .canopy-interactive {
+    transition: border-color 0.15s ease;
+  }
+  .canopy-interactive:hover {
+    border-color: var(--gt-line-2);
+  }
+  .canopy-cta {
+    background: var(--gt-grad-cta);
+    color: var(--gt-on-primary);
+  }
+  .canopy-ground {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: var(--gt-grad-ambient);
+  }
+  .app-shell {
+    position: relative;
+    z-index: 1;
+  }
+  .app-nav-active {
+    background: var(--gt-grad-card);
+    border: 1px solid var(--gt-line);
+    color: var(--gt-ink);
+  }
+}
+/* rail hides itself when no page fills it (portal target is empty) — unlayered:
+   author CSS outside @layer beats the utilities layer, so this still wins over
+   the rail's `xl:flex` Tailwind utility even though @layer components never does. */
+.app-rail:not(:has(*)) {
+  display: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .canopy-ground {
+    animation: canopy-drift 70s ease-in-out infinite alternate;
+  }
+  .canopy-interactive {
+    transition:
+      transform 0.15s ease,
+      border-color 0.15s ease;
+  }
+  .canopy-interactive:hover {
+    transform: translateY(-1px);
+  }
+}
+@keyframes canopy-drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(-3%, 2.5%, 0) scale(1.06);
   }
 }
 

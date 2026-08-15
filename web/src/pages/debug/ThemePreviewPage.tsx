@@ -1,7 +1,6 @@
 // Dev-only probe: exercises the core token utilities so Tailwind generates
 // them, and gives Playwright stable testids to assert resolution against.
 
-const PALETTES = ['loam', 'garden', 'forest', 'heritage'] as const;
 const DENSITIES = ['comfortable', 'cozy', 'compact'] as const;
 const MODES = ['light', 'dark'] as const;
 
@@ -59,7 +58,7 @@ function HtmlProbe() {
       <h2 data-testid="probe-display" className="gt-display">
         Green Thumb
       </h2>
-      <span data-testid="probe-mono" className="font-mono italic">
+      <span data-testid="probe-mono" className="font-mono">
         Monstera deliciosa
       </span>
     </div>
@@ -81,7 +80,7 @@ function Swatches() {
         <span className="text-sky">sky</span>
         <span className="text-error">error</span>
       </div>
-      <p className="font-mono italic text-ink-2">Monstera deliciosa</p>
+      <p className="font-mono text-ink-2">Monstera deliciosa</p>
       <p className="text-ink-3">muted ink-3</p>
     </div>
   );
@@ -89,27 +88,24 @@ function Swatches() {
 
 export default function ThemePreviewPage() {
   return (
-    <div className="min-h-screen bg-neutral-100 p-4">
+    <div className="min-h-screen bg-ground p-4">
       <HtmlProbe />
       <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-        {PALETTES.flatMap((palette) =>
-          DENSITIES.flatMap((density) =>
-            MODES.map((mode) => (
-              <div
-                key={`${palette}-${density}-${mode}`}
-                data-testid="combo-card"
-                data-palette={palette}
-                data-density={density}
-                data-mode={mode}
-                className="bg-surface text-ink p-card rounded-md shadow-2 border border-line"
-              >
-                <p className="text-[10px] uppercase tracking-wide text-ink-3">
-                  {palette}/{density}/{mode}
-                </p>
-                <Swatches />
-              </div>
-            ))
-          )
+        {DENSITIES.flatMap((density) =>
+          MODES.map((mode) => (
+            <div
+              key={`${density}-${mode}`}
+              data-testid="combo-card"
+              data-density={density}
+              data-mode={mode}
+              className="bg-surface text-ink p-card rounded-md shadow-2 border border-line"
+            >
+              <p className="text-[10px] uppercase tracking-wide text-ink-3">
+                {density}/{mode}
+              </p>
+              <Swatches />
+            </div>
+          ))
         )}
       </div>
     </div>

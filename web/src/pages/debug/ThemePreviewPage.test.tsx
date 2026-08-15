@@ -3,8 +3,8 @@ import { render, screen } from '@testing-library/react';
 import ThemePreviewPage from './ThemePreviewPage';
 
 describe('ThemePreviewPage', () => {
-  it('renders all 24 palette × density × mode combinations', () => {
+  it('renders all 6 density × mode combinations', () => {
     render(<ThemePreviewPage />);
-    expect(screen.getAllByTestId('combo-card')).toHaveLength(24); // 4 × 3 × 2
+    expect(screen.getAllByTestId('combo-card')).toHaveLength(6); // 3 × 2
   });
 });

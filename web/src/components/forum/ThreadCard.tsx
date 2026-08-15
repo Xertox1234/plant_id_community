@@ -81,7 +81,7 @@ function ThreadCard({
           {thread.is_solved && (
             <>
               <span aria-hidden="true">·</span>
-              {/* Rendered in the primary token (AA on every palette), never the
+              {/* Rendered in the primary token (AA in both modes), never the
                   invariant --gt-ok green, which fails contrast on dark themes. */}
               <span className="inline-flex items-center gap-1 text-primary">
                 <IconCheck size={12} /> Solved

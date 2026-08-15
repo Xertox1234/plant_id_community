@@ -18,25 +18,13 @@ const renderPage = () =>
 describe('SettingsPage theme controls', () => {
   beforeEach(() => {
     localStorage.clear();
-    delete document.documentElement.dataset.palette;
     delete document.documentElement.dataset.density;
     delete document.documentElement.dataset.mode;
   });
 
-  it('renders four palette swatches', () => {
+  it('renders no palette controls', () => {
     renderPage();
-    expect(screen.getByRole('button', { name: /loam/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /garden/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /forest/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /heritage/i })).toBeInTheDocument();
-  });
-
-  it('clicking a swatch applies the palette to <html>', async () => {
-    renderPage();
-    await userEvent.click(screen.getByRole('button', { name: /forest/i }));
-    expect(document.documentElement).toHaveAttribute('data-palette', 'forest');
-    expect(screen.getByRole('button', { name: /forest/i })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: /loam/i })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByRole('button', { name: /loam/i })).toBeNull();
   });
 
   it('changing density applies it to <html>', async () => {
@@ -47,7 +35,7 @@ describe('SettingsPage theme controls', () => {
 
   it('dark toggle flips mode on <html>', async () => {
     renderPage();
-    await userEvent.click(screen.getByRole('button', { name: /dark/i }));
-    expect(document.documentElement).toHaveAttribute('data-mode', 'dark');
+    await userEvent.click(screen.getByRole('button', { name: /light/i }));
+    expect(document.documentElement).toHaveAttribute('data-mode', 'light');
   });
 });
