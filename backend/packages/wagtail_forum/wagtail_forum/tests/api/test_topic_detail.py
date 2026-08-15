@@ -53,6 +53,7 @@ def test_topic_detail_returns_live_topic():
         "display_name": "ada",
         "avatar": None,
         "trust_level": None,
+        "title": "",
     }
     assert resp.data["opening_post_id"] == opening.id
     # Anonymous is_subscribed short-circuits with zero extra queries (todo
