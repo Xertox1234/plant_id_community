@@ -333,12 +333,16 @@ describe('PostCard', () => {
       },
     });
 
-    renderPostCard(post);
+    const { container } = renderPostCard(post);
 
-    const img = screen.getByAltText('Garden Expert avatar');
-    expect(img).toHaveAttribute('src', 'http://x/media/avatar.jpg');
-    // The initial-letter fallback is replaced by the image.
-    expect(screen.queryByText('G')).not.toBeInTheDocument();
+    // Decorative (alt="") — the author's name sits right beside it (Avatar
+    // component contract), so it's queried by src, not accessible name.
+    // Exactly one <img> renders in this tree (the default mock body has no
+    // image blocks), so this pins both the presence AND the correct src —
+    // a src-scoped selector alone would pass vacuously on a mismatched src.
+    const imgs = container.querySelectorAll('img');
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]).toHaveAttribute('src', 'http://x/media/avatar.jpg');
   });
 
   it('keys the specimen engraving off the username (stable identity)', () => {
