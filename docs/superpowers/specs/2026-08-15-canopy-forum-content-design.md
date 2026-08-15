@@ -137,7 +137,7 @@ mechanism. "Image" topics get 1–2 seeded post images.
 | 3 | plant-identification | ID please: fuzzy leaves, purple undersides | marcus_webb | 5 | solved (june_park) |
 | 4 | plant-identification | What tree is this? Bark peels like paper | priya_nair | 7 | solved (theo_brandt); identification attachment (snapshot) |
 | 5 | care-problems | Fiddle leaf dropped 3 leaves after the move | marcus_webb | 8 | image (fiddle leaf); artifact-named |
-| 6 | care-problems | Yellow halo on pothos leaves — overwatering or light? | lena_fischer | 9 | solved (sam_whitaker) |
+| 6 | care-problems | Yellow halo on pothos leaves — overwatering or light? | lena_fischer | 9 | solved (june_park) |
 | 7 | care-problems | Repotting panic: roots circling the pot three times | maya_okafor | 6 | — |
 | 8 | care-problems | My calathea folds up at noon, not night. Normal? | priya_nair | 4 | — |
 | 9 | pests-diseases | What's eating my hosta leaves overnight? | maya_okafor | 10 | image (hosta damage); artifact-named |
