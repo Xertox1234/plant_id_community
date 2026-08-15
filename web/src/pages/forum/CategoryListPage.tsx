@@ -10,6 +10,7 @@ import HeroCard from '../../components/ui/HeroCard';
 import StatCard from '../../components/ui/StatCard';
 import Card from '../../components/ui/Card';
 import ButtonLink from '../../components/ui/ButtonLink';
+import Chip from '../../components/ui/Chip';
 import Timestamp from '../../components/ui/Timestamp';
 import RailSlot from '../../components/layout/RailSlot';
 import RailModule from '../../components/ui/RailModule';
@@ -18,6 +19,7 @@ import PageMeta from '../../components/PageMeta';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
 import { categoryPath } from '../../utils/forumUrls';
+import { boardIdentity } from '../../utils/forumTones';
 import type { Category } from '@/types';
 
 /**
@@ -37,6 +39,8 @@ export default function CategoryListPage() {
   // Bumping this re-runs the load effect — drives both the initial fetch and
   // the error-state Retry, each run getting its own `ignore` cleanup flag.
   const [reloadKey, setReloadKey] = useState(0);
+  // Client-side board filter for the chip row — null means "All".
+  const [activeBoard, setActiveBoard] = useState<string | null>(null);
 
   useEffect(() => {
     // react.dev's prescribed race guard: a stale response (unmount, or a retry
@@ -98,6 +102,9 @@ export default function CategoryListPage() {
     .filter((c) => c.last_post_at)
     .sort((a, b) => (b.last_post_at! > a.last_post_at! ? 1 : -1))
     .slice(0, 4);
+  const visibleCategories = activeBoard
+    ? categories.filter((c) => c.slug === activeBoard)
+    : categories;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -168,6 +175,32 @@ export default function CategoryListPage() {
         </div>
       )}
 
+      {categories.length > 1 && (
+        <div
+          className="mt-6 flex flex-wrap items-center gap-2"
+          role="group"
+          aria-label="Filter boards"
+        >
+          <Chip
+            active={activeBoard === null}
+            onClick={() => setActiveBoard(null)}
+            className="min-h-11"
+          >
+            All
+          </Chip>
+          {categories.map((c) => (
+            <Chip
+              key={c.id}
+              active={activeBoard === c.slug}
+              onClick={() => setActiveBoard((prev) => (prev === c.slug ? null : c.slug))}
+              className="min-h-11"
+            >
+              {boardIdentity(c.slug, c.name).chipLabel}
+            </Chip>
+          ))}
+        </div>
+      )}
+
       {categories.length === 0 ? (
         /* Empty state (audit L2): says what the forum is for and offers a way
            out, rather than "check back soon" — which reads as broken. */
@@ -186,7 +219,7 @@ export default function CategoryListPage() {
         </Card>
       ) : (
         <div className="mt-6 flex flex-col gap-3">
-          {categories.map((category) => (
+          {visibleCategories.map((category) => (
             <CategoryCard key={category.id} category={category} />
           ))}
         </div>

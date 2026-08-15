@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import CategoryListPage from './CategoryListPage';
@@ -88,12 +88,17 @@ describe('CategoryListPage', () => {
 
     renderCategoryListPage();
 
+    // Board names now also appear as filter-chip labels (both boards share the
+    // fixture's default unmapped slug, so their chip label falls back to their
+    // own name) — scope to the card heading to disambiguate from the chip.
     await waitFor(() => {
-      expect(screen.getByText('Plant Care')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 3, name: 'Plant Care' })).toBeInTheDocument();
     });
 
     expect(screen.getByText('Tips for plant care')).toBeInTheDocument();
-    expect(screen.getByText('Plant Identification')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 3, name: 'Plant Identification' })
+    ).toBeInTheDocument();
     expect(screen.getByText('Help identify plants')).toBeInTheDocument();
   });
 
@@ -248,12 +253,14 @@ describe('CategoryListPage', () => {
 
     renderCategoryListPage();
 
+    // Scope to the card heading — each board's name also appears as a filter
+    // chip's fallback label (unmapped slug), so a bare text query is ambiguous.
     await waitFor(() => {
-      expect(screen.getByText('Category 1')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 3, name: 'Category 1' })).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Category 2')).toBeInTheDocument();
-    expect(screen.getByText('Category 3')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'Category 2' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'Category 3' })).toBeInTheDocument();
   });
 
   it('hides loading spinner after data loads', async () => {
@@ -291,5 +298,106 @@ describe('CategoryListPage', () => {
         error: expect.any(Error),
       })
     );
+  });
+
+  describe('board filter chips', () => {
+    // Distinct slugs (createMockCategory defaults them all to 'plant-care')
+    // and one real Canopy slug (pests-diseases) so a passing test proves the
+    // identity map is wired into the page, not just into the unit test.
+    const boards = [
+      createMockCategory({ id: 'cat-1', name: 'Pests & Diseases', slug: 'pests-diseases' }),
+      createMockCategory({ id: 'cat-2', name: 'Care Problems', slug: 'care-problems' }),
+      createMockCategory({ id: 'cat-3', name: 'Random Board', slug: 'random-board' }),
+    ];
+
+    // Board-list membership is checked via the card's h3 heading, not a bare
+    // text query: the "Random Board" fixture's slug isn't in the identity
+    // map, so its chip label falls back to its own name and the chip row
+    // isn't affected by the filter — a bare getByText would match both the
+    // card and the (still-visible) chip.
+    function cardHeading(name: string) {
+      return screen.getByRole('heading', { level: 3, name });
+    }
+    function queryCardHeading(name: string) {
+      return screen.queryByRole('heading', { level: 3, name });
+    }
+
+    it('renders one chip per board plus an All chip, using the board identity chip label', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload(boards));
+
+      renderCategoryListPage();
+
+      await waitFor(() => expect(cardHeading('Pests & Diseases')).toBeInTheDocument());
+
+      const group = screen.getByRole('group', { name: 'Filter boards' });
+      const chips = within(group).getAllByRole('button');
+      expect(chips).toHaveLength(boards.length + 1);
+
+      expect(within(group).getByRole('button', { name: 'All' })).toBeInTheDocument();
+      // pests-diseases maps to the short "Pests" chip label (spec identity map).
+      expect(within(group).getByRole('button', { name: 'Pests' })).toBeInTheDocument();
+      expect(within(group).getByRole('button', { name: 'Care' })).toBeInTheDocument();
+      // Unknown slug falls back to the board's own name.
+      expect(within(group).getByRole('button', { name: 'Random Board' })).toBeInTheDocument();
+    });
+
+    it('filters the board list when a chip is clicked, and restores on a second click', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload(boards));
+
+      renderCategoryListPage();
+
+      await waitFor(() => expect(cardHeading('Pests & Diseases')).toBeInTheDocument());
+      expect(cardHeading('Care Problems')).toBeInTheDocument();
+      expect(cardHeading('Random Board')).toBeInTheDocument();
+
+      const group = screen.getByRole('group', { name: 'Filter boards' });
+      const pestsChip = within(group).getByRole('button', { name: 'Pests' });
+
+      await userEvent.click(pestsChip);
+
+      expect(pestsChip).toHaveAttribute('aria-pressed', 'true');
+      expect(cardHeading('Pests & Diseases')).toBeInTheDocument();
+      expect(queryCardHeading('Care Problems')).not.toBeInTheDocument();
+      expect(queryCardHeading('Random Board')).not.toBeInTheDocument();
+
+      // Clicking the same chip again clears the filter.
+      await userEvent.click(pestsChip);
+
+      expect(pestsChip).toHaveAttribute('aria-pressed', 'false');
+      expect(cardHeading('Pests & Diseases')).toBeInTheDocument();
+      expect(cardHeading('Care Problems')).toBeInTheDocument();
+      expect(cardHeading('Random Board')).toBeInTheDocument();
+    });
+
+    it('restores the full list when All is clicked after filtering', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload(boards));
+
+      renderCategoryListPage();
+
+      await waitFor(() => expect(cardHeading('Pests & Diseases')).toBeInTheDocument());
+
+      const group = screen.getByRole('group', { name: 'Filter boards' });
+      await userEvent.click(within(group).getByRole('button', { name: 'Care' }));
+      expect(queryCardHeading('Pests & Diseases')).not.toBeInTheDocument();
+
+      const allChip = within(group).getByRole('button', { name: 'All' });
+      await userEvent.click(allChip);
+
+      expect(allChip).toHaveAttribute('aria-pressed', 'true');
+      expect(cardHeading('Pests & Diseases')).toBeInTheDocument();
+      expect(cardHeading('Care Problems')).toBeInTheDocument();
+      expect(cardHeading('Random Board')).toBeInTheDocument();
+    });
+
+    it('does not render the chip row for a single board', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
+        indexPayload([createMockCategory({ id: 'cat-1', name: 'Solo Board' })])
+      );
+
+      renderCategoryListPage();
+
+      await waitFor(() => expect(screen.getByText('Solo Board')).toBeInTheDocument());
+      expect(screen.queryByRole('group', { name: 'Filter boards' })).not.toBeInTheDocument();
+    });
   });
 });
