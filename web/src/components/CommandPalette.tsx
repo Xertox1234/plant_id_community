@@ -1,0 +1,397 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Plus, ScanSearch, Search, type LucideIcon } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import {
+  fetchCategories,
+  searchForum,
+  searchForumUsers,
+  type ForumUserSearchResult,
+} from '../services/forumService';
+import { categoryPath, threadPath, userProfilePath } from '../utils/forumUrls';
+import { boardIdentity } from '../utils/forumTones';
+import type { Category, Thread } from '../types/forum';
+
+const MIN_QUERY_LENGTH = 2;
+// CLAUDE.md gotcha: the debounce timer id lives in a ref, never useState —
+// useState would re-render on every tick and recreate the callback.
+const DEBOUNCE_MS = 250;
+const RESULT_LIMIT = 5;
+
+interface CommandPaletteProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+/** One activatable row, in the flat keyboard-navigation order. */
+interface PaletteRow {
+  id: string;
+  to: string;
+  label: string;
+  secondary?: string;
+  Icon?: LucideIcon;
+}
+
+/**
+ * Cmd/Ctrl+K command palette (spec §8). Always mounted by AppShell — `open`
+ * gates rendering internally so state (query, fetched boards) can reset
+ * cleanly on every open without AppShell managing a mount/unmount lifecycle.
+ */
+export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+
+  const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [visible, setVisible] = useState(false);
+
+  const [categories, setCategories] = useState<Category[]>([]);
+  const categoriesFetchedRef = useRef(false);
+
+  const [topics, setTopics] = useState<Thread[]>([]);
+  const [topicsLoading, setTopicsLoading] = useState(false);
+  const [topicsError, setTopicsError] = useState(false);
+
+  const [people, setPeople] = useState<ForumUserSearchResult[]>([]);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+  const [peopleError, setPeopleError] = useState(false);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Monotonic request epoch — a response only lands if no newer query has
+  // been issued since (same class as PR #537's unread-badge fix).
+  const epochRef = useRef(0);
+
+  const trimmedQuery = query.trim();
+  const showTopics = trimmedQuery.length >= MIN_QUERY_LENGTH;
+  const showPeople = isAuthenticated && showTopics;
+
+  // Reset to a clean slate on every open.
+  useEffect(() => {
+    if (!open) return;
+    setQuery('');
+    setActiveIndex(0);
+    setTopics([]);
+    setTopicsError(false);
+    setTopicsLoading(false);
+    setPeople([]);
+    setPeopleError(false);
+    setPeopleLoading(false);
+    // Invalidate any in-flight response from a previous session.
+    epochRef.current++;
+  }, [open]);
+
+  // Boards for Quick actions — fetched once on first open, not on every reopen.
+  useEffect(() => {
+    if (!open || categoriesFetchedRef.current) return;
+    categoriesFetchedRef.current = true;
+    fetchCategories()
+      .then(setCategories)
+      .catch(() => {
+        // Allow a retry on the next open — transient failure, not permanent.
+        categoriesFetchedRef.current = false;
+      });
+  }, [open]);
+
+  // Initial focus + focus return, in one effect so the trigger is always
+  // captured BEFORE focus moves into the palette's own input — a separate
+  // "capture" effect ordered after "focus the input" would record the input
+  // itself as the thing to return focus to.
+  useEffect(() => {
+    if (open) {
+      previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+      inputRef.current?.focus();
+    } else if (previouslyFocusedRef.current) {
+      previouslyFocusedRef.current.focus();
+      previouslyFocusedRef.current = null;
+    }
+  }, [open]);
+
+  // Escape closes the palette.
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open, onClose]);
+
+  // Body scroll lock while open.
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
+
+  // Entrance transition — a class flip one frame after mount so the
+  // fade/scale actually animates instead of snapping to its end state.
+  useEffect(() => {
+    if (!open) {
+      setVisible(false);
+      return;
+    }
+    const raf = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
+
+  // Debounced, epoch-guarded search. Cleaned up on every query change and on
+  // unmount alike (the timer effect's cleanup always runs).
+  useEffect(() => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+
+    if (!showTopics) {
+      setTopics([]);
+      setTopicsError(false);
+      setTopicsLoading(false);
+      setPeople([]);
+      setPeopleError(false);
+      setPeopleLoading(false);
+      return;
+    }
+
+    debounceTimerRef.current = setTimeout(() => {
+      const epoch = ++epochRef.current;
+
+      setTopicsLoading(true);
+      setTopicsError(false);
+      searchForum({ q: trimmedQuery })
+        .then((res) => {
+          if (epoch !== epochRef.current) return;
+          setTopics(res.threads.slice(0, RESULT_LIMIT));
+        })
+        .catch(() => {
+          if (epoch !== epochRef.current) return;
+          setTopics([]);
+          setTopicsError(true);
+        })
+        .finally(() => {
+          if (epoch !== epochRef.current) return;
+          setTopicsLoading(false);
+        });
+
+      if (isAuthenticated) {
+        setPeopleLoading(true);
+        setPeopleError(false);
+        searchForumUsers(trimmedQuery)
+          .then((res) => {
+            if (epoch !== epochRef.current) return;
+            setPeople(res.slice(0, RESULT_LIMIT));
+          })
+          .catch(() => {
+            if (epoch !== epochRef.current) return;
+            setPeople([]);
+            setPeopleError(true);
+          })
+          .finally(() => {
+            if (epoch !== epochRef.current) return;
+            setPeopleLoading(false);
+          });
+      } else {
+        setPeople([]);
+        setPeopleError(false);
+        setPeopleLoading(false);
+      }
+    }, DEBOUNCE_MS);
+
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, [trimmedQuery, showTopics, isAuthenticated]);
+
+  // Reset the roving cursor whenever the query changes, so retyping lands
+  // back on the top result instead of an index that may no longer exist.
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [trimmedQuery]);
+
+  const quickActionRows = useMemo<PaletteRow[]>(() => {
+    const rows: PaletteRow[] = [
+      { id: 'qa-identify', to: '/identify', label: 'Identify a plant', Icon: ScanSearch },
+      { id: 'qa-new-thread', to: '/forum/new-thread', label: 'Start a thread', Icon: Plus },
+    ];
+    categories.forEach((category) => {
+      rows.push({
+        id: `qa-board-${category.id}`,
+        to: categoryPath(category),
+        label: category.name,
+        Icon: boardIdentity(category.slug, category.name).Icon,
+      });
+    });
+    return rows;
+  }, [categories]);
+
+  const topicRows = useMemo<PaletteRow[]>(() => {
+    if (!showTopics) return [];
+    const rows: PaletteRow[] = topics.map((thread) => ({
+      id: `topic-${thread.id}`,
+      to: threadPath(thread.category, thread),
+      label: thread.title,
+    }));
+    rows.push({
+      id: 'topic-search-everything',
+      to: `/forum/search?q=${encodeURIComponent(trimmedQuery)}`,
+      label: `Search everything for "${trimmedQuery}"`,
+    });
+    return rows;
+  }, [showTopics, topics, trimmedQuery]);
+
+  const peopleRows = useMemo<PaletteRow[]>(() => {
+    if (!showPeople) return [];
+    return people.map((person) => ({
+      id: `person-${person.username}`,
+      to: userProfilePath(person.username),
+      label: person.display_name || person.username,
+      secondary: `@${person.username}`,
+    }));
+  }, [showPeople, people]);
+
+  const flatRows = useMemo(
+    () => [...quickActionRows, ...topicRows, ...peopleRows],
+    [quickActionRows, topicRows, peopleRows]
+  );
+  const clampedIndex = flatRows.length === 0 ? -1 : Math.min(activeIndex, flatRows.length - 1);
+  const activeRow = clampedIndex >= 0 ? flatRows[clampedIndex] : undefined;
+
+  const activate = (row: PaletteRow) => {
+    navigate(row.to);
+    onClose();
+  };
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (flatRows.length === 0) return;
+      setActiveIndex((i) => Math.min(i + 1, flatRows.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (flatRows.length === 0) return;
+      setActiveIndex((i) => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeRow) activate(activeRow);
+    }
+  };
+
+  // Tab/Shift+Tab wraps between the input and the last visible row instead
+  // of leaving the dialog for the page behind it.
+  const handlePanelKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Tab') return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const focusables = panel.querySelectorAll<HTMLElement>('a[href], button, input');
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
+  if (!open) return null;
+
+  const renderRow = (row: PaletteRow) => {
+    const index = flatRows.indexOf(row);
+    const selected = index === clampedIndex;
+    const Icon = row.Icon;
+    return (
+      <Link
+        key={row.id}
+        id={row.id}
+        to={row.to}
+        aria-selected={selected}
+        onClick={onClose}
+        onMouseEnter={() => setActiveIndex(index)}
+        className={`flex min-h-11 items-center gap-2.5 px-4 text-[13.5px] transition-colors ${
+          selected ? 'bg-surface-2 text-ink' : 'text-ink-2 hover:bg-surface-2/70 hover:text-ink'
+        }`}
+      >
+        {Icon && <Icon className="h-4 w-4 shrink-0 opacity-80" aria-hidden="true" />}
+        <span className="min-w-0 flex-1 truncate">{row.label}</span>
+        {row.secondary && <span className="shrink-0 text-ink-3">{row.secondary}</span>}
+      </Link>
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <div
+        className="absolute inset-0 bg-abyss/70 transition-opacity duration-200 motion-reduce:transition-none"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div className="relative mx-auto mt-[12vh] w-full max-w-xl px-4">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Search"
+          onKeyDown={handlePanelKeyDown}
+          className={`canopy-card w-full rounded-lg border border-line shadow-2 transition-all duration-200 motion-reduce:transition-none ${
+            visible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 border-b border-line px-4 py-3">
+            <Search className="h-4 w-4 shrink-0 text-ink-3" aria-hidden="true" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleInputKeyDown}
+              placeholder="Search plants, posts, people…"
+              aria-label="Search plants, posts, people"
+              aria-activedescendant={activeRow?.id}
+              autoComplete="off"
+              className="w-full bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-3"
+            />
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto py-2">
+            <div>
+              <p className="gt-label px-4 pt-1 pb-1.5">Quick actions</p>
+              {quickActionRows.map((row) => renderRow(row))}
+            </div>
+
+            {showTopics && (
+              <div>
+                <p className="gt-label px-4 pt-3 pb-1.5">Topics</p>
+                {topicsLoading && <p className="px-4 py-2 text-[13px] text-ink-3">Searching…</p>}
+                {!topicsLoading && topicsError && (
+                  <p className="px-4 py-2 text-[13px] text-error">
+                    Search is unavailable right now
+                  </p>
+                )}
+                {!topicsLoading &&
+                  !topicsError &&
+                  topicRows.slice(0, topics.length).map((row) => renderRow(row))}
+                {renderRow(topicRows[topicRows.length - 1])}
+              </div>
+            )}
+
+            {showPeople && (
+              <div>
+                <p className="gt-label px-4 pt-3 pb-1.5">People</p>
+                {peopleLoading && <p className="px-4 py-2 text-[13px] text-ink-3">Searching…</p>}
+                {!peopleLoading && peopleError && (
+                  <p className="px-4 py-2 text-[13px] text-error">
+                    Search is unavailable right now
+                  </p>
+                )}
+                {!peopleLoading && !peopleError && peopleRows.map((row) => renderRow(row))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

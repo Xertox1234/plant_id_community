@@ -25,9 +25,15 @@ import {
 } from '../contexts/UnreadNotificationsContext';
 import NotificationBell from '../components/layout/NotificationBell';
 import UserMenu from '../components/layout/UserMenu';
+import CommandPalette from '../components/CommandPalette';
 import { RAIL_CONTAINER_ID } from '../components/layout/RailSlot';
 import BrandMark from '../components/ui/BrandMark';
 import CountBadge from '../components/ui/CountBadge';
+
+// Computed once at module load, not per-render — the platform doesn't change
+// mid-session. iPad/iPhone included: the desktop `⌘` glyph is the right hint
+// on an external-keyboard iPad, and this is a display label, not a feature gate.
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent || '');
 
 const NAV = [
   { to: '/', label: 'Home', icon: Home, end: true },
@@ -126,6 +132,7 @@ interface AppShellProps {
 }
 export default function AppShell({ children }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const { isAuthenticated } = useAuth();
   const { mode, toggleMode } = useTheme();
   const themeLabel = mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
@@ -141,6 +148,20 @@ export default function AppShell({ children }: AppShellProps) {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [drawerOpen]);
+
+  // Cmd/Ctrl+K opens the command palette from anywhere. The functional
+  // update makes an already-open palette a no-op — the simplest guard
+  // against a repeat-open, rather than sniffing what currently has focus.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((open) => (open ? open : true));
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Body scroll lock while the drawer is open.
   useEffect(() => {
@@ -159,6 +180,7 @@ export default function AppShell({ children }: AppShellProps) {
 
   return (
     <UnreadNotificationsProvider>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <div className="min-h-screen">
         <div className="canopy-ground" aria-hidden="true" />
         <a href="#main-content" className="skip-nav">
@@ -218,13 +240,21 @@ export default function AppShell({ children }: AppShellProps) {
               >
                 <Menu className="h-5 w-5" aria-hidden="true" />
               </button>
-              <Link
-                to="/forum/search"
+              <button
+                type="button"
+                onClick={() => setPaletteOpen(true)}
+                aria-label="Search plants, posts, people…"
                 className="flex max-w-[430px] flex-1 items-center gap-2.5 rounded-pill border border-line bg-surface-2/70 px-4 py-2.5 text-[13.5px] text-ink-3 transition-colors hover:border-line-2"
               >
                 <Search className="h-[15px] w-[15px]" aria-hidden="true" />
                 Search plants, posts, people…
-              </Link>
+                <kbd
+                  aria-hidden="true"
+                  className="ml-auto rounded-sm border border-line-2 px-1.5 py-0.5 font-mono text-[10.5px]"
+                >
+                  {isMac ? '⌘K' : 'Ctrl K'}
+                </kbd>
+              </button>
               <div className="ml-auto flex items-center gap-2">
                 <Link
                   to="/forum/new-thread"
