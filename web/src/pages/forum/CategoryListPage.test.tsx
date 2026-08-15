@@ -6,10 +6,17 @@ import CategoryListPage from './CategoryListPage';
 import { createMockCategory } from '../../tests/forumUtils';
 import type { Category } from '../../types/forum';
 import * as forumService from '../../services/forumService';
+import * as blogService from '../../services/blogService';
 import { logger } from '../../utils/logger';
 
 // Mock the forumService
 vi.mock('../../services/forumService');
+
+// Defensive mock for FromTheBlogModule's rail fetch (brief Step 4). RailSlot
+// portals into `#app-rail`, which doesn't exist in jsdom for this suite — so
+// the module never actually mounts and this fetch is never called — but the
+// mock guards against a real network call if that changes.
+vi.mock('../../services/blogService');
 
 // Mock logger
 vi.mock('../../utils/logger', () => ({
@@ -43,6 +50,10 @@ function renderCategoryListPage() {
 describe('CategoryListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Set fresh each test (not chained at module scope): vitest.config.ts's
+    // global `mockReset: true` wipes any factory-chained mock value before
+    // every test.
+    vi.mocked(blogService.fetchPopularPosts).mockResolvedValue([]);
   });
 
   it('shows loading spinner while fetching categories', () => {
@@ -86,18 +97,19 @@ describe('CategoryListPage', () => {
     expect(screen.getByText('Help identify plants')).toBeInTheDocument();
   });
 
-  it('renders page header with title and description', async () => {
+  it('renders the hero and an accessible page heading', async () => {
     vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
 
     renderCategoryListPage();
 
+    // HeroCard's title renders as an h2; the page still carries exactly one
+    // (sr-only) h1 for the document outline.
     await waitFor(() => {
-      expect(screen.getByText('Community Forums')).toBeInTheDocument();
+      expect(screen.getByText('Ask the canopy')).toBeInTheDocument();
     });
-
-    expect(screen.getByText(/Connect with fellow plant enthusiasts/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Community forum' })).toBeInTheDocument();
     // H9: the route sets a descriptive document title (React 19 metadata).
-    expect(document.title).toContain('Community Forums');
+    expect(document.title).toContain('Community Forum');
   });
 
   it('displays error message when API call fails', async () => {
@@ -179,13 +191,17 @@ describe('CategoryListPage', () => {
     await waitFor(() => expect(screen.getByText('Hi')).toBeInTheDocument());
     // The backend sanitizes too; this is the second layer, and the one that
     // protects against a compromised/mis-implemented first layer.
+    // Scoped to `.prose` (the sanitized-intro container) — the page's own
+    // hero art is a legitimate `<img>` elsewhere in the DOM, so an unscoped
+    // `document.querySelector('img')` would false-fail on that, not on a
+    // sanitization gap.
     // `img` at all, not just `img[onerror]` — the narrower assertion would also
     // pass under the FULL preset, which allows images outright, so it would not
     // actually pin STANDARD's "no media".
-    expect(document.querySelector('img')).toBeNull();
+    expect(document.querySelector('.prose img')).toBeNull();
     // Attribute and URI stripping on tags that ARE allowed.
-    expect(document.querySelector('[onclick]')).toBeNull();
-    expect(document.querySelector('a[href^="javascript:"]')).toBeNull();
+    expect(document.querySelector('.prose [onclick]')).toBeNull();
+    expect(document.querySelector('.prose a[href^="javascript:"]')).toBeNull();
   });
 
   it('renders no welcome block when the intro sanitizes away to nothing', async () => {

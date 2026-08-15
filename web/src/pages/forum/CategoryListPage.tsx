@@ -1,13 +1,23 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { Activity, Layers, MessagesSquare, Reply } from 'lucide-react';
 import { fetchForumIndex } from '../../services/forumService';
 import { createSafeMarkup, SANITIZE_PRESETS } from '../../utils/sanitize';
 import CategoryCard from '../../components/forum/CategoryCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import HeroCard from '../../components/ui/HeroCard';
+import StatCard from '../../components/ui/StatCard';
+import Card from '../../components/ui/Card';
+import Button from '../../components/ui/Button';
+import Timestamp from '../../components/ui/Timestamp';
+import RailSlot from '../../components/layout/RailSlot';
+import RailModule from '../../components/ui/RailModule';
+import FromTheBlogModule from '../../components/forum/rail/FromTheBlogModule';
 import PageMeta from '../../components/PageMeta';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
+import { categoryPath } from '../../utils/forumUrls';
 import type { Category } from '@/types';
 
 /**
@@ -64,7 +74,7 @@ export default function CategoryListPage() {
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <LoadingSpinner />
       </div>
     );
@@ -72,7 +82,7 @@ export default function CategoryListPage() {
 
   if (error) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <ForumErrorState
           title="Error loading categories"
           message={error}
@@ -82,58 +92,127 @@ export default function CategoryListPage() {
     );
   }
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <PageMeta
-        title="Community Forums · PlantID"
-        description="Connect with fellow plant enthusiasts, share knowledge, and get help with your plants in the Plant Community forums."
-      />
-      {/* Page Header */}
-      <div className="mb-8">
-        <p className="wf-label mb-2">Plant ID Community · Field Notes</p>
-        <h1 className="wf-title text-3xl sm:text-4xl text-ink mb-2">Community Forums</h1>
-        <p className="text-ink-2 max-w-prose leading-relaxed">
-          Connect with fellow plant enthusiasts, share knowledge, and get help with your plants.
-        </p>
-        {/* CMS welcome copy (audit L2) — an editor's own onboarding words, which
-            no hardcoded string can replace. Sanitized here as well as on the
-            server; STANDARD matches the backend's intro allowlist (headings,
-            lists, links — no media). Gated on the SANITIZED html, not the raw
-            string: an intro made only of disallowed markup is truthy but
-            sanitizes to '', which would render an empty padded box. */}
-        {introMarkup.__html && (
-          <div
-            className="prose prose-sm max-w-none mt-4 text-ink-2"
-            dangerouslySetInnerHTML={introMarkup}
-          />
-        )}
-      </div>
+  const totalThreads = categories.reduce((sum, c) => sum + (c.thread_count || 0), 0);
+  const totalPosts = categories.reduce((sum, c) => sum + (c.post_count || 0), 0);
+  const activeBoards = categories
+    .filter((c) => c.last_post_at)
+    .sort((a, b) => (b.last_post_at! > a.last_post_at! ? 1 : -1))
+    .slice(0, 4);
 
-      {/* Categories List */}
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <PageMeta
+        title="Community Forum · Houseplant MD"
+        description="Connect with fellow plant enthusiasts, share knowledge, and get help with your plants in the Houseplant MD community."
+      />
+
+      {/* HeroCard's title renders as an h2 by design — the page still needs
+          exactly one h1 for the document outline. */}
+      <h1 className="sr-only">Community forum</h1>
+
+      <HeroCard
+        eyebrow="Houseplant MD · Community"
+        title="Ask the canopy"
+        description="Get help with an ailing plant, show off a thriving one, and swap care notes with people who love the same leaves you do."
+        actions={
+          <>
+            <Link to="/forum/new-thread">
+              <Button variant="primary">Start a thread</Button>
+            </Link>
+            <Link to="/forum/search">
+              <Button variant="ghost">Search the forum</Button>
+            </Link>
+          </>
+        }
+        art={
+          <img
+            src="/illustrations/hero-forum.webp"
+            alt=""
+            width={280}
+            height={280}
+            className="canopy-float w-[200px] md:w-[260px]"
+          />
+        }
+      />
+
+      {/* CMS welcome copy (audit L2) — an editor's own onboarding words.
+          Sanitized here as well as on the server; gated on the SANITIZED html,
+          not the raw string. */}
+      {introMarkup.__html && (
+        <div
+          className="prose prose-sm mt-6 max-w-none text-ink-2"
+          dangerouslySetInnerHTML={introMarkup}
+        />
+      )}
+
+      {categories.length > 0 && (
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <StatCard
+            icon={<Layers className="h-4 w-4" aria-hidden="true" />}
+            value={categories.length}
+            label="Boards"
+            tone="sage"
+          />
+          <StatCard
+            icon={<MessagesSquare className="h-4 w-4" aria-hidden="true" />}
+            value={totalThreads}
+            label="Threads"
+            tone="pollen"
+          />
+          <StatCard
+            icon={<Reply className="h-4 w-4" aria-hidden="true" />}
+            value={totalPosts}
+            label="Posts"
+            tone="orchid"
+          />
+        </div>
+      )}
+
       {categories.length === 0 ? (
-        /* Empty state (audit L2). A brand-new community lands here, so it says
-           what the forum is for and offers a way out, rather than "check back
-           soon" — which reads as broken. */
-        <div className="wf-sheet text-center py-12 px-6">
-          <p className="wf-title text-lg text-ink">No boards yet</p>
-          <p className="text-sm mt-2 max-w-prose mx-auto text-ink-2">
+        /* Empty state (audit L2): says what the forum is for and offers a way
+           out, rather than "check back soon" — which reads as broken. */
+        <Card className="mt-6 px-6 py-12 text-center">
+          <p className="gt-h3 text-ink">No boards yet</p>
+          <p className="mx-auto mt-2 max-w-prose text-sm text-ink-2">
             This community is just getting started. Boards are where plant questions, care tips and
             ID help get discussed — they&rsquo;ll show up here as soon as a moderator adds one.
           </p>
           <Link
             to="/identify"
-            className="inline-block mt-4 text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+            className="mt-4 inline-block text-sm font-medium text-primary transition-colors hover:text-primary/80"
           >
             Identify a plant in the meantime →
           </Link>
-        </div>
+        </Card>
       ) : (
-        <div className="wf-ledger">
+        <div className="mt-6 flex flex-col gap-3">
           {categories.map((category) => (
             <CategoryCard key={category.id} category={category} />
           ))}
         </div>
       )}
+
+      <RailSlot>
+        {activeBoards.length > 0 && (
+          <RailModule icon={<Activity aria-hidden="true" />} title="Active now">
+            <ul className="flex flex-col gap-3">
+              {activeBoards.map((board) => (
+                <li key={board.id}>
+                  <Link to={categoryPath(board)} className="group block">
+                    <span className="text-[13px] font-medium text-ink transition-colors group-hover:text-primary">
+                      {board.name}
+                    </span>
+                    <span className="gt-label mt-0.5 block normal-case tracking-normal">
+                      <Timestamp iso={board.last_post_at!} prefix="Last activity" />
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </RailModule>
+        )}
+        <FromTheBlogModule />
+      </RailSlot>
     </div>
   );
 }
