@@ -108,6 +108,7 @@ describe('CategoryListPage', () => {
       expect(screen.getByText('Ask the canopy')).toBeInTheDocument();
     });
     expect(screen.getByRole('heading', { level: 1, name: 'Community forum' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     // H9: the route sets a descriptive document title (React 19 metadata).
     expect(document.title).toContain('Community Forum');
   });

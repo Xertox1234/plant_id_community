@@ -231,9 +231,9 @@ export default function NewThreadPage() {
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <PageMeta
         title="Start a New Thread · Houseplant MD"
-        description="Start a new discussion in the Plant Community forums."
+        description="Start a new discussion in the Houseplant MD community forum."
       />
-      {/* Breadcrumb — collection path, in the ledger's mono voice */}
+      {/* Breadcrumb — collection path, in the mono data voice */}
       <nav className="gt-label mb-6" aria-label="Breadcrumb">
         <ol className="flex items-center gap-2">
           <li>
@@ -324,8 +324,8 @@ export default function NewThreadPage() {
           <label htmlFor="thread-title" className="gt-label block mb-1.5 transition-colors">
             Title
           </label>
-          {/* The title being typed IS the specimen title — it renders in the
-              display face, so the entry reads like its future ledger line. */}
+          {/* The title being typed renders in the display face, so what the
+              user sees while typing matches how it will read once posted. */}
           <input
             id="thread-title"
             type="text"

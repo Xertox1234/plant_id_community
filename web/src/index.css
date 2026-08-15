@@ -350,11 +350,14 @@
     text-transform: uppercase;
     color: var(--gt-ink-3);
   }
-  /* Deep-link / just-posted highlight. Static ring under reduced motion
-     (JS removes the class after ~2.5s); faded out where motion is allowed. */
-  .canopy-flash .canopy-card {
-    box-shadow: 0 0 0 2px color-mix(in oklab, var(--canopy-sage) 55%, transparent);
-  }
+}
+/* Deep-link / just-posted highlight ring — unlayered: author CSS outside @layer
+   beats the utilities layer, so this still wins over the accepted answer's
+   `ring-1 ring-secondary/40` utility box-shadow (an @layer components rule
+   would lose that fight). Static ring under reduced motion (JS removes the
+   class after ~2.5s); faded out where motion is allowed. */
+.canopy-flash .canopy-card {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--gt-secondary) 55%, transparent);
 }
 @media (prefers-reduced-motion: no-preference) {
   .canopy-flash .canopy-card {
@@ -366,7 +369,7 @@
 }
 @keyframes canopy-flash-fade {
   from {
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--canopy-sage) 55%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--gt-secondary) 55%, transparent);
   }
   to {
     box-shadow: 0 0 0 2px transparent;

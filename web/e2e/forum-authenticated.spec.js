@@ -57,6 +57,7 @@ test.describe('Authenticated forum write lifecycle', () => {
     ).toBeVisible();
     await boardLink.click();
     await expect(page).toHaveURL(/\/forum\/\d+-/);
+    await expect(page.getByPlaceholder('Search this board…')).toBeVisible();
 
     // 2. Create a new thread. Scoped to #main-content — the topbar also has a
     // bare "New post" link (AppShell), which would otherwise win .first().

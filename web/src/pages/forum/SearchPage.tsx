@@ -264,7 +264,7 @@ export default function SearchPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <PageMeta
         title={query ? `Search: ${query} · Houseplant MD` : 'Forum Search · Houseplant MD'}
-        description="Search across Plant Community forum threads and posts."
+        description="Search across Houseplant MD community threads and posts."
       />
       {/* Header */}
       <div className="mb-8">

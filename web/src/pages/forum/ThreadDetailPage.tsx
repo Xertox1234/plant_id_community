@@ -121,8 +121,8 @@ export default function ThreadDetailPage() {
   const [pendingDelete, setPendingDelete] = useState<Post | null>(null);
   // A post the user asked to edit while another edit has unsaved changes (M27).
   const [pendingEditSwitch, setPendingEditSwitch] = useState<Post | null>(null);
-  // The reply just posted by THIS user, for the one-shot "pressed into the
-  // page" landing animation (Field Notes signature). Purely visual state.
+  // The reply just posted by THIS user, marked for the one-shot canopy-flash
+  // highlight. Purely visual state; cleared by a 2.5s timer.
   const [justPostedId, setJustPostedId] = useState<string | null>(null);
 
   // Tracks the topic currently on screen. handleToggleSubscription reads this
@@ -590,16 +590,16 @@ export default function ThreadDetailPage() {
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <PageMeta
         title={`${thread.title} · Houseplant MD`}
-        description={`${thread.title} — a discussion in ${thread.category.name} on the Plant Community forum.`}
+        description={`${thread.title} — a discussion in ${thread.category.name} on the Houseplant MD community forum.`}
         og={{
           title: thread.title,
-          description: `A discussion in ${thread.category.name} on Plant Community.`,
+          description: `A discussion in ${thread.category.name} on Houseplant MD.`,
           // Canonical topic URL — drop any ?query/#hash; the SPA is client-only.
           url: `${window.location.origin}${window.location.pathname}`,
           type: 'article',
         }}
       />
-      {/* Breadcrumb — collection path, in the ledger's mono voice. The
+      {/* Breadcrumb — collection path, in the mono data voice. The
           thread-title crumb stays normal case: user content is never shouted. */}
       <nav className="gt-label mb-6" aria-label="Breadcrumb">
         <ol className="flex items-center gap-2 min-w-0">
@@ -621,7 +621,7 @@ export default function ThreadDetailPage() {
         </ol>
       </nav>
 
-      {/* Thread Header — the specimen sheet's label block, closed by a single rule */}
+      {/* Thread Header — the label block, closed by a single rule */}
       <header className="mb-8 border-b border-line-2 pb-6">
         <div className="gt-label flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
           <span>
