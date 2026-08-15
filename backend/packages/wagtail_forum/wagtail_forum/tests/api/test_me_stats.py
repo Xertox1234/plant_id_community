@@ -206,6 +206,11 @@ def test_me_stats_unpublished_posts_not_counted():
     )
     opening.save_revision().publish()
 
+    # Create unpublished draft reply by requester (never published)
+    Post.objects.create(
+        topic=topic, author=requester, is_opening_post=False, live=False
+    )
+
     # Create published reply by requester
     published_reply = Post.objects.create(
         topic=topic, author=requester, is_opening_post=False, live=False
@@ -218,7 +223,7 @@ def test_me_stats_unpublished_posts_not_counted():
     resp = client.get("/forum/me/stats/")
 
     assert resp.status_code == 200
-    # Only published_reply counts (draft_reply is not published)
+    # Only published_reply counts; draft_reply is ignored (live=False, never published)
     assert resp.data["posts"] == 1
     assert resp.data["solutions_accepted"] == 0
     assert resp.data["identifications_shared"] == 0
