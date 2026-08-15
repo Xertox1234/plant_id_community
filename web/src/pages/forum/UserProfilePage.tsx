@@ -5,6 +5,8 @@ import { fetchUserProfile } from '../../services/forumService';
 import { specimenAvatar } from '../../utils/forumAvatars';
 import { threadPath, postAnchor } from '../../utils/forumUrls';
 import { TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
+import Avatar from '../../components/ui/Avatar';
+import Card from '../../components/ui/Card';
 import type { ForumUserProfile } from '../../types/forum';
 
 function relative(iso: string): string {
@@ -66,7 +68,7 @@ export default function UserProfilePage() {
   if (error || !profile) {
     return (
       <div className="max-w-3xl mx-auto p-6">
-        <title>Profile not found — Forum</title>
+        <title>Profile not found · Houseplant MD</title>
         <p className="text-ink-3">{error || 'Profile not found.'}</p>
         <Link to="/forum" className="text-primary hover:underline">
           ← Back to the forum
@@ -79,45 +81,29 @@ export default function UserProfilePage() {
 
   return (
     <div className="max-w-3xl mx-auto p-6">
-      <title>{`${name} — Forum profile`}</title>
+      <title>{`${name} · Houseplant MD`}</title>
 
-      {/* Header — the collector's card: a mounted specimen photo beside the
-          collector's label lines, closed by a double rule. */}
-      <header className="mb-8 border-b-2 border-line-2 pb-6">
-        <p className="wf-label mb-3">Collector</p>
+      {/* Header — identity card: specimen avatar beside the collector's label lines. */}
+      <Card className="mb-8 p-6">
+        <p className="gt-label mb-3">Member profile</p>
         <div className="flex items-center gap-5">
-          {/* Tape corners live on the un-clipped outer frame; the inner mount
-              carries overflow-hidden, or the overhanging strips get sliced to
-              slivers (code review, PR #535). */}
-          <div className="wf-taped w-20 h-20 shrink-0">
-            <div className="h-full w-full bg-primary/10 border border-line rounded-xs flex items-center justify-center overflow-hidden">
-              {profile.avatar ? (
-                <img src={profile.avatar} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <img
-                  src={specimenAvatar(profile.username)}
-                  alt=""
-                  className="w-full h-full object-cover"
-                />
-              )}
-            </div>
-          </div>
+          <Avatar src={profile.avatar || specimenAvatar(profile.username)} alt="" size="lg" />
           <div className="min-w-0">
             <div className="flex items-baseline gap-2 flex-wrap">
-              <h1 className="wf-title text-2xl sm:text-3xl text-ink">{name}</h1>
+              <h1 className="gt-h1 text-ink">{name}</h1>
               {typeof profile.trust_level === 'number' && profile.trust_level >= 1 && (
-                <span className="wf-label rounded-full border border-sky/40 px-2 py-0.5 text-sky">
+                <span className="gt-label rounded-pill border border-sky/40 px-2 py-0.5 text-sky">
                   {TRUST_LEVEL_LABELS[profile.trust_level] ?? `Level ${profile.trust_level}`}
                 </span>
               )}
             </div>
-            <p className="wf-label mt-1.5 normal-case">
+            <p className="gt-label mt-1.5 normal-case tracking-normal">
               @{profile.username} · {profile.post_count} posts
               {profile.joined_at && <> · joined {relative(profile.joined_at)}</>}
             </p>
           </div>
         </div>
-      </header>
+      </Card>
 
       {profile.bio && <p className="mb-2 text-ink break-words leading-relaxed">{profile.bio}</p>}
       {profile.signature && (
@@ -126,13 +112,13 @@ export default function UserProfilePage() {
 
       {/* Recent topics */}
       <section className="mb-8">
-        <h2 className="wf-title text-lg text-ink mb-2">Recent topics</h2>
+        <h2 className="gt-h3 text-ink mb-2">Recent topics</h2>
         {profile.recent_topics.length === 0 ? (
           <p className="text-sm text-ink-3">No topics yet.</p>
         ) : (
-          <ul className="wf-ledger">
+          <ul className="divide-y divide-line">
             {profile.recent_topics.map((t) => (
-              <li key={t.id} className="wf-entry flex flex-wrap items-baseline gap-x-2 py-2.5 px-1">
+              <li key={t.id} className="flex flex-wrap items-baseline gap-x-2 px-1 py-2.5">
                 <Link
                   to={threadPath(
                     { id: String(t.board_id), slug: t.board_slug, name: '' },
@@ -142,7 +128,7 @@ export default function UserProfilePage() {
                 >
                   {t.title}
                 </Link>
-                <span className="wf-label">{relative(t.created_at)}</span>
+                <span className="gt-label">{relative(t.created_at)}</span>
               </li>
             ))}
           </ul>
@@ -151,13 +137,13 @@ export default function UserProfilePage() {
 
       {/* Recent replies */}
       <section>
-        <h2 className="wf-title text-lg text-ink mb-2">Recent replies</h2>
+        <h2 className="gt-h3 text-ink mb-2">Recent replies</h2>
         {profile.recent_posts.length === 0 ? (
           <p className="text-sm text-ink-3">No replies yet.</p>
         ) : (
-          <ul className="wf-ledger">
+          <ul className="divide-y divide-line">
             {profile.recent_posts.map((p) => (
-              <li key={p.id} className="wf-entry flex flex-wrap items-baseline gap-x-2 py-2.5 px-1">
+              <li key={p.id} className="flex flex-wrap items-baseline gap-x-2 px-1 py-2.5">
                 <Link
                   to={`${threadPath(
                     { id: String(p.board_id), slug: p.board_slug, name: '' },
@@ -167,7 +153,7 @@ export default function UserProfilePage() {
                 >
                   {p.topic_title}
                 </Link>
-                <span className="wf-label">{relative(p.created_at)}</span>
+                <span className="gt-label">{relative(p.created_at)}</span>
               </li>
             ))}
           </ul>

@@ -11,4 +11,8 @@ describe('Avatar', () => {
     const { container } = render(<Avatar src="/a.jpg" alt="x" presence />);
     expect(container.querySelector('[data-presence]')).not.toBeNull();
   });
+  it('renders the lg size', () => {
+    const { container } = render(<Avatar src="/x.jpg" alt="" size="lg" />);
+    expect(container.querySelector('img')?.className).toContain('h-20');
+  });
 });
