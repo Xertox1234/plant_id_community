@@ -15,8 +15,8 @@ Make the live forum look and act like the Canopy artifact: the five boards exist
 their deliberate identities, the forum is populated with a believable demo world, the
 landing page carries the artifact's hero / chips / "Your season" cards / rail modules,
 and the topbar search becomes the ⌘K command palette. Features the artifact implies but
-we are not wiring yet (day streak + badges, live presence) render as clearly-marked
-mocks with tracked follow-up todos.
+we are not wiring yet (day streak + badges, live presence) keep their visual slot as
+honest zero-states — no fabricated values — with tracked follow-up todos.
 
 ## 2. Decisions locked with the user (2026-08-15)
 
@@ -27,9 +27,11 @@ mocks with tracked follow-up todos.
   and requires `--confirm` when `DEBUG=False`; it is NOT DEBUG-locked (supersedes parent
   spec §7).
 - **Real features now:** "Your season" per-user stats; ⌘K command palette.
-- **Mocked now, wired later:** day streak + badges; "Experts online" presence dots. Both
-  visible in the live UI, marked in code, each with a todo file so they are not
-  forgotten.
+- **Zero-states now, wired later** *(revised 2026-08-15 after adversarial review;
+  supersedes the earlier "mocked values" decision)*: day streak + badges and expert
+  presence keep their visual slot but show no fabricated values — the streak card
+  renders a "coming soon" zero-state and the experts module makes no online claim.
+  Each is marked in code and has a todo file so it is not forgotten.
 - **Delivery:** one PR ("PR 2.5"), SDD-executed like PR 2, branch `feat/canopy-forum-content`.
 
 ## 3. Board catalogue
@@ -231,11 +233,14 @@ staleness. `me/stats/` is per-user and stays uncached.
   (existing data); description; chevron — the artifact's row anatomy on the existing
   `CategoryCard`.
 - **"Your season" (authenticated only):** four `StatCard`s — Identifications, Posts,
-  Solutions from `me/stats/`; **Day streak mocked** (fixed value, code comment naming
-  its todo). Anonymous visitors keep the current Boards/Threads/Posts trio untouched.
-- **Rail — Experts online:** real users from `users/experts/`, specimen avatar (hash),
-  display name, title/trust label; the green presence dot renders unconditionally and
-  is a mock (code comment naming its todo).
+  Solutions from `me/stats/`; the fourth card is the **Day-streak slot in zero-state**:
+  no number — a "Coming soon" value treatment (exact copy in the plan) with a code
+  comment naming its todo. Anonymous visitors keep the current Boards/Threads/Posts
+  trio untouched.
+- **Rail — Community experts:** real users from `users/experts/`, specimen avatar
+  (hash), display name, title/trust label. **No presence dots and no "online" claim**
+  — the module is titled "Community experts"; dots and the "Experts online" title
+  arrive with the presence todo (code comment names it).
 - **Rail — Active now:** switches from boards to topics via `topics/recent/`:
   thumbnail (or icon tile), title, "N replies · 2h" line. Links to the topic.
 - **Rail — From the blog:** unchanged (its excerpt bug is fixed in the PR #537 fix
@@ -265,14 +270,16 @@ staleness. `me/stats/` is per-user and stays uncached.
 
 Recorded deviations from the artifact (each deliberate):
 
-- **Day streak card is a mock** (fixed value). Real streaks need activity tracking →
-  todo "wire day streak + badges".
-- **Badge-progress sublabels and progress bars are omitted** from the three real season
-  cards — bars imply progress toward a badge threshold that doesn't exist yet. The
-  mocked streak card may carry its bar. Bars return with the badges todo.
-- **"Experts online" presence dot is a mock** — the people and titles are real; the
-  "online" claim is not. `ForumProfile.last_seen` already exists; wiring it (heartbeat
-  - "active in last 15 min") → todo "wire Experts-online presence".
+- **Day streak card is a zero-state** — the slot renders a "Coming soon" value, never
+  a fabricated number. Real streaks need activity tracking → todo "wire day streak +
+  badges".
+- **Badge-progress sublabels and progress bars are omitted everywhere** — bars imply
+  progress toward a badge threshold that doesn't exist yet. Bars return with the
+  badges todo.
+- **No presence claim anywhere** — the experts module shows real people and titles but
+  is titled "Community experts", with no online dots. `ForumProfile.last_seen` already
+  exists; wiring it (heartbeat, "active in last 15 min") restores the artifact's
+  "Experts online" module → todo "wire Experts-online presence".
 - **`me/stats` are all-time**, not "this season" — no season windowing until there is
   a reason; card sublabels must not claim a season.
 - **Demo users have unusable passwords** and a `@demo.houseplant-md.com` email
@@ -280,9 +287,9 @@ Recorded deviations from the artifact (each deliberate):
 - **Avatar simplification:** demo users rely on the web's existing hash-based specimen
   avatars instead of seeded Wagtail avatar images (visually identical, zero backend
   surface).
-- Both mocks carry a code comment naming their todo file. The two todo files are
-  created in this PR per repo convention (next free numbers), with `source_review`-style
-  provenance pointing at this spec.
+- Both zero-state slots carry a code comment naming their todo file. The two todo
+  files are created in this PR per repo convention (next free numbers), with
+  `source_review`-style provenance pointing at this spec.
 
 ## 10. Testing & acceptance
 
@@ -299,8 +306,8 @@ Backend (full `pytest` run required — Topic-adjacent serializer surface is tou
 Web (Vitest + Playwright):
 
 - Component tests: palette (open/close/keyboard/sections), chips filter, season cards
-  (authed real values, anon fallback, mocked streak), Experts/Active-now rail modules
-  (module-level — RailSlot portals are null in jsdom).
+  (authed real values, anon fallback, streak zero-state), experts/Active-now rail
+  modules (module-level — RailSlot portals are null in jsdom).
 - Updated `CategoryListPage` suite (hero variants: bloom-watch present vs absent).
 - E2E: one palette smoke (open with keyboard, search, navigate) — locators scoped to
   the palette dialog; forum locators scoped to `#main-content` per docs/rules/testing.
