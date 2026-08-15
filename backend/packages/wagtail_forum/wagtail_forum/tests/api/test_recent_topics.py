@@ -77,6 +77,11 @@ def test_recent_topics_orders_by_activity_across_boards():
         live=True,
         last_post_at=now - datetime.timedelta(minutes=5),
         reply_count=0,
+        # Positive case for is_pinned (topic1's is only asserted False below) —
+        # this endpoint's order_by is `-last_post_at` alone, not
+        # `-is_pinned, -last_post_at` like TopicListView, so pinning topic2
+        # does not reorder the results and stays a pure serialization check.
+        is_pinned=True,
     )
     # A later reply on topic1 bumps its activity past topic2's.
     topic1.last_post_at = now
@@ -100,6 +105,7 @@ def test_recent_topics_orders_by_activity_across_boards():
         "slug": "show-tell",
     }
     assert results[1]["reply_count"] == 0
+    assert results[1]["is_pinned"] is True
 
 
 @pytest.mark.django_db
@@ -132,6 +138,34 @@ def test_recent_topics_limit_is_respected_and_capped():
     resp = client.get("/forum/topics/recent/", {"limit": 100})
     assert resp.status_code == 200
     assert len(resp.data["results"]) == 2
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_RECENT_TOPICS_DEFAULT_LIMIT=2)
+def test_recent_topics_uses_default_limit_when_omitted():
+    """No ?limit= at all -> RECENT_TOPICS_DEFAULT_LIMIT applies.
+
+    This is the endpoint's most-exercised production call shape (the landing
+    rail never sends ?limit=), and `int(request.query_params.get("limit",
+    ""))` takes the `except ValueError` branch to reach it — untested by the
+    explicit-?limit= cases above, which never exercise the omitted-param path.
+    """
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    now = timezone.now()
+    for i in range(3):
+        Topic.objects.create(
+            board=board,
+            title=f"T{i}",
+            slug=f"t{i}",
+            author=author,
+            live=True,
+            last_post_at=now - datetime.timedelta(minutes=i),
+        )
+
+    resp = APIClient().get("/forum/topics/recent/")
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 2  # the overridden default, not all 3
 
 
 @pytest.mark.django_db
