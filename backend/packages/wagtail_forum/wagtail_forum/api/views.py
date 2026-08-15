@@ -1788,6 +1788,47 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         )
 
 
+EXPERTS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "results": {"type": "array", "items": AUTHOR_SCHEMA},
+    },
+}
+
+
+class ExpertsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
+    """Highest-trust active members for the landing rail.
+
+    No presence data — deliberately (spec §9): the client renders these as
+    "Community experts" with no online claim until the presence todo wires
+    ForumProfile.last_seen.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        responses={200: EXPERTS_SCHEMA},
+        description=(
+            "Up to EXPERTS_LIMIT members at or above EXPERTS_MIN_TRUST_LEVEL, "
+            "highest trust then post count first."
+        ),
+    )
+    def get(self, request):
+        from ..models import ForumProfile
+
+        profiles = (
+            ForumProfile.objects.filter(
+                trust_level__gte=get_setting("EXPERTS_MIN_TRUST_LEVEL"),
+                user__is_active=True,
+            )
+            .select_related("user", "avatar")
+            .order_by("-trust_level", "-post_count")[: get_setting("EXPERTS_LIMIT")]
+        )
+        return Response(
+            {"results": [serialize_forum_author(p.user, request) for p in profiles]}
+        )
+
+
 class SearchView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
     PAGE_SIZE = 20  # results per section per page; *_has_more drives client paging
     MAX_PAGE = 50  # ceiling on ?page= — bounds the SQL OFFSET (like CursorPagination.offset_cutoff)

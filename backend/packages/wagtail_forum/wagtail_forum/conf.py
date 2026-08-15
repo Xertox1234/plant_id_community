@@ -87,6 +87,9 @@ DEFAULTS = {
     # because each row may resolve a thumbnail rendition.
     "RECENT_TOPICS_DEFAULT_LIMIT": 5,
     "RECENT_TOPICS_MAX_LIMIT": 20,
+    # users/experts/ ("Community experts" rail): row cap and minimum trust.
+    "EXPERTS_LIMIT": 4,
+    "EXPERTS_MIN_TRUST_LEVEL": 3,  # TrustLevel.REGULAR
 }
 
 

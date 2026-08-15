@@ -10,6 +10,7 @@ from .subscriptions import TopicSubscriptionView
 from .user_search import UserMentionSearchView
 from .views import (
     BoardListView,
+    ExpertsView,
     MeProfileView,
     MeStatsView,
     PostImageUploadView,
@@ -74,8 +75,10 @@ urlpatterns = [
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
     path("users/search/", UserMentionSearchView.as_view(), name="user-mention-search"),
-    # MUST come after users/search/ — the literal path wins over <str:username>
-    # so "search" isn't captured as a username (Django resolves in order).
+    # MUST come after users/search/ and users/experts/ — literal paths win over
+    # <str:username> so "search" and "experts" aren't captured as usernames
+    # (Django resolves in order).
+    path("users/experts/", ExpertsView.as_view(), name="users-experts"),
     path(
         "users/<str:username>/",
         PublicProfileView.as_view(),
