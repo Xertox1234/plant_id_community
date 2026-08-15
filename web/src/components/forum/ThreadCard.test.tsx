@@ -197,13 +197,13 @@ describe('ThreadCard', () => {
     expect(screen.getByText('🌱')).toBeInTheDocument();
   });
 
-  it('applies pinned background styling', () => {
+  it('renders the pinned chip with the tertiary tint (moved off the row background)', () => {
     const thread = createMockThread({ is_pinned: true });
 
     const { container } = renderThreadCard(thread);
 
-    const card = container.querySelector('[class*="bg-tertiary"]');
-    expect(card).toBeInTheDocument();
+    const chip = container.querySelector('[class*="text-tertiary"]');
+    expect(chip).toBeInTheDocument();
   });
 
   it('applies opacity for locked threads', () => {
@@ -220,7 +220,7 @@ describe('ThreadCard', () => {
 
     const { container } = renderThreadCard(thread, true);
 
-    const card = container.querySelector('.py-3');
+    const card = container.querySelector('[class*="p-3.5"]');
     expect(card).toBeInTheDocument();
   });
 
