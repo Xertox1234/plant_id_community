@@ -109,6 +109,41 @@ def test_recent_topics_orders_by_activity_across_boards():
 
 
 @pytest.mark.django_db
+def test_recent_topics_ties_break_by_id_descending():
+    """Two topics sharing the exact same last_post_at -> higher id wins.
+
+    Mirrors TopicListView's `-is_pinned, -last_post_at, -id` tie-break so the
+    rail and the board list can never order the same tied topics differently
+    (controller ruling on task-5 review concern #2/#5). `.update()` is used
+    to force the tie past Topic's own save()/auto_now-adjacent field-setting
+    machinery — a plain `Topic.objects.create(..., last_post_at=ts)` twice in
+    a row is not guaranteed to leave both rows with the bit-identical
+    timestamp Django reads back from the DB.
+    """
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    ts = timezone.now()
+
+    lower_id_topic = Topic.objects.create(
+        board=board, title="First", slug="first", author=author, live=True
+    )
+    higher_id_topic = Topic.objects.create(
+        board=board, title="Second", slug="second", author=author, live=True
+    )
+    Topic.objects.filter(pk__in=[lower_id_topic.pk, higher_id_topic.pk]).update(
+        last_post_at=ts
+    )
+    assert higher_id_topic.pk > lower_id_topic.pk  # sanity: creation order held
+
+    resp = APIClient().get("/forum/topics/recent/")
+    assert resp.status_code == 200
+    assert [r["id"] for r in resp.data["results"]] == [
+        higher_id_topic.id,
+        lower_id_topic.id,
+    ]
+
+
+@pytest.mark.django_db
 @override_settings(WAGTAILFORUM_RECENT_TOPICS_MAX_LIMIT=2)
 def test_recent_topics_limit_is_respected_and_capped():
     """?limit= is honored when under the cap, and clamped when over it."""

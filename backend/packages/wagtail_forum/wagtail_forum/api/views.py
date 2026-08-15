@@ -1736,7 +1736,7 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                 board__in=_visible_boards(), live=True, last_post_at__isnull=False
             )
             .select_related("board")
-            .order_by("-last_post_at")[:limit]
+            .order_by("-last_post_at", "-id")[:limit]
         )
         topic_ids = [t.pk for t in topics]
 
