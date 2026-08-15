@@ -55,4 +55,10 @@ test.describe('Canopy runtime tokens', () => {
       .evaluate((el) => getComputedStyle(el).fontFamily);
     expect(family).toContain('Bricolage Grotesque');
   });
+
+  test('light mode darkens accent tokens for text contrast', async ({ page }) => {
+    await setTheme(page, { mode: 'light' });
+    await expect(page.getByTestId('probe-leaf')).toHaveCSS('color', 'rgb(60, 107, 80)');
+    await expect(page.getByTestId('probe-sky')).toHaveCSS('color', 'rgb(107, 79, 160)');
+  });
 });

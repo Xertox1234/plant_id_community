@@ -122,6 +122,13 @@
   --gt-ink-2: #35594b;
   --gt-ink-3: #5e8271;
   --gt-secondary: color-mix(in oklab, var(--canopy-forest) 60%, var(--canopy-sage));
+  /* accents darkened for light surfaces (AA on --gt-surface-2) */
+  --gt-tertiary: #8a6011;
+  --gt-leaf: #3c6b50;
+  --gt-berry: #b0503a;
+  --gt-sky: #6b4fa0;
+  --gt-ok: #2f6b46;
+  --gt-warn: #8a6011;
   --gt-line: color-mix(in oklab, var(--canopy-sage) 38%, transparent);
   --gt-line-2: color-mix(in oklab, var(--canopy-sage) 62%, transparent);
   --gt-primary: var(--canopy-forest);
@@ -292,15 +299,17 @@
     position: relative;
     z-index: 1;
   }
-  /* rail hides itself when no page fills it (portal target is empty) */
-  .app-rail:not(:has(*)) {
-    display: none;
-  }
   .app-nav-active {
     background: var(--gt-grad-card);
     border: 1px solid var(--gt-line);
     color: var(--gt-ink);
   }
+}
+/* rail hides itself when no page fills it (portal target is empty) — unlayered:
+   author CSS outside @layer beats the utilities layer, so this still wins over
+   the rail's `xl:flex` Tailwind utility even though @layer components never does. */
+.app-rail:not(:has(*)) {
+  display: none;
 }
 @media (prefers-reduced-motion: no-preference) {
   .canopy-ground {
