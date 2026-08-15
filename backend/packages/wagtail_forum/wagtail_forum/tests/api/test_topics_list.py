@@ -81,6 +81,7 @@ def test_topics_list_last_post_author_is_unified_object():
         "display_name": "Rep Lier",
         "avatar": None,
         "trust_level": 0,
+        "title": "",
     }
 
 

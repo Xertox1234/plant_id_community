@@ -70,6 +70,7 @@ def test_revision_list_is_readable_by_the_author():
         "display_name": "rev-author",
         "avatar": None,
         "trust_level": None,
+        "title": "",
     }
 
 

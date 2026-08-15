@@ -117,6 +117,7 @@ AUTHOR_SCHEMA = {
         "display_name": {"type": "string"},
         "avatar": {"type": "string", "nullable": True},
         "trust_level": {"type": "integer", "nullable": True},
+        "title": {"type": "string"},
     },
 }
 
@@ -129,6 +130,7 @@ def _deleted_author():
         "display_name": "[deleted]",
         "avatar": None,
         "trust_level": None,
+        "title": "",
     }
 
 
@@ -164,6 +166,7 @@ def serialize_forum_author(user, request=None):
         "display_name": display_name,
         "avatar": avatar,
         "trust_level": profile.trust_level if profile else None,
+        "title": profile.title if profile else "",
     }
 
 
@@ -897,6 +900,7 @@ class MeProfileSerializer(serializers.ModelSerializer):
             "display_name",
             "bio",
             "signature",
+            "title",
             "trust_level",
             "post_count",
             "capabilities",
@@ -904,7 +908,7 @@ class MeProfileSerializer(serializers.ModelSerializer):
             "avatar",
             "avatar_id",
         ]
-        read_only_fields = ["trust_level", "post_count"]
+        read_only_fields = ["title", "trust_level", "post_count"]
 
     def update(self, instance, validated_data):
         from django.db import transaction

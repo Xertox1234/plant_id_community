@@ -35,6 +35,10 @@ class ForumProfile(models.Model):
     # forum_host/tasks.py to deliver push notifications. Nullable: a user
     # who has never registered a token (web-only) simply receives no pushes.
     fcm_token = models.CharField(max_length=255, blank=True, default="")
+    # Forum "user title" (cf. Discourse): a role label shown beside the name
+    # ("Head moderator", "Master gardener"). Admin-set only — deliberately NOT
+    # member-editable via MeProfileSerializer; it reads as an endorsement.
+    title = models.CharField(max_length=80, blank=True, default="")
     # System-computed (read-only to members).
     trust_level = models.PositiveSmallIntegerField(
         choices=TrustLevel.choices, default=TrustLevel.NEW
