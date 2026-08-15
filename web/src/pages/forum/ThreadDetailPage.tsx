@@ -273,7 +273,14 @@ export default function ThreadDetailPage() {
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     el.classList.add('canopy-flash');
     const timer = setTimeout(() => el.classList.remove('canopy-flash'), 2500);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      // The cleanup must also remove the class: an effect re-run inside the
+      // 2.5s window (posts growing) cancels the timer, and the early-return
+      // above never re-arms it — under reduced motion the static ring would
+      // otherwise persist forever.
+      el.classList.remove('canopy-flash');
+    };
   }, [loading, posts, location.hash, nextCursor, loadingMore, handleLoadMore]);
 
   // The just-posted highlight is one-shot: clear its marker on a timer (the
@@ -289,6 +296,9 @@ export default function ThreadDetailPage() {
   const [boardThreads, setBoardThreads] = useState<Thread[]>([]);
   const category = thread?.category;
   useEffect(() => {
+    // Reset before fetching: navigating to a thread on another board (or a
+    // fetch failure) must not leave the previous board's list in the rail.
+    setBoardThreads([]);
     if (!category?.slug) return;
     let ignore = false;
     fetchThreads({ board: category.slug })

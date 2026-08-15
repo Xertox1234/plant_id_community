@@ -200,6 +200,8 @@ export interface BlogPost {
   slug: string;
   title: string;
   introduction?: string;
+  /** List/popular endpoints send a trimmed `excerpt` instead of `introduction`. */
+  excerpt?: string;
   content_blocks: StreamFieldBlock[];
   featured_image?: BlogPostImage;
   publish_date?: string;

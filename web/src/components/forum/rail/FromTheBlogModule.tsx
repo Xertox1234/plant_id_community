@@ -44,9 +44,11 @@ export default function FromTheBlogModule() {
               <span className="text-[13px] font-medium text-ink transition-colors group-hover:text-primary">
                 {post.title}
               </span>
-              {post.introduction && (
+              {/* The popular endpoint sends `excerpt`, not the detail payload's
+                  `introduction` — gate on what this module's fetch actually returns. */}
+              {(post.excerpt ?? post.introduction) && (
                 <span className="mt-0.5 line-clamp-2 block text-[12px] text-ink-3">
-                  {post.introduction}
+                  {post.excerpt ?? post.introduction}
                 </span>
               )}
             </Link>

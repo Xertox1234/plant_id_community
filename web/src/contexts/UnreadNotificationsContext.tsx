@@ -41,11 +41,18 @@ export function UnreadNotificationsProvider({ children }: UnreadNotificationsPro
   // useRef for the timer id, not useState (CLAUDE.md gotcha: useState
   // re-renders + recreates the callback + leaks the timer on unmount).
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Monotonic request epoch: a response only lands if no logout (or newer
+  // request) happened after it started — otherwise a fetch in flight during
+  // logout repaints a phantom badge after the reset below.
+  const requestEpochRef = useRef(0);
 
   const refresh = useCallback(() => {
     if (!isAuthenticated) return;
+    const epoch = ++requestEpochRef.current;
     fetchUnreadCount()
-      .then(setUnreadCount)
+      .then((count) => {
+        if (epoch === requestEpochRef.current) setUnreadCount(count);
+      })
       .catch(() => {
         /* transient poll failure — next tick retries; nothing user-actionable */
       });
@@ -53,16 +60,28 @@ export function UnreadNotificationsProvider({ children }: UnreadNotificationsPro
 
   useEffect(() => {
     if (!isAuthenticated) {
+      // Invalidate any in-flight response BEFORE zeroing, or its .then would
+      // re-set the count after this reset.
+      requestEpochRef.current++;
       setUnreadCount(0);
       return;
     }
     refresh();
-    pollTimerRef.current = setInterval(refresh, UNREAD_POLL_INTERVAL_MS);
+    // Hidden tabs skip the fetch — no point polling a badge nobody can see;
+    // the visibility listener refreshes immediately on return instead.
+    pollTimerRef.current = setInterval(() => {
+      if (!document.hidden) refresh();
+    }, UNREAD_POLL_INTERVAL_MS);
+    const handleVisibilityChange = () => {
+      if (!document.hidden) refresh();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       if (pollTimerRef.current) {
         clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;
       }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isAuthenticated, refresh]);
 
