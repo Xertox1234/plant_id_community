@@ -1,15 +1,16 @@
 interface AvatarProps {
   src: string;
   alt: string;
-  size?: 'sm' | 'md';
+  size?: 'sm' | 'md' | 'lg';
   /** Green presence dot (e.g. "expert online"). */
   presence?: boolean;
   className?: string;
 }
 
-const SIZES: Record<'sm' | 'md', string> = {
+const SIZES: Record<'sm' | 'md' | 'lg', string> = {
   sm: 'h-[34px] w-[34px] rounded-[11px]',
   md: 'h-[38px] w-[38px] rounded-[12px]',
+  lg: 'h-20 w-20 rounded-[16px]',
 };
 
 export default function Avatar({

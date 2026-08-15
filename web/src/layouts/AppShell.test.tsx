@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider } from '../contexts/ThemeContext';
 import AppShell from './AppShell';
-import RailSlot from '../components/layout/RailSlot';
+import RailSlot, { RAIL_MEDIA_QUERY } from '../components/layout/RailSlot';
+import * as notificationService from '../services/notificationService';
 
 const mockAuth = {
   isAuthenticated: false,
@@ -12,6 +13,11 @@ const mockAuth = {
   logout: vi.fn(),
 };
 vi.mock('../contexts/AuthContext', () => ({ useAuth: () => mockAuth }));
+vi.mock('../services/notificationService', () => ({
+  fetchUnreadCount: vi.fn(),
+  fetchNotifications: vi.fn(),
+  markNotificationsRead: vi.fn(),
+}));
 vi.mock('../components/layout/NotificationBell', () => ({
   default: () => <div data-testid="notification-bell" />,
 }));
@@ -33,6 +39,13 @@ beforeEach(() => {
   mockAuth.logout = vi.fn();
   localStorage.clear();
   delete document.documentElement.dataset.mode;
+  vi.mocked(notificationService.fetchUnreadCount).mockResolvedValue(0);
+  vi.mocked(notificationService.fetchNotifications).mockResolvedValue({
+    results: [],
+    next: null,
+    previous: null,
+  });
+  vi.mocked(notificationService.markNotificationsRead).mockResolvedValue(0);
 });
 
 describe('AppShell', () => {
@@ -50,14 +63,43 @@ describe('AppShell', () => {
     expect(screen.getByRole('link', { name: /log in/i })).toBeInTheDocument();
   });
   it('RailSlot portals page content into the rail', () => {
+    // RailSlot mounts its children only when the xl rail query matches — the
+    // global setup.ts polyfill always reports false, so stub matchMedia
+    // (defined writable there) for the wide-viewport behavior, then restore.
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === RAIL_MEDIA_QUERY,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    try {
+      renderShell(
+        <RailSlot>
+          <p>rail content</p>
+        </RailSlot>
+      );
+      const rail = document.getElementById('app-rail');
+      expect(rail).not.toBeNull();
+      expect(rail).toHaveTextContent('rail content');
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('RailSlot mounts nothing below the xl breakpoint', () => {
+    // Default polyfill: every query reports false → the hidden rail's
+    // children (and their data fetches) must not mount at all.
     renderShell(
       <RailSlot>
         <p>rail content</p>
       </RailSlot>
     );
-    const rail = document.getElementById('app-rail');
-    expect(rail).not.toBeNull();
-    expect(rail).toHaveTextContent('rail content');
+    expect(document.getElementById('app-rail')).not.toHaveTextContent('rail content');
   });
 
   it('drawer opens and closes', async () => {
@@ -147,5 +189,14 @@ describe('AppShell', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Close menu' }));
     expect(document.body.style.overflow).toBe('');
+  });
+
+  it('shows the unread count badge on the Forum nav item', async () => {
+    mockAuth.isAuthenticated = true;
+    vi.mocked(notificationService.fetchUnreadCount).mockResolvedValue(3);
+    renderShell();
+    const forumLinks = await screen.findAllByRole('link', { name: /Forum/ });
+    expect(forumLinks.length).toBeGreaterThan(0);
+    expect(within(forumLinks[0]).getByText('3')).toBeInTheDocument();
   });
 });

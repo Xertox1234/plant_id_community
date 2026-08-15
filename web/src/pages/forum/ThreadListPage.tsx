@@ -1,15 +1,31 @@
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
 import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
+import { Info, Leaf } from 'lucide-react';
 import { fetchThreads, fetchCategory } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
+import { boardTone } from '../../utils/forumTones';
 import ThreadCard from '../../components/forum/ThreadCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
+import ButtonLink from '../../components/ui/ButtonLink';
+import Chip from '../../components/ui/Chip';
+import Tile from '../../components/ui/Tile';
+import RailSlot from '../../components/layout/RailSlot';
+import RailModule from '../../components/ui/RailModule';
+import FromTheBlogModule from '../../components/forum/rail/FromTheBlogModule';
 import PageMeta from '../../components/PageMeta';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
 import type { Thread, Category } from '@/types';
+
+const SORT_OPTIONS = [
+  { value: '-last_activity_at', label: 'Active' },
+  { value: '-created_at', label: 'Newest' },
+  { value: 'created_at', label: 'Oldest' },
+  { value: '-view_count', label: 'Most viewed' },
+  { value: '-post_count', label: 'Most replies' },
+] as const;
 
 /**
  * ThreadListPage Component
@@ -129,10 +145,9 @@ export default function ThreadListPage() {
     [navigate]
   );
 
-  // Handle ordering change (URL/UI only)
+  // Handle ordering change (URL/UI only) — chips call this with the sort value.
   const handleOrderChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const newOrder = e.target.value;
+    (newOrder: string) => {
       setSearchParams((prev) => {
         const newParams = new URLSearchParams(prev);
         newParams.set('order', newOrder);
@@ -198,7 +213,7 @@ export default function ThreadListPage() {
 
   if (loading && !category) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <LoadingSpinner />
       </div>
     );
@@ -206,26 +221,27 @@ export default function ThreadListPage() {
 
   if (error && !category) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <ForumErrorState message={error} onRetry={() => setReloadKey((k) => k + 1)} />
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <PageMeta
-        title={`${category?.name ?? 'Forum'} · PlantID`}
+        title={`${category?.name ?? 'Forum'} · Houseplant MD`}
         description={
           category?.description || `Browse discussions in ${category?.name ?? 'the forum'}.`
         }
       />
-      {/* Breadcrumb — collection path, in the ledger's mono voice */}
-      <nav className="wf-label mb-8" aria-label="Breadcrumb">
+
+      {/* Breadcrumb — mono data voice */}
+      <nav className="gt-label mb-6" aria-label="Breadcrumb">
         <ol className="flex items-center gap-2">
           <li>
-            <Link to="/forum" viewTransition className="hover:text-primary">
-              Forums
+            <Link to="/forum" viewTransition className="transition-colors hover:text-primary">
+              Forum
             </Link>
           </li>
           <li aria-hidden="true">/</li>
@@ -235,102 +251,105 @@ export default function ThreadListPage() {
         </ol>
       </nav>
 
-      {/* Category Header */}
-      <div className="mb-8">
-        <p className="wf-label mb-2">
-          Board
-          {category?.thread_count != null && <> · {category.thread_count} topics</>}
-        </p>
-        <div className="flex items-baseline gap-3 mb-2">
-          {category?.icon && (
-            <span className="text-3xl" aria-hidden="true">
-              {category.icon}
-            </span>
-          )}
-          <h1 className="wf-title text-3xl sm:text-4xl text-ink">{category?.name}</h1>
-        </div>
-
-        {category?.description && (
-          <p className="text-ink-2 max-w-prose leading-relaxed">{category.description}</p>
+      {/* Board header */}
+      <div className="mb-6 flex items-start gap-4">
+        {category && (
+          <Tile tone={boardTone(category.slug)} aria-hidden="true">
+            {category.icon ? (
+              <span className="text-xl leading-none">{category.icon}</span>
+            ) : (
+              <Leaf className="h-5 w-5" />
+            )}
+          </Tile>
         )}
+        <div className="min-w-0 flex-1">
+          <h1 className="gt-h1 text-ink">{category?.name}</h1>
+          {category?.description && (
+            <p className="mt-1.5 max-w-prose leading-relaxed text-ink-2">{category.description}</p>
+          )}
+          {category?.thread_count != null && (
+            <p className="gt-label mt-2">{category.thread_count} threads</p>
+          )}
+        </div>
       </div>
 
-      {/* Toolbar */}
-      <div className="mb-6 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
-        {/* Search */}
-        <form onSubmit={handleSearch} className="flex-1 max-w-md">
-          <div className="flex gap-2">
-            <input
-              type="search"
-              name="search"
-              placeholder="Search this board…"
-              aria-label="Search this board"
-              className="flex-1 px-4 py-2 border border-line-2 rounded-xs focus:ring-2 focus:ring-primary focus:border-transparent bg-surface-2 text-ink placeholder:text-ink-3"
-            />
-            <Button type="submit" variant="primary">
-              Search
-            </Button>
-          </div>
-        </form>
+      {/* Toolbar: search, sort chips, new thread */}
+      <div className="mb-6 flex flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <form onSubmit={handleSearch} className="max-w-md flex-1">
+            <div className="flex gap-2">
+              <label htmlFor="board-search" className="sr-only">
+                Search this board
+              </label>
+              <input
+                id="board-search"
+                type="search"
+                name="search"
+                placeholder="Search this board…"
+                className="min-h-11 flex-1 rounded-pill border border-line bg-surface-2/60 px-4 py-2 text-[13.5px] text-ink transition-colors placeholder:text-ink-3 focus:border-transparent focus:ring-2 focus:ring-secondary focus:outline-none"
+              />
+              <Button type="submit" variant="secondary">
+                Search
+              </Button>
+            </div>
+          </form>
+          <ButtonLink to={`/forum/new-thread?category=${categorySlug}`} variant="primary">
+            + New Thread
+          </ButtonLink>
+        </div>
 
-        {/* Sort & New Thread Button */}
-        <div className="flex gap-2">
-          <select
-            value={ordering}
-            onChange={handleOrderChange}
-            className="min-h-11 px-4 py-2 border border-line-2 rounded-xs focus:ring-2 focus:ring-primary bg-surface-2 text-ink"
-          >
-            <option value="-last_activity_at">Recent Activity</option>
-            <option value="-created_at">Newest First</option>
-            <option value="created_at">Oldest First</option>
-            <option value="-view_count">Most Viewed</option>
-            <option value="-post_count">Most Replies</option>
-          </select>
-
-          <Link to={`/forum/new-thread?category=${categorySlug}`}>
-            <Button variant="primary">+ New Thread</Button>
-          </Link>
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Sort threads">
+          {SORT_OPTIONS.map((opt) => (
+            <Chip
+              key={opt.value}
+              active={ordering === opt.value}
+              onClick={() => handleOrderChange(opt.value)}
+              className="min-h-11"
+            >
+              {opt.label}
+            </Chip>
+          ))}
         </div>
       </div>
 
       {/* Active tag filter (audit M5) — always visible while filtering, so an
-          empty result reads as "this filter matched nothing" rather than "this
-          board is empty". */}
+          empty result reads as "this filter matched nothing" rather than
+          "this board is empty". */}
       {activeTag && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xs border border-line bg-surface-2 px-4 py-3">
-          <span className="wf-label">Filtered by tag</span>
-          <span className="wf-label rounded-full border border-primary/50 bg-primary/10 px-3 py-1 text-primary">
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface-2/60 px-4 py-3">
+          <span className="gt-label">Filtered by tag</span>
+          <span className="gt-label rounded-pill border border-secondary/60 bg-secondary/15 px-3 py-1 text-ink">
             #{activeTag}
           </span>
           <button
             type="button"
             onClick={clearTagFilter}
-            className="min-h-11 rounded-xs px-3 text-sm text-ink-3 hover:bg-surface-3"
+            className="min-h-11 rounded-pill px-3 text-sm text-ink-3 transition-colors hover:bg-surface-2"
           >
             Clear filter
           </button>
         </div>
       )}
 
-      {/* Threads List */}
+      {/* Threads */}
       {loading ? (
         <LoadingSpinner />
       ) : threads.length === 0 ? (
-        <div className="text-center py-12 text-ink-3">
+        <div className="py-12 text-center text-ink-3">
           {activeTag ? (
             <>
               <p className="text-lg">No threads tagged #{activeTag}.</p>
-              <p className="text-sm mt-2">Clear the filter to see the whole board.</p>
+              <p className="mt-2 text-sm">Clear the filter to see the whole board.</p>
             </>
           ) : (
             <>
               <p className="text-lg">No threads found.</p>
-              <p className="text-sm mt-2">Be the first to start a discussion!</p>
+              <p className="mt-2 text-sm">Be the first to start a discussion!</p>
             </>
           )}
         </div>
       ) : (
-        <div className="wf-ledger">
+        <div className="flex flex-col gap-3">
           {threads.map((thread) => (
             <ThreadCard
               key={thread.id}
@@ -342,12 +361,8 @@ export default function ThreadListPage() {
         </div>
       )}
 
-      {/* Load More (cursor pagination). Honest remaining count from the board's
-          topic_count when known; a bare label otherwise, never a fake "0 left"
-          (audit M30 — the service used to hardcode meta.count to 0). The count is
-          suppressed entirely while a tag filter is active: thread_count is the
-          board's UNFILTERED total, so "380 remaining" on a 25-result filter would
-          be exactly the dishonest number M30 removed. */}
+      {/* Load More (cursor pagination) — honest remaining count (audit M30);
+          suppressed while a tag filter is active (thread_count is unfiltered). */}
       {nextCursor && !loading && (
         <div className="mt-8 text-center">
           <Button
@@ -367,6 +382,18 @@ export default function ThreadListPage() {
           </Button>
         </div>
       )}
+
+      <RailSlot>
+        {category?.description && (
+          <RailModule icon={<Info aria-hidden="true" />} title="About this board">
+            <p className="text-[13px] leading-relaxed text-ink-2">{category.description}</p>
+            {category.thread_count != null && (
+              <p className="gt-label">{category.thread_count} threads</p>
+            )}
+          </RailModule>
+        )}
+        <FromTheBlogModule />
+      </RailSlot>
     </div>
   );
 }

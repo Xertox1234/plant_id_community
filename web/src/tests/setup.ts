@@ -23,19 +23,25 @@ afterEach(() => {
   cleanup();
 });
 
-// Mock window.matchMedia (not available in jsdom)
+// Mock window.matchMedia (not available in jsdom). A plain function, NOT a
+// vi.fn(): the config's `mockReset: true` wipes every mock's implementation
+// before each test, so a vi.fn polyfill returns undefined from the second
+// test on and crashes anything that reads `.matches` (useMediaQuery).
+// Always reports false — tests that need a matching query (e.g. the rail's
+// xl breakpoint) install their own stub and restore this one after.
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
-  value: vi.fn().mockImplementation((query) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(), // Deprecated
-    removeListener: vi.fn(), // Deprecated
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
+  value: (query: string) =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {}, // Deprecated
+      removeListener: () => {}, // Deprecated
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as unknown as MediaQueryList,
 });
 
 // Mock IntersectionObserver (not available in jsdom)
@@ -67,17 +73,21 @@ window.scrollTo = vi.fn();
 // Mock HTMLElement.prototype.scrollIntoView
 HTMLElement.prototype.scrollIntoView = vi.fn();
 
-// Mock navigator.share (for share button tests)
+// Mock navigator.share (for share button tests). Plain functions, not
+// vi.fn().mockResolvedValue: `mockReset: true` wipes configured resolutions
+// before every test, so the vi.fn version silently returned undefined
+// instead of a promise (same landmine as matchMedia above). Tests that
+// assert on calls install their own spy and restore after.
 if (!navigator.share) {
-  navigator.share = vi.fn().mockResolvedValue(undefined);
+  navigator.share = () => Promise.resolve();
 }
 
-// Mock navigator.clipboard (for copy functionality tests)
+// Mock navigator.clipboard (for copy functionality tests) — same rule.
 if (!navigator.clipboard) {
   Object.defineProperty(navigator, 'clipboard', {
     value: {
-      writeText: vi.fn().mockResolvedValue(undefined),
-      readText: vi.fn().mockResolvedValue(''),
+      writeText: () => Promise.resolve(),
+      readText: () => Promise.resolve(''),
     },
     writable: true,
   });

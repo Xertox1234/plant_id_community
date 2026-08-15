@@ -22,7 +22,7 @@ function HtmlProbe() {
       <div data-testid="probe-secondary" className="bg-secondary">
         secondary
       </div>
-      <div data-testid="probe-tertiary" className="bg-tertiary">
+      <div data-testid="probe-tertiary" className="bg-tertiary text-abyss">
         tertiary
       </div>
       <p data-testid="probe-ink" className="text-ink">
@@ -72,7 +72,10 @@ function Swatches() {
       <div className="flex gap-1">
         <span className="rounded-sm bg-clay px-2 text-on-clay">clay</span>
         <span className="rounded-sm bg-primary px-2 text-on-primary">moss</span>
-        <span className="rounded-sm bg-tertiary px-2">honey</span>
+        {/* DEV-ONLY probe: shipped UI never sets body text on a solid accent ground
+            (accents are chrome, not text grounds) — pair with text-abyss so the
+            probe itself stays legible in both modes. */}
+        <span className="rounded-sm bg-tertiary px-2 text-abyss">pollen</span>
       </div>
       <div className="flex gap-1 text-xs">
         <span className="text-leaf">leaf</span>

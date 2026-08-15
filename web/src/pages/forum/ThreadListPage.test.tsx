@@ -6,6 +6,7 @@ import * as ReactRouter from 'react-router-dom';
 import ThreadListPage from './ThreadListPage';
 import { createMockCategory, createMockThread } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
+import * as blogService from '../../services/blogService';
 
 const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }));
 
@@ -20,6 +21,12 @@ vi.mock('react-router-dom', async () => {
 
 // Mock the forumService
 vi.mock('../../services/forumService');
+
+// Defensive mock for FromTheBlogModule's rail fetch. RailSlot portals into
+// `#app-rail`, which doesn't exist in jsdom for this suite — so the module
+// never actually mounts and this fetch is never called — but the mock guards
+// against a real network call if that changes.
+vi.mock('../../services/blogService');
 
 /**
  * Helper to render ThreadListPage with Router and URL params
@@ -40,6 +47,10 @@ describe('ThreadListPage', () => {
     vi.mocked(ReactRouter.useParams).mockReturnValue({
       categorySlug: '3-plant-care',
     });
+    // Set fresh each test (not chained at module scope): vitest.config.ts's
+    // global `mockReset: true` wipes any factory-chained mock value before
+    // every test.
+    vi.mocked(blogService.fetchPopularPosts).mockResolvedValue([]);
   });
 
   it('shows loading spinner while fetching data', () => {
@@ -168,7 +179,7 @@ describe('ThreadListPage', () => {
     expect(screen.getByText(/Be the first to start a discussion!/i)).toBeInTheDocument();
   });
 
-  it('renders breadcrumb navigation with Forums link', async () => {
+  it('renders breadcrumb navigation with Forum link', async () => {
     const mockCategory = createMockCategory({
       slug: 'plant-care',
       name: 'Plant Care',
@@ -188,7 +199,7 @@ describe('ThreadListPage', () => {
     });
 
     const breadcrumb = screen.getByLabelText('Breadcrumb');
-    expect(breadcrumb).toHaveTextContent('Forums');
+    expect(breadcrumb).toHaveTextContent('Forum');
     expect(breadcrumb).toHaveTextContent('Plant Care');
   });
 
@@ -218,7 +229,7 @@ describe('ThreadListPage', () => {
     });
   });
 
-  it('re-fetches threads with the new sort when the dropdown changes', async () => {
+  it('re-fetches threads with the new sort when a sort chip is clicked', async () => {
     const mockCategory = createMockCategory({ slug: 'plant-care' });
 
     vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
@@ -229,11 +240,15 @@ describe('ThreadListPage', () => {
 
     renderThreadListPage();
 
+    // Default sort ("Active" = -last_activity_at) is reflected as the pressed chip.
     await waitFor(() => {
-      expect(screen.getByDisplayValue('Recent Activity')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Active' })).toHaveAttribute(
+        'aria-pressed',
+        'true'
+      );
     });
 
-    await userEvent.selectOptions(screen.getByDisplayValue('Recent Activity'), 'Most Viewed');
+    await userEvent.click(screen.getByRole('button', { name: 'Most viewed' }));
 
     // Changing the sort provably changes the outgoing request (not just the URL).
     await waitFor(() => {
@@ -242,6 +257,12 @@ describe('ThreadListPage', () => {
         sort: '-view_count',
       });
     });
+
+    expect(screen.getByRole('button', { name: 'Most viewed' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'Active' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('shows Load More button when meta.next is present', async () => {

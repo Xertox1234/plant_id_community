@@ -1,13 +1,15 @@
 import { memo, useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Check, Flag, Link2, Pencil, Trash2 } from 'lucide-react';
 import StreamFieldRenderer from '../StreamFieldRenderer';
 import EditHistoryDialog from './EditHistoryDialog';
 import Timestamp from '../ui/Timestamp';
+import Card from '../ui/Card';
+import Avatar from '../ui/Avatar';
 import { userProfilePath } from '../../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME, TRUST_LEVEL_LABELS } from '../../utils/forumAuthor';
 import { REACTION_TYPES } from '../../utils/forumReactions';
 import { specimenAvatar } from '../../utils/forumAvatars';
-import { IconCheck, IconFlag, IconLink, IconPencil, IconTrash } from './ForumIcons';
 import type { Post } from '@/types';
 
 interface PostCardProps {
@@ -48,11 +50,11 @@ function getReactionEmoji(type: string): string {
 }
 
 /**
- * PostCard Component — a Field Notes specimen sheet.
+ * PostCard Component — a Canopy gradient card.
  *
  * Displays a single post in a thread: author info, content, reactions, and
- * edit/delete options. The accepted answer is "mounted" with paper-tape
- * corners (`.wf-taped`, applied here alongside the border tint).
+ * edit/delete options. The accepted answer is marked with a secondary ring
+ * (applied alongside the border tint) plus a text label — never colour alone.
  */
 function PostCard({
   post,
@@ -122,18 +124,15 @@ function PostCard({
   };
 
   return (
-    <div
-      className={`
-        group wf-sheet p-5 sm:p-6
-        ${isSolution ? 'wf-taped border-secondary' : ''}
-      `}
+    <Card
+      className={`group p-5 sm:p-6 ${isSolution ? 'border-secondary/60 ring-1 ring-secondary/40' : ''}`}
     >
       {/* Accepted-answer banner (audit H6). A visible label, not colour alone —
-          the tape corners carry no meaning for a colour-blind reader and none
-          at all for a screen reader. */}
+          the ring carries no meaning for a colour-blind reader and none at
+          all for a screen reader. */}
       {isSolution && (
-        <p className="wf-label mb-4 inline-flex items-center gap-1.5 text-primary">
-          <IconCheck size={12} /> Accepted answer
+        <p className="gt-label mb-4 inline-flex items-center gap-1.5 text-secondary">
+          <Check className="h-3.5 w-3.5" aria-hidden="true" /> Accepted answer
         </p>
       )}
 
@@ -141,24 +140,13 @@ function PostCard({
       <div className="flex items-start justify-between flex-wrap gap-2 mb-4">
         {/* Author Info */}
         <div className="flex items-center gap-3">
-          {/* Square mount, not a circle — the avatar reads as a specimen photo. */}
-          <div className="w-12 h-12 bg-primary/10 border border-line rounded-xs flex items-center justify-center overflow-hidden">
-            {post.author.avatar ? (
-              <img
-                src={post.author.avatar}
-                alt={`${post.author.display_name || post.author.username} avatar`}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              /* Decorative specimen engraving (alt="") — the author's name sits
-                 right beside it, so announcing the image would only repeat it. */
-              <img
-                src={specimenAvatar(post.author.username)}
-                alt=""
-                className="w-full h-full object-cover"
-              />
-            )}
-          </div>
+          {/* Decorative (alt="") — the author's name sits right beside it, so
+              announcing the image would only repeat it. */}
+          <Avatar
+            src={post.author.avatar || specimenAvatar(post.author.username)}
+            alt=""
+            size="md"
+          />
 
           <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -176,20 +164,20 @@ function PostCard({
               )}
 
               {typeof post.author.trust_level === 'number' && post.author.trust_level >= 1 && (
-                <span className="wf-label rounded-full border border-sky/40 px-2 py-0.5 text-sky">
+                <span className="gt-label rounded-full border border-sky/40 px-2 py-0.5 text-sky">
                   {TRUST_LEVEL_LABELS[post.author.trust_level] ??
                     `Level ${post.author.trust_level}`}
                 </span>
               )}
 
               {post.is_first_post && (
-                <span className="wf-label rounded-full border border-primary/40 px-2 py-0.5 text-primary">
+                <span className="gt-label rounded-full border border-primary/40 px-2 py-0.5 text-primary">
                   Original Post
                 </span>
               )}
             </div>
 
-            <div className="wf-label mt-0.5 normal-case tracking-normal">
+            <div className="gt-label mt-0.5 normal-case tracking-normal">
               <Timestamp iso={post.created_at} prefix="Posted" />
 
               {post.edited_at && (
@@ -221,48 +209,49 @@ function PostCard({
         <div className="flex gap-1 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
           <button
             onClick={handleCopyLink}
-            className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-3 rounded-xs inline-flex items-center gap-1.5"
+            className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-3 rounded-pill inline-flex items-center gap-1.5"
             title="Copy link to this post"
             aria-label="Copy link to this post"
           >
             {copiedLink ? (
               <>
-                <IconCheck size={13} /> Copied
+                <Check className="h-3.5 w-3.5" aria-hidden="true" /> Copied
               </>
             ) : (
               <>
-                <IconLink size={13} /> Copy link
+                <Link2 className="h-3.5 w-3.5" aria-hidden="true" /> Copy link
               </>
             )}
           </button>
           {onToggleSolution && (
             <button
               onClick={() => onToggleSolution(post)}
-              className="min-h-11 px-3 py-1 text-sm text-ink-2 hover:bg-secondary/10 rounded-xs inline-flex items-center gap-1.5"
+              className="min-h-11 px-3 py-1 text-sm text-ink-2 hover:bg-secondary/10 rounded-pill inline-flex items-center gap-1.5"
               // aria-pressed makes this a toggle to assistive tech, so the
               // current state is announced rather than inferred from the label.
               aria-pressed={isSolution}
               title={isSolution ? 'Remove the accepted answer' : 'Mark this reply as the answer'}
             >
-              <IconCheck size={13} /> {isSolution ? 'Accepted' : 'Mark as answer'}
+              <Check className="h-3.5 w-3.5" aria-hidden="true" />{' '}
+              {isSolution ? 'Accepted' : 'Mark as answer'}
             </button>
           )}
           {showEdit && (
             <button
               onClick={() => onEdit!(post)}
-              className="min-h-11 px-3 py-1 text-sm text-sky hover:bg-sky/10 rounded-xs inline-flex items-center gap-1.5"
+              className="min-h-11 px-3 py-1 text-sm text-sky hover:bg-sky/10 rounded-pill inline-flex items-center gap-1.5"
               title="Edit post"
             >
-              <IconPencil size={13} /> Edit
+              <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> Edit
             </button>
           )}
           {showDelete && (
             <button
               onClick={() => onDelete!(post)}
-              className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded-xs inline-flex items-center gap-1.5"
+              className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded-pill inline-flex items-center gap-1.5"
               title="Delete post"
             >
-              <IconTrash size={13} /> Delete
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> Delete
             </button>
           )}
         </div>
@@ -280,7 +269,7 @@ function PostCard({
             readOnly
             value={copyFallbackUrl}
             onFocus={(e) => e.currentTarget.select()}
-            className="w-full rounded-xs border border-line-2 bg-surface px-3 py-2 text-sm text-ink"
+            className="w-full rounded-sm border border-line-2 bg-surface px-3 py-2 text-sm text-ink"
           />
         </div>
       )}
@@ -306,7 +295,7 @@ function PostCard({
                 aria-pressed={onReact ? isReacted : undefined}
                 className={`inline-flex items-center gap-1.5 min-h-11 px-3 py-1 rounded-full border text-sm transition-colors disabled:cursor-default ${
                   isReacted
-                    ? 'border-primary/50 bg-primary/10 text-primary'
+                    ? 'border-secondary/60 bg-secondary/15 text-ink'
                     : 'border-line bg-transparent hover:border-line-2 hover:bg-surface-3 disabled:hover:bg-transparent'
                 }`}
                 aria-label={onReact ? `React ${type}` : `${post.reaction_counts?.[type]} ${type}`}
@@ -356,7 +345,7 @@ function PostCard({
       {showReport && (
         <div className="flex justify-end pt-3 border-t border-line">
           {hasReported ? (
-            <span className="wf-label italic">Reported</span>
+            <span className="gt-label italic">Reported</span>
           ) : isReporting ? (
             <div className="flex items-center gap-2">
               <label htmlFor={`report-reason-${post.id}`} className="sr-only">
@@ -366,7 +355,7 @@ function PostCard({
                 id={`report-reason-${post.id}`}
                 value={reportReason}
                 onChange={(e) => setReportReason(e.target.value)}
-                className="text-sm border border-line rounded-xs px-2 py-1 bg-surface"
+                className="text-sm border border-line rounded-sm px-2 py-1 bg-surface"
               >
                 {REPORT_REASONS.map((r) => (
                   <option key={r.value} value={r.value}>
@@ -378,7 +367,7 @@ function PostCard({
                 type="button"
                 onClick={submitReport}
                 disabled={isSubmittingReport}
-                className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded-xs disabled:opacity-50"
+                className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded-pill disabled:opacity-50"
               >
                 Submit
               </button>
@@ -386,7 +375,7 @@ function PostCard({
                 type="button"
                 onClick={() => setIsReporting(false)}
                 disabled={isSubmittingReport}
-                className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-2 rounded-xs disabled:opacity-50"
+                className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-2 rounded-pill disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -395,17 +384,17 @@ function PostCard({
             <button
               type="button"
               onClick={() => setIsReporting(true)}
-              className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:text-error hover:bg-error/10 rounded-xs inline-flex items-center gap-1.5"
+              className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:text-error hover:bg-error/10 rounded-pill inline-flex items-center gap-1.5"
               title="Report post"
             >
-              <IconFlag size={13} /> Report
+              <Flag className="h-3.5 w-3.5" aria-hidden="true" /> Report
             </button>
           )}
         </div>
       )}
 
       <EditHistoryDialog open={showHistory} postId={post.id} onClose={closeHistory} />
-    </div>
+    </Card>
   );
 }
 

@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
+import { Bell, BellOff, Eye, Lock, MessagesSquare, Pin, Reply, Users } from 'lucide-react';
 import {
   fetchThread,
+  fetchThreads,
   fetchPosts,
   createPost,
   updatePost,
@@ -13,10 +15,11 @@ import {
   markSolution,
   clearSolution,
 } from '../../services/forumService';
-import { parseLeadingId, userProfilePath } from '../../utils/forumUrls';
+import { parseLeadingId, userProfilePath, threadPath } from '../../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME } from '../../utils/forumAuthor';
 import { bodyBlocksToHtml } from '../../utils/forumBody';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
+import { specimenAvatar } from '../../utils/forumAvatars';
 import PostCard from '../../components/forum/PostCard';
 import IdentificationCard from '../../components/forum/IdentificationCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
@@ -24,19 +27,17 @@ import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import Avatar from '../../components/ui/Avatar';
+import Timestamp from '../../components/ui/Timestamp';
+import RailSlot, { RAIL_MEDIA_QUERY } from '../../components/layout/RailSlot';
+import RailModule from '../../components/ui/RailModule';
+import FromTheBlogModule from '../../components/forum/rail/FromTheBlogModule';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { logger } from '../../utils/logger';
 import PageMeta from '../../components/PageMeta';
-import {
-  IconBell,
-  IconBellOff,
-  IconEye,
-  IconLock,
-  IconPin,
-  IconReply,
-} from '../../components/forum/ForumIcons';
 import type { Thread, Post } from '@/types';
 import type { PaginatedResponse } from '@/types/forum';
 
@@ -71,6 +72,14 @@ async function collectAllPosts(threadId: number): Promise<{ items: Post[]; next:
   }
   return { items, next };
 }
+
+// Deep-link / just-posted highlight duration — must outlast the CSS
+// canopy-flash-fade animation (2.4s).
+const CANOPY_FLASH_MS = 2500;
+
+// The board rail shows at most this many other topics (sibling precedent:
+// FromTheBlogModule's RAIL_POST_LIMIT).
+const RAIL_BOARD_TOPICS_LIMIT = 5;
 
 /**
  * ThreadDetailPage Component
@@ -121,8 +130,8 @@ export default function ThreadDetailPage() {
   const [pendingDelete, setPendingDelete] = useState<Post | null>(null);
   // A post the user asked to edit while another edit has unsaved changes (M27).
   const [pendingEditSwitch, setPendingEditSwitch] = useState<Post | null>(null);
-  // The reply just posted by THIS user, for the one-shot "pressed into the
-  // page" landing animation (Field Notes signature). Purely visual state.
+  // The reply just posted by THIS user, marked for the one-shot canopy-flash
+  // highlight. Purely visual state; cleared by a 2.5s timer.
   const [justPostedId, setJustPostedId] = useState<string | null>(null);
 
   // Tracks the topic currently on screen. handleToggleSubscription reads this
@@ -139,6 +148,9 @@ export default function ThreadDetailPage() {
   // `posts` change (the chase needs that), so without this it would re-scroll
   // to the anchor on each reply/Load-More while the hash lingers in the URL.
   const scrolledHashRef = useRef<string | null>(null);
+  // End of the current deep-link flash window (epoch ms) — lets an effect
+  // re-run inside the window re-arm the highlight for the remaining time.
+  const flashUntilRef = useRef(0);
 
   // Load thread and initial posts
   useEffect(() => {
@@ -149,6 +161,7 @@ export default function ThreadDetailPage() {
     // A new thread starts a fresh deep-link chase and a fresh scroll target.
     chaseCursorRef.current = null;
     scrolledHashRef.current = null;
+    flashUntilRef.current = 0;
     // Restore this topic's reply draft (per-topic key); remount the composer
     // so TipTap's init-only content picks it up.
     setReplyBody(topicId != null ? (loadDraft(draftKey('reply', String(topicId))) ?? '') : '');
@@ -268,13 +281,62 @@ export default function ThreadDetailPage() {
     }
     // Scroll to a given anchor only once — not again on later posts changes
     // (a reply, a Load More) while the same hash sits in the URL.
-    if (scrolledHashRef.current === location.hash) return;
-    scrolledHashRef.current = location.hash;
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    el.classList.add('wf-anchor-flash');
-    const timer = setTimeout(() => el.classList.remove('wf-anchor-flash'), 2500);
-    return () => clearTimeout(timer);
+    if (scrolledHashRef.current !== location.hash) {
+      scrolledHashRef.current = location.hash;
+      flashUntilRef.current = Date.now() + CANOPY_FLASH_MS;
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    // (Re-)arm the highlight for whatever remains of the flash window. The
+    // cleanup strips the class on every re-run (posts growing, a Load More
+    // click), so without this re-add a mid-window commit would kill the ring
+    // permanently and the user never sees which post they were sent to.
+    const remaining = flashUntilRef.current - Date.now();
+    if (remaining <= 0) return;
+    el.classList.add('canopy-flash');
+    const timer = setTimeout(() => el.classList.remove('canopy-flash'), remaining);
+    return () => {
+      clearTimeout(timer);
+      // The cleanup must also remove the class: a re-run inside the window
+      // cancels the timer, and under reduced motion the static ring would
+      // otherwise persist forever if nothing re-armed it.
+      el.classList.remove('canopy-flash');
+    };
   }, [loading, posts, location.hash, nextCursor, loadingMore, handleLoadMore]);
+
+  // The just-posted highlight is one-shot: clear its marker on a timer (the
+  // reduced-motion rendering is a static ring, so animationend never fires).
+  useEffect(() => {
+    if (justPostedId == null) return;
+    const timer = setTimeout(() => setJustPostedId(null), CANOPY_FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [justPostedId]);
+
+  // Rail: other recent topics on this board. Best-effort — a failure just
+  // leaves the module unrendered; never blocks the thread itself. One board =
+  // one fetch: the raw page is cached per board slug and filtered at render,
+  // so same-board thread navs reuse it (its counts may lag until the board
+  // changes). Below the xl breakpoint the rail is display:none, so the fetch
+  // is skipped outright rather than paid for content nobody can see.
+  const [boardThreads, setBoardThreads] = useState<Thread[]>([]);
+  const railVisible = useMediaQuery(RAIL_MEDIA_QUERY);
+  const boardSlug = thread?.category?.slug;
+  useEffect(() => {
+    // Reset before fetching: navigating to a thread on another board (or a
+    // fetch failure) must not leave the previous board's list in the rail.
+    setBoardThreads([]);
+    if (!railVisible || !boardSlug) return;
+    let ignore = false;
+    fetchThreads({ board: boardSlug })
+      .then((data) => {
+        if (!ignore) setBoardThreads(data.items);
+      })
+      .catch(() => {
+        /* rail is optional — the thread page must not surface this */
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [boardSlug, railVisible]);
 
   // Submit a reply. A published reply is refetched into the list; a pending reply
   // (untrusted author) is unlisted, so we only confirm it was submitted.
@@ -536,26 +598,51 @@ export default function ThreadDetailPage() {
     );
   }
 
+  // Rail: participants derive from already-loaded posts (no new fetch).
+  const participants = posts.reduce<
+    { username: string; display: string; avatar?: string | null }[]
+  >((acc, p) => {
+    if (
+      p.author.username !== DELETED_AUTHOR_USERNAME &&
+      !acc.some((a) => a.username === p.author.username)
+    ) {
+      acc.push({
+        username: p.author.username,
+        display: p.author.display_name || p.author.username,
+        avatar: p.author.avatar,
+      });
+    }
+    return acc;
+  }, []);
+
+  // Rail: the cached board page, minus this thread and pinned topics — pinned
+  // announcements sort first server-side (-is_pinned) and would otherwise
+  // permanently occupy every slot. List items carry an empty category, so
+  // links below build paths from this thread's own (same-board) category.
+  const railThreads = boardThreads
+    .filter((t) => t.id !== thread.id && !t.is_pinned)
+    .slice(0, RAIL_BOARD_TOPICS_LIMIT);
+
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <PageMeta
-        title={`${thread.title} · PlantID`}
-        description={`${thread.title} — a discussion in ${thread.category.name} on the Plant Community forum.`}
+        title={`${thread.title} · Houseplant MD`}
+        description={`${thread.title} — a discussion in ${thread.category.name} on the Houseplant MD community forum.`}
         og={{
           title: thread.title,
-          description: `A discussion in ${thread.category.name} on Plant Community.`,
+          description: `A discussion in ${thread.category.name} on Houseplant MD.`,
           // Canonical topic URL — drop any ?query/#hash; the SPA is client-only.
           url: `${window.location.origin}${window.location.pathname}`,
           type: 'article',
         }}
       />
-      {/* Breadcrumb — collection path, in the ledger's mono voice. The
+      {/* Breadcrumb — collection path, in the mono data voice. The
           thread-title crumb stays normal case: user content is never shouted. */}
-      <nav className="wf-label mb-8" aria-label="Breadcrumb">
+      <nav className="gt-label mb-6" aria-label="Breadcrumb">
         <ol className="flex items-center gap-2 min-w-0">
           <li>
             <Link to="/forum" viewTransition className="hover:text-primary">
-              Forums
+              Forum
             </Link>
           </li>
           <li aria-hidden="true">/</li>
@@ -571,11 +658,9 @@ export default function ThreadDetailPage() {
         </ol>
       </nav>
 
-      {/* Thread Header — the specimen sheet's label block, closed by a double rule */}
-      <header className="mb-8 border-b-2 border-line-2 pb-6">
-        <div className="wf-label flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
-          <span>No. {thread.id}</span>
-          <span aria-hidden="true">·</span>
+      {/* Thread Header — the label block, closed by a single rule */}
+      <header className="mb-8 border-b border-line-2 pb-6">
+        <div className="gt-label flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
           <span>
             {thread.category.icon && (
               <span className="mr-1" aria-hidden="true">
@@ -588,7 +673,7 @@ export default function ThreadDetailPage() {
             <>
               <span aria-hidden="true">·</span>
               <span className="inline-flex items-center gap-1 text-clay">
-                <IconPin size={12} /> Pinned
+                <Pin className="h-3.5 w-3.5" aria-hidden="true" /> Pinned
               </span>
             </>
           )}
@@ -596,24 +681,24 @@ export default function ThreadDetailPage() {
             <>
               <span aria-hidden="true">·</span>
               <span className="inline-flex items-center gap-1">
-                <IconLock size={12} /> Locked
+                <Lock className="h-3.5 w-3.5" aria-hidden="true" /> Locked
               </span>
             </>
           )}
           <span aria-hidden="true">·</span>
           <span className="inline-flex items-center gap-1">
-            <IconReply size={12} /> {totalPosts} replies
+            <Reply className="h-3.5 w-3.5" aria-hidden="true" /> {totalPosts} replies
           </span>
           <span aria-hidden="true">·</span>
           <span className="inline-flex items-center gap-1">
-            <IconEye size={12} /> {thread.view_count} views
+            <Eye className="h-3.5 w-3.5" aria-hidden="true" /> {thread.view_count} views
           </span>
         </div>
 
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div className="flex-1 min-w-0">
             <h1
-              className="wf-title text-2xl sm:text-4xl text-ink mb-3"
+              className="gt-display text-[26px] sm:text-[34px] text-ink mb-3"
               style={{ viewTransitionName: `thread-${thread.id}` }}
             >
               {thread.title}
@@ -646,11 +731,11 @@ export default function ThreadDetailPage() {
             >
               {thread.is_subscribed ? (
                 <>
-                  <IconBellOff size={14} /> Following
+                  <BellOff className="h-3.5 w-3.5" aria-hidden="true" /> Following
                 </>
               ) : (
                 <>
-                  <IconBell size={14} /> Follow
+                  <Bell className="h-3.5 w-3.5" aria-hidden="true" /> Follow
                 </>
               )}
             </Button>
@@ -667,7 +752,7 @@ export default function ThreadDetailPage() {
         aria-atomic="true"
         className={
           notice
-            ? 'mb-6 rounded-xs border border-line bg-surface-2 px-4 py-3 text-ink-2'
+            ? 'mb-6 rounded-md border border-line bg-surface-2 px-4 py-3 text-ink-2'
             : 'sr-only'
         }
       >
@@ -684,16 +769,19 @@ export default function ThreadDetailPage() {
         />
       )}
 
-      {/* Posts List — the stem: a rail down the reply chain, one node per post.
-          The `.wf-node-row` wrapper carries the node; the accepted answer's
-          node grows a leaf. */}
-      <div className="wf-thread space-y-5 mb-8">
+      {/* Posts List — one Canopy card per post. The solution ring lives on
+          PostCard's `isSolution` prop; the just-posted highlight is the same
+          `.canopy-flash` ring the deep-link arrival effect uses. */}
+      <div className="mb-8 flex flex-col gap-4">
         {posts.map((post) => {
           const isSolution = isSolvedPost(thread, post.id);
           return editingPostId === post.id ? (
-            <div key={post.id} className="wf-node-row">
-              <form onSubmit={handleEditSubmit} className="wf-sheet p-5 sm:p-6 space-y-3">
-                <span className="wf-label block">Edit post</span>
+            <div key={post.id}>
+              <form
+                onSubmit={handleEditSubmit}
+                className="canopy-card space-y-3 rounded-md p-5 sm:p-6"
+              >
+                <span className="gt-label block">Edit post</span>
                 <TipTapEditor key={post.id} content={editBody} onChange={setEditBody} />
                 <div className="flex gap-2">
                   <Button
@@ -714,21 +802,7 @@ export default function ThreadDetailPage() {
             <div
               key={post.id}
               id={`post-${post.id}`}
-              className={`wf-node-row ${isSolution ? 'wf-node-row--solution' : ''} ${
-                justPostedId === post.id ? 'wf-press' : ''
-              }`}
-              // The press is one-shot: clear its marker once the longest of its
-              // animations (the 2s highlight fade) ends, so the class can't
-              // replay when the row's classes are re-applied (edit → Cancel
-              // reuses this same div) and the row rejoins the scroll-reveal
-              // cascade, which excludes .wf-press rows.
-              onAnimationEnd={
-                justPostedId === post.id
-                  ? (e) => {
-                      if (e.animationName === 'wf-anchor-fade') setJustPostedId(null);
-                    }
-                  : undefined
-              }
+              className={justPostedId === post.id ? 'canopy-flash' : undefined}
             >
               <PostCard
                 post={post}
@@ -775,13 +849,14 @@ export default function ThreadDetailPage() {
 
       {/* Reply composer — hidden when the thread is locked/closed */}
       {thread.is_locked ? (
-        <div className="wf-sheet mt-8 p-6 text-center">
+        <div className="canopy-card rounded-md mt-8 p-6 text-center">
           <p className="inline-flex items-center gap-2 text-ink-2">
-            <IconLock size={14} /> This thread is locked — new replies are disabled.
+            <Lock className="h-3.5 w-3.5" aria-hidden="true" /> This thread is locked — new replies
+            are disabled.
           </p>
         </div>
       ) : !isAuthenticated ? (
-        <div className="wf-sheet mt-8 p-6 text-center">
+        <div className="canopy-card rounded-md mt-8 p-6 text-center">
           <p className="text-ink-2">
             <Link to="/login" className="text-primary hover:underline">
               Log in
@@ -790,9 +865,9 @@ export default function ThreadDetailPage() {
           </p>
         </div>
       ) : (
-        <form onSubmit={handleReply} className="wf-sheet mt-8 p-5 sm:p-6 space-y-3">
-          <p className="wf-label">Add to the record</p>
-          <h2 className="wf-title text-xl text-ink">Post a Reply</h2>
+        <form onSubmit={handleReply} className="canopy-card rounded-md mt-8 p-5 sm:p-6 space-y-3">
+          <p className="gt-label">Join the discussion</p>
+          <h2 className="gt-h3 text-ink">Post a Reply</h2>
           <TipTapEditor
             key={composerKey}
             content={replyBody}
@@ -835,6 +910,48 @@ export default function ThreadDetailPage() {
         onConfirm={confirmEditSwitch}
         onCancel={() => setPendingEditSwitch(null)}
       />
+
+      <RailSlot>
+        {participants.length > 0 && (
+          <RailModule icon={<Users aria-hidden="true" />} title="In this thread">
+            <ul className="flex flex-col gap-2.5">
+              {participants.slice(0, 6).map((person) => (
+                <li key={person.username} className="flex items-center gap-2.5">
+                  <Avatar src={person.avatar || specimenAvatar(person.username)} alt="" size="sm" />
+                  <Link
+                    to={userProfilePath(person.username)}
+                    className="min-w-0 truncate text-[13px] font-medium text-ink transition-colors hover:text-primary"
+                  >
+                    {person.display}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </RailModule>
+        )}
+        {railThreads.length > 0 && (
+          <RailModule
+            icon={<MessagesSquare aria-hidden="true" />}
+            title={`More in ${thread.category.name}`}
+          >
+            <ul className="flex flex-col gap-3">
+              {railThreads.map((t) => (
+                <li key={t.id}>
+                  <Link to={threadPath(thread.category, t)} className="group block">
+                    <span className="line-clamp-2 text-[13px] font-medium text-ink transition-colors group-hover:text-primary">
+                      {t.title}
+                    </span>
+                    <span className="gt-label mt-0.5 block normal-case tracking-normal">
+                      <Timestamp iso={t.last_activity_at} />
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </RailModule>
+        )}
+        <FromTheBlogModule />
+      </RailSlot>
     </div>
   );
 }

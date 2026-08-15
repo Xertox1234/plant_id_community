@@ -340,266 +340,60 @@
   }
 }
 
-/* ═══════════ Field Notes · forum ledger system ═══════════
-   The forum reads as a botanist's ledger: ruled entries with Geist Mono
-   collection labels, specimen-sheet posts, and a stem that runs down the
-   reply chain. Accents are DERIVED (color-mix over gt tokens) so every
-   palette and both modes resolve without a new palette matrix. */
-:root {
-  --wf-stem: color-mix(in oklab, var(--gt-secondary) 55%, var(--gt-line-2));
-  --wf-tape: color-mix(in oklab, var(--gt-tertiary) 55%, var(--gt-surface-2));
-  --wf-highlight: color-mix(in oklab, var(--gt-tertiary) 22%, var(--gt-surface-2));
-}
-
+/* ═══════════ Canopy forum (PR 2) ═══════════ */
 @layer components {
-  /* The mono voice of the ledger — collection labels, stats, badges. */
-  .wf-label {
+  /* Mono data voice — eyebrows, stat lines, tiny badges. */
+  .gt-label {
     font-family: var(--font-mono);
     font-size: 0.6875rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--gt-ink-3);
   }
-
-  /* Ruled ledger list: a strong head rule, fine rules between entries. */
-  .wf-ledger {
-    border-top: 2px solid var(--gt-line-2);
-  }
-  .wf-entry {
-    border-bottom: 1px solid var(--gt-line);
-    container-type: inline-size;
-  }
-
-  /* Search results: a ThreadCard entry plus its highlighted-match excerpt form
-     ONE ruled group — the group carries the rule and the inner entry drops its
-     own, so the excerpt can never dangle below its entry's rule (code review,
-     PR #535). */
-  .wf-entry-group {
-    border-bottom: 1px solid var(--gt-line);
-  }
-  .wf-entry-group .wf-entry {
-    border-bottom: 0;
-  }
-
-  /* Display voice for titles (upstream .gt-h* fix the size; this one scales). */
-  .wf-title {
-    font-family: var(--font-display);
-    font-style: italic;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    line-height: 1.15;
-  }
-
-  /* Specimen sheet — the post surface. Crisper than the app's soft cards. */
-  .wf-sheet {
-    background: var(--gt-surface-2);
-    border: 1px solid var(--gt-line);
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-1);
-  }
-
-  /* Paper-tape mounting corners — the accepted answer is "mounted" on the page. */
-  .wf-taped {
-    position: relative;
-  }
-  .wf-taped::before,
-  .wf-taped::after {
-    content: '';
-    position: absolute;
-    top: -5px;
-    width: 30px;
-    height: 11px;
-    background: var(--wf-tape);
-    opacity: 0.85;
-    box-shadow: 0 1px 2px rgba(27, 34, 24, 0.12);
-    pointer-events: none;
-    z-index: 1; /* tape lies OVER what it mounts, both strips alike */
-  }
-  .wf-taped::before {
-    left: -9px;
-    transform: rotate(-45deg);
-  }
-  .wf-taped::after {
-    right: -9px;
-    transform: rotate(45deg);
-  }
-
-  /* ── The stem: a rail down the reply chain, one node per post. ──
-     Two layers: ::before is the faint full-length trace (the path ahead),
-     ::after the solid line — scroll-drawn over it where supported. */
-  .wf-thread {
-    position: relative;
-    padding-left: 26px;
-  }
-  .wf-thread::before,
-  .wf-thread::after {
-    content: '';
-    position: absolute;
-    top: 14px;
-    bottom: 14px;
-    left: 8px;
-    width: 2px;
-    border-radius: 1px;
-    background: var(--wf-stem);
-  }
-  .wf-thread::before {
-    opacity: 0.3;
-  }
-  .wf-node-row {
-    position: relative;
-  }
-  .wf-node-row::before {
-    content: '';
-    position: absolute;
-    left: -22px;
-    top: 24px;
-    width: 12px;
-    height: 12px;
-    border-radius: 999px;
-    background: var(--wf-stem);
-    border: 2px solid var(--gt-surface);
-  }
-  /* The accepted answer's node is a leaf (petal shape: one sharp corner). */
-  .wf-node-row--solution::before {
-    width: 14px;
-    height: 14px;
-    background: var(--gt-primary);
-    border-radius: 0 999px 999px 999px;
-    transform: rotate(45deg);
-  }
-
-  /* Deep-link / anchor highlight, ledger-toned (replaces the ring flash). */
-  .wf-anchor-flash .wf-sheet {
-    animation: wf-anchor-fade 2.4s ease-out both;
-  }
-
-  /* The signature press: a just-posted reply lands like a specimen pressed
-     into the page — highlight always; movement only when motion is allowed. */
-  .wf-press .wf-sheet {
-    animation: wf-anchor-fade 2s ease-out both;
-  }
 }
-
-@keyframes wf-anchor-fade {
-  from {
-    background-color: var(--wf-highlight);
-  }
-  to {
-    background-color: var(--gt-surface-2);
-  }
+/* Deep-link / just-posted highlight ring — unlayered: author CSS outside @layer
+   beats the utilities layer, so this still wins over the accepted answer's
+   `ring-1 ring-secondary/40` utility box-shadow (an @layer components rule
+   would lose that fight). Static ring under reduced motion (JS removes the
+   class after ~2.5s); faded out where motion is allowed. */
+.canopy-flash .canopy-card {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--gt-secondary) 55%, transparent);
 }
-@keyframes wf-press-in {
-  0% {
-    opacity: 0;
-    transform: translateY(-10px) scale(1.012);
-    box-shadow: var(--shadow-3);
-    background-color: var(--wf-highlight);
-  }
-  55% {
-    opacity: 1;
-    transform: translateY(1px);
-  }
-  100% {
-    transform: none;
-    box-shadow: var(--shadow-1);
-    background-color: var(--gt-surface-2);
-  }
-}
-@keyframes wf-stem-draw {
-  from {
-    transform: scaleY(0);
-  }
-  to {
-    transform: scaleY(1);
-  }
-}
-@keyframes wf-node-pop {
-  from {
-    transform: scale(0);
-  }
-  to {
-    transform: scale(1);
-  }
-}
-@keyframes wf-node-pop-leaf {
-  from {
-    transform: rotate(45deg) scale(0);
-  }
-  to {
-    transform: rotate(45deg) scale(1);
-  }
-}
-@keyframes wf-rise {
-  from {
-    opacity: 0.35;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
 @media (prefers-reduced-motion: no-preference) {
-  .wf-press .wf-sheet {
-    animation:
-      wf-press-in 0.7s cubic-bezier(0.2, 0.8, 0.25, 1) both,
-      wf-anchor-fade 2s ease-out both;
+  .canopy-flash .canopy-card {
+    animation: canopy-flash-fade 2.4s ease-out both;
   }
-
-  /* Scroll-driven stem draw + reveals — pure CSS, progressive (@supports). */
-  @supports (animation-timeline: view()) {
-    .wf-thread::after {
-      transform-origin: top;
-      animation: wf-stem-draw linear both;
-      animation-timeline: view();
-    }
-    .wf-node-row::before {
-      animation: wf-node-pop cubic-bezier(0.2, 0.9, 0.3, 1.35) both;
-      animation-timeline: view();
-      animation-range: entry 0% entry 60%;
-    }
-    .wf-node-row--solution::before {
-      animation-name: wf-node-pop-leaf;
-    }
-    /* :not(.wf-press):not(.wf-anchor-flash) — this rule is later and unlayered,
-       so without the exclusions it would win the `animation` shorthand over the
-       one-shot press-in and deep-link flash and silently kill both wherever
-       view() timelines are supported (code review, PR #535). */
-    .wf-node-row:not(.wf-press):not(.wf-anchor-flash) > .wf-sheet,
-    .wf-node-row:not(.wf-press):not(.wf-anchor-flash) > form.wf-sheet {
-      animation: wf-rise ease-out both;
-      animation-timeline: view();
-      animation-range: entry 0% entry 45%;
-    }
+  .canopy-float {
+    animation: canopy-float 7s ease-in-out infinite alternate;
+  }
+}
+@keyframes canopy-flash-fade {
+  from {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--gt-secondary) 55%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 2px transparent;
   }
 }
 
-/* Ledger entries: :has() lets the whole row respond to its title link. */
-.wf-entry:has(.wf-entry-link:hover) {
-  background: color-mix(in oklab, var(--gt-surface-2) 50%, transparent);
-}
-.wf-entry:has(.wf-entry-link:hover) .wf-entry-no,
-.wf-entry:has(.wf-entry-link:focus-visible) .wf-entry-no {
-  color: var(--gt-primary);
-}
-.wf-entry:has(.wf-entry-link:focus-visible) {
-  outline: 2px solid var(--gt-primary);
+/* Row-card keyboard focus — unlayered for the same reason as the flash ring
+   above. The row's primary action must be the card's direct-child <a>: inner
+   controls (tag filters, subcategory pills) keep their own focus treatment,
+   since lighting the whole card would misstate what Enter activates.
+   Secondary is the app-wide focus accent (Button/Chip rings, the flash). */
+.canopy-interactive:has(> a:focus-visible) {
+  outline: 2px solid var(--gt-secondary);
   outline-offset: -2px;
 }
-
-/* Composer fields: the mono label lights when its field takes focus. */
-.wf-field:has(:focus-visible) .wf-label {
-  color: var(--gt-primary);
+.canopy-interactive > a:focus-visible {
+  outline: none;
 }
-
-/* Entry container queries: tighten the title in narrow containers. */
-.wf-entry-title {
-  font-size: 1.375rem;
-}
-@container (max-width: 28rem) {
-  .wf-entry-title {
-    font-size: 1.125rem;
+@keyframes canopy-float {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-10px);
   }
 }
 

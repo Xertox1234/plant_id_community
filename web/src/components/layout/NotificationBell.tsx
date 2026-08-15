@@ -1,18 +1,11 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import {
-  fetchNotifications,
-  fetchUnreadCount,
-  markNotificationsRead,
-} from '../../services/notificationService';
+import { fetchNotifications, markNotificationsRead } from '../../services/notificationService';
 import { threadPath, postAnchor } from '../../utils/forumUrls';
+import { useUnreadNotifications } from '../../contexts/UnreadNotificationsContext';
 import type { ForumNotification } from '../../types/notifications';
-
-// Generous relative to the backend's 120/m rate limit on this endpoint — this
-// exists to keep the bell feeling live, not to approach the abuse boundary.
-const UNREAD_POLL_INTERVAL_MS = 30_000;
 
 // COPY HAS TWO HOMES (todo 287, 2026-07-31 - was three). The two BACKEND
 // surfaces, the push tray and the email subject/body, now both read one table:
@@ -40,40 +33,19 @@ function notificationLabel(notification: ForumNotification): string {
 
 /**
  * Bell with unread-notification count and a dropdown list (todo 253 slice 1,
- * audit C2). Only ever mounted while authenticated — Header.tsx conditionally
- * renders it, so mount/unmount naturally starts/stops polling.
+ * audit C2). Unread count comes from UnreadNotificationsContext (one shared
+ * poll for the bell and the sidebar Forum badge); this component owns only
+ * the dropdown list. Only ever mounted while authenticated — AppShell
+ * conditionally renders it.
  */
 export default function NotificationBell() {
   const navigate = useNavigate();
+  const { unreadCount, decrement, clear } = useUnreadNotifications();
   const [isOpen, setIsOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<ForumNotification[]>([]);
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [listError, setListError] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const refreshUnreadCount = useCallback(() => {
-    fetchUnreadCount()
-      .then(setUnreadCount)
-      .catch(() => {
-        /* transient poll failure — next tick retries; nothing user-actionable */
-      });
-  }, []);
-
-  // Poll unread count on an interval — useRef for the timer id, not useState
-  // (CLAUDE.md gotcha: useState re-renders + recreates the callback + leaks
-  // the timer on unmount).
-  useEffect(() => {
-    refreshUnreadCount();
-    pollTimerRef.current = setInterval(refreshUnreadCount, UNREAD_POLL_INTERVAL_MS);
-    return () => {
-      if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
-        pollTimerRef.current = null;
-      }
-    };
-  }, [refreshUnreadCount]);
 
   // Lazy-load the list only when the dropdown is actually opened. Guarded by
   // a cancelled flag: rapidly closing/reopening the dropdown must not let a
@@ -126,7 +98,7 @@ export default function NotificationBell() {
       setNotifications((prev) =>
         prev.map((n) => ({ ...n, read_at: n.read_at || new Date().toISOString() }))
       );
-      setUnreadCount(0);
+      clear();
     }
   };
 
@@ -136,7 +108,7 @@ export default function NotificationBell() {
       markNotificationsRead([notification.id]).catch(() => {
         /* best-effort — a missed mark-read just leaves it unread for next poll */
       });
-      setUnreadCount((prev) => Math.max(0, prev - 1));
+      decrement();
     }
     if (notification.topic) {
       const { topic } = notification;

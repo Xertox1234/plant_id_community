@@ -257,3 +257,28 @@ Compact checklist auto-injected before edits.
   first thing in `setUp`** — django-ratelimit counters live in the shared
   cache and bleed across classes in one process (>5 logins in a run → 429s
   for whichever class runs later, an order-dependent flake).
+- **Never implicit-return a mock call from a Vitest hook:** `beforeEach(() =>
+  mock.mockReset())` returns the mock itself, and Vitest 4 treats a function
+  returned from `beforeEach` as a TEARDOWN callback — it re-invokes the mock
+  after the test, replaying a configured rejection as a fresh unhandled
+  rejection (test fails even though its own assertions passed). Always use a
+  block body: `beforeEach(() => { mock.mockReset(); })`. Related config trap:
+  this repo sets `mockReset`/`restoreMocks: true`, which wipes return values
+  chained inside a `vi.mock` factory before the first test — set
+  `mockResolvedValue(...)` in `beforeEach`, not the factory. Reproduced in
+  isolation twice (PR #537). Third face of the same trap: **setup.ts global
+  polyfills must be PLAIN functions, never `vi.fn().mockImplementation(...)` /
+  `.mockResolvedValue(...)`** — the reset wipes the implementation before every
+  test, so the polyfill silently returns `undefined`; it stays green until the
+  first production caller lands (`useMediaQuery` becoming matchMedia's first
+  caller broke 74 tests). A bare argument-less `vi.fn()` spy is fine (nothing
+  to wipe). Tests needing a different posture install their own stub and
+  restore. See `web/docs/patterns/testing.md` and `docs/LEARNINGS.md`
+  2026-08-15.
+- **Scope forum e2e locators to `#main-content` — the AppShell header carries
+  `/forum/search` and `/forum/new-thread` links on EVERY page**, so an unscoped
+  `a[href^="/forum/..."]` (or `.first()`) grabs header chrome before the page's
+  own link. Bit three specs across PR #536/#537. Corollary: changing a page's
+  control TYPE (e.g. sort `<select>` → chip buttons) breaks e2e specs that are
+  out-of-diff consumers of the old markup — grep `web/e2e/` for the page's
+  selectors before shipping a control swap, and re-run the affected suite.

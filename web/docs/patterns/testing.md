@@ -345,3 +345,44 @@ activated drops keyboard focus to `<body>` with nothing to return to, and shifts
 the toolbar under the pointer. (It also keeps the test honest: once a control is
 always mounted, "still present" is a near-hollow assertion — assert
 `toBeEnabled()`/`toBeDisabled()` instead.)
+
+## Vitest Hook Bodies: Never Implicit-Return a Mock Call (PR #537)
+
+Vitest treats a function returned from `beforeEach`/`afterEach` as a teardown
+callback. Every `vi.fn()` method (`mockReset`, `mockResolvedValue`, …) returns
+the mock itself — so an implicit-return arrow registers the mock AS the
+teardown, and Vitest re-invokes it after the test:
+
+```ts
+// BROKEN — mockReset() returns the mock; Vitest calls it post-test,
+// replaying any configured rejection as an unhandled rejection:
+beforeEach(() => mockFetchUnreadCount.mockReset());
+
+// CORRECT — block body, nothing returned:
+beforeEach(() => {
+  mockFetchUnreadCount.mockReset();
+  mockFetchUnreadCount.mockResolvedValue(0);
+});
+```
+
+The failure signature is a test whose own assertions pass but which fails with
+the mock's configured rejection error. Reproduced in isolation twice during the
+Canopy forum rebuild.
+
+Related config trap: `vitest.config.ts` sets `mockReset: true` and
+`restoreMocks: true`, which strip any return value chained inside a `vi.mock`
+factory **before the first test runs**. Set mock return values in `beforeEach`
+(block body, per the above), never in the factory.
+
+Third face of the same trap — **setup.ts global polyfills must be plain
+functions**, never `vi.fn().mockImplementation(...)`/`.mockResolvedValue(...)`:
+`mockReset: true` wipes the implementation before every test, so the polyfill
+returns `undefined` from the very first test on. It stays invisible until
+production code gains its first caller — `useMediaQuery` becoming
+`window.matchMedia`'s first caller broke 74 tests across 4 suites, and the same
+defect sat dormant in the `navigator.share`/`navigator.clipboard` polyfills. A
+bare argument-less `vi.fn()` (e.g. `window.scrollTo`) is safe: there is no
+implementation to wipe. A test that needs a different posture (a matching media
+query, a rejecting clipboard) installs its own stub and restores the global
+afterward — don't teach the shared polyfill per-test behavior. See
+`docs/LEARNINGS.md` 2026-08-15.

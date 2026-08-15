@@ -197,13 +197,13 @@ describe('ThreadCard', () => {
     expect(screen.getByText('🌱')).toBeInTheDocument();
   });
 
-  it('applies pinned background styling', () => {
+  it('renders the pinned chip with the tertiary tint (moved off the row background)', () => {
     const thread = createMockThread({ is_pinned: true });
 
     const { container } = renderThreadCard(thread);
 
-    const card = container.querySelector('[class*="bg-tertiary"]');
-    expect(card).toBeInTheDocument();
+    const chip = container.querySelector('[class*="text-tertiary"]');
+    expect(chip).toBeInTheDocument();
   });
 
   it('applies opacity for locked threads', () => {
@@ -220,8 +220,11 @@ describe('ThreadCard', () => {
 
     const { container } = renderThreadCard(thread, true);
 
-    const card = container.querySelector('.py-3');
-    expect(card).toBeInTheDocument();
+    // Boundary-safe: a substring match on class* would also hit an unrelated
+    // "p-3.5x" utility. Anchor on the Card root's own class (canopy-card is
+    // unconditional) and match its className on a word boundary.
+    const cardEl = container.querySelector('div.canopy-card');
+    expect(cardEl.className).toMatch(/(^|\s)p-3\.5(\s|$)/);
   });
 
   it('renders tags as inert chips when the list cannot be filtered (audit M5)', () => {

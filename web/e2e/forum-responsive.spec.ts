@@ -49,16 +49,25 @@ for (const vp of VIEWPORTS) {
   });
 }
 
-test('forum index — sort select meets 44px tap target on mobile', async ({ page }) => {
+test('forum index — sort chips meet 44px tap target on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto('/forum');
 
-  // Navigate into a category to see the sort select.
-  await page.locator('a[href^="/forum/"]').first().click();
+  // Navigate into a category to see the sort chips (Canopy replaced the old
+  // <select> with chip buttons). Scoped to #main-content — the AppShell
+  // header carries /forum/* links on every page — and excluding the hero's
+  // two CTAs, which also live in main and sit before the board list
+  // (docs/rules/testing.md).
+  await page
+    .locator(
+      '#main-content a[href^="/forum/"]:not([href="/forum/new-thread"]):not([href="/forum/search"])'
+    )
+    .first()
+    .click();
   await expect(page).toHaveURL(/\/forum\/\d+-/);
 
-  const select = page.locator('select');
-  const box = await select.boundingBox();
+  const chip = page.locator('#main-content').getByRole('button', { name: 'Newest' });
+  const box = await chip.boundingBox();
   expect(box).not.toBeNull();
   expect(box!.height).toBeGreaterThanOrEqual(44);
 });

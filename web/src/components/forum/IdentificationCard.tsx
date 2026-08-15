@@ -32,11 +32,14 @@ export default function IdentificationCard({
   return (
     <section
       aria-labelledby="identification-heading"
-      className="mb-6 overflow-hidden rounded-lg border border-line bg-surface-2 shadow-md"
+      className="canopy-card mb-6 overflow-hidden rounded-md"
     >
       <div className="flex items-center gap-2 border-b border-line px-6 py-3">
-        <Sparkles className="h-4 w-4 text-primary" aria-hidden="true" />
-        <h2 id="identification-heading" className="text-sm font-semibold text-ink">
+        <Sparkles className="h-4 w-4 text-secondary" aria-hidden="true" />
+        <h2
+          id="identification-heading"
+          className="gt-label normal-case tracking-normal text-[13px] font-semibold text-ink"
+        >
           What the app suggested
         </h2>
       </div>
