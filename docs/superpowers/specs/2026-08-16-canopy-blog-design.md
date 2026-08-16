@@ -79,9 +79,11 @@ feels organic (top-5 popular = all but `small-space-jungle`).
 - **Guards (same two layers as the forum seed):** DEBUG=False requires `--confirm`;
   any real (non-demo, non-superuser) account aborts unconditionally — no override
   flag, by design. Same census semantics as `seed_demo_content` (demo = demo username
-  AND `@demo.houseplant-md.com` email); the plan may extract a shared helper or
-  import the constants from `apps.forum_host.seed_content` — either way, one source
-  of truth for the demo shape.
+  AND `@demo.houseplant-md.com` email), implemented as **one shared census helper
+  called by both commands** — not a copied block (kimi-challenge: duplicated guard
+  logic drifts). The plan picks the location (e.g. extracted into
+  `apps.forum_host.seed_content`, which the blog command imports; no import cycle —
+  `forum_host` reaches the blog command only via `call_command`).
 - **Authors:** normally exist already (forum seed runs first). For standalone runs,
   `get_or_create` the four author accounts from the same `USERS` specs with the same
   demo shape and the same per-account non-adoption check (never adopt or modify a
@@ -89,14 +91,22 @@ feels organic (top-5 popular = all but `small-space-jungle`).
 - **Author names (new requirement):** the blog API's author `display_name` is
   `User.get_full_name() or username` — the forum seed set display names only on
   `ForumProfile`, so without this the blog renders "iris_delgado". The blog seed sets
-  `first_name`/`last_name` on the four author accounts, **only** on accounts that
-  pass the demo-shape check.
+  `first_name`/`last_name` on the four author accounts — **only** on accounts that
+  pass the demo-shape check, and **only when both fields are blank** (fill-if-empty:
+  a manually edited name is never overwritten — kimi-challenge; consistent with the
+  skip-not-overwrite contract). The names are the `ForumProfile.display_name` cast
+  names split into first/last, so the same person never appears under two names
+  across forum and blog.
 - **Page tree:** `get_or_create` a `BlogIndexPage` (slug `blog`) under the default
   site's root page, published; posts are its children. Idempotent; an existing index
   is used as-is.
 - **Idempotency:** post-granular by slug — if a `BlogPostPage` with the slug exists
   anywhere, skip it entirely (manual edits always win, matching the forum seed's
-  skip-not-overwrite contract).
+  skip-not-overwrite contract). Each post is created in its own transaction (the
+  forum seed's per-topic atomicity, per-post here). A forum-seeded/blog-unseeded
+  state is valid, not corrupt — it is production's state today — and a re-run
+  completes it; no all-or-nothing wrapper transaction (media files are written
+  outside any transaction anyway).
 - **Publish + back-date:** create → `save_revision().publish()` → then a final
   timestamp pass via queryset `.update()` setting `first_published_at` and
   `last_published_at`, plus the model's own `publish_date` DateField, per the
@@ -122,8 +132,10 @@ feels organic (top-5 popular = all but `small-space-jungle`).
   posts; four are new Runware generations in the same moody-botanical style
   (controller-executed task, like PR 2.5's Task 1).
 - The `web/public/illustrations/thumb-*.webp` copies are deleted afterward — real
-  cards render `featured_image` renditions from the API. `hero-blog.webp` stays (it
-  is static UI art for the list hero).
+  cards render `featured_image` renditions from the API. Before deleting, grep
+  `web/` for any remaining `thumb-monstera`/`thumb-fig` references (kimi-challenge:
+  don't break a static reference the sweep missed). `hero-blog.webp` stays (it is
+  static UI art for the list hero).
 - Images are created through Wagtail's image model (title `Seed: <asset>`, reuse by
   title like the forum seed). Prod media is persistent + served since PR #539, so no
   new infra.
@@ -157,9 +169,15 @@ feels organic (top-5 popular = all but `small-space-jungle`).
   treatment; `PageMeta` for title + meta description (from `introduction`).
 - Composition, top to bottom: category Chip + publish date eyebrow → display headline
   (Bricolage) → author line (`Author name · N min read`) → full-width cover image
-  (Card treatment) → article body → "More from the blog" strip rendered from the
-  detail response's server-computed `related_posts` (up to 3; strip hidden when
-  empty). The deprecated always-empty `fetchRelatedPosts()` stub is not used.
+  (Card treatment) → article body → "More from the blog" strip (up to 3 posts,
+  hidden when empty), **composed frontend-side**: after the post loads, fetch
+  same-category recent posts via the existing list endpoint
+  (`fetchBlogPosts({ category: <first category slug>, limit: 4 })`), exclude the
+  current post, take 3. Kimi-challenge finding (verified): `related_posts` exists
+  only in `get_context()` — Django template context, not `api_fields` — so the
+  detail API does **not** return it, and the `fetchRelatedPosts()` stub plus its
+  stale "already populated" docstring are misleading residue: delete them in this
+  PR. No backend change; the "no blog API changes" constraint holds.
 - **Body:** `StreamFieldRenderer` with a Canopy typography pass — ~65–70ch measure,
   Bricolage headings, tokens-only restyle of quote / code / plant_spotlight /
   call_to_action blocks. No new block support needed (renderer already covers all 7
@@ -172,7 +190,10 @@ feels organic (top-5 popular = all but `small-space-jungle`).
 - **Reading time is true, not mocked:** `reading_time` auto-calculates (~200 wpm)
   from the actually-authored bodies, so cards may say 3–5 min where the mockup's
   placeholders said 7/5 min. Approved deviation; the meta line must never claim a
-  length the copy doesn't have.
+  length the copy doesn't have. Known wrinkle (kimi-challenge, verified minor):
+  `calculate_reading_time()` tokenizes raw HTML/StructValue text, so markup glued to
+  words adds a few stray tokens — negligible for paragraph-dominant bodies; the
+  shared model method stays untouched (out of scope).
 - **Weekly cadence is true:** back-dated `publish_date`s are ~weekly, matching the
   eyebrow's "new posts weekly".
 - **"All topics →"** is a filter-clear + scroll, not a fictional topics page.
