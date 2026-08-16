@@ -51,8 +51,11 @@ describe('BlogCard', () => {
   });
 
   it('uses the 800x400 rendition for the grid cover', () => {
-    renderCard(post);
-    expect(screen.getByRole('img')).toHaveAttribute('src', '/media/cover-800.webp');
+    const { container } = renderCard(post);
+    // The cover is decorative (alt="" aria-hidden="true") — the visible
+    // title text already carries the link's accessible name, so this is
+    // queried by DOM structure rather than role.
+    expect(container.querySelector('img')).toHaveAttribute('src', '/media/cover-800.webp');
   });
 
   it('omits the meta segments that are absent instead of printing blanks', () => {
@@ -62,14 +65,18 @@ describe('BlogCard', () => {
   });
 
   it('renders without a cover when no image exists', () => {
-    renderCard({ ...post, featured_image: undefined, featured_image_thumb: undefined });
-    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    const { container } = renderCard({
+      ...post,
+      featured_image: undefined,
+      featured_image_thumb: undefined,
+    });
+    expect(container.querySelector('img')).not.toBeInTheDocument();
     expect(screen.getByText('Killed by kindness')).toBeInTheDocument();
   });
 
   it('compact variant renders the 300x200 thumb and meta, no excerpt', () => {
-    renderCard(post, true);
-    expect(screen.getByRole('img')).toHaveAttribute('src', '/media/cover-300.webp');
+    const { container } = renderCard(post, true);
+    expect(container.querySelector('img')).toHaveAttribute('src', '/media/cover-300.webp');
     expect(screen.getByText('3 min read · June Park')).toBeInTheDocument();
     expect(screen.queryByText(/die of neglect/)).not.toBeInTheDocument();
   });

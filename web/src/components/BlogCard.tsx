@@ -38,7 +38,6 @@ function BlogCard({ post, compact = false }: BlogCardProps) {
 
   if (compact) {
     const thumb = post.featured_image_thumb?.url ?? post.featured_image?.url;
-    const thumbAlt = post.featured_image_thumb?.alt || post.featured_image?.alt || post.title;
     return (
       <Link
         to={`/blog/${post.slug}`}
@@ -47,7 +46,8 @@ function BlogCard({ post, compact = false }: BlogCardProps) {
         {thumb && (
           <img
             src={thumb}
-            alt={thumbAlt}
+            alt=""
+            aria-hidden="true"
             width={48}
             height={48}
             className="h-12 w-12 shrink-0 rounded-sm object-cover"
@@ -73,7 +73,8 @@ function BlogCard({ post, compact = false }: BlogCardProps) {
         {cover && (
           <img
             src={cover}
-            alt={post.featured_image?.alt || post.title}
+            alt=""
+            aria-hidden="true"
             width={800}
             height={400}
             className="aspect-[2/1] w-full object-cover"
