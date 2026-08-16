@@ -34,6 +34,7 @@ export type {
   CodeBlock,
   BlogPost,
   BlogCategory,
+  RelatedPostSummary,
 } from './blog';
 
 // Plant Identification types

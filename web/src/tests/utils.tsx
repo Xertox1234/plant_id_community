@@ -66,10 +66,7 @@ export function createMockBlogPost(overrides: Partial<BlogPost> = {}): BlogPost 
     view_count: 100,
     featured_image: {
       url: 'https://example.com/image.jpg',
-      title: 'Test Image',
-      thumbnail: {
-        url: 'https://example.com/thumbnail.jpg',
-      },
+      alt: 'Test Image',
     },
     ...overrides,
   };

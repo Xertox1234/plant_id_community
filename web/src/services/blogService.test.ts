@@ -66,9 +66,6 @@ describe('blogService', () => {
     ],
     featured_image: {
       url: 'https://example.com/image.jpg',
-      thumbnail: {
-        url: 'https://example.com/image-thumb.jpg',
-      },
     },
     publish_date: '2025-01-01',
     author: {
