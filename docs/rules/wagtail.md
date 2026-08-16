@@ -150,3 +150,13 @@ Compact checklist auto-injected before edits. Long-form:
   image, italic, link, ol, ul` — no `blockquote`), so an unrestricted
   `RichTextField` is opted IN. Adding `features` needs no migration; it is not
   part of the field's deconstruct. Hit in todo 278 (`ForumIndex.intro`).
+- **Always guard `get_rendition()` on API paths.** A missing source file (media
+  wiped on redeploy while `Image` rows survive) raises `SourceImageIOError` on
+  the cache-miss path and 500s the whole endpoint — and the anon cache can pin
+  the failure. Catch it (plus the `OSError` family), log `[ERROR]`, and degrade
+  that thumbnail to `null`. Hit on `topics/recent/` (PR #538 review).
+- **Back-dating published content must set `first_published_at` AND
+  `last_published_at`,** not just `created_at`/`updated_at` — counter recomputes
+  (`_refresh_topic_counters`) derive from `first_published_at`, so a back-date
+  that skips it snaps curated timestamps to wall-clock on the first
+  unpublish/delete/recount. Hit in `seed_demo_content` (PR #538 review).

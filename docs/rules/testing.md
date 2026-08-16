@@ -282,3 +282,10 @@ Compact checklist auto-injected before edits.
   control TYPE (e.g. sort `<select>` → chip buttons) breaks e2e specs that are
   out-of-diff consumers of the old markup — grep `web/e2e/` for the page's
   selectors before shipping a control swap, and re-run the affected suite.
+- **Rendition-touching tests clear the `"renditions"` cache backend first.**
+  It is real-Redis-backed, long-TTL, keyed by image pk + filter spec (NOT by
+  database), so it persists across pytest invocations and pk-collides with
+  images from earlier runs — a test targeting the rendition cold path silently
+  hits a stale cached row instead. Same trap cross-environment: a scratch DB
+  sharing dev's Redis serves dev's rendition paths; give any second environment
+  its own `REDIS_URL` db index. Hit twice in one session (PR #538).

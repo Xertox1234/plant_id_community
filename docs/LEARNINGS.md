@@ -2980,3 +2980,53 @@ untested by definition — when a new hook/component becomes the first caller of
 a setup.ts global, expect the polyfill to be wrong and verify it in isolation
 first. Third face of the `mockReset`/hook-teardown trap recorded in the PR #537
 entry above; rule added to `docs/rules/testing.md`.
+
+## 2026-08-15 — Back-dating published content: counters recompute from `first_published_at`, not `created_at` (PR #538)
+
+**What broke:** `seed_demo_content`'s timestamp pass back-dated posts via
+`queryset.update(created_at=ts, updated_at=ts)` and set `topic.last_post_at`
+from the spread — but left `first_published_at` at seed-run wall-clock. The
+seed *looked* right (the SPA renders `created_at`/`last_post_at`), yet
+`signals._refresh_topic_counters` recomputes `last_post_at = max(posts'
+first_published_at)` — so the first post-seed recount (a moderator unpublish,
+delete, or report auto-hide of ONE reply) snapped that topic's curated
+"6 days ago" position to "just now". A second face of the same mistake in the
+same pass: `solved_at` was set to the thread's *newest* post timestamp instead
+of the accepted-solution post's own — a fabricated coincidence
+(`solved_at == last activity`, always) exposed through `TopicSerializer`.
+
+**Root cause:** back-dating updated the fields the *UI reads* instead of the
+fields the *system derives from*. Wagtail publish machinery keys on
+`first_published_at`/`last_published_at`; any derived value (counters,
+solved_at) must be traced to its actual source field before deciding which
+columns a back-date has to touch.
+
+**Fix (5fa919f):** the post update sets `first_published_at`/`last_published_at`
+= ts (topics back-dated likewise), and `solved_at` comes from the solution
+post's own timestamp. Regression tests: recount-after-unpublish keeps
+`last_post_at` in the past; `solved_at == solution post's created_at`.
+
+**Rule** (added to `docs/rules/wagtail.md`): when back-dating published
+Wagtail content, always set `first_published_at` and `last_published_at`
+alongside `created_at`/`updated_at`.
+
+## 2026-08-15 — Wagtail's rendition cache is keyed by image pk + filter, NOT by database (PR #538)
+
+Two faces of the same gotcha, hit hours apart in one session:
+
+1. **Cross-environment:** a scratch Postgres DB sharing the dev Redis served
+   the DEV database's rendition for "image id 3" — the screenshot sweep showed
+   a wrong thumbnail (`test_HvKcoXb…`) while the scratch DB's Image rows were
+   correct. `Rendition.cache_backend` short-circuits before the DB, and its key
+   has no notion of *which* database the pk belongs to. Any second environment
+   (scratch DB, staging clone) MUST get its own `REDIS_URL` db index.
+2. **Cross-pytest-invocation:** the `"renditions"` cache is long-TTL and
+   real-Redis-backed, so it persists BETWEEN pytest runs and pk-collides with
+   images created by earlier sessions. A test exercising the rendition COLD
+   path (e.g. the missing-source-file guard) silently hits a prior run's
+   cached rendition instead — clear the `"renditions"` cache in setup. (Same
+   family as the reuse-db/root-page truncation trap: state that outlives one
+   run masquerades as current-run behavior.)
+
+**Rule** (added to `docs/rules/testing.md`): rendition-touching tests clear
+the `"renditions"` cache backend first.

@@ -125,3 +125,8 @@ Compact checklist auto-injected before edits. Long-form:
   publish/unpublish. Pin it by driving the production function under
   `CaptureQueriesContext` and asserting the extra table is untouched — not by
   copying the `get_or_create` into the test.
+- **Every `order_by` feeding a sliced or paginated public list ends with a
+  deterministic tie-break (`-id`).** Ties on the cut line otherwise flicker
+  between requests (arbitrary Postgres order) and the cached anon copy can
+  disagree with an authed response. Bit twice in one PR: `topics/recent/`
+  (caught at build, Ruling 4) and `users/experts/` (caught only at review).
