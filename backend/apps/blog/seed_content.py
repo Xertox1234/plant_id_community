@@ -120,6 +120,29 @@ POSTS = [
                 "Recovery looks like nothing happening for a month. Doing "
                 "less is the treatment.</p>",
             ),
+            ("heading", "Drainage is the other half"),
+            (
+                "paragraph",
+                "<p>The watering habit only works if water can leave. A pot "
+                "without a drainage hole isn't a pot — it's a vase, and every "
+                "schedule fails in it eventually. If you love a holeless "
+                "ceramic piece, use it as a cachepot: keep the plant in a "
+                "plastic nursery pot inside it, lift it out to water in the "
+                "sink, and let it drain completely before it goes back. The "
+                "prettiest pot in the room should never be the one holding "
+                "soil.</p>",
+            ),
+            (
+                "paragraph",
+                "<p>Mix matters for the same reason. Straight bagged "
+                "houseplant soil compacts into a sponge within a year; cut it "
+                "with a few handfuls of perlite or orchid bark and the air "
+                "pockets survive being watered. And in winter, when light "
+                "drops and growth stalls, most plants drink half of what they "
+                "did in June — the finger check quietly stretches from weekly "
+                "to fortnightly, and the killers-by-kindness are the ones "
+                "still pouring on the summer schedule.</p>",
+            ),
         ],
     },
     {
@@ -181,6 +204,29 @@ POSTS = [
                 "plant is going, the old leaf only tells you where it's "
                 "been.</p>",
             ),
+            ("heading", "Living with half an engine"),
+            (
+                "paragraph",
+                "<p>Care for a variegated plant like its all-green cousin, "
+                "only brighter and slower. The white sectors can't feed the "
+                "plant, so the green ones need more light to carry the load — "
+                "bright, indirect, close to a window, but not harsh midday "
+                "sun, which scorches white tissue first. Expect half the "
+                "growth rate and don't read it as failure. Feed lightly; a "
+                "plant photosynthesising at half capacity uses fertiliser at "
+                "half capacity too, and the excess just salts the soil.</p>",
+            ),
+            (
+                "paragraph",
+                "<p>Browning on the white sectors is common and mostly "
+                "cosmetic: white tissue is thinner, loses water faster, and "
+                "dies sooner than green. Keep humidity decent, keep watering "
+                "consistent, and trim crisped edges with clean scissors if "
+                "they bother you. What you're managing, always, is the "
+                "balance between two tissues that want different things — "
+                "which is the whole hobby, and the reason the pattern on the "
+                "next leaf is never quite the one before it.</p>",
+            ),
         ],
     },
     {
@@ -241,6 +287,30 @@ POSTS = [
                 "top. That new growth is the tree's signature on the new "
                 "lease.</p>",
             ),
+            ("heading", "What to watch while you wait"),
+            (
+                "paragraph",
+                "<p>The tree will tell you how the adjustment is going if you "
+                "look at the right things. Once a week, check the terminal "
+                "bud — the pointed sheath at the very top. Plump and "
+                "green-tinged means the tree is banking energy for a flush; "
+                "shrivelled and brown means genuine trouble. Feel a "
+                "mid-height leaf: healthy blades are stiff and cool, like "
+                "card stock. And watch how fast the soil dries — a tree that "
+                "stops drinking has stopped working, and that's worth "
+                "investigating.</p>",
+            ),
+            (
+                "paragraph",
+                "<p>When shedding stops and the new leaves come, they may "
+                "look different — often smaller at first, sometimes a deeper "
+                "green. That's the tree rebuilding for the light it actually "
+                "has, not the greenhouse it grew up in. Let the first flush "
+                "harden off before you resume feeding, then a balanced "
+                "fertiliser at half strength through the growing season is "
+                "plenty. The drama phase ends; fiddles are surprisingly "
+                "steady tenants once they've signed the lease.</p>",
+            ),
         ],
     },
     {
@@ -296,6 +366,30 @@ POSTS = [
                 "seven days for three rounds; eggs survive the first pass, so "
                 "one treatment is a pause, not a cure. And keep the humidity "
                 "up afterwards — dry air is an invitation to reinfest.</p>",
+            ),
+            ("heading", "Prevention that costs nothing"),
+            (
+                "paragraph",
+                "<p>Every mite outbreak I've traced back started one of two "
+                "ways: a new plant that skipped quarantine, or a radiator "
+                "turning a shelf into a desert. Both are free to fix. New "
+                "arrivals — bought, gifted, or rescued — spend two weeks in "
+                "another room, checked twice before they join the "
+                "collection. And the plants nearest heat sources get the "
+                "weekly leaf-flip first, because that's where the first "
+                "colony almost always is.</p>",
+            ),
+            (
+                "paragraph",
+                "<p>Humidity is the other lever. Mites thrive below roughly "
+                "forty percent and struggle above sixty, which is why the "
+                "same plant sails through summer and collapses in heating "
+                "season. Group your plants, run a small humidifier near the "
+                "susceptible ones, and rinse the foliage in the shower every "
+                "few weeks — it knocks off scouts before they settle and "
+                "doubles as a dust clean. None of this takes ten minutes, "
+                "and it beats treating an outbreak by a mile. Prevention is "
+                "boring, which is exactly the point.</p>",
             ),
         ],
     },
@@ -363,6 +457,29 @@ POSTS = [
                 "blades between plants. Then put the shears down and let the "
                 "plant answer.</p>",
             ),
+            ("heading", "What to do with the pile"),
+            (
+                "paragraph",
+                "<p>A hard cutback pays you twice. Every healthy offcut with "
+                "a node is a cutting: trim it to a couple of nodes, strip "
+                "the lowest leaves, and stand it in water on a bright "
+                "windowsill. Pothos and philodendron root in a fortnight; "
+                "ficus takes longer and appreciates the humidity of a loose "
+                "plastic bag over the top. In a season you've turned one "
+                "leggy plant into a fuller original plus a shelf of new ones "
+                "— which is how most collections actually grow.</p>",
+            ),
+            (
+                "paragraph",
+                "<p>For the parent plant, resist the urge to help too much. "
+                "Don't seal or paint the cuts — indoors, clean cuts callus "
+                "fine on their own. Give it the same light as before, hold "
+                "the fertiliser until new shoots are clearly moving, and "
+                "rotate the pot a quarter turn each week so the regrowth "
+                "comes in even instead of leaning at the window. The "
+                "response you get in six weeks is the honest review of the "
+                "cut you made.</p>",
+            ),
         ],
     },
     {
@@ -418,6 +535,31 @@ POSTS = [
                 "gift the rest, and the jungle stays dense, healthy, and "
                 "yours. A small collection you can water in twenty minutes "
                 "beats a sprawling one you resent.</p>",
+            ),
+            ("heading", "The twenty-minute circuit"),
+            (
+                "paragraph",
+                "<p>Density only works with a routine, and mine is a loop: "
+                "same order every time, top shelf to floor, one watering "
+                "can. Plants are grouped by thirst as much as by light — the "
+                "ferns and calatheas share a shelf so the heavy drinkers get "
+                "checked together, and the succulents live where the can "
+                "walks past without stopping. Checking is the routine; "
+                "watering is the exception. Most laps, half the collection "
+                "gets nothing but a glance. A cheap moisture meter earns its "
+                "spot in a dense collection, if only to settle arguments "
+                "with yourself.</p>",
+            ),
+            (
+                "paragraph",
+                "<p>The loop is also the inspection. Flipping a leaf here, "
+                "pulling a yellowed one there, noticing the pot that's "
+                "suddenly light — small problems get caught at the size "
+                "where the fix is a shelf-move, not a treatment plan. Twice "
+                "a year, at the equinoxes, everything shuffles one position "
+                "for the changing sun. It sounds obsessive written down; in "
+                "practice it's the most restful twenty minutes of the "
+                "week.</p>",
             ),
         ],
     },
