@@ -1,8 +1,11 @@
 """Community experts rail: GET users/experts/ (Task 6, Canopy PR)."""
 
+import re
+
 import pytest
 from django.contrib.auth import get_user_model
-from django.test.utils import override_settings
+from django.db import connection
+from django.test.utils import CaptureQueriesContext, override_settings
 from rest_framework.test import APIClient
 from wagtail.models import Page
 from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile
@@ -79,6 +82,57 @@ def test_experts_filters_by_trust_level_and_orders_by_trust_then_post_count():
     for row in results:
         assert "title" in row
         assert isinstance(row["title"], str)
+
+
+@pytest.mark.django_db
+def test_experts_ties_break_by_id_descending():
+    """Two profiles sharing the same trust_level and post_count -> higher
+    profile id wins.
+
+    Mirrors RecentTopicsView's `-last_post_at, -id` tie-break convention
+    (review finding #2) so ties resolve deterministically instead of
+    depending on incidental DB/plan-dependent scan order.
+
+    Asserted directly on the issued SQL's ORDER BY clause, not on the HTTP
+    response row order: empirically, Postgres's plan for this specific
+    query (a JOIN against auth_user via select_related) already returns
+    ties in id-descending order on this dataset size EVEN WITHOUT an
+    explicit `-id` tie-break, in both this repo's pytest-django harness and
+    a standalone reproduction — so a response-order assertion alone passes
+    whether or not the tie-break is in the code and would not have caught
+    this review finding. The generated SQL's ORDER BY clause is what the
+    code review finding is actually about, so that's what's pinned here.
+    """
+    _board()  # create forum structure
+
+    user_a = User.objects.create_user(username="user_a")
+    profile_a = ForumProfile.for_user(user_a)
+    profile_a.trust_level = 3
+    profile_a.post_count = 10
+    profile_a.save()
+
+    user_b = User.objects.create_user(username="user_b")
+    profile_b = ForumProfile.for_user(user_b)
+    profile_b.trust_level = 3
+    profile_b.post_count = 10
+    profile_b.save()
+
+    assert profile_b.pk > profile_a.pk  # sanity: creation order held
+
+    with CaptureQueriesContext(connection) as ctx:
+        resp = APIClient().get("/forum/users/experts/")
+    assert resp.status_code == 200
+    assert [r["username"] for r in resp.data["results"]] == ["user_b", "user_a"]
+
+    profile_queries = [
+        q["sql"]
+        for q in ctx.captured_queries
+        if "wagtail_forum_forumprofile" in q["sql"]
+    ]
+    assert len(profile_queries) == 1
+    assert re.search(
+        r'ORDER BY .*"wagtail_forum_forumprofile"\."id" DESC', profile_queries[0]
+    ), profile_queries[0]
 
 
 @pytest.mark.django_db

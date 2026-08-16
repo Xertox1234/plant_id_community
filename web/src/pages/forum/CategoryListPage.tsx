@@ -66,7 +66,14 @@ export default function CategoryListPage() {
           // The event hero is a nice-to-have on top of the board list, not a
           // dependency of it — a failure here must never surface the page's
           // error state, so it's caught locally and defaulted to [].
-          fetchRecentTopics(5).catch((err) => {
+          // Fetch the server's MAX window (RECENT_TOPICS_MAX_LIMIT,
+          // wagtail_forum/conf.py), not just the rail's display count: the
+          // hero scans this whole array for the pinned bloom-watch topic
+          // (below), and a 5-row fetch let 5 newer topics evict a still-live
+          // pinned event out of the window mid-event (review finding #6).
+          // ActiveNowModule re-slices its own display to 3 regardless of how
+          // many rows this array carries, so the rail is unaffected.
+          fetchRecentTopics(20).catch((err) => {
             logger.error('Error loading recent topics', {
               component: 'CategoryListPage',
               error: err,
@@ -151,8 +158,12 @@ export default function CategoryListPage() {
     ? categories.filter((c) => c.slug === activeBoard)
     : categories;
 
-  // The pinned bloom-watch topic (seeded content) swaps in the event hero
-  // when it's live; every other month falls back to the evergreen hero.
+  // The event hero swaps in whenever a topic in the fetched recent window is
+  // BOTH pinned AND slugged "bloom-watch…" (seeded content, spec-locked
+  // naming — not a generic "any pinned topic" or "any bloom-watch topic"
+  // check). Once that topic ages out of the recent window entirely, this
+  // reverts to the evergreen hero — there's no other "is the event still
+  // live" signal.
   const bloomWatch = recentTopics.find((t) => t.is_pinned && t.slug.startsWith('bloom-watch'));
 
   // Same hero art either way — hoisted so both HeroCard branches share it.

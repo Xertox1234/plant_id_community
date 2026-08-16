@@ -58,12 +58,12 @@ describe('CommunityExpertsModule', () => {
     expect(screen.getByText('Regular')).toBeInTheDocument();
   });
 
-  it('falls back to "New member" (trust_level 0) when trust_level is null', async () => {
+  it('falls back to "New" (trust_level 0, shared TRUST_LEVEL_LABELS) when trust_level is null', async () => {
     mockFetchExperts.mockResolvedValue([expert({ title: '', trust_level: null })]);
     renderModule();
 
     await screen.findByText('Iris Delgado');
-    expect(screen.getByText('New member')).toBeInTheDocument();
+    expect(screen.getByText('New')).toBeInTheDocument();
   });
 
   it('falls back to the generic "Member" label for a trust_level outside the known map', async () => {

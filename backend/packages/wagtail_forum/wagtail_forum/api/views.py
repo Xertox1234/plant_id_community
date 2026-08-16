@@ -1761,7 +1761,20 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
             image = images.get(image_id_by_topic.get(topic.pk))
             if image is None:
                 return None
-            url = image.get_rendition("fill-80x80").url
+            try:
+                url = image.get_rendition("fill-80x80").url
+            except OSError:
+                # Source file missing from disk (media wiped, Image row
+                # survives — wagtail raises SourceImageIOError, an OSError
+                # subclass). Don't 500 the whole endpoint over one bad
+                # thumbnail; log once and omit it for this topic.
+                logger.exception(
+                    "[ERROR] rendition failed for image %s (topic %s); "
+                    "omitting thumbnail",
+                    image.pk,
+                    topic.pk,
+                )
+                return None
             return request.build_absolute_uri(url)
 
         return Response(
@@ -1821,7 +1834,9 @@ class ExpertsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
                 user__is_active=True,
             )
             .select_related("user", "avatar")
-            .order_by("-trust_level", "-post_count")[: get_setting("EXPERTS_LIMIT")]
+            .order_by("-trust_level", "-post_count", "-id")[
+                : get_setting("EXPERTS_LIMIT")
+            ]
         )
         return Response(
             {"results": [serialize_forum_author(p.user, request) for p in profiles]}

@@ -213,20 +213,39 @@ class Command(BaseCommand):
                     candidates=spec["identification"]["candidates"],
                 )
 
+            post_times_by_pk = dict(post_times)
             newest = max(ts for _, ts in post_times)
             if solution_post is not None:
                 topic.solved_post = solution_post
-                topic.solved_at = newest
+                # The ACCEPTED POST's own timestamp, not the thread's newest —
+                # a solution is frequently not the last reply (later replies
+                # can be follow-up chatter after the answer landed).
+                topic.solved_at = post_times_by_pk[solution_post.pk]
                 topic.save(update_fields=["solved_post", "solved_at"])
 
             # Timestamp pass — LAST, via .update() so auto_now/auto_now_add and
-            # signals don't overwrite the spread (spec §5).
+            # signals don't overwrite the spread (spec §5). first_published_at/
+            # last_published_at are back-dated too, not just created_at/
+            # updated_at: signals._refresh_topic_counters recomputes
+            # topic.last_post_at from live posts' first_published_at on ANY
+            # later recount (unpublish, delete, report-hide, ...), so leaving
+            # those columns at the real seed-run wall-clock would snap a
+            # topic's curated age back to "now" the moment anything triggers
+            # a recount.
+            topic_ts = now - timedelta(hours=opening_age)
             for pk, ts in post_times:
-                Post.objects.filter(pk=pk).update(created_at=ts, updated_at=ts)
+                Post.objects.filter(pk=pk).update(
+                    created_at=ts,
+                    updated_at=ts,
+                    first_published_at=ts,
+                    last_published_at=ts,
+                )
             Topic.objects.filter(pk=topic.pk).update(
-                created_at=now - timedelta(hours=opening_age),
+                created_at=topic_ts,
                 updated_at=newest,
                 last_post_at=newest,
+                first_published_at=topic_ts,
+                last_published_at=topic_ts,
             )
         self.stdout.write(f"Created topic {spec['slug']} on {spec['board']}.")
         return True

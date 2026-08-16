@@ -27,6 +27,7 @@ import NotificationBell from '../components/layout/NotificationBell';
 import UserMenu from '../components/layout/UserMenu';
 import CommandPalette from '../components/CommandPalette';
 import { RAIL_CONTAINER_ID } from '../components/layout/RailSlot';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import BrandMark from '../components/ui/BrandMark';
 import CountBadge from '../components/ui/CountBadge';
 
@@ -152,10 +153,13 @@ export default function AppShell({ children }: AppShellProps) {
   // Cmd/Ctrl+K opens the command palette from anywhere. The functional
   // update makes an already-open palette a no-op — the simplest guard
   // against a repeat-open, rather than sniffing what currently has focus.
+  // Also closes the drawer: both are full-screen overlays, and opening the
+  // palette on top of an already-open mobile drawer stacked two dialogs.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
+        setDrawerOpen(false);
         setPaletteOpen((open) => (open ? open : true));
       }
     };
@@ -163,15 +167,11 @@ export default function AppShell({ children }: AppShellProps) {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Body scroll lock while the drawer is open.
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [drawerOpen]);
+  // Body scroll lock while the drawer is open — shared, ref-counted with
+  // CommandPalette (see useBodyScrollLock) so the two compose correctly
+  // when both are open at once (closing one must never unlock under the
+  // other, or leave the page locked forever).
+  useBodyScrollLock(drawerOpen);
 
   // Initial focus: send focus to the drawer's close button when it opens.
   useEffect(() => {

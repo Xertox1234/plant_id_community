@@ -443,6 +443,49 @@ describe('CategoryListPage', () => {
   });
 
   describe('bloom watch event hero', () => {
+    it('fetches the server MAX recent-topics window, not just the rail display count', async () => {
+      // RECENT_TOPICS_MAX_LIMIT (wagtail_forum/conf.py) is 20 — the hero
+      // scans the FULL fetched array for the pinned bloom-watch topic, so a
+      // narrower fetch lets newer topics evict a still-live pinned event
+      // out of the window mid-event (review finding #6).
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
+      renderCategoryListPage();
+
+      await waitFor(() => expect(forumService.fetchRecentTopics).toHaveBeenCalledWith(20));
+    });
+
+    it("still shows the event hero when the pinned bloom-watch topic sits past the rail's 3-item display cap but within the fetched window", async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
+      const bloomWatch = makeRecentTopic({
+        id: 42,
+        slug: 'bloom-watch-2026',
+        title: 'Bloom Watch 2026',
+        board: { id: 7, name: 'Showcase', slug: 'showcase' },
+        is_pinned: true,
+      });
+      // 6 newer, unrelated topics ahead of the pinned event — more than the
+      // rail's RAIL_TOPIC_LIMIT (3) AND more than the old, buggy fetch
+      // count (5). The mock mirrors the real endpoint's `?limit=` truncation
+      // (newest-first, pinned event last) so this test exercises the ACTUAL
+      // regression: it only passes when the page requests a window wide
+      // enough that the truncated response still contains the pinned topic
+      // — a plain `mockResolvedValue` ignoring the call arg would pass even
+      // under the `fetchRecentTopics(5)` mutation.
+      const newerTopics = Array.from({ length: 6 }, (_, i) =>
+        makeRecentTopic({ id: i + 1, slug: `newer-topic-${i + 1}` })
+      );
+      const fullWindow = [...newerTopics, bloomWatch];
+      vi.mocked(forumService.fetchRecentTopics).mockImplementation((limit = 5) =>
+        Promise.resolve(fullWindow.slice(0, limit))
+      );
+
+      renderCategoryListPage();
+
+      const cta = await screen.findByRole('link', { name: 'Join the bloom watch' });
+      expect(cta).toHaveAttribute('href', '/forum/7-showcase/42-bloom-watch-2026');
+      expect(screen.queryByText('Ask the canopy')).not.toBeInTheDocument();
+    });
+
     it('renders the event hero, linking to the topic path, when a pinned bloom-watch topic is in the recent feed', async () => {
       vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
       const bloomWatch = makeRecentTopic({

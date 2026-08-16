@@ -218,6 +218,22 @@ describe('AppShell', () => {
     expect(screen.getByTestId('command-palette')).toBeInTheDocument();
   });
 
+  it('Ctrl+K with the drawer open closes the drawer and opens the command palette', async () => {
+    renderShell();
+    await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+    expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'k', ctrlKey: true });
+
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('command-palette')).toBeInTheDocument();
+    // The drawer's own scroll lock must have released — otherwise the
+    // shared, ref-counted lock (useBodyScrollLock) would still show
+    // "hidden" here even after the drawer closed, since CommandPalette is
+    // mocked in this suite and never acquires its own real lock.
+    expect(document.body.style.overflow).toBe('');
+  });
+
   it('clicking the search pill opens the command palette', async () => {
     renderShell();
     await userEvent.click(screen.getByRole('button', { name: /search plants, posts, people/i }));

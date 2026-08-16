@@ -5,17 +5,9 @@ import RailModule from '../../ui/RailModule';
 import { fetchExperts } from '../../../services/forumService';
 import { specimenAvatar } from '../../../utils/forumAvatars';
 import { userProfilePath } from '../../../utils/forumUrls';
+import { TRUST_LEVEL_LABELS } from '../../../utils/forumAuthor';
 import { logger } from '../../../utils/logger';
 import type { ForumExpert } from '@/types';
-
-/** Trust-level labels, mirroring the backend's TrustLevel choices. */
-const TRUST_LABELS: Record<number, string> = {
-  0: 'New member',
-  1: 'Member',
-  2: 'Member',
-  3: 'Regular',
-  4: 'Leader',
-};
 
 /**
  * Right-rail module: highest-trust community members.
@@ -63,7 +55,7 @@ export default function CommunityExpertsModule() {
                   {expert.display_name}
                 </span>
                 <span className="gt-label block normal-case tracking-normal">
-                  {expert.title || TRUST_LABELS[expert.trust_level ?? 0] || 'Member'}
+                  {expert.title || TRUST_LEVEL_LABELS[expert.trust_level ?? 0] || 'Member'}
                 </span>
               </span>
             </Link>

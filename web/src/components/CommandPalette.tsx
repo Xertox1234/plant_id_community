@@ -10,6 +10,7 @@ import {
 } from '../services/forumService';
 import { categoryPath, threadPath, userProfilePath } from '../utils/forumUrls';
 import { boardIdentity } from '../utils/forumTones';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import type { Category, Thread } from '../types/forum';
 
 const MIN_QUERY_LENGTH = 2;
@@ -60,6 +61,11 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
+  // Whether the user has explicitly moved the roving cursor (arrow keys or
+  // mouse hover) since the query last changed. While false, the EFFECTIVE
+  // selection is `defaultIndex` below, not this raw `activeIndex` — see the
+  // `defaultIndex` comment for why (code review finding #4).
+  const [hasNavigated, setHasNavigated] = useState(false);
   const [visible, setVisible] = useState(false);
 
   const [categories, setCategories] = useState<Category[]>([]);
@@ -90,6 +96,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     if (!open) return;
     setQuery('');
     setActiveIndex(0);
+    setHasNavigated(false);
     setTopicsResult(null);
     setTopicsError(false);
     setTopicsLoading(false);
@@ -136,15 +143,10 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [open, onClose]);
 
-  // Body scroll lock while open.
-  useEffect(() => {
-    if (!open) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [open]);
+  // Body scroll lock while open — shared, ref-counted with AppShell's mobile
+  // drawer (see useBodyScrollLock) so the two compose correctly when both
+  // are open at once.
+  useBodyScrollLock(open);
 
   // Entrance transition — a class flip one frame after mount so the
   // fade/scale actually animates instead of snapping to its end state.
@@ -236,10 +238,14 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     };
   }, [trimmedQuery, showTopics, isAuthenticated]);
 
-  // Reset the roving cursor whenever the query changes, so retyping lands
-  // back on the top result instead of an index that may no longer exist.
+  // Reset to "no explicit selection" whenever the query changes, so an
+  // arrow-key choice from a previous query never carries over to a
+  // different result set. `activeIndex` itself is inert while
+  // `hasNavigated` is false — `defaultIndex` below governs what's actually
+  // selected until the user arrows or hovers.
   useEffect(() => {
     setActiveIndex(0);
+    setHasNavigated(false);
   }, [trimmedQuery]);
 
   // Derive the live results from the tagged response — a mismatch against
@@ -300,7 +306,20 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     () => [...quickActionRows, ...topicRows, ...peopleRows],
     [quickActionRows, topicRows, peopleRows]
   );
-  const clampedIndex = flatRows.length === 0 ? -1 : Math.min(activeIndex, flatRows.length - 1);
+
+  // Where the roving cursor sits BEFORE the user has explicitly moved it.
+  // Quick actions are unfiltered and always head `flatRows`, so a fixed
+  // `flatRows[0]` default is always "Identify a plant" — plain Enter would
+  // fire that quick action even when the query has real topic hits sitting
+  // right below it (code review finding #4). Once there's a query with at
+  // least one real topic result, default to the TOP TOPIC row instead
+  // (`topicRows` lists real hits before its trailing "Search everything…"
+  // row, so index `quickActionRows.length` is always the top hit when one
+  // exists). No query, or a query with zero topic hits (loading/error/empty)
+  // — default stays the first quick action.
+  const defaultIndex = showTopics && topics.length > 0 ? quickActionRows.length : 0;
+  const effectiveIndex = hasNavigated ? activeIndex : defaultIndex;
+  const clampedIndex = flatRows.length === 0 ? -1 : Math.min(effectiveIndex, flatRows.length - 1);
   const activeRow = clampedIndex >= 0 ? flatRows[clampedIndex] : undefined;
 
   const activate = (row: PaletteRow) => {
@@ -309,14 +328,19 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   };
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'ArrowDown') {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (flatRows.length === 0) return;
-      setActiveIndex((i) => Math.min(i + 1, flatRows.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (flatRows.length === 0) return;
-      setActiveIndex((i) => Math.max(i - 1, 0));
+      // Step from wherever the cursor is CURRENTLY shown (effectiveIndex),
+      // not the possibly-stale raw activeIndex — the first arrow press
+      // after a query change must move relative to the default-selected
+      // row, not silently jump from an index left over from before.
+      const next =
+        e.key === 'ArrowDown'
+          ? Math.min(effectiveIndex + 1, flatRows.length - 1)
+          : Math.max(effectiveIndex - 1, 0);
+      setHasNavigated(true);
+      setActiveIndex(next);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (activeRow) activate(activeRow);
@@ -355,7 +379,10 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
         to={row.to}
         aria-selected={selected}
         onClick={onClose}
-        onMouseEnter={() => setActiveIndex(index)}
+        onMouseEnter={() => {
+          setHasNavigated(true);
+          setActiveIndex(index);
+        }}
         className={`flex min-h-11 items-center gap-2.5 px-4 text-[13.5px] transition-colors ${
           selected ? 'bg-surface-2 text-ink' : 'text-ink-2 hover:bg-surface-2/70 hover:text-ink'
         }`}

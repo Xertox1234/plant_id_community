@@ -8,12 +8,15 @@ Controller ruling (2026-08-15): the brief's test list says "4 topics solved"
 `test_world_shape` asserts 5 with the spec'd solvers.
 """
 
+from datetime import timedelta
+
 import pytest
 from apps.forum_host.seed_content import BOARDS, DEMO_EMAIL_DOMAIN, TOPICS, USERS
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import override_settings
+from django.utils import timezone
 from wagtail.images import get_image_model
 from wagtail.models import Site
 from wagtail_forum.models import (
@@ -240,3 +243,59 @@ def test_world_shape():
     for username in ("iris_delgado", "sam_whitaker"):
         profile = ForumProfile.objects.get(user__username=username)
         assert profile.trust_level == 4
+
+
+@override_settings(DEBUG=True)
+@pytest.mark.django_db
+def test_recount_after_unpublish_keeps_last_post_at_backdated():
+    """A post-seed counter recount must not snap a topic's curated age back
+    to the seed-run's real wall-clock (review finding #3a).
+
+    signals._refresh_topic_counters derives Topic.last_post_at from live
+    posts' first_published_at. The seed command back-dates created_at/
+    updated_at via a bare .update(), which bypasses Wagtail's publish path
+    entirely — so first_published_at is left at the real seed-run time
+    unless the command ALSO back-dates it. Unpublishing any one reply
+    triggers exactly such a recount (signals.update_counters_on_unpublish);
+    without the fix the recomputed last_post_at lands within seconds of
+    "now" instead of staying in the seeded past.
+    """
+    call_command("seed_demo_content")
+
+    topic = Topic.objects.get(slug="estate-sale-trailing-plant")
+    posts = list(topic.posts.order_by("created_at"))
+    latest_reply = posts[-1]
+    assert not latest_reply.is_opening_post  # sanity: a real reply, not the opener
+
+    seeded_last_post_at = topic.last_post_at
+    before_unpublish = timezone.now()
+
+    latest_reply.unpublish()
+
+    topic.refresh_from_db()
+    assert topic.last_post_at is not None
+    # Comfortably in the seed-run's back-dated past, nowhere near "now".
+    assert topic.last_post_at < before_unpublish - timedelta(hours=1)
+    # Moved to the new latest LIVE post (further into the past), not just
+    # "coincidentally stayed put".
+    assert topic.last_post_at < seeded_last_post_at
+
+
+@override_settings(DEBUG=True)
+@pytest.mark.django_db
+def test_solved_at_is_the_solution_posts_own_timestamp():
+    """solved_at must be the ACCEPTED post's own timestamp, not the thread's
+    newest post's (review finding #3b) — a solution is frequently not the
+    last reply; later replies are often follow-up chatter after the answer
+    already landed. True for this seed topic: the solution is reply #2 of 6.
+    """
+    call_command("seed_demo_content")
+
+    topic = Topic.objects.get(slug="estate-sale-trailing-plant")
+    assert topic.solved_post is not None
+    posts = list(topic.posts.order_by("created_at"))
+    newest_reply = posts[-1]
+    assert topic.solved_post.pk != newest_reply.pk  # sanity: not the last post
+
+    assert topic.solved_at == topic.solved_post.created_at
+    assert topic.solved_at < newest_reply.created_at

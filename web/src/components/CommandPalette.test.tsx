@@ -188,6 +188,83 @@ describe('CommandPalette', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('with a typed query and no arrowing, Enter navigates to the TOP TOPIC result, not the first quick action', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(forumService.searchForum).mockResolvedValue(
+        makeSearchResponse([
+          makeThread({ id: '55', title: 'Monstera leaf care', slug: 'monstera-leaf-care' }),
+        ])
+      );
+      const { onClose } = renderPalette();
+      const input = getInput();
+
+      fireEvent.change(input, { target: { value: 'mon' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      const topicRow = screen.getByRole('link', { name: 'Monstera leaf care' });
+      // aria-activedescendant/aria-selected already track the row Enter
+      // would activate, before Enter is even pressed.
+      expect(topicRow).toHaveAttribute('aria-selected', 'true');
+      expect(input).toHaveAttribute('aria-activedescendant', topicRow.id);
+
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(mockNavigate).toHaveBeenCalledWith('/forum/2-care-problems/55-monstera-leaf-care');
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('with no query, plain Enter still activates the first quick action', () => {
+    const { onClose } = renderPalette();
+    const input = getInput();
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/identify');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('explicit arrow navigation always wins over the query-driven default', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(forumService.searchForum).mockResolvedValue(
+        makeSearchResponse([makeThread({ title: 'Monstera leaf care' })])
+      );
+      const { onClose } = renderPalette();
+      const input = getInput();
+
+      fireEvent.change(input, { target: { value: 'mon' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      // Default (no arrowing yet) sits on the top topic result.
+      expect(screen.getByRole('link', { name: 'Monstera leaf care' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+
+      // Arrow back up to the first quick action (2 quick-action rows sit
+      // ahead of the top topic row at the default index) — explicit
+      // navigation must override the query-driven default.
+      fireEvent.keyDown(input, { key: 'ArrowUp' });
+      fireEvent.keyDown(input, { key: 'ArrowUp' });
+      const quickAction = screen.getByRole('link', { name: 'Identify a plant' });
+      expect(quickAction).toHaveAttribute('aria-selected', 'true');
+      expect(input).toHaveAttribute('aria-activedescendant', quickAction.id);
+
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(mockNavigate).toHaveBeenCalledWith('/identify');
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('drops a stale response when an older query resolves after a newer one (epoch guard)', async () => {
     vi.useFakeTimers();
     try {

@@ -4,6 +4,7 @@ import datetime
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.cache import caches
 from django.db import connection
 from django.test.utils import CaptureQueriesContext, override_settings
 from django.utils import timezone
@@ -300,6 +301,59 @@ def test_recent_topics_thumbnail_resolution():
     assert attachment_thumb.startswith("http://testserver")
 
     assert by_id[topic_no_image.id]["thumbnail_url"] is None
+
+
+@pytest.mark.django_db
+def test_recent_topics_thumbnail_missing_source_file_returns_null_not_500():
+    """Source file wiped from disk (media wiped, Image row survives) -> the
+    endpoint still 200s and that topic's thumbnail_url is null, instead of
+    the rendition lookup's SourceImageIOError (an OSError subclass) bubbling
+    into a 500 that the anon read-cache would then pin (review finding #1).
+    """
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    collection = get_forum_image_collection()
+    now = timezone.now()
+
+    image = get_image_model().objects.create(
+        title="body.jpg", file=get_test_image_file(), collection=collection
+    )
+    topic = Topic.objects.create(
+        board=board,
+        title="Missing file",
+        slug="missing-file",
+        author=author,
+        live=True,
+        last_post_at=now,
+    )
+    Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[{"type": "image", "value": image.id}],
+    )
+    # Delete only the underlying storage object, leaving the Image row (and
+    # its file field's name) untouched — simulates a media-directory wipe
+    # that the DB never finds out about. Close the cached handle from the
+    # upload first: Unix unlink() doesn't invalidate an already-open file
+    # descriptor, so a stale handle would silently keep serving bytes and
+    # mask the missing-file path this test exists to exercise.
+    image.file.close()
+    image.file.storage.delete(image.file.name)
+    # The project's "renditions" cache (settings.py: Redis db 3, 1-year TTL)
+    # is a real, long-lived backend that persists across separate pytest
+    # invocations and keys on (image pk, file_hash, filter spec) — so a
+    # fresh test DB's low, reused pks can collide with a stale entry left by
+    # an earlier run using the same fixture bytes, serving an
+    # already-generated rendition and masking the cold path under test.
+    # Force a clean slate.
+    caches["renditions"].clear()
+
+    resp = APIClient().get("/forum/topics/recent/")
+    assert resp.status_code == 200
+    by_id = {r["id"]: r for r in resp.data["results"]}
+    assert by_id[topic.id]["thumbnail_url"] is None
 
 
 @pytest.mark.django_db
