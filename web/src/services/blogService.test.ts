@@ -22,6 +22,7 @@ import type {
   FetchBlogPostsOptions,
 } from '../types/blog';
 import apiClient from '../utils/httpClient';
+import { logger } from '../utils/logger';
 
 // Mock logger to prevent console noise
 vi.mock('../utils/logger', () => ({
@@ -217,6 +218,25 @@ describe('blogService', () => {
       // Act & Assert
       await expect(fetchBlogPosts()).rejects.toThrow('API error');
     });
+
+    it('should parse a stringified content_blocks payload on list items', async () => {
+      // Arrange — the list endpoint carries the same stringified
+      // content_blocks bug as the detail endpoint (live-probed 2026-08-16:
+      // GET /api/v2/blog-posts/ falls through to the detail serializer).
+      const stringified = {
+        ...mockBlogPost,
+        content_blocks: JSON.stringify(mockBlogPost.content_blocks),
+      };
+      vi.mocked(apiClient.get).mockResolvedValueOnce({
+        data: { items: [stringified], meta: { total_count: 1 } },
+      });
+
+      // Act
+      const result = await fetchBlogPosts();
+
+      // Assert
+      expect(result.items[0].content_blocks).toEqual(mockBlogPost.content_blocks);
+    });
   });
 
   // ============================================================================
@@ -264,6 +284,41 @@ describe('blogService', () => {
 
       // Act & Assert
       await expect(fetchBlogPost('test-post')).rejects.toThrow('Network error');
+    });
+
+    it('should parse a stringified content_blocks payload into an array', async () => {
+      // Arrange — DRF's ModelSerializer stringifies StreamField; the live
+      // detail (and list) payload sends content_blocks as a JSON string.
+      const stringified = {
+        ...mockBlogPost,
+        content_blocks: JSON.stringify(mockBlogPost.content_blocks),
+      };
+      vi.mocked(apiClient.get).mockResolvedValueOnce({
+        data: { items: [stringified], meta: { total_count: 1 } },
+      });
+
+      // Act
+      const result = await fetchBlogPost('test-post');
+
+      // Assert
+      expect(result.content_blocks).toEqual(mockBlogPost.content_blocks);
+    });
+
+    it('should fall back to an empty array and log when content_blocks is malformed JSON', async () => {
+      // Arrange
+      vi.mocked(apiClient.get).mockResolvedValueOnce({
+        data: {
+          items: [{ ...mockBlogPost, content_blocks: '[{"type": "paragraph", "value": ' }],
+          meta: { total_count: 1 },
+        },
+      });
+
+      // Act
+      const result = await fetchBlogPost('test-post');
+
+      // Assert
+      expect(result.content_blocks).toEqual([]);
+      expect(vi.mocked(logger.error)).toHaveBeenCalled();
     });
   });
 

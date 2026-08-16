@@ -17,6 +17,7 @@ import type {
   BlogCategoryListResponse,
   FetchBlogPostsOptions,
   FetchPopularPostsOptions,
+  StreamFieldBlock,
 } from '../types/blog';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -34,6 +35,42 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  */
 export function mediaUrl(url: string): string {
   return url.startsWith('/') ? `${API_URL}${url}` : url;
+}
+
+/**
+ * Normalize a post's `content_blocks` field.
+ *
+ * DRF's `ModelSerializer` has no native mapping for Wagtail's StreamField,
+ * so it falls back to a plain `ModelField` and stringifies the value.
+ * Live-probed 2026-08-16: both the detail lookup below AND the
+ * `fetchBlogPosts` list endpoint send `content_blocks` as a JSON string
+ * (`'[{"type":"paragraph","value":"<p>…"}]'`), not an array (see the task
+ * report for the backend root cause — out of scope here, the API is
+ * contractually frozen). An un-parsed string crashes `StreamFieldRenderer`'s
+ * `blocks.map`, so this is a frontend-only workaround: parse the string
+ * back into an array so `BlogPost.content_blocks: StreamFieldBlock[]` holds
+ * for every caller. An already-array value passes through unchanged; any
+ * other shape (missing key, malformed JSON) degrades to `[]` rather than
+ * throwing, so a bad payload renders a bodyless article instead of an
+ * error boundary.
+ */
+function normalizeContentBlocks(blocks: unknown): StreamFieldBlock[] {
+  if (Array.isArray(blocks)) {
+    return blocks as StreamFieldBlock[];
+  }
+  if (typeof blocks !== 'string') {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(blocks);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    logger.error('Failed to parse content_blocks JSON string', {
+      component: 'BlogService',
+      error,
+    });
+    return [];
+  }
 }
 
 /**
@@ -86,9 +123,13 @@ export async function fetchBlogPosts(
 
   try {
     const response = await apiClient.get(`/api/v2/blog-posts/?${params}`);
+    const items: BlogPost[] = (response.data.items || []).map((item: BlogPost) => ({
+      ...item,
+      content_blocks: normalizeContentBlocks(item.content_blocks),
+    }));
 
     return {
-      items: response.data.items || [],
+      items,
       meta: response.data.meta || { total_count: 0 },
     };
   } catch (error) {
@@ -118,7 +159,8 @@ export async function fetchBlogPost(slug: string): Promise<BlogPost> {
       throw new Error('Blog post not found');
     }
 
-    return response.data.items[0];
+    const post = response.data.items[0];
+    return { ...post, content_blocks: normalizeContentBlocks(post.content_blocks) };
   } catch (error) {
     logger.error('Error fetching blog post', {
       component: 'BlogService',
