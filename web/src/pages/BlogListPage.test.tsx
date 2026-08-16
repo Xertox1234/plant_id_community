@@ -6,11 +6,15 @@ import BlogListPage from './BlogListPage';
 import { fetchBlogPosts, fetchPopularPosts, fetchCategories } from '../services/blogService';
 import type { BlogPost } from '@/types';
 
-vi.mock('../services/blogService', () => ({
-  fetchBlogPosts: vi.fn(),
-  fetchPopularPosts: vi.fn(),
-  fetchCategories: vi.fn(),
-}));
+vi.mock('../services/blogService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/blogService')>();
+  return {
+    ...actual,
+    fetchBlogPosts: vi.fn(),
+    fetchPopularPosts: vi.fn(),
+    fetchCategories: vi.fn(),
+  };
+});
 
 const mockFetchPosts = vi.mocked(fetchBlogPosts);
 const mockFetchPopular = vi.mocked(fetchPopularPosts);

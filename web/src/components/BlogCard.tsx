@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Link } from 'react-router-dom';
 import Card from './ui/Card';
 import { stripHtml } from '../utils/sanitize';
+import { mediaUrl } from '../services/blogService';
 import type { BlogPost } from '@/types';
 
 /**
@@ -45,7 +46,7 @@ function BlogCard({ post, compact = false }: BlogCardProps) {
       >
         {thumb && (
           <img
-            src={thumb}
+            src={mediaUrl(thumb)}
             alt=""
             aria-hidden="true"
             width={48}
@@ -72,7 +73,7 @@ function BlogCard({ post, compact = false }: BlogCardProps) {
       <Link to={`/blog/${post.slug}`} className="group flex h-full flex-col focus:outline-none">
         {cover && (
           <img
-            src={cover}
+            src={mediaUrl(cover)}
             alt=""
             aria-hidden="true"
             width={800}

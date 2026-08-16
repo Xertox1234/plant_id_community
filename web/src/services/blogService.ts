@@ -19,6 +19,23 @@ import type {
   FetchPopularPostsOptions,
 } from '../types/blog';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+/**
+ * Resolve a possibly-relative media path against the API origin.
+ *
+ * Blog images live on the API host, not the SPA host — a relative
+ * `/media/...` src breaks whenever the two are on different origins (prod,
+ * and locally without a dev-server proxy). Rendition payloads also carry a
+ * `full_url` field, but it's derived from Wagtail's static Site record
+ * rather than the request host, so it isn't a safe stand-in across
+ * environments — this resolver is the one place that decides the origin.
+ * Already-absolute URLs pass through unchanged.
+ */
+export function mediaUrl(url: string): string {
+  return url.startsWith('/') ? `${API_URL}${url}` : url;
+}
+
 /**
  * Fetch blog posts with optional filters and pagination.
  */

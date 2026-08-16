@@ -174,6 +174,8 @@ export interface BlogPostAuthor {
 /**
  * Wagtail ImageRenditionField payload (probed 2026-08-16):
  * featured_image = fill-800x400, featured_image_thumb = fill-300x200.
+ * `url` is relative (`/media/...`) — resolve with `mediaUrl` (see
+ * `services/blogService.ts`) before using it as a src.
  */
 export interface BlogPostImage {
   url: string;
@@ -190,7 +192,14 @@ export interface RelatedPostSummary {
   url?: string | null;
   published_date?: string | null;
   excerpt?: string;
-  featured_image?: { url: string } | null;
+  /**
+   * fill-300x200 URL string (or null) — `_get_post_image` returns a bare
+   * URL here, unlike the rendition objects used elsewhere
+   * (featured_image/featured_image_thumb on BlogPost). Absolute when a
+   * request is in serializer context, a bare rendition path otherwise —
+   * resolve with `mediaUrl` either way before use as a src.
+   */
+  featured_image?: string | null;
 }
 
 /**

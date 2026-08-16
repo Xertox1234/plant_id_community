@@ -5,9 +5,13 @@ import BlogDetailPage from './BlogDetailPage';
 import { fetchBlogPost } from '../services/blogService';
 import type { BlogPost } from '@/types';
 
-vi.mock('../services/blogService', () => ({
-  fetchBlogPost: vi.fn(),
-}));
+vi.mock('../services/blogService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/blogService')>();
+  return {
+    ...actual,
+    fetchBlogPost: vi.fn(),
+  };
+});
 
 const mockFetchPost = vi.mocked(fetchBlogPost);
 
@@ -43,7 +47,7 @@ const post: BlogPost = {
       title: 'Your fiddle leaf isn’t dying, it’s adjusting',
       slug: 'fiddle-leaf-adjusting',
       excerpt: 'Before you diagnose disease…',
-      featured_image: { url: '/media/fiddle-300.webp' },
+      featured_image: '/media/fiddle-300.webp',
     },
   ],
 };
@@ -73,9 +77,12 @@ describe('BlogDetailPage', () => {
     // Key-presence discipline: the full joined line, so a silently-null
     // reading_time or author fails loudly.
     expect(screen.getByText('By June Park · 3 min read')).toBeInTheDocument();
+    // featured_image.url is relative — resolved against the API origin by
+    // mediaUrl (no VITE_API_URL in tests, so it falls back to
+    // http://localhost:8000).
     expect(screen.getByAltText('Overwatered pothos')).toHaveAttribute(
       'src',
-      '/media/cover-800.webp'
+      'http://localhost:8000/media/cover-800.webp'
     );
   });
 
@@ -88,12 +95,17 @@ describe('BlogDetailPage', () => {
   });
 
   it('renders the related-posts strip with links', async () => {
-    renderPage();
+    const { container } = renderPage();
     expect(await screen.findByText('More from the blog')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /fiddle leaf/i })).toHaveAttribute(
       'href',
       '/blog/fiddle-leaf-adjusting'
     );
+    // related_posts[].featured_image is a plain URL string (not a rendition
+    // object), possibly relative — resolved via mediaUrl same as the cover.
+    // Decorative, so queried by DOM structure.
+    const relatedImg = container.querySelector('aside img');
+    expect(relatedImg).toHaveAttribute('src', 'http://localhost:8000/media/fiddle-300.webp');
   });
 
   it('hides the related strip when the server sends none', async () => {

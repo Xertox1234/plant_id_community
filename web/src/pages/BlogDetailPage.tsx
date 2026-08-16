@@ -5,7 +5,7 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 import StreamFieldRenderer from '../components/StreamFieldRenderer';
 import PageMeta from '../components/PageMeta';
 import NotFoundPage from './NotFoundPage';
-import { fetchBlogPost } from '../services/blogService';
+import { fetchBlogPost, mediaUrl } from '../services/blogService';
 import { stripHtml } from '../utils/sanitize';
 import { logger } from '../utils/logger';
 import type { BlogPost } from '@/types';
@@ -98,6 +98,7 @@ export default function BlogDetailPage() {
     .filter(Boolean)
     .join(' · ');
   const related = post.related_posts ?? [];
+  const coverSrc = post.featured_image?.url ? mediaUrl(post.featured_image.url) : undefined;
 
   return (
     <article className="flex flex-col gap-8">
@@ -120,13 +121,13 @@ export default function BlogDetailPage() {
         {authorLine && <p className="font-mono text-[12.5px] text-ink-3">{authorLine}</p>}
       </header>
 
-      {post.featured_image?.url && (
+      {coverSrc && (
         <Card className="mx-auto w-full max-w-[860px] overflow-hidden p-0">
           <img
-            src={post.featured_image.url}
-            alt={post.featured_image.alt || ''}
-            width={post.featured_image.width || 800}
-            height={post.featured_image.height || 400}
+            src={coverSrc}
+            alt={post.featured_image?.alt || ''}
+            width={post.featured_image?.width || 800}
+            height={post.featured_image?.height || 400}
             className="aspect-[2/1] w-full object-cover"
           />
         </Card>
@@ -153,9 +154,9 @@ export default function BlogDetailPage() {
                   to={`/blog/${rp.slug}`}
                   className="group flex h-full flex-col focus:outline-none"
                 >
-                  {rp.featured_image?.url && (
+                  {rp.featured_image && (
                     <img
-                      src={rp.featured_image.url}
+                      src={mediaUrl(rp.featured_image)}
                       alt=""
                       aria-hidden="true"
                       className="aspect-[2/1] w-full object-cover"
