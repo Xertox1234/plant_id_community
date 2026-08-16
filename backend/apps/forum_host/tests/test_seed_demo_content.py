@@ -93,6 +93,20 @@ def test_refuses_when_real_users_exist_even_with_confirm():
 
 @override_settings(DEBUG=True)
 @pytest.mark.django_db
+def test_refuses_when_a_demo_username_has_a_real_email():
+    # A demo username alone is not proof of a demo account — someone could
+    # sign up as "iris_delgado" with their own address. The guard must key on
+    # BOTH the demo username AND the @demo.houseplant-md.com email domain, so
+    # this account still counts as REAL and aborts the seed.
+    User.objects.create_user(
+        username="iris_delgado", email="iris@example.com", password="x"
+    )
+    with pytest.raises(CommandError, match="real user"):
+        call_command("seed_demo_content", confirm=True)
+
+
+@override_settings(DEBUG=True)
+@pytest.mark.django_db
 def test_superuser_does_not_trip_the_guard():
     User.objects.create_superuser(
         username="admin", email="admin@example.com", password="x"

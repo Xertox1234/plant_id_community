@@ -179,6 +179,17 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
       // `trimmedQuery` (closed over below) has since moved on.
       const requestQuery = trimmedQuery;
 
+      // Clear any stale results BEFORE issuing the fetches. Without this, an
+      // identical-retype (delete a char, retype it — same final query text)
+      // re-fetches while `topicsResult`/`peopleResult` still carry the PRIOR
+      // response tagged with that same query, so the q-tag guard alone can't
+      // tell it's stale: `topics`/`people` would keep resolving to the old
+      // rows, keeping them in `flatRows` (and reachable via
+      // aria-activedescendant) even though the JSX hides them behind
+      // "Searching…" while `*Loading` is true — an aria-orphan reference.
+      setTopicsResult(null);
+      setPeopleResult(null);
+
       setTopicsLoading(true);
       setTopicsError(false);
       searchForum({ q: requestQuery })

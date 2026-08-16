@@ -238,6 +238,60 @@ describe('CommandPalette', () => {
     }
   });
 
+  it('clears the stale result before an identical-retype re-fetch, so aria-activedescendant never orphans on a hidden row', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveSecond: (value: SearchForumResponse) => void = () => {};
+      vi.mocked(forumService.searchForum)
+        .mockResolvedValueOnce(makeSearchResponse([makeThread({ title: 'Monstera leaf care' })]))
+        .mockImplementationOnce(
+          () =>
+            new Promise<SearchForumResponse>((resolve) => {
+              resolveSecond = resolve;
+            })
+        );
+      renderPalette();
+      const input = getInput();
+
+      fireEvent.change(input, { target: { value: 'mon' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(screen.getByRole('link', { name: 'Monstera leaf care' })).toBeInTheDocument();
+
+      // Retype back to the SAME final query text without letting the
+      // intermediate debounce fire — this re-fetches "mon" while the stale
+      // response is still tagged with that identical query, the one case
+      // the q-tag guard alone can't disambiguate.
+      fireEvent.change(input, { target: { value: 'mons' } });
+      fireEvent.change(input, { target: { value: 'mon' } });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(forumService.searchForum).toHaveBeenCalledTimes(2);
+
+      // The second request is still in flight — rows stay behind "Searching…".
+      expect(screen.getByText('Searching…')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Monstera leaf care' })).not.toBeInTheDocument();
+
+      // Move the roving cursor past the 2 quick-action rows, onto what would
+      // be the stale row's old slot. Whatever the input claims as active must
+      // actually be in the DOM — the regression net for the aria-orphan case.
+      fireEvent.keyDown(input, { key: 'ArrowDown' });
+      fireEvent.keyDown(input, { key: 'ArrowDown' });
+      const activeId = input.getAttribute('aria-activedescendant');
+      expect(activeId).toBeTruthy();
+      expect(document.getElementById(activeId!)).not.toBeNull();
+
+      await act(async () => {
+        resolveSecond(makeSearchResponse([makeThread({ title: 'Monstera leaf care' })]));
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('hides a resolved query’s rows the moment the input moves on, before the next debounce fires', async () => {
     vi.useFakeTimers();
     try {

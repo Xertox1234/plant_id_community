@@ -1,6 +1,7 @@
 from datetime import timedelta
 from pathlib import Path
 
+from apps.forum_host.seed_content import BOARDS, DEMO_EMAIL_DOMAIN, TOPICS, USERS
 from django.contrib.auth import get_user_model
 from django.core.files.images import ImageFile
 from django.core.management import call_command
@@ -9,7 +10,6 @@ from django.db import transaction
 from django.utils import timezone
 from wagtail.images import get_image_model
 from wagtail.rich_text import RichText
-
 from wagtail_forum.collections import get_forum_image_collection
 from wagtail_forum.models import (
     ForumBoard,
@@ -20,8 +20,6 @@ from wagtail_forum.models import (
     Reaction,
     Topic,
 )
-
-from apps.forum_host.seed_content import BOARDS, DEMO_EMAIL_DOMAIN, TOPICS, USERS
 
 ASSET_DIR = Path(__file__).resolve().parent.parent.parent / "seed_assets"
 # The pre-Canopy starter board seed_default_forum creates; removed only if empty.
@@ -51,12 +49,17 @@ class Command(BaseCommand):
                 "DEBUG is False. Re-run with --confirm to seed demo content "
                 "into this environment."
             )
-        # Guard layer 2 (cannot be overridden): any real user = abort.
+        # Guard layer 2 (cannot be overridden): any real user = abort. A demo
+        # account must match BOTH a demo username AND the demo email domain —
+        # a username collision alone (e.g. someone signs up as "amara" with
+        # their own address) is a REAL account and must still trip the guard,
+        # not be silently treated as the seed's own row.
         User = get_user_model()
         demo_usernames = {u["username"] for u in USERS}
-        real_users = User.objects.exclude(username__in=demo_usernames).exclude(
-            is_superuser=True
-        )
+        real_users = User.objects.exclude(
+            username__in=demo_usernames,
+            email__iendswith=f"@{DEMO_EMAIL_DOMAIN}",
+        ).exclude(is_superuser=True)
         if real_users.exists():
             raise CommandError(
                 f"{real_users.count()} real user account(s) exist — refusing to "
@@ -71,9 +74,7 @@ class Command(BaseCommand):
         users = self._seed_users()
         boards = self._seed_boards(index)
         self._remove_empty_starter_board()
-        created = [
-            spec for spec in TOPICS if self._seed_topic(spec, boards, users)
-        ]
+        created = [spec for spec in TOPICS if self._seed_topic(spec, boards, users)]
         self.stdout.write(
             self.style.SUCCESS(
                 f"Seed complete: {len(created)} topic(s) created, "
@@ -166,9 +167,7 @@ class Command(BaseCommand):
             post_times = []
 
             def publish_post(author, paragraphs, image_name, opening, age_hours):
-                body = [
-                    ("paragraph", RichText(f"<p>{p}</p>")) for p in paragraphs
-                ]
+                body = [("paragraph", RichText(f"<p>{p}</p>")) for p in paragraphs]
                 if image_name:
                     body.append(("image", self._get_image(image_name)))
                 post = Post.objects.create(

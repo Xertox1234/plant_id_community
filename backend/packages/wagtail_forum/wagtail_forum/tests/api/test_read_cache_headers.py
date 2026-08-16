@@ -50,7 +50,16 @@ def _board_topic_post():
 
 def _public_paths(board):
     # Anonymous → shared-cacheable (no per-request side effect, list-level staleness).
-    return ["/forum/boards/", f"/forum/boards/{board.slug}/topics/", "/forum/search/"]
+    # topics/recent/ and users/experts/ (Canopy landing rails) both use
+    # PublicForumReadCacheMixin + AllowAny like the others here — confirmed
+    # empirically, not just by mixin inspection, before adding them.
+    return [
+        "/forum/boards/",
+        f"/forum/boards/{board.slug}/topics/",
+        "/forum/search/",
+        "/forum/topics/recent/",
+        "/forum/users/experts/",
+    ]
 
 
 def _private_paths(topic):

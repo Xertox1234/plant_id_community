@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
 import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
-import { Info, Leaf } from 'lucide-react';
+import { Info } from 'lucide-react';
 import { fetchThreads, fetchCategory } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
-import { boardTone } from '../../utils/forumTones';
+import { boardIdentity } from '../../utils/forumTones';
 import ThreadCard from '../../components/forum/ThreadCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -253,15 +253,19 @@ export default function ThreadListPage() {
 
       {/* Board header */}
       <div className="mb-6 flex items-start gap-4">
-        {category && (
-          <Tile tone={boardTone(category.slug)} aria-hidden="true">
-            {category.icon ? (
-              <span className="text-xl leading-none">{category.icon}</span>
-            ) : (
-              <Leaf className="h-5 w-5" />
-            )}
-          </Tile>
-        )}
+        {category &&
+          (() => {
+            const { tone, Icon } = boardIdentity(category.slug);
+            return (
+              <Tile tone={tone} aria-hidden="true">
+                {category.icon ? (
+                  <span className="text-xl leading-none">{category.icon}</span>
+                ) : (
+                  <Icon className="h-5 w-5" />
+                )}
+              </Tile>
+            );
+          })()}
         <div className="min-w-0 flex-1">
           <h1 className="gt-h1 text-ink">{category?.name}</h1>
           {category?.description && (

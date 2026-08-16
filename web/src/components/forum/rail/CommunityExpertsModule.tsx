@@ -4,6 +4,7 @@ import { Users } from 'lucide-react';
 import RailModule from '../../ui/RailModule';
 import { fetchExperts } from '../../../services/forumService';
 import { specimenAvatar } from '../../../utils/forumAvatars';
+import { userProfilePath } from '../../../utils/forumUrls';
 import { logger } from '../../../utils/logger';
 import type { ForumExpert } from '@/types';
 
@@ -51,10 +52,7 @@ export default function CommunityExpertsModule() {
       <ul className="flex flex-col gap-3">
         {experts.map((expert) => (
           <li key={expert.username}>
-            <Link
-              to={`/forum/users/${expert.username}`}
-              className="group flex items-center gap-2.5"
-            >
+            <Link to={userProfilePath(expert.username)} className="group flex items-center gap-2.5">
               <img
                 src={expert.avatar ?? specimenAvatar(expert.username)}
                 alt=""

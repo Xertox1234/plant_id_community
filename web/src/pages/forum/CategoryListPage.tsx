@@ -192,9 +192,9 @@ export default function CategoryListPage() {
           description="Every August the community tracks what's flowering, fruiting, and quietly failing. Post yours, get it identified, and help a neighbor's garden along."
           actions={
             <>
-              <Link to={recentTopicPath(bloomWatch)}>
-                <Button variant="primary">Join the bloom watch</Button>
-              </Link>
+              <ButtonLink to={recentTopicPath(bloomWatch)} variant="primary">
+                Join the bloom watch
+              </ButtonLink>
               <Button variant="ghost" onClick={scrollToBoards}>
                 Browse boards
               </Button>

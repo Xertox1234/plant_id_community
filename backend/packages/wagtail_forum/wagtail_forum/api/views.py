@@ -1630,7 +1630,6 @@ class PublicProfileView(UnversionedForumAPIMixin, APIView):
                 **serialize_forum_author(user, request),
                 "bio": profile.bio if profile else "",
                 "signature": profile.signature if profile else "",
-                "title": profile.title if profile else "",
                 "post_count": profile.post_count if profile else 0,
                 "joined_at": profile.joined_at if profile else None,
                 "recent_topics": recent_topics,
