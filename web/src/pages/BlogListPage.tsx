@@ -268,7 +268,7 @@ export default function BlogListPage() {
           </p>
           {hasFilters && (
             <Button variant="outline" className="mt-4" onClick={clearFilters}>
-              Clear filters
+              Clear all filters
             </Button>
           )}
         </div>

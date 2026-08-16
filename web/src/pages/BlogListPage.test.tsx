@@ -29,9 +29,9 @@ function post(slug: string, title: string): BlogPost {
   };
 }
 
-function renderPage() {
+function renderPage(initialEntries: string[] = ['/blog']) {
   return render(
-    <MemoryRouter initialEntries={['/blog']}>
+    <MemoryRouter initialEntries={initialEntries}>
       <BlogListPage />
     </MemoryRouter>
   );
@@ -104,7 +104,8 @@ describe('BlogListPage', () => {
 
   it('shows an empty state with a clear-filters action when nothing matches', async () => {
     mockFetchPosts.mockResolvedValue({ items: [], meta: { total_count: 0 } });
-    renderPage();
+    renderPage(['/blog?search=nomatch']);
     expect(await screen.findByText(/No articles found/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear all filters' })).toBeInTheDocument();
   });
 });
