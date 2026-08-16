@@ -235,7 +235,10 @@ def test_world_shape():
     # before _get_image is ever reached): assert the real files actually
     # landed as Wagtail Image rows, one per distinct asset, not one per
     # reference.
-    seeded_images = get_image_model().objects.filter(title__startswith="Seed: ")
+    # "Seed: post-*" = the forum's own assets; seed_demo_content now also
+    # seeds the blog (PR 3), whose covers are "Seed: cover-*" and asserted
+    # in apps/blog/tests/test_seed_demo_blog.py.
+    seeded_images = get_image_model().objects.filter(title__startswith="Seed: post-")
     assert seeded_images.count() == len(EXPECTED_IMAGE_ASSETS)
     assert {
         img.title.removeprefix("Seed: ") for img in seeded_images

@@ -191,3 +191,13 @@ def test_world_shape():
         "prune-like-you-mean-it",
         "small-space-jungle",
     ]
+
+
+@override_settings(DEBUG=False)
+@pytest.mark.django_db
+def test_seed_demo_content_seeds_the_blog_and_forwards_confirm():
+    # The single-entry prod runbook (spec §2.1): one seed_demo_content
+    # --confirm run must ALSO seed the blog — which requires the parent to
+    # forward confirm=..., or the inner layer-1 guard aborts in production.
+    call_command("seed_demo_content", confirm=True)
+    assert BlogPostPage.objects.count() == len(POSTS)

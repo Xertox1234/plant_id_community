@@ -87,6 +87,10 @@ class Command(BaseCommand):
             # Content changed under the search index's feet (timestamps moved
             # post-publish); refresh so search reflects the seeded world.
             call_command("update_index", verbosity=0)
+        # Blog half of the demo world (spec 2026-08-16 §5): one prod entry
+        # point. --confirm MUST forward — in production the blog command's
+        # own layer-1 guard would otherwise abort this single-entry runbook.
+        call_command("seed_demo_blog", confirm=options["confirm"])
 
     # -- users ---------------------------------------------------------------
 
