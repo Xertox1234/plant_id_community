@@ -558,7 +558,11 @@ def real_users_queryset():
     """Every account that is neither demo-shaped nor a superuser.
 
     Guard layer 2's census: any row here means a live community — the seeds
-    abort unconditionally (no override flag, by design)."""
+    abort unconditionally (no override flag, by design). The two exclude
+    conditions live in ONE .exclude(...) call on purpose — combined kwargs
+    are ANDed, so only accounts matching BOTH the demo username and the demo
+    email domain are excused; splitting them into two chained .exclude()
+    calls would silently loosen the census."""
     from django.contrib.auth import get_user_model
 
     User = get_user_model()

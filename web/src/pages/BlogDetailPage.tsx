@@ -8,6 +8,7 @@ import NotFoundPage from './NotFoundPage';
 import { fetchBlogPost, mediaUrl } from '../services/blogService';
 import { stripHtml } from '../utils/sanitize';
 import { logger } from '../utils/logger';
+import { useScrollToTop } from '../hooks/useScrollToTop';
 import type { BlogPost } from '@/types';
 
 /**
@@ -34,6 +35,7 @@ function formatDate(value?: string): string | null {
 
 export default function BlogDetailPage() {
   const { slug } = useParams<{ slug: string }>();
+  useScrollToTop();
   const [post, setPost] = useState<BlogPost | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);

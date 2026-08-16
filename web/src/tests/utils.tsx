@@ -11,7 +11,7 @@ import type { RenderOptions } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from '../contexts/AuthContext';
 import { ThemeProvider } from '../contexts/ThemeContext';
-import type { BlogPost, StreamFieldBlock } from '@/types/blog';
+import type { StreamFieldBlock } from '@/types/blog';
 
 /**
  * Renders a component with React Router and Auth context.
@@ -37,39 +37,6 @@ export function renderWithRouterOnly(
   options: Omit<RenderOptions, 'wrapper'> = {}
 ) {
   return render(<BrowserRouter>{ui}</BrowserRouter>, options);
-}
-
-/**
- * Creates a mock blog post object for testing.
- */
-export function createMockBlogPost(overrides: Partial<BlogPost> = {}): BlogPost {
-  return {
-    id: 1,
-    meta: {
-      type: 'blog.BlogPage',
-      detail_url: 'https://example.com/api/v2/pages/1/',
-      html_url: 'https://example.com/blog/test-post/',
-      slug: 'test-post',
-      first_published_at: '2025-10-25T10:00:00Z',
-    },
-    content_blocks: [],
-    slug: 'test-post',
-    title: 'Test Blog Post',
-    introduction: '<p>This is a test introduction</p>',
-    publish_date: '2025-10-25T10:00:00Z',
-    author: {
-      first_name: 'John',
-      last_name: 'Doe',
-    },
-    categories: [{ name: 'Gardening' }],
-    tags: ['plants', 'care'],
-    view_count: 100,
-    featured_image: {
-      url: 'https://example.com/image.jpg',
-      alt: 'Test Image',
-    },
-    ...overrides,
-  };
 }
 
 /**

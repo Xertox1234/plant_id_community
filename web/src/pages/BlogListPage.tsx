@@ -13,6 +13,7 @@ import BlogCard from '../components/BlogCard';
 import PageMeta from '../components/PageMeta';
 import { fetchBlogPosts, fetchPopularPosts, fetchCategories } from '../services/blogService';
 import { logger } from '../utils/logger';
+import { useScrollToTop } from '../hooks/useScrollToTop';
 import type { BlogPost, BlogCategory } from '@/types';
 
 const POSTS_PER_PAGE = 8; // 2-col grid → even pages
@@ -25,6 +26,7 @@ const POSTS_PER_PAGE = 8; // 2-col grid → even pages
  * sidebar retired (spec §2.2); search kept — no regressions.
  */
 export default function BlogListPage() {
+  useScrollToTop();
   const [searchParams, setSearchParams] = useSearchParams();
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [totalCount, setTotalCount] = useState(0);

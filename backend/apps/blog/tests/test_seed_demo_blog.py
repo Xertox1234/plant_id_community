@@ -9,7 +9,7 @@ from datetime import timedelta
 import pytest
 from apps.blog.models import BlogCategory, BlogIndexPage, BlogPostPage
 from apps.blog.seed_content import AUTHOR_NAMES, CATEGORIES, POSTS
-from apps.forum_host.seed_content import DEMO_EMAIL_DOMAIN
+from apps.forum_host.seed_content import DEMO_EMAIL_DOMAIN, USERS
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -201,3 +201,12 @@ def test_seed_demo_content_seeds_the_blog_and_forwards_confirm():
     # forward confirm=..., or the inner layer-1 guard aborts in production.
     call_command("seed_demo_content", confirm=True)
     assert BlogPostPage.objects.count() == len(POSTS)
+
+
+@pytest.mark.django_db
+def test_author_names_match_forum_display_names():
+    # Spec §5: the same person never appears under two names across forum
+    # and blog — AUTHOR_NAMES must equal the ForumProfile display_name cast.
+    specs = {u["username"]: u for u in USERS}
+    for username, (first, last) in AUTHOR_NAMES.items():
+        assert specs[username]["display_name"] == f"{first} {last}"
