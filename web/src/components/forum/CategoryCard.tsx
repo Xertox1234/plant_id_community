@@ -1,11 +1,11 @@
 import { memo } from 'react';
 import { Link } from 'react-router-dom';
-import { Leaf, MessagesSquare, Reply } from 'lucide-react';
+import { MessagesSquare, Reply } from 'lucide-react';
 import Card from '../ui/Card';
 import Tile from '../ui/Tile';
 import Timestamp from '../ui/Timestamp';
 import { categoryPath } from '../../utils/forumUrls';
-import { boardTone } from '../../utils/forumTones';
+import { boardIdentity } from '../../utils/forumTones';
 import type { Category } from '@/types';
 
 interface CategoryCardProps {
@@ -21,15 +21,16 @@ interface CategoryCardProps {
  */
 function CategoryCard({ category }: CategoryCardProps) {
   const hasChildren = !!(category.children && category.children.length > 0);
+  const { tone, Icon } = boardIdentity(category.slug);
 
   return (
     <Card interactive className="p-card">
       <Link to={categoryPath(category)} viewTransition className="flex items-start gap-4">
-        <Tile tone={boardTone(category.slug)} aria-hidden="true">
+        <Tile tone={tone} aria-hidden="true">
           {category.icon ? (
             <span className="text-xl leading-none">{category.icon}</span>
           ) : (
-            <Leaf className="h-5 w-5" />
+            <Icon className="h-5 w-5" />
           )}
         </Tile>
         <div className="min-w-0 flex-1">

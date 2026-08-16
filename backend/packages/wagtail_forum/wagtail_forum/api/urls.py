@@ -10,7 +10,9 @@ from .subscriptions import TopicSubscriptionView
 from .user_search import UserMentionSearchView
 from .views import (
     BoardListView,
+    ExpertsView,
     MeProfileView,
+    MeStatsView,
     PostImageUploadView,
     PostListView,
     PostReportView,
@@ -19,6 +21,7 @@ from .views import (
     PostWriteView,
     PublicProfileView,
     ReactionToggleView,
+    RecentTopicsView,
     SearchView,
     SyncView,
     TopicDetailView,
@@ -30,6 +33,9 @@ app_name = "wagtail_forum_api"
 urlpatterns = [
     path("boards/", BoardListView.as_view(), name="board-list"),
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
+    path("topics/recent/", RecentTopicsView.as_view(), name="topics-recent"),
+    # MUST come before topics/<int:topic_id>/ — literal-over-capture, same rule
+    # this file already documents for users/search/ vs users/<str:username>/.
     path("topics/<int:topic_id>/", TopicDetailView.as_view(), name="topic-detail"),
     path(
         "topics/<int:topic_id>/subscription/",
@@ -65,11 +71,14 @@ urlpatterns = [
         name="post-report",
     ),
     path("me/profile/", MeProfileView.as_view(), name="me-profile"),
+    path("me/stats/", MeStatsView.as_view(), name="me-stats"),
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
     path("users/search/", UserMentionSearchView.as_view(), name="user-mention-search"),
-    # MUST come after users/search/ — the literal path wins over <str:username>
-    # so "search" isn't captured as a username (Django resolves in order).
+    # MUST come after users/search/ and users/experts/ — literal paths win over
+    # <str:username> so "search" and "experts" aren't captured as usernames
+    # (Django resolves in order).
+    path("users/experts/", ExpertsView.as_view(), name="users-experts"),
     path(
         "users/<str:username>/",
         PublicProfileView.as_view(),

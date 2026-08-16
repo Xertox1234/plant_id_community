@@ -1463,6 +1463,53 @@ class MeProfileView(UnversionedForumAPIMixin, generics.RetrieveUpdateAPIView):
         return ForumProfile.for_user(self.request.user)
 
 
+ME_STATS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "posts": {"type": "integer"},
+        "solutions_accepted": {"type": "integer"},
+        "identifications_shared": {"type": "integer"},
+    },
+}
+
+
+class MeStatsView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView):
+    """All-time forum stats for the requesting user ("Your season" cards).
+
+    All-time by design (spec §9): no season windowing, and the client's card
+    sublabels must not claim one. Three cheap reads — the denormalized
+    profile.post_count plus two indexed COUNTs — no server-side caching, but
+    `PrivateForumReadCacheMixin` still marks the response `no-store, private`
+    (round-2 review) so a per-user payload can never be heuristically stored
+    by an intermediary CDN/proxy that caches everything by default — same
+    reasoning as TopicDetailView, not a claim that this view itself caches.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: ME_STATS_SCHEMA},
+        description="All-time forum stats for the requesting user.",
+    )
+    def get(self, request):
+        from ..models import ForumIdentificationAttachment, ForumProfile
+
+        profile = ForumProfile.for_user(request.user)
+        return Response(
+            {
+                "posts": profile.post_count,
+                "solutions_accepted": Topic.objects.filter(
+                    solved_post__author=request.user, live=True
+                ).count(),
+                # Topic-level attachments (OneToOne on Topic — spec corrected
+                # at plan time): attachments the user shared on their topics.
+                "identifications_shared": ForumIdentificationAttachment.objects.filter(
+                    topic__author=request.user, topic__live=True
+                ).count(),
+            }
+        )
+
+
 PUBLIC_PROFILE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -1470,6 +1517,7 @@ PUBLIC_PROFILE_SCHEMA = {
         "display_name": {"type": "string"},
         "avatar": {"type": "string", "nullable": True},
         "trust_level": {"type": "integer", "nullable": True},
+        "title": {"type": "string"},
         "bio": {"type": "string"},
         "signature": {"type": "string"},
         "post_count": {"type": "integer"},
@@ -1620,6 +1668,195 @@ def plain_text_excerpt(stream_value, limit: int) -> str:
         if total >= limit:
             break
     return " ".join(parts)[:limit]
+
+
+RECENT_TOPICS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "integer"},
+                    "slug": {"type": "string"},
+                    "title": {"type": "string"},
+                    "board": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "integer"},
+                            "name": {"type": "string"},
+                            "slug": {"type": "string"},
+                        },
+                    },
+                    "reply_count": {"type": "integer"},
+                    "last_post_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": True,
+                    },
+                    "is_pinned": {"type": "boolean"},
+                    "thumbnail_url": {"type": "string", "nullable": True},
+                },
+            },
+        }
+    },
+}
+
+
+class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
+    """Cross-board latest topics for the landing rail ("Active now").
+
+    Owns its shape as lightweight dicts (same pattern as PublicProfileView) —
+    deliberately NOT TopicListSerializer, so this never becomes a fourth hit
+    builder (todo 273). Thumbnails resolve batched from the opening posts'
+    first image block (StreamField raw_data — never iterate the StreamValue,
+    which fires per-object image fetches; docs/LEARNINGS.md 2026-06-25), with
+    the topic's identification-attachment image as fallback.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        responses={200: RECENT_TOPICS_SCHEMA},
+        description=(
+            "Latest live topics across all visible boards, most recent "
+            "activity first. ?limit= defaults to RECENT_TOPICS_DEFAULT_LIMIT, "
+            "capped at RECENT_TOPICS_MAX_LIMIT."
+        ),
+    )
+    def get(self, request):
+        from ..models import ForumIdentificationAttachment, Post
+
+        try:
+            limit = int(request.query_params.get("limit", ""))
+        except ValueError:
+            limit = get_setting("RECENT_TOPICS_DEFAULT_LIMIT")
+        limit = max(1, min(limit, get_setting("RECENT_TOPICS_MAX_LIMIT")))
+
+        topics = list(
+            Topic.objects.filter(
+                board__in=_visible_boards(), live=True, last_post_at__isnull=False
+            )
+            .select_related("board")
+            .order_by("-last_post_at", "-id")[:limit]
+        )
+        topic_ids = [t.pk for t in topics]
+
+        # First image block id per topic, from opening posts' raw stream data.
+        image_id_by_topic = {}
+        for post in Post.objects.filter(
+            topic_id__in=topic_ids, is_opening_post=True, live=True
+        ).only("topic_id", "body"):
+            for block in post.body.raw_data:
+                if block.get("type") == "image" and block.get("value"):
+                    image_id_by_topic[post.topic_id] = block["value"]
+                    break
+        for att in ForumIdentificationAttachment.objects.filter(
+            topic_id__in=topic_ids, image_id__isnull=False
+        ).only("topic_id", "image_id"):
+            image_id_by_topic.setdefault(att.topic_id, att.image_id)
+
+        from wagtail.images import get_image_model
+
+        # prefetch_renditions() populates AbstractImage._get_prefetched_renditions(),
+        # which find_existing_renditions() consults BEFORE the per-image cache
+        # backend / DB lookup (wagtail/images/models.py) — so thumb()'s
+        # get_rendition() below is satisfied from this one batched query even
+        # when the "renditions" cache is cold, instead of issuing one SELECT
+        # per image-bearing topic (N+1 whenever Redis is cold/evicted).
+        # in_bulk() chains cleanly: it internally does self.filter(id__in=...)
+        # then iterates the queryset, which preserves prefetch_related.
+        images = (
+            get_image_model()
+            .objects.prefetch_renditions("fill-80x80")
+            .in_bulk(set(image_id_by_topic.values()))
+        )
+
+        def thumb(topic):
+            image = images.get(image_id_by_topic.get(topic.pk))
+            if image is None:
+                return None
+            try:
+                url = image.get_rendition("fill-80x80").url
+            except OSError:
+                # Source file missing from disk (media wiped, Image row
+                # survives — wagtail raises SourceImageIOError, an OSError
+                # subclass). Don't 500 the whole endpoint over one bad
+                # thumbnail; log once and omit it for this topic.
+                logger.exception(
+                    "[ERROR] rendition failed for image %s (topic %s); "
+                    "omitting thumbnail",
+                    image.pk,
+                    topic.pk,
+                )
+                return None
+            return request.build_absolute_uri(url)
+
+        return Response(
+            {
+                "results": [
+                    {
+                        "id": t.pk,
+                        "slug": t.slug,
+                        "title": t.title,
+                        "board": {
+                            "id": t.board_id,
+                            "name": t.board.title,
+                            "slug": t.board.slug,
+                        },
+                        "reply_count": t.reply_count,
+                        "last_post_at": t.last_post_at,
+                        "is_pinned": t.is_pinned,
+                        "thumbnail_url": thumb(t),
+                    }
+                    for t in topics
+                ]
+            }
+        )
+
+
+EXPERTS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "results": {"type": "array", "items": AUTHOR_SCHEMA},
+    },
+}
+
+
+class ExpertsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
+    """Highest-trust active members for the landing rail.
+
+    No presence data — deliberately (spec §9): the client renders these as
+    "Community experts" with no online claim until the presence todo wires
+    ForumProfile.last_seen.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        responses={200: EXPERTS_SCHEMA},
+        description=(
+            "Up to EXPERTS_LIMIT members at or above EXPERTS_MIN_TRUST_LEVEL, "
+            "highest trust then post count first."
+        ),
+    )
+    def get(self, request):
+        from ..models import ForumProfile
+
+        profiles = (
+            ForumProfile.objects.filter(
+                trust_level__gte=get_setting("EXPERTS_MIN_TRUST_LEVEL"),
+                user__is_active=True,
+            )
+            .select_related("user", "avatar")
+            .order_by("-trust_level", "-post_count", "-id")[
+                : get_setting("EXPERTS_LIMIT")
+            ]
+        )
+        return Response(
+            {"results": [serialize_forum_author(p.user, request) for p in profiles]}
+        )
 
 
 class SearchView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):

@@ -940,5 +940,38 @@
     "source": "codify: feat/canopy-forum",
     "added": "2026-08-15",
     "severity": "warn"
+  },
+  {
+    "id": "wagtail-rendition-guard",
+    "domains": [
+      "wagtail",
+      "api"
+    ],
+    "path_glob": [
+      "backend/**/*.py"
+    ],
+    "content_present": "\\.get_rendition\\(",
+    "content_absent": "SourceImageIOError",
+    "message": "get_rendition() 500s the endpoint when the source media file is missing (SourceImageIOError on cache miss) — wrap in try/except (SourceImageIOError, OSError), log [ERROR], degrade to null.",
+    "pattern_ref": "docs/rules/wagtail.md",
+    "source": "codify: feat/canopy-forum-content",
+    "added": "2026-08-15",
+    "severity": "warn"
+  },
+  {
+    "id": "react-body-scroll-lock",
+    "domains": [
+      "react"
+    ],
+    "path_glob": [
+      "web/src/**/*.ts*"
+    ],
+    "content_present": "body\\.style\\.overflow",
+    "content_absent": "useBodyScrollLock",
+    "message": "Never set document.body.style.overflow directly — composing components corrupt each other. Use the ref-counted useBodyScrollLock(open) hook (web/src/hooks/useBodyScrollLock.ts).",
+    "pattern_ref": "docs/rules/react.md",
+    "source": "codify: feat/canopy-forum-content",
+    "added": "2026-08-15",
+    "severity": "warn"
   }
 ]

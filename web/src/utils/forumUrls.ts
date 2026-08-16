@@ -1,4 +1,4 @@
-import type { Category, Thread } from '../types/forum';
+import type { Category, RecentTopic, Thread } from '../types/forum';
 
 /** Lowercase, hyphenate, strip non-alphanumerics. Falls back to "topic" when empty. */
 export function slugifyTitle(input: string): string {
@@ -40,4 +40,23 @@ export function postAnchor(postId: number | string): string {
 /** Public forum profile page for a username (todo 257 H7). */
 export function userProfilePath(username: string): string {
   return `/forum/users/${encodeURIComponent(username)}`;
+}
+
+/**
+ * Path for a topics/recent row: /forum/{board.id}-{board.slug}/{id}-{slug}.
+ *
+ * Delegates to `threadPath` (which itself composes `categoryPath`) instead of
+ * re-authoring the template — `RecentTopic.board.id`/`RecentTopic.id` are
+ * `number` while `Category.id`/`Thread.id` are `string`, so the id fields are
+ * cast to `string` at the call site rather than widening either helper's
+ * parameter types repo-wide. Output stays byte-identical to the old literal
+ * template for the normal case (board.slug/topic.slug always populated), and
+ * both helpers' own slug/id-parsing rules now apply here too, so this can
+ * never drift from `categoryPath`/`threadPath`'s format.
+ */
+export function recentTopicPath(topic: RecentTopic): string {
+  return threadPath(
+    { id: String(topic.board.id), slug: topic.board.slug, name: topic.board.name },
+    { id: String(topic.id), slug: topic.slug, title: topic.title }
+  );
 }

@@ -117,3 +117,11 @@ Compact checklist auto-injected before edits. Long-form:
   `isinstance(value, str)` and treat anything else as absent. Happy-path tests
   send the field as a field and never exercise this — write the file-part case
   explicitly for every text field on a multipart endpoint.
+- **Every new `wagtail_forum` package endpoint also needs a host mount + docs
+  row.** The host app ENUMERATES routes in `apps/forum_host/api_urls.py` — a
+  package-only route 404s in the real app — and `conf.DEFAULTS` keys must have
+  README rows. Both are test-enforced (`test_host_api_routes_match_package`,
+  `test_docs`), so run `apps.forum_host` + package doc tests after adding any
+  route; keep literal routes (`users/experts/`) ABOVE capture routes
+  (`users/<str:username>/`) in both files. Hit mid-run in PR 2.5 (me/stats
+  404'd host-side).

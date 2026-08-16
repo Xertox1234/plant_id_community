@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider } from '../contexts/ThemeContext';
@@ -23,6 +23,13 @@ vi.mock('../components/layout/NotificationBell', () => ({
 }));
 vi.mock('../components/layout/UserMenu', () => ({
   default: () => <div data-testid="user-menu" />,
+}));
+// AppShell's own wiring (open state + keyboard shortcut + pill) is under
+// test here; CommandPalette's internals (search, keyboard nav, sections)
+// have their own dedicated suite in CommandPalette.test.tsx.
+vi.mock('../components/CommandPalette', () => ({
+  default: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog" aria-label="Search" data-testid="command-palette" /> : null,
 }));
 
 const renderShell = (children: React.ReactNode = <p>page body</p>) =>
@@ -53,7 +60,9 @@ describe('AppShell', () => {
     renderShell();
     expect(screen.getByRole('link', { name: 'Houseplant MD home' })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /search plants, posts, people/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /search plants, posts, people/i })
+    ).toBeInTheDocument();
     expect(screen.getByText('page body')).toBeInTheDocument();
     expect(document.getElementById('main-content')).not.toBeNull();
   });
@@ -198,5 +207,37 @@ describe('AppShell', () => {
     const forumLinks = await screen.findAllByRole('link', { name: /Forum/ });
     expect(forumLinks.length).toBeGreaterThan(0);
     expect(within(forumLinks[0]).getByText('3')).toBeInTheDocument();
+  });
+
+  it('Ctrl+K opens the command palette', () => {
+    renderShell();
+    expect(screen.queryByTestId('command-palette')).not.toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'k', ctrlKey: true });
+
+    expect(screen.getByTestId('command-palette')).toBeInTheDocument();
+  });
+
+  it('Ctrl+K with the drawer open closes the drawer and opens the command palette', async () => {
+    renderShell();
+    await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+    expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'k', ctrlKey: true });
+
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('command-palette')).toBeInTheDocument();
+    // The drawer's own scroll lock must have released — otherwise the
+    // shared, ref-counted lock (useBodyScrollLock) would still show
+    // "hidden" here even after the drawer closed, since CommandPalette is
+    // mocked in this suite and never acquires its own real lock.
+    expect(document.body.style.overflow).toBe('');
+  });
+
+  it('clicking the search pill opens the command palette', async () => {
+    renderShell();
+    await userEvent.click(screen.getByRole('button', { name: /search plants, posts, people/i }));
+
+    expect(screen.getByTestId('command-palette')).toBeInTheDocument();
   });
 });

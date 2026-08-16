@@ -242,6 +242,8 @@ export interface SearchForumOptions {
   category?: string;
   /** 1-based page; only sent to the backend when > 1. */
   page?: number;
+  /** Cancels the in-flight request when aborted (e.g. a superseding query). */
+  signal?: AbortSignal;
 }
 
 export interface SearchForumResponse {
@@ -293,4 +295,32 @@ export interface ForumUserProfile {
     board_slug: string;
     created_at: string;
   }[];
+}
+
+/** GET me/stats/ — all-time counts ("Your season" cards). */
+export interface ForumMyStats {
+  posts: number;
+  solutions_accepted: number;
+  identifications_shared: number;
+}
+
+/** GET topics/recent/ row — the landing rail's "Active now" shape. */
+export interface RecentTopic {
+  id: number;
+  slug: string;
+  title: string;
+  board: { id: number; name: string; slug: string };
+  reply_count: number;
+  last_post_at: string | null;
+  is_pinned: boolean;
+  thumbnail_url: string | null;
+}
+
+/** GET users/experts/ row — serialize_forum_author + title. */
+export interface ForumExpert {
+  username: string;
+  display_name: string;
+  avatar: string | null;
+  trust_level: number | null;
+  title: string;
 }

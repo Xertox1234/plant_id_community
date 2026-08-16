@@ -119,3 +119,14 @@ Compact checklist auto-injected before edits. Long-form:
   hide rule vs `xl:flex`; PR #537 reduced-motion flash ring vs the accepted
   answer's `ring-*` box-shadow). Put the rule outside any `@layer` with a
   comment saying why, mirroring the existing `.app-rail:not(:has(*))` rule.
+- **Never set `document.body.style.overflow` directly in a component effect** —
+  two components composing on the shared global corrupt each other's saved
+  value (drawer + palette both open: closing one either unlocks under the
+  other or permanently locks the page). Use the ref-counted
+  `useBodyScrollLock(open)` hook (`web/src/hooks/useBodyScrollLock.ts`), which
+  restores the original value on last release.
+- **Trust-level labels come only from `TRUST_LEVEL_LABELS` in
+  `web/src/utils/forumAuthor.ts`** — never redeclare a local map. The shared
+  map exists precisely because per-component copies diverge (todo 257); the
+  mistake recurred in PR #538 and the local copy had already drifted on levels
+  0–2.
