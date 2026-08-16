@@ -118,12 +118,16 @@ feels organic (top-5 popular = all but `small-space-jungle`).
   `.update()` dodges auto-set fields).
   Blog signals are cache-invalidation only — no counter-recompute trap — but the
   invalidation means seeding order doesn't leave stale caches.
-- **`reading_time`:** left unset → the API auto-calculates from real body length (§9).
+- **`reading_time`:** left unset → `BlogPostPage.save()` auto-computes it from the
+  real body when falsy (`apps/blog/models.py:872`), so the stored value derives
+  from the actually-authored copy (§9).
 - **Search index:** `seed_demo_blog` runs `update_index` (verbosity 0) itself when it
   created posts, because the forum half may have skipped and not refreshed.
-- **Integration:** `seed_demo_content` calls `call_command("seed_demo_blog")` after
-  its forum work, forwarding nothing — the guard re-runs cheaply and keeps the blog
-  command safe standalone.
+- **Integration:** `seed_demo_content` calls
+  `call_command("seed_demo_blog", confirm=options["confirm"])` after its forum
+  work — the `--confirm` flag **must** forward (in production the inner command's
+  layer-1 guard would otherwise abort the single-entry runbook); the census guard
+  itself re-runs cheaply and keeps the blog command safe standalone.
 - **Retirement:** delete `apps/blog/management/commands/create_demo_blog_posts.py`
   and its tests if any — off-brand "Plant Community" copy, and it creates a
   `demo@plantcommunity.com` author that would permanently trip the real-user guard.
@@ -179,14 +183,15 @@ feels organic (top-5 popular = all but `small-space-jungle`).
 - Composition, top to bottom: category Chip + publish date eyebrow → display headline
   (Bricolage) → author line (`Author name · N min read`) → full-width cover image
   (Card treatment) → article body → "More from the blog" strip (up to 3 posts,
-  hidden when empty), **composed frontend-side**: after the post loads, fetch
-  same-category recent posts via the existing list endpoint
-  (`fetchBlogPosts({ category: <first category slug>, limit: 4 })`), exclude the
-  current post, take 3. Kimi-challenge finding (verified): `related_posts` exists
-  only in `get_context()` — Django template context, not `api_fields` — so the
-  detail API does **not** return it, and the `fetchRelatedPosts()` stub plus its
-  stale "already populated" docstring are misleading residue: delete them in this
-  PR. No backend change; the "no blog API changes" constraint holds.
+  hidden when empty), rendered from the detail response's server-computed
+  `related_posts`. **Correction after an empirical API probe (2026-08-16, plan
+  time):** the kimi-challenge "not in the API" verdict keyed on `api_fields`, but
+  the viewset overrides the serializer — `BlogPostPageSerializer.get_related_posts`
+  (`apps/blog/api/serializers.py:294`) serves up to 3 same-category posts, newest
+  first, as `{id, title, slug, url, published_date, excerpt, featured_image}`.
+  The earlier frontend-compose workaround is dead; the deprecated always-empty
+  `fetchRelatedPosts()` stub is still deleted in this PR (dead code either way).
+  No backend change; the "no blog API changes" constraint holds.
 - **Body:** `StreamFieldRenderer` with a Canopy typography pass — ~65–70ch measure,
   Bricolage headings, tokens-only restyle of quote / code / plant_spotlight /
   call_to_action blocks. No new block support needed (renderer already covers all 7
@@ -244,11 +249,24 @@ feels organic (top-5 popular = all but `small-space-jungle`).
 - Blog signals are cache invalidation only (`apps/blog/signals.py`) — no counter
   recompute on publish; the forum seed's `_refresh_topic_counters` trap has no blog
   analogue, but the publish-fields back-dating lesson still applies via `auto_now`.
+- **API shapes verified empirically (2026-08-16 probe against the live viewset):**
+  both list and detail serve the full `BlogPostPageSerializer`
+  (`apps/blog/api/serializers.py:188`) — `author` =
+  `{id, username, first_name, last_name, display_name, author_page_url}`,
+  `featured_image` = fill-800x400 rendition, `featured_image_thumb` = fill-300x200
+  (both `{url, width, height, alt}`), `excerpt` = 30-word truncation,
+  `related_posts` = server-computed ≤3 same-category (`get_related_posts`, `:294`).
 - Popular endpoint orders by `-recent_views, -view_count, -first_published_at` and
   never excludes zero-view posts (`apps/blog/api/viewsets.py:324–405`) — seeded
   `view_count`s alone produce the ranking; no `BlogPostView` rows needed.
-- `reading_time` API fallback: `self.reading_time or self.calculate_reading_time()`
-  (`apps/blog/models.py:794`, ~200 wpm).
+- `reading_time` auto-computes in `BlogPostPage.save()` when falsy
+  (`apps/blog/models.py:872`, ~200 wpm via `calculate_reading_time()`); the API
+  serves the stored field, so seeded posts get honest stored values at publish.
+- Back-dating caveat (multi-table inheritance): `first_published_at` /
+  `last_published_at` live on the `wagtailcore.Page` parent table — a child-model
+  queryset `.update()` cannot set them; use
+  `Page.objects.filter(pk=...).update(...)`. `publish_date` is a plain child-table
+  DateField set at creation (no auto_now), needing no post-publish pass.
 - `StreamFieldRenderer` already renders all 7 `BlogStreamBlocks` types with an
   unsupported-block fallback (`web/src/components/StreamFieldRenderer.tsx:109–249`) —
   detail-page body work is styling only.
