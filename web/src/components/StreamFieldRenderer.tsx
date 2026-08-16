@@ -43,6 +43,11 @@ interface StreamFieldRendererProps {
   blocks?: StreamFieldBlockType[] | null;
   /** Forum posts only: style @username mentions in paragraph blocks. */
   mentionHighlight?: boolean;
+  /**
+   * 'inline' (default): current compact rendering — forum posts, previews.
+   * 'article': blog detail — reading measure + roomier block rhythm.
+   */
+  variant?: 'inline' | 'article';
 }
 
 function renderTextOrSafeHtml(content: string, className = '') {
@@ -75,13 +80,17 @@ function getSafeHref(url: string): string {
 export default function StreamFieldRenderer({
   blocks,
   mentionHighlight,
+  variant = 'inline',
 }: StreamFieldRendererProps) {
   if (!blocks || blocks.length === 0) {
     return null;
   }
 
+  const wrapper =
+    variant === 'article' ? 'mx-auto w-full max-w-[70ch] text-[15px]' : 'prose prose-lg max-w-none';
+
   return (
-    <div className="prose prose-lg max-w-none">
+    <div className={wrapper}>
       {blocks.map((block, index) => (
         <StreamFieldBlock
           key={block.id || index}
@@ -109,7 +118,11 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
   switch (type) {
     case 'heading': {
       // Backend: CharBlock (simple string)
-      return <h2 className="text-3xl font-bold mt-8 mb-4 text-ink">{block.value}</h2>;
+      return (
+        <h2 className="mt-9 mb-3.5 text-[24px] font-semibold leading-snug text-balance text-ink">
+          {block.value}
+        </h2>
+      );
     }
 
     case 'paragraph':
@@ -118,7 +131,7 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
       return (
         <SafeHTML
           html={block.value}
-          className="mb-4 text-ink-2 leading-relaxed"
+          className="mb-4 leading-relaxed text-ink-2"
           preset={mentionHighlight ? SANITIZE_PRESETS.FORUM : SANITIZE_PRESETS.STREAMFIELD}
           postProcess={mentionHighlight ? highlightMentions : undefined}
         />
@@ -128,7 +141,7 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
       // Backend (forum PR-3): ImageChooserBlock → {id, url, alt, width, height}.
       const { url, alt } = block.value;
       return (
-        <img src={url} alt={alt || ''} className="rounded-lg max-w-full h-auto my-4 mx-auto" />
+        <img src={url} alt={alt || ''} className="my-5 mx-auto h-auto max-w-full rounded-md" />
       );
     }
 
@@ -139,7 +152,7 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
       const attribution = typeof value === 'string' ? undefined : value.attribution;
 
       return (
-        <blockquote className="border-l-4 border-primary pl-6 py-4 my-8 italic text-ink-2 bg-surface rounded-r-lg">
+        <blockquote className="my-8 rounded-r-md border-l-2 border-secondary bg-surface-2/50 py-4 pl-6 pr-4 italic text-ink-2">
           {/* SECURITY: a forum quote is a Wagtail BlockQuoteBlock (TextBlock) —
               PLAIN TEXT that api/sanitize.py deliberately leaves untouched
               ("text by contract"), so a direct API POST can put `<script>` in it.
@@ -151,9 +164,9 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
               forumBody.ts writes. */}
           {quoteText &&
             (mentionHighlight ? (
-              <div className="text-xl mb-2 whitespace-pre-line">{quoteText}</div>
+              <div className="mb-2 text-[17px] whitespace-pre-line">{quoteText}</div>
             ) : (
-              renderTextOrSafeHtml(quoteText, 'text-xl mb-2')
+              renderTextOrSafeHtml(quoteText, 'mb-2 text-[17px]')
             ))}
           {attribution && (
             <footer className="text-sm text-ink-3 not-italic">— {attribution}</footer>
@@ -166,7 +179,7 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
       // Backend: StructBlock with code (TextBlock) and language (ChoiceBlock)
       const { code, language } = block.value;
       return (
-        <pre className="bg-ink text-surface p-4 rounded-lg overflow-x-auto my-6 shadow-inner">
+        <pre className="my-6 overflow-x-auto rounded-md border border-line bg-surface-2/60 p-4 font-mono text-[13px] text-ink">
           <code className={`language-${language || 'text'}`}>{code}</code>
         </pre>
       );
@@ -181,8 +194,8 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
       const careLabel = value.care_level ? 'Care Level' : 'Care Difficulty';
 
       return (
-        <div className="my-8 p-6 bg-primary/10 border-2 border-primary/20 rounded-lg shadow-sm">
-          <h3 className="text-2xl font-bold text-ink mb-3">🌿 {plantName}</h3>
+        <div className="my-8 rounded-md border border-line bg-surface-2/50 p-6">
+          <h3 className="mb-3 text-[19px] font-semibold text-ink">{plantName}</h3>
           {value.scientific_name && (
             <p className="text-sm italic text-ink-3 mb-3">{value.scientific_name}</p>
           )}
@@ -195,7 +208,7 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
           )}
           {description && renderTextOrSafeHtml(description, 'text-ink-2 mb-4')}
           {careValue && (
-            <p className="mt-4 text-sm font-semibold text-leaf flex items-center">
+            <p className="mt-4 flex items-center text-sm font-semibold text-ok">
               <svg
                 className="w-5 h-5 mr-2"
                 aria-hidden="true"
@@ -223,15 +236,15 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
       // Map button style to Tailwind classes
       const buttonClasses =
         buttonStyle === 'secondary'
-          ? 'inline-block px-8 py-3 bg-surface-2 text-ink-2 font-semibold rounded-lg hover:bg-surface-3 transition-colors shadow-md'
+          ? 'inline-block rounded-pill border border-line bg-surface-2/60 px-6 py-2.5 text-[13.5px] font-semibold text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink'
           : buttonStyle === 'outline'
-            ? 'inline-block px-8 py-3 bg-transparent border-2 border-on-primary text-on-primary font-semibold rounded-lg hover:bg-on-primary hover:text-primary transition-colors shadow-md'
-            : 'inline-block px-8 py-3 bg-surface-2 text-primary font-semibold rounded-lg hover:bg-surface-3 transition-colors shadow-md';
+            ? 'inline-block rounded-pill border border-line bg-surface-2/60 px-6 py-2.5 text-[13.5px] font-semibold text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink'
+            : 'canopy-cta inline-block rounded-pill px-6 py-2.5 text-[13.5px] font-semibold';
 
       return (
-        <div className="my-8 p-8 bg-primary text-on-primary rounded-lg text-center shadow-lg">
-          <h3 className="text-2xl font-bold mb-2">{title}</h3>
-          {description && renderTextOrSafeHtml(description, 'mb-6 text-on-primary')}
+        <div className="canopy-card my-8 rounded-md p-8 text-center">
+          <h3 className="mb-2 text-[19px] font-semibold text-ink">{title}</h3>
+          {description && renderTextOrSafeHtml(description, 'mb-6 text-ink-2')}
           {buttonText && (
             <a href={buttonUrl} className={buttonClasses}>
               {buttonText}
