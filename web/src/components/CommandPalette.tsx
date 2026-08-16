@@ -33,6 +33,23 @@ interface PaletteRow {
 }
 
 /**
+ * A search response tagged with the query that produced it. Rendering derives
+ * the live `items` only when `q` still matches the current query — the single
+ * fix for a class of staleness bugs (code review round 1, finding 1):
+ * un-tagged results rendered under whatever query the user has since typed,
+ * stayed in the keyboard-nav list after the JSX hid them once loading kicked
+ * in (a DOM/aria-activedescendant mismatch), and a response for a
+ * since-deleted (<2 char) query could resurrect rows for a query no longer
+ * on screen. Binding results to `q` makes all three self-correct: a mismatch
+ * against the CURRENT query always derives to empty, synchronously, with no
+ * dependency on the loading/error flags.
+ */
+interface QueryResult<T> {
+  q: string;
+  items: T[];
+}
+
+/**
  * Cmd/Ctrl+K command palette (spec §8). Always mounted by AppShell — `open`
  * gates rendering internally so state (query, fetched boards) can reset
  * cleanly on every open without AppShell managing a mount/unmount lifecycle.
@@ -48,11 +65,11 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [categories, setCategories] = useState<Category[]>([]);
   const categoriesFetchedRef = useRef(false);
 
-  const [topics, setTopics] = useState<Thread[]>([]);
+  const [topicsResult, setTopicsResult] = useState<QueryResult<Thread> | null>(null);
   const [topicsLoading, setTopicsLoading] = useState(false);
   const [topicsError, setTopicsError] = useState(false);
 
-  const [people, setPeople] = useState<ForumUserSearchResult[]>([]);
+  const [peopleResult, setPeopleResult] = useState<QueryResult<ForumUserSearchResult> | null>(null);
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [peopleError, setPeopleError] = useState(false);
 
@@ -73,10 +90,10 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     if (!open) return;
     setQuery('');
     setActiveIndex(0);
-    setTopics([]);
+    setTopicsResult(null);
     setTopicsError(false);
     setTopicsLoading(false);
-    setPeople([]);
+    setPeopleResult(null);
     setPeopleError(false);
     setPeopleLoading(false);
     // Invalidate any in-flight response from a previous session.
@@ -146,10 +163,10 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
     if (!showTopics) {
-      setTopics([]);
+      setTopicsResult(null);
       setTopicsError(false);
       setTopicsLoading(false);
-      setPeople([]);
+      setPeopleResult(null);
       setPeopleError(false);
       setPeopleLoading(false);
       return;
@@ -157,17 +174,21 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
     debounceTimerRef.current = setTimeout(() => {
       const epoch = ++epochRef.current;
+      // Snapshot the query THIS request is for — captured once, here, so the
+      // result can be tagged with the query that produced it even if
+      // `trimmedQuery` (closed over below) has since moved on.
+      const requestQuery = trimmedQuery;
 
       setTopicsLoading(true);
       setTopicsError(false);
-      searchForum({ q: trimmedQuery })
+      searchForum({ q: requestQuery })
         .then((res) => {
           if (epoch !== epochRef.current) return;
-          setTopics(res.threads.slice(0, RESULT_LIMIT));
+          setTopicsResult({ q: requestQuery, items: res.threads.slice(0, RESULT_LIMIT) });
         })
         .catch(() => {
           if (epoch !== epochRef.current) return;
-          setTopics([]);
+          setTopicsResult({ q: requestQuery, items: [] });
           setTopicsError(true);
         })
         .finally(() => {
@@ -178,14 +199,14 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
       if (isAuthenticated) {
         setPeopleLoading(true);
         setPeopleError(false);
-        searchForumUsers(trimmedQuery)
+        searchForumUsers(requestQuery)
           .then((res) => {
             if (epoch !== epochRef.current) return;
-            setPeople(res.slice(0, RESULT_LIMIT));
+            setPeopleResult({ q: requestQuery, items: res.slice(0, RESULT_LIMIT) });
           })
           .catch(() => {
             if (epoch !== epochRef.current) return;
-            setPeople([]);
+            setPeopleResult({ q: requestQuery, items: [] });
             setPeopleError(true);
           })
           .finally(() => {
@@ -193,7 +214,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
             setPeopleLoading(false);
           });
       } else {
-        setPeople([]);
+        setPeopleResult(null);
         setPeopleError(false);
         setPeopleLoading(false);
       }
@@ -209,6 +230,19 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   useEffect(() => {
     setActiveIndex(0);
   }, [trimmedQuery]);
+
+  // Derive the live results from the tagged response — a mismatch against
+  // the CURRENT query (still in flight, superseded, or dropped below the
+  // minimum length) always yields empty, synchronously, independent of the
+  // loading/error flags. See the QueryResult doc comment above.
+  const topics = useMemo(
+    () => (topicsResult && topicsResult.q === trimmedQuery ? topicsResult.items : []),
+    [topicsResult, trimmedQuery]
+  );
+  const people = useMemo(
+    () => (peopleResult && peopleResult.q === trimmedQuery ? peopleResult.items : []),
+    [peopleResult, trimmedQuery]
+  );
 
   const quickActionRows = useMemo<PaletteRow[]>(() => {
     const rows: PaletteRow[] = [

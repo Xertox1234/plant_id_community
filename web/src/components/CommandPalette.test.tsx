@@ -163,11 +163,25 @@ describe('CommandPalette', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('ArrowDown then Enter navigates to the newly active row and closes', () => {
+  it('ArrowDown moves the roving selection (aria-selected + aria-activedescendant), then Enter navigates and closes', () => {
     const { onClose } = renderPalette();
     const input = getInput();
 
     fireEvent.keyDown(input, { key: 'ArrowDown' });
+
+    const activeRow = screen.getByRole('link', { name: 'Start a thread' });
+    expect(activeRow).toHaveAttribute('aria-selected', 'true');
+    // The row the input claims as active must actually exist in the DOM —
+    // this is the regression net for finding 1(b): aria-activedescendant
+    // pointing at an id with no matching element.
+    expect(input).toHaveAttribute('aria-activedescendant', activeRow.id);
+    expect(document.getElementById(activeRow.id)).toBe(activeRow);
+    // The non-active row is NOT selected.
+    expect(screen.getByRole('link', { name: 'Identify a plant' })).toHaveAttribute(
+      'aria-selected',
+      'false'
+    );
+
     fireEvent.keyDown(input, { key: 'Enter' });
 
     expect(mockNavigate).toHaveBeenCalledWith('/forum/new-thread');
@@ -222,5 +236,109 @@ describe('CommandPalette', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('hides a resolved query’s rows the moment the input moves on, before the next debounce fires', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(forumService.searchForum).mockResolvedValueOnce(
+        makeSearchResponse([makeThread({ title: 'Monstera leaf care' })])
+      );
+      renderPalette();
+      const input = getInput();
+
+      fireEvent.change(input, { target: { value: 'mon' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(screen.getByRole('link', { name: 'Monstera leaf care' })).toBeInTheDocument();
+
+      // Type more — deliberately do NOT advance timers past the next
+      // debounce window. Query A's rows must not still be on screen under
+      // query "monst".
+      fireEvent.change(input, { target: { value: 'monst' } });
+
+      expect(screen.queryByRole('link', { name: 'Monstera leaf care' })).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops a response that lands for a query already deleted below the minimum length', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveA: (value: SearchForumResponse) => void = () => {};
+      vi.mocked(forumService.searchForum).mockImplementationOnce(
+        () =>
+          new Promise<SearchForumResponse>((resolve) => {
+            resolveA = resolve;
+          })
+      );
+      renderPalette();
+      const input = getInput();
+
+      fireEvent.change(input, { target: { value: 'mon' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(forumService.searchForum).toHaveBeenCalledTimes(1);
+
+      // Drop the query below the minimum length — the Topics section (and
+      // the query it belonged to) is gone.
+      fireEvent.change(input, { target: { value: 'm' } });
+      expect(screen.queryByText('Topics')).not.toBeInTheDocument();
+
+      // The in-flight response for the now-deleted query lands late.
+      await act(async () => {
+        resolveA(makeSearchResponse([makeThread({ title: 'Monstera leaf care' })]));
+      });
+
+      expect(screen.queryByRole('link', { name: 'Monstera leaf care' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Topics')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns focus to the trigger element after Escape closes the palette', () => {
+    const onClose = vi.fn();
+    function Harness({ open }: { open: boolean }) {
+      return (
+        <>
+          <button type="button">Trigger</button>
+          <CommandPalette open={open} onClose={onClose} />
+        </>
+      );
+    }
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <Harness open={false} />
+      </MemoryRouter>
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Trigger' });
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+
+    rerender(
+      <MemoryRouter>
+        <Harness open={true} />
+      </MemoryRouter>
+    );
+    expect(getInput()).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // Mirror what AppShell does in response to onClose: flip `open` back to
+    // false, the same as `setPaletteOpen(false)` would.
+    rerender(
+      <MemoryRouter>
+        <Harness open={false} />
+      </MemoryRouter>
+    );
+
+    expect(trigger).toHaveFocus();
   });
 });
