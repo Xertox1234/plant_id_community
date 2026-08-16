@@ -47,7 +47,10 @@ const post: BlogPost = {
       title: 'Your fiddle leaf isn’t dying, it’s adjusting',
       slug: 'fiddle-leaf-adjusting',
       excerpt: 'Before you diagnose disease…',
-      featured_image: '/media/fiddle-300.webp',
+      // Live-probed shape: _get_post_image's get_full_url resolves
+      // Wagtail's uncurated Site record (port 80), not the API's actual
+      // host — mediaUrl re-bases it onto the API origin regardless.
+      featured_image: 'http://localhost/media/fiddle-300.webp',
     },
   ],
 };
@@ -102,7 +105,8 @@ describe('BlogDetailPage', () => {
       '/blog/fiddle-leaf-adjusting'
     );
     // related_posts[].featured_image is a plain URL string (not a rendition
-    // object), possibly relative — resolved via mediaUrl same as the cover.
+    // object) — here the realistic Site-record-based absolute shape
+    // (wrong host). mediaUrl re-bases it onto the API origin regardless.
     // Decorative, so queried by DOM structure.
     const relatedImg = container.querySelector('aside img');
     expect(relatedImg).toHaveAttribute('src', 'http://localhost:8000/media/fiddle-300.webp');

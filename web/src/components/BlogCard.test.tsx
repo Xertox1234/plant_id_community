@@ -63,11 +63,11 @@ describe('BlogCard', () => {
     );
   });
 
-  it('passes an already-absolute image url through unchanged', () => {
+  it('passes a non-media absolute image url through unchanged', () => {
     const { container } = renderCard({
       ...post,
       featured_image: {
-        url: 'https://cdn.example.com/media/cover-800.webp',
+        url: 'https://cdn.example.com/assets/cover-800.webp',
         width: 800,
         height: 400,
         alt: '',
@@ -75,7 +75,25 @@ describe('BlogCard', () => {
     });
     expect(container.querySelector('img')).toHaveAttribute(
       'src',
-      'https://cdn.example.com/media/cover-800.webp'
+      'https://cdn.example.com/assets/cover-800.webp'
+    );
+  });
+
+  it('re-bases an absolute /media/ url onto the API origin (Site-record host is not trustworthy)', () => {
+    const { container } = renderCard({
+      ...post,
+      // Live-probed shape: get_full_url resolves Wagtail's uncurated Site
+      // record, not the API's actual host/port.
+      featured_image: {
+        url: 'http://localhost/media/cover-800.webp',
+        width: 800,
+        height: 400,
+        alt: '',
+      },
+    });
+    expect(container.querySelector('img')).toHaveAttribute(
+      'src',
+      'http://localhost:8000/media/cover-800.webp'
     );
   });
 

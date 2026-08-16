@@ -23,17 +23,27 @@ import type {
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 /**
- * Resolve a possibly-relative media path against the API origin.
+ * Resolve a media path against the API origin.
  *
- * Blog images live on the API host, not the SPA host — a relative
+ * Media always lives on the API host, not the SPA host — a relative
  * `/media/...` src breaks whenever the two are on different origins (prod,
- * and locally without a dev-server proxy). Rendition payloads also carry a
- * `full_url` field, but it's derived from Wagtail's static Site record
- * rather than the request host, so it isn't a safe stand-in across
- * environments — this resolver is the one place that decides the origin.
- * Already-absolute URLs pass through unchanged.
+ * and locally without a dev-server proxy). The API also emits ABSOLUTE
+ * `/media/` URLs whose host isn't trustworthy: `related_posts[].featured_image`
+ * is built from Wagtail's static Site record (`get_full_url`), which is
+ * uncurated and resolves to the wrong host in every environment where it
+ * hasn't been hand-configured (live-probed: `http://localhost/media/...` —
+ * port 80, not the API's actual port). Rendition payloads separately carry
+ * a `full_url` field with the same Site-record problem, which is why it's
+ * deliberately not modeled on `BlogPostImage` either. So: re-base ANY
+ * `/media/` path — relative or absolute — onto `API_URL`, ignoring
+ * whatever host the API sent. A non-`/media/` absolute URL (e.g. a CDN
+ * asset) passes through unchanged.
  */
 export function mediaUrl(url: string): string {
+  const mediaIndex = url.indexOf('/media/');
+  if (mediaIndex >= 0) {
+    return `${API_URL}${url.slice(mediaIndex)}`;
+  }
   return url.startsWith('/') ? `${API_URL}${url}` : url;
 }
 

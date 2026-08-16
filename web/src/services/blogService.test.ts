@@ -14,7 +14,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchBlogPosts, fetchBlogPost, fetchPopularPosts, fetchCategories } from './blogService';
+import {
+  fetchBlogPosts,
+  fetchBlogPost,
+  fetchPopularPosts,
+  fetchCategories,
+  mediaUrl,
+} from './blogService';
 import type {
   BlogPost,
   BlogPostListResponse,
@@ -92,6 +98,30 @@ describe('blogService', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // ============================================================================
+  // MEDIA URL TESTS
+  // ============================================================================
+
+  describe('mediaUrl', () => {
+    it('prefixes a relative /media/ path with the API origin', () => {
+      expect(mediaUrl('/media/cover-800.webp')).toBe('http://localhost:8000/media/cover-800.webp');
+    });
+
+    it('re-bases an absolute /media/ URL onto the API origin, ignoring its host', () => {
+      // Site-record-based absolute (e.g. related_posts[].featured_image via
+      // _get_post_image's get_full_url) — the host is uncurated and wrong
+      // in every environment where the Wagtail Site record isn't
+      // hand-configured; only the /media/... path is trustworthy.
+      expect(mediaUrl('http://localhost/media/fiddle-300.webp')).toBe(
+        'http://localhost:8000/media/fiddle-300.webp'
+      );
+    });
+
+    it('passes a non-media absolute URL through unchanged', () => {
+      expect(mediaUrl('https://example.com/foo.png')).toBe('https://example.com/foo.png');
+    });
   });
 
   // ============================================================================
