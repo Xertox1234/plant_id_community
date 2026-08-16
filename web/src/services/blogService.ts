@@ -153,16 +153,3 @@ export async function fetchCategories(): Promise<BlogCategory[]> {
     return []; // Return empty array on error (non-critical)
   }
 }
-
-/**
- * NOTE: Related posts are included in the blog post detail response.
- * This function is kept for backwards compatibility but is no longer needed.
- * The related_posts field is already populated in fetchBlogPost().
- *
- * @returns Array of related posts (always empty - use post.related_posts instead)
- */
-export async function fetchRelatedPosts(): Promise<BlogPost[]> {
-  // Related posts are now included in the blog post detail API response
-  // No need for a separate endpoint call
-  return [];
-}

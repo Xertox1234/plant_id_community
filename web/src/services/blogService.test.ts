@@ -14,13 +14,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  fetchBlogPosts,
-  fetchBlogPost,
-  fetchPopularPosts,
-  fetchCategories,
-  fetchRelatedPosts,
-} from './blogService';
+import { fetchBlogPosts, fetchBlogPost, fetchPopularPosts, fetchCategories } from './blogService';
 import type {
   BlogPost,
   BlogPostListResponse,
@@ -364,21 +358,6 @@ describe('blogService', () => {
 
       // Assert
       expect(result).toEqual([]);
-    });
-  });
-
-  // ============================================================================
-  // FETCH RELATED POSTS TESTS (DEPRECATED)
-  // ============================================================================
-
-  describe('fetchRelatedPosts', () => {
-    it('should always return empty array (deprecated)', async () => {
-      // Act
-      const result = await fetchRelatedPosts();
-
-      // Assert
-      expect(result).toEqual([]);
-      expect(apiClient.get).not.toHaveBeenCalled();
     });
   });
 });
