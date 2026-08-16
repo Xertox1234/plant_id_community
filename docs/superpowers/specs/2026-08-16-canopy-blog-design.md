@@ -26,10 +26,14 @@ the seed command; no blog API changes.
    single `seed_demo_content --confirm` run; the blog seed is also independently
    runnable/testable. Re-running on already-seeded prod: forum half skips
    (topic-granular idempotency), blog half seeds.
-2. **List controls — chips + pagination only.** Category filter becomes a Chip row;
-   the Pagination primitive stays. The old page's search form, sort dropdown, and
-   category sidebar are retired ("Read the latest" covers recency; the rail's popular
-   module covers popularity).
+2. **List controls — chips + pagination + search** *(revised 2026-08-16 after the
+   advisor review flagged search removal as a regression; supersedes the earlier
+   chips-only answer — the user wants no functionality regression)*. Category filter
+   becomes a Chip row; the Pagination primitive stays; the search field stays,
+   restyled on Canopy tokens (existing `?search=` plumbing — `fetchBlogPosts`
+   already forwards it to the Wagtail v2 endpoint; no backend change). The sort
+   dropdown and category sidebar are still retired ("Read the latest" covers
+   recency; the rail's popular module covers popularity; chips replace the sidebar).
 3. Full design approved including the flagged judgment calls: honest auto-calculated
    reading times (§9), June Park authors the feature post, delete the obsolete
    `create_demo_blog_posts.py`, empty rail on the detail page.
@@ -153,12 +157,17 @@ feels organic (top-5 popular = all but `small-space-jungle`).
     to scrolling to the grid.
   - Ghost CTA **"All topics →"** clears the category filter and scrolls to the grid
     (no separate topics page).
-- **Chip row:** `All` + the categories from `fetchCategories()`; selected chip drives
-  the existing `?category=` param plumbing.
+- **Toolbar row (chips + search):** `All` + the categories from `fetchCategories()`
+  as Chips on the left, driving the existing `?category=` param plumbing; a quiet
+  Canopy-styled search input on the right (form submit on Enter, clearable, existing
+  `?search=` param plumbing, resets to page 1). Stacks below ~md. The hero stays
+  search-free for mockup parity.
 - **Card grid:** 2 columns (1 below ~md). `BlogCard` rebuilt on the `Card` primitive:
   cover rendition, category Chip, title, meta `N min read · Author` (Geist Mono meta,
   Bricolage title). Compact variant kept for rail use.
-- **Pagination** primitive kept; search form, sort dropdown, category sidebar removed.
+- **Pagination** primitive kept; sort dropdown and category sidebar removed (search
+  kept — see toolbar row above). An active search shows the result count and a
+  clear affordance.
 - **Rail:** one `RailModule` — popular posts (top 5, compact BlogCard rows) via the
   existing `fetchPopularPosts`.
 - Loading / error / empty states restyled on Canopy patterns (no emoji chrome).
