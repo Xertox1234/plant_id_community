@@ -22,7 +22,15 @@ import { useAuth } from '../../contexts/AuthContext';
 import { logger } from '../../utils/logger';
 import { recentTopicPath } from '../../utils/forumUrls';
 import { boardIdentity } from '../../utils/forumTones';
+import { resolveBoardFilter } from '../../utils/forumBoardFilter';
 import type { Category, ForumMyStats, RecentTopic } from '@/types';
+
+// The landing hero's recent-activity fetch — mirrors the backend's
+// WAGTAILFORUM_RECENT_TOPICS_MAX_LIMIT default (wagtail_forum/conf.py) and
+// must not exceed it. The client can't import backend conf, but the server
+// clamps ?limit= to that same cap regardless, so this is a documentation
+// value, not an enforcement one.
+const RECENT_TOPICS_FETCH_LIMIT = 20;
 
 /**
  * CategoryListPage Component
@@ -73,7 +81,7 @@ export default function CategoryListPage() {
           // pinned event out of the window mid-event (review finding #6).
           // ActiveNowModule re-slices its own display to 3 regardless of how
           // many rows this array carries, so the rail is unaffected.
-          fetchRecentTopics(20).catch((err) => {
+          fetchRecentTopics(RECENT_TOPICS_FETCH_LIMIT).catch((err) => {
             logger.error('Error loading recent topics', {
               component: 'CategoryListPage',
               error: err,
@@ -154,9 +162,7 @@ export default function CategoryListPage() {
 
   const totalThreads = categories.reduce((sum, c) => sum + (c.thread_count || 0), 0);
   const totalPosts = categories.reduce((sum, c) => sum + (c.post_count || 0), 0);
-  const visibleCategories = activeBoard
-    ? categories.filter((c) => c.slug === activeBoard)
-    : categories;
+  const { effectiveBoard, visibleCategories } = resolveBoardFilter(categories, activeBoard);
 
   // The event hero swaps in whenever a topic in the fetched recent window is
   // BOTH pinned AND slugged "bloom-watch…" (seeded content, spec-locked
@@ -314,7 +320,13 @@ export default function CategoryListPage() {
             aria-label="Filter boards"
           >
             <Chip
-              active={activeBoard === null}
+              // effectiveBoard rather than a bare `activeBoard === null`
+              // check: a stale selection (its board no longer in the fetched
+              // list) collapses to null here too, so "All" and the filtered
+              // list below always agree about what's selected — identical to
+              // the old check whenever activeBoard is genuinely null or
+              // genuinely present.
+              active={effectiveBoard === null}
               onClick={() => setActiveBoard(null)}
               className="min-h-11"
             >
@@ -323,7 +335,7 @@ export default function CategoryListPage() {
             {categories.map((c) => (
               <Chip
                 key={c.id}
-                active={activeBoard === c.slug}
+                active={effectiveBoard === c.slug}
                 onClick={() => setActiveBoard((prev) => (prev === c.slug ? null : c.slug))}
                 className="min-h-11"
               >

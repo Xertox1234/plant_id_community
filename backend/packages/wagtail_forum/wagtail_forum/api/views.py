@@ -1473,12 +1473,16 @@ ME_STATS_SCHEMA = {
 }
 
 
-class MeStatsView(UnversionedForumAPIMixin, APIView):
+class MeStatsView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView):
     """All-time forum stats for the requesting user ("Your season" cards).
 
     All-time by design (spec §9): no season windowing, and the client's card
     sublabels must not claim one. Three cheap reads — the denormalized
-    profile.post_count plus two indexed COUNTs — so no caching.
+    profile.post_count plus two indexed COUNTs — no server-side caching, but
+    `PrivateForumReadCacheMixin` still marks the response `no-store, private`
+    (round-2 review) so a per-user payload can never be heuristically stored
+    by an intermediary CDN/proxy that caches everything by default — same
+    reasoning as TopicDetailView, not a claim that this view itself caches.
     """
 
     permission_classes = [IsAuthenticated]
@@ -1755,7 +1759,19 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
 
         from wagtail.images import get_image_model
 
-        images = get_image_model().objects.in_bulk(set(image_id_by_topic.values()))
+        # prefetch_renditions() populates AbstractImage._get_prefetched_renditions(),
+        # which find_existing_renditions() consults BEFORE the per-image cache
+        # backend / DB lookup (wagtail/images/models.py) — so thumb()'s
+        # get_rendition() below is satisfied from this one batched query even
+        # when the "renditions" cache is cold, instead of issuing one SELECT
+        # per image-bearing topic (N+1 whenever Redis is cold/evicted).
+        # in_bulk() chains cleanly: it internally does self.filter(id__in=...)
+        # then iterates the queryset, which preserves prefetch_related.
+        images = (
+            get_image_model()
+            .objects.prefetch_renditions("fill-80x80")
+            .in_bulk(set(image_id_by_topic.values()))
+        )
 
         def thumb(topic):
             image = images.get(image_id_by_topic.get(topic.pk))

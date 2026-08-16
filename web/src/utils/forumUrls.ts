@@ -45,13 +45,18 @@ export function userProfilePath(username: string): string {
 /**
  * Path for a topics/recent row: /forum/{board.id}-{board.slug}/{id}-{slug}.
  *
- * Byte-identical to `categoryPath(topic.board)` + `/${topic.id}-${topic.slug}`
- * (categoryPath's `{id}-{slug}` format, threadPath's nesting) — written as a
- * literal template rather than composed from those helpers because
- * `RecentTopic.board.id` is a `number` while `Category.id` is a `string`,
- * so `categoryPath`'s `Pick<Category, 'id' | 'slug' | 'name'>` parameter type
- * doesn't accept it without a cast.
+ * Delegates to `threadPath` (which itself composes `categoryPath`) instead of
+ * re-authoring the template — `RecentTopic.board.id`/`RecentTopic.id` are
+ * `number` while `Category.id`/`Thread.id` are `string`, so the id fields are
+ * cast to `string` at the call site rather than widening either helper's
+ * parameter types repo-wide. Output stays byte-identical to the old literal
+ * template for the normal case (board.slug/topic.slug always populated), and
+ * both helpers' own slug/id-parsing rules now apply here too, so this can
+ * never drift from `categoryPath`/`threadPath`'s format.
  */
 export function recentTopicPath(topic: RecentTopic): string {
-  return `/forum/${topic.board.id}-${topic.board.slug}/${topic.id}-${topic.slug}`;
+  return threadPath(
+    { id: String(topic.board.id), slug: topic.board.slug, name: topic.board.name },
+    { id: String(topic.id), slug: topic.slug, title: topic.title }
+  );
 }

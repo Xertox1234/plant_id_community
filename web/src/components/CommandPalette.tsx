@@ -51,6 +51,16 @@ interface QueryResult<T> {
 }
 
 /**
+ * True for the DOMException `fetch()` (and `authenticatedFetch`, which
+ * doesn't wrap it) rejects with when its request's AbortSignal fires — i.e.
+ * a cancellation WE issued (a newer query superseding this one, or the
+ * palette closing), never a real network/server failure.
+ */
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError';
+}
+
+/**
  * Cmd/Ctrl+K command palette (spec §8). Always mounted by AppShell — `open`
  * gates rendering internally so state (query, fetched boards) can reset
  * cleanly on every open without AppShell managing a mount/unmount lifecycle.
@@ -86,6 +96,13 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   // Monotonic request epoch — a response only lands if no newer query has
   // been issued since (same class as PR #537's unread-badge fix).
   const epochRef = useRef(0);
+  // One AbortController per issued query. The epoch guard above already
+  // drops a stale RESPONSE from ever reaching state, but it does nothing to
+  // stop the request itself — without this, a fast typist fires a full
+  // in-flight fetch per keystroke that runs to completion server-side for no
+  // UI benefit (and counts against rate limits). Aborting the previous
+  // controller before creating a new one is the actual cancellation.
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
 
   const trimmedQuery = query.trim();
   const showTopics = trimmedQuery.length >= MIN_QUERY_LENGTH;
@@ -159,6 +176,18 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return () => cancelAnimationFrame(raf);
   }, [open]);
 
+  // Abort any in-flight search when the palette closes or the component
+  // unmounts. The cleanup below runs on EVERY `open` transition (so closing
+  // aborts) and once more on unmount (React always runs the last render's
+  // cleanup then) — CommandPalette is normally kept mounted by AppShell with
+  // `open` gating render internally, but this covers a genuine unmount too
+  // (e.g. a test rendering it standalone).
+  useEffect(() => {
+    return () => {
+      searchAbortControllerRef.current?.abort();
+    };
+  }, [open]);
+
   // Debounced, epoch-guarded search. Cleaned up on every query change and on
   // unmount alike (the timer effect's cleanup always runs).
   useEffect(() => {
@@ -181,6 +210,14 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
       // `trimmedQuery` (closed over below) has since moved on.
       const requestQuery = trimmedQuery;
 
+      // Cancel the previous in-flight request (if any) before issuing this
+      // one. The epoch guard below still stands as defense-in-depth against
+      // a response landing after a newer query has already superseded it —
+      // this only stops the REQUEST itself from running to completion.
+      searchAbortControllerRef.current?.abort();
+      const controller = new AbortController();
+      searchAbortControllerRef.current = controller;
+
       // Clear any stale results BEFORE issuing the fetches. Without this, an
       // identical-retype (delete a char, retype it — same final query text)
       // re-fetches while `topicsResult`/`peopleResult` still carry the PRIOR
@@ -194,13 +231,16 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
       setTopicsLoading(true);
       setTopicsError(false);
-      searchForum({ q: requestQuery })
+      searchForum({ q: requestQuery, signal: controller.signal })
         .then((res) => {
           if (epoch !== epochRef.current) return;
           setTopicsResult({ q: requestQuery, items: res.threads.slice(0, RESULT_LIMIT) });
         })
-        .catch(() => {
+        .catch((err) => {
           if (epoch !== epochRef.current) return;
+          // We aborted our own, now-superseded/closed request — not a real
+          // failure. Must never surface as "Search is unavailable".
+          if (isAbortError(err)) return;
           setTopicsResult({ q: requestQuery, items: [] });
           setTopicsError(true);
         })
@@ -212,13 +252,14 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
       if (isAuthenticated) {
         setPeopleLoading(true);
         setPeopleError(false);
-        searchForumUsers(requestQuery)
+        searchForumUsers(requestQuery, controller.signal)
           .then((res) => {
             if (epoch !== epochRef.current) return;
             setPeopleResult({ q: requestQuery, items: res.slice(0, RESULT_LIMIT) });
           })
-          .catch(() => {
+          .catch((err) => {
             if (epoch !== epochRef.current) return;
+            if (isAbortError(err)) return;
             setPeopleResult({ q: requestQuery, items: [] });
             setPeopleError(true);
           })

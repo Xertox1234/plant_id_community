@@ -3,6 +3,11 @@ from wagtail.models import Site
 from wagtail_forum.collections import get_forum_image_collection
 from wagtail_forum.models import ForumBoard, ForumIndex
 
+# The pre-Canopy starter board this command creates. Exported so other seed
+# commands (seed_demo_content) and their tests can reference the same literal
+# instead of each carrying their own copy (round-2 review: third-copy dedupe).
+DEFAULT_BOARD_SLUG = "general-discussion"
+
 
 class Command(BaseCommand):
     help = (
@@ -58,12 +63,14 @@ class Command(BaseCommand):
             board = index.add_child(
                 instance=ForumBoard(
                     title="General Discussion",
-                    slug="general-discussion",
+                    slug=DEFAULT_BOARD_SLUG,
                     description="Talk about anything plant-related.",
                 )
             )
             board.save_revision().publish()
-            self.stdout.write(self.style.SUCCESS("Created board 'general-discussion'."))
+            self.stdout.write(
+                self.style.SUCCESS(f"Created board '{DEFAULT_BOARD_SLUG}'.")
+            )
         else:
             self.stdout.write("Forum already seeded; nothing to do.")
 

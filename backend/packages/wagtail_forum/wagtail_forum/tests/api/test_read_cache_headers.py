@@ -163,3 +163,24 @@ def test_anon_smaxage_honors_the_configured_setting():
     board, _, _ = _board_topic_post()
     resp = APIClient().get("/forum/boards/")
     assert "s-maxage=123" in resp["Cache-Control"]
+
+
+@pytest.mark.django_db
+def test_me_stats_is_never_shared_cached():
+    # me/stats/ (round-2 review) requires IsAuthenticated, so it can't join
+    # _private_paths()'s anon+authed loop (an anon GET 401s, not 200) — pinned
+    # here as a dedicated assertion instead. Per-user counts (post_count,
+    # solutions_accepted, identifications_shared) must never be storable by a
+    # shared cache, same reasoning as topic detail/post list.
+    User.objects.create_user(username="stats-viewer", password="x")
+    client = APIClient()
+    client.force_authenticate(User.objects.get(username="stats-viewer"))
+
+    resp = client.get("/forum/me/stats/")
+    assert resp.status_code == 200
+    cache_control = resp["Cache-Control"]
+    assert "no-store" in cache_control
+    assert "private" in cache_control
+    assert "public" not in cache_control
+    assert "s-maxage" not in cache_control
+    _assert_varies_on_auth(resp, "/forum/me/stats/")

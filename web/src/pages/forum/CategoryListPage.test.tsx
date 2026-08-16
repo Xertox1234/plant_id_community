@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import CategoryListPage from './CategoryListPage';
+import { resolveBoardFilter } from '../../utils/forumBoardFilter';
 import { createMockCategory } from '../../tests/forumUtils';
 import type { Category, ForumMyStats, RecentTopic } from '../../types/forum';
 import * as forumService from '../../services/forumService';
@@ -439,6 +440,52 @@ describe('CategoryListPage', () => {
 
       await waitFor(() => expect(screen.getByText('Solo Board')).toBeInTheDocument());
       expect(screen.queryByRole('group', { name: 'Filter boards' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('stale activeBoard filter (round-2 review)', () => {
+    // resolveBoardFilter() is the derived-state guard behind CategoryListPage's
+    // chip filter. The browser-level scenario it exists for — select a chip,
+    // then a refetch's payload no longer contains that board's slug — has no
+    // reachable trigger in the current app to exercise end-to-end: the only
+    // refetch path is ForumErrorState's Retry, which only renders during an
+    // *error* state, and that state replaces the entire board/chip section (so
+    // there is never a chip to have selected beforehand). See the exported
+    // function's doc comment in CategoryListPage.tsx for the full trace.
+    //
+    // This is a direct unit test of the pure derivation instead: it fails
+    // without the fix (a bare `activeBoard ? categories.filter(...) : categories`
+    // would return an empty array here, not the full list) and passes with it.
+    const boards = [
+      createMockCategory({ id: 'cat-1', name: 'Pests & Diseases', slug: 'pests-diseases' }),
+      createMockCategory({ id: 'cat-2', name: 'Care Problems', slug: 'care-problems' }),
+    ];
+
+    it('falls back to "All" when the selected board is no longer in the fetched list', () => {
+      const result = resolveBoardFilter(boards, 'a-board-that-no-longer-exists');
+
+      // The effective selection collapses to null — the same value the "All"
+      // chip's `active` prop and every per-board chip's `active` prop both
+      // read from, so the chip row and the list agree: nothing but "All" is
+      // pressed. Missing slug -> effective selection null, pinned directly.
+      expect(result.effectiveBoard).toBeNull();
+      // The full, unfiltered list — not a blank/empty array over a real
+      // selection nobody can act on anymore.
+      expect(result.visibleCategories).toEqual(boards);
+    });
+
+    it('still filters normally when the selected board is present', () => {
+      const result = resolveBoardFilter(boards, 'care-problems');
+
+      expect(result.effectiveBoard).toBe('care-problems');
+      expect(result.visibleCategories).toEqual([boards[1]]);
+    });
+
+    it('shows all boards when no filter is selected', () => {
+      const result = resolveBoardFilter(boards, null);
+
+      expect(result.effectiveBoard).toBeNull();
+      expect(result.visibleCategories).toEqual(boards);
     });
   });
 

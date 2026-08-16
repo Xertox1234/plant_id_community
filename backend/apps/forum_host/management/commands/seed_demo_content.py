@@ -1,6 +1,9 @@
 from datetime import timedelta
 from pathlib import Path
 
+from apps.forum_host.management.commands.seed_default_forum import (
+    DEFAULT_BOARD_SLUG as LEGACY_STARTER_SLUG,
+)
 from apps.forum_host.seed_content import BOARDS, DEMO_EMAIL_DOMAIN, TOPICS, USERS
 from django.contrib.auth import get_user_model
 from django.core.files.images import ImageFile
@@ -22,8 +25,10 @@ from wagtail_forum.models import (
 )
 
 ASSET_DIR = Path(__file__).resolve().parent.parent.parent / "seed_assets"
-# The pre-Canopy starter board seed_default_forum creates; removed only if empty.
-LEGACY_STARTER_SLUG = "general-discussion"
+# LEGACY_STARTER_SLUG re-exports seed_default_forum's DEFAULT_BOARD_SLUG under
+# this module's own name (the pre-Canopy starter board it creates; removed
+# only if empty) so callers/tests keep importing a locally-meaningful name
+# without a third copy of the literal (round-2 review dedupe).
 
 
 class Command(BaseCommand):
@@ -91,26 +96,53 @@ class Command(BaseCommand):
     def _seed_users(self):
         User = get_user_model()
         users = {}
-        for spec in USERS:
-            user, created = User.objects.get_or_create(
-                username=spec["username"],
-                defaults={"email": f"{spec['username']}@{DEMO_EMAIL_DOMAIN}"},
-            )
-            if created:
-                user.set_unusable_password()
-                user.save(update_fields=["password"])
-                profile = ForumProfile.for_user(user)
-                profile.display_name = spec["display_name"]
-                profile.title = spec["title"]
-                profile.bio = spec["bio"]
-                # Appointed trust: survives signal recounts (signals.py takes
-                # max(current, earned) when current exceeds earned).
-                profile.trust_level = spec["trust_level"]
-                profile.save(
-                    update_fields=["display_name", "title", "bio", "trust_level"]
+        # Atomic across the whole spec list: a mid-loop adoption refusal below
+        # must roll back any demo users this same call already created, not
+        # leave a partially-seeded user set behind (spec-consistent with the
+        # "seed aborts with no content created" contract for guard failures).
+        with transaction.atomic():
+            for spec in USERS:
+                user, created = User.objects.get_or_create(
+                    username=spec["username"],
+                    defaults={"email": f"{spec['username']}@{DEMO_EMAIL_DOMAIN}"},
                 )
-                self.stdout.write(f"Created demo user {spec['username']}.")
-            users[spec["username"]] = user
+                if created:
+                    user.set_unusable_password()
+                    user.save(update_fields=["password"])
+                    profile = ForumProfile.for_user(user)
+                    profile.display_name = spec["display_name"]
+                    profile.title = spec["title"]
+                    profile.bio = spec["bio"]
+                    # Appointed trust: survives signal recounts (signals.py
+                    # takes max(current, earned) when current exceeds earned).
+                    profile.trust_level = spec["trust_level"]
+                    profile.save(
+                        update_fields=["display_name", "title", "bio", "trust_level"]
+                    )
+                    self.stdout.write(f"Created demo user {spec['username']}.")
+                else:
+                    # Guard layer 2 (handle(), above) screens the run-wide
+                    # account census and deliberately excuses superusers by
+                    # design — the Railway admin account must not block
+                    # seeding. It says nothing about THIS specific username,
+                    # though: an existing real account sitting on a demo
+                    # username — superuser included — must not be silently
+                    # adopted as if it were the seed's own row just because
+                    # get_or_create() found it. Only adopt an existing account
+                    # that already has the demo shape.
+                    is_demo_account = user.has_usable_password() is False and (
+                        user.email.lower().endswith(f"@{DEMO_EMAIL_DOMAIN}".lower())
+                    )
+                    if not is_demo_account:
+                        raise CommandError(
+                            f"Refusing to seed demo user '{spec['username']}' "
+                            "— an account with that username already exists "
+                            "and is not a demo account (email ending in "
+                            f"@{DEMO_EMAIL_DOMAIN} with no usable password). "
+                            "This seed never adopts or modifies a real "
+                            "account, superuser or not."
+                        )
+                users[spec["username"]] = user
         return users
 
     # -- boards --------------------------------------------------------------

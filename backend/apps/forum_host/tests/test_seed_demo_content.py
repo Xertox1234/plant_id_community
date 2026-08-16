@@ -11,6 +11,9 @@ Controller ruling (2026-08-15): the brief's test list says "4 topics solved"
 from datetime import timedelta
 
 import pytest
+from apps.forum_host.management.commands.seed_default_forum import (
+    DEFAULT_BOARD_SLUG as LEGACY_STARTER_SLUG,
+)
 from apps.forum_host.seed_content import BOARDS, DEMO_EMAIL_DOMAIN, TOPICS, USERS
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -29,8 +32,6 @@ from wagtail_forum.models import (
 )
 
 User = get_user_model()
-
-LEGACY_STARTER_SLUG = "general-discussion"
 
 # Spec §5's solved-topic table (controller ruling: 5, not the brief's typo'd 4).
 EXPECTED_SOLVERS = {
@@ -116,6 +117,43 @@ def test_superuser_does_not_trip_the_guard():
     )
     call_command("seed_demo_content")
     assert Topic.objects.count() == len(TOPICS)
+
+
+@override_settings(DEBUG=True)
+@pytest.mark.django_db
+def test_refuses_to_adopt_a_superuser_holding_a_demo_username():
+    """The adoption hole (round-2 review): guard layer 2 excuses superusers
+    BY DESIGN (the Railway admin account must not block seeding), so a real
+    superuser account that happens to sit on a demo username — real email,
+    usable password — sails past that census check untouched. Without the
+    fix at the _seed_users() adoption site, `get_or_create()` would then
+    find that account, see created=False, and silently treat it as if it
+    were the seed's own "iris_delgado" row: no content check catches this
+    upstream, because the census guard's whole point is to let superusers
+    through.
+
+    "iris_delgado" is deliberately the FIRST entry in USERS (seed_content.py)
+    so this failure fires on the very first loop iteration, before any other
+    demo user, board, or topic is created — proving "no content created" is
+    not an accident of iteration order but a real abort.
+    """
+    real_admin = User.objects.create_superuser(
+        username="iris_delgado", email="iris@realcompany.com", password="x"
+    )
+    with pytest.raises(CommandError, match="iris_delgado"):
+        call_command("seed_demo_content")
+
+    # The real account itself must be left completely untouched — not
+    # password-wiped, not email-rewritten, not adopted in any way.
+    real_admin.refresh_from_db()
+    assert real_admin.email == "iris@realcompany.com"
+    assert real_admin.has_usable_password() is True
+
+    # Nothing from the demo world was created off the back of this run.
+    assert Topic.objects.count() == 0
+    assert ForumBoard.objects.exclude(slug=LEGACY_STARTER_SLUG).count() == 0
+    demo_usernames = {u["username"] for u in USERS} - {"iris_delgado"}
+    assert not User.objects.filter(username__in=demo_usernames).exists()
 
 
 @override_settings(DEBUG=True)

@@ -242,6 +242,8 @@ export interface SearchForumOptions {
   category?: string;
   /** 1-based page; only sent to the backend when > 1. */
   page?: number;
+  /** Cancels the in-flight request when aborted (e.g. a superseding query). */
+  signal?: AbortSignal;
 }
 
 export interface SearchForumResponse {

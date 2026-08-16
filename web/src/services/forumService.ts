@@ -273,9 +273,13 @@ export interface ForumUserSearchResult {
 }
 
 /** Search usernames by prefix, for the @mention composer autocomplete (todo 253 slice 4). */
-export async function searchForumUsers(query: string): Promise<ForumUserSearchResult[]> {
+export async function searchForumUsers(
+  query: string,
+  signal?: AbortSignal
+): Promise<ForumUserSearchResult[]> {
   return authenticatedFetch<ForumUserSearchResult[]>(
-    `${FORUM_BASE}/users/search/?q=${encodeURIComponent(query)}`
+    `${FORUM_BASE}/users/search/?q=${encodeURIComponent(query)}`,
+    { signal }
   );
 }
 
@@ -457,7 +461,7 @@ export async function uploadPostImage(imageFile: File, alt?: string): Promise<Up
 // ---------------------------------------------------------------------------
 
 export async function searchForum(options: SearchForumOptions): Promise<SearchForumResponse> {
-  const { q, category, page } = options;
+  const { q, category, page, signal } = options;
   if (!q || q.trim() === '') throw new Error('Search query is required');
   const params = new URLSearchParams({ q: q.trim() });
   if (category) params.set('board', category);
@@ -467,7 +471,7 @@ export async function searchForum(options: SearchForumOptions): Promise<SearchFo
     posts: BackendSearchPost[];
     topics_has_more?: boolean;
     posts_has_more?: boolean;
-  }>(`${FORUM_BASE}/search/?${params}`);
+  }>(`${FORUM_BASE}/search/?${params}`, { signal });
   const threads = (data.topics || []).map(mapSearchTopicToThread);
   const posts = (data.posts || []).map(mapSearchPostToPost);
   // Each section is paginated (PAGE_SIZE per page); *_has_more says whether a

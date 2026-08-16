@@ -118,7 +118,10 @@ describe('CommandPalette', () => {
         await vi.advanceTimersByTimeAsync(250);
       });
 
-      expect(forumService.searchForum).toHaveBeenCalledWith({ q: 'mon' });
+      expect(forumService.searchForum).toHaveBeenCalledWith({
+        q: 'mon',
+        signal: expect.any(AbortSignal),
+      });
       expect(screen.getByRole('link', { name: 'Monstera leaf care' })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'Search everything for "mon"' })).toBeInTheDocument();
     } finally {
@@ -145,7 +148,7 @@ describe('CommandPalette', () => {
     await userEvent.type(getInput(), 'ad');
 
     expect(await screen.findByRole('link', { name: /Grower Ninety-Nine/ })).toBeInTheDocument();
-    expect(forumService.searchForumUsers).toHaveBeenCalledWith('ad');
+    expect(forumService.searchForumUsers).toHaveBeenCalledWith('ad', expect.any(AbortSignal));
   });
 
   it('shows the unavailable line when a section search fails', async () => {
@@ -155,6 +158,74 @@ describe('CommandPalette', () => {
     await userEvent.type(getInput(), 'ad');
 
     expect(await screen.findByText('Search is unavailable right now')).toBeInTheDocument();
+  });
+
+  it('a new query aborts the prior in-flight request (round-2 review)', async () => {
+    vi.useFakeTimers();
+    try {
+      let capturedSignal: AbortSignal | undefined;
+      vi.mocked(forumService.searchForum).mockImplementation(({ signal }) => {
+        capturedSignal = signal;
+        return new Promise<SearchForumResponse>(() => {}); // never resolves
+      });
+      renderPalette();
+      const input = getInput();
+
+      fireEvent.change(input, { target: { value: 'mon' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(capturedSignal).toBeInstanceOf(AbortSignal);
+      const firstSignal = capturedSignal!;
+      expect(firstSignal.aborted).toBe(false);
+
+      // A new query fires before the first request ever resolves.
+      fireEvent.change(input, { target: { value: 'monst' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+
+      expect(firstSignal.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an aborted request does not render the "Search is unavailable" error line (round-2 review)', async () => {
+    vi.useFakeTimers();
+    try {
+      // Mirrors how `fetch()`/`authenticatedFetch` actually behaves on abort:
+      // the promise rejects with a DOMException named AbortError once the
+      // passed signal fires.
+      vi.mocked(forumService.searchForum).mockImplementation(
+        ({ signal }) =>
+          new Promise<SearchForumResponse>((_resolve, reject) => {
+            signal?.addEventListener('abort', () => {
+              reject(new DOMException('The operation was aborted', 'AbortError'));
+            });
+          })
+      );
+      renderPalette();
+      const input = getInput();
+
+      fireEvent.change(input, { target: { value: 'mon' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(forumService.searchForum).toHaveBeenCalledTimes(1);
+
+      // Supersede it — this aborts the first request's signal, rejecting its
+      // promise with AbortError.
+      fireEvent.change(input, { target: { value: 'monst' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+        await Promise.resolve(); // flush the rejection's microtask
+      });
+
+      expect(screen.queryByText('Search is unavailable right now')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('Escape calls onClose', () => {

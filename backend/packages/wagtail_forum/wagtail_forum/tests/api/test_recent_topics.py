@@ -402,40 +402,32 @@ def test_recent_topics_query_count_is_pinned():
         even though this fixture creates zero attachment rows (the query
         still executes; a topic-count-scaled version would be the bug this
         pin exists to catch).
-    Q5: `Image.objects.in_bulk()` batching every image id collected above —
-        ONE query for both of this fixture's images. NOTE: `in_bulk([])`
-        short-circuits with ZERO queries (Django), so a fixture with no
-        images at all would pin 4, not 5 — the empty-forum test above
-        legitimately has a different count for this reason, not by mistake.
+    Q5: `Image.objects.prefetch_renditions("fill-80x80").in_bulk()` batching
+        every image id collected above — ONE query for both of this
+        fixture's images. NOTE: `in_bulk([])` short-circuits with ZERO
+        queries (Django), so a fixture with no images at all would pin 4,
+        not 6 — the empty-forum test above legitimately has a different
+        count for this reason, not by mistake.
+    Q6: the `prefetch_renditions("fill-80x80")` prefetch query itself — ONE
+        batched `SELECT ... FROM wagtailimages_rendition WHERE image_id IN
+        (...) AND filter_spec = 'fill-80x80'` covering every image
+        collected above, run automatically when the Q5 queryset is
+        iterated. This is the fix for the N+1 the round-2 review flagged:
+        `thumb()`'s `image.get_rendition("fill-80x80")` now consults
+        `AbstractImage._get_prefetched_renditions()` FIRST
+        (wagtail/images/models.py's `find_existing_renditions`), so it never
+        falls through to a per-topic cache/DB lookup — this one query is
+        paid ONCE regardless of how many image-bearing topics are on the
+        page, cache warm or cold. `test_recent_topics_rendition_prefetch_is_flat_when_cache_cold`
+        below proves the "flat regardless of image count" half of that
+        claim directly, with the "renditions" cache backend cleared.
 
-    Rendition lookups (`thumb()`'s `image.get_rendition("fill-80x80")`,
-    called once per topic, NOT batched via `prefetch_renditions`) add ZERO
-    further queries in this pinned, WARMED measurement — empirically
-    verified, not assumed. This view calls `get_rendition()` per-topic, but
-    Wagtail's own `AbstractImage.find_existing_renditions` checks
-    `Rendition.cache_backend` (a Django cache, e.g. LocMemCache in tests)
-    BEFORE ever touching the database, and `get_rendition()` populates that
-    cache on every call (hit or miss). So after the warm-up GET below
-    populates the cache for both images, the pinned GET's two
-    `get_rendition()` calls are served entirely from cache — the DB is never
-    touched for them, which is a genuinely different (better) mechanism than
-    `test_post_list.py`'s `prefetch_renditions()` batching, not the same one.
-
-    This is still the correct thing to pin: the FIRST-EVER request for an
-    image (uncached) pays a real SELECT+INSERT per image-bearing topic (this
-    view issues one `get_rendition()` call per topic, so that part IS
-    per-topic, not batched) — `test_recent_topics_thumbnail_resolution`
-    above exercises that cold path directly and asserts it resolves a real
-    URL. Per docs/rules/testing.md ("Wagtail GENERATES a rendition on first
-    access, which is indistinguishable from an N+1... warm every request
-    whose count you compare"), this pin measures the STEADY STATE — the
-    request pattern every request after the first actually sees in
-    production, once Wagtail's rendition cache is warm — not the one-time
-    cold cost, which is inherent to Wagtail's rendition system everywhere in
-    this codebase, not specific to this view.
-
-    Total: 5. Pre-warmed with an identical GET before the pinned request
-    (`test_post_list.py`'s idiom).
+    Total: 6. Pre-warmed with an identical GET before the pinned request
+    (`test_post_list.py`'s idiom) — though with prefetching in place the
+    warm-up no longer changes this test's own query count (Q6 fires
+    identically warm or cold); it still guards against a regression back to
+    the per-topic `get_rendition()` cache-population queries this fix
+    removed.
 
     Pinned EXACTLY (docs/rules/testing.md) — explain any change to this number.
     """
@@ -475,4 +467,76 @@ def test_recent_topics_query_count_is_pinned():
         resp = client.get("/forum/topics/recent/")
     assert resp.status_code == 200
     assert len(resp.data["results"]) == 5
-    assert len(ctx.captured_queries) == 5
+    assert len(ctx.captured_queries) == 6
+
+
+@pytest.mark.django_db
+def test_recent_topics_rendition_prefetch_is_flat_when_cache_cold():
+    """The N+1 this fix closes: with the "renditions" cache backend cold
+    (cleared, simulating a Redis eviction/restart in production — the
+    round-1 pin only ever measured the WARM path), `thumb()`'s per-topic
+    `get_rendition("fill-80x80")` must be served from the batched
+    `prefetch_renditions()` query, not a per-topic SELECT. Proven by
+    comparing the query count for 1 vs 3 image-bearing topics: if
+    prefetching weren't wired up, 3 topics would cost 2 more queries than 1;
+    with it, the count is identical.
+    """
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    collection = get_forum_image_collection()
+    now = timezone.now()
+
+    def _make_topics(n):
+        for i in range(n):
+            topic = Topic.objects.create(
+                board=board,
+                title=f"Cold{n}-{i}",
+                slug=f"cold{n}-{i}",
+                author=author,
+                live=True,
+                last_post_at=now - datetime.timedelta(minutes=i),
+            )
+            image = get_image_model().objects.create(
+                title=f"cold{n}-{i}.jpg",
+                file=get_test_image_file(),
+                collection=collection,
+            )
+            # Pre-create the rendition in the DB (this is a "cache cold, not
+            # data missing" scenario — the rendition row already exists, only
+            # Wagtail's Rendition.cache_backend lookup is what's cold).
+            image.get_rendition("fill-80x80")
+            Post.objects.create(
+                topic=topic,
+                author=author,
+                is_opening_post=True,
+                live=True,
+                body=[{"type": "image", "value": image.id}],
+            )
+
+    client = APIClient()
+
+    # Measurement 1: a single image-bearing topic, cache forced cold.
+    _make_topics(1)
+    caches["renditions"].clear()
+    with CaptureQueriesContext(connection) as ctx_1:
+        resp_1 = client.get("/forum/topics/recent/", {"limit": 1})
+    assert resp_1.status_code == 200
+    assert len(resp_1.data["results"]) == 1
+    assert resp_1.data["results"][0]["thumbnail_url"] is not None
+
+    # Measurement 2: two MORE image-bearing topics added (3 total live), cache
+    # forced cold again. Query count must not grow with image count.
+    _make_topics(2)
+    caches["renditions"].clear()
+    with CaptureQueriesContext(connection) as ctx_3:
+        resp_3 = client.get("/forum/topics/recent/", {"limit": 3})
+    assert resp_3.status_code == 200
+    assert len(resp_3.data["results"]) == 3
+    for row in resp_3.data["results"]:
+        assert row["thumbnail_url"] is not None
+
+    # Flat regardless of image count: prefetch_renditions() batches every
+    # image's rendition lookup into ONE query, so 1 vs 3 image-bearing
+    # topics costs the same total. Without this fix, the per-topic
+    # get_rendition() cache-miss path would add 2 more queries here.
+    assert len(ctx_3.captured_queries) == len(ctx_1.captured_queries)
