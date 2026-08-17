@@ -172,7 +172,8 @@ urlpatterns = [
 
 Routes: boards, topics (list/detail/create), posts (list/create/edit/delete),
 reactions, reports, image upload, profiles (`me` + public), search, delta `sync`,
-user mention search, and notifications (list/unread-count/mark-read).
+user mention search, notifications (list/unread-count/mark-read), recent topics,
+and community experts.
 
 The package ships **no authentication and no throttling** by design — see
 [Rate limiting](#rate-limiting).
@@ -255,7 +256,7 @@ Three consequences worth knowing before changing this:
 |---|---|---|
 | `WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS` | `900` (15 min) | Window in which repeat topic-detail GETs from the same user/IP count as one view. |
 | `WAGTAILFORUM_TOPIC_READ_DEDUP_SECONDS` | `900` (15 min) | Read-marker dedup window. Deliberately **separate** from the view-count window — they gate unrelated concerns and only happen to share a default. |
-| `WAGTAILFORUM_PUBLIC_READ_CACHE_SECONDS` | `60` | Shared-cache TTL for **anonymous** board list, topic list, and search only, so a CDN can offload public reads. Authenticated responses are always `private, no-store`. Topic detail and post list are never shared-cached (view counting; moderated-away content must stop serving immediately). Tradeoff: a just-removed topic can linger in the anon-cached *list* for up to this TTL. |
+| `WAGTAILFORUM_PUBLIC_READ_CACHE_SECONDS` | `60` | Shared-cache TTL for **anonymous** board list, topic list, search, recent topics, and experts rails only, so a CDN can offload public reads. Authenticated responses are always `private, no-store`. Topic detail and post list are never shared-cached (view counting; moderated-away content must stop serving immediately). Tradeoff: a just-removed topic can linger in the anon-cached *list* for up to this TTL. |
 | `WAGTAILFORUM_RECENT_TOPICS_DEFAULT_LIMIT` | `5` | Default row count for `GET topics/recent/` (the landing "Active now" rail) when `?limit=` is omitted. |
 | `WAGTAILFORUM_RECENT_TOPICS_MAX_LIMIT` | `20` | Cap on `?limit=` for `GET topics/recent/`. Bounded because each row may resolve a thumbnail rendition. |
 | `WAGTAILFORUM_EXPERTS_LIMIT` | `4` | Max row count for `GET users/experts/` (the "Community experts" landing rail). |
@@ -397,7 +398,7 @@ an LLM) can flatten a large body once and screen the same string twice.
 
 ## List envelopes
 
-The forum API ships **four** list-collection shapes. They are not converging:
+The forum API ships **five** list-collection shapes. They are not converging:
 each one carries information the cursor envelope cannot express, and the audit
 that raised this (M40) asked for one documented contract *or* a documented
 divergence. This is the divergence, stated deliberately.
@@ -408,6 +409,7 @@ divergence. This is the divergence, stated deliberately.
 | `GET boards/` | `{results, intro}` — flat, no cursor | Boards are a handful of Wagtail pages rendered as one nav tree. `pagination_class = None`; a `next` that is always `null` would imply paging that does not exist. `intro` is the `ForumIndex` welcome copy (expanded + sanitized HTML, `""` when unset) — it belongs to the same screen as the boards and is always fetched with them, so it rides the envelope instead of costing a second round-trip. Media embeds and images are stripped *before* expansion, never after: expanding one would fire Wagtail's untimed oEmbed `requests.get` (or generate a rendition) on this public, CDN-fronted endpoint, and sanitizing only the output would discard the result while still paying for it. |
 | `GET search/` | `{topics, posts, topics_has_more, posts_has_more, page}` | **Two** independently-paged result sets in one response. A cursor envelope has one `results`; splitting search into two round-trips would double the query cost of every keystroke. Offset-paged (not keyset) because the ordering is relevance, which a concurrent write reshuffles — so `page` is echoed back and clients dedup by id when appending. |
 | `GET sync/` | `{topics, deleted, has_more, next_since, next_since_id}` | A delta poll, not a page. `deleted` carries tombstones (ids to evict) that no `results` list can represent, and the cursor is a compound `(updated_at, id)` the client persists across sessions — DRF's opaque cursor is per-response and not resumable days later. |
+| `GET topics/recent/`, `GET users/experts/` | `{results}` — bare, no cursor, no `intro` | Fixed-size landing-rail snapshots (`?limit=`/`RECENT_TOPICS_MAX_LIMIT`, `EXPERTS_LIMIT`), not incrementally paged — there is no `next` page to request, and neither carries a sibling field like `intro` to justify the flat envelope's extra key. |
 
 A host may add sections to these: the plant_id reference host appends a premium
 `semantic` array to the search payload (`apps/forum_host/semantic_search.py`).
