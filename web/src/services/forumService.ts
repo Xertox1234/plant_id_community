@@ -242,6 +242,21 @@ export async function unsubscribeFromTopic(topicId: number): Promise<void> {
   );
 }
 
+/** Save a topic for later — distinct from subscribeToTopic's notify-me intent
+ * (todo 283 / M2). Idempotent. */
+export async function bookmarkTopic(topicId: number): Promise<void> {
+  await authenticatedFetch<{ bookmarked: boolean }>(`${FORUM_BASE}/topics/${topicId}/bookmark/`, {
+    method: 'POST',
+  });
+}
+
+/** Remove a saved topic. Idempotent. */
+export async function unbookmarkTopic(topicId: number): Promise<void> {
+  await authenticatedFetch<{ bookmarked: boolean }>(`${FORUM_BASE}/topics/${topicId}/bookmark/`, {
+    method: 'DELETE',
+  });
+}
+
 /** The accepted-answer state a mark/clear returns (audit H6). */
 export interface SolutionResult {
   is_solved: boolean;

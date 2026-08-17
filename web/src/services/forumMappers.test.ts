@@ -164,6 +164,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       last_post_author: null,
       opening_post_id: 50,
       is_subscribed: true,
+      is_bookmarked: true,
     });
     expect(t).toMatchObject({
       id: '12',
@@ -176,6 +177,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       is_pinned: true,
       is_locked: false,
       is_subscribed: true,
+      is_bookmarked: true,
     });
     expect(t.category).toMatchObject({ id: '3', slug: 'plant-care', name: 'Plant Care' });
   });
@@ -197,6 +199,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       last_post_author: null,
       opening_post_id: null,
       is_subscribed: false,
+      is_bookmarked: false,
     });
     expect(t.is_locked).toBe(true);
   });
@@ -226,6 +229,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       last_post_author: null,
       opening_post_id: null,
       is_subscribed: false,
+      is_bookmarked: false,
       identification,
     });
     expect(t.identification).toEqual(identification);
@@ -250,6 +254,7 @@ describe('forumMappers (wagtail_forum contract)', () => {
       last_post_author: null,
       opening_post_id: null,
       is_subscribed: false,
+      is_bookmarked: false,
     });
     expect(t.identification).toBeNull();
   });

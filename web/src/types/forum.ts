@@ -97,6 +97,8 @@ export interface Thread {
   is_locked?: boolean;
   is_active?: boolean;
   is_subscribed?: boolean;
+  /** Save-for-later, distinct from is_subscribed's notify-me intent (todo 283 / M2). */
+  is_bookmarked?: boolean;
   is_unread?: boolean;
   /** Secondary discovery taxonomy beside the board (audit M5). Normalized lowercase. */
   tags?: string[];

@@ -49,3 +49,14 @@ class PostCursorPagination(ForumCursorPagination):
     # Posts read oldest-first (Post.Meta.ordering = ["created_at"]); id is the
     # unique tiebreak that keeps the cursor deterministic when created_at ties.
     ordering = ("created_at", "id")
+
+
+class BookmarkCursorPagination(ForumCursorPagination):
+    # Most-recently-bookmarked-first (todo 283 / M2) — "come back to this",
+    # not the topic's own activity, so this deliberately does NOT reuse
+    # TopicCursorPagination's ordering. `bookmarked_at` is a per-request
+    # annotation (api/bookmarks.py's TopicBookmarkListView.get_queryset), not
+    # a model column — DRF's CursorPagination re-applies `ordering` via
+    # `queryset.order_by(*ordering)` itself, so this name must match the
+    # annotation exactly. `-id` (Topic.id, unique) is the tiebreak.
+    ordering = ("-bookmarked_at", "-id")

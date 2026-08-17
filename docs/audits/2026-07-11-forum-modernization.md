@@ -314,7 +314,9 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H21 tombstone-prune-scheduling → todo 261 (completed 2026-07-26)
 - [x] #H26 author-shape-inconsistency → todo 257 (completed 2026-07-24, PR #490)
 - [x] #M1 quote-reply → todo 276 (completed 2026-07-30)
-- [ ] #M2 bookmarks → todo 283 (re-pointed 2026-07-26; promoted out of 263 with M8)
+- [x] #M2 bookmarks → todo 283 (completed 2026-08-17; M8 split out to todo
+      309, still open — the all-findings-resolved rename must NOT fire on
+      this doc)
 - [x] #M3 drafts-autosave → shipped Wave 1 #473, verified 2026-07-26 (no todo:
       `web/utils/forumDrafts.ts` autosaves both composers to sessionStorage and
       restores on mount — page-level restore test added at 263 close-out. The

@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .bookmarks import TopicBookmarkListView, TopicBookmarkView
 from .notifications import (
     NotificationListView,
     NotificationMarkReadView,
@@ -43,6 +44,11 @@ urlpatterns = [
         name="topic-subscription",
     ),
     path(
+        "topics/<int:topic_id>/bookmark/",
+        TopicBookmarkView.as_view(),
+        name="topic-bookmark",
+    ),
+    path(
         "topics/<int:topic_id>/solution/",
         TopicSolutionView.as_view(),
         name="topic-solution",
@@ -72,6 +78,7 @@ urlpatterns = [
     ),
     path("me/profile/", MeProfileView.as_view(), name="me-profile"),
     path("me/stats/", MeStatsView.as_view(), name="me-stats"),
+    path("me/bookmarks/", TopicBookmarkListView.as_view(), name="me-bookmarks"),
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
     path("users/search/", UserMentionSearchView.as_view(), name="user-mention-search"),

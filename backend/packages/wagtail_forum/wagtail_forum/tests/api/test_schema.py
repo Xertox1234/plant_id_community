@@ -123,6 +123,19 @@ def test_notification_list_view_guards_schema_generation():
 
 
 @pytest.mark.django_db
+def test_bookmark_list_view_guards_schema_generation():
+    """TopicBookmarkListView.get_queryset returns an empty queryset under
+    `swagger_fake_view` instead of touching `self.request.user` — same
+    rationale as test_notification_list_view_guards_schema_generation
+    (todo 283 / M2)."""
+    from wagtail_forum.api.bookmarks import TopicBookmarkListView
+
+    view = TopicBookmarkListView()
+    view.swagger_fake_view = True
+    assert list(view.get_queryset()) == []
+
+
+@pytest.mark.django_db
 def test_write_endpoints_declare_provable_error_codes():
     """M37/M38 (todo 258): the write + idempotent endpoints document the exact
     error codes they can actually raise — not just in prose. `spectacular`

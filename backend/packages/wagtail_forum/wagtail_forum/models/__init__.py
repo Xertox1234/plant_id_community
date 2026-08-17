@@ -1,4 +1,5 @@
 from .boards import ForumBoard, ForumIndex
+from .bookmarks import TopicBookmark
 from .identifications import ForumIdentificationAttachment
 from .moderation import SpamCheckTask
 from .notifications import Notification, NotificationVerb
@@ -23,6 +24,7 @@ __all__ = [
     "Report",
     "SpamCheckTask",
     "Topic",
+    "TopicBookmark",
     "TopicDeletedLog",
     "TopicRead",
     "TopicSubscription",

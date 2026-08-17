@@ -54,6 +54,7 @@ export interface BackendTopicDetail {
   last_post_author: BackendAuthor | null;
   opening_post_id: number | null;
   is_subscribed: boolean;
+  is_bookmarked: boolean;
   tags?: string[];
   /** Accepted-answer state + the viewer's affordance (audit H6). */
   is_solved?: boolean;
@@ -225,6 +226,7 @@ export function mapTopicDetailToThread(t: BackendTopicDetail): Thread {
     is_locked: t.is_closed || t.locked,
     is_active: true,
     is_subscribed: t.is_subscribed,
+    is_bookmarked: t.is_bookmarked,
     tags: t.tags ?? [],
     is_solved: t.is_solved ?? false,
     solved_post_id: t.solved_post_id ?? null,

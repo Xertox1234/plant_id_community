@@ -35,6 +35,10 @@ DEFAULT_FORUM_RATELIMITS = {
     # Same tier as reaction_toggle — an idempotent, low-stakes write.
     "subscription_create": "60/m",
     "subscription_delete": "60/m",
+    # Same tier as subscription_create/delete (todo 283 / M2) — an idempotent,
+    # low-stakes save-for-later toggle, distinct endpoint from subscription.
+    "bookmark_create": "60/m",
+    "bookmark_delete": "60/m",
     # Accepting/clearing an answer (audit H6). Tighter than the reaction tier:
     # only a topic's author or a moderator can call it, and a human marks one
     # answer per thread — a burst is either a UI bug or someone flapping the

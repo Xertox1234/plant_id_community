@@ -56,9 +56,11 @@ def test_topic_detail_returns_live_topic():
         "title": "",
     }
     assert resp.data["opening_post_id"] == opening.id
-    # Anonymous is_subscribed short-circuits with zero extra queries (todo
-    # 253 slice 3) — the pin below stays 5, not 6, for this request.
+    # Anonymous is_subscribed/is_bookmarked both short-circuit with zero extra
+    # queries (todo 253 slice 3, todo 283 / M2) — the pin below stays 5, not
+    # 7, for this request.
     assert resp.data["is_subscribed"] is False
+    assert resp.data["is_bookmarked"] is False
     # Exactly 5: page-view-restriction check, topic fetch (select_related board +
     # author/last_post_author down to ForumProfile.avatar — LEFT JOINs, no extra
     # queries), opening-post id lookup, post refetch by id, and the tags prefetch
@@ -97,17 +99,53 @@ def test_topic_detail_is_subscribed_for_authenticated_user():
     assert resp.data["is_subscribed"] is True
     # Pinned EXACTLY (docs/rules/testing.md): the anonymous pin (5, incl. the
     # todo-276 tags prefetch) + one TopicSubscription.objects.filter(...).exists()
-    # + the two permission-table reads (user_permissions, group_permissions)
-    # that `can_mark_solution` triggers via has_perm for a non-author viewer
-    # (audit H6). Two, not one, and CONSTANT — Django caches the perm set on the
-    # request's user instance, which is why the same lookup behind PostSerializer
-    # .can_edit does not scale with page size either. The topic AUTHOR pays
-    # neither: solution_block short-circuits on `user.pk == self.author_id`.
-    assert len(ctx.captured_queries) == 8
+    # + one TopicBookmark.objects.filter(...).exists() (todo 283 / M2, same
+    # shape as the subscription check — this test doesn't bookmark, so it's
+    # always False here, but the query still runs) + the two permission-table
+    # reads (user_permissions, group_permissions) that `can_mark_solution`
+    # triggers via has_perm for a non-author viewer (audit H6). Two, not one,
+    # and CONSTANT — Django caches the perm set on the request's user instance,
+    # which is why the same lookup behind PostSerializer.can_edit does not
+    # scale with page size either. The topic AUTHOR pays neither: solution_block
+    # short-circuits on `user.pk == self.author_id`.
+    assert len(ctx.captured_queries) == 9
 
     client.force_authenticate(non_subscriber)
     resp = client.get(f"/forum/topics/{topic.id}/")
     assert resp.data["is_subscribed"] is False
+
+
+@pytest.mark.django_db
+def test_topic_detail_is_bookmarked_for_authenticated_user():
+    """is_bookmarked reflects the requesting user's TopicBookmark state (todo
+    283 / M2) — same shape and same one-extra-query cost as is_subscribed
+    above, and independent of it (bookmarking without subscribing, and vice
+    versa, are both valid states)."""
+    from wagtail_forum.models import TopicBookmark
+
+    board = _board(slug="bm-board")
+    author = User.objects.create_user(username="bm-author")
+    bookmarker = User.objects.create_user(username="bm-bookmarker")
+    non_bookmarker = User.objects.create_user(username="bm-nonbookmarker")
+    topic = Topic.objects.create(
+        board=board, title="Bm", slug="bm", author=author, live=True
+    )
+    Post.objects.create(topic=topic, author=author, is_opening_post=True, live=True)
+    TopicBookmark.bookmark(bookmarker, topic)
+
+    client = APIClient()
+    client.force_authenticate(bookmarker)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get(f"/forum/topics/{topic.id}/")
+    assert resp.data["is_bookmarked"] is True
+    assert resp.data["is_subscribed"] is False
+    # Same pin as test_topic_detail_is_subscribed_for_authenticated_user (9)
+    # — see that test's comment for the full breakdown.
+    assert len(ctx.captured_queries) == 9
+
+    client.force_authenticate(non_bookmarker)
+    resp = client.get(f"/forum/topics/{topic.id}/")
+    assert resp.data["is_bookmarked"] is False
 
 
 @pytest.mark.django_db
