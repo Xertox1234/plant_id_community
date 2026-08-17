@@ -7,6 +7,8 @@ import { plantIdService } from '../services/plantIdService';
 import { uploadPostImage } from '../services/forumService';
 import { useAuth } from '../contexts/AuthContext';
 import { getPlantKey } from '../utils/plantUtils';
+import Card from '../components/ui/Card';
+import Tile from '../components/ui/Tile';
 import type { PlantIdentificationResult } from '@/types';
 
 /**
@@ -171,25 +173,21 @@ export default function IdentifyPage() {
   };
 
   return (
-    <div className="bg-gradient-to-br from-primary/5 to-secondary/5">
+    <div className="flex flex-col gap-8 py-8">
       {/* Page Header */}
-      <div className="bg-surface-2 border-b border-line">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center">
-              <Sparkles className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-ink">AI Plant Identification</h1>
-              <p className="text-ink-2 mt-1">Upload a photo to identify your plant instantly</p>
-            </div>
-          </div>
+      <div className="flex items-center gap-3">
+        <Tile tone="sage" size="md" aria-hidden="true">
+          <Sparkles className="w-5 h-5" />
+        </Tile>
+        <div>
+          <h1 className="text-3xl font-bold text-ink">AI Plant Identification</h1>
+          <p className="text-ink-2 mt-1">Upload a photo to identify your plant instantly</p>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="bg-surface-2 rounded-2xl shadow-sm border border-line p-8">
+      <div className="mx-auto w-full max-w-4xl">
+        <Card className="p-card">
           {/* Upload Section */}
           <div className="mb-8">
             <h2 className="text-xl font-semibold text-ink mb-4">Upload Your Plant Photo</h2>
@@ -277,21 +275,21 @@ export default function IdentifyPage() {
               )}
             </div>
           )}
-        </div>
+        </Card>
 
         {/* Info Cards */}
-        <div className="mt-8 grid md:grid-cols-3 gap-6">
-          <InfoCard
+        <div className="mt-8 grid gap-5 md:grid-cols-3">
+          <InfoTile
             title="Upload Photo"
             description="Take or upload a clear photo of your plant"
             step="1"
           />
-          <InfoCard
+          <InfoTile
             title="AI Analysis"
             description="Our AI identifies your plant using advanced recognition"
             step="2"
           />
-          <InfoCard
+          <InfoTile
             title="Get Results"
             description="Receive detailed information about your plant"
             step="3"
@@ -302,14 +300,18 @@ export default function IdentifyPage() {
   );
 }
 
-function InfoCard({ title, description, step }: InfoCardProps) {
+function InfoTile({ title, description, step }: InfoCardProps) {
   return (
-    <div className="bg-surface-2 rounded-xl p-6 border border-line">
-      <div className="w-8 h-8 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold mb-3">
-        {step}
+    <Card className="p-card">
+      <div className="flex items-start gap-4">
+        <Tile tone="sage" size="sm" aria-hidden="true">
+          <span className="font-mono text-sm font-semibold">{step}</span>
+        </Tile>
+        <div>
+          <h3 className="font-semibold text-ink mb-1">{title}</h3>
+          <p className="text-sm text-ink-2">{description}</p>
+        </div>
       </div>
-      <h3 className="font-semibold text-ink mb-2">{title}</h3>
-      <p className="text-sm text-ink-2">{description}</p>
-    </div>
+    </Card>
   );
 }
