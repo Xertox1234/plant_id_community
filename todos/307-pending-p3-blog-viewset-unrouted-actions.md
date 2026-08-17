@@ -55,6 +55,13 @@ six.
   prefetch branch lists `("list", "popular", "featured", "recent",
   "related")`, which is what prompted checking whether those last three are
   even reachable.
+- Discovered 2026-08-16 while implementing todo 306 (`BlogPostPageSerializer`
+  media-URL/StreamField fix): the DETAIL response already embeds
+  `related_posts` directly (`get_related_posts()` in
+  `apps/blog/api/serializers.py`, now hardened by 306's `_get_post_url`/
+  `_get_post_image` fixes). That makes the standalone `related` `@action`
+  (line 514) look redundant with what the detail endpoint already serves —
+  worth weighing in the triage below, not a reason to route it by default.
 
 ## Proposed Solutions
 
