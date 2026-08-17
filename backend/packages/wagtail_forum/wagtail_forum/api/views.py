@@ -75,6 +75,7 @@ from ..workflow import submit_edit_for_moderation, submit_for_moderation
 from .exceptions import Conflict, UnprocessableEntity
 from .idempotency import fingerprint, idempotency_cache_key, remember, replay, reserve
 from .pagination import PostCursorPagination, TopicCursorPagination
+from .presence import effective_online_window_seconds
 from .sanitize import serialize_forum_intro
 from .serializers import (
     AUTHOR_SCHEMA,
@@ -1822,10 +1823,21 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         )
 
 
+# Extends AUTHOR_SCHEMA rather than adding `online` to it directly — `online`
+# is an ExpertsView-only row field (todo 301), not part of the shared
+# serialize_forum_author() shape every topic/post payload uses. Same
+# dict-merge composition REVISION_DETAIL_SCHEMA uses above.
+EXPERT_AUTHOR_SCHEMA = {
+    "type": "object",
+    "properties": {
+        **AUTHOR_SCHEMA["properties"],
+        "online": {"type": "boolean"},
+    },
+}
 EXPERTS_SCHEMA = {
     "type": "object",
     "properties": {
-        "results": {"type": "array", "items": AUTHOR_SCHEMA},
+        "results": {"type": "array", "items": EXPERT_AUTHOR_SCHEMA},
     },
 }
 
@@ -1833,9 +1845,9 @@ EXPERTS_SCHEMA = {
 class ExpertsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
     """Highest-trust active members for the landing rail.
 
-    No presence data — deliberately (spec §9): the client renders these as
-    "Community experts" with no online claim until the presence todo wires
-    ForumProfile.last_seen.
+    `online` (todo 301) is computed here, not in serialize_forum_author() —
+    keeping it off the shared author shape means it never ripples into every
+    topic/post payload's fields or query-count pin, only this view's own.
     """
 
     permission_classes = [AllowAny]
@@ -1844,7 +1856,10 @@ class ExpertsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
         responses={200: EXPERTS_SCHEMA},
         description=(
             "Up to EXPERTS_LIMIT members at or above EXPERTS_MIN_TRUST_LEVEL, "
-            "highest trust then post count first."
+            "highest trust then post count first. Each row's `online` is true "
+            "when last_seen is within PRESENCE_ONLINE_WINDOW_SECONDS (clamped "
+            "up to at least PRESENCE_TOUCH_THROTTLE_SECONDS — see "
+            "effective_online_window_seconds)."
         ),
     )
     def get(self, request):
@@ -1860,9 +1875,20 @@ class ExpertsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
                 : get_setting("EXPERTS_LIMIT")
             ]
         )
-        return Response(
-            {"results": [serialize_forum_author(p.user, request) for p in profiles]}
-        )
+        # last_seen is already loaded on `profiles` (ForumProfile is the
+        # queryset itself) — no extra query per row, so this stays the same
+        # single profile_queries hit test_experts.py pins.
+        online_window = effective_online_window_seconds()
+        now = timezone.now()
+        results = []
+        for profile in profiles:
+            row = serialize_forum_author(profile.user, request)
+            row["online"] = bool(
+                profile.last_seen
+                and (now - profile.last_seen).total_seconds() <= online_window
+            )
+            results.append(row)
+        return Response({"results": results})
 
 
 EVENT_HERO_SCHEMA = {

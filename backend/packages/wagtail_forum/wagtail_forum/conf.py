@@ -90,6 +90,20 @@ DEFAULTS = {
     # users/experts/ ("Community experts" rail): row cap and minimum trust.
     "EXPERTS_LIMIT": 4,
     "EXPERTS_MIN_TRUST_LEVEL": 3,  # TrustLevel.REGULAR
+    # Presence (todo 301) — two distinct tunables, deliberately not shared
+    # (same reasoning as VIEW_COUNT_DEDUP_SECONDS vs TOPIC_READ_DEDUP_SECONDS
+    # above: they gate unrelated concerns that only happen to default close
+    # together). PRESENCE_TOUCH_THROTTLE_SECONDS bounds how often a
+    # ForumProfile.last_seen UPDATE can fire per user (write-amplification
+    # guard, api/presence.py). PRESENCE_ONLINE_WINDOW_SECONDS is the
+    # freshness a `last_seen` must be within for ExpertsView to report
+    # `online: true`. Read via `effective_online_window_seconds()`
+    # (api/presence.py), NOT this raw value directly — it is clamped up to
+    # at least the throttle interval there, so setting this narrower than
+    # PRESENCE_TOUCH_THROTTLE_SECONDS degrades safely instead of making a
+    # continuously-active user blink offline between touches.
+    "PRESENCE_TOUCH_THROTTLE_SECONDS": 5 * 60,  # 5 minutes
+    "PRESENCE_ONLINE_WINDOW_SECONDS": 15 * 60,  # 15 minutes
     # SearchView bounds (todo 290) — an anonymous many-term query recurses
     # Wagtail's search-query AND-tree construction (one nesting level per
     # term) into a RecursionError/500 before SEARCH_MAX_QUERY_CHARS alone

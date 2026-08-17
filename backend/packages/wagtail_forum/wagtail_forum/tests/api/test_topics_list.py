@@ -383,7 +383,9 @@ def test_topics_list_authenticated_query_count_is_still_pinned_at_3():
     assert resp.status_code == 200
     # Pinned EXACTLY (docs/rules/testing.md) — same 4 as the anonymous pin
     # (3 + the todo-276 tags prefetch); if this changes, explain the new number here.
-    assert len(ctx.captured_queries) == 4
+    # Plus 1 (todo 301): the presence touch, paid by every authenticated
+    # forum request (never by the anonymous pin above — see docs/rules/caching.md).
+    assert len(ctx.captured_queries) == 5
 
 
 @pytest.mark.django_db

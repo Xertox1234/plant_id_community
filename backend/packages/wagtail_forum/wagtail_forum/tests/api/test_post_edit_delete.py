@@ -592,7 +592,10 @@ def test_delete_query_count_is_pinned():
     # SELECT-then-maybe-UPDATE: the guarded form costs the same query on the
     # common path and adds a race, and this runs only on the (rare) moderation
     # path, never on a read.
-    assert len(ctx.captured_queries) == 34, len(ctx.captured_queries)
+    # 34 -> 35 (todo 301): the presence touch — one UPDATE on the caller's own
+    # ForumProfile, throttled to once per ~5 min, paid by every authenticated
+    # forum request (api/presence.py).
+    assert len(ctx.captured_queries) == 35, len(ctx.captured_queries)
 
 
 def test_edit_query_count_is_pinned():
@@ -624,7 +627,10 @@ def test_edit_query_count_is_pinned():
     # falls back to ONE O(1) reacted lookup for this post — deliberate, so the
     # response's `reacted` is correct and the replace-the-post client update
     # (ThreadDetailPage.handleEditSubmit) can't clobber the user's reacted state.
-    assert len(ctx.captured_queries) == 71, len(ctx.captured_queries)
+    # 71 -> 72 (todo 301): the presence touch — one UPDATE on the caller's own
+    # ForumProfile, throttled to once per ~5 min, paid by every authenticated
+    # forum request (api/presence.py).
+    assert len(ctx.captured_queries) == 72, len(ctx.captured_queries)
 
 
 def test_patch_retry_with_idempotency_key_writes_one_revision():

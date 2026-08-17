@@ -6,6 +6,8 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test.utils import CaptureQueriesContext, override_settings
+from django.utils import timezone
+from freezegun import freeze_time
 from rest_framework.test import APIClient
 from wagtail.models import Page
 from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile
@@ -203,3 +205,120 @@ def test_experts_route_does_not_fall_into_username_capture():
     assert resp.status_code == 200
     assert "results" in resp.data
     assert isinstance(resp.data["results"], list)
+
+
+@pytest.mark.django_db
+def test_experts_online_true_within_the_freshness_window():
+    """last_seen inside PRESENCE_ONLINE_WINDOW_SECONDS (default 15 min) -> online=True.
+
+    Frozen time (todo 301 AC1): last_seen is stamped 5 minutes before the
+    frozen "now" the request is made at, well inside the 15-minute default.
+    """
+    _board()
+    user = User.objects.create_user(username="expert_user")
+    profile = ForumProfile.for_user(user)
+    profile.trust_level = 3
+
+    with freeze_time("2026-08-17 12:00:00") as frozen:
+        frozen.move_to("2026-08-17 11:55:00")
+        profile.last_seen = timezone.now()
+        profile.save()
+
+        frozen.move_to("2026-08-17 12:00:00")
+        resp = APIClient().get("/forum/users/experts/")
+
+    assert resp.status_code == 200
+    assert resp.data["results"][0]["online"] is True
+
+
+@pytest.mark.django_db
+def test_experts_online_false_outside_the_freshness_window():
+    """last_seen 20 minutes ago (past the 15-minute default) -> online=False."""
+    _board()
+    user = User.objects.create_user(username="expert_user")
+    profile = ForumProfile.for_user(user)
+    profile.trust_level = 3
+
+    with freeze_time("2026-08-17 12:00:00") as frozen:
+        frozen.move_to("2026-08-17 11:40:00")
+        profile.last_seen = timezone.now()
+        profile.save()
+
+        frozen.move_to("2026-08-17 12:00:00")
+        resp = APIClient().get("/forum/users/experts/")
+
+    assert resp.status_code == 200
+    assert resp.data["results"][0]["online"] is False
+
+
+@pytest.mark.django_db
+def test_experts_online_false_when_last_seen_is_null():
+    """A profile that has never been touched (last_seen=None) -> online=False,
+    never a crash or a truthy default."""
+    _board()
+    user = User.objects.create_user(username="expert_user")
+    profile = ForumProfile.for_user(user)
+    profile.trust_level = 3
+    profile.save()
+    assert profile.last_seen is None  # sanity
+
+    resp = APIClient().get("/forum/users/experts/")
+    assert resp.status_code == 200
+    assert resp.data["results"][0]["online"] is False
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_PRESENCE_ONLINE_WINDOW_SECONDS=1800)  # 30 min
+def test_experts_online_window_is_host_configurable():
+    """WAGTAILFORUM_PRESENCE_ONLINE_WINDOW_SECONDS widens (or narrows, down
+    to the throttle floor — see the clamp test below) the freshness window a
+    host can tune, distinct from PRESENCE_TOUCH_THROTTLE_SECONDS. 20 minutes
+    ago is offline under the 15-min default but online under this 30-min
+    override, and 30 min is comfortably above the 300s default throttle so
+    the clamp (effective_online_window_seconds) doesn't interfere."""
+    _board()
+    user = User.objects.create_user(username="expert_user")
+    profile = ForumProfile.for_user(user)
+    profile.trust_level = 3
+
+    with freeze_time("2026-08-17 12:00:00") as frozen:
+        frozen.move_to("2026-08-17 11:40:00")  # 20 minutes ago
+        profile.last_seen = timezone.now()
+        profile.save()
+
+        frozen.move_to("2026-08-17 12:00:00")
+        resp = APIClient().get("/forum/users/experts/")
+
+    assert resp.status_code == 200
+    assert resp.data["results"][0]["online"] is True
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_PRESENCE_ONLINE_WINDOW_SECONDS=1)
+def test_experts_online_window_is_clamped_to_the_throttle():
+    """A host-misconfigured pairing (online window narrower than the touch
+    throttle) is clamped safe (code review finding #2) — proven through the
+    REAL touch_last_seen() path, not by stamping last_seen directly like the
+    fixed-window tests above. `client.get("/forum/boards/")` is the genuine
+    presence touch (BoardListView never touches ForumProfile itself — same
+    reasoning as test_presence.py). A minute later, without the clamp a
+    1-second window would already read this profile as offline; clamped up
+    to the 300s default throttle (effective_online_window_seconds), it
+    still reads online."""
+    _board()
+    user = User.objects.create_user(username="expert_user")
+    profile = ForumProfile.for_user(user)
+    profile.trust_level = 3
+    profile.save()
+
+    client = APIClient()
+    client.force_authenticate(user)
+
+    with freeze_time("2026-08-17 12:00:00") as frozen:
+        client.get("/forum/boards/")
+
+        frozen.move_to("2026-08-17 12:01:00")  # 60s later
+        resp = client.get("/forum/users/experts/")
+
+    assert resp.status_code == 200
+    assert resp.data["results"][0]["online"] is True
