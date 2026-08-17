@@ -436,7 +436,12 @@ class BlogPostPageViewSet(PagesAPIViewSet):
                 "tags",
                 Prefetch(
                     "featured_image",
-                    queryset=Image.objects.prefetch_renditions("fill-300x200"),
+                    # BlogPostPageListSerializer below also exposes
+                    # featured_image (fill-800x400) alongside the thumb —
+                    # both must be prefetched here or it's a per-post query.
+                    queryset=Image.objects.prefetch_renditions(
+                        "fill-800x400", "fill-300x200"
+                    ),
                 ),
             )
             .annotate(
@@ -527,7 +532,12 @@ class BlogPostPageViewSet(PagesAPIViewSet):
                 "tags",
                 Prefetch(
                     "featured_image",
-                    queryset=Image.objects.prefetch_renditions("fill-400x300"),
+                    # BlogPostPageListSerializer exposes featured_image
+                    # (fill-800x400) and featured_image_thumb (fill-300x200)
+                    # — both must be prefetched or it's a per-post query.
+                    queryset=Image.objects.prefetch_renditions(
+                        "fill-800x400", "fill-300x200"
+                    ),
                 ),
             )
             .annotate(

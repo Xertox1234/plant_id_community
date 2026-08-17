@@ -40,6 +40,8 @@ from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from wagtail.images import get_image_model
+from wagtail.images.tests.utils import get_test_image_file
 from wagtail.models import Page
 
 from ..models import (
@@ -384,3 +386,83 @@ class BlogAuthorsListN1Test(BlogListN1TestMixin, TestCase):
             f"authors' tags in one query. "
             f"See docs/patterns/performance/query-optimization.md.",
         )
+
+
+class BlogPostsListFeaturedImageContractTest(TestCase):
+    """blog:blog-posts-list — featured_image / featured_image_thumb contract.
+
+    PR #540 review finding #1 claimed the list serializer's missing
+    featured_image field made grid covers render blurry. Verified FALSE:
+    `BlogPostPageViewSet.get_serializer_class()` branches on
+    `self.action == "list"`, but Wagtail's router (todo 306) sets
+    `self.action = "listing_view"` for this endpoint, so the check never
+    matches and `/api/v2/blog-posts/` has always served the full
+    BlogPostPageSerializer (detail) — which already had featured_image at
+    fill-800x400 before this PR. A live probe against the pre-fix commit
+    confirmed the field was already present.
+
+    featured_image was still added to BlogPostPageListSerializer (+ its
+    queryset prefetch sites) because that serializer IS genuinely used by
+    the routed `popular` action, and because todo 306's eventual fix will
+    make the list endpoint start using it too — without this field already
+    present, fixing todo 306 would silently reintroduce the blurry-grid
+    symptom the original (mistaken) finding described. This test pins the
+    CURRENT response contract (via whichever serializer actually serves
+    it today) so a regression is caught either way.
+
+    Not an N+1 regression test: the prefetch path this field exercises is
+    provably dead code for `/api/v2/blog-posts/` today (todo 306), so a
+    query-count test here would only be measuring a path production never
+    takes — see the removed test_no_n_plus_1_scaling in git history if
+    that prefetch ever needs re-verifying once todo 306 ships.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(
+            username="imageauthor",
+            email="imageauthor@example.com",
+            password="pass12345",  # pragma: allowlist secret
+        )
+        root = Page.objects.get(id=1)
+        self.blog_index = BlogIndexPage(title="Image N1 Blog", slug="image-n1-blog")
+        root.add_child(instance=self.blog_index)
+        # NOT reverse("v1:blog:blog-posts-list") — that's the unrelated
+        # legacy DRF-router blog API (apps/blog/views.py). The frontend
+        # (web/src/services/blogService.ts) and this fix both target the
+        # Wagtail API v2 endpoint, which has no name to reverse().
+        self.url = "/api/v2/blog-posts/"
+
+    def test_featured_image_present_with_grid_rendition(self):
+        """The list endpoint must expose featured_image at fill-800x400,
+        not just featured_image_thumb — key presence, not just absence of
+        an error (DRF SkipField-shaped failure: a missing prefetch/
+        annotation drops a field silently)."""
+        image = get_image_model().objects.create(
+            title="Cover", file=get_test_image_file(filename="cover.png")
+        )
+        post = BlogPostPage(
+            title="Image Post",
+            slug="image-post",
+            author=self.user,
+            publish_date=date.today(),
+            introduction="<p>intro</p>",
+            content_blocks=[],
+            featured_image=image,
+        )
+        self.blog_index.add_child(instance=post)
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        item = response.data["items"][0]
+        self.assertIn(
+            "featured_image",
+            item,
+            "featured_image is missing from the list response — BlogCard's "
+            "grid cover falls back to the 300x200 thumb and renders it "
+            "upscaled/blurry.",
+        )
+        self.assertIn("/images/", item["featured_image"]["url"])
+        self.assertIn(".fill-800x400", item["featured_image"]["url"])
+        self.assertIn("featured_image_thumb", item)
+        self.assertIn(".fill-300x200", item["featured_image_thumb"]["url"])

@@ -102,3 +102,27 @@ to `apps/blog/api/viewsets.py`'s class via
   that `listing_view`/`detail_view` are the real action names, and
   disambiguated the two same-named `BlogPostPageViewSet` classes before
   filing, to avoid a future fix landing in the wrong file.
+
+### 2026-08-16 - PR #540 code-review fix wave: list-serializer prep landed
+
+- A separate `/code-review` pass on PR #540 raised a finding claiming
+  `BlogPostPageListSerializer` lacking `featured_image` made the blog grid
+  render blurry. Live-probed against the pre-fix commit and found it FALSE
+  for the endpoint's *current* behavior: this todo's exact bug (the
+  `"list"` vs `"listing_view"` action mismatch) means `/api/v2/blog-posts/`
+  already serves `BlogPostPageSerializer` (detail), which already had
+  `featured_image` at `fill-800x400` before that PR. No live bug existed.
+- However, `featured_image` (fill-800x400) was still added to
+  `BlogPostPageListSerializer` + its queryset prefetch sites
+  (`apps/blog/api/serializers.py`, `apps/blog/api/viewsets.py`), because
+  (a) the routed `popular` action genuinely instantiates
+  `BlogPostPageListSerializer` directly (bypassing `get_serializer_class()`)
+  and now gets the field, and (b) **AC1 below is already half-done**: once
+  `get_serializer_class()` starts correctly selecting the list serializer
+  for `listing_view`, it will need `featured_image` present or the
+  blurry-grid symptom the (mistaken) finding described would become real
+  for the first time. No action needed on this AC beyond what's already
+  landed — just don't be surprised the field is already there.
+- Regression coverage: `apps/blog/tests/test_n_plus_1.py::BlogPostsListFeaturedImageContractTest`
+  pins the current response contract (whichever serializer actually serves
+  it) so this stays caught either way once AC1 ships.

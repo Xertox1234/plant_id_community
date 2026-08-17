@@ -5,8 +5,10 @@ with --create-db on a partial re-run (backend/CLAUDE.md stale-test-DB gotcha).
 """
 
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
+from apps.blog.management.commands.seed_demo_blog import Command as SeedDemoBlogCommand
 from apps.blog.models import BlogCategory, BlogIndexPage, BlogPostPage
 from apps.blog.seed_content import AUTHOR_NAMES, CATEGORIES, POSTS
 from apps.forum_host.seed_content import DEMO_EMAIL_DOMAIN, USERS
@@ -210,3 +212,55 @@ def test_author_names_match_forum_display_names():
     specs = {u["username"]: u for u in USERS}
     for username, (first, last) in AUTHOR_NAMES.items():
         assert specs[username]["display_name"] == f"{first} {last}"
+
+
+@override_settings(DEBUG=True)
+@pytest.mark.django_db
+def test_seed_is_atomic_a_mid_loop_failure_rolls_back_everything():
+    # Regression pin (PR #540 review finding #3): handle() previously had NO
+    # top-level transaction.atomic() wrap — only _ensure_authors and each
+    # _seed_post got their own small atomic blocks — so a failure partway
+    # through POSTS left the index/categories/authors/earlier-posts
+    # committed. Force a failure on the 4th post's image lookup (an
+    # interior post, not the first or last) and assert NOTHING from this
+    # run survives: index, categories, authors, and the first 3 posts must
+    # all roll back together, matching the retired create_demo_blog_posts
+    # command's all-or-nothing guarantee.
+    call_count = 0
+    original_get_image = SeedDemoBlogCommand._get_image
+
+    def _fail_on_fourth_call(self, asset_name):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 4:
+            raise RuntimeError("simulated mid-seed failure")
+        return original_get_image(self, asset_name)
+
+    with patch.object(SeedDemoBlogCommand, "_get_image", _fail_on_fourth_call):
+        with pytest.raises(RuntimeError, match="simulated mid-seed failure"):
+            call_command("seed_demo_blog")
+
+    assert call_count == 4, "fixture assumption broken: expected exactly 4 calls"
+    assert BlogPostPage.objects.count() == 0
+    assert BlogCategory.objects.count() == 0
+    assert BlogIndexPage.objects.count() == 0
+    assert User.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_real_users_verified_is_not_reachable_from_the_cli():
+    # Security-relevant pin (PR #540 review finding #6): real_users_verified
+    # is settable ONLY via call_command() (Command.stealth_options) — never
+    # registered on the argparse CLI parser. seed_demo_content passes it to
+    # skip a duplicate "any real user exists" census it already ran itself;
+    # if it were ever reachable as an actual command-line flag, `manage.py
+    # seed_demo_blog --confirm --real-users-verified` would bypass that
+    # guard in production. argparse must reject it as unrecognized.
+    command = SeedDemoBlogCommand()
+    parser = command.create_parser("manage.py", "seed_demo_blog")
+    # Django's CommandParser overrides argparse's default sys.exit(2) and
+    # raises CommandError instead — even stronger evidence of
+    # unreachability: the raised error names this flag itself, not a
+    # generic UnboundLocalError/AttributeError.
+    with pytest.raises(CommandError, match="real-users-verified"):
+        parser.parse_args(["--real-users-verified", "--confirm"])

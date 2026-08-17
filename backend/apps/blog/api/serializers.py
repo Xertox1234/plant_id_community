@@ -515,7 +515,12 @@ class BlogIndexPageSerializer(PageSerializer):
                 "tags",
                 Prefetch(
                     "featured_image",
-                    queryset=Image.objects.prefetch_renditions("fill-300x200"),
+                    # BlogPostPageListSerializer exposes featured_image
+                    # (fill-800x400) alongside featured_image_thumb — both
+                    # renditions must be prefetched or it's a per-post query.
+                    queryset=Image.objects.prefetch_renditions(
+                        "fill-800x400", "fill-300x200"
+                    ),
                 ),
             )
             .annotate(
@@ -553,7 +558,12 @@ class BlogIndexPageSerializer(PageSerializer):
                 "tags",
                 Prefetch(
                     "featured_image",
-                    queryset=Image.objects.prefetch_renditions("fill-300x200"),
+                    # BlogPostPageListSerializer exposes featured_image
+                    # (fill-800x400) alongside featured_image_thumb — both
+                    # renditions must be prefetched or it's a per-post query.
+                    queryset=Image.objects.prefetch_renditions(
+                        "fill-800x400", "fill-300x200"
+                    ),
                 ),
             )
             .annotate(
@@ -593,7 +603,12 @@ class BlogCategoryPageSerializer(PageSerializer):
                 "tags",
                 Prefetch(
                     "featured_image",
-                    queryset=Image.objects.prefetch_renditions("fill-300x200"),
+                    # BlogPostPageListSerializer exposes featured_image
+                    # (fill-800x400) alongside featured_image_thumb — both
+                    # renditions must be prefetched or it's a per-post query.
+                    queryset=Image.objects.prefetch_renditions(
+                        "fill-800x400", "fill-300x200"
+                    ),
                 ),
             )
             .annotate(
