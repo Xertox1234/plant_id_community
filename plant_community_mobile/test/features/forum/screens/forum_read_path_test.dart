@@ -7,6 +7,7 @@ import 'package:plant_community_mobile/features/forum/screens/forum_composer_scr
 import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
+import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 
 import '../support/forum_test_support.dart';
@@ -130,4 +131,229 @@ void main() {
     expect(find.textContaining('awaiting moderation'), findsOneWidget);
     expect(api.createReplyKeys, hasLength(1));
   });
+
+  testWidgets(
+    'edit composer shows the notify-and-return moderation notice (todo 292 AC2)',
+    (tester) async {
+      final api = FakeForumApi()..editStatus = ForumModerationStatus.pending;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            forumApiProvider.overrideWithValue(api),
+            authServiceProvider.overrideWith(
+              () => FakeAuthService(loggedIn: true),
+            ),
+          ],
+          child: MaterialApp(
+            home: ForumComposerScreen(
+              args: ForumComposeArgs.edit(
+                post: post(id: 7, body: const [ParagraphBlock('original')]),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The field pre-fills from the existing single-paragraph body.
+      expect(find.text('original'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'edited text');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('awaiting moderation'), findsOneWidget);
+      expect(api.editPostKeys, hasLength(1));
+    },
+  );
+
+  testWidgets(
+    'edit composer surfaces a 409 frozen-topic message verbatim, not the generic retry copy (todo 292 AC3)',
+    (tester) async {
+      final api = FakeForumApi()
+        ..failEditPostWith = ApiException(
+          'Topic is closed or locked.',
+          statusCode: 409,
+        );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            forumApiProvider.overrideWithValue(api),
+            authServiceProvider.overrideWith(
+              () => FakeAuthService(loggedIn: true),
+            ),
+          ],
+          child: MaterialApp(
+            home: ForumComposerScreen(
+              args: ForumComposeArgs.edit(
+                post: post(id: 7, body: const [ParagraphBlock('original')]),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'edited text');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Topic is closed or locked.'), findsOneWidget);
+      expect(find.textContaining('tap Post again to retry'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'edit composer warns when the body has non-text content it cannot round-trip (todo 292)',
+    (tester) async {
+      final api = FakeForumApi();
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            forumApiProvider.overrideWithValue(api),
+            authServiceProvider.overrideWith(
+              () => FakeAuthService(loggedIn: true),
+            ),
+          ],
+          child: MaterialApp(
+            home: ForumComposerScreen(
+              args: ForumComposeArgs.edit(
+                post: post(
+                  id: 7,
+                  body: const [
+                    ForumImageBlock(id: 1, url: 'https://x/i.png', alt: ''),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining("can't show here yet"), findsOneWidget);
+      // Nothing to pre-fill from an image-only body — the field starts empty.
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.controller!.text, isEmpty);
+    },
+  );
+
+  testWidgets('thread screen deletes a post after confirmation (todo 292)', (
+    tester,
+  ) async {
+    final api = FakeForumApi()
+      ..topicDetail = topicDetail()
+      ..posts = CursorPage(items: [post(id: 1, canDelete: true)]);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          forumApiProvider.overrideWithValue(api),
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: true),
+          ),
+        ],
+        child: const MaterialApp(home: ForumThreadScreen(topicId: 10)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Delete post?'), findsOneWidget);
+    // Two "Delete" texts now: the dialog's confirm button and the (still
+    // visible underneath) menu item — target the dialog's action button.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Delete'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(api.deletePostCalls, [1]);
+    expect(find.text('No posts yet.'), findsOneWidget);
+  });
+
+  testWidgets(
+    'thread screen keeps the post when delete is cancelled (todo 292)',
+    (tester) async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail()
+        ..posts = CursorPage(items: [post(id: 1, canDelete: true)]);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            forumApiProvider.overrideWithValue(api),
+            authServiceProvider.overrideWith(
+              () => FakeAuthService(loggedIn: true),
+            ),
+          ],
+          child: const MaterialApp(home: ForumThreadScreen(topicId: 10)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(api.deletePostCalls, isEmpty);
+      expect(find.text('No posts yet.'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'thread screen surfaces a 409 delete rejection as a clear message (todo 292 AC3)',
+    (tester) async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail()
+        ..posts = CursorPage(items: [post(id: 1, canDelete: true)])
+        ..failDeletePostWith = ApiException(
+          'Topic is closed or locked.',
+          statusCode: 409,
+        );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            forumApiProvider.overrideWithValue(api),
+            authServiceProvider.overrideWith(
+              () => FakeAuthService(loggedIn: true),
+            ),
+          ],
+          child: const MaterialApp(home: ForumThreadScreen(topicId: 10)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Delete'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Topic is closed or locked.'), findsOneWidget);
+      // The post is still there — the delete never actually applied.
+      expect(find.text('No posts yet.'), findsNothing);
+    },
+  );
 }

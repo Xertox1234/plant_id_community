@@ -75,5 +75,48 @@ void main() {
       expect(result.status.isPending, isTrue);
       expect(api.createTopicKeys.single, controller.idempotencyKey);
     });
+
+    // todo 292 AC4: edit key rotation mirrors submitReply's rotation exactly
+    // — same unit-test scope (asserting the CONTROLLER's own rotation
+    // decision via the keys it sent), not a claim about server-side
+    // rejection semantics, which are backend-tested separately.
+    test(
+      'submitEdit reuses one Idempotency-Key across retries of the same content',
+      () async {
+        final api = FakeForumApi();
+        final controller = ForumComposerController(api: api);
+
+        await controller.submitEdit(postId: 5, bodyText: 'same text');
+        await controller.submitEdit(postId: 5, bodyText: 'same text');
+
+        expect(api.editPostKeys, hasLength(2));
+        expect(api.editPostKeys[0], api.editPostKeys[1]);
+      },
+    );
+
+    test(
+      'submitEdit rotates the key when the edited content changes',
+      () async {
+        final api = FakeForumApi();
+        final controller = ForumComposerController(api: api);
+
+        await controller.submitEdit(postId: 5, bodyText: 'first draft');
+        await controller.submitEdit(postId: 5, bodyText: 'revised draft');
+
+        expect(api.editPostKeys, hasLength(2));
+        expect(api.editPostKeys[0], isNot(api.editPostKeys[1]));
+      },
+    );
+
+    test('submitEdit surfaces the pending moderation status', () async {
+      final api = FakeForumApi()..editStatus = ForumModerationStatus.pending;
+      final controller = ForumComposerController(api: api);
+      final result = await controller.submitEdit(
+        postId: 5,
+        bodyText: 'edited body',
+      );
+      expect(result.status.isPending, isTrue);
+      expect(api.editPostKeys.single, controller.idempotencyKey);
+    });
   });
 }

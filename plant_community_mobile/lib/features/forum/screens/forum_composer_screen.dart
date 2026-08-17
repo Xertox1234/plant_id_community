@@ -10,23 +10,57 @@ import '../services/forum_composer_controller.dart';
 import '../widgets/forum_notice_banner.dart';
 
 /// Which kind of content the composer creates.
-enum ForumComposeMode { topic, reply }
+enum ForumComposeMode { topic, reply, edit }
 
 /// Navigation arguments for [ForumComposerScreen], passed as go_router `extra`.
 class ForumComposeArgs {
   const ForumComposeArgs.topic({required this.boardSlug, this.boardTitle})
     : mode = ForumComposeMode.topic,
-      topicId = null;
+      topicId = null,
+      postId = null,
+      initialBodyText = '',
+      hasNonTextContent = false;
 
   const ForumComposeArgs.reply({required this.topicId})
     : mode = ForumComposeMode.reply,
       boardSlug = null,
-      boardTitle = null;
+      boardTitle = null,
+      postId = null,
+      initialBodyText = '',
+      hasNonTextContent = false;
+
+  /// Edit an existing post (todo 292). The mobile composer is text-first
+  /// (todo 294 tracks rich-text/image authoring), so a body that isn't
+  /// exactly one paragraph block cannot be pre-filled without losing
+  /// content: [initialBodyText] is left empty and [hasNonTextContent] is
+  /// true, so the screen can warn rather than silently discard it on submit.
+  factory ForumComposeArgs.edit({required ForumPost post}) {
+    final singleParagraph = isSingleEditableParagraph(post.body);
+    return ForumComposeArgs._edit(
+      postId: post.id,
+      initialBodyText: singleParagraph
+          ? plainTextFromParagraphHtml((post.body.first as ParagraphBlock).html)
+          : '',
+      hasNonTextContent: !singleParagraph,
+    );
+  }
+
+  const ForumComposeArgs._edit({
+    required this.postId,
+    required this.initialBodyText,
+    required this.hasNonTextContent,
+  }) : mode = ForumComposeMode.edit,
+       boardSlug = null,
+       boardTitle = null,
+       topicId = null;
 
   final ForumComposeMode mode;
   final String? boardSlug;
   final String? boardTitle;
   final int? topicId;
+  final int? postId;
+  final String initialBodyText;
+  final bool hasNonTextContent;
 }
 
 /// Compose a new topic or a reply. Holds one [ForumComposerController] for the
@@ -54,11 +88,13 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
   String? _error;
 
   bool get _isTopic => widget.args.mode == ForumComposeMode.topic;
+  bool get _isEdit => widget.args.mode == ForumComposeMode.edit;
 
   @override
   void initState() {
     super.initState();
     _controller = ForumComposerController(api: ref.read(forumApiProvider));
+    if (_isEdit) _bodyController.text = widget.args.initialBodyText;
   }
 
   @override
@@ -81,6 +117,22 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
       _error = null;
     });
     try {
+      if (_isEdit) {
+        final result = await _controller.submitEdit(
+          postId: widget.args.postId!,
+          bodyText: _bodyController.text,
+        );
+        if (!mounted) return;
+        if (result.status.isPending) {
+          setState(() {
+            _submitting = false;
+            _pending = true;
+          });
+        } else {
+          Navigator.of(context).pop(result.post);
+        }
+        return;
+      }
       final ForumModerationStatus status;
       if (_isTopic) {
         final result = await _controller.submitTopic(
@@ -109,7 +161,14 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
       if (!mounted) return;
       setState(() {
         _submitting = false;
-        _error = e.statusCode == 409
+        // Edit's 409 is a real, permanent state (frozen/locked topic or post
+        // — Post.edit_block) as often as it is the create path's transient
+        // in-flight-retry race, and the backend's message is already a
+        // clear, specific, non-retry-implying sentence ("Post is locked.",
+        // "Topic is closed or locked.") — so edit shows it verbatim rather
+        // than the generic "tap again to retry" copy below, which would be
+        // actively wrong for the frozen/locked case (todo 292 AC3).
+        _error = (!_isEdit && e.statusCode == 409)
             ? 'Still processing your last attempt — tap Post again to retry.'
             : e.message;
       });
@@ -122,12 +181,14 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     }
   }
 
+  String get _what => _isEdit ? 'edit' : (_isTopic ? 'topic' : 'reply');
+
   @override
   Widget build(BuildContext context) {
     final isAuthenticated = ref.watch(
       authServiceProvider.select((s) => s.isAuthenticated),
     );
-    final title = _isTopic ? 'New topic' : 'Reply';
+    final title = _isEdit ? 'Edit post' : (_isTopic ? 'New topic' : 'Reply');
 
     return Scaffold(
       appBar: AppBar(title: Text(title)),
@@ -135,9 +196,13 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.md),
           child: !isAuthenticated
-              ? _LoginPrompt(action: _isTopic ? 'start a topic' : 'reply')
+              ? _LoginPrompt(
+                  action: _isTopic
+                      ? 'start a topic'
+                      : (_isEdit ? 'edit this post' : 'reply'),
+                )
               : _pending
-              ? _PendingView(isTopic: _isTopic)
+              ? _PendingView(what: _what)
               : _form(context),
         ),
       ),
@@ -155,6 +220,16 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
+            ),
+          ),
+        if (_isEdit && widget.args.hasNonTextContent)
+          const Padding(
+            padding: EdgeInsets.only(bottom: AppSpacing.sm),
+            child: ForumNoticeBanner(
+              message:
+                  "This post has formatting or an image the app can't show "
+                  'here yet — saving will replace it with plain text.',
+              icon: Icons.warning_amber_outlined,
             ),
           ),
         if (_error != null)
@@ -181,7 +256,9 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
         TextField(
           controller: _bodyController,
           decoration: InputDecoration(
-            labelText: _isTopic ? 'Body' : 'Your reply',
+            labelText: _isTopic
+                ? 'Body'
+                : (_isEdit ? 'Edit your post' : 'Your reply'),
             alignLabelWithHint: true,
             border: const OutlineInputBorder(),
           ),
@@ -198,7 +275,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
                   width: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Text('Post'),
+              : Text(_isEdit ? 'Save' : 'Post'),
         ),
       ],
     );
@@ -206,12 +283,11 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
 }
 
 class _PendingView extends StatelessWidget {
-  const _PendingView({required this.isTopic});
-  final bool isTopic;
+  const _PendingView({required this.what});
+  final String what;
 
   @override
   Widget build(BuildContext context) {
-    final what = isTopic ? 'topic' : 'reply';
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -222,7 +298,16 @@ class _PendingView extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.md),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(false),
+          // Pop with no value (null), not `false`: this view is shared by
+          // every mode, and reply/topic push the composer as `<bool>` while
+          // edit pushes it as `<ForumPost>` (code review) — `null` is a
+          // valid `T?` for any T, where a literal `false` is only valid for
+          // the bool-typed routes and throws a type error against the
+          // ForumPost-typed one. Every caller already treats a non-success
+          // result as "nothing to apply" (`result == true` / `result is
+          // ForumPost`), so `null` behaves identically to the old `false`
+          // for every existing caller.
+          onPressed: () => Navigator.of(context).pop(),
           child: const Text('Done'),
         ),
       ],
