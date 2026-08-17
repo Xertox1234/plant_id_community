@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "291"
 tags: [forum, flutter, mobile, bug]
@@ -128,6 +128,35 @@ higher priority than its siblings: this is the only item in that list that is a
   $ flutter analyze
   No issues found!
   ```
+
+### 2026-08-17 - Code review (repair round — one finding rejected with evidence)
+
+- `code-review-orchestrator` returned 1 critical, 1 medium, 1 low, 4 info.
+- **Critical rejected as a false positive**, verified by tracing the loop by
+  hand (not taken on faith — evidence-based pushback, per project convention):
+  the reviewer claimed the 50-page cap "silently truncates" because
+  `state = AsyncData(PagedList(items: items, nextUrl: next))` might write a
+  stale `nextUrl` when the cap is hit. Traced both cases:
+  - 3-page thread (`next` goes non-null → non-null → null, `break` fires):
+    final `next = null` → `hasMore = false`. Correct — fully loaded.
+  - 51-page thread (cap hit before `next` ever goes null): the 50th
+    iteration's `next = <page 51's url>`, loop exits via the `for` condition
+    (not `break`), `next` is still that non-null url51 → `hasMore = true`.
+    Correct — honestly signals more exists, and the pre-existing `loadMore()`
+    can continue from that exact cursor.
+  - The reviewer's suggested fix (`nextUrl: (i >= _maxRefreshPages) ? null :
+    next`) would have INTRODUCED a real bug: it forces `nextUrl: null` on a
+    51+-page thread even though page 51+ genuinely exists, permanently
+    killing the "Load More" affordance. Not applied.
+- Medium (`ref.mounted` guard after each await) and low (cursor-stagnation
+  guard) not applied: no existing method in this file (`loadMore`,
+  `toggleReaction`) uses a `ref.mounted` guard, so adding it to only the new
+  method would be inconsistent, and the failure path is already caught twice
+  (this method's own try/catch, then `_openReply`'s). The stagnation guard is
+  redundant — the reviewer's own text acknowledges the 50-page cap already
+  bounds any such loop.
+- 4 info findings (fallback safety, codegen legitimacy, `container.listen`
+  correctness, wiring correctness) — no action needed, confirmations only.
 
 ## Notes
 
