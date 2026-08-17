@@ -140,14 +140,14 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 }:
     <div className="w-full">
       {!preview ? (
         <div
-          className={`relative rounded-md border-2 border-dashed bg-surface-2/40 p-12 transition-colors ${
+          className={`relative rounded-md border-2 border-dashed p-12 transition-colors ${
             dragActive
               ? 'border-primary bg-primary/10'
               : error
                 ? 'border-error/30 bg-error/10'
                 : isCompressing
                   ? 'border-sky/30 bg-sky/10'
-                  : 'border-line hover:border-primary'
+                  : 'border-line bg-surface-2/40 hover:border-primary'
           }`}
           onDragEnter={handleDrag}
           onDragLeave={handleDrag}

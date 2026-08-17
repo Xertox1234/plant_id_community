@@ -3,13 +3,13 @@ import { Link } from 'react-router-dom';
 import HeroCard from '../components/ui/HeroCard';
 import ButtonLink from '../components/ui/ButtonLink';
 import Card from '../components/ui/Card';
-import Tile from '../components/ui/Tile';
+import Tile, { type TileTone } from '../components/ui/Tile';
 
 interface FeatureCardProps {
   title: string;
   description: string;
   href: string;
-  tone: 'sage' | 'bloom' | 'orchid';
+  tone: Exclude<TileTone, 'pollen'>;
   Icon: LucideIcon;
 }
 

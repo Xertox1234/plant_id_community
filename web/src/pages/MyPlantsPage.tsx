@@ -17,15 +17,13 @@ import type { UserPlant } from '../types/plantId';
 
 const PAGE_SIZE = 20; // Backend DRF PageNumberPagination page size
 
-function StaticPill({
-  children,
-  tone = 'text-ink-2',
-  suffix,
-}: {
+interface StaticPillProps {
   children: React.ReactNode;
   tone?: string;
   suffix?: string;
-}) {
+}
+
+function StaticPill({ children, tone = 'text-ink-2', suffix }: StaticPillProps) {
   return (
     <span
       className={`shrink-0 rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-[11px] ${tone}`}

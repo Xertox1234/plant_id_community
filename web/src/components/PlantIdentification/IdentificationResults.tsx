@@ -12,16 +12,14 @@ interface IdentificationResultsProps {
   savingPlant?: string | null;
 }
 
-/** Static, non-interactive percentage readout — never a Chip (button semantics). */
-function ConfidencePill({
-  value,
-  tone = 'text-ink-2',
-  suffix,
-}: {
+interface ConfidencePillProps {
   value: number;
   tone?: string;
   suffix?: string;
-}) {
+}
+
+/** Static, non-interactive percentage readout — never a Chip (button semantics). */
+function ConfidencePill({ value, tone = 'text-ink-2', suffix }: ConfidencePillProps) {
   return (
     <span
       className={`shrink-0 rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-[13px] tabular-nums ${tone}`}
@@ -152,7 +150,7 @@ export default function IdentificationResults({
                 key={index}
                 className="bg-surface-2 p-4 rounded-md flex items-start justify-between gap-3"
               >
-                <div>
+                <div className="flex-1 min-w-0">
                   <h5 className="font-medium text-ink">{disease.name}</h5>
                   {disease.description && (
                     <p className="text-sm text-ink-2 mt-1">{disease.description}</p>
