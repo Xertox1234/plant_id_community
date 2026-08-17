@@ -1,4 +1,4 @@
-import 'package:dio/dio.dart' show Options;
+import 'package:dio/dio.dart' show FormData, MultipartFile, Options;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../services/api_service.dart';
@@ -67,6 +67,15 @@ abstract class ForumApi {
   /// protected server-side — a repeat DELETE of an already-deleted post 404s,
   /// which is naturally idempotent enough for this action.
   Future<void> deletePost({required int postId});
+
+  /// Upload an inline post image (4-layer validated server-side) into the
+  /// forum image collection. Returns the stored image — reference its `id`
+  /// from a write-shape `image` body block ([buildImageBlockBody]).
+  Future<ForumImageBlock> uploadImage({
+    required String filePath,
+    String? alt,
+    required String idempotencyKey,
+  });
 }
 
 /// The reaction types the backend accepts (`Reaction.REACTION_CHOICES`). MUST
@@ -212,6 +221,29 @@ class HttpForumApi implements ForumApi {
   @override
   Future<void> deletePost({required int postId}) async {
     await _api.delete('/forum/posts/$postId/');
+  }
+
+  @override
+  Future<ForumImageBlock> uploadImage({
+    required String filePath,
+    String? alt,
+    required String idempotencyKey,
+  }) async {
+    final formData = FormData.fromMap({
+      'image': await MultipartFile.fromFile(
+        filePath,
+        filename: filePath.split('/').last,
+      ),
+      if (alt != null && alt.isNotEmpty) 'alt': alt,
+    });
+    final resp = await _api.post(
+      '/forum/images/',
+      data: formData,
+      options: _idempotent(idempotencyKey),
+    );
+    return ForumImageBlock.fromUploadResponse(
+      resp.data as Map<String, dynamic>,
+    );
   }
 }
 
