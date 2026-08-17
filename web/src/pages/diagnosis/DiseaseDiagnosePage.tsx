@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Stethoscope } from 'lucide-react';
 import FileUpload from '../../components/PlantIdentification/FileUpload';
 import DiseaseResultsList from '../../components/diagnosis/DiseaseResultsList';
+import Card from '../../components/ui/Card';
+import Tile from '../../components/ui/Tile';
 import { diseaseService } from '../../services/diseaseService';
 import type { DiseaseDiagnosisResults as Results } from '../../types/diagnosis';
 
@@ -42,18 +44,18 @@ export default function DiseaseDiagnosePage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div className="mx-auto w-full max-w-4xl py-8">
       <div className="flex items-center gap-3 mb-8">
-        <div className="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center">
-          <Stethoscope className="w-6 h-6 text-white" />
-        </div>
+        <Tile tone="bloom" size="md" aria-hidden="true">
+          <Stethoscope className="w-5 h-5" />
+        </Tile>
         <div>
           <h1 className="text-3xl font-bold text-ink">Diagnose a sick plant</h1>
           <p className="text-ink-2 mt-1">Upload a photo and describe the symptoms.</p>
         </div>
       </div>
 
-      <div className="bg-surface-2 rounded-2xl shadow-sm border border-line p-8 space-y-6">
+      <Card className="p-card space-y-6">
         <FileUpload onFileSelect={setFile} />
 
         <div>
@@ -128,7 +130,7 @@ export default function DiseaseDiagnosePage() {
             <DiseaseResultsList results={results.results} />
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }
