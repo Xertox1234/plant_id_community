@@ -95,8 +95,10 @@ describe('MyPlantsPage', () => {
     expect(await screen.findByText('Rosa damascena')).toBeInTheDocument();
     expect(screen.getByText('Monstera deliciosa')).toBeInTheDocument();
     expect(screen.getByText('Damask Rose')).toBeInTheDocument();
-    expect(screen.getByText('97% match')).toBeInTheDocument();
-    expect(screen.getByText('81% match')).toBeInTheDocument();
+    expect(screen.getByText('97%')).toBeInTheDocument();
+    expect(screen.getByText('81%')).toBeInTheDocument();
+    expect(screen.getByLabelText('97% match')).toBeInTheDocument();
+    expect(screen.getByLabelText('81% match')).toBeInTheDocument();
     expect(getMyPlantsMock).toHaveBeenCalledWith(1);
   });
 
@@ -159,14 +161,14 @@ describe('MyPlantsPage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('Showing page 1 of 2 (25 total)')).toBeInTheDocument();
+    expect(await screen.findByText('Page 1 of 2')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
 
     await userEvent.click(screen.getByRole('button', { name: 'Next' }));
 
     expect(await screen.findByText('Page two plant')).toBeInTheDocument();
     await waitFor(() => expect(getMyPlantsMock).toHaveBeenLastCalledWith(2));
-    expect(screen.getByText('Showing page 2 of 2 (25 total)')).toBeInTheDocument();
+    expect(screen.getByText('Page 2 of 2')).toBeInTheDocument();
   });
 
   it('hides pagination when everything fits on one page', async () => {
