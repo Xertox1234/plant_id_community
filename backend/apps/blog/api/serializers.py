@@ -5,13 +5,16 @@ Provides headless CMS functionality with StreamField rendering,
 filtering capabilities, and plant-specific content integration.
 """
 
+import logging
+
 from django.db.models import Count, Prefetch, Q
 from django.utils.text import Truncator
 from rest_framework import serializers
 from wagtail.api.v2.serializers import BaseSerializer, PageSerializer
+from wagtail.api.v2.serializers import StreamField as StreamFieldAPIField
 from wagtail.api.v2.utils import get_full_url
 from wagtail.images.api.fields import ImageRenditionField
-from wagtail.images.models import Image
+from wagtail.images.models import Image, SourceImageIOError
 from wagtail.rich_text import get_text_for_indexing
 
 from ..models import (
@@ -22,6 +25,41 @@ from ..models import (
     BlogPostPage,
     BlogSeries,
 )
+
+logger = logging.getLogger(__name__)
+
+
+class RequestAwareImageRenditionField(ImageRenditionField):
+    """`ImageRenditionField` with a `full_url` built via `get_full_url()`.
+
+    `Rendition.full_url` (the stock field's source) prefixes with the
+    single global `settings.WAGTAILADMIN_BASE_URL`, unrelated to and
+    independent from `get_full_url()` — already used for every
+    page/author URL in this file, via `Site.find_for_request`. That's two
+    separate, disagreeing mechanisms for the same job (todo 306 AC4); this
+    collapses image URLs onto the one every other URL in this API already
+    uses. NOTE: this does not by itself make the host correct in
+    production — this deploy has no Wagtail `Site` record for its real
+    domain (`Site.find_for_request` falls back to the seeded default,
+    `localhost:80`), so `get_full_url()` returns `http://localhost/...`
+    same as `Rendition.full_url` did (confirmed by a live probe from the
+    web client, see `web/src/services/blogService.ts`'s `mediaUrl()` —
+    deliberately NOT simplified by this todo, see its Work Log). Fixing
+    that is a separate, Site-configuration change, not a serializer one.
+    """
+
+    def to_representation(self, image):
+        data = super().to_representation(image)
+        if "error" in data:
+            return data
+        request = self.context.get("request")
+        # Explicit None without a request, not a silent fall-through to the
+        # superclass's Rendition.full_url (the Site-based mechanism this
+        # field exists to replace) — matches _get_post_image's contract
+        # (same file) so both degrade the same way with no request in
+        # context (code review, todo 306).
+        data["full_url"] = get_full_url(request, data["url"]) if request else None
+        return data
 
 
 class BlogCategorySerializer(BaseSerializer):
@@ -72,7 +110,9 @@ class BlogSeriesSerializer(BaseSerializer):
     """Serializer for blog series as snippets."""
 
     post_count = serializers.SerializerMethodField()
-    cover_image = ImageRenditionField("fill-300x200", source="image", read_only=True)
+    cover_image = RequestAwareImageRenditionField(
+        "fill-300x200", source="image", read_only=True
+    )
     posts_url = serializers.SerializerMethodField()
 
     # Wagtail API expects meta_fields attribute (fields shown in 'meta' section)
@@ -192,8 +232,13 @@ class BlogPostPageSerializer(serializers.ModelSerializer):
     categories = BlogCategorySerializer(many=True, read_only=True)
     tags = serializers.SerializerMethodField()
     series = BlogSeriesSerializer(read_only=True)
-    featured_image = ImageRenditionField("fill-800x400", read_only=True)
-    featured_image_thumb = ImageRenditionField(
+    # Structured blocks (heading/paragraph/quote/code/plant_spotlight/...),
+    # not a stringified JSON blob — Wagtail's own API v2 StreamField field
+    # (todo 306 AC3). plant_spotlight's image resolves to a full rendition
+    # dict via APIImageChooserBlock (apps/blog/blocks.py), not a bare PK.
+    content_blocks = StreamFieldAPIField(read_only=True)
+    featured_image = RequestAwareImageRenditionField("fill-800x400", read_only=True)
+    featured_image_thumb = RequestAwareImageRenditionField(
         "fill-300x200", source="featured_image", read_only=True
     )
     reading_time = serializers.ReadOnlyField()
@@ -201,7 +246,7 @@ class BlogPostPageSerializer(serializers.ModelSerializer):
     comment_count = serializers.SerializerMethodField()
     related_posts = serializers.SerializerMethodField()
     related_plant_species = serializers.SerializerMethodField()
-    social_image = ImageRenditionField("fill-1200x630", read_only=True)
+    social_image = RequestAwareImageRenditionField("fill-1200x630", read_only=True)
     url = serializers.SerializerMethodField()
 
     class Meta:
@@ -336,7 +381,7 @@ class BlogPostPageSerializer(serializers.ModelSerializer):
                 "id": post.id,
                 "title": post.title,
                 "slug": post.slug,
-                "url": get_full_url(request, post.get_url()),
+                "url": self._get_post_url(post, request),
                 "published_date": post.first_published_at,
                 "excerpt": self._get_post_excerpt(post),
                 "featured_image": self._get_post_image(post, request),
@@ -354,6 +399,19 @@ class BlogPostPageSerializer(serializers.ModelSerializer):
             }
             for species in obj.related_plant_species.all()
         ]
+
+    def _get_post_url(self, post, request):
+        """Get a related post's URL, tolerating an unroutable page.
+
+        `Page.get_url()` can return None/falsy (no Site covers this part of
+        the page tree) — the top-level `get_url()` above already guards for
+        this on the object being serialized; this call site didn't, so one
+        unroutable related post 500'd the whole detail endpoint (todo 306).
+        """
+        url = post.get_url()
+        if not url:
+            return None
+        return get_full_url(request, url)
 
     def _get_author_page_url(self, author):
         """Get author page URL if exists."""
@@ -376,13 +434,27 @@ class BlogPostPageSerializer(serializers.ModelSerializer):
         return ""
 
     def _get_post_image(self, post, request):
-        """Get post featured image URL."""
-        if post.featured_image:
+        """Get post featured image, in the same rendition-dict shape every
+        other image field in this API uses (todo 306 AC4) — was previously
+        a bare URL string here, inconsistent with `featured_image`/
+        `social_image` elsewhere on this same payload.
+        """
+        if not post.featured_image:
+            return None
+        try:
             rendition = post.featured_image.get_rendition("fill-300x200")
-            if request:
-                return get_full_url(request, rendition.url)
-            return rendition.url
-        return None
+        except (SourceImageIOError, OSError) as e:
+            # Media file missing on disk while the Image row survives (e.g.
+            # wiped on redeploy) — degrade to null, don't 500 the endpoint.
+            logger.error(f"[ERROR] related_posts featured_image rendition failed: {e}")
+            return None
+        return {
+            "url": rendition.url,
+            "full_url": get_full_url(request, rendition.url) if request else None,
+            "width": rendition.width,
+            "height": rendition.height,
+            "alt": rendition.alt,
+        }
 
 
 class BlogPostPageListSerializer(serializers.ModelSerializer):
@@ -394,8 +466,8 @@ class BlogPostPageListSerializer(serializers.ModelSerializer):
     # Grid cards (BlogCard's non-compact variant) render an 800x400 cover —
     # without this, they fell back to featured_image_thumb (300x200) and
     # rendered it upscaled/blurry (PR #540 review finding #1).
-    featured_image = ImageRenditionField("fill-800x400", read_only=True)
-    featured_image_thumb = ImageRenditionField(
+    featured_image = RequestAwareImageRenditionField("fill-800x400", read_only=True)
+    featured_image_thumb = RequestAwareImageRenditionField(
         "fill-300x200", source="featured_image", read_only=True
     )
     reading_time = serializers.ReadOnlyField()

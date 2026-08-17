@@ -209,7 +209,7 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
           {value.image && (
             <img
               src={value.image.url}
-              alt={value.image.title || value.image.alt || plantName}
+              alt={value.image.alt || plantName}
               className="w-full h-64 object-cover rounded-lg mb-4 shadow-md"
             />
           )}

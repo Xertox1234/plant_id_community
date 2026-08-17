@@ -11,23 +11,21 @@ from django.contrib.auth import get_user_model
 from django.core.paginator import Paginator
 from django.db import models
 from django.http import HttpRequest
-from django.urls import reverse
 from django.utils.text import slugify
-from imagekit.models import ImageSpecField
-from imagekit.processors import ResizeToFill
 from modelcluster.contrib.taggit import ClusterTaggableManager
 from modelcluster.fields import ParentalKey, ParentalManyToManyField
 from taggit.models import TaggedItemBase
 from wagtail import blocks
 from wagtail.admin import widgets
-from wagtail.admin.panels import FieldPanel, InlinePanel, MultiFieldPanel
+from wagtail.admin.panels import FieldPanel, MultiFieldPanel
 from wagtail.fields import RichTextField, StreamField
-from wagtail.images.blocks import ImageChooserBlock
-from wagtail.models import Orderable, Page
+from wagtail.models import Page
 from wagtail.search import index
 from wagtail.snippets.models import register_snippet
 from wagtail_ai.panels import AIDescriptionFieldPanel, AIFieldPanel, AITitleFieldPanel
 from wagtail_headless_preview.models import HeadlessPreviewMixin
+
+from .blocks import APIImageChooserBlock
 
 User = get_user_model()
 
@@ -125,7 +123,7 @@ class BlogStreamBlocks(blocks.StreamBlock):
             ),
             (
                 "image",
-                ImageChooserBlock(
+                APIImageChooserBlock(
                     required=False,
                     help_text="Plant image (suggestions provided from database)",
                 ),

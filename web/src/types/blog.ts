@@ -51,11 +51,13 @@ export interface PlantSpotlightBlockValue {
   description?: string;
   care_difficulty?: 'easy' | 'moderate' | 'difficult';
   care_level?: string;
-  image?: {
-    url: string;
-    title?: string;
-    alt?: string;
-  };
+  /**
+   * `APIImageChooserBlock` (todo 306) — same `{id, url, alt, width, height}`
+   * shape as ImageBlockValue below, and for the same reason: `url` is
+   * already absolute (`request.build_absolute_uri()`), no `mediaUrl()`
+   * rebase needed here unlike `BlogPostImage`.
+   */
+  image?: ImageBlockValue | null;
 }
 
 /**
@@ -193,13 +195,12 @@ export interface RelatedPostSummary {
   published_date?: string | null;
   excerpt?: string;
   /**
-   * fill-300x200 URL string (or null) — `_get_post_image` returns a bare
-   * URL here, unlike the rendition objects used elsewhere
-   * (featured_image/featured_image_thumb on BlogPost). Absolute when a
-   * request is in serializer context, a bare rendition path otherwise —
-   * resolve with `mediaUrl` either way before use as a src.
+   * fill-300x200 rendition (todo 306) — same `BlogPostImage` shape as
+   * `featured_image`/`featured_image_thumb` on `BlogPost` itself; was a
+   * bare URL string here before the fix. Resolve with `mediaUrl` before
+   * use as a src, same as those.
    */
-  featured_image?: string | null;
+  featured_image?: BlogPostImage | null;
 }
 
 /**

@@ -158,7 +158,7 @@ export default function BlogDetailPage() {
                 >
                   {rp.featured_image && (
                     <img
-                      src={mediaUrl(rp.featured_image)}
+                      src={mediaUrl(rp.featured_image.url)}
                       alt=""
                       aria-hidden="true"
                       className="aspect-[2/1] w-full object-cover"

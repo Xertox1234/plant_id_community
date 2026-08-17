@@ -180,6 +180,7 @@ describe('StreamFieldRenderer', () => {
             heading: 'Monstera Deliciosa',
             description: '<p>A beautiful tropical plant</p>',
             image: {
+              id: 1,
               url: 'https://example.com/monstera.jpg',
             },
             care_level: 'Easy',
@@ -207,8 +208,9 @@ describe('StreamFieldRenderer', () => {
             scientific_name: 'Epipremnum aureum',
             description: '<p>Hardy trailing plant</p>',
             image: {
+              id: 2,
               url: 'https://example.com/pothos.jpg',
-              title: 'Golden pothos',
+              alt: 'Golden pothos',
             },
             care_difficulty: 'moderate',
           },
