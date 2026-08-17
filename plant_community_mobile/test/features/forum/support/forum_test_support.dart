@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_image_picker.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 
@@ -31,6 +34,8 @@ class FakeForumApi implements ForumApi {
 
   final List<String> createTopicKeys = [];
   final List<String> createReplyKeys = [];
+  final List<List<Map<String, dynamic>>> createTopicBodies = [];
+  final List<List<Map<String, dynamic>>> createReplyBodies = [];
   final List<String> reactionKeys = [];
 
   ForumModerationStatus topicStatus = ForumModerationStatus.published;
@@ -59,6 +64,24 @@ class FakeForumApi implements ForumApi {
 
   /// When set, [deletePost] throws this instead of succeeding.
   ApiException? failDeletePostWith;
+
+  final List<String> uploadImageKeys = [];
+  final List<String?> uploadImageFilePaths = [];
+  ForumImageBlock uploadImageResult = const ForumImageBlock(
+    id: 1,
+    url: 'https://example.com/forum/images/1.jpg',
+    alt: '',
+    width: 800,
+    height: 600,
+  );
+
+  /// When set, [uploadImage] throws this instead of returning a result.
+  ApiException? failUploadImageWith;
+
+  /// When set, [uploadImage] awaits this instead of resolving immediately —
+  /// lets a test hold an upload "in flight" to assert UI state mid-upload
+  /// (code review, todo 294: the Post button race).
+  Completer<ForumImageBlock>? uploadImageGate;
 
   @override
   Future<List<ForumBoard>> fetchBoards() async => boards;
@@ -125,6 +148,7 @@ class FakeForumApi implements ForumApi {
     required String idempotencyKey,
   }) async {
     createTopicKeys.add(idempotencyKey);
+    createTopicBodies.add(body);
     return CreateTopicResult(id: 1, slug: slug, status: topicStatus);
   }
 
@@ -135,6 +159,7 @@ class FakeForumApi implements ForumApi {
     required String idempotencyKey,
   }) async {
     createReplyKeys.add(idempotencyKey);
+    createReplyBodies.add(body);
     if (createReplyKeys.length <= failCreateReplyTimes) {
       throw ApiException('temporary failure', statusCode: 500);
     }
@@ -179,6 +204,21 @@ class FakeForumApi implements ForumApi {
     deletePostCalls.add(postId);
     final fail = failDeletePostWith;
     if (fail != null) throw fail;
+  }
+
+  @override
+  Future<ForumImageBlock> uploadImage({
+    required String filePath,
+    String? alt,
+    required String idempotencyKey,
+  }) async {
+    uploadImageKeys.add(idempotencyKey);
+    uploadImageFilePaths.add(filePath);
+    final gate = uploadImageGate;
+    if (gate != null) return gate.future;
+    final fail = failUploadImageWith;
+    if (fail != null) throw fail;
+    return uploadImageResult;
   }
 }
 
@@ -280,4 +320,27 @@ ForumTopicStub stub({int id = 1, String title = 'Stub', DateTime? updatedAt}) {
     title: title,
     updatedAt: updatedAt ?? DateTime.utc(2026, 1, 1),
   );
+}
+
+/// A test [ForumImagePicker] that returns a fixed path (or `null` for a
+/// cancelled pick) without touching platform channels.
+class FakeForumImagePicker implements ForumImagePicker {
+  FakeForumImagePicker({this.nextPath, this.throwOnPick});
+  String? nextPath;
+
+  /// When set, [pickImagePath] throws this instead of returning
+  /// [nextPath] — simulates a platform-level failure (e.g. a denied
+  /// photo-library permission), which is a real, reachable case distinct
+  /// from an upload rejection (code review, todo 294).
+  Object? throwOnPick;
+
+  final List<int> pickCalls = [];
+
+  @override
+  Future<String?> pickImagePath() async {
+    pickCalls.add(pickCalls.length);
+    final err = throwOnPick;
+    if (err != null) throw err;
+    return nextPath;
+  }
 }

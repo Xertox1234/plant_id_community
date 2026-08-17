@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +8,7 @@ import '../../../services/auth_service.dart';
 import '../models/models.dart';
 import '../services/forum_api.dart';
 import '../services/forum_composer_controller.dart';
+import '../services/forum_image_picker.dart';
 import '../widgets/forum_notice_banner.dart';
 
 /// Which kind of content the composer creates.
@@ -69,9 +71,17 @@ class ForumComposeArgs {
 /// `true` when content is published (caller refreshes); handles the
 /// pending-moderation ("notify-and-return") outcome inline.
 class ForumComposerScreen extends ConsumerStatefulWidget {
-  const ForumComposerScreen({super.key, required this.args});
+  const ForumComposerScreen({
+    super.key,
+    required this.args,
+    this.imagePicker = const DeviceForumImagePicker(),
+  });
 
   final ForumComposeArgs args;
+
+  /// Wrapped behind an interface so tests can inject a fake without touching
+  /// platform channels — see `forum_image_picker.dart`.
+  final ForumImagePicker imagePicker;
 
   @override
   ConsumerState<ForumComposerScreen> createState() =>
@@ -87,8 +97,15 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
   bool _pending = false;
   String? _error;
 
+  // Image attachment (todo 294) — topic/reply only, not edit (todo 292's
+  // text-first edit scope is unchanged here).
+  ForumImageBlock? _attachedImage;
+  bool _uploadingImage = false;
+  String? _imageError;
+
   bool get _isTopic => widget.args.mode == ForumComposeMode.topic;
   bool get _isEdit => widget.args.mode == ForumComposeMode.edit;
+  bool get _supportsImage => !_isEdit;
 
   @override
   void initState() {
@@ -105,9 +122,65 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
   }
 
   bool get _canSubmit {
-    if (_bodyController.text.trim().isEmpty) return false;
+    // Blocked while an upload is in flight (code review): otherwise a
+    // "Post" tap that lands before the upload resolves submits with
+    // `imageId: null` and silently drops the attachment — no error, no
+    // retry prompt, and the upload's own success handler later no-ops
+    // (post-navigation `!mounted`).
+    // Blocked while an upload is in flight (code review): otherwise a
+    // "Post" tap that lands before the upload resolves submits with
+    // `imageId: null` and silently drops the attachment — no error, no
+    // retry prompt, and the upload's own success handler later no-ops
+    // (post-navigation `!mounted`).
+    if (_uploadingImage) return false;
+    final hasText = _bodyController.text.trim().isNotEmpty;
+    final hasImage = _supportsImage && _attachedImage != null;
+    if (!hasText && !hasImage) return false;
     if (_isTopic && _titleController.text.trim().isEmpty) return false;
     return true;
+  }
+
+  Future<void> _addPhoto() async {
+    setState(() {
+      _uploadingImage = true;
+      _imageError = null;
+    });
+    try {
+      // The picker call is INSIDE the try (code review): a platform-level
+      // failure (e.g. a previously-denied photo-library permission) must
+      // degrade the same way an upload rejection does, not propagate
+      // unhandled out of this method.
+      final path = await widget.imagePicker.pickImagePath();
+      if (path == null) {
+        if (!mounted) return;
+        setState(() => _uploadingImage = false);
+        return;
+      }
+      final image = await _controller.uploadImage(filePath: path);
+      if (!mounted) return;
+      setState(() {
+        _attachedImage = image;
+        _uploadingImage = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      // The drafted title/body text is untouched by this catch — a failed
+      // upload must not cost the user what they already typed (AC2).
+      setState(() {
+        _uploadingImage = false;
+        _imageError = e.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _uploadingImage = false;
+        _imageError = 'Could not upload that photo.';
+      });
+    }
+  }
+
+  void _removePhoto() {
+    setState(() => _attachedImage = null);
   }
 
   Future<void> _submit() async {
@@ -139,12 +212,14 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
           boardSlug: widget.args.boardSlug!,
           title: _titleController.text,
           bodyText: _bodyController.text,
+          imageId: _attachedImage?.id,
         );
         status = result.status;
       } else {
         final result = await _controller.submitReply(
           topicId: widget.args.topicId!,
           bodyText: _bodyController.text,
+          imageId: _attachedImage?.id,
         );
         status = result.status;
       }
@@ -240,6 +315,14 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
               icon: Icons.error_outline,
             ),
           ),
+        if (_imageError != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: ForumNoticeBanner(
+              message: _imageError!,
+              icon: Icons.error_outline,
+            ),
+          ),
         if (_isTopic) ...[
           TextField(
             controller: _titleController,
@@ -266,6 +349,26 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
           maxLines: 12,
           onChanged: (_) => setState(() {}),
         ),
+        if (_supportsImage) ...[
+          const SizedBox(height: AppSpacing.sm),
+          if (_attachedImage != null)
+            _AttachedImagePreview(
+              image: _attachedImage!,
+              onRemove: _removePhoto,
+            )
+          else
+            OutlinedButton.icon(
+              onPressed: _uploadingImage ? null : _addPhoto,
+              icon: _uploadingImage
+                  ? const SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.add_photo_alternate_outlined),
+              label: Text(_uploadingImage ? 'Uploading…' : 'Add photo'),
+            ),
+        ],
         const SizedBox(height: AppSpacing.md),
         FilledButton(
           onPressed: _canSubmit && !_submitting ? _submit : null,
@@ -276,6 +379,44 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : Text(_isEdit ? 'Save' : 'Post'),
+        ),
+      ],
+    );
+  }
+}
+
+class _AttachedImagePreview extends StatelessWidget {
+  const _AttachedImagePreview({required this.image, required this.onRemove});
+
+  final ForumImageBlock image;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.topRight,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppSpacing.rMd),
+          child: CachedNetworkImage(
+            imageUrl: image.url,
+            height: 160,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            placeholder: (context, _) => const SizedBox(
+              height: 160,
+              child: Center(child: CircularProgressIndicator()),
+            ),
+            errorWidget: (context, _, _) => const SizedBox(
+              height: 160,
+              child: Center(child: Icon(Icons.broken_image_outlined)),
+            ),
+          ),
+        ),
+        IconButton.filled(
+          onPressed: onRemove,
+          icon: const Icon(Icons.close),
+          tooltip: 'Remove photo',
         ),
       ],
     );

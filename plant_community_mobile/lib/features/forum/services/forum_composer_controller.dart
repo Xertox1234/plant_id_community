@@ -51,36 +51,56 @@ class ForumComposerController {
     _lastFingerprint = fingerprint;
   }
 
-  /// Create a topic. Empty [bodyText] yields an empty body — the caller should
-  /// validate non-empty input before calling.
+  /// Create a topic. Empty [bodyText] with no [imageId] yields an empty body
+  /// — the caller should validate non-empty input (text OR image) before
+  /// calling. An attached [imageId] is appended as a write-shape `image`
+  /// block after the paragraph (todo 294).
   Future<CreateTopicResult> submitTopic({
     required String boardSlug,
     required String title,
     required String bodyText,
+    int? imageId,
   }) {
     _refreshKeyForContent(
-      'topic|$boardSlug|${title.trim()}|${bodyText.trim()}',
+      'topic|$boardSlug|${title.trim()}|${bodyText.trim()}|${imageId ?? ''}',
     );
     return _api.createTopic(
       boardSlug: boardSlug,
       title: title.trim(),
       slug: slugifyForumTitle(title),
-      body: buildParagraphBody(bodyText),
+      body: _buildBody(bodyText, imageId),
       idempotencyKey: _key,
     );
   }
 
-  /// Post a reply to [topicId].
+  /// Post a reply to [topicId]. See [submitTopic] re: [imageId].
   Future<CreateReplyResult> submitReply({
     required int topicId,
     required String bodyText,
+    int? imageId,
   }) {
-    _refreshKeyForContent('reply|$topicId|${bodyText.trim()}');
+    _refreshKeyForContent('reply|$topicId|${bodyText.trim()}|${imageId ?? ''}');
     return _api.createReply(
       topicId: topicId,
-      body: buildParagraphBody(bodyText),
+      body: _buildBody(bodyText, imageId),
       idempotencyKey: _key,
     );
+  }
+
+  List<Map<String, dynamic>> _buildBody(String bodyText, int? imageId) {
+    return [
+      ...buildParagraphBody(bodyText),
+      if (imageId != null) buildImageBlockBody(imageId),
+    ];
+  }
+
+  /// Upload an image for the composer to attach (todo 294). Reuses the same
+  /// idempotency-key rotation as [submitTopic]/[submitReply]: retrying the
+  /// SAME file path replays instead of storing a duplicate; a different file
+  /// path (the user picked again) rotates to a fresh key.
+  Future<ForumImageBlock> uploadImage({required String filePath, String? alt}) {
+    _refreshKeyForContent('image|$filePath');
+    return _api.uploadImage(filePath: filePath, alt: alt, idempotencyKey: _key);
   }
 
   /// Edit [postId] (todo 292). Same retry semantics as [submitReply]: the
