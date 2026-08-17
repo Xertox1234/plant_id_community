@@ -1,6 +1,17 @@
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
-import { Bell, BellOff, Eye, Lock, MessagesSquare, Pin, Reply, Users } from 'lucide-react';
+import {
+  Bell,
+  BellOff,
+  Bookmark,
+  BookmarkCheck,
+  Eye,
+  Lock,
+  MessagesSquare,
+  Pin,
+  Reply,
+  Users,
+} from 'lucide-react';
 import {
   fetchThread,
   fetchThreads,
@@ -12,6 +23,8 @@ import {
   reportPost,
   subscribeToTopic,
   unsubscribeFromTopic,
+  bookmarkTopic,
+  unbookmarkTopic,
   markSolution,
   clearSolution,
 } from '../../services/forumService';
@@ -121,6 +134,7 @@ export default function ThreadDetailPage() {
   const [editBody, setEditBody] = useState<string>('');
   const [editSubmitting, setEditSubmitting] = useState<boolean>(false);
   const [subscribing, setSubscribing] = useState<boolean>(false);
+  const [bookmarking, setBookmarking] = useState<boolean>(false);
   // A transient banner for write errors + moderation outcomes.
   const [notice, setNotice] = useState<string | null>(null);
   // Focus the reply composer after a successful post (M25); reset on navigation
@@ -171,6 +185,10 @@ export default function ThreadDetailPage() {
     // reset unconditionally on every navigation (handleToggleSubscription's
     // own finally guards against that stale request re-enabling it late).
     setSubscribing(false);
+    // Same for an in-flight bookmark/unbookmark request (todo 283 / M2) —
+    // handleToggleBookmark's own finally has the identical stale-request
+    // guard, so it never re-enables this on a late resolve either.
+    setBookmarking(false);
     // Same for an in-flight load-more (the deep-link chase can start one) —
     // its finally is thread-guarded, so clear the flag here for the new thread.
     setLoadingMore(false);
@@ -437,6 +455,39 @@ export default function ThreadDetailPage() {
     } finally {
       if (currentTopicIdRef.current === requestTopicId) {
         setSubscribing(false);
+      }
+    }
+  }, [thread, topicId]);
+
+  const handleToggleBookmark = useCallback(async () => {
+    if (!thread || topicId == null) return;
+    const requestTopicId = topicId;
+    const wasBookmarked = thread.is_bookmarked ?? false;
+    setBookmarking(true);
+    // Optimistic — same shape as handleToggleSubscription above.
+    setThread((prev) => (prev ? { ...prev, is_bookmarked: !wasBookmarked } : prev));
+    try {
+      if (wasBookmarked) {
+        await unbookmarkTopic(requestTopicId);
+      } else {
+        await bookmarkTopic(requestTopicId);
+      }
+    } catch (err) {
+      logger.error('Error toggling topic bookmark', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { threadId: thread.id },
+      });
+      // Same navigated-away guard as handleToggleSubscription (todo 253
+      // slice 3 review finding) — a late failure must not touch a thread
+      // the user has since moved away from.
+      if (currentTopicIdRef.current === requestTopicId) {
+        setThread((prev) => (prev ? { ...prev, is_bookmarked: wasBookmarked } : prev));
+        setNotice(err instanceof Error ? err.message : 'Failed to update bookmark');
+      }
+    } finally {
+      if (currentTopicIdRef.current === requestTopicId) {
+        setBookmarking(false);
       }
     }
   }, [thread, topicId]);
@@ -721,24 +772,48 @@ export default function ThreadDetailPage() {
             </p>
           </div>
 
+          {/* flex-wrap on the pair below: the outer row's own wrap is
+              neutralized by the title block's flex-1 min-w-0 (0 flex-basis
+              contributes nothing to the wrap calc), so at narrow widths this
+              pair — now two buttons, not one — needs its own wrap fallback
+              rather than squeezing the title (code review, todo 283). */}
           {isAuthenticated && (
-            <Button
-              onClick={handleToggleSubscription}
-              variant={thread.is_subscribed ? 'outline' : 'primary'}
-              loading={subscribing}
-              disabled={subscribing}
-              className="min-h-11 gap-2"
-            >
-              {thread.is_subscribed ? (
-                <>
-                  <BellOff className="h-3.5 w-3.5" aria-hidden="true" /> Following
-                </>
-              ) : (
-                <>
-                  <Bell className="h-3.5 w-3.5" aria-hidden="true" /> Follow
-                </>
-              )}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                onClick={handleToggleBookmark}
+                variant={thread.is_bookmarked ? 'outline' : 'primary'}
+                loading={bookmarking}
+                disabled={bookmarking}
+                className="min-h-11 gap-2"
+              >
+                {thread.is_bookmarked ? (
+                  <>
+                    <BookmarkCheck className="h-3.5 w-3.5" aria-hidden="true" /> Bookmarked
+                  </>
+                ) : (
+                  <>
+                    <Bookmark className="h-3.5 w-3.5" aria-hidden="true" /> Bookmark
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={handleToggleSubscription}
+                variant={thread.is_subscribed ? 'outline' : 'primary'}
+                loading={subscribing}
+                disabled={subscribing}
+                className="min-h-11 gap-2"
+              >
+                {thread.is_subscribed ? (
+                  <>
+                    <BellOff className="h-3.5 w-3.5" aria-hidden="true" /> Following
+                  </>
+                ) : (
+                  <>
+                    <Bell className="h-3.5 w-3.5" aria-hidden="true" /> Follow
+                  </>
+                )}
+              </Button>
+            </div>
           )}
         </div>
       </header>

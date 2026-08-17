@@ -314,7 +314,9 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H21 tombstone-prune-scheduling → todo 261 (completed 2026-07-26)
 - [x] #H26 author-shape-inconsistency → todo 257 (completed 2026-07-24, PR #490)
 - [x] #M1 quote-reply → todo 276 (completed 2026-07-30)
-- [ ] #M2 bookmarks → todo 283 (re-pointed 2026-07-26; promoted out of 263 with M8)
+- [x] #M2 bookmarks → todo 283 (completed 2026-08-17; M8 split out to todo
+      309, still open — the all-findings-resolved rename must NOT fire on
+      this doc)
 - [x] #M3 drafts-autosave → shipped Wave 1 #473, verified 2026-07-26 (no todo:
       `web/utils/forumDrafts.ts` autosaves both composers to sessionStorage and
       restores on mount — page-level restore test added at 263 close-out. The
@@ -328,7 +330,9 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
       nothing, so there is no server-side record to reference — see the todo's
       Work Log.
 - [x] #M7 image-authoring-alt-text → todo 281 (completed 2026-07-31)
-- [ ] #M8 polls → todo 283 (re-pointed 2026-07-26; promoted out of 263 with M2)
+- [ ] #M8 polls → todo 309 (re-pointed 2026-08-17; split out of todo 283 per
+      that todo's own Notes — "ship M2 and re-defer M8 rather than starting
+      both" — 283 is now M2-only)
 - [ ] #M9 block-mute → todo 284 (re-pointed 2026-07-26; promoted out of 263)
 - [ ] #M10 private-messaging → todo 284 (re-pointed 2026-07-26; promoted out of 263,
       gated behind M9 in that todo's first acceptance criterion)

@@ -146,6 +146,7 @@ def test_wrapped_routes_use_the_throttled_views():
         "search": throttled.SearchView,
         "sync": throttled.SyncView,
         "topic-subscription": throttled.TopicSubscriptionView,
+        "topic-bookmark": throttled.TopicBookmarkView,
     }
     by_name = {p.name: p.callback.view_class for p in host.urlpatterns}
     for name, view_class in wrapped.items():
@@ -172,6 +173,7 @@ def test_every_unsafe_handler_is_throttled():
         throttled.SearchView,
         throttled.SyncView,
         throttled.TopicSubscriptionView,
+        throttled.TopicBookmarkView,
     ]
     for view in wrappers:
         marked = getattr(view, "_forum_throttled_methods", set())
@@ -366,6 +368,50 @@ def test_subscription_create_is_throttled_per_user():
     with freeze_time("2026-06-10 12:00:00"):
         first = client.post(f"/api/v1/forum/topics/{topic.id}/subscription/")
         blocked = client.post(f"/api/v1/forum/topics/{other_topic.id}/subscription/")
+
+    assert first.status_code == 200
+    assert blocked.status_code == 429  # NOT 403 — Ratelimited subclasses it
+    assert "Retry-After" in blocked
+
+
+@override_settings(FORUM_RATELIMITS={"bookmark_create": "1/h"})
+@pytest.mark.django_db
+def test_bookmark_create_is_throttled_per_user():
+    """Proves the bookmark_create/bookmark_delete rate strings in
+    constants.py aren't dead config (todo 283 / M2) — mirrors
+    test_subscription_create_is_throttled_per_user's shape."""
+    from wagtail_forum.models import Topic
+
+    board = _board()
+    topic = Topic.objects.create(board=board, title="t", slug="t", live=True)
+    other_topic = Topic.objects.create(board=board, title="t2", slug="t2", live=True)
+
+    user = User.objects.create_user(username="bookmarker")
+    client = APIClient()
+    client.force_authenticate(user)
+
+    with freeze_time("2026-06-10 12:00:00"):
+        first = client.post(f"/api/v1/forum/topics/{topic.id}/bookmark/")
+        blocked = client.post(f"/api/v1/forum/topics/{other_topic.id}/bookmark/")
+
+    assert first.status_code == 200
+    assert blocked.status_code == 429  # NOT 403 — Ratelimited subclasses it
+    assert "Retry-After" in blocked
+
+
+@override_settings(FORUM_RATELIMITS={"bookmark_delete": "1/h"})
+@pytest.mark.django_db
+def test_bookmark_delete_is_throttled_per_user():
+    """DELETE's own rate string, proven independently of bookmark_create
+    (code review, todo 283) — DELETE is ungated/idempotent (no visibility
+    check, always 200) so this needs no pre-existing bookmark to hit."""
+    user = User.objects.create_user(username="unbookmarker")
+    client = APIClient()
+    client.force_authenticate(user)
+
+    with freeze_time("2026-06-10 12:00:00"):
+        first = client.delete("/api/v1/forum/topics/1/bookmark/")
+        blocked = client.delete("/api/v1/forum/topics/2/bookmark/")
 
     assert first.status_code == 200
     assert blocked.status_code == 429  # NOT 403 — Ratelimited subclasses it

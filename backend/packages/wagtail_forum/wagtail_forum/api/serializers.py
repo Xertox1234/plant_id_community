@@ -16,6 +16,7 @@ from ..models import (
     Reaction,
     Report,
     Topic,
+    TopicBookmark,
     TopicSubscription,
 )
 from .sanitize import validate_forum_body
@@ -328,6 +329,9 @@ class TopicDetailSerializer(serializers.ModelSerializer):
     opening_post_id = serializers.SerializerMethodField()
     locked = serializers.BooleanField()
     is_subscribed = serializers.SerializerMethodField()
+    # Save-for-later, distinct from is_subscribed's notify-me intent (todo
+    # 283 / M2). Detail-only, like is_subscribed — see get_is_bookmarked.
+    is_bookmarked = serializers.SerializerMethodField()
     tags = serializers.SerializerMethodField()
     # Accepted answer (audit H6) — see TopicListSerializer for why `is_solved`
     # is a column read rather than a liveness join.
@@ -358,6 +362,7 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             "last_post_author",
             "opening_post_id",
             "is_subscribed",
+            "is_bookmarked",
             "tags",
             "is_solved",
             "solved_post_id",
@@ -425,6 +430,15 @@ class TopicDetailSerializer(serializers.ModelSerializer):
         if user is None or not user.is_authenticated:
             return False
         return TopicSubscription.objects.filter(user=user, topic=obj).exists()
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_is_bookmarked(self, obj):
+        # Same zero-query-anonymous shape as get_is_subscribed (todo 283 / M2).
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated:
+            return False
+        return TopicBookmark.objects.filter(user=user, topic=obj).exists()
 
 
 def serialize_image_for_api(image, request=None):

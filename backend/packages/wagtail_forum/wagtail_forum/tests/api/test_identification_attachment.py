@@ -529,9 +529,12 @@ def test_topic_detail_query_count_with_an_identification_is_pinned():
     only extra cost over a plain topic is the rendition lookup behind the photo
     — one query, independent of candidate count.
 
-    6 = the 5-query anonymous-shaped baseline (this client is the topic's
+    7 = the 5-query anonymous-shaped baseline (this client is the topic's
     AUTHOR, so `can_mark_solution` short-circuits before the two permission
-    reads that make a non-author detail cost 8) + 1 rendition lookup.
+    reads that make a non-author detail cost 8) + one TopicSubscription
+    exists() + one TopicBookmark exists() (todo 283 / M2, same
+    always-runs-when-authenticated shape as the subscription check) + 1
+    rendition lookup.
     """
     ensure_default_workflow()
     board = _board()
@@ -548,4 +551,4 @@ def test_topic_detail_query_count_with_an_identification_is_pinned():
 
     assert resp.status_code == 200
     assert resp.data["identification"]["image"] is not None
-    assert len(ctx.captured_queries) == 6, [q["sql"] for q in ctx.captured_queries]
+    assert len(ctx.captured_queries) == 7, [q["sql"] for q in ctx.captured_queries]

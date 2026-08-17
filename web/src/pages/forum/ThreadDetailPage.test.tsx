@@ -391,6 +391,66 @@ describe('ThreadDetailPage', () => {
     expect(unsubscribeSpy).toHaveBeenCalledWith(12);
   });
 
+  it('shows a Bookmark button for an authenticated user on a non-bookmarked thread', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_bookmarked: false })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+
+    renderThreadDetailPage();
+
+    expect(await screen.findByRole('button', { name: /^bookmark$/i })).toBeInTheDocument();
+  });
+
+  it('clicking Bookmark bookmarks and flips the button to Bookmarked', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_bookmarked: false })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    const bookmarkSpy = vi.spyOn(forumService, 'bookmarkTopic').mockResolvedValue(undefined);
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /^bookmark$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^bookmarked$/i })).toBeInTheDocument();
+    });
+    expect(bookmarkSpy).toHaveBeenCalledWith(12);
+  });
+
+  it('clicking Bookmarked unbookmarks and flips the button back to Bookmark', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_bookmarked: true })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    const unbookmarkSpy = vi.spyOn(forumService, 'unbookmarkTopic').mockResolvedValue(undefined);
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /^bookmarked$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^bookmark$/i })).toBeInTheDocument();
+    });
+    expect(unbookmarkSpy).toHaveBeenCalledWith(12);
+  });
+
+  it('rolls back the optimistic Bookmark toggle and shows a notice when the request fails', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ is_bookmarked: false })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    vi.spyOn(forumService, 'bookmarkTopic').mockRejectedValue(new Error('Network error'));
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /^bookmark$/i }));
+
+    await screen.findByText('Network error');
+    expect(screen.getByRole('button', { name: /^bookmark$/i })).toBeInTheDocument();
+  });
+
   it('rolls back the optimistic Follow toggle and shows a notice when the request fails', async () => {
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
       createMockThread({ is_subscribed: false })
@@ -480,6 +540,83 @@ describe('ThreadDetailPage', () => {
     await waitFor(() => expect(loggerErrorSpy).toHaveBeenCalled());
 
     expect(screen.getByRole('button', { name: /^follow$/i })).toBeInTheDocument();
+    expect(screen.queryByText('Network error')).not.toBeInTheDocument();
+  });
+
+  it('does not leave the Bookmark button stuck loading after navigating to a different thread mid-request', async () => {
+    const threadA = createMockThread({ is_bookmarked: false });
+    const threadB = createMockThread({ is_bookmarked: false });
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    const fetchThreadSpy = vi
+      .spyOn(forumService, 'fetchThread')
+      .mockResolvedValueOnce(threadA)
+      .mockResolvedValueOnce(threadB);
+    // Thread A's request never settles in this test — simulates navigating
+    // away before a slow bookmark request resolves.
+    vi.spyOn(forumService, 'bookmarkTopic').mockReturnValue(new Promise(() => {}));
+
+    const { rerender } = renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /^bookmark$/i }));
+    expect(screen.getByRole('button', { name: /^bookmarked$/i })).toBeDisabled();
+
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '34-different-thread',
+    });
+    rerender(
+      <MemoryRouter initialEntries={['/forum/plant-care/34-different-thread']}>
+        <AnnouncerProvider>
+          <ThreadDetailPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(fetchThreadSpy).toHaveBeenCalledWith(34));
+    expect(await screen.findByRole('button', { name: /^bookmark$/i })).not.toBeDisabled();
+  });
+
+  it('a stale bookmark request failing after navigating away does not corrupt the new thread state', async () => {
+    const threadA = createMockThread({ is_bookmarked: false });
+    const threadB = createMockThread({ is_bookmarked: false });
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    const fetchThreadSpy = vi
+      .spyOn(forumService, 'fetchThread')
+      .mockResolvedValueOnce(threadA)
+      .mockResolvedValueOnce(threadB);
+
+    let rejectBookmark!: (err: Error) => void;
+    vi.spyOn(forumService, 'bookmarkTopic').mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectBookmark = reject;
+      })
+    );
+    const loggerErrorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+
+    const { rerender } = renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /^bookmark$/i }));
+    expect(screen.getByRole('button', { name: /^bookmarked$/i })).toBeInTheDocument();
+
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '34-different-thread',
+    });
+    rerender(
+      <MemoryRouter initialEntries={['/forum/plant-care/34-different-thread']}>
+        <AnnouncerProvider>
+          <ThreadDetailPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(fetchThreadSpy).toHaveBeenCalledWith(34));
+    expect(await screen.findByRole('button', { name: /^bookmark$/i })).toBeInTheDocument();
+
+    // Thread A's request now fails — must not touch thread B's displayed state.
+    rejectBookmark(new Error('Network error'));
+    await waitFor(() => expect(loggerErrorSpy).toHaveBeenCalled());
+
+    expect(screen.getByRole('button', { name: /^bookmark$/i })).toBeInTheDocument();
     expect(screen.queryByText('Network error')).not.toBeInTheDocument();
   });
 
