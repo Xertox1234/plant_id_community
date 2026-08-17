@@ -13,9 +13,18 @@ interface IdentificationResultsProps {
 }
 
 /** Static, non-interactive percentage readout — never a Chip (button semantics). */
-function ConfidencePill({ value, tone = 'text-ink-2' }: { value: number; tone?: string }) {
+function ConfidencePill({
+  value,
+  tone = 'text-ink-2',
+  ariaLabel,
+}: {
+  value: number;
+  tone?: string;
+  ariaLabel?: string;
+}) {
   return (
     <span
+      aria-label={ariaLabel}
       className={`shrink-0 rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-[13px] tabular-nums ${tone}`}
     >
       {Math.round(value * 100)}%
@@ -149,7 +158,11 @@ export default function IdentificationResults({
                     <p className="text-sm text-ink-2 mt-1">{disease.description}</p>
                   )}
                 </div>
-                <ConfidencePill value={disease.probability} tone="text-warn" />
+                <ConfidencePill
+                  value={disease.probability}
+                  tone="text-warn"
+                  ariaLabel={`${Math.round(disease.probability * 100)}% match`}
+                />
               </div>
             ))}
           </div>
