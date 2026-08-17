@@ -90,6 +90,14 @@ DEFAULTS = {
     # users/experts/ ("Community experts" rail): row cap and minimum trust.
     "EXPERTS_LIMIT": 4,
     "EXPERTS_MIN_TRUST_LEVEL": 3,  # TrustLevel.REGULAR
+    # SearchView bounds (todo 290) — an anonymous many-term query recurses
+    # Wagtail's search-query AND-tree construction (one nesting level per
+    # term) into a RecursionError/500 before SEARCH_MAX_QUERY_CHARS alone
+    # would ever bite; both caps apply, term count first. Truncate rather
+    # than 400 — matches the semantic path's existing behaviour
+    # (SIMILAR_QUERY_MAX_CHARS) and keeps a pasted-paragraph query usable.
+    "SEARCH_MAX_TERMS": 50,
+    "SEARCH_MAX_QUERY_CHARS": 500,
 }
 
 

@@ -10,6 +10,18 @@ def test_forum_boards_endpoint_is_mounted():
 
 
 @pytest.mark.django_db
+def test_search_many_term_query_is_bounded_not_500():
+    # Todo 290: an anonymous many-term query recursed Wagtail's search-query
+    # AND-tree construction (one nesting level per term) into a
+    # RecursionError/500. The bound lives in the package SearchView.get, but
+    # prod serves this route through the throttled forum_host SUBCLASS
+    # (see test_host_mounted_reads_carry_m42_cache_headers above), so pin the
+    # fix through that real mount, not just the package test urlconf.
+    resp = APIClient().get("/api/v1/forum/search/?q=" + "tomato " * 500)
+    assert resp.status_code == 200
+
+
+@pytest.mark.django_db
 def test_host_mounted_reads_carry_m42_cache_headers():
     # M42 (todo 261): the caching mixin lives on the PACKAGE read views, but prod
     # serves through this host mount — some views straight from the package
