@@ -87,3 +87,14 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   mount, pinned in a test via `reverse()`. A hardcoded `Strict` silently
   killed all email/password auth on the split-domain prod deploy while every
   test stayed green. See `docs/LEARNINGS.md` 2026-08-13.
+- **A management-command option meant for orchestrator-only use (never the
+  CLI) is a `Command.stealth_options` entry, never an `add_argument()` flag.**
+  `stealth_options` is Django's own mechanism (`call_command()` validates
+  passed kwargs against `dest_parameters | stealth_options`) for a value
+  settable ONLY via `call_command(..., real_users_verified=True)` — never
+  registered on the argparse parser, so it cannot be typed as a real CLI
+  flag. Used to skip a duplicate guard check an orchestrator already ran
+  without weakening the guard itself for a standalone/CLI invocation. Pin
+  the CLI-unreachability itself: `command.create_parser(...).parse_args([...])`
+  with the flag must raise (Django's `CommandParser.error()` raises
+  `CommandError`, not argparse's default `SystemExit`).

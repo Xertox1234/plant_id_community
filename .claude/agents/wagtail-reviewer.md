@@ -50,9 +50,16 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
 
 **Queries**
 
-- [ ] List action: `select_related('author', 'series')` + `prefetch_related('categories', 'tags')` — target 5-8 queries
+- [ ] List action: `select_related('author', 'series')` + `prefetch_related('categories', 'tags')` — target 5-8 queries. **Verify this branch is actually reachable**: on a `PagesAPIViewSet` subclass, `self.action` is Wagtail's `"listing_view"`/`"detail_view"` (see `docs/rules/wagtail.md`), not DRF's `"list"`/`"retrieve"` — `apps/blog/api/viewsets.py`'s own `BlogPostPageViewSet.get_serializer_class()`/`get_queryset()` branch on `"list"` and have NEVER matched (todo 306, filed 2026-08-16); this checklist item describes the INTENDED behavior, not the current one, until that todo ships.
 - [ ] Retrieve action: full `prefetch_related` including `related_plant_species` — target 3-5 queries
 - [ ] Thumbnail renditions: list uses 400x300, detail uses 800x600 and 1200px
+- [ ] **Before citing a `Meta.fields` diff as the cause of an API-response
+      symptom** (a field present/absent in the actual response), confirm
+      which serializer is actually dispatched at runtime for the route in
+      question — a `self.action`-branching Wagtail viewset can silently
+      never take the branch a diff assumes it does. A finding correct about
+      the code and wrong about the runtime is still a false positive
+      (2026-08-16, PR #540 — see `docs/LEARNINGS.md`).
 
 **Version Mismatch**
 

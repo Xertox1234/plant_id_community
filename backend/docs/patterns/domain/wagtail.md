@@ -83,6 +83,58 @@ if isinstance(content_blocks, str):
 
 ---
 
+## A Custom `PagesAPIViewSet`'s `self.action` Is Not DRF's `list`/`retrieve`
+
+**Rule**: Branch `get_serializer_class()`/`get_queryset()` on Wagtail's real
+action names — `"listing_view"`/`"detail_view"`/`"find_view"` — never on
+DRF's conventional `"list"`/`"retrieve"`.
+
+Wagtail's `BaseAPIViewSet.get_urlpatterns()` wires the three base endpoints
+via DRF's own `ViewSetMixin.as_view({"get": "listing_view"})` /
+`{"get": "detail_view"}` / `{"get": "find_view"}` (`wagtail/api/v2/views.py`).
+DRF's `ViewSetMixin.as_view()` sets `self.action` to the DICT VALUE it was
+given — the Wagtail METHOD name, not a DRF conventional one. Wagtail's own
+base class confirms this is the real contract: it checks
+`self.action == "listing_view"` internally, twice, in the same file.
+
+```python
+# WRONG — this condition is NEVER true for the base list endpoint; it always
+# silently falls through to the detail serializer, including content_blocks,
+# introduction, related_posts (an N+1) on every "list" request.
+class BlogPostPageViewSet(PagesAPIViewSet):
+    def get_serializer_class(self):
+        if getattr(self, "action", None) == "list":  # ❌ never matches
+            return BlogPostPageListSerializer
+        return BlogPostPageSerializer
+
+# CORRECT
+class BlogPostPageViewSet(PagesAPIViewSet):
+    def get_serializer_class(self):
+        if getattr(self, "action", None) == "listing_view":  # ✅
+            return BlogPostPageListSerializer
+        return BlogPostPageSerializer
+```
+
+**Genuine DRF `@action`-decorated custom endpoints are unaffected** — a
+route registered with `.as_view({"get": "popular"})` (whether via
+`@action(detail=False)` or an explicit `path(...)`) DOES get `self.action ==
+"popular"`, because that dispatch goes through DRF's `ViewSetMixin` directly,
+not through Wagtail's fixed 3-route `get_urlpatterns()`. The trap is specific
+to the three Wagtail-owned base routes.
+
+**Verification**: a code read of the branch looks correct either way — the
+only way to catch this is to live-probe the actual endpoint response (or add
+a one-line `print(self.action)`/log and hit the URL) and check which fields
+come back. Don't trust a `Meta.fields` diff on the serializer alone to
+predict runtime API behavior for a `self.action`-branching Wagtail viewset.
+
+See `docs/LEARNINGS.md` 2026-08-16 and todo 306
+(`backend/apps/blog/api/viewsets.py`'s `BlogPostPageViewSet` — filed but not
+yet fixed, since it changes the list endpoint's response shape for existing
+consumers).
+
+---
+
 ## `.specific()` Is Incompatible with `Prefetch(to_attr=…)`
 
 **Rule**: Never add `.specific()` to a queryset used as the inner queryset of a `Prefetch`.
