@@ -102,7 +102,7 @@ const RAIL_BOARD_TOPICS_LIMIT = 5;
  */
 export default function ThreadDetailPage() {
   const { categorySlug, threadSlug } = useParams<{ categorySlug: string; threadSlug: string }>();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user, revalidateIdentity } = useAuth();
   const location = useLocation();
   const announce = useAnnounce();
   useScrollToTop();
@@ -372,6 +372,21 @@ export default function ThreadDetailPage() {
         // (M25) — remount-via-key alone left focus dropped after posting.
         setComposerKey((k) => k + 1);
         setAutoFocusComposer(true);
+        // Defense-in-depth (todo 297): the reply already posted under
+        // whatever identity the cookie carried — this can only detect a
+        // switch, not prevent one (a TOCTOU race, same as NewThreadPage).
+        // A silent "Reply posted." here is exactly how the live prod
+        // incident went unnoticed, so a drifted identity gets a distinct,
+        // visible notice instead — checked regardless of published/pending,
+        // since a misattributed pending reply silently lands in the wrong
+        // user's moderation queue just the same.
+        const actingUserId = user?.id ?? null;
+        const current = await revalidateIdentity();
+        const drifted = (current?.id ?? null) !== actingUserId;
+        const driftNotice = current?.username
+          ? `Your session changed while replying — this was posted as ${current.username}, not the account you started with.`
+          : 'Your session changed while replying — you were signed out.';
+
         if (res.status === 'published') {
           const refreshed = await collectAllPosts(topicId);
           setPosts(refreshed.items);
@@ -380,11 +395,19 @@ export default function ThreadDetailPage() {
           // Posts are oldest-first, so the just-posted reply is the last item —
           // mark it for the one-shot press-in landing animation.
           setJustPostedId(refreshed.items[refreshed.items.length - 1]?.id ?? null);
-          // Success has no visible banner (the reply just appears), so announce
-          // it for screen readers (M25).
-          announce('Reply posted.', 'polite');
+          if (drifted) {
+            setNotice(driftNotice);
+          } else {
+            // Success has no visible banner (the reply just appears), so
+            // announce it for screen readers (M25).
+            announce('Reply posted.', 'polite');
+          }
         } else {
-          setNotice('Your reply was submitted and is awaiting moderation.');
+          setNotice(
+            drifted
+              ? `${driftNotice} It is awaiting moderation.`
+              : 'Your reply was submitted and is awaiting moderation.'
+          );
         }
       } catch (err) {
         logger.error('Error posting reply', {
@@ -397,7 +420,7 @@ export default function ThreadDetailPage() {
         setReplySubmitting(false);
       }
     },
-    [topicId, replyBody, announce]
+    [topicId, replyBody, announce, user, revalidateIdentity]
   );
 
   const handleReact = useCallback(async (postId: string, reactionType: string) => {

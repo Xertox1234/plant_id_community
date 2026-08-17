@@ -10,6 +10,7 @@ import Button from '../../components/ui/Button';
 import ButtonLink from '../../components/ui/ButtonLink';
 import PageMeta from '../../components/PageMeta';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
 import type { Category, CreateIdentificationInput } from '@/types';
@@ -29,6 +30,21 @@ interface IdentificationHandoff {
   identification: CreateIdentificationInput;
   /** Absolute URL of the uploaded photo, for the composer's preview only. */
   identificationPreviewUrl?: string;
+}
+
+/**
+ * Defense-in-depth (todo 297): the cookie-jar identity can switch mid-submit
+ * (re-login as a different account in another tab) — the create request
+ * already succeeded under whatever identity the cookie carried by then, so
+ * this can't be prevented, only detected. Non-null means "don't silently
+ * navigate/confirm as if the ORIGINAL user posted this" — show a notice
+ * instead. `path` is null for a pending (not-yet-live) topic — there is
+ * nothing to link to yet.
+ */
+interface IdentityDrift {
+  path: string | null;
+  asUsername: string | null;
+  pending: boolean;
 }
 
 /**
@@ -104,10 +120,12 @@ export default function NewThreadPage() {
   // show an on-page confirmation instead of navigating into it (M24 — replaces
   // window.alert, which was inaccessible and jarring).
   const [submittedPending, setSubmittedPending] = useState<boolean>(false);
+  const [identityDrift, setIdentityDrift] = useState<IdentityDrift | null>(null);
   // Bumping this re-runs the board load — drives the initial fetch and the
   // error-state Retry; each run gets its own `ignore` cleanup flag.
   const [reloadKey, setReloadKey] = useState(0);
   const announce = useAnnounce();
+  const { user, revalidateIdentity } = useAuth();
 
   useEffect(() => {
     // react.dev race guard: drop a stale response (unmount, or a retry/param
@@ -173,7 +191,28 @@ export default function NewThreadPage() {
           ...(identification ? { identification } : {}),
         });
         clearDraft(newThreadDraftKey);
-        if (res.status === 'published') {
+
+        // Defense-in-depth (todo 297): the write already happened under
+        // whatever identity the cookie carried — this can only detect a
+        // switch, not prevent one. Compare the identity BEFORE the create
+        // call against a fresh revalidation now; a TOCTOU race, but the
+        // best available signal client-side. Checked regardless of
+        // published/pending — a misattributed post silently landing in the
+        // wrong user's moderation queue is the same failure either way.
+        const actingUserId = user?.id ?? null;
+        const current = await revalidateIdentity();
+        const drifted = (current?.id ?? null) !== actingUserId;
+
+        if (drifted) {
+          setIdentityDrift({
+            path:
+              res.status === 'published'
+                ? threadPath(category, { id: res.id, slug: res.slug, title: title.trim() })
+                : null,
+            asUsername: current?.username ?? null,
+            pending: res.status !== 'published',
+          });
+        } else if (res.status === 'published') {
           navigate(threadPath(category, { id: res.id, slug: res.slug, title: title.trim() }));
         } else {
           // Pending → show the on-page confirmation and announce it (M24).
@@ -191,7 +230,18 @@ export default function NewThreadPage() {
         setSubmitting(false);
       }
     },
-    [category, title, body, tagsInput, identification, navigate, newThreadDraftKey, announce]
+    [
+      category,
+      title,
+      body,
+      tagsInput,
+      identification,
+      navigate,
+      newThreadDraftKey,
+      announce,
+      user,
+      revalidateIdentity,
+    ]
   );
 
   if (loading) {
@@ -212,6 +262,31 @@ export default function NewThreadPage() {
           </p>
           <ButtonLink to={categoryPath(category)} variant="primary" className="min-h-11">
             Back to {category.name}
+          </ButtonLink>
+        </div>
+      </div>
+    );
+  }
+
+  if (identityDrift && category) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="canopy-card rounded-md p-6 text-center space-y-3">
+          <h1 className="gt-h3 text-ink">Your session changed while posting</h1>
+          <p className="text-ink-2">
+            {identityDrift.asUsername
+              ? `This topic was posted as ${identityDrift.asUsername}, not the account you started with.`
+              : 'You were signed out while this topic was being posted.'}{' '}
+            {identityDrift.pending
+              ? 'It is awaiting moderation before it appears.'
+              : "If this wasn't you, check your account."}
+          </p>
+          <ButtonLink
+            to={identityDrift.path ?? categoryPath(category)}
+            variant="primary"
+            className="min-h-11"
+          >
+            {identityDrift.path ? 'View the topic' : `Back to ${category.name}`}
           </ButtonLink>
         </div>
       </div>
