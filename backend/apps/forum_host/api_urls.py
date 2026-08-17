@@ -19,6 +19,7 @@ from wagtail_forum.api.notifications import NotificationListView
 # a throttled write handler come from the host wrappers in .api.
 from wagtail_forum.api.views import (
     BoardListView,
+    EventHeroView,
     ExpertsView,
     MeStatsView,
     PostRevisionDetailView,
@@ -122,6 +123,9 @@ urlpatterns = [
     path("me/profile/", MeProfileView.as_view(), name="me-profile"),
     path("me/stats/", MeStatsView.as_view(), name="me-stats"),
     path("me/bookmarks/", TopicBookmarkListView.as_view(), name="me-bookmarks"),
+    # GET-only + AllowAny — mounted straight from the package (no throttle
+    # wrapper), mirrors RecentTopicsView/ExpertsView.
+    path("event/", EventHeroView.as_view(), name="event-hero"),
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
     path("users/search/", UserMentionSearchView.as_view(), name="user-mention-search"),

@@ -306,12 +306,19 @@ export interface ForumMyStats {
   identifications_shared: number;
 }
 
+/** The minimal board identity carried on a topic-shaped API row. */
+export interface BoardSummary {
+  id: number;
+  name: string;
+  slug: string;
+}
+
 /** GET topics/recent/ row — the landing rail's "Active now" shape. */
 export interface RecentTopic {
   id: number;
   slug: string;
   title: string;
-  board: { id: number; name: string; slug: string };
+  board: BoardSummary;
   reply_count: number;
   last_post_at: string | null;
   is_pinned: boolean;
@@ -325,4 +332,19 @@ export interface ForumExpert {
   avatar: string | null;
   trust_level: number | null;
   title: string;
+}
+
+/** GET event/ `topic` — the CMS-featured landing-page hero (todo 304). */
+export interface EventHeroTopic {
+  id: number;
+  slug: string;
+  title: string;
+  board: BoardSummary;
+  eyebrow: string;
+  description: string;
+}
+
+/** GET event/ — `{topic: null}` when no event is currently featured. */
+export interface EventHero {
+  topic: EventHeroTopic | null;
 }

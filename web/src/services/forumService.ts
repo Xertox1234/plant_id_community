@@ -42,6 +42,7 @@ import type {
   ForumMyStats,
   RecentTopic,
   ForumExpert,
+  EventHero,
 } from '../types/forum';
 import { slugifyTitle } from '../utils/forumUrls';
 import { htmlToBodyBlocks } from '../utils/forumBody';
@@ -524,6 +525,11 @@ export async function fetchRecentTopics(limit = 5): Promise<RecentTopic[]> {
 export async function fetchExperts(): Promise<ForumExpert[]> {
   const data = await authenticatedFetch<{ results: ForumExpert[] }>(`${FORUM_BASE}/users/experts/`);
   return data.results || [];
+}
+
+/** Fetch the currently-featured landing-page event hero, or `{topic: null}`. Public. */
+export async function fetchEventHero(): Promise<EventHero> {
+  return authenticatedFetch<EventHero>(`${FORUM_BASE}/event/`);
 }
 
 // ---------------------------------------------------------------------------

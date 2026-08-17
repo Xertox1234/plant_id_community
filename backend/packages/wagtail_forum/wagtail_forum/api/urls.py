@@ -11,6 +11,7 @@ from .subscriptions import TopicSubscriptionView
 from .user_search import UserMentionSearchView
 from .views import (
     BoardListView,
+    EventHeroView,
     ExpertsView,
     MeProfileView,
     MeStatsView,
@@ -79,6 +80,7 @@ urlpatterns = [
     path("me/profile/", MeProfileView.as_view(), name="me-profile"),
     path("me/stats/", MeStatsView.as_view(), name="me-stats"),
     path("me/bookmarks/", TopicBookmarkListView.as_view(), name="me-bookmarks"),
+    path("event/", EventHeroView.as_view(), name="event-hero"),
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
     path("users/search/", UserMentionSearchView.as_view(), name="user-mention-search"),

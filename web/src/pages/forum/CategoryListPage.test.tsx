@@ -5,7 +5,7 @@ import { BrowserRouter } from 'react-router-dom';
 import CategoryListPage from './CategoryListPage';
 import { resolveBoardFilter } from '../../utils/forumBoardFilter';
 import { createMockCategory } from '../../tests/forumUtils';
-import type { Category, ForumMyStats, RecentTopic } from '../../types/forum';
+import type { Category, ForumMyStats, EventHeroTopic } from '../../types/forum';
 import * as forumService from '../../services/forumService';
 import * as blogService from '../../services/blogService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -56,16 +56,14 @@ const mockAuth = (isAuthenticated: boolean) =>
     typeof useAuth
   >;
 
-function makeRecentTopic(overrides: Partial<RecentTopic> = {}): RecentTopic {
+function makeEventHeroTopic(overrides: Partial<EventHeroTopic> = {}): EventHeroTopic {
   return {
-    id: 1,
-    slug: 'watering-tips',
-    title: 'Watering tips',
-    board: { id: 1, name: 'Plant Care', slug: 'plant-care' },
-    reply_count: 3,
-    last_post_at: '2026-08-01T00:00:00Z',
-    is_pinned: false,
-    thumbnail_url: null,
+    id: 42,
+    slug: 'bloom-watch-2026',
+    title: 'Bloom Watch 2026',
+    board: { id: 7, name: 'Showcase', slug: 'showcase' },
+    eyebrow: 'Community event',
+    description: "Track what's flowering this season.",
     ...overrides,
   };
 }
@@ -90,6 +88,7 @@ describe('CategoryListPage', () => {
     // override either mock to exercise the authed / event-hero paths.
     vi.mocked(useAuth).mockReturnValue(mockAuth(false));
     vi.mocked(forumService.fetchRecentTopics).mockResolvedValue([]);
+    vi.mocked(forumService.fetchEventHero).mockResolvedValue({ topic: null });
     // Defensive mock for CommunityExpertsModule's rail fetch (Task 10), same
     // reasoning as the blogService mock above: RailSlot portals into
     // `#app-rail`, which doesn't exist in jsdom for this suite, so the module
@@ -489,93 +488,55 @@ describe('CategoryListPage', () => {
     });
   });
 
-  describe('bloom watch event hero', () => {
-    it('fetches the server MAX recent-topics window, not just the rail display count', async () => {
-      // RECENT_TOPICS_MAX_LIMIT (wagtail_forum/conf.py) is 20 — the hero
-      // scans the FULL fetched array for the pinned bloom-watch topic, so a
-      // narrower fetch lets newer topics evict a still-live pinned event
-      // out of the window mid-event (review finding #6).
+  describe('event hero (todo 304 — backend-owned signal)', () => {
+    it('renders the event hero, linking to the topic path, using copy from the API', async () => {
       vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
-      renderCategoryListPage();
-
-      await waitFor(() => expect(forumService.fetchRecentTopics).toHaveBeenCalledWith(20));
-    });
-
-    it("still shows the event hero when the pinned bloom-watch topic sits past the rail's 3-item display cap but within the fetched window", async () => {
-      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
-      const bloomWatch = makeRecentTopic({
-        id: 42,
-        slug: 'bloom-watch-2026',
-        title: 'Bloom Watch 2026',
-        board: { id: 7, name: 'Showcase', slug: 'showcase' },
-        is_pinned: true,
+      vi.mocked(forumService.fetchEventHero).mockResolvedValue({
+        topic: makeEventHeroTopic(),
       });
-      // 6 newer, unrelated topics ahead of the pinned event — more than the
-      // rail's RAIL_TOPIC_LIMIT (3) AND more than the old, buggy fetch
-      // count (5). The mock mirrors the real endpoint's `?limit=` truncation
-      // (newest-first, pinned event last) so this test exercises the ACTUAL
-      // regression: it only passes when the page requests a window wide
-      // enough that the truncated response still contains the pinned topic
-      // — a plain `mockResolvedValue` ignoring the call arg would pass even
-      // under the `fetchRecentTopics(5)` mutation.
-      const newerTopics = Array.from({ length: 6 }, (_, i) =>
-        makeRecentTopic({ id: i + 1, slug: `newer-topic-${i + 1}` })
-      );
-      const fullWindow = [...newerTopics, bloomWatch];
-      vi.mocked(forumService.fetchRecentTopics).mockImplementation((limit = 5) =>
-        Promise.resolve(fullWindow.slice(0, limit))
-      );
 
       renderCategoryListPage();
 
-      const cta = await screen.findByRole('link', { name: 'Join the bloom watch' });
+      const cta = await screen.findByRole('link', { name: 'Join the conversation' });
       expect(cta).toHaveAttribute('href', '/forum/7-showcase/42-bloom-watch-2026');
+      expect(screen.getByText('Community event')).toBeInTheDocument();
+      expect(screen.getByText('Bloom Watch 2026')).toBeInTheDocument();
+      expect(screen.getByText("Track what's flowering this season.")).toBeInTheDocument();
       expect(screen.queryByText('Ask the canopy')).not.toBeInTheDocument();
     });
 
-    it('renders the event hero, linking to the topic path, when a pinned bloom-watch topic is in the recent feed', async () => {
+    it('keeps the "Ask the canopy" hero when no event is currently featured', async () => {
       vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
-      const bloomWatch = makeRecentTopic({
-        id: 42,
-        slug: 'bloom-watch-2026',
-        title: 'Bloom Watch 2026',
-        board: { id: 7, name: 'Showcase', slug: 'showcase' },
-        is_pinned: true,
-      });
-      vi.mocked(forumService.fetchRecentTopics).mockResolvedValue([bloomWatch]);
-
-      renderCategoryListPage();
-
-      const cta = await screen.findByRole('link', { name: 'Join the bloom watch' });
-      expect(cta).toHaveAttribute('href', '/forum/7-showcase/42-bloom-watch-2026');
-      expect(screen.getByText('The bloom watch is on.')).toBeInTheDocument();
-      expect(screen.queryByText('Ask the canopy')).not.toBeInTheDocument();
-    });
-
-    it('keeps the "Ask the canopy" hero when no pinned bloom-watch topic is present', async () => {
-      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
-      vi.mocked(forumService.fetchRecentTopics).mockResolvedValue([
-        makeRecentTopic({ is_pinned: false }),
-        makeRecentTopic({ id: 2, slug: 'unrelated-pinned', is_pinned: true }),
-        // is_pinned: false with a matching slug — exercises the other half of
-        // the `is_pinned && slug.startsWith(...)` AND, not just is_pinned's.
-        makeRecentTopic({ id: 3, slug: 'bloom-watch-2025', is_pinned: false }),
-      ]);
+      vi.mocked(forumService.fetchEventHero).mockResolvedValue({ topic: null });
 
       renderCategoryListPage();
 
       await waitFor(() => expect(screen.getByText('Ask the canopy')).toBeInTheDocument());
-      expect(screen.queryByRole('link', { name: 'Join the bloom watch' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Join the conversation' })).not.toBeInTheDocument();
     });
 
-    it('keeps the "Ask the canopy" hero when fetchRecentTopics rejects', async () => {
+    it('keeps the "Ask the canopy" hero when fetchEventHero rejects', async () => {
       vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
-      vi.mocked(forumService.fetchRecentTopics).mockRejectedValue(new Error('network error'));
+      vi.mocked(forumService.fetchEventHero).mockRejectedValue(new Error('network error'));
 
       renderCategoryListPage();
 
       await waitFor(() => expect(screen.getByText('Ask the canopy')).toBeInTheDocument());
-      expect(screen.queryByRole('link', { name: 'Join the bloom watch' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Join the conversation' })).not.toBeInTheDocument();
+    });
+
+    it('never surfaces the page error state when fetchEventHero rejects', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
+        indexPayload([createMockCategory({ id: 'cat-1', name: 'Plant Care' })])
+      );
+      vi.mocked(forumService.fetchEventHero).mockRejectedValue(new Error('network error'));
+
+      renderCategoryListPage();
+
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { level: 3, name: 'Plant Care' })).toBeInTheDocument()
+      );
+      expect(screen.queryByText('Error loading categories')).not.toBeInTheDocument();
     });
   });
 
