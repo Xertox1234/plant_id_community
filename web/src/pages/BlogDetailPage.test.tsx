@@ -36,10 +36,16 @@ const post: BlogPost = createMockBlogPost({
       title: 'Your fiddle leaf isn’t dying, it’s adjusting',
       slug: 'fiddle-leaf-adjusting',
       excerpt: 'Before you diagnose disease…',
-      // Live-probed shape: _get_post_image's get_full_url resolves
-      // Wagtail's uncurated Site record (port 80), not the API's actual
-      // host — mediaUrl re-bases it onto the API origin regardless.
-      featured_image: 'http://localhost/media/fiddle-300.webp',
+      // todo 306: same rendition-dict shape as featured_image above — was
+      // a bare URL string before the fix. full_url still resolves via
+      // Wagtail's uncurated default Site (localhost) regardless — mediaUrl
+      // ignores it and re-bases `url` onto the API origin either way.
+      featured_image: {
+        url: '/media/fiddle-300.webp',
+        width: 300,
+        height: 200,
+        alt: '',
+      },
     },
   ],
 });

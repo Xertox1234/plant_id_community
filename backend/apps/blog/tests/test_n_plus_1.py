@@ -33,16 +33,18 @@ pagination (page_size = 12 — see BlogPagination in apps/blog/views.py).
 """
 
 from datetime import date
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import connection
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from wagtail.images import get_image_model
+from wagtail.images.models import SourceImageIOError
 from wagtail.images.tests.utils import get_test_image_file
-from wagtail.models import Page
+from wagtail.models import Page, Site
 
 from ..models import (
     BlogAuthorPage,
@@ -392,29 +394,21 @@ class BlogPostsListFeaturedImageContractTest(TestCase):
     """blog:blog-posts-list — featured_image / featured_image_thumb contract.
 
     PR #540 review finding #1 claimed the list serializer's missing
-    featured_image field made grid covers render blurry. Verified FALSE:
-    `BlogPostPageViewSet.get_serializer_class()` branches on
-    `self.action == "list"`, but Wagtail's router (todo 306) sets
+    featured_image field made grid covers render blurry. Verified FALSE at
+    the time: `BlogPostPageViewSet.get_serializer_class()` branched on
+    `self.action == "list"`, but Wagtail's router sets
     `self.action = "listing_view"` for this endpoint, so the check never
-    matches and `/api/v2/blog-posts/` has always served the full
-    BlogPostPageSerializer (detail) — which already had featured_image at
-    fill-800x400 before this PR. A live probe against the pre-fix commit
-    confirmed the field was already present.
+    matched and `/api/v2/blog-posts/` served the full BlogPostPageSerializer
+    (detail) — which already had featured_image at fill-800x400. A live
+    probe against the pre-fix commit confirmed the field was already
+    present.
 
     featured_image was still added to BlogPostPageListSerializer (+ its
     queryset prefetch sites) because that serializer IS genuinely used by
-    the routed `popular` action, and because todo 306's eventual fix will
-    make the list endpoint start using it too — without this field already
-    present, fixing todo 306 would silently reintroduce the blurry-grid
-    symptom the original (mistaken) finding described. This test pins the
-    CURRENT response contract (via whichever serializer actually serves
-    it today) so a regression is caught either way.
-
-    Not an N+1 regression test: the prefetch path this field exercises is
-    provably dead code for `/api/v2/blog-posts/` today (todo 306), so a
-    query-count test here would only be measuring a path production never
-    takes — see the removed test_no_n_plus_1_scaling in git history if
-    that prefetch ever needs re-verifying once todo 306 ships.
+    the routed `popular` action, and because todo 306 (now fixed — see
+    `BlogPostsListSerializerRoutingTest` below) makes the list endpoint
+    start using it too. This test pins the response contract so a
+    regression is caught either way.
     """
 
     def setUp(self):
@@ -466,3 +460,306 @@ class BlogPostsListFeaturedImageContractTest(TestCase):
         self.assertIn(".fill-800x400", item["featured_image"]["url"])
         self.assertIn("featured_image_thumb", item)
         self.assertIn(".fill-300x200", item["featured_image_thumb"]["url"])
+
+
+class BlogPostsListSerializerRoutingTest(TestCase):
+    """`/api/v2/blog-posts/` list vs detail serializer selection (todo 306 AC1).
+
+    `BlogPostPageViewSet.get_serializer_class()` used to check
+    `self.action == "list"`, which Wagtail's router never sets (it uses
+    `"listing_view"`/`"detail_view"` — see `BlogPostsListFeaturedImageContractTest`
+    above) — so the list endpoint always served the full
+    `BlogPostPageSerializer`, paying its per-row `related_posts` N+1 (a fresh
+    `BlogPostPage.objects...` query per row) on every request. Pins the
+    correctness fix (light serializer on list, full on detail) via field
+    presence/absence — `related_posts` is a field
+    `BlogPostPageListSerializer` doesn't define at all, so its absence
+    proves `get_related_posts()` (the per-row query) never runs on this
+    endpoint; this is a structural guarantee, not a measured query count
+    (see `BlogPostsListFeaturedImageContractTest`'s docstring history for
+    why a query-count assertion here would double-count the unrelated,
+    pre-existing `BlogCategorySerializer.get_post_count()` N+1).
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(
+            username="routingauthor",
+            email="routingauthor@example.com",
+            password="pass12345",  # pragma: allowlist secret
+        )
+        root = Page.objects.get(id=1)
+        self.blog_index = BlogIndexPage(title="Routing Blog", slug="routing-blog")
+        root.add_child(instance=self.blog_index)
+        # A shared category so every post's (list-serializer-absent)
+        # related_posts fallback query has candidates to actually fetch —
+        # an empty candidate set would make the N+1 test pass vacuously.
+        self.category = BlogCategory.objects.create(name="Routing", slug="routing")
+        self._seq = 0
+
+    def _make_post(self):
+        self._seq += 1
+        i = self._seq
+        post = BlogPostPage(
+            title=f"Routing Post {i}",
+            slug=f"routing-post-{i}",
+            author=self.user,
+            publish_date=date.today(),
+            introduction=f"<p>intro {i}</p>",
+            content_blocks=[],
+        )
+        self.blog_index.add_child(instance=post)
+        PostCategoryThrough.objects.get_or_create(
+            blogpostpage=post, blogcategory=self.category
+        )
+        return post
+
+    def test_list_serves_light_serializer(self):
+        """Fields unique to the detail serializer (related_posts,
+        content_blocks, introduction) must be absent from the list
+        response — proves listing_view now resolves
+        BlogPostPageListSerializer, not the full one."""
+        self._make_post()
+        response = self.client.get("/api/v2/blog-posts/")
+        self.assertEqual(response.status_code, 200)
+        item = response.data["items"][0]
+        for field in ("related_posts", "content_blocks", "introduction"):
+            self.assertNotIn(
+                field,
+                item,
+                f"'{field}' is detail-only and must not appear on the list "
+                f"endpoint — get_serializer_class() is not routing "
+                f"listing_view to BlogPostPageListSerializer.",
+            )
+
+    def test_detail_still_serves_full_serializer(self):
+        """The fix must not regress the detail endpoint — related_posts and
+        content_blocks stay present there."""
+        post = self._make_post()
+        response = self.client.get(f"/api/v2/blog-posts/{post.id}/")
+        self.assertEqual(response.status_code, 200)
+        for field in ("related_posts", "content_blocks", "introduction"):
+            self.assertIn(field, response.data, f"'{field}' missing from detail")
+
+    # N+1 elimination is proven by test_list_serves_light_serializer above:
+    # BlogPostPageListSerializer has no related_posts field at all, so
+    # get_related_posts() (the per-row query) never runs on this endpoint —
+    # field absence IS the N+1 proof. A total-query-count scaling
+    # assertion was tried and rejected: it also caught the nested
+    # BlogCategorySerializer.get_post_count() per-category COUNT, a
+    # pre-existing N+1 unrelated to this todo (out of scope here).
+
+
+class BlogPostDetailContentBlocksContractTest(TestCase):
+    """`/api/v2/blog-posts/<id>/` content_blocks shape (todo 306 AC3).
+
+    Before this fix, `content_blocks` fell back to DRF ModelSerializer's
+    default handling of an unmapped Wagtail StreamField model field — a
+    stringified raw JSON blob the client had to `JSON.parse()` itself, with
+    any `ImageChooserBlock` value serialized as a bare integer PK (no way to
+    render it). Wagtail's own `StreamField` API field (`content_blocks =
+    StreamFieldAPIField(...)`) returns real structured blocks; the nested
+    `plant_spotlight.image` block still needed `APIImageChooserBlock`
+    (`apps/blog/blocks.py`) on top, since even Wagtail's default chooser
+    block API representation is `get_prep_value()` — the bare PK again.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(
+            username="contentauthor",
+            email="contentauthor@example.com",
+            password="pass12345",  # pragma: allowlist secret
+        )
+        root = Page.objects.get(id=1)
+        self.blog_index = BlogIndexPage(title="Content Blog", slug="content-blog")
+        root.add_child(instance=self.blog_index)
+        self.image = get_image_model().objects.create(
+            title="Monstera", file=get_test_image_file(filename="monstera.png")
+        )
+
+    def test_content_blocks_is_structured_not_a_string(self):
+        post = BlogPostPage(
+            title="Spotlight Post",
+            slug="spotlight-post",
+            author=self.user,
+            publish_date=date.today(),
+            introduction="<p>intro</p>",
+            content_blocks=[
+                ("heading", "Meet the Monstera"),
+                (
+                    "plant_spotlight",
+                    {
+                        "plant_name": "Monstera",
+                        "scientific_name": "Monstera deliciosa",
+                        "description": "<p>A climbing aroid.</p>",
+                        "care_difficulty": "easy",
+                        "image": self.image,
+                    },
+                ),
+            ],
+        )
+        self.blog_index.add_child(instance=post)
+
+        response = self.client.get(f"/api/v2/blog-posts/{post.id}/")
+        self.assertEqual(response.status_code, 200)
+        blocks = response.data["content_blocks"]
+        self.assertIsInstance(
+            blocks,
+            list,
+            "content_blocks must be structured JSON (a list of block dicts), "
+            "not a stringified blob the client has to JSON.parse() itself.",
+        )
+
+        heading = next(b for b in blocks if b["type"] == "heading")
+        self.assertEqual(heading["value"], "Meet the Monstera")
+
+        spotlight = next(b for b in blocks if b["type"] == "plant_spotlight")
+        image_value = spotlight["value"]["image"]
+        self.assertIsInstance(
+            image_value,
+            dict,
+            f"plant_spotlight.image must resolve to a rendition dict, not a "
+            f"bare PK a client cannot turn into a URL — got {image_value!r}.",
+        )
+        self.assertIn("/images/", image_value["url"])
+        self.assertIn(".fill-800x400", image_value["url"])
+        # Always absolute (built from the request, not a relative + separate
+        # full_url pair) — matches the forum's serialize_image_for_api
+        # precedent for this exact StreamField-image-block problem.
+        self.assertTrue(image_value["url"].startswith("http"))
+        self.assertIn("id", image_value)
+
+    def test_plant_spotlight_image_degrades_to_none_on_missing_source_file(self):
+        """A missing source media file (Image row survives, file wiped —
+        e.g. on redeploy) must degrade plant_spotlight.image to None, not
+        crash the endpoint or return an invalid {"error": ...} dict a
+        client can't render (code review, todo 306)."""
+        post = BlogPostPage(
+            title="Broken Image Post",
+            slug="broken-image-post",
+            author=self.user,
+            publish_date=date.today(),
+            introduction="<p>intro</p>",
+            content_blocks=[
+                (
+                    "plant_spotlight",
+                    {
+                        "plant_name": "Monstera",
+                        "scientific_name": "",
+                        "description": "<p>desc</p>",
+                        "care_difficulty": "easy",
+                        "image": self.image,
+                    },
+                ),
+            ],
+        )
+        self.blog_index.add_child(instance=post)
+
+        with mock.patch(
+            "wagtail.images.models.AbstractImage.get_rendition",
+            side_effect=SourceImageIOError("source file missing"),
+        ):
+            response = self.client.get(f"/api/v2/blog-posts/{post.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        spotlight = next(
+            b for b in response.data["content_blocks"] if b["type"] == "plant_spotlight"
+        )
+        self.assertIsNone(spotlight["value"]["image"])
+
+
+class BlogPostMediaUrlConsistencyTest(TestCase):
+    """Every image field in the blog API emits the same rendition-dict
+    shape with a request-derived `full_url` (todo 306 AC4).
+
+    Before this fix, `related_posts[].featured_image` was a bare URL
+    string built from `Rendition.full_url` (which prefixes
+    `settings.WAGTAILADMIN_BASE_URL` — defaults to `http://localhost:8000`
+    when unset, which this project does not set for every deploy
+    environment) while every other image field returned a
+    `{url, full_url, width, height, alt}` dict built from the request's
+    actual host via `get_full_url()`.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(
+            username="mediaauthor",
+            email="mediaauthor@example.com",
+            password="pass12345",  # pragma: allowlist secret
+        )
+        root = Page.objects.get(id=1)
+        self.blog_index = BlogIndexPage(title="Media Blog", slug="media-blog")
+        root.add_child(instance=self.blog_index)
+        self.category = BlogCategory.objects.create(name="Media", slug="media")
+        self.image = get_image_model().objects.create(
+            title="Cover", file=get_test_image_file(filename="cover.png")
+        )
+
+    def _make_post(self, slug):
+        post = BlogPostPage(
+            title=f"Media Post {slug}",
+            slug=slug,
+            author=self.user,
+            publish_date=date.today(),
+            introduction="<p>intro</p>",
+            content_blocks=[],
+            featured_image=self.image,
+        )
+        self.blog_index.add_child(instance=post)
+        PostCategoryThrough.objects.get_or_create(
+            blogpostpage=post, blogcategory=self.category
+        )
+        return post
+
+    def test_related_posts_featured_image_matches_top_level_shape(self):
+        main_post = self._make_post("media-main")
+        self._make_post("media-related")  # shares the category → related
+
+        response = self.client.get(f"/api/v2/blog-posts/{main_post.id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["related_posts"], "expected a related post")
+
+        top_level_image = response.data["featured_image"]
+        related_image = response.data["related_posts"][0]["featured_image"]
+        self.assertIsInstance(
+            related_image,
+            dict,
+            f"related_posts[].featured_image must be a rendition dict, "
+            f"same shape as the top-level featured_image field — got "
+            f"{related_image!r}.",
+        )
+        self.assertEqual(
+            set(related_image.keys()),
+            set(top_level_image.keys()),
+            "related_posts[].featured_image has different keys than the "
+            "top-level featured_image field.",
+        )
+        self.assertTrue(related_image["full_url"].startswith("http"))
+
+    @override_settings(ALLOWED_HOSTS=["blog.example.com", "testserver"])
+    def test_full_url_is_request_derived_not_settings_based(self):
+        """`full_url` must resolve via `get_full_url()` (Wagtail Sites,
+        request-aware) for whatever Site actually matches the incoming
+        request, not `Rendition.full_url`'s single global
+        `settings.WAGTAILADMIN_BASE_URL` (unset in some deploys → silently
+        wrong host in production, and incapable of ever reflecting a
+        second Site). Registering a second Site with a distinct hostname
+        and requesting through it is the only way to prove that — a Site
+        record it does NOT match would fall back to the default Site,
+        masking the very bug this test exists to catch.
+        """
+        root = Page.objects.get(id=1)
+        Site.objects.create(hostname="blog.example.com", port=80, root_page=root)
+        post = self._make_post("media-host")
+        response = self.client.get(
+            f"/api/v2/blog-posts/{post.id}/", SERVER_NAME="blog.example.com"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            response.data["featured_image"]["full_url"].startswith(
+                "http://blog.example.com/"
+            ),
+            response.data["featured_image"]["full_url"],
+        )

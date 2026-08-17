@@ -66,8 +66,20 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
     # Override serializer classes
     def get_serializer_class(self):
-        """Use different serializers for list vs detail views."""
-        if getattr(self, "action", None) == "list":
+        """Use different serializers for list vs detail views.
+
+        Wagtail's PagesAPIViewSet routes GET requests through its own action
+        names — `listing_view`/`detail_view` (registered via
+        `cls.as_view({"get": "listing_view"})` in
+        `wagtail.api.v2.router`), not DRF's stock `list`/`retrieve`. This
+        class also defines `list()`/`retrieve()` wrappers purely for
+        DRF-style test/direct-call compatibility (see their docstrings
+        below), which DO set `self.action` to `"list"`/`"retrieve"` when
+        invoked that way (e.g. `.as_view({"get": "list"})` in a test). Check
+        both so the lighter list serializer is selected on the real
+        production route as well as in tests (todo 306).
+        """
+        if getattr(self, "action", None) in ("list", "listing_view"):
             return BlogPostPageListSerializer
         return BlogPostPageSerializer
 
