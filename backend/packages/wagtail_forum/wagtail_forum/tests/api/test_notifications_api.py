@@ -104,8 +104,10 @@ def test_notification_list_query_count_pinned():
     # recipients beyond the topic's own author). DRF CursorPagination fetches
     # page_size+1 rows instead of a separate COUNT. force_authenticate
     # bypasses session/cookie auth entirely, so there's no auth-lookup query
-    # to account for. If this changes, explain the new count here.
-    assert len(ctx.captured_queries) == 2
+    # to account for. Plus ONE for the todo 301 presence touch (an UPDATE on
+    # the caller's own ForumProfile, throttled — every authenticated forum
+    # request pays this once). If this changes, explain the new count here.
+    assert len(ctx.captured_queries) == 3
 
 
 @pytest.mark.django_db
@@ -402,6 +404,7 @@ def test_notification_list_actor_profiles_add_no_per_row_queries():
     assert resp.status_code == 200
     assert len(resp.data["results"]) == 5
     # Pinned EXACTLY: the notification fetch + one .public() PageViewRestriction
-    # lookup. actor + actor profile + topic + board all select_related, so 5
-    # distinct actors add no per-row queries.
-    assert len(ctx.captured_queries) == 2
+    # lookup + the todo 301 presence touch (UPDATE on the caller's own
+    # ForumProfile). actor + actor profile + topic + board all select_related,
+    # so 5 distinct actors add no per-row queries.
+    assert len(ctx.captured_queries) == 3

@@ -103,20 +103,80 @@ describe('CommunityExpertsModule', () => {
     );
   });
 
-  it('renders no presence dot — each row is exactly an avatar image plus its name/title text', async () => {
+  it('renders no presence dot for an offline expert (online: false)', async () => {
     mockFetchExperts.mockResolvedValue([
-      expert({ username: 'irisd', display_name: 'Iris Delgado', title: 'Plant Pathologist' }),
+      expert({ username: 'irisd', display_name: 'Iris Delgado', online: false }),
     ]);
     renderModule();
 
     const link = await screen.findByRole('link', { name: /iris delgado/i });
     const row = link.closest('li') as HTMLElement;
-    // Structural assertion, not a class-name search for a dot: the row's only
-    // elements are the avatar <img> and exactly two text <span>s (name,
-    // title/trust-label) nested inside the wrapper span. A presence dot would
-    // be an additional element, so this fails the moment one is added without
-    // the module's honesty comment being revisited (spec §9 / todo 301).
-    expect(row.querySelectorAll('img')).toHaveLength(1);
-    expect(row.querySelectorAll('span')).toHaveLength(3);
+    expect(row.querySelectorAll('.bg-ok')).toHaveLength(0);
+    expect(screen.getByText('Community experts')).toBeInTheDocument();
+  });
+
+  it('renders no presence dot and no online claim when `online` is absent (todo 301 AC3)', async () => {
+    // Deliberately omits `online` entirely — not `online: false` — as a
+    // distinct fixture from the offline test above, so a future change that
+    // special-cases `undefined` differently from `false` gets caught here.
+    // Server/client version skew is the real-world case this covers.
+    mockFetchExperts.mockResolvedValue([
+      { username: 'irisd', display_name: 'Iris Delgado', avatar: null, trust_level: 3, title: '' },
+    ]);
+    renderModule();
+
+    const link = await screen.findByRole('link', { name: /iris delgado/i });
+    const row = link.closest('li') as HTMLElement;
+    expect(row.querySelectorAll('.bg-ok')).toHaveLength(0);
+    expect(screen.getByText('Community experts')).toBeInTheDocument();
+    expect(screen.queryByText('Experts online')).not.toBeInTheDocument();
+  });
+
+  it('renders a presence dot and switches the title when an expert is online', async () => {
+    mockFetchExperts.mockResolvedValue([
+      expert({ username: 'irisd', display_name: 'Iris Delgado', online: true }),
+    ]);
+    renderModule();
+
+    const link = await screen.findByRole('link', { name: /iris delgado/i });
+    const row = link.closest('li') as HTMLElement;
+    expect(row.querySelectorAll('.bg-ok')).toHaveLength(1);
+    expect(screen.getByText('Experts online')).toBeInTheDocument();
+    expect(screen.queryByText('Community experts')).not.toBeInTheDocument();
+  });
+
+  it('gives an online row a screen-reader-only "(online)" cue, since the dot itself is aria-hidden', async () => {
+    mockFetchExperts.mockResolvedValue([
+      expert({ username: 'irisd', display_name: 'Iris Delgado', online: true }),
+      expert({ username: 'mgardener', display_name: 'Mo Gardener', online: false }),
+    ]);
+    renderModule();
+
+    // The row's accessible name (link name) includes the sr-only text, so an
+    // online row's link is findable by name including "online" while the
+    // offline row's isn't.
+    await screen.findByText('Iris Delgado');
+    expect(screen.getByRole('link', { name: /iris delgado.*online/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /mo gardener.*online/i })).not.toBeInTheDocument();
+  });
+
+  it('switches the title to "Experts online" if ANY row is online, even when others are not', async () => {
+    mockFetchExperts.mockResolvedValue([
+      expert({ username: 'irisd', display_name: 'Iris Delgado', online: false }),
+      expert({ username: 'mgardener', display_name: 'Mo Gardener', online: true }),
+    ]);
+    renderModule();
+
+    await screen.findByText('Iris Delgado');
+    expect(screen.getByText('Experts online')).toBeInTheDocument();
+    // Only the online row gets a dot.
+    const offlineRow = screen
+      .getByRole('link', { name: /iris delgado/i })
+      .closest('li') as HTMLElement;
+    const onlineRow = screen
+      .getByRole('link', { name: /mo gardener/i })
+      .closest('li') as HTMLElement;
+    expect(offlineRow.querySelectorAll('.bg-ok')).toHaveLength(0);
+    expect(onlineRow.querySelectorAll('.bg-ok')).toHaveLength(1);
   });
 });

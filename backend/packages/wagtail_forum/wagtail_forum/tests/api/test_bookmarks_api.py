@@ -284,8 +284,11 @@ def test_bookmarks_list_query_count_is_pinned():
     # correlated subqueries, no extra queries), the is_unread annotation
     # (also a correlated subquery, api/views.py._annotate_topic_unread), and
     # the tags prefetch (todo 276 / M5) — ONE extra query for the whole page,
-    # not one per row. If this changes, explain the new count here.
-    assert len(ctx.captured_queries) == 3, [q["sql"] for q in ctx.captured_queries]
+    # not one per row. Plus the todo 301 presence touch (one UPDATE on the
+    # authenticated caller's ForumProfile, throttled to once per ~5 min —
+    # every authenticated forum request pays this once). If this changes,
+    # explain the new count here.
+    assert len(ctx.captured_queries) == 4, [q["sql"] for q in ctx.captured_queries]
 
 
 @pytest.mark.django_db

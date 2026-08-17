@@ -325,13 +325,19 @@ export interface RecentTopic {
   thumbnail_url: string | null;
 }
 
-/** GET users/experts/ row — serialize_forum_author + title. */
+/** GET users/experts/ row — serialize_forum_author + title + online (todo 301). */
 export interface ForumExpert {
   username: string;
   display_name: string;
   avatar: string | null;
   trust_level: number | null;
   title: string;
+  // Optional, not `boolean` — a server predating todo 301, or any other
+  // client/server version skew, omits the field entirely rather than
+  // sending `false`. The module must treat "absent" as "no claim", not as
+  // offline (todo 301 AC3), so it can never be silently widened to
+  // `boolean` with an implicit `?? false` at the read site.
+  online?: boolean;
 }
 
 /** GET event/ `topic` — the CMS-featured landing-page hero (todo 304). */

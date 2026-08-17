@@ -107,8 +107,10 @@ def test_topic_detail_is_subscribed_for_authenticated_user():
     # and CONSTANT — Django caches the perm set on the request's user instance,
     # which is why the same lookup behind PostSerializer.can_edit does not
     # scale with page size either. The topic AUTHOR pays neither: solution_block
-    # short-circuits on `user.pk == self.author_id`.
-    assert len(ctx.captured_queries) == 9
+    # short-circuits on `user.pk == self.author_id`. Plus ONE for the todo 301
+    # presence touch (an UPDATE on the caller's own ForumProfile, throttled —
+    # every authenticated forum request pays this once).
+    assert len(ctx.captured_queries) == 10
 
     client.force_authenticate(non_subscriber)
     resp = client.get(f"/forum/topics/{topic.id}/")
@@ -139,9 +141,10 @@ def test_topic_detail_is_bookmarked_for_authenticated_user():
         resp = client.get(f"/forum/topics/{topic.id}/")
     assert resp.data["is_bookmarked"] is True
     assert resp.data["is_subscribed"] is False
-    # Same pin as test_topic_detail_is_subscribed_for_authenticated_user (9)
-    # — see that test's comment for the full breakdown.
-    assert len(ctx.captured_queries) == 9
+    # Same pin as test_topic_detail_is_subscribed_for_authenticated_user (10)
+    # — see that test's comment for the full breakdown (incl. the todo 301
+    # presence touch).
+    assert len(ctx.captured_queries) == 10
 
     client.force_authenticate(non_bookmarker)
     resp = client.get(f"/forum/topics/{topic.id}/")

@@ -268,7 +268,9 @@ def test_post_list_affordances_add_no_per_post_queries():
     # author+topic — the affordance predicate adds no query), Q4 the batched M23
     # reacted map (authed-only, one query for the page). 4, not the anonymous 3;
     # still no has_perm here (the author owns every post → owner short-circuit).
-    assert len(ctx.captured_queries) == 4
+    # Q5 (todo 301): the presence touch — one UPDATE on the caller's own
+    # ForumProfile, throttled, paid by every authenticated forum request.
+    assert len(ctx.captured_queries) == 5
 
 
 @pytest.mark.django_db
@@ -427,8 +429,9 @@ def test_post_list_reacted_is_batched_no_per_post_queries():
     # page) + 2 authed permission-cache queries (the first post's can_edit/delete
     # has_perm populates the user perm-cache; the other 19 hit it) + 1 batched
     # reacted map = 6. Anonymous never runs the last three (pins 3). FLAT under N;
-    # if this changes, explain the new count here.
-    assert len(ctx.captured_queries) == 6
+    # if this changes, explain the new count here. Plus 1 (todo 301): the
+    # presence touch, paid by every authenticated forum request.
+    assert len(ctx.captured_queries) == 7
 
 
 @pytest.mark.django_db

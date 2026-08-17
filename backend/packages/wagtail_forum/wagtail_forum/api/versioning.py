@@ -46,10 +46,20 @@ MRO::
 and fails if any mounted forum view (package or host subclass) drops the opt-out
 — DRF's own default for ``DEFAULT_VERSIONING_CLASS`` is ``None``, so a dropped
 mixin is invisible to every other test until a host turns versioning on.
+
+**Also composes presence-touching (todo 301).** ``TouchLastSeenMixin`` (see
+``presence.py``) is a separate, independently-testable concern — it is a base
+here, not inlined, so it keeps its own docstring and can be unit-tested in
+isolation. It rides along on this mixin rather than getting a second
+``must-be-on-every-view`` convention of its own: the same structural guard
+above that catches a dropped versioning opt-out also catches a dropped
+presence touch, since both now come from one inherited class.
 """
 
+from .presence import TouchLastSeenMixin
 
-class UnversionedForumAPIMixin:
+
+class UnversionedForumAPIMixin(TouchLastSeenMixin):
     """Opt this view out of host request-versioning. Rationale: module docstring."""
 
     versioning_class = None
