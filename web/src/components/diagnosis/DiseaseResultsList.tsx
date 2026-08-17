@@ -1,3 +1,4 @@
+import Card from '../ui/Card';
 import type { PlantDiseaseResult } from '@/types/diagnosis';
 
 interface Props {
@@ -25,25 +26,20 @@ export default function DiseaseResultsList({ results }: Props) {
             <div
               key={r.id}
               role="status"
-              className="bg-surface-3 border border-line rounded-lg p-4 text-ink-2"
+              className="bg-surface-3 border border-line rounded-md p-4 text-ink-2"
             >
               {r.notes}
             </div>
           );
         }
         return (
-          <div
-            key={r.id}
-            className={`bg-surface-2 border rounded-xl p-5 ${
-              r.is_primary ? 'border-primary' : 'border-line'
-            }`}
-          >
+          <Card key={r.id} className={`p-5 ${r.is_primary ? 'border-primary/40' : ''}`}>
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-lg font-semibold text-ink">
                 {r.suggested_disease_name || r.display_name || 'Unknown condition'}
               </h3>
-              <span className="text-sm font-medium text-ink-2">
-                {r.confidence_percentage}% confidence
+              <span className="shrink-0 rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-[13px] tabular-nums text-ink-2">
+                {r.confidence_percentage}%<span className="sr-only"> confidence</span>
               </span>
             </div>
             {r.severity_assessment && (
@@ -67,7 +63,7 @@ export default function DiseaseResultsList({ results }: Props) {
                 {r.recommended_treatments}
               </p>
             )}
-          </div>
+          </Card>
         );
       })}
     </div>
