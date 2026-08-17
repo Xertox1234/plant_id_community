@@ -1156,7 +1156,9 @@ REVISION_DETAIL_SCHEMA = {
         "because earlier revisions still hold whatever the edit removed."
     ),
 )
-class PostRevisionListView(UnversionedForumAPIMixin, APIView):
+class PostRevisionListView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView
+):
     """``GET /posts/{id}/revisions/`` — the list behind the "Edited" stamp.
 
     Read-only. Every edit already writes a `wagtailcore.Revision`
@@ -1193,7 +1195,9 @@ class PostRevisionListView(UnversionedForumAPIMixin, APIView):
         "client can diff the two directly."
     ),
 )
-class PostRevisionDetailView(UnversionedForumAPIMixin, APIView):
+class PostRevisionDetailView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView
+):
     """``GET /posts/{id}/revisions/{revision_id}/`` — one revision's body.
 
     The body goes through ``serialize_forum_body`` with a real image map, so it
@@ -1451,7 +1455,9 @@ class PostReportView(UnversionedForumAPIMixin, APIView):
         ),
     ),
 )
-class MeProfileView(UnversionedForumAPIMixin, generics.RetrieveUpdateAPIView):
+class MeProfileView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, generics.RetrieveUpdateAPIView
+):
     serializer_class = MeProfileSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = []  # host filter-backend opt-out — see BoardListView
