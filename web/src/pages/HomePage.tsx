@@ -23,6 +23,9 @@ interface FeatureCardProps {
 export default function HomePage() {
   return (
     <div className="flex flex-col gap-8 py-8">
+      {/* HeroCard's title renders as an h2 by design — the page still needs
+          its own h1 for the document outline. */}
+      <h1 className="sr-only">Home</h1>
       <HeroCard
         eyebrow="Plant Identification Community"
         title={

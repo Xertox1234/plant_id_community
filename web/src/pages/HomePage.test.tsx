@@ -18,6 +18,7 @@ describe('HomePage', () => {
       screen.getByRole('heading', { level: 2, name: /discover the world of plants/i })
     ).toBeInTheDocument();
     expect(screen.queryByTestId('grain-overlay')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Home' })).toHaveClass('sr-only');
 
     const getStarted = screen.getByRole('link', { name: /get started/i });
     expect(getStarted).toHaveAttribute('href', '/identify');
