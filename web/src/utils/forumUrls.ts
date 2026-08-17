@@ -1,4 +1,4 @@
-import type { Category, RecentTopic, Thread } from '../types/forum';
+import type { Category, EventHeroTopic, RecentTopic, Thread } from '../types/forum';
 
 /** Lowercase, hyphenate, strip non-alphanumerics. Falls back to "topic" when empty. */
 export function slugifyTitle(input: string): string {
@@ -55,6 +55,16 @@ export function userProfilePath(username: string): string {
  * never drift from `categoryPath`/`threadPath`'s format.
  */
 export function recentTopicPath(topic: RecentTopic): string {
+  return threadPath(
+    { id: String(topic.board.id), slug: topic.board.slug, name: topic.board.name },
+    { id: String(topic.id), slug: topic.slug, title: topic.title }
+  );
+}
+
+/** Path for the landing-page event hero's featured topic (todo 304) — same
+ * id-coercion shape as `recentTopicPath`, since `EventHeroTopic` carries the
+ * same numeric `id`/`board.id` fields DRF returns. */
+export function eventHeroTopicPath(topic: EventHeroTopic): string {
   return threadPath(
     { id: String(topic.board.id), slug: topic.board.slug, name: topic.board.name },
     { id: String(topic.id), slug: topic.slug, title: topic.title }

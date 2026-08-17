@@ -1,5 +1,5 @@
 from django.db import models
-from wagtail.admin.panels import FieldPanel
+from wagtail.admin.panels import FieldPanel, MultiFieldPanel
 from wagtail.fields import RichTextField
 from wagtail.models import Page
 
@@ -33,8 +33,45 @@ class ForumIndex(Page):
         ],
     )
 
+    # Landing-page "Community event" hero (todo 304). Backend-owned signal —
+    # replaces the old client-side inference (a pinned + slug-prefix scan
+    # over the recent-topics window, with hardcoded seasonal copy). A
+    # moderator features/unfeatures an event by setting/clearing this FK; no
+    # deploy, and no dependence on the recency window a topic could age out
+    # of while the event is still live. SET_NULL, not CASCADE: deleting the
+    # topic must not take the page down with it — the hero just reverts to
+    # the evergreen fallback.
+    featured_topic = models.ForeignKey(
+        "wagtail_forum.Topic",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text=(
+            "Feature this topic as the landing page's 'Community event' "
+            "hero. Leave blank for the evergreen hero."
+        ),
+    )
+    featured_eyebrow = models.CharField(
+        max_length=60, blank=True, default="Community event"
+    )
+    featured_description = models.TextField(
+        blank=True,
+        help_text="Hero description shown under the featured topic's own title.",
+    )
+
     subpage_types = ["wagtail_forum.ForumBoard"]
-    content_panels = Page.content_panels + [FieldPanel("intro")]
+    content_panels = Page.content_panels + [
+        FieldPanel("intro"),
+        MultiFieldPanel(
+            [
+                FieldPanel("featured_topic"),
+                FieldPanel("featured_eyebrow"),
+                FieldPanel("featured_description"),
+            ],
+            heading="Landing-page event hero",
+        ),
+    ]
 
     def get_context(self, request, *args, **kwargs):
         # Minimal server-rendered fallback (audit 2026-07-11 H17): these pages

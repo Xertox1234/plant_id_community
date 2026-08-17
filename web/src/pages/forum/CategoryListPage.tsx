@@ -1,7 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Flame, Layers, MessagesSquare, Reply, ScanSearch } from 'lucide-react';
-import { fetchForumIndex, fetchRecentTopics, fetchMyStats } from '../../services/forumService';
+import {
+  fetchForumIndex,
+  fetchRecentTopics,
+  fetchMyStats,
+  fetchEventHero,
+} from '../../services/forumService';
 import { createSafeMarkup, SANITIZE_PRESETS } from '../../utils/sanitize';
 import CategoryCard from '../../components/forum/CategoryCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
@@ -20,17 +25,18 @@ import PageMeta from '../../components/PageMeta';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { useAuth } from '../../contexts/AuthContext';
 import { logger } from '../../utils/logger';
-import { recentTopicPath } from '../../utils/forumUrls';
+import { eventHeroTopicPath } from '../../utils/forumUrls';
 import { boardIdentity } from '../../utils/forumTones';
 import { resolveBoardFilter } from '../../utils/forumBoardFilter';
-import type { Category, ForumMyStats, RecentTopic } from '@/types';
+import type { Category, ForumMyStats, RecentTopic, EventHeroTopic } from '@/types';
 
-// The landing hero's recent-activity fetch — mirrors the backend's
-// WAGTAILFORUM_RECENT_TOPICS_MAX_LIMIT default (wagtail_forum/conf.py) and
-// must not exceed it. The client can't import backend conf, but the server
-// clamps ?limit= to that same cap regardless, so this is a documentation
-// value, not an enforcement one.
-const RECENT_TOPICS_FETCH_LIMIT = 20;
+// The landing rail's recent-activity fetch, passed through to
+// ActiveNowModule (which re-slices its own display to 3 regardless of how
+// many rows this carries). Previously inflated to 20 to keep a client-side
+// event-hero inference from evicting a still-pinned topic out of the window
+// — that inference is retired (todo 304, backend-owned event signal now),
+// so this is back to a small display-only fetch.
+const RECENT_TOPICS_FETCH_LIMIT = 5;
 
 /**
  * CategoryListPage Component
@@ -45,9 +51,12 @@ export default function CategoryListPage() {
   // CMS-authored welcome copy (ForumIndex.intro, audit L2). Sanitized
   // server-side too — this is the second layer, not the only one.
   const [intro, setIntro] = useState<string>('');
-  // The landing rail's recent-activity feed, also scanned for the pinned
-  // bloom-watch topic that swaps in the event hero (Task 9).
+  // The landing rail's recent-activity feed (ActiveNowModule).
   const [recentTopics, setRecentTopics] = useState<RecentTopic[]>([]);
+  // The CMS-featured "Community event" hero (todo 304) — backend-owned, no
+  // recency-window coupling. null covers "not fetched yet", "fetch failed",
+  // and "no event currently featured"; all three render the evergreen hero.
+  const [eventHero, setEventHero] = useState<EventHeroTopic | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   // Bumping this re-runs the load effect — drives both the initial fetch and
@@ -69,18 +78,11 @@ export default function CategoryListPage() {
         setLoading(true);
         setError(null);
 
-        const [{ categories: boards, intro: welcome }, recent] = await Promise.all([
+        const [{ categories: boards, intro: welcome }, recent, event] = await Promise.all([
           fetchForumIndex(),
-          // The event hero is a nice-to-have on top of the board list, not a
-          // dependency of it — a failure here must never surface the page's
-          // error state, so it's caught locally and defaulted to [].
-          // Fetch the server's MAX window (RECENT_TOPICS_MAX_LIMIT,
-          // wagtail_forum/conf.py), not just the rail's display count: the
-          // hero scans this whole array for the pinned bloom-watch topic
-          // (below), and a 5-row fetch let 5 newer topics evict a still-live
-          // pinned event out of the window mid-event (review finding #6).
-          // ActiveNowModule re-slices its own display to 3 regardless of how
-          // many rows this array carries, so the rail is unaffected.
+          // ActiveNowModule's feed — a nice-to-have on top of the board
+          // list, not a dependency of it, so a failure here must never
+          // surface the page's error state.
           fetchRecentTopics(RECENT_TOPICS_FETCH_LIMIT).catch((err) => {
             logger.error('Error loading recent topics', {
               component: 'CategoryListPage',
@@ -88,11 +90,22 @@ export default function CategoryListPage() {
             });
             return [];
           }),
+          // The event hero (todo 304) — same "nice-to-have, never fails the
+          // page" treatment. A fetch failure or {topic: null} both fall
+          // through to the evergreen hero.
+          fetchEventHero().catch((err) => {
+            logger.error('Error loading event hero', {
+              component: 'CategoryListPage',
+              error: err,
+            });
+            return { topic: null };
+          }),
         ]);
         if (ignore) return;
         setCategories(boards);
         setIntro(welcome);
         setRecentTopics(recent);
+        setEventHero(event.topic);
       } catch (err) {
         if (ignore) return;
         logger.error('Error loading forum categories', {
@@ -164,14 +177,6 @@ export default function CategoryListPage() {
   const totalPosts = categories.reduce((sum, c) => sum + (c.post_count || 0), 0);
   const { effectiveBoard, visibleCategories } = resolveBoardFilter(categories, activeBoard);
 
-  // The event hero swaps in whenever a topic in the fetched recent window is
-  // BOTH pinned AND slugged "bloom-watch…" (seeded content, spec-locked
-  // naming — not a generic "any pinned topic" or "any bloom-watch topic"
-  // check). Once that topic ages out of the recent window entirely, this
-  // reverts to the evergreen hero — there's no other "is the event still
-  // live" signal.
-  const bloomWatch = recentTopics.find((t) => t.is_pinned && t.slug.startsWith('bloom-watch'));
-
   // Same hero art either way — hoisted so both HeroCard branches share it.
   const heroArt = (
     <img
@@ -202,15 +207,15 @@ export default function CategoryListPage() {
           exactly one h1 for the document outline. */}
       <h1 className="sr-only">Community forum</h1>
 
-      {bloomWatch ? (
+      {eventHero ? (
         <HeroCard
-          eyebrow="Community event"
-          title="The bloom watch is on."
-          description="Every August the community tracks what's flowering, fruiting, and quietly failing. Post yours, get it identified, and help a neighbor's garden along."
+          eyebrow={eventHero.eyebrow}
+          title={eventHero.title}
+          description={eventHero.description}
           actions={
             <>
-              <ButtonLink to={recentTopicPath(bloomWatch)} variant="primary">
-                Join the bloom watch
+              <ButtonLink to={eventHeroTopicPath(eventHero)} variant="primary">
+                Join the conversation
               </ButtonLink>
               <Button variant="ghost" onClick={scrollToBoards}>
                 Browse boards

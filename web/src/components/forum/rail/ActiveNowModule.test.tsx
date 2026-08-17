@@ -91,7 +91,7 @@ describe('ActiveNowModule', () => {
     });
 
     // Controller Ruling 3: ActiveNowModule renders AT MOST 3 rows regardless
-    // of source. CategoryListPage passes its 5-row bloom-watch-hero fetch
+    // of source. CategoryListPage passes its shared recent-topics fetch
     // straight through — the module, not the page, is responsible for the cap.
     it('slices to at most 3 rows when the page passes 5', async () => {
       const topics = [

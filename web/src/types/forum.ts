@@ -326,3 +326,18 @@ export interface ForumExpert {
   trust_level: number | null;
   title: string;
 }
+
+/** GET event/ `topic` — the CMS-featured landing-page hero (todo 304). */
+export interface EventHeroTopic {
+  id: number;
+  slug: string;
+  title: string;
+  board: { id: number; name: string; slug: string };
+  eyebrow: string;
+  description: string;
+}
+
+/** GET event/ — `{topic: null}` when no event is currently featured. */
+export interface EventHero {
+  topic: EventHeroTopic | null;
+}

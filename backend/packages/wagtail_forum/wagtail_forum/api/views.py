@@ -1865,6 +1865,96 @@ class ExpertsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
         )
 
 
+EVENT_HERO_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "topic": {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "id": {"type": "integer"},
+                "slug": {"type": "string"},
+                "title": {"type": "string"},
+                "board": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer"},
+                        "name": {"type": "string"},
+                        "slug": {"type": "string"},
+                    },
+                },
+                "eyebrow": {"type": "string"},
+                "description": {"type": "string"},
+            },
+        },
+    },
+}
+
+
+class EventHeroView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
+    """Landing-page "Community event" hero signal (todo 304).
+
+    Backend-owned replacement for the old client-side inference
+    (`recentTopics.find(t => t.is_pinned && t.slug.startsWith('bloom-watch'))`
+    over a 20-row recency window, with hardcoded seasonal copy) — that scheme
+    silently evicted a still-live event once 20 newer topics posted, and the
+    copy never changed with the season. Sourced from `ForumIndex.featured_*`,
+    which a moderator sets/clears from the CMS: no recency-window coupling,
+    no deploy to change the copy or retire the event.
+
+    Re-validates the featured topic's visibility on every read rather than
+    trusting the FK alone — a topic can be moderated away or its board
+    restricted after being featured. This bounds the leak to the origin: like
+    every other `PublicForumReadCacheMixin` view here, an anon response is
+    shared-cacheable for `PUBLIC_READ_CACHE_SECONDS`, so a CDN can keep
+    serving a just-unpublished topic for up to that TTL — the same accepted
+    tradeoff the README documents for the board/topic lists.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        responses={200: EVENT_HERO_SCHEMA},
+        description=(
+            "The currently-featured topic for the landing-page hero, or "
+            "{'topic': null} when none is featured (or the featured topic "
+            "is no longer live/visible). Sourced from "
+            "ForumIndex.featured_topic/-eyebrow/-description."
+        ),
+    )
+    def get(self, request):
+        index = _visible_forum_index()
+        topic = None
+        if index and index.featured_topic_id:
+            topic = (
+                Topic.objects.filter(
+                    pk=index.featured_topic_id,
+                    live=True,
+                    board__in=_visible_boards(),
+                )
+                .select_related("board")
+                .first()
+            )
+        if topic is None:
+            return Response({"topic": None})
+        return Response(
+            {
+                "topic": {
+                    "id": topic.pk,
+                    "slug": topic.slug,
+                    "title": topic.title,
+                    "board": {
+                        "id": topic.board_id,
+                        "name": topic.board.title,
+                        "slug": topic.board.slug,
+                    },
+                    "eyebrow": index.featured_eyebrow,
+                    "description": index.featured_description,
+                }
+            }
+        )
+
+
 class SearchView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
     PAGE_SIZE = 20  # results per section per page; *_has_more drives client paging
     MAX_PAGE = 50  # ceiling on ?page= — bounds the SQL OFFSET (like CursorPagination.offset_cutoff)

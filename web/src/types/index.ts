@@ -23,6 +23,8 @@ export type {
   ForumMyStats,
   RecentTopic,
   ForumExpert,
+  EventHero,
+  EventHeroTopic,
 } from './forum';
 
 // Blog types

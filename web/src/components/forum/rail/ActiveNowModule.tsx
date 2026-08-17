@@ -16,10 +16,10 @@ const RAIL_TOPIC_LIMIT = 3;
 interface ActiveNowModuleProps {
   /**
    * Pre-fetched rows from a page that already calls `fetchRecentTopics`
-   * (e.g. CategoryListPage's bloom-watch-hero fetch) — always re-sliced to
-   * `RAIL_TOPIC_LIMIT` rather than trusted as-is, so a caller passing more
-   * than 3 rows (the page fetches 5, for the hero) still renders at most 3.
-   * When omitted, the module fetches its own (smaller) page.
+   * (e.g. CategoryListPage, which shares one fetch with this module rather
+   * than duplicating the request) — always re-sliced to `RAIL_TOPIC_LIMIT`
+   * rather than trusted as-is, so a caller passing more than 3 rows still
+   * renders at most 3. When omitted, the module fetches its own (smaller) page.
    */
   topics?: RecentTopic[];
 }
