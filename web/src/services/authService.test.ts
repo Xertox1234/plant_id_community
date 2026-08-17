@@ -188,7 +188,27 @@ describe('authService', () => {
     });
 
     it('should handle invalid credentials (401)', async () => {
-      // Arrange
+      // Arrange — matches apps.users.views.create_error_response's real shape:
+      // every login failure branch, including this one, sets `errors.detail`.
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          message: 'Invalid credentials',
+          errors: { detail: 'Username or password is incorrect' },
+        }),
+      });
+
+      // Act & Assert — the nested detail (the field-level, actionable copy)
+      // is preferred over the terse top-level message.
+      await expect(login(mockLoginCredentials)).rejects.toThrow(
+        'Username or password is incorrect'
+      );
+      expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('user', expect.any(String));
+    });
+
+    it('should fall back to the top-level message when errors.detail is absent', async () => {
+      // Arrange — a non-standard/older error shape without the nested detail.
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 401,
@@ -235,6 +255,61 @@ describe('authService', () => {
 
       // Act & Assert
       await expect(login(mockLoginCredentials)).rejects.toThrow('Login failed');
+    });
+
+    // todo 298: a blocked CSRF cookie (Safari/incognito third-party-cookie
+    // blocking) gets Django's HTML 403 page, not JSON. response.json() then
+    // throws a parse exception whose message ("Unexpected token '<'" in
+    // Chrome, "The string did not match the expected pattern" in Safari) must
+    // never reach the UI — this is the live prod repro (2026-08-13).
+    it('should show a friendly cookie message for a non-JSON 403 (blocked CSRF cookie)', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: async () => {
+          throw new Error('Unexpected token \'<\', "<!DOCTYPE "... is not valid JSON');
+        },
+      });
+
+      // Act & Assert
+      const err = await login(mockLoginCredentials).catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).not.toMatch(/unexpected token|did not match the expected pattern/i);
+      expect(err.message).toContain('private window or Safari');
+    });
+
+    it('should fall back to a status-coded message for a non-403 non-JSON error', async () => {
+      // Arrange
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        json: async () => {
+          throw new Error('Invalid JSON');
+        },
+      });
+
+      // Act & Assert
+      await expect(login(mockLoginCredentials)).rejects.toThrow('Login failed with status 502');
+    });
+
+    it('should prefer the nested errors.detail (retry-hint copy) over the terse top-level message', async () => {
+      // Arrange — matches apps.users.views.create_error_response's real shape
+      // for account lockout: {message: "Account locked", errors: {detail: "..."}}
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        json: async () => ({
+          message: 'Account locked',
+          errors: {
+            detail:
+              'Too many failed login attempts. Your account has been temporarily locked for security. Check your email for details.',
+          },
+        }),
+      });
+
+      // Act & Assert
+      await expect(login(mockLoginCredentials)).rejects.toThrow('Too many failed login attempts');
     });
   });
 

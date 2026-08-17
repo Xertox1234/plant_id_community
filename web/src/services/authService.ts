@@ -53,8 +53,40 @@ export async function login(credentials: LoginCredentials): Promise<User> {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Login failed');
+      let errorData: Record<string, unknown>;
+      try {
+        errorData = await response.json();
+      } catch {
+        // Non-JSON body — an HTML error page. The observed prod trigger
+        // (todo 298) is third-party-cookie blocking (Safari/incognito)
+        // refusing the CSRF cookie, which Django answers with an HTML 403;
+        // never let that parse exception's message ("Unexpected token '<'"
+        // in Chrome, "The string did not match the expected pattern" in
+        // Safari) reach the UI.
+        logger.error('[authService] Non-JSON login error response', {
+          status: response.status,
+        });
+        if (response.status === 403) {
+          throw new Error(
+            "Login couldn't start — if you're in a private window or Safari, allow cookies for this site and retry."
+          );
+        }
+        throw new Error(`Login failed with status ${response.status}`);
+      }
+
+      logger.error('[authService] Login failed:', { status: response.status, error: errorData });
+
+      // Canonical: {message: "..."} — the nested {errors: {detail: "..."}}
+      // (e.g. account-lockout retry copy, or the field-level "Username or
+      // password is incorrect") is more actionable than the terse top-level
+      // message, so it's preferred when present.
+      const nestedErrors = errorData.errors as Record<string, unknown> | undefined;
+      const message =
+        (typeof nestedErrors?.detail === 'string' && nestedErrors.detail) ||
+        (typeof errorData.message === 'string' && errorData.message) ||
+        'Login failed. Please try again.';
+
+      throw new Error(message);
     }
 
     const data: AuthResponse = await response.json();
