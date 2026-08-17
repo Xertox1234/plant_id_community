@@ -1,7 +1,7 @@
-"""M40 (todo 277): pin the four list-envelope shapes the README documents.
+"""M40 (todo 277): pin the five list-envelope shapes the README documents.
 
 The `## List envelopes` section of the package README is the authoritative
-statement that these four shapes diverge *on purpose*. Prose alone re-rots — the
+statement that these five shapes diverge *on purpose*. Prose alone re-rots — the
 review of this very PR found the README's own `## Search backend` paragraph still
 claiming search had "no pagination and no `has_more` flag" long after paging
 shipped. So the top-level key set of each envelope is asserted here against a
@@ -25,6 +25,7 @@ CURSOR_ENVELOPE = {"results", "next", "previous"}
 FLAT_ENVELOPE = {"results", "intro"}
 SEARCH_ENVELOPE = {"topics", "posts", "topics_has_more", "posts_has_more", "page"}
 SYNC_ENVELOPE = {"topics", "deleted", "has_more", "next_since", "next_since_id"}
+RESULTS_ONLY_ENVELOPE = {"results"}
 
 
 def _seeded_board():
@@ -89,11 +90,26 @@ def test_sync_is_the_delta_envelope():
 
 
 @pytest.mark.django_db
-def test_the_four_envelopes_are_actually_distinct():
+def test_recent_topics_and_experts_are_the_results_only_envelope():
+    _seeded_board()
+    for path in ("/forum/topics/recent/", "/forum/users/experts/"):
+        resp = APIClient().get(path)
+        assert resp.status_code == 200, path
+        assert set(resp.json()) == RESULTS_ONLY_ENVELOPE, path
+
+
+@pytest.mark.django_db
+def test_the_five_envelopes_are_actually_distinct():
     """Guards the premise, not just the shapes.
 
     If a future change quietly converged two of these, every assertion above
-    could still pass while the README's "four shapes" framing became false.
+    could still pass while the README's "five shapes" framing became false.
     """
-    shapes = [CURSOR_ENVELOPE, FLAT_ENVELOPE, SEARCH_ENVELOPE, SYNC_ENVELOPE]
-    assert len({frozenset(s) for s in shapes}) == 4
+    shapes = [
+        CURSOR_ENVELOPE,
+        FLAT_ENVELOPE,
+        SEARCH_ENVELOPE,
+        SYNC_ENVELOPE,
+        RESULTS_ONLY_ENVELOPE,
+    ]
+    assert len({frozenset(s) for s in shapes}) == 5
