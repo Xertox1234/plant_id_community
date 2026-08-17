@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "290"
 tags: [forum, search, availability, security]
@@ -132,6 +132,15 @@ single 3500-char term                     -> 200
   new settings — fixed by documenting them in `packages/wagtail_forum/README.md`;
   re-run above is green.)
 - All 4 acceptance criteria verified and checked off above.
+
+### 2026-08-17 - Completed by completing-todos skill (run 2026-08-17-0246)
+
+- Verification: all 4 acceptance criteria passed, including a red/green
+  mutation check (git-stashed the fix, confirmed the pinning test actually
+  fails with 500 before restoring it).
+- Review: `code-review-orchestrator` dispatched against the 7 changed files
+  (package + host layers), 0 findings (critical/high/medium/low), after a
+  follow-up round to include two files edited after the initial dispatch.
 
 ## Notes
 
