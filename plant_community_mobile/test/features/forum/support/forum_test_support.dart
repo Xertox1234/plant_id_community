@@ -12,6 +12,18 @@ class FakeForumApi implements ForumApi {
   CursorPage<ForumTopicListItem> topics = const CursorPage(items: []);
   CursorPage<ForumPost> posts = const CursorPage(items: []);
 
+  /// A multi-page thread fixture for [fetchPosts]: page N+1 is returned when
+  /// the caller's `cursorUrl` equals page N's `next`, and `cursorUrl: null`
+  /// (the initial fetch, and every `refreshAfterReply` restart) always
+  /// returns [postPages].first. Falls back to [posts] when empty, so every
+  /// existing single-page fixture keeps working unchanged.
+  List<CursorPage<ForumPost>> postPages = const [];
+  final List<String?> fetchPostsCalls = [];
+
+  /// If set, the [fetchPostsCalls]-th call to [fetchPosts] (1-indexed) throws
+  /// instead of returning a page — for testing a mid-page-walk failure.
+  int? throwOnFetchPostsCallNumber;
+
   /// Pages returned by successive [sync] calls (the last is repeated).
   List<ForumSyncPage> syncPages = const [];
   int _syncCursor = 0;
@@ -58,7 +70,21 @@ class FakeForumApi implements ForumApi {
   Future<CursorPage<ForumPost>> fetchPosts({
     required int topicId,
     String? cursorUrl,
-  }) async => posts;
+  }) async {
+    fetchPostsCalls.add(cursorUrl);
+    if (fetchPostsCalls.length == throwOnFetchPostsCallNumber) {
+      throw ApiException('temporary failure', statusCode: 500);
+    }
+    if (postPages.isEmpty) return posts;
+    if (cursorUrl == null) return postPages.first;
+    for (var i = 1; i < postPages.length; i++) {
+      if (postPages[i - 1].next == cursorUrl) return postPages[i];
+    }
+    // Unrecognized cursor (shouldn't happen — the last page's `next` is
+    // null, so a well-behaved caller never reaches here). Repeat the last
+    // page defensively rather than throw.
+    return postPages.last;
+  }
 
   @override
   Future<ForumSyncPage> sync({

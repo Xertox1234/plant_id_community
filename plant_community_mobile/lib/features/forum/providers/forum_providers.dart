@@ -87,6 +87,11 @@ Future<ForumTopicDetail> topicDetail(Ref ref, int topicId) {
   return ref.watch(forumApiProvider).fetchTopicDetail(topicId);
 }
 
+/// Safety bound on the page walk in [TopicPosts.refreshAfterReply] — mirrors
+/// the web client's MAX_REFRESH_PAGES (ThreadDetailPage.tsx) for a
+/// pathologically long thread.
+const _maxRefreshPages = 50;
+
 /// Posts in a topic (oldest-first), cursor-paginated with [loadMore], plus a
 /// reaction toggle that updates the affected post in place.
 @riverpod
@@ -95,6 +100,58 @@ class TopicPosts extends _$TopicPosts {
   Future<PagedList<ForumPost>> build(int topicId) async {
     final page = await ref.watch(forumApiProvider).fetchPosts(topicId: topicId);
     return PagedList(items: page.items, nextUrl: page.next);
+  }
+
+  /// Refetch every page of the thread from the start (todo 291). Posts are
+  /// oldest-first, so a just-posted reply is always on the LAST cursor page —
+  /// refetching page 1 alone (a plain `invalidate`) never shows it. The reply
+  /// endpoint returns no cursor/position for the new post (only its id and
+  /// moderation status), so there is no cheaper way to land it in view than
+  /// walking every page. Mirrors the web client's `collectAllPosts`
+  /// (ThreadDetailPage.tsx). Bounded by [_maxRefreshPages]; on failure,
+  /// restores the prior list rather than leaving a stuck spinner or a
+  /// half-collected page walk, same discipline as [loadMore].
+  ///
+  /// On SUCCESS this replaces `state` wholesale with the walk's own local
+  /// `items`, unlike [loadMore]/[toggleReaction]'s re-read-and-merge — that's
+  /// deliberate: a concurrent [toggleReaction] while the walk is in flight
+  /// gets superseded by this method's freshly-fetched server data (the fetch is
+  /// strictly newer), rather than the walk trying to preserve a
+  /// possibly-stale optimistic local write.
+  Future<void> refreshAfterReply() async {
+    final current = state.asData?.value;
+    if (current != null) {
+      state = AsyncData(
+        PagedList(
+          items: current.items,
+          nextUrl: current.nextUrl,
+          isLoadingMore: true,
+        ),
+      );
+    }
+    try {
+      final items = <ForumPost>[];
+      String? cursorUrl;
+      String? next;
+      for (var i = 0; i < _maxRefreshPages; i++) {
+        final page = await ref
+            .read(forumApiProvider)
+            .fetchPosts(topicId: topicId, cursorUrl: cursorUrl);
+        items.addAll(page.items);
+        next = page.next;
+        if (next == null) break;
+        cursorUrl = next;
+      }
+      state = AsyncData(PagedList(items: items, nextUrl: next));
+    } catch (_) {
+      final latest = state.asData?.value ?? current;
+      if (latest != null) {
+        state = AsyncData(
+          PagedList(items: latest.items, nextUrl: latest.nextUrl),
+        );
+      }
+      rethrow;
+    }
   }
 
   Future<void> loadMore() async {

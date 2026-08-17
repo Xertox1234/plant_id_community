@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
+import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_composer_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_topics_screen.dart';
@@ -288,6 +289,79 @@ void main() {
       expect(find.byType(ForumComposerScreen), findsOneWidget);
       await tester.pump(const Duration(seconds: 4));
     });
+
+    testWidgets(
+      'posting a reply on a multi-page thread makes it visible without a '
+      'manual refresh',
+      (tester) async {
+        // Todo 291: a new reply is oldest-first-ordered onto the LAST cursor
+        // page. Page 1's opening post is the only one build() ever fetches;
+        // page 2's post ("Page two reply") must appear after the FAB → compose
+        // → post round trip, with no manual refresh action from the test.
+        final page1 = CursorPage(
+          items: [post(id: 1, body: const [ParagraphBlock('Opening post')])],
+          next: 'https://api/forum/topics/10/posts/?cursor=p2',
+        );
+        final page2 = CursorPage(
+          items: [post(id: 2, body: const [ParagraphBlock('Page two reply')])],
+        );
+        final api = FakeForumApi()
+          ..topicDetail = topicDetail()
+          ..postPages = [page1, page2];
+
+        final container = ProviderContainer(
+          overrides: [
+            authServiceProvider.overrideWith(
+              _MockAuthenticatedAuthNotifier.new,
+            ),
+            forumApiProvider.overrideWithValue(api),
+            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          ],
+        );
+        addTearDown(container.dispose);
+        final router = container.read(appRouterProvider);
+        // appRouterProvider is autoDispose (production keeps it alive via
+        // ref.watch in main.dart). A bare container.read has no persistent
+        // subscription, so Riverpod can dispose it between pump cycles —
+        // then a SECOND navigation's redirect callback (which reads
+        // authServiceProvider through the disposed Ref) throws
+        // "Cannot use the Ref of appRouterProvider after it has been
+        // disposed", silently landing on the router's error screen. This
+        // test is the first in the file to navigate twice, which is what
+        // exposes it. container.listen keeps it alive, matching main.dart's
+        // ref.watch.
+        container.listen(appRouterProvider, (_, _) {});
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+
+        router.go('/forum/topics/10', extra: 'A topic');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        // Page 2's reply is not visible yet — build() only fetched page 1.
+        expect(find.textContaining('Page two reply'), findsNothing);
+
+        await tester.tap(find.widgetWithText(FloatingActionButton, 'Reply'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        await tester.enterText(find.byType(TextField), 'my reply');
+        await tester.pump();
+        await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        // Back on the thread screen: the reply — which lives on page 2 — is
+        // now visible with no manual refresh action from this test.
+        expect(find.textContaining('Page two reply'), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
 
     group('Authentication Guard Tests', () {
       testWidgets(
