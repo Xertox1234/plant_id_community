@@ -1,0 +1,157 @@
+---
+status: completed
+priority: p2
+issue_id: "303"
+tags: [forum, backend, security, caching]
+dependencies: []
+---
+
+# Sweep authenticated forum reads for explicit no-store cache headers
+
+## Problem
+
+Authenticated per-user GET endpoints in wagtail_forum that don't use
+`PrivateForumReadCacheMixin` emit neither `Cache-Control` nor `Vary`, so a
+shared cache/CDN with a "cache everything" rule (this app runs behind
+Cloudflare) can store one user's payload and serve it to another — no header
+distinguishes them. Found on the new `me/stats/` by the PR #538 round-2
+review (fixed there); the review confirmed the same gap pre-exists on
+`me/profile/` and possibly other authenticated reads.
+
+## Findings
+
+- `PrivateForumReadCacheMixin` exists precisely for this
+  (`backend/packages/wagtail_forum/wagtail_forum/api/views.py`) — some
+  authed reads use it, others don't.
+- `me/stats/` was fixed + pinned in `test_read_cache_headers.py` in PR #538;
+  the pinning pattern to extend is there.
+- Absence is invisible to review: nothing fails when a header is missing —
+  only the pin list catches drift.
+
+## Recommended Action
+
+1. Enumerate every IsAuthenticated GET in the package (`urls.py` sweep).
+2. Apply `PrivateForumReadCacheMixin` to each (me/profile, notifications,
+   bookmarks, drafts — whatever the sweep finds).
+3. Extend `test_read_cache_headers.py` with a private-paths list mirroring
+   `_public_paths()`, asserting the no-store header on every one — so any
+   future authed read added without the mixin fails the pin.
+
+## Acceptance Criteria
+
+- [x] Every authenticated GET in wagtail_forum sends explicit
+      no-store/private Cache-Control.
+- [x] `test_read_cache_headers.py` pins the full private list (drift-proof).
+- [x] Full package suite green.
+
+## Work Log
+
+### 2026-08-15 - Filed
+
+- Out of PR #538 scope (pre-existing behavior beyond the PR's endpoints);
+  `me/stats/` fixed in-PR as the exemplar.
+
+### 2026-08-17 - Started by completing-todos skill (run 2026-08-17-0246)
+
+- Picked up by automated workflow.
+
+### 2026-08-17 - Implemented and verified
+
+- Enumerated every `IsAuthenticated` GET in the package (`urls.py` sweep,
+  cross-checked against `permission_classes` on each view class). Found 6
+  missing `PrivateForumReadCacheMixin` beyond the `me/stats/` exemplar:
+  - `MeProfileView` (`api/views.py`)
+  - `PostRevisionListView`, `PostRevisionDetailView` (`api/views.py`) —
+    author-only-while-unedited privacy gate (todo 282), unrelated to caching
+  - `NotificationListView`, `NotificationUnreadCountView` (`api/notifications.py`)
+  - `UserMentionSearchView` (`api/user_search.py`)
+  Added the mixin to each (ahead of the base class in the MRO, matching the
+  `MeStatsView` precedent).
+- Confirmed 3 views deliberately stay OUT of scope, with reasoning:
+  - `PublicProfileView` — `AllowAny`, not authenticated-gated; content is
+    identical for every caller (keyed by username in the URL, not by who's
+    asking), so it's a `PublicForumReadCacheMixin` candidate, not this todo's
+    concern (cross-user leak of PER-CALLER state).
+  - `SyncView` — no explicit `permission_classes`; the package/host default
+    (`IsAuthenticatedOrReadOnly`) makes a GET-only view like this
+    anonymous-accessible, so it's not "IsAuthenticated." Its response body
+    doesn't reference `request.user` (confirmed via source read) — no
+    per-caller field to leak either.
+  - `NotificationMarkReadView`, `TopicSubscriptionView` — POST/DELETE only,
+    no GET method at all; the mixin only touches GET/HEAD.
+- Extended `test_read_cache_headers.py`: replaced the narrow
+  `test_me_stats_is_never_shared_cached` with a general
+  `_authenticated_only_paths()` list (mirroring `_public_paths()`/
+  `_private_paths()`) covering all 6 fixed endpoints + me/stats/, and one
+  test asserting `no-store`/`private`/`Vary: Cookie, Authorization` on every
+  path — any future `IsAuthenticated` GET added without the mixin now fails
+  this pin, per the AC.
+
+  ```
+  $ python -m pytest packages/wagtail_forum/wagtail_forum/tests/api/test_read_cache_headers.py -q
+  7 passed, 1 warning in 17.50s
+  ```
+
+- Verified the new test actually catches drift (not hollow): git-stashed all
+  6 mixin additions, re-ran — genuinely fails (`KeyError: 'cache-control'` on
+  the first unfixed path, `me/profile/`), restored the fix, re-ran green.
+- Full package + host suite (no Topic list field touched, narrower subset
+  sufficient per `docs/rules/testing.md`):
+
+  ```
+  $ python -m pytest packages/wagtail_forum apps/forum_host -q
+  767 passed, 2 warnings in 217.59s
+  ```
+
+- `manage.py spectacular` schema generation: no new errors/warnings on any of
+  the 6 changed views (checked by grepping the class names in the output).
+
+### 2026-08-17 - Code review + repair
+
+- Dispatched `/code-review medium` (forked, 8 finder angles + verification,
+  650s/233 tool calls). Result: 0 correctness bugs. Two speculative
+  cleanup/altitude candidates were investigated and REFUTED with primary
+  source evidence (host-layer coverage; bundling `permission_classes` into
+  the mixin would break heterogeneous-permission call sites). One low-severity
+  finding CONFIRMED and repaired:
+  - `test_read_cache_headers.py`: the new
+    `test_authenticated_only_reads_are_never_shared_cached` duplicated the
+    5-line cache-header assertion block verbatim from
+    `test_public_reads_are_private_when_authenticated`, and a third variant
+    (`test_side_effect_reads_are_never_shared_cached`) had already silently
+    drifted from both by omitting the `private` check — proving the
+    duplication was a real, not hypothetical, drift risk. Extracted a shared
+    `_assert_never_shared_cached(resp, path)` helper and switched all three
+    call sites to it, which also closes the `private`-check gap on the
+    side-effect-reads test (confirmed it now genuinely holds — see rerun
+    below, not just "doesn't error").
+- Independently (advisor review of the sweep's overall progress) verified the
+  host-mount propagation path directly rather than relying on reasoning
+  alone: read `apps/forum_host/api.py` — of the 6 fixed views, 3
+  (`MeProfileView`, `NotificationUnreadCountView`, `UserMentionSearchView`)
+  are re-wrapped by host `_throttled` subclasses. Each subclass body is
+  `pass`; `_throttled` applies `method_decorator(ratelimit(...), name=<verb>)`
+  to the HTTP-method function itself (e.g. `get`), not to `finalize_response`
+  — so the mixin's header-setting logic, which runs in `finalize_response`,
+  is untouched by the wrapper. Added
+  `test_host_mounted_private_reads_carry_no_store_cache_headers` to
+  `apps/forum_host/tests/test_api_mounted.py` (mirrors the existing M42
+  `test_host_mounted_reads_carry_m42_cache_headers` precedent for the public
+  case) to pin this through the real mount rather than leave it as reasoning
+  only. `NotificationListView` has no host subclass (mounted straight from
+  the package per the existing code comment) so needs no separate pin; the
+  two revision views aren't host-wrapped either.
+- Re-ran both files together after the repair:
+
+  ```
+  $ python -m pytest packages/wagtail_forum/wagtail_forum/tests/api/test_read_cache_headers.py apps/forum_host/tests/test_api_mounted.py -v
+  ... 11 passed, 1 warning in 16.55s
+  ```
+
+### 2026-08-17 - Completed by completing-todos skill (run 2026-08-17-0246)
+
+- Verification: all 3 acceptance criteria passed (7/7 → 11/11 after the
+  review repair added coverage; mutation-tested; full package+host suite
+  767 passed; clean schema check).
+- Review: 3 findings total (1 confirmed + repaired, 2 refuted with evidence
+  and left as-is). No unaddressed blocking findings.

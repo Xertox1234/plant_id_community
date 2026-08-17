@@ -1156,7 +1156,9 @@ REVISION_DETAIL_SCHEMA = {
         "because earlier revisions still hold whatever the edit removed."
     ),
 )
-class PostRevisionListView(UnversionedForumAPIMixin, APIView):
+class PostRevisionListView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView
+):
     """``GET /posts/{id}/revisions/`` — the list behind the "Edited" stamp.
 
     Read-only. Every edit already writes a `wagtailcore.Revision`
@@ -1193,7 +1195,9 @@ class PostRevisionListView(UnversionedForumAPIMixin, APIView):
         "client can diff the two directly."
     ),
 )
-class PostRevisionDetailView(UnversionedForumAPIMixin, APIView):
+class PostRevisionDetailView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView
+):
     """``GET /posts/{id}/revisions/{revision_id}/`` — one revision's body.
 
     The body goes through ``serialize_forum_body`` with a real image map, so it
@@ -1451,7 +1455,9 @@ class PostReportView(UnversionedForumAPIMixin, APIView):
         ),
     ),
 )
-class MeProfileView(UnversionedForumAPIMixin, generics.RetrieveUpdateAPIView):
+class MeProfileView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, generics.RetrieveUpdateAPIView
+):
     serializer_class = MeProfileSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = []  # host filter-backend opt-out — see BoardListView
@@ -1868,16 +1874,28 @@ class SearchView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
         responses={200: dict},
         description=(
             "Search live topic titles and post bodies. Query params: q "
-            "(required), board (optional board slug filter), page (optional, "
-            "1-based, capped at MAX_PAGE). Each section returns up to PAGE_SIZE "
-            "results plus a *_has_more flag — no silent cap; page through with "
-            "?page=. Offset-paged over relevance-ranked results, so a concurrent "
-            "topic/post write can shift the window; clients should dedup by id "
-            "when appending pages."
+            "(required, truncated to SEARCH_MAX_QUERY_CHARS chars and "
+            "SEARCH_MAX_TERMS whitespace-separated terms), board (optional "
+            "board slug filter), page (optional, 1-based, capped at "
+            "MAX_PAGE). Each section returns up to PAGE_SIZE results plus a "
+            "*_has_more flag — no silent cap on RESULTS; page through with "
+            "?page=. Offset-paged over relevance-ranked results, so a "
+            "concurrent topic/post write can shift the window; clients "
+            "should dedup by id when appending pages."
         ),
     )
     def get(self, request):
         query = request.query_params.get("q", "").strip()
+        # Bound the query before it reaches the search backend (todo 290): a
+        # many-term query recurses Wagtail's search-query AND-tree
+        # construction (one nesting level per term) into a RecursionError.
+        # Truncate rather than 400 — matches the semantic path's existing
+        # behaviour and keeps a pasted-paragraph query usable.
+        query = query[: get_setting("SEARCH_MAX_QUERY_CHARS")]
+        terms = query.split()
+        max_terms = get_setting("SEARCH_MAX_TERMS")
+        if len(terms) > max_terms:
+            query = " ".join(terms[:max_terms])
         board_slug = request.query_params.get("board", "").strip()
         try:
             page = max(1, int(request.query_params.get("page", 1)))

@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .versioning import UnversionedForumAPIMixin
-from .views import extend_schema
+from .views import PrivateForumReadCacheMixin, extend_schema
 
 MAX_RESULTS = 10
 
@@ -28,7 +28,9 @@ USER_SEARCH_SCHEMA = {
 }
 
 
-class UserMentionSearchView(UnversionedForumAPIMixin, APIView):
+class UserMentionSearchView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView
+):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -39,6 +41,13 @@ class UserMentionSearchView(UnversionedForumAPIMixin, APIView):
         query = request.query_params.get("q", "").strip()
         if not query:
             return Response([])
+        # Not vulnerable to todo 290's RecursionError: that bug is in Wagtail's
+        # search-query AND-tree construction inside `backend.search(...)`
+        # (SearchView, api/views.py), which nests one level per whitespace
+        # term. This view never calls the modelsearch backend — it's a plain
+        # `istartswith` ORM filter on the whole query string, so term count
+        # doesn't matter here.
+        #
         # No manual wildcard escaping here: Django's istartswith/icontains
         # lookups already auto-escape "%"/"_"/"\" in the filter VALUE before
         # building the LIKE pattern (confirmed via .query on Django 6.0.7 —

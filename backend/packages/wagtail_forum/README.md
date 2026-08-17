@@ -260,6 +260,8 @@ Three consequences worth knowing before changing this:
 | `WAGTAILFORUM_RECENT_TOPICS_MAX_LIMIT` | `20` | Cap on `?limit=` for `GET topics/recent/`. Bounded because each row may resolve a thumbnail rendition. |
 | `WAGTAILFORUM_EXPERTS_LIMIT` | `4` | Max row count for `GET users/experts/` (the "Community experts" landing rail). |
 | `WAGTAILFORUM_EXPERTS_MIN_TRUST_LEVEL` | `3` | Minimum trust level to appear in `GET users/experts/`. (3 = TrustLevel.REGULAR) |
+| `WAGTAILFORUM_SEARCH_MAX_TERMS` | `50` | Max whitespace-separated terms `SearchView` passes to the search backend. A many-term query recurses Wagtail's search-query AND-tree construction (one nesting level per term) into a `RecursionError`/500; excess terms are truncated, not rejected with 400. |
+| `WAGTAILFORUM_SEARCH_MAX_QUERY_CHARS` | `500` | Max characters of `?q=` `SearchView` will process, applied before the term-count cap. Mirrors `SIMILAR_QUERY_MAX_CHARS` on the semantic-search path. |
 | `WAGTAILFORUM_SYNC_TOMBSTONE_RETENTION_DAYS` | `30` | How long `TopicDeletedLog` tombstones are kept. A client that has not synced within this window must do a full resync. See [Management commands](#management-commands). |
 | `WAGTAILFORUM_UNREAD_LAUNCH_AT` | `"2026-07-16T00:00:00Z"` | Last-resort "unread" baseline for a user with no `TopicRead` **and** no `ForumProfile` row. Bounds the initial unread flood to topics active since launch. A real `ForumProfile.read_watermark_at` always wins once one exists. Must be an ISO-8601 datetime **with** a timezone offset; a malformed value raises loudly rather than silently degrading. |
 | `WAGTAILFORUM_MENTION_MAX_PER_POST` | `10` | Max distinct `@mentions` resolved per post — bounds parse cost and notification fan-out on a mass-mention post. |

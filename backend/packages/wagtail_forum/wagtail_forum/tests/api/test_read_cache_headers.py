@@ -73,6 +73,19 @@ def _assert_varies_on_auth(resp, path):
     assert "Authorization" in vary, path
 
 
+def _assert_never_shared_cached(resp, path):
+    # Shared by every "must never reach a shared cache" test below (todo 303
+    # code review): the three call sites had drifted apart on this exact
+    # assertion set — one of them silently dropped the `private` check — so
+    # unify it here rather than re-inlining it a fourth time.
+    cache_control = resp["Cache-Control"]
+    assert "no-store" in cache_control, path
+    assert "private" in cache_control, path
+    assert "public" not in cache_control, path
+    assert "s-maxage" not in cache_control, path
+    _assert_varies_on_auth(resp, path)
+
+
 @pytest.mark.django_db
 def test_public_reads_are_shared_cacheable_when_anonymous():
     board, topic, _ = _board_topic_post()
@@ -96,12 +109,7 @@ def test_public_reads_are_private_when_authenticated():
     for path in _public_paths(board):
         resp = client.get(path)
         assert resp.status_code == 200, path
-        cache_control = resp["Cache-Control"]
-        assert "no-store" in cache_control, path
-        assert "private" in cache_control, path
-        assert "public" not in cache_control, path
-        assert "s-maxage" not in cache_control, path
-        _assert_varies_on_auth(resp, path)
+        _assert_never_shared_cached(resp, path)
 
 
 @pytest.mark.django_db
@@ -116,11 +124,7 @@ def test_side_effect_reads_are_never_shared_cached():
         for path in _private_paths(topic):
             resp = client.get(path)
             assert resp.status_code == 200, path
-            cache_control = resp["Cache-Control"]
-            assert "no-store" in cache_control, path
-            assert "public" not in cache_control, path
-            assert "s-maxage" not in cache_control, path
-            _assert_varies_on_auth(resp, path)
+            _assert_never_shared_cached(resp, path)
 
 
 @pytest.mark.django_db
@@ -165,22 +169,36 @@ def test_anon_smaxage_honors_the_configured_setting():
     assert "s-maxage=123" in resp["Cache-Control"]
 
 
-@pytest.mark.django_db
-def test_me_stats_is_never_shared_cached():
-    # me/stats/ (round-2 review) requires IsAuthenticated, so it can't join
-    # _private_paths()'s anon+authed loop (an anon GET 401s, not 200) — pinned
-    # here as a dedicated assertion instead. Per-user counts (post_count,
-    # solutions_accepted, identifications_shared) must never be storable by a
-    # shared cache, same reasoning as topic detail/post list.
-    User.objects.create_user(username="stats-viewer", password="x")
-    client = APIClient()
-    client.force_authenticate(User.objects.get(username="stats-viewer"))
+def _authenticated_only_paths(post):
+    # IsAuthenticated-gated GETs — an anon request 401s, not 200, so these
+    # can't join _private_paths()'s anon+authed loop (that's why me/stats/
+    # needed its own dedicated assertion pre-todo-303). Todo 303: swept every
+    # IsAuthenticated GET in the package and applied PrivateForumReadCacheMixin
+    # to each — any future one added without the mixin fails this pin.
+    return [
+        "/forum/me/profile/",
+        "/forum/me/stats/",
+        f"/forum/posts/{post.id}/revisions/",
+        f"/forum/posts/{post.id}/revisions/{post.revisions.first().id}/",
+        "/forum/notifications/",
+        "/forum/notifications/unread-count/",
+        "/forum/users/search/?q=a",
+    ]
 
-    resp = client.get("/forum/me/stats/")
-    assert resp.status_code == 200
-    cache_control = resp["Cache-Control"]
-    assert "no-store" in cache_control
-    assert "private" in cache_control
-    assert "public" not in cache_control
-    assert "s-maxage" not in cache_control
-    _assert_varies_on_auth(resp, "/forum/me/stats/")
+
+@pytest.mark.django_db
+def test_authenticated_only_reads_are_never_shared_cached():
+    # Per-user payloads (profile, stats, edit history, notifications, mention
+    # search) must never be storable by a shared cache — same reasoning as
+    # topic detail/post list, but these 401 anonymously so they need their own
+    # authenticated-only loop rather than joining _private_paths().
+    board, topic, post = _board_topic_post()
+    # Author-only revision-privacy gate (todo 282): the post's own author,
+    # unedited by anyone else, may always read its revision history.
+    post.save_revision(user=post.author)
+    client = APIClient()
+    client.force_authenticate(post.author)
+    for path in _authenticated_only_paths(post):
+        resp = client.get(path)
+        assert resp.status_code == 200, path
+        _assert_never_shared_cached(resp, path)
