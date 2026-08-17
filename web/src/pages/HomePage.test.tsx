@@ -12,15 +12,30 @@ const renderHome = () =>
   );
 
 describe('HomePage', () => {
-  it('wraps content in a GrainOverlay', () => {
+  it('renders the hero headline and CTA links, not a GrainOverlay or ClayButton', () => {
     renderHome();
-    expect(screen.getByTestId('grain-overlay')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: /discover the world of plants/i })
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('grain-overlay')).not.toBeInTheDocument();
+
+    const getStarted = screen.getByRole('link', { name: /get started/i });
+    expect(getStarted).toHaveAttribute('href', '/identify');
+    const joinCommunity = screen.getByRole('link', { name: /join community/i });
+    expect(joinCommunity).toHaveAttribute('href', '/forum');
   });
-  it('renders a ClayButton CTA (pill, clay)', () => {
+
+  it('renders the three feature cards as links to their pages', () => {
     renderHome();
-    // the primary CTA button — match by its label text
-    const cta = screen.getByRole('button', { name: /get started|identify/i });
-    expect(cta).toHaveClass('rounded-pill');
-    expect(cta).toHaveClass('bg-clay');
+
+    expect(screen.getByRole('link', { name: /ai plant identification/i })).toHaveAttribute(
+      'href',
+      '/identify'
+    );
+    expect(screen.getByRole('link', { name: /discussion forum/i })).toHaveAttribute(
+      'href',
+      '/forum'
+    );
+    expect(screen.getByRole('link', { name: /plant blog/i })).toHaveAttribute('href', '/blog');
   });
 });
