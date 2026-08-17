@@ -54,13 +54,14 @@ test.describe('Garden', () => {
         headers: csrfHeaders,
         data: { name: 'My Plants' },
       });
+      expect(created.ok()).toBeTruthy();
       const collection = await created.json();
       collectionId = collection.id;
     }
 
     fixtureNickname = `E2E fixture rose ${Date.now()}`;
 
-    await request.post('/api/v1/plant-identification/plants/', {
+    const plantCreated = await request.post('/api/v1/plant-identification/plants/', {
       headers: csrfHeaders,
       data: {
         collection: collectionId,
@@ -74,6 +75,7 @@ test.describe('Garden', () => {
         },
       },
     });
+    expect(plantCreated.ok()).toBeTruthy();
   });
 
   test('populated grid renders a saved plant', async ({ page }) => {

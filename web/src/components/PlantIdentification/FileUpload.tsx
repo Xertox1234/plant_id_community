@@ -146,7 +146,7 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 }:
               : error
                 ? 'border-error/30 bg-error/10'
                 : isCompressing
-                  ? 'border-orchid/30 bg-orchid/10'
+                  ? 'border-sky/30 bg-sky/10'
                   : 'border-line hover:border-primary'
           }`}
           onDragEnter={handleDrag}
@@ -207,7 +207,7 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 }:
                 ? `Plant preview (compressed from ${formatFileSize(compressionStats.originalSize)} to ${formatFileSize(compressionStats.compressedSize)})`
                 : 'Plant preview - ready for identification'
             }
-            className="w-full h-96 object-cover rounded-xl"
+            className="w-full h-96 object-cover rounded-md"
           />
           <button
             onClick={clearPreview}

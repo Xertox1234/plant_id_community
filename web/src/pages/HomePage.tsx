@@ -1,4 +1,4 @@
-import { Sparkles, MessagesSquare, BookOpen } from 'lucide-react';
+import { Sparkles, MessagesSquare, BookOpen, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import HeroCard from '../components/ui/HeroCard';
 import ButtonLink from '../components/ui/ButtonLink';
@@ -10,7 +10,7 @@ interface FeatureCardProps {
   description: string;
   href: string;
   tone: 'sage' | 'bloom' | 'orchid';
-  Icon: typeof Sparkles;
+  Icon: LucideIcon;
 }
 
 /**
@@ -75,7 +75,7 @@ export default function HomePage() {
 
 function FeatureCard({ title, description, href, tone, Icon }: FeatureCardProps) {
   return (
-    <Card className="p-card">
+    <Card interactive className="p-card">
       <Link to={href} className="flex items-start gap-4">
         <Tile tone={tone} aria-hidden="true">
           <Icon className="h-5 w-5" />

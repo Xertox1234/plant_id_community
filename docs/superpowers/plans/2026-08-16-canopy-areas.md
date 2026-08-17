@@ -1440,7 +1440,7 @@ git commit -m "test(canopy): add public e2e smoke coverage for Home + Identify, 
 - Consumes: the restyled `MyPlantsPage` (Task 5) and `DiseaseDiagnosePage`/`DiseaseResultsList` (Task 4), and the `playwright.config.ts` wiring from Task 7 Step 1 (must already be in place — this task's spec file is invisible to Playwright without it).
 - Produces: nothing consumed by later tasks (this is the last task in the plan).
 
-**Prerequisite (spec §6.2, confirmed by reading `plantIdService.ts`):** `POST /api/v1/plant-identification/plants/` requires an existing `UserPlantCollection` for the user — `beforeAll` must create one via `POST /api/v1/users/collections/` before seeding a plant, since neither `create_test_user` nor any backend signal creates one automatically. This keeps the "no backend changes" decision intact (spec §5) — the collection is created through the same public API the app itself uses, not by touching backend fixture code.
+**Prerequisite (spec §6.2, confirmed by reading `plantIdService.ts`):** `POST /api/v1/plant-identification/plants/` requires an existing `UserPlantCollection` for the user — `beforeAll` must create one via `POST /api/v1/users/collections/` before seeding a plant, since neither `create_test_user` nor any backend signal creates one automatically. This keeps the "no backend changes" decision intact (spec §5) — the collection is created through the same public API the app itself uses, not by touching backend fixture code. (corrected during implementation — the real route is `/api/v1/auth/me/collections/`; see Task 8's shipped `web/e2e/canopy-areas-authenticated.spec.js`.)
 
 - [ ] **Step 1: Confirm the local prerequisites are met**
 

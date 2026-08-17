@@ -173,9 +173,9 @@ export default function IdentifyPage() {
   };
 
   return (
-    <div className="flex flex-col gap-8 py-8">
+    <div className="mx-auto w-full max-w-4xl py-8">
       {/* Page Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 mb-8">
         <Tile tone="sage" size="md" aria-hidden="true">
           <Sparkles className="w-5 h-5" />
         </Tile>
@@ -185,116 +185,113 @@ export default function IdentifyPage() {
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="mx-auto w-full max-w-4xl">
-        <Card className="p-card">
-          {/* Upload Section */}
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-ink mb-4">Upload Your Plant Photo</h2>
-            <FileUpload onFileSelect={handleFileSelect} />
-          </div>
-
-          {/* Identify Button */}
-          {selectedFile && !results && (
-            <div className="flex justify-center">
-              <button
-                onClick={handleIdentify}
-                disabled={loading}
-                className="px-8 py-3 bg-clay text-on-clay rounded-lg font-medium hover:bg-clay/90 disabled:bg-surface-3 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-              >
-                {loading ? (
-                  <>
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-5 h-5" />
-                    Identify Plant
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-
-          {/* Save-failure live region, OUTSIDE the results block on purpose
-              (audit M26). Nesting it in `{(results || loading || error) && …}`
-              made it a persistent region with a non-persistent ancestor: pick a
-              new file mid-save and that block unmounts, so the pending save's
-              rejection had nowhere to land — the error was dropped silently for
-              everyone, sighted or not. Unconditional here, so the node
-              pre-exists its content in every path. */}
-          <div
-            aria-live="assertive"
-            aria-atomic="true"
-            className={
-              saveError || askError
-                ? 'mt-4 bg-error/10 border border-error/30 rounded-lg p-4'
-                : 'sr-only'
-            }
-          >
-            {/* Both write-path failures land in this ONE persistent region
-                (the M26 lesson above). Only one of the two actions can be in
-                flight at a time, so they cannot clobber each other. */}
-            <p className="text-sm text-error">{saveError || askError}</p>
-          </div>
-
-          {/* Results Section */}
-          {(results || loading || error) && (
-            <div className="mt-8 pt-8 border-t border-line">
-              <IdentificationResults
-                results={results}
-                loading={loading}
-                error={error}
-                onSavePlant={handleSavePlant}
-                savedPlants={savedPlants}
-                savingPlant={savingPlant}
-              />
-
-              {results && (
-                <div className="mt-6 flex flex-wrap justify-center gap-3">
-                  {/* Not sure? Take it to the forum with the result attached
-                      (audit M6) — the app's flagship loop. */}
-                  {!!results.suggestions?.length && (
-                    <button
-                      onClick={handleAskCommunity}
-                      disabled={asking}
-                      className="px-6 py-2 bg-clay text-on-clay rounded-lg font-medium hover:bg-clay/90 disabled:bg-surface-3 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-                    >
-                      <Users className="w-4 h-4" aria-hidden="true" />
-                      {asking ? 'Preparing…' : 'Ask the community'}
-                    </button>
-                  )}
-                  <button
-                    onClick={handleReset}
-                    className="px-6 py-2 bg-surface-3 text-ink-2 rounded-lg font-medium hover:bg-surface-3/80 transition-colors"
-                  >
-                    Identify Another Plant
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </Card>
-
-        {/* Info Cards */}
-        <div className="mt-8 grid gap-5 md:grid-cols-3">
-          <InfoTile
-            title="Upload Photo"
-            description="Take or upload a clear photo of your plant"
-            step="1"
-          />
-          <InfoTile
-            title="AI Analysis"
-            description="Our AI identifies your plant using advanced recognition"
-            step="2"
-          />
-          <InfoTile
-            title="Get Results"
-            description="Receive detailed information about your plant"
-            step="3"
-          />
+      <Card className="p-card">
+        {/* Upload Section */}
+        <div className="mb-8">
+          <h2 className="text-xl font-semibold text-ink mb-4">Upload Your Plant Photo</h2>
+          <FileUpload onFileSelect={handleFileSelect} />
         </div>
+
+        {/* Identify Button */}
+        {selectedFile && !results && (
+          <div className="flex justify-center">
+            <button
+              onClick={handleIdentify}
+              disabled={loading}
+              className="px-8 py-3 bg-clay text-on-clay rounded-lg font-medium hover:bg-clay/90 disabled:bg-surface-3 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-5 h-5" />
+                  Identify Plant
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Save-failure live region, OUTSIDE the results block on purpose
+            (audit M26). Nesting it in `{(results || loading || error) && …}`
+            made it a persistent region with a non-persistent ancestor: pick a
+            new file mid-save and that block unmounts, so the pending save's
+            rejection had nowhere to land — the error was dropped silently for
+            everyone, sighted or not. Unconditional here, so the node
+            pre-exists its content in every path. */}
+        <div
+          aria-live="assertive"
+          aria-atomic="true"
+          className={
+            saveError || askError
+              ? 'mt-4 bg-error/10 border border-error/30 rounded-lg p-4'
+              : 'sr-only'
+          }
+        >
+          {/* Both write-path failures land in this ONE persistent region
+              (the M26 lesson above). Only one of the two actions can be in
+              flight at a time, so they cannot clobber each other. */}
+          <p className="text-sm text-error">{saveError || askError}</p>
+        </div>
+
+        {/* Results Section */}
+        {(results || loading || error) && (
+          <div className="mt-8 pt-8 border-t border-line">
+            <IdentificationResults
+              results={results}
+              loading={loading}
+              error={error}
+              onSavePlant={handleSavePlant}
+              savedPlants={savedPlants}
+              savingPlant={savingPlant}
+            />
+
+            {results && (
+              <div className="mt-6 flex flex-wrap justify-center gap-3">
+                {/* Not sure? Take it to the forum with the result attached
+                    (audit M6) — the app's flagship loop. */}
+                {!!results.suggestions?.length && (
+                  <button
+                    onClick={handleAskCommunity}
+                    disabled={asking}
+                    className="px-6 py-2 bg-clay text-on-clay rounded-lg font-medium hover:bg-clay/90 disabled:bg-surface-3 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                  >
+                    <Users className="w-4 h-4" aria-hidden="true" />
+                    {asking ? 'Preparing…' : 'Ask the community'}
+                  </button>
+                )}
+                <button
+                  onClick={handleReset}
+                  className="px-6 py-2 bg-surface-3 text-ink-2 rounded-lg font-medium hover:bg-surface-3/80 transition-colors"
+                >
+                  Identify Another Plant
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* Info Cards */}
+      <div className="mt-8 grid gap-5 md:grid-cols-3">
+        <InfoTile
+          title="Upload Photo"
+          description="Take or upload a clear photo of your plant"
+          step="1"
+        />
+        <InfoTile
+          title="AI Analysis"
+          description="Our AI identifies your plant using advanced recognition"
+          step="2"
+        />
+        <InfoTile
+          title="Get Results"
+          description="Receive detailed information about your plant"
+          step="3"
+        />
       </div>
     </div>
   );

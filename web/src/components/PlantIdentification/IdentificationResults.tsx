@@ -80,6 +80,7 @@ export default function IdentificationResults({
                 <ConfidencePill
                   value={suggestion.probability}
                   tone={index === 0 ? 'text-primary' : 'text-ink-2'}
+                  suffix="confidence"
                 />
               </div>
 

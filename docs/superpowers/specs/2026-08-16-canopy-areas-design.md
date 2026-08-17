@@ -148,7 +148,9 @@ and the existing specs before planning tasks:
   `UserPlantCollection` (`saveToCollection` throws "No collection found" otherwise), and neither
   `create_test_user` nor any model signal creates one automatically — so `beforeAll` calls
   `POST /api/v1/users/collections/` first (idempotent-safe: only if the user has none) and then
-  `POST /api/v1/plant-identification/plants/` with a fixture payload.
+  `POST /api/v1/plant-identification/plants/` with a fixture payload. (corrected during
+  implementation — the real route is `/api/v1/auth/me/collections/`; see Task 8's shipped
+  `web/e2e/canopy-areas-authenticated.spec.js`.)
   Left-behind data across runs is an accepted tradeoff, same as `forum-authenticated.spec.js`.
 
 ### 6.3 Baseline recorded in this worktree (2026-08-16, before any PR 4 changes)
