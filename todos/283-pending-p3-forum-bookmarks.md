@@ -5,20 +5,23 @@ issue_id: "283"
 tags: [forum, drf, web, product-ux]
 dependencies: []
 source_review: "docs/audits/2026-07-11-forum-modernization.md"
-source_finding: "M2, M8"
+source_finding: "M2"
 ---
 
-# Forum: bookmarks and polls (M2, M8)
+# Forum: bookmarks (M2)
 
 ## Problem
 
-Two independent forum table-stakes features are absent: a member cannot save a
-topic to come back to (M2), and no thread can carry a poll (M8). Both are
-standard forum affordances with no current substitute — a member's only
-"save" today is a browser bookmark, and a poll degrades into a reply thread of
-"+1"s. Promoted out of the todo 263 parking epic at the 2026-07-26 roadmap
-review; grouped because both are self-contained per-topic additions with the
-same shape of work, not because they must ship together.
+A member cannot save a topic to come back to. This is a standard forum
+affordance with no current substitute — a member's only "save" today is a
+browser bookmark.
+
+Scope note (2026-08-17): this todo originally bundled M2 (bookmarks) and M8
+(polls), "grouped because both are self-contained per-topic additions with
+the same shape of work, not because they must ship together." Per this
+todo's own Notes ("if capacity is tight, ship M2 and re-defer M8 rather than
+starting both"), M8 has been split out to todo 309 and this todo is now
+M2-only.
 
 ## Findings
 
@@ -29,18 +32,10 @@ State verified against `main` at 2026-07-26 (commit 27ade0c):
   returns nothing). The nearest existing primitive is `TopicSubscription`
   (`W/models/subscriptions.py:13`), which is *notification* intent, not
   *save-for-later* intent — the two must stay distinct.
-- **M8 — no polls.** No poll model or block exists; `ForumBodyBlock`
-  (`W/blocks.py:13-30`) admits only heading/paragraph/quote/code/image. The only
-  `poll` matches in the package are delta-sync polling comments
-  (`W/models/topics.py:87`, `W/api/views.py:1316`) — unrelated.
 
 Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `web` = `web/src`.
 
 ## Recommended Action
-
-Ship M2 first — it is roughly a quarter of the work and has no schema risk.
-
-### M2 — bookmarks
 
 1. `TopicBookmark` model (`user`, `topic`, `created_at`) with a
    `unique_together`/`UniqueConstraint` on `(user, topic)`. Follow
@@ -54,21 +49,9 @@ Ship M2 first — it is roughly a quarter of the work and has no schema risk.
    (`W/api/serializers.py:245-251`).
 4. Web: a bookmark toggle on the thread header and a "Saved" list page.
 
-### M8 — polls
-
-1. Decide the storage shape and record it in the Work Log before coding:
-   a `Poll`/`PollOption`/`PollVote` model trio attached to `Topic` is
-   recommended over a StreamField block — votes need their own rows and unique
-   constraints, which a block cannot express.
-2. One vote per user per poll (`UniqueConstraint`), a `closes_at`, and a
-   server-computed result payload; never trust client-side counts.
-3. Poll creation belongs in the new-thread composer only (not replies) for the
-   first cut.
-4. Web: poll render + vote + result bar in `ThreadDetailPage`.
-
 ## Technical Details
 
-- Both features add per-user rows keyed on `topic` — mirror the existing
+- Bookmark rows are per-user, keyed on `topic` — mirror the existing
   `TopicSubscription`/`TopicRead` migration and index conventions
   (`W/models/subscriptions.py`, `W/models/topic_reads.py`).
 - Package purity: no `apps.*` imports (`test_reusability.py` forbids them).
@@ -86,12 +69,7 @@ Ship M2 first — it is roughly a quarter of the work and has no schema risk.
       401s for anonymous — test asserts both
 - [ ] Topic list/detail query count is unchanged by the `is_bookmarked`
       addition — exact `assertNumQueries` test
-- [ ] A second vote by the same user on the same poll is rejected (or replaces
-      the first — whichever is chosen), asserted by test, and the choice is
-      recorded in the Work Log
-- [ ] Poll results are computed server-side; a client cannot post a count —
-      test asserts a forged count is ignored
-- [ ] Web: bookmark toggle and poll vote each covered by a Vitest test
+- [ ] Web: bookmark toggle covered by a Vitest test
 - [ ] `manage.py spectacular` passes; `pytest` forum suite green
 
 ## Work Log
@@ -102,8 +80,15 @@ Ship M2 first — it is roughly a quarter of the work and has no schema risk.
 - Grouped into one todo per todo 263's own guidance ("standard forum table
   stakes, independent"). They may be split into separate PRs; M2 first.
 
+### 2026-08-17 - Split: M8 moved to todo 309
+
+- Capacity was tight during this sweep (12 p3 todos in one pass) — applied
+  this todo's own stated fallback ("ship M2 and re-defer M8 rather than
+  starting both") rather than doing both or neither. M8 re-pointed to todo
+  309 in the source review's Finding Status section; not silently dropped.
+  This todo is now scoped to M2 (bookmarks) only — AC list trimmed to match.
+
 ## Notes
 
-p3 for both. Neither blocks a user nor carries a safety or accessibility defect;
-they are engagement features. M8 is the larger of the two by roughly 3-4x — if
-capacity is tight, ship M2 and re-defer M8 rather than starting both.
+p3. Neither blocks a user nor carries a safety or accessibility defect; this
+is an engagement feature.

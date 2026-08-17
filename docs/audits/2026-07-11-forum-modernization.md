@@ -328,7 +328,9 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
       nothing, so there is no server-side record to reference — see the todo's
       Work Log.
 - [x] #M7 image-authoring-alt-text → todo 281 (completed 2026-07-31)
-- [ ] #M8 polls → todo 283 (re-pointed 2026-07-26; promoted out of 263 with M2)
+- [ ] #M8 polls → todo 309 (re-pointed 2026-08-17; split out of todo 283 per
+      that todo's own Notes — "ship M2 and re-defer M8 rather than starting
+      both" — 283 is now M2-only)
 - [ ] #M9 block-mute → todo 284 (re-pointed 2026-07-26; promoted out of 263)
 - [ ] #M10 private-messaging → todo 284 (re-pointed 2026-07-26; promoted out of 263,
       gated behind M9 in that todo's first acceptance criterion)
