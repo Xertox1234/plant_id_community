@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .versioning import UnversionedForumAPIMixin
-from .views import extend_schema
+from .views import PrivateForumReadCacheMixin, extend_schema
 
 MAX_RESULTS = 10
 
@@ -28,7 +28,9 @@ USER_SEARCH_SCHEMA = {
 }
 
 
-class UserMentionSearchView(UnversionedForumAPIMixin, APIView):
+class UserMentionSearchView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView
+):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(

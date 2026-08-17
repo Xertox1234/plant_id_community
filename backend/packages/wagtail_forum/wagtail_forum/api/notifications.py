@@ -24,7 +24,7 @@ from ..models import Notification
 from .pagination import ForumCursorPagination
 from .serializers import NotificationSerializer
 from .versioning import UnversionedForumAPIMixin
-from .views import _visible_boards
+from .views import PrivateForumReadCacheMixin, _visible_boards
 
 UNREAD_COUNT_SCHEMA = {
     "type": "object",
@@ -63,7 +63,9 @@ def _visible_notifications(user):
         "List the authenticated user's notifications, newest first (cursor-paginated)."
     ),
 )
-class NotificationListView(UnversionedForumAPIMixin, generics.ListAPIView):
+class NotificationListView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, generics.ListAPIView
+):
     serializer_class = NotificationSerializer
     pagination_class = ForumCursorPagination
     permission_classes = [IsAuthenticated]
@@ -81,7 +83,9 @@ class NotificationListView(UnversionedForumAPIMixin, generics.ListAPIView):
         )
 
 
-class NotificationUnreadCountView(UnversionedForumAPIMixin, APIView):
+class NotificationUnreadCountView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView
+):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
