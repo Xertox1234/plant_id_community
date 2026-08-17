@@ -3093,3 +3093,66 @@ to `.claude/agents/wagtail-reviewer.md`): before citing a `Meta.fields` diff
 as the root cause of an API-response symptom on a Wagtail-routed viewset,
 confirm which serializer actually gets dispatched — a finding that's correct
 about the code and wrong about the runtime is still a false positive.
+
+## 2026-08-17 — A required TS field the live API never sends: mocked fixtures agreed with the type, not with reality (todo 313, Canopy PR 4 deferred QA)
+
+**What happened:** Canopy PR 4's spec (`docs/superpowers/specs/2026-08-16-canopy-areas-design.md`
+§6.4) required a manual visual QA pass — real login, real identify, real
+diagnosis — before merge. It got deferred and the PR merged without it
+(#558, 2026-08-17). Running it the next day, a real (unmocked) plant photo
+through the live `POST /api/v1/plant-identification/identify/` endpoint
+correctly identified a Monstera deliciosa at 99% confidence — and the
+frontend then crashed to the app's generic error boundary instead of
+showing results. Every previous automated run (unit, component, and both
+e2e suites, including this same PR's own new specs) was green; this was
+never exercised.
+
+**Root cause:** `getPlantKey()` (`web/src/utils/plantUtils.ts:10-13`) reads
+`suggestion.confidence.toFixed(4)`. `PlantIdentificationResult`
+(`web/src/types/plantId.ts:8-32`) declares `confidence: number` as
+*required* (line 10) — but the live API only ever sends `confidence` on the
+top-level result object; every item inside `suggestions[]` sends
+`probability` instead (a *separate*, optional field added later, per its
+own comment, "for compatibility with IdentificationResults component" —
+line 24). So `suggestion.confidence` is `undefined` for every suggestion,
+always, and `.toFixed(4)` throws. The call is unconditional:
+`IdentificationResults.tsx:107` runs it inside an IIFE that fires during
+render for every suggestion whenever `onSavePlant` is truthy — and
+`IdentifyPage.tsx:247` passes `onSavePlant={handleSavePlant}`
+unconditionally, not gated on auth state. Confirmed via git history that
+this exact code path is unchanged since `main~20`, long before Canopy PR 4
+touched the file — a pre-existing bug the branch didn't cause, just
+happened to be the first real end-to-end exercise of.
+
+**Why no test caught it:** `strict: false` doesn't help here — this isn't
+an implicit-`any` gap, it's a field the type declares as always-present
+that the real runtime response for `suggestions[]` items never sends.
+`tsc` had no signal to catch a type that's simply wrong about the shape of
+live data. And every mocked "suggestion" fixture across the test suite —
+component tests, e2e mocks — apparently included a `confidence` key to
+match the type, never the real `probability`-only shape a live suggestion
+actually has. The type lied, and every test double copied the type's lie
+instead of the API's truth.
+
+**Resolution:** root-caused and filed as todo 313 (p1) with the fix
+recommendation (use `suggestion.probability` in `getPlantKey()` and in
+`IdentifyPage.tsx`'s save payload, not `suggestion.confidence`) — not
+fixed in this session, left for a dedicated pass. PR #560 (docs-only, the
+todo file itself).
+
+**Rule:** when a TypeScript interface has fields that are populated by
+different call sites in different shapes (here: one shape for a top-level
+result, a narrower one for each array item under it), a `required` field
+on the shared type is a trap — mark it optional if any real caller can omit
+it, and prefer the field name the *majority* of consumers actually read
+(`probability`, used at `IdentificationResults.tsx:79` for display) over a
+legacy name only some code paths populate. **Test-fixture corollary:** a
+mock/fixture object should be built from a captured real API response, not
+hand-typed to satisfy the TypeScript interface — a fixture that only
+needs to please `tsc` will silently drift from what the API actually
+sends, and the gap is invisible until a real call is made. **QA corollary:**
+this is exactly the class of bug that a spec's "run a real, unmocked
+end-to-end call" gate exists to catch, and exactly why deferring that gate
+past a merge (as happened here) lets a production-breaking crash on the
+app's core feature ship silently — see spec §6.4 in the Canopy PR 4 memory
+file for the original gate this session finally ran.
