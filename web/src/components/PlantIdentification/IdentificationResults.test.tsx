@@ -46,7 +46,7 @@ describe('IdentificationResults', () => {
 
     expect(screen.getByText('Leaf spot')).toBeInTheDocument();
     expect(screen.getByText('60%')).toBeInTheDocument();
-    expect(screen.getByLabelText('60% match')).toBeInTheDocument();
+    expect(screen.getByText('60%').closest('span')).toHaveTextContent('60% match');
   });
 
   it('shows the save-to-collection action per suggestion when onSavePlant is provided', () => {

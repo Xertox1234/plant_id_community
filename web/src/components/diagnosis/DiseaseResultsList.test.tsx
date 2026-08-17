@@ -27,7 +27,7 @@ describe('DiseaseResultsList', () => {
 
     expect(screen.getByText('Black Spot')).toBeInTheDocument();
     expect(screen.getByText('88%')).toBeInTheDocument();
-    expect(screen.getByLabelText('88% confidence')).toBeInTheDocument();
+    expect(screen.getByText('88%').closest('span')).toHaveTextContent('88% confidence');
     expect(screen.queryByRole('button', { name: /88%/ })).not.toBeInTheDocument();
     expect(screen.getByText(/black spots/)).toBeInTheDocument();
   });

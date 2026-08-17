@@ -16,18 +16,17 @@ interface IdentificationResultsProps {
 function ConfidencePill({
   value,
   tone = 'text-ink-2',
-  ariaLabel,
+  suffix,
 }: {
   value: number;
   tone?: string;
-  ariaLabel?: string;
+  suffix?: string;
 }) {
   return (
     <span
-      aria-label={ariaLabel}
       className={`shrink-0 rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-[13px] tabular-nums ${tone}`}
     >
-      {Math.round(value * 100)}%
+      {Math.round(value * 100)}%{suffix && <span className="sr-only"> {suffix}</span>}
     </span>
   );
 }
@@ -158,11 +157,7 @@ export default function IdentificationResults({
                     <p className="text-sm text-ink-2 mt-1">{disease.description}</p>
                   )}
                 </div>
-                <ConfidencePill
-                  value={disease.probability}
-                  tone="text-warn"
-                  ariaLabel={`${Math.round(disease.probability * 100)}% match`}
-                />
+                <ConfidencePill value={disease.probability} tone="text-warn" suffix="match" />
               </div>
             ))}
           </div>

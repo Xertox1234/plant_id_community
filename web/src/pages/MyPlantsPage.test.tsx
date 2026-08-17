@@ -97,8 +97,8 @@ describe('MyPlantsPage', () => {
     expect(screen.getByText('Damask Rose')).toBeInTheDocument();
     expect(screen.getByText('97%')).toBeInTheDocument();
     expect(screen.getByText('81%')).toBeInTheDocument();
-    expect(screen.getByLabelText('97% match')).toBeInTheDocument();
-    expect(screen.getByLabelText('81% match')).toBeInTheDocument();
+    expect(screen.getByText('97%').closest('span')).toHaveTextContent('97% match');
+    expect(screen.getByText('81%').closest('span')).toHaveTextContent('81% match');
     expect(getMyPlantsMock).toHaveBeenCalledWith(1);
   });
 

@@ -20,18 +20,18 @@ const PAGE_SIZE = 20; // Backend DRF PageNumberPagination page size
 function StaticPill({
   children,
   tone = 'text-ink-2',
-  ariaLabel,
+  suffix,
 }: {
   children: React.ReactNode;
   tone?: string;
-  ariaLabel?: string;
+  suffix?: string;
 }) {
   return (
     <span
-      aria-label={ariaLabel}
       className={`shrink-0 rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-[11px] ${tone}`}
     >
       {children}
+      {suffix && <span className="sr-only"> {suffix}</span>}
     </span>
   );
 }
@@ -145,10 +145,7 @@ export default function MyPlantsPage() {
                         {plant.display_name || plant.nickname || 'Unnamed plant'}
                       </h2>
                       {typeof confidence === 'number' && (
-                        <StaticPill
-                          tone="text-primary"
-                          ariaLabel={`${Math.round(confidence * 100)}% match`}
-                        >
+                        <StaticPill tone="text-primary" suffix="match">
                           {Math.round(confidence * 100)}%
                         </StaticPill>
                       )}
