@@ -160,3 +160,17 @@ Compact checklist auto-injected before edits. Long-form:
   (`_refresh_topic_counters`) derive from `first_published_at`, so a back-date
   that skips it snaps curated timestamps to wall-clock on the first
   unpublish/delete/recount. Hit in `seed_demo_content` (PR #538 review).
+- **A custom `PagesAPIViewSet` subclass's `self.action` is NOT DRF's
+  `"list"`/`"retrieve"`.** Wagtail's router wires the base endpoints via
+  `cls.as_view({"get": "listing_view"})`/`{"get": "detail_view"}`/
+  `{"get": "find_view"}` (`wagtail/api/v2/views.py`; Wagtail's OWN base class
+  checks `self.action == "listing_view"` internally) — so a
+  `get_serializer_class()`/`get_queryset()` branch written as
+  `if self.action == "list":` never matches and silently falls through to
+  the OTHER branch on every request. Branch on `"listing_view"`/
+  `"detail_view"` instead. Only genuine DRF `@action`-decorated custom
+  endpoints (`.as_view({"get": "popular"})`) get their real method name in
+  `self.action`, since those ARE dispatched through DRF's own
+  `ViewSetMixin.as_view()`. Verify by live-probing the actual endpoint
+  response, not by re-reading the branch — see `docs/LEARNINGS.md`
+  2026-08-16 and todo 306.

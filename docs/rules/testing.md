@@ -282,6 +282,12 @@ Compact checklist auto-injected before edits.
   control TYPE (e.g. sort `<select>` → chip buttons) breaks e2e specs that are
   out-of-diff consumers of the old markup — grep `web/e2e/` for the page's
   selectors before shipping a control swap, and re-run the affected suite.
+- **Django's `CommandParser.error()` raises `CommandError`, not argparse's
+  default `sys.exit(2)`/`SystemExit`.** Testing that a management-command
+  option is unregistered/rejected (e.g. pinning a `stealth_options`-only
+  flag's CLI-unreachability) — `pytest.raises(SystemExit)` around
+  `parser.parse_args([...])` fails even though the rejection is real; assert
+  `CommandError` instead.
 - **Rendition-touching tests clear the `"renditions"` cache backend first.**
   It is real-Redis-backed, long-TTL, keyed by image pk + filter spec (NOT by
   database), so it persists across pytest invocations and pk-collides with

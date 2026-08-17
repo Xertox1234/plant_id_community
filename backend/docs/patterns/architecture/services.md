@@ -921,3 +921,59 @@ Reference implementation: `backend/apps/garden/firebase_config.py` +
 `backend/apps/users/firebase_auth_views.py::_ensure_firebase_initialized`
 (tests: `apps/garden/tests/test_firebase_config.py`,
 `apps/users/tests/test_firebase_auth.py::FirebaseInitFailureTestCase`).
+
+## `stealth_options` — Passing an Orchestrator-Only Flag Without a CLI Override
+
+**Problem**: one management command (`seed_demo_content`) calls another
+(`seed_demo_blog`) via `call_command()`, and both independently run the
+identical "any real user exists" guard query. The orchestrator already ran
+that exact check — re-running it in the sub-command is pure waste — but the
+guard is explicitly designed with **no CLI override** (a demo-seed guard that
+can be disabled from the command line is a production data-loss risk). A
+naive fix (add a `--skip-check` argparse flag, only call it from
+`call_command()`) creates exactly the bypass the guard exists to prevent:
+any argparse flag is also typeable on the real CLI.
+
+**Solution**: Django's `BaseCommand.stealth_options` (a class-level tuple)
+lets `call_command()` accept a kwarg that is validated but **never
+registered on the argparse parser** — `call_command()`'s own validation is
+`dest_parameters | stealth_options`, so a stealth option is a valid kwarg
+for `call_command()` calls but unrecognized (raises) if typed as an actual
+`--flag`.
+
+```python
+class Command(BaseCommand):
+    # Settable ONLY via call_command() — never on the argparse CLI parser.
+    stealth_options = ("real_users_verified",)
+
+    def add_arguments(self, parser):
+        parser.add_argument("--confirm", action="store_true")
+        # NOTE: no add_argument() call for real_users_verified — that IS
+        # the mechanism. Adding one here reopens the exact CLI bypass this
+        # pattern exists to prevent.
+
+    def handle(self, *args, **options):
+        if not options.get("real_users_verified"):
+            if real_users_queryset().exists():
+                raise CommandError("refusing to seed — real users exist")
+        ...
+
+# Orchestrator — the ONLY caller allowed to set the stealth flag:
+call_command("seed_demo_blog", confirm=..., real_users_verified=True)
+```
+
+**Pin the CLI-unreachability directly** (a comment claiming "no override" is
+not evidence — a prior instance of the same guard shipped the "no override"
+comment with no test enforcing it):
+
+```python
+def test_real_users_verified_is_not_reachable_from_the_cli():
+    parser = Command().create_parser("manage.py", "seed_demo_blog")
+    # Django's CommandParser.error() raises CommandError, not SystemExit.
+    with pytest.raises(CommandError, match="real-users-verified"):
+        parser.parse_args(["--real-users-verified", "--confirm"])
+```
+
+Reference: `backend/apps/blog/management/commands/seed_demo_blog.py`,
+`backend/apps/forum_host/management/commands/seed_demo_content.py`
+(PR #540 review). See also `docs/rules/security.md`.

@@ -3030,3 +3030,66 @@ Two faces of the same gotcha, hit hours apart in one session:
 
 **Rule** (added to `docs/rules/testing.md`): rendition-touching tests clear
 the `"renditions"` cache backend first.
+
+## 2026-08-16 — A code-review finding was a false positive: `self.action` never means what it looks like on a Wagtail `PagesAPIViewSet` (PR #540)
+
+**What happened:** a `/code-review` pass on PR #540 flagged that
+`BlogPostPageListSerializer` never returned `featured_image`, so the blog
+grid's cover images fell back to a 300x200 thumb stretched into an 800x400
+box. The fix (add the field + prefetch it at every queryset call site that
+builds that serializer) landed and was committed. An advisor review of that
+commit caught two things before it was declared done:
+
+1. **A self-introduced regression**: the new field was prefetched at only 1
+   of 5 queryset call sites — `by_category` and `related` still only
+   prefetched `fill-300x200`, so those (unrouted, but not dead-forever)
+   actions would pay a per-row rendition query the moment they're ever
+   wired up.
+2. **The original finding was itself a false positive.** Live-probing the
+   PRE-FIX commit (`git checkout HEAD~1 -- serializers.py viewsets.py`,
+   hit `/api/v2/blog-posts/` directly) showed `featured_image` at
+   `fill-800x400` was already present. Root cause: `BlogPostPageViewSet`
+   (a `PagesAPIViewSet` subclass) branches
+   `get_serializer_class()`/`get_queryset()` on `self.action == "list"`,
+   but Wagtail's router sets `self.action = "listing_view"` for this
+   endpoint (`.as_view({"get": "listing_view"})`; confirmed via
+   `wagtail/api/v2/views.py`, which checks `self.action == "listing_view"`
+   internally, twice). The check has NEVER matched, so `/api/v2/blog-posts/`
+   has always served the full `BlogPostPageSerializer` (detail) — which
+   already had `featured_image` before this PR. The grid was never blurry
+   from a missing field. This exact bug was independently filed as todo 306
+   the SAME day, hours earlier, by a different session — corroborating
+   evidence was sitting in the repo the whole time
+   (`web/src/services/blogService.ts`'s own doc comment: *"Live-probed
+   2026-08-16: … the `fetchBlogPosts` list endpoint send[s] `content_blocks`
+   as a JSON string"* — `content_blocks` exists only on the detail
+   serializer).
+
+**Why the finding looked right:** `BlogPostPageListSerializer.Meta.fields`
+genuinely didn't include `featured_image` — a plain code read of the
+serializer, without confirming which serializer actually gets dispatched at
+runtime, produces a plausible-sounding but wrong API-behavior conclusion.
+The `self.action` naming mismatch is invisible to static reading; only
+hitting the live endpoint (or grepping Wagtail's own router source) reveals
+it.
+
+**Resolution:** the `featured_image` field addition and its now-complete
+5-site prefetch stayed in — the routed `popular` action genuinely
+instantiates `BlogPostPageListSerializer` directly (bypassing
+`get_serializer_class()` entirely) and gets real use from it, and once todo
+306 is fixed the base list endpoint will start using the list serializer
+too — without the field already present, fixing todo 306 would silently
+introduce the exact blurry-grid symptom the mistaken finding described for
+the first time. Cross-referenced in todo 306's work log. The regression
+test was reworded from "pins the fix" to "pins the response contract,
+whichever serializer produces it" — accurate regardless of mechanism.
+
+**Rule** (added to `docs/rules/wagtail.md` +
+`backend/docs/patterns/domain/wagtail.md`): a custom `PagesAPIViewSet`'s
+`self.action` is `"listing_view"`/`"detail_view"`/`"find_view"`, never DRF's
+`"list"`/`"retrieve"` — branch accordingly, and verify by live-probing the
+endpoint, not by re-reading the branch. **Review-process corollary** (added
+to `.claude/agents/wagtail-reviewer.md`): before citing a `Meta.fields` diff
+as the root cause of an API-response symptom on a Wagtail-routed viewset,
+confirm which serializer actually gets dispatched — a finding that's correct
+about the code and wrong about the runtime is still a false positive.
