@@ -2,28 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import BlogCard from './BlogCard';
+import { createMockBlogPost } from '@/tests/utils';
 import type { BlogPost } from '@/types';
 
-const post: BlogPost = {
-  id: 1,
-  meta: {
-    type: 'blog.BlogPostPage',
-    detail_url: '',
-    html_url: '',
-    slug: 'killed-by-kindness',
-    first_published_at: '2026-08-13T09:00:00Z',
-  },
-  slug: 'killed-by-kindness',
-  title: 'Killed by kindness',
-  excerpt: 'Most houseplants don’t die of neglect.',
-  content_blocks: [],
-  featured_image: { url: '/media/cover-800.webp', width: 800, height: 400, alt: '' },
-  featured_image_thumb: { url: '/media/cover-300.webp', width: 300, height: 200, alt: '' },
-  publish_date: '2026-08-13',
-  author: { id: 2, username: 'june_park', display_name: 'June Park' },
-  categories: [{ id: 1, name: 'Care', slug: 'care' }],
-  reading_time: 3,
-};
+const post: BlogPost = createMockBlogPost();
 
 function renderCard(p: BlogPost, compact = false) {
   return render(

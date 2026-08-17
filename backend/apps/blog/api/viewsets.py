@@ -185,13 +185,16 @@ class BlogPostPageViewSet(PagesAPIViewSet):
                 )
             )
 
-            # List view: Only prefetch thumbnail renditions
+            # List view: prefetch both renditions BlogPostPageListSerializer
+            # exposes — the grid cover (featured_image, 800x400) and the
+            # compact-rail thumb (featured_image_thumb, 300x200).
             try:
                 queryset = queryset.prefetch_related(
                     Prefetch(
                         "featured_image",
                         queryset=Image.objects.prefetch_renditions(
-                            "fill-400x300",  # List page thumbnail only
+                            "fill-800x400",
+                            "fill-300x200",
                         ),
                     )
                 )

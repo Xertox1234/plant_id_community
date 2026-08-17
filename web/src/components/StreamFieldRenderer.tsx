@@ -1,5 +1,6 @@
 import { createSafeMarkup, SANITIZE_PRESETS } from '../utils/sanitize';
 import { highlightMentions } from '../utils/mentions';
+import { mediaUrl } from '../services/blogService';
 import type { StreamFieldBlock as StreamFieldBlockType } from '@/types/blog';
 
 /**
@@ -139,9 +140,15 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
 
     case 'image': {
       // Backend (forum PR-3): ImageChooserBlock → {id, url, alt, width, height}.
+      // url is relative (`/media/...`) — resolve against the API origin like
+      // every other blog image consumer (BlogCard, BlogDetailPage cover).
       const { url, alt } = block.value;
       return (
-        <img src={url} alt={alt || ''} className="my-5 mx-auto h-auto max-w-full rounded-md" />
+        <img
+          src={mediaUrl(url)}
+          alt={alt || ''}
+          className="my-5 mx-auto h-auto max-w-full rounded-md"
+        />
       );
     }
 
@@ -238,7 +245,7 @@ function StreamFieldBlock({ block, mentionHighlight }: StreamFieldBlockProps) {
         buttonStyle === 'secondary'
           ? 'inline-block rounded-pill border border-line bg-surface-2/60 px-6 py-2.5 text-[13.5px] font-semibold text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink'
           : buttonStyle === 'outline'
-            ? 'inline-block rounded-pill border border-line bg-surface-2/60 px-6 py-2.5 text-[13.5px] font-semibold text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink'
+            ? 'inline-block rounded-pill border border-line bg-transparent px-6 py-2.5 text-[13.5px] font-semibold text-ink-2 transition-colors hover:bg-surface-2/60 hover:text-ink'
             : 'canopy-cta inline-block rounded-pill px-6 py-2.5 text-[13.5px] font-semibold';
 
       return (

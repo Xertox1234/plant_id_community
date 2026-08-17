@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import BlogDetailPage from './BlogDetailPage';
 import { fetchBlogPost } from '../services/blogService';
+import { createMockBlogPost } from '@/tests/utils';
 import type { BlogPost } from '@/types';
 
 vi.mock('../services/blogService', async (importOriginal) => {
@@ -15,17 +16,8 @@ vi.mock('../services/blogService', async (importOriginal) => {
 
 const mockFetchPost = vi.mocked(fetchBlogPost);
 
-const post: BlogPost = {
-  id: 1,
-  meta: {
-    type: 'blog.BlogPostPage',
-    detail_url: '',
-    html_url: '',
-    slug: 'killed-by-kindness',
-    first_published_at: '2026-08-13T09:00:00Z',
-  },
-  slug: 'killed-by-kindness',
-  title: 'Killed by kindness',
+const post: BlogPost = createMockBlogPost({
+  excerpt: undefined,
   introduction: '<p>Most houseplants don’t die of neglect.</p>',
   content_blocks: [
     { type: 'heading', value: 'What overwatering actually is' },
@@ -37,10 +29,7 @@ const post: BlogPost = {
     height: 400,
     alt: 'Overwatered pothos',
   },
-  publish_date: '2026-08-13',
-  author: { id: 2, username: 'june_park', display_name: 'June Park' },
-  categories: [{ id: 1, name: 'Care', slug: 'care' }],
-  reading_time: 3,
+  featured_image_thumb: undefined,
   related_posts: [
     {
       id: 2,
@@ -53,7 +42,7 @@ const post: BlogPost = {
       featured_image: 'http://localhost/media/fiddle-300.webp',
     },
   ],
-};
+});
 
 function renderPage() {
   return render(

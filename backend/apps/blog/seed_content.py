@@ -1,6 +1,7 @@
 """Canopy demo blog catalogue (PR 3, spec §3–§4).
 
-Data only — no Django imports, so the catalogue is importable settings-free.
+Data only — no Django imports, so the catalogue is importable settings-free
+(forum_host.seed_content is the same: pure data, no Django imports either).
 Consumed by management/commands/seed_demo_blog.py. Post bodies are final,
 authored copy: reading_time auto-computes from these at save() (~200 wpm),
 so their length is the honesty contract for the "N min read" meta line.
@@ -9,6 +10,8 @@ blocks tuple shapes (proven by the retired create_demo_blog_posts command):
 ("heading", str) · ("paragraph", "<p>html</p>") ·
 ("quote", {"quote_text": str, "attribution": str})
 """
+
+from apps.forum_host.seed_content import USERS
 
 CATEGORIES = [
     {
@@ -33,14 +36,15 @@ CATEGORIES = [
     },
 ]
 
-# username -> (first_name, last_name). MUST equal the ForumProfile
-# display_name cast split (spec §5: the same person never appears under two
-# names across forum and blog). Applied fill-if-blank only.
+# username -> (first_name, last_name), for the 4 usernames used as blog
+# authors. Derived from forum_host.seed_content.USERS' display_name (not
+# hand-duplicated) so the same person can never read a different name on the
+# blog than on the forum (spec §5). Applied fill-if-blank only.
+_BLOG_AUTHOR_USERNAMES = ("june_park", "iris_delgado", "sam_whitaker", "theo_brandt")
 AUTHOR_NAMES = {
-    "june_park": ("June", "Park"),
-    "iris_delgado": ("Iris", "Delgado"),
-    "sam_whitaker": ("Sam", "Whitaker"),
-    "theo_brandt": ("Theo", "Brandt"),
+    u["username"]: tuple(u["display_name"].split(" ", 1))
+    for u in USERS
+    if u["username"] in _BLOG_AUTHOR_USERNAMES
 }
 
 POSTS = [

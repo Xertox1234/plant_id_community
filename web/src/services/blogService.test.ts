@@ -122,6 +122,14 @@ describe('blogService', () => {
     it('passes a non-media absolute URL through unchanged', () => {
       expect(mediaUrl('https://example.com/foo.png')).toBe('https://example.com/foo.png');
     });
+
+    it('does not rebase a URL where "/media/" appears in an unrelated path segment', () => {
+      // Only a leading /media/ PATH is Django's media prefix — a CDN path
+      // that merely contains the substring (e.g. "social-media") must not
+      // be mistaken for it.
+      const url = 'https://cdn.example.com/social-media/cover.webp';
+      expect(mediaUrl(url)).toBe(url);
+    });
   });
 
   // ============================================================================

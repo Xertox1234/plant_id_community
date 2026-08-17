@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import BlogListPage from './BlogListPage';
 import { fetchBlogPosts, fetchPopularPosts, fetchCategories } from '../services/blogService';
+import { createMockBlogPost } from '@/tests/utils';
 import type { BlogPost } from '@/types';
 
 vi.mock('../services/blogService', async (importOriginal) => {
@@ -21,16 +22,17 @@ const mockFetchPopular = vi.mocked(fetchPopularPosts);
 const mockFetchCategories = vi.mocked(fetchCategories);
 
 function post(slug: string, title: string): BlogPost {
-  return {
+  return createMockBlogPost({
     id: Math.random(),
     meta: { type: 'blog.BlogPostPage', detail_url: '', html_url: '', slug, first_published_at: '' },
     slug,
     title,
-    content_blocks: [],
     author: { display_name: 'June Park' },
-    reading_time: 3,
     categories: [{ id: 1, name: 'Care', slug: 'care' }],
-  };
+    excerpt: undefined,
+    featured_image: undefined,
+    featured_image_thumb: undefined,
+  });
 }
 
 function renderPage(initialEntries: string[] = ['/blog']) {

@@ -90,7 +90,13 @@ class Command(BaseCommand):
         # Blog half of the demo world (spec 2026-08-16 §5): one prod entry
         # point. --confirm MUST forward — in production the blog command's
         # own layer-1 guard would otherwise abort this single-entry runbook.
-        call_command("seed_demo_blog", confirm=options["confirm"])
+        # real_users_verified=True: the guard-layer-2 census above already
+        # ran this exact check (real_users_queryset().exists()) — skip the
+        # duplicate full-table scan inside seed_demo_blog. Only
+        # settable here (stealth_options), never from the CLI.
+        call_command(
+            "seed_demo_blog", confirm=options["confirm"], real_users_verified=True
+        )
 
     # -- users ---------------------------------------------------------------
 

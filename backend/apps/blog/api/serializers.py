@@ -391,6 +391,10 @@ class BlogPostPageListSerializer(serializers.ModelSerializer):
     author = serializers.SerializerMethodField()
     categories = BlogCategorySerializer(many=True, read_only=True)
     tags = serializers.SerializerMethodField()
+    # Grid cards (BlogCard's non-compact variant) render an 800x400 cover —
+    # without this, they fell back to featured_image_thumb (300x200) and
+    # rendered it upscaled/blurry (PR #540 review finding #1).
+    featured_image = ImageRenditionField("fill-800x400", read_only=True)
     featured_image_thumb = ImageRenditionField(
         "fill-300x200", source="featured_image", read_only=True
     )
@@ -410,6 +414,7 @@ class BlogPostPageListSerializer(serializers.ModelSerializer):
             "publish_date",
             "categories",
             "tags",
+            "featured_image",
             "featured_image_thumb",
             "is_featured",
             "reading_time",

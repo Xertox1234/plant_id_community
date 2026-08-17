@@ -35,14 +35,25 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  * port 80, not the API's actual port). Rendition payloads separately carry
  * a `full_url` field with the same Site-record problem, which is why it's
  * deliberately not modeled on `BlogPostImage` either. So: re-base ANY
- * `/media/` path — relative or absolute — onto `API_URL`, ignoring
+ * `/media/` PATH — relative or absolute — onto `API_URL`, ignoring
  * whatever host the API sent. A non-`/media/` absolute URL (e.g. a CDN
- * asset) passes through unchanged.
+ * asset) passes through unchanged. Matched against the path only (not a
+ * substring anywhere in the URL), so a host like
+ * `cdn.example.com/social-media/cover.webp` — where `/media/` merely
+ * appears inside an unrelated segment — isn't mistaken for Django's media
+ * path and rebased.
  */
 export function mediaUrl(url: string): string {
-  const mediaIndex = url.indexOf('/media/');
-  if (mediaIndex >= 0) {
-    return `${API_URL}${url.slice(mediaIndex)}`;
+  if (url.startsWith('/media/')) {
+    return `${API_URL}${url}`;
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.pathname.startsWith('/media/')) {
+      return `${API_URL}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+  } catch {
+    // Not a valid absolute URL — fall through to the relative-path case.
   }
   return url.startsWith('/') ? `${API_URL}${url}` : url;
 }

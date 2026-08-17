@@ -22,6 +22,13 @@ class Command(BaseCommand):
         "6 posts with committed cover images. Skip-not-overwrite: existing "
         "rows are never modified. Safe to re-run."
     )
+    # Settable ONLY via call_command() — never registered on the argparse CLI
+    # parser, so it cannot be passed as a command-line flag. Lets
+    # seed_demo_content's orchestrator skip this guard's census query when it
+    # has already run the identical check itself; a standalone/CLI invocation
+    # always defaults to False and re-checks. The guard itself stays
+    # unconditional either way (spec §5 — no CLI override).
+    stealth_options = ("real_users_verified",)
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -42,20 +49,31 @@ class Command(BaseCommand):
         # Guard layer 2 (cannot be overridden): any real user = abort.
         # Census semantics are shared with seed_demo_content via
         # forum_host.seed_content.real_users_queryset (spec §5 — one source).
-        real_users = real_users_queryset()
-        if real_users.exists():
-            raise CommandError(
-                f"{real_users.count()} real user account(s) exist — refusing to "
-                "seed demo content into a live community. This guard has no "
-                "override flag by design (spec §5)."
-            )
+        # Skipped only when seed_demo_content has already run this exact
+        # check (real_users_verified — call_command()-only, see class
+        # docstring above); every standalone/CLI invocation always runs it.
+        if not options.get("real_users_verified"):
+            real_users = real_users_queryset()
+            if real_users.exists():
+                raise CommandError(
+                    f"{real_users.count()} real user account(s) exist — refusing to "
+                    "seed demo content into a live community. This guard has no "
+                    "override flag by design (spec §5)."
+                )
 
-        index = self._ensure_index()
-        categories = self._seed_categories()
-        authors = self._ensure_authors()
-        created = [
-            spec for spec in POSTS if self._seed_post(spec, index, categories, authors)
-        ]
+        # All-or-nothing like the retired create_demo_blog_posts command: a
+        # failure partway through POSTS (e.g. a missing seed asset) must not
+        # leave the index/categories/authors/earlier-posts committed while
+        # the run as a whole reports failure.
+        with transaction.atomic():
+            index = self._ensure_index()
+            categories = self._seed_categories()
+            authors = self._ensure_authors()
+            created = [
+                spec
+                for spec in POSTS
+                if self._seed_post(spec, index, categories, authors)
+            ]
         self.stdout.write(
             self.style.SUCCESS(
                 f"Blog seed complete: {len(created)} post(s) created, "
