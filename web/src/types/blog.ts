@@ -163,26 +163,54 @@ export interface CodeBlock extends BaseStreamFieldBlock {
  * Blog post author
  */
 export interface BlogPostAuthor {
-  first_name: string;
-  last_name: string;
+  id?: number;
+  username?: string;
+  first_name?: string;
+  last_name?: string;
+  /** Server-computed: get_full_name() or username. Preferred display string. */
+  display_name?: string;
 }
 
 /**
- * Blog post featured image
+ * Wagtail ImageRenditionField payload (probed 2026-08-16):
+ * featured_image = fill-800x400, featured_image_thumb = fill-300x200.
+ * `url` is relative (`/media/...`) — resolve with `mediaUrl` (see
+ * `services/blogService.ts`) before using it as a src.
  */
 export interface BlogPostImage {
   url: string;
-  thumbnail?: {
-    url: string;
-  };
-  title?: string;
+  width?: number;
+  height?: number;
+  alt?: string;
+}
+
+/** Item shape of the detail response's server-computed related_posts. */
+export interface RelatedPostSummary {
+  id: number;
+  title: string;
+  slug: string;
+  url?: string | null;
+  published_date?: string | null;
+  excerpt?: string;
+  /**
+   * fill-300x200 URL string (or null) — `_get_post_image` returns a bare
+   * URL here, unlike the rendition objects used elsewhere
+   * (featured_image/featured_image_thumb on BlogPost). Absolute when a
+   * request is in serializer context, a bare rendition path otherwise —
+   * resolve with `mediaUrl` either way before use as a src.
+   */
+  featured_image?: string | null;
 }
 
 /**
- * Blog post category
+ * Blog post category.
+ * Backend `BlogCategorySerializer` also serves id/slug (and other snippet
+ * fields) alongside name — id/slug added here to match the probed shape.
  */
 export interface BlogPostCategory {
+  id?: number;
   name: string;
+  slug?: string;
 }
 
 /**
@@ -204,11 +232,13 @@ export interface BlogPost {
   excerpt?: string;
   content_blocks: StreamFieldBlock[];
   featured_image?: BlogPostImage;
+  featured_image_thumb?: BlogPostImage;
   publish_date?: string;
   author?: BlogPostAuthor;
   tags?: string[];
   categories?: BlogPostCategory[];
-  related_posts?: BlogPost[];
+  related_posts?: RelatedPostSummary[];
+  reading_time?: number | null;
   view_count?: number;
 }
 

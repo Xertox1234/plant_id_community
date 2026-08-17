@@ -4,8 +4,13 @@ from pathlib import Path
 from apps.forum_host.management.commands.seed_default_forum import (
     DEFAULT_BOARD_SLUG as LEGACY_STARTER_SLUG,
 )
-from apps.forum_host.seed_content import BOARDS, DEMO_EMAIL_DOMAIN, TOPICS, USERS
-from django.contrib.auth import get_user_model
+from apps.forum_host.seed_content import (
+    BOARDS,
+    TOPICS,
+    USERS,
+    ensure_demo_user,
+    real_users_queryset,
+)
 from django.core.files.images import ImageFile
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
@@ -18,7 +23,6 @@ from wagtail_forum.models import (
     ForumBoard,
     ForumIdentificationAttachment,
     ForumIndex,
-    ForumProfile,
     Post,
     Reaction,
     Topic,
@@ -54,17 +58,10 @@ class Command(BaseCommand):
                 "DEBUG is False. Re-run with --confirm to seed demo content "
                 "into this environment."
             )
-        # Guard layer 2 (cannot be overridden): any real user = abort. A demo
-        # account must match BOTH a demo username AND the demo email domain —
-        # a username collision alone (e.g. someone signs up as "amara" with
-        # their own address) is a REAL account and must still trip the guard,
-        # not be silently treated as the seed's own row.
-        User = get_user_model()
-        demo_usernames = {u["username"] for u in USERS}
-        real_users = User.objects.exclude(
-            username__in=demo_usernames,
-            email__iendswith=f"@{DEMO_EMAIL_DOMAIN}",
-        ).exclude(is_superuser=True)
+        # Guard layer 2 (cannot be overridden): any real user = abort. Census
+        # semantics live in seed_content.real_users_queryset — shared with
+        # apps.blog's seed_demo_blog so the two guards cannot drift.
+        real_users = real_users_queryset()
         if real_users.exists():
             raise CommandError(
                 f"{real_users.count()} real user account(s) exist — refusing to "
@@ -90,59 +87,28 @@ class Command(BaseCommand):
             # Content changed under the search index's feet (timestamps moved
             # post-publish); refresh so search reflects the seeded world.
             call_command("update_index", verbosity=0)
+        # Blog half of the demo world (spec 2026-08-16 §5): one prod entry
+        # point. --confirm MUST forward — in production the blog command's
+        # own layer-1 guard would otherwise abort this single-entry runbook.
+        # real_users_verified=True: the guard-layer-2 census above already
+        # ran this exact check (real_users_queryset().exists()) — skip the
+        # duplicate full-table scan inside seed_demo_blog. Only
+        # settable here (stealth_options), never from the CLI.
+        call_command(
+            "seed_demo_blog", confirm=options["confirm"], real_users_verified=True
+        )
 
     # -- users ---------------------------------------------------------------
 
     def _seed_users(self):
-        User = get_user_model()
         users = {}
-        # Atomic across the whole spec list: a mid-loop adoption refusal below
-        # must roll back any demo users this same call already created, not
-        # leave a partially-seeded user set behind (spec-consistent with the
-        # "seed aborts with no content created" contract for guard failures).
+        # Atomic across the whole spec list: a mid-loop adoption refusal must
+        # roll back any demo users this same call already created, not leave a
+        # partially-seeded user set behind (spec-consistent with the "seed
+        # aborts with no content created" contract for guard failures).
         with transaction.atomic():
             for spec in USERS:
-                user, created = User.objects.get_or_create(
-                    username=spec["username"],
-                    defaults={"email": f"{spec['username']}@{DEMO_EMAIL_DOMAIN}"},
-                )
-                if created:
-                    user.set_unusable_password()
-                    user.save(update_fields=["password"])
-                    profile = ForumProfile.for_user(user)
-                    profile.display_name = spec["display_name"]
-                    profile.title = spec["title"]
-                    profile.bio = spec["bio"]
-                    # Appointed trust: survives signal recounts (signals.py
-                    # takes max(current, earned) when current exceeds earned).
-                    profile.trust_level = spec["trust_level"]
-                    profile.save(
-                        update_fields=["display_name", "title", "bio", "trust_level"]
-                    )
-                    self.stdout.write(f"Created demo user {spec['username']}.")
-                else:
-                    # Guard layer 2 (handle(), above) screens the run-wide
-                    # account census and deliberately excuses superusers by
-                    # design — the Railway admin account must not block
-                    # seeding. It says nothing about THIS specific username,
-                    # though: an existing real account sitting on a demo
-                    # username — superuser included — must not be silently
-                    # adopted as if it were the seed's own row just because
-                    # get_or_create() found it. Only adopt an existing account
-                    # that already has the demo shape.
-                    is_demo_account = user.has_usable_password() is False and (
-                        user.email.lower().endswith(f"@{DEMO_EMAIL_DOMAIN}".lower())
-                    )
-                    if not is_demo_account:
-                        raise CommandError(
-                            f"Refusing to seed demo user '{spec['username']}' "
-                            "— an account with that username already exists "
-                            "and is not a demo account (email ending in "
-                            f"@{DEMO_EMAIL_DOMAIN} with no usable password). "
-                            "This seed never adopts or modifies a real "
-                            "account, superuser or not."
-                        )
-                users[spec["username"]] = user
+                users[spec["username"]] = ensure_demo_user(spec, self.stdout)
         return users
 
     # -- boards --------------------------------------------------------------

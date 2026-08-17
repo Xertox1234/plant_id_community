@@ -1,13 +1,12 @@
 """Tests guarding against dev-account creation paths reaching production.
 
-Covers the fixes for the audit finding that `migrate` (via blog migration 0004)
-could mint a superuser with a hardcoded password, and that demo-content
-commands created staff accounts with known passwords.
+Covers the fix for the audit finding that `migrate` (via blog migration 0004)
+could mint a superuser with a hardcoded password. The sibling finding — that
+`create_demo_blog_posts` created a staff account with a known password — is
+moot: that command was retired (Canopy PR 3, spec §5) in favor of
+`seed_demo_blog`, which never creates a known-credential account.
 """
 
-from apps.blog.management.commands.create_demo_blog_posts import (
-    Command as CreateDemoBlogPostsCommand,
-)
 from apps.plant_identification.models import PlantCareGuide, PlantSpecies
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -35,18 +34,3 @@ class MigrateCareGuidesCommandTests(TestCase):
         self.assertEqual(
             User.objects.filter(email="admin@plantcommunity.com").count(), 0
         )
-
-
-class CreateDemoBlogPostsCommandTests(TestCase):
-    @override_settings(DEBUG=False)
-    def test_refuses_to_run_when_debug_false(self):
-        with self.assertRaises(CommandError):
-            call_command("create_demo_blog_posts")
-        self.assertEqual(User.objects.filter(username="plant_blogger").count(), 0)
-
-    def test_demo_author_created_with_unusable_password(self):
-        command = CreateDemoBlogPostsCommand()
-        author = command.setup_author("demo@plantcommunity.com", dry_run=False)
-        self.assertFalse(author.has_usable_password())
-        self.assertTrue(author.is_staff)
-        self.assertFalse(author.is_superuser)

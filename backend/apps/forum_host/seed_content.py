@@ -1,8 +1,11 @@
-"""Demo-world catalogue for `manage.py seed_demo_content`.
+"""Demo-world catalogue for `manage.py seed_demo_content`, plus the shared
+demo-account guard helpers both `seed_demo_content` and apps.blog's
+`seed_demo_blog` call (see the guard helpers section below).
 
 Spec: docs/superpowers/specs/2026-08-15-canopy-forum-content-design.md §3–§5.
-Pure data — the command owns all ORM work. Reply `age_hours` = hours before
-NOW the reply landed (strictly decreasing per topic, all < the topic's age).
+The catalogue data is pure — the calling command owns all ORM work for it.
+Reply `age_hours` = hours before NOW the reply landed (strictly decreasing
+per topic, all < the topic's age).
 """
 
 BOARDS = [
@@ -541,3 +544,77 @@ TOPICS = [
         ],
     },
 ]
+
+# ---------------------------------------------------------------------------
+# Shared guard helpers — single source for the demo-account shape, used by
+# BOTH seed commands (seed_demo_content and apps.blog's seed_demo_blog).
+# Duplicated guard blocks drift (spec §5 / kimi-challenge); keep it here.
+# Django imports live inside the functions so importing the catalogue data
+# stays settings-free.
+# ---------------------------------------------------------------------------
+
+
+def real_users_queryset():
+    """Every account that is neither demo-shaped nor a superuser.
+
+    Guard layer 2's census: any row here means a live community — the seeds
+    abort unconditionally (no override flag, by design). The two exclude
+    conditions live in ONE .exclude(...) call on purpose — combined kwargs
+    are ANDed, so only accounts matching BOTH the demo username and the demo
+    email domain are excused; splitting them into two chained .exclude()
+    calls would silently loosen the census."""
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    demo_usernames = {u["username"] for u in USERS}
+    return User.objects.exclude(
+        username__in=demo_usernames,
+        email__iendswith=f"@{DEMO_EMAIL_DOMAIN}",
+    ).exclude(is_superuser=True)
+
+
+def is_demo_account(user):
+    """True when the account has the demo shape: unusable password AND the
+    demo email domain. The census excuses superusers by design (the Railway
+    admin must not block seeding), so this per-account check is what stops
+    get_or_create from adopting a real account — superuser included — that
+    happens to sit on a demo username."""
+    return user.has_usable_password() is False and user.email.lower().endswith(
+        f"@{DEMO_EMAIL_DOMAIN}".lower()
+    )
+
+
+def ensure_demo_user(spec, stdout=None):
+    """Get-or-create ONE demo user (with ForumProfile fields) from a USERS
+    spec. Never adopts or modifies a real account. Appointed trust survives
+    signal recounts (signals.py takes max(current, earned))."""
+    from django.contrib.auth import get_user_model
+    from django.core.management.base import CommandError
+    from wagtail_forum.models import ForumProfile
+
+    User = get_user_model()
+    user, created = User.objects.get_or_create(
+        username=spec["username"],
+        defaults={"email": f"{spec['username']}@{DEMO_EMAIL_DOMAIN}"},
+    )
+    if created:
+        user.set_unusable_password()
+        user.save(update_fields=["password"])
+        profile = ForumProfile.for_user(user)
+        profile.display_name = spec["display_name"]
+        profile.title = spec["title"]
+        profile.bio = spec["bio"]
+        profile.trust_level = spec["trust_level"]
+        profile.save(update_fields=["display_name", "title", "bio", "trust_level"])
+        if stdout:
+            stdout.write(f"Created demo user {spec['username']}.")
+    elif not is_demo_account(user):
+        raise CommandError(
+            f"Refusing to seed demo user '{spec['username']}' "
+            "— an account with that username already exists "
+            "and is not a demo account (email ending in "
+            f"@{DEMO_EMAIL_DOMAIN} with no usable password). "
+            "This seed never adopts or modifies a real "
+            "account, superuser or not."
+        )
+    return user

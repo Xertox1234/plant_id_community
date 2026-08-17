@@ -1,395 +1,311 @@
-import { useEffect, useState, useCallback, useMemo, FormEvent, ChangeEvent } from 'react';
+import { useEffect, useRef, useState, useCallback, FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { Flame, Search } from 'lucide-react';
+import HeroCard from '../components/ui/HeroCard';
+import Chip from '../components/ui/Chip';
+import Button from '../components/ui/Button';
+import ButtonLink from '../components/ui/ButtonLink';
+import LoadingSpinner from '../components/ui/LoadingSpinner';
+import { Pagination } from '../components/ui/Pagination';
+import RailSlot from '../components/layout/RailSlot';
+import RailModule from '../components/ui/RailModule';
 import BlogCard from '../components/BlogCard';
+import PageMeta from '../components/PageMeta';
 import { fetchBlogPosts, fetchPopularPosts, fetchCategories } from '../services/blogService';
 import { logger } from '../utils/logger';
+import { useScrollToTop } from '../hooks/useScrollToTop';
 import type { BlogPost, BlogCategory } from '@/types';
 
+const POSTS_PER_PAGE = 8; // 2-col grid → even pages
+
 /**
- * BlogListPage Component
+ * BlogListPage — Canopy blog index (PR 3, spec §7).
  *
- * Main blog listing page with search, filters, pagination, and popular posts sidebar.
+ * Locked hero copy (artifact parity) → chips + search toolbar → 2-col card
+ * grid → Pagination. Rail: popular posts. Sort dropdown and category
+ * sidebar retired (spec §2.2); search kept — no regressions.
  */
 export default function BlogListPage() {
+  useScrollToTop();
   const [searchParams, setSearchParams] = useSearchParams();
-
-  // State
   const [posts, setPosts] = useState<BlogPost[]>([]);
-  const [popularPosts, setPopularPosts] = useState<BlogPost[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [categories, setCategories] = useState<BlogCategory[]>([]);
+  const [popular, setPopular] = useState<BlogPost[]>([]);
+  const [latestSlug, setLatestSlug] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [totalCount, setTotalCount] = useState(0);
+  const gridRef = useRef<HTMLDivElement>(null);
 
-  // Get query parameters
   const page = parseInt(searchParams.get('page') || '1');
   const search = searchParams.get('search') || '';
   const category = searchParams.get('category') || '';
-  const order = (searchParams.get('order') || 'latest') as 'latest' | 'popular' | 'oldest';
-  const limit = 9; // Posts per page
 
-  // Fetch data
   useEffect(() => {
-    const loadData = async () => {
+    let cancelled = false;
+    const load = async () => {
       try {
         setLoading(true);
         setError(null);
-
-        // Fetch blog posts with current filters
         const { items, meta } = await fetchBlogPosts({
           page,
-          limit,
+          limit: POSTS_PER_PAGE,
           search,
           category,
-          order,
         });
-
+        if (cancelled) return;
         setPosts(items);
         setTotalCount(meta.total_count);
       } catch (err) {
+        if (cancelled) return;
         logger.error('Error loading blog posts', {
           component: 'BlogListPage',
           error: err,
-          context: { page, search, category, order },
+          context: { page, search, category },
         });
         setError(err instanceof Error ? err.message : 'Failed to load blog posts');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [page, search, category]);
 
-    loadData();
-  }, [page, search, category, order]);
-
-  // Fetch popular posts and categories (once)
   useEffect(() => {
-    const loadSidebarData = async () => {
+    let cancelled = false;
+    const loadOnce = async () => {
       try {
-        const [popular, cats] = await Promise.all([
-          fetchPopularPosts({ limit: 5, days: 7 }),
+        const [latest, popularPosts, cats] = await Promise.all([
+          fetchBlogPosts({ page: 1, limit: 1 }),
+          fetchPopularPosts({ limit: 5, days: 30 }),
           fetchCategories(),
         ]);
-
-        setPopularPosts(popular);
+        if (cancelled) return;
+        setLatestSlug(latest.items[0]?.slug ?? null);
+        setPopular(popularPosts);
         setCategories(cats);
       } catch (err) {
-        logger.error('Error loading sidebar data', {
+        if (cancelled) return;
+        // Rail/hero garnish only — the grid is the page; log and continue.
+        logger.error('Error loading blog sidebar data', {
           component: 'BlogListPage',
           error: err,
         });
-        // Non-critical, continue without sidebar data
       }
     };
-
-    loadSidebarData();
+    loadOnce();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Handlers (memoized to prevent recreation on every render)
+  const scrollToGrid = useCallback(() => {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    gridRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' });
+  }, []);
+
+  const setParam = useCallback(
+    (mutate: (params: URLSearchParams) => void) => {
+      const next = new URLSearchParams(searchParams);
+      mutate(next);
+      next.delete('page'); // any filter change resets to page 1
+      setSearchParams(next);
+    },
+    [searchParams, setSearchParams]
+  );
+
+  const handleCategory = useCallback(
+    (slug: string) => {
+      setParam((p) => {
+        if (slug) p.set('category', slug);
+        else p.delete('category');
+      });
+    },
+    [setParam]
+  );
+
   const handleSearch = useCallback(
     (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      const formData = new FormData(e.currentTarget);
-      const searchValue = formData.get('search') as string;
-
-      const newParams = new URLSearchParams(searchParams);
-      if (searchValue) {
-        newParams.set('search', searchValue);
-      } else {
-        newParams.delete('search');
-      }
-      newParams.set('page', '1'); // Reset to page 1
-      setSearchParams(newParams);
+      const value = (new FormData(e.currentTarget).get('search') as string).trim();
+      setParam((p) => {
+        if (value) p.set('search', value);
+        else p.delete('search');
+      });
     },
-    [searchParams, setSearchParams]
-  );
-
-  const handleCategoryFilter = useCallback(
-    (categorySlug: string) => {
-      const newParams = new URLSearchParams(searchParams);
-      if (categorySlug) {
-        newParams.set('category', categorySlug);
-      } else {
-        newParams.delete('category');
-      }
-      newParams.set('page', '1');
-      setSearchParams(newParams);
-    },
-    [searchParams, setSearchParams]
-  );
-
-  const handleOrderChange = useCallback(
-    (newOrder: string) => {
-      const newParams = new URLSearchParams(searchParams);
-      newParams.set('order', newOrder);
-      newParams.set('page', '1');
-      setSearchParams(newParams);
-    },
-    [searchParams, setSearchParams]
-  );
-
-  const handlePageChange = useCallback(
-    (newPage: number) => {
-      const newParams = new URLSearchParams(searchParams);
-      newParams.set('page', newPage.toString());
-      setSearchParams(newParams);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    },
-    [searchParams, setSearchParams]
+    [setParam]
   );
 
   const clearFilters = useCallback(() => {
     setSearchParams({});
-  }, [setSearchParams]);
+    scrollToGrid();
+  }, [setSearchParams, scrollToGrid]);
 
-  // Calculate pagination (memoized to prevent recalculation on every render)
-  const totalPages = useMemo(() => Math.ceil(totalCount / limit), [totalCount, limit]);
-  const hasFilters = useMemo(
-    () => search || category || order !== 'latest',
-    [search, category, order]
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      const next = new URLSearchParams(searchParams);
+      next.set('page', newPage.toString());
+      setSearchParams(next);
+      window.scrollTo({
+        top: 0,
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      });
+    },
+    [searchParams, setSearchParams]
   );
 
+  const totalPages = Math.max(1, Math.ceil(totalCount / POSTS_PER_PAGE));
+  const hasFilters = Boolean(search || category);
+
   return (
-    <div className="min-h-screen bg-surface">
-      {/* Header */}
-      <div className="bg-primary text-on-primary py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h1 className="text-4xl md:text-5xl font-bold mb-4">Plant Blog</h1>
-          <p className="text-xl text-on-primary">
-            Expert guides, tips, and stories from the plant community
+    <div className="flex flex-col gap-8">
+      <PageMeta
+        title="Blog — Houseplant MD"
+        description="Guides, experiments, and honest failures from the community garden."
+      />
+
+      {/* HeroCard's title renders as an h2 by design — the page still needs
+          its own h1 for the document outline. */}
+      <h1 className="sr-only">Blog</h1>
+      <HeroCard
+        eyebrow="The blog · new posts weekly"
+        title="Do less to your plants."
+        description="Guides, experiments, and honest failures from the community garden. This month: why most houseplants are killed by kindness."
+        actions={
+          <>
+            {latestSlug ? (
+              <ButtonLink to={`/blog/${latestSlug}`}>Read the latest</ButtonLink>
+            ) : (
+              <Button onClick={scrollToGrid}>Read the latest</Button>
+            )}
+            <Button variant="ghost" onClick={clearFilters}>
+              All topics →
+            </Button>
+          </>
+        }
+        art={
+          <img
+            src="/illustrations/hero-blog.webp"
+            alt=""
+            width={280}
+            height={280}
+            className="canopy-float w-[200px] md:w-[260px]"
+          />
+        }
+      />
+
+      {/* Toolbar: category chips + search (spec §2.2 — search kept). */}
+      <div
+        ref={gridRef}
+        className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+      >
+        <div className="flex flex-wrap gap-2">
+          <Chip active={!category} onClick={() => handleCategory('')}>
+            All
+          </Chip>
+          {categories.map((cat) => (
+            <Chip
+              key={cat.id}
+              active={category === cat.slug}
+              onClick={() => handleCategory(cat.slug)}
+            >
+              {cat.name}
+            </Chip>
+          ))}
+        </div>
+        <form onSubmit={handleSearch} className="relative md:w-64" role="search">
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3"
+          />
+          <input
+            key={search}
+            type="search"
+            name="search"
+            defaultValue={search}
+            aria-label="Search articles"
+            placeholder="Search articles…"
+            className="w-full rounded-pill border border-line bg-surface-2/60 py-2 pl-10 pr-4 text-[13px] text-ink placeholder:text-ink-3 transition-colors hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
+          />
+        </form>
+      </div>
+
+      {/* Active-search count + clear (spec §7). */}
+      {hasFilters && !loading && !error && (
+        <div className="flex items-center gap-3 font-mono text-[12px] text-ink-3">
+          <span>
+            {totalCount} {totalCount === 1 ? 'article' : 'articles'}
+            {search && <> for “{search}”</>}
+          </span>
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="text-ink-2 underline underline-offset-2 transition-colors hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
+          >
+            Clear filters
+          </button>
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex justify-center py-16">
+          <LoadingSpinner />
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-md border border-error/30 bg-error/10 p-6 text-center text-[13.5px] text-error">
+          Couldn’t load the blog — {error}
+        </div>
+      )}
+
+      {!loading && !error && posts.length === 0 && (
+        <div className="canopy-card rounded-md p-10 text-center">
+          <p className="text-[15px] font-semibold text-ink">No articles found</p>
+          <p className="mt-1 text-[13.5px] text-ink-2">
+            Try a different search, or browse every topic.
           </p>
+          {hasFilters && (
+            <Button variant="outline" className="mt-4" onClick={clearFilters}>
+              Clear all filters
+            </Button>
+          )}
         </div>
-      </div>
+      )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          {/* Main Content */}
-          <div className="lg:col-span-3">
-            {/* Search and Filters */}
-            <div className="bg-surface-2 rounded-lg shadow-md p-6 mb-6">
-              {/* Search Bar */}
-              <form onSubmit={handleSearch} className="mb-4">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    name="search"
-                    defaultValue={search}
-                    placeholder="Search articles..."
-                    className="flex-1 px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-                  />
-                  <button
-                    type="submit"
-                    className="px-6 py-2 bg-clay text-on-clay rounded-lg hover:bg-clay/90 transition-colors font-medium"
-                  >
-                    Search
-                  </button>
-                </div>
-              </form>
-
-              {/* Filter Bar */}
-              <div className="flex flex-wrap items-center gap-4">
-                {/* Sort Order */}
-                <div className="flex items-center gap-2">
-                  <label className="text-sm font-medium text-ink-2">Sort:</label>
-                  <select
-                    value={order}
-                    onChange={(e) => handleOrderChange(e.target.value)}
-                    className="px-3 py-1.5 border border-line-2 rounded-lg text-sm focus:ring-2 focus:ring-primary"
-                  >
-                    <option value="latest">Latest</option>
-                    <option value="popular">Most Popular</option>
-                    <option value="oldest">Oldest</option>
-                  </select>
-                </div>
-
-                {/* Active Filters */}
-                {hasFilters && (
-                  <div className="flex items-center gap-2 flex-1">
-                    {search && (
-                      <span className="inline-flex items-center px-3 py-1 bg-primary/10 text-ink text-sm rounded-full">
-                        Search: "{search}"
-                      </span>
-                    )}
-                    {category && (
-                      <span className="inline-flex items-center px-3 py-1 bg-primary/10 text-ink text-sm rounded-full">
-                        Category: {category}
-                      </span>
-                    )}
-                    <button
-                      onClick={clearFilters}
-                      className="text-sm text-ink-3 hover:text-ink underline"
-                    >
-                      Clear filters
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Results Count */}
-            <div className="mb-6">
-              <p className="text-ink-3">
-                {loading
-                  ? 'Loading...'
-                  : `${totalCount} ${totalCount === 1 ? 'article' : 'articles'} found`}
-              </p>
-            </div>
-
-            {/* Loading State */}
-            {loading && (
-              <div className="flex justify-center items-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-              </div>
-            )}
-
-            {/* Error State */}
-            {error && (
-              <div className="bg-error/10 border border-error/30 rounded-lg p-6 text-center">
-                <p className="text-error font-medium">Error loading blog posts</p>
-                <p className="text-error text-sm mt-1">{error}</p>
-              </div>
-            )}
-
-            {/* Blog Posts Grid */}
-            {!loading && !error && (
-              <>
-                {posts.length === 0 ? (
-                  <div className="bg-surface-2 rounded-lg shadow-md p-12 text-center">
-                    <div className="text-6xl mb-4">🔍</div>
-                    <h3 className="text-xl font-bold text-ink mb-2">No articles found</h3>
-                    <p className="text-ink-3 mb-4">Try adjusting your search or filters</p>
-                    {hasFilters && (
-                      <button
-                        onClick={clearFilters}
-                        className="px-6 py-2 bg-clay text-on-clay rounded-lg hover:bg-clay/90 transition-colors"
-                      >
-                        Clear filters
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-8">
-                      {posts.map((post) => (
-                        <BlogCard key={post.id} post={post} />
-                      ))}
-                    </div>
-
-                    {/* Pagination */}
-                    {totalPages > 1 && (
-                      <div className="flex justify-center items-center gap-2">
-                        <button
-                          onClick={() => handlePageChange(page - 1)}
-                          disabled={page === 1}
-                          className="px-4 py-2 border border-line-2 rounded-lg hover:bg-surface disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Previous
-                        </button>
-
-                        <div className="flex gap-1">
-                          {[...Array(totalPages)].map((_, i) => {
-                            const pageNum = i + 1;
-                            // Show first, last, current, and adjacent pages
-                            if (
-                              pageNum === 1 ||
-                              pageNum === totalPages ||
-                              Math.abs(pageNum - page) <= 1
-                            ) {
-                              return (
-                                <button
-                                  key={pageNum}
-                                  onClick={() => handlePageChange(pageNum)}
-                                  className={`px-3 py-2 rounded-lg ${
-                                    pageNum === page
-                                      ? 'bg-clay text-on-clay'
-                                      : 'border border-line-2 hover:bg-surface'
-                                  }`}
-                                >
-                                  {pageNum}
-                                </button>
-                              );
-                            } else if (pageNum === 2 || pageNum === totalPages - 1) {
-                              return (
-                                <span key={pageNum} className="px-2">
-                                  ...
-                                </span>
-                              );
-                            }
-                            return null;
-                          })}
-                        </div>
-
-                        <button
-                          onClick={() => handlePageChange(page + 1)}
-                          disabled={page === totalPages}
-                          className="px-4 py-2 border border-line-2 rounded-lg hover:bg-surface disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Next
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </>
-            )}
+      {!loading && !error && posts.length > 0 && (
+        <>
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+            {posts.map((p) => (
+              <BlogCard key={p.id} post={p} />
+            ))}
           </div>
+          {totalPages > 1 && (
+            <Pagination
+              page={page}
+              onPageChange={handlePageChange}
+              hasPrevious={page > 1}
+              hasNext={page < totalPages}
+              totalPages={totalPages}
+            />
+          )}
+        </>
+      )}
 
-          {/* Sidebar */}
-          <div className="lg:col-span-1">
-            {/* Categories */}
-            {categories.length > 0 && (
-              <div className="bg-surface-2 rounded-lg shadow-md p-6 mb-6">
-                <h3 className="text-lg font-bold text-ink mb-4">Categories</h3>
-                <div className="space-y-2">
-                  <button
-                    onClick={() => handleCategoryFilter('')}
-                    className={`block w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                      !category
-                        ? 'bg-primary text-on-primary font-medium'
-                        : 'hover:bg-surface-3 text-ink-2'
-                    }`}
-                  >
-                    All Categories
-                  </button>
-                  {categories.map((cat) => (
-                    <button
-                      key={cat.id}
-                      onClick={() => handleCategoryFilter(cat.slug)}
-                      className={`block w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                        category === cat.slug
-                          ? 'bg-primary text-on-primary font-medium'
-                          : 'hover:bg-surface-3 text-ink-2'
-                      }`}
-                    >
-                      {cat.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Popular Posts */}
-            {popularPosts.length > 0 && (
-              <div className="bg-surface-2 rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-bold text-ink mb-4 flex items-center">
-                  <svg
-                    className="w-5 h-5 mr-2 text-tertiary"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                  </svg>
-                  Popular This Week
-                </h3>
-                <div className="space-y-4">
-                  {popularPosts.map((post) => (
-                    <BlogCard key={post.id} post={post} showImage={false} compact />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      {popular.length > 0 && (
+        <RailSlot>
+          <RailModule icon={<Flame />} title="Popular this month">
+            <div className="flex flex-col gap-1.5">
+              {popular.map((p) => (
+                <BlogCard key={p.id} post={p} compact />
+              ))}
+            </div>
+          </RailModule>
+        </RailSlot>
+      )}
     </div>
   );
 }

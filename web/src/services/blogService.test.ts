@@ -19,7 +19,7 @@ import {
   fetchBlogPost,
   fetchPopularPosts,
   fetchCategories,
-  fetchRelatedPosts,
+  mediaUrl,
 } from './blogService';
 import type {
   BlogPost,
@@ -28,6 +28,7 @@ import type {
   FetchBlogPostsOptions,
 } from '../types/blog';
 import apiClient from '../utils/httpClient';
+import { logger } from '../utils/logger';
 
 // Mock logger to prevent console noise
 vi.mock('../utils/logger', () => ({
@@ -66,9 +67,6 @@ describe('blogService', () => {
     ],
     featured_image: {
       url: 'https://example.com/image.jpg',
-      thumbnail: {
-        url: 'https://example.com/image-thumb.jpg',
-      },
     },
     publish_date: '2025-01-01',
     author: {
@@ -100,6 +98,38 @@ describe('blogService', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // ============================================================================
+  // MEDIA URL TESTS
+  // ============================================================================
+
+  describe('mediaUrl', () => {
+    it('prefixes a relative /media/ path with the API origin', () => {
+      expect(mediaUrl('/media/cover-800.webp')).toBe('http://localhost:8000/media/cover-800.webp');
+    });
+
+    it('re-bases an absolute /media/ URL onto the API origin, ignoring its host', () => {
+      // Site-record-based absolute (e.g. related_posts[].featured_image via
+      // _get_post_image's get_full_url) — the host is uncurated and wrong
+      // in every environment where the Wagtail Site record isn't
+      // hand-configured; only the /media/... path is trustworthy.
+      expect(mediaUrl('http://localhost/media/fiddle-300.webp')).toBe(
+        'http://localhost:8000/media/fiddle-300.webp'
+      );
+    });
+
+    it('passes a non-media absolute URL through unchanged', () => {
+      expect(mediaUrl('https://example.com/foo.png')).toBe('https://example.com/foo.png');
+    });
+
+    it('does not rebase a URL where "/media/" appears in an unrelated path segment', () => {
+      // Only a leading /media/ PATH is Django's media prefix — a CDN path
+      // that merely contains the substring (e.g. "social-media") must not
+      // be mistaken for it.
+      const url = 'https://cdn.example.com/social-media/cover.webp';
+      expect(mediaUrl(url)).toBe(url);
+    });
   });
 
   // ============================================================================
@@ -226,6 +256,25 @@ describe('blogService', () => {
       // Act & Assert
       await expect(fetchBlogPosts()).rejects.toThrow('API error');
     });
+
+    it('should parse a stringified content_blocks payload on list items', async () => {
+      // Arrange — the list endpoint carries the same stringified
+      // content_blocks bug as the detail endpoint (live-probed 2026-08-16:
+      // GET /api/v2/blog-posts/ falls through to the detail serializer).
+      const stringified = {
+        ...mockBlogPost,
+        content_blocks: JSON.stringify(mockBlogPost.content_blocks),
+      };
+      vi.mocked(apiClient.get).mockResolvedValueOnce({
+        data: { items: [stringified], meta: { total_count: 1 } },
+      });
+
+      // Act
+      const result = await fetchBlogPosts();
+
+      // Assert
+      expect(result.items[0].content_blocks).toEqual(mockBlogPost.content_blocks);
+    });
   });
 
   // ============================================================================
@@ -273,6 +322,41 @@ describe('blogService', () => {
 
       // Act & Assert
       await expect(fetchBlogPost('test-post')).rejects.toThrow('Network error');
+    });
+
+    it('should parse a stringified content_blocks payload into an array', async () => {
+      // Arrange — DRF's ModelSerializer stringifies StreamField; the live
+      // detail (and list) payload sends content_blocks as a JSON string.
+      const stringified = {
+        ...mockBlogPost,
+        content_blocks: JSON.stringify(mockBlogPost.content_blocks),
+      };
+      vi.mocked(apiClient.get).mockResolvedValueOnce({
+        data: { items: [stringified], meta: { total_count: 1 } },
+      });
+
+      // Act
+      const result = await fetchBlogPost('test-post');
+
+      // Assert
+      expect(result.content_blocks).toEqual(mockBlogPost.content_blocks);
+    });
+
+    it('should fall back to an empty array and log when content_blocks is malformed JSON', async () => {
+      // Arrange
+      vi.mocked(apiClient.get).mockResolvedValueOnce({
+        data: {
+          items: [{ ...mockBlogPost, content_blocks: '[{"type": "paragraph", "value": ' }],
+          meta: { total_count: 1 },
+        },
+      });
+
+      // Act
+      const result = await fetchBlogPost('test-post');
+
+      // Assert
+      expect(result.content_blocks).toEqual([]);
+      expect(vi.mocked(logger.error)).toHaveBeenCalled();
     });
   });
 
@@ -367,21 +451,6 @@ describe('blogService', () => {
 
       // Assert
       expect(result).toEqual([]);
-    });
-  });
-
-  // ============================================================================
-  // FETCH RELATED POSTS TESTS (DEPRECATED)
-  // ============================================================================
-
-  describe('fetchRelatedPosts', () => {
-    it('should always return empty array (deprecated)', async () => {
-      // Act
-      const result = await fetchRelatedPosts();
-
-      // Assert
-      expect(result).toEqual([]);
-      expect(apiClient.get).not.toHaveBeenCalled();
     });
   });
 });

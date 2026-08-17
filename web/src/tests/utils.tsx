@@ -40,37 +40,32 @@ export function renderWithRouterOnly(
 }
 
 /**
- * Creates a mock blog post object for testing.
+ * Creates a mock blog post object for testing (current Canopy `BlogPost`
+ * shape). Single source of truth so a required-field change (e.g.
+ * `featured_image_thumb`/`reading_time`/typed `author`) is fixed in one
+ * place instead of drifting across BlogCard/BlogDetailPage/BlogListPage
+ * test files (PR #540 review finding #6).
  */
 export function createMockBlogPost(overrides: Partial<BlogPost> = {}): BlogPost {
   return {
     id: 1,
     meta: {
-      type: 'blog.BlogPage',
-      detail_url: 'https://example.com/api/v2/pages/1/',
-      html_url: 'https://example.com/blog/test-post/',
-      slug: 'test-post',
-      first_published_at: '2025-10-25T10:00:00Z',
+      type: 'blog.BlogPostPage',
+      detail_url: '',
+      html_url: '',
+      slug: 'killed-by-kindness',
+      first_published_at: '2026-08-13T09:00:00Z',
     },
+    slug: 'killed-by-kindness',
+    title: 'Killed by kindness',
+    excerpt: 'Most houseplants don’t die of neglect.',
     content_blocks: [],
-    slug: 'test-post',
-    title: 'Test Blog Post',
-    introduction: '<p>This is a test introduction</p>',
-    publish_date: '2025-10-25T10:00:00Z',
-    author: {
-      first_name: 'John',
-      last_name: 'Doe',
-    },
-    categories: [{ name: 'Gardening' }],
-    tags: ['plants', 'care'],
-    view_count: 100,
-    featured_image: {
-      url: 'https://example.com/image.jpg',
-      title: 'Test Image',
-      thumbnail: {
-        url: 'https://example.com/thumbnail.jpg',
-      },
-    },
+    featured_image: { url: '/media/cover-800.webp', width: 800, height: 400, alt: '' },
+    featured_image_thumb: { url: '/media/cover-300.webp', width: 300, height: 200, alt: '' },
+    publish_date: '2026-08-13',
+    author: { id: 2, username: 'june_park', display_name: 'June Park' },
+    categories: [{ id: 1, name: 'Care', slug: 'care' }],
+    reading_time: 3,
     ...overrides,
   };
 }

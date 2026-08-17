@@ -1,155 +1,103 @@
+import { memo } from 'react';
 import { Link } from 'react-router-dom';
-import { useMemo, memo } from 'react';
+import Card from './ui/Card';
 import { stripHtml } from '../utils/sanitize';
-import { BlogPost } from '../types/blog';
+import { mediaUrl } from '../services/blogService';
+import type { BlogPost } from '@/types';
 
 /**
- * BlogCard Component
+ * BlogCard — Canopy blog post card (PR 3).
  *
- * Displays a blog post preview card with image, title, excerpt, and metadata.
- * Used in blog list pages and related posts sections.
- * Memoized to prevent unnecessary re-renders when parent component updates.
+ * Grid variant: cover (fill-800x400 rendition), category label, title,
+ * excerpt, and the artifact's meta line ("N min read · Author").
+ * Compact variant: thumb + title + meta, for rail modules.
+ *
+ * Card `interactive` + a DIRECT child <Link> is load-bearing: the row focus
+ * outline rides `.canopy-interactive:has(> a:focus-visible)` (PR 2).
  */
 
 interface BlogCardProps {
   post: BlogPost;
-  showImage?: boolean;
   compact?: boolean;
 }
 
-function BlogCard({ post, showImage = true, compact = false }: BlogCardProps) {
-  const {
-    slug,
-    title,
-    introduction,
-    featured_image,
-    author,
-    publish_date,
-    categories = [],
-    view_count = 0,
-  } = post;
+function metaLine(post: BlogPost): string {
+  const parts: string[] = [];
+  if (post.reading_time) parts.push(`${post.reading_time} min read`);
+  if (post.author?.display_name) parts.push(post.author.display_name);
+  return parts.join(' · ');
+}
 
-  // Format date (memoized to prevent recalculation on every render)
-  const formattedDate = useMemo(() => {
-    if (!publish_date) return null;
-    return new Date(publish_date).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  }, [publish_date]);
+function excerptText(post: BlogPost): string {
+  if (post.excerpt) return post.excerpt;
+  if (post.introduction) return stripHtml(post.introduction);
+  return '';
+}
 
-  // Get first category (memoized)
-  const primaryCategory = useMemo(() => categories[0], [categories]);
+function BlogCard({ post, compact = false }: BlogCardProps) {
+  const meta = metaLine(post);
 
-  // Truncate introduction for preview (memoized)
-  // Use centralized stripHtml instead of manual regex
-  const excerpt = useMemo(() => {
-    if (!introduction) return '';
-    const plainText = stripHtml(introduction);
-    return plainText.substring(0, compact ? 100 : 200) + '...';
-  }, [introduction, compact]);
+  if (compact) {
+    const thumb = post.featured_image_thumb?.url ?? post.featured_image?.url;
+    return (
+      <Link
+        to={`/blog/${post.slug}`}
+        className="group flex items-center gap-3 rounded-sm p-1.5 transition-colors hover:bg-surface-2/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary"
+      >
+        {thumb && (
+          <img
+            src={mediaUrl(thumb)}
+            alt=""
+            aria-hidden="true"
+            width={48}
+            height={48}
+            className="h-12 w-12 shrink-0 rounded-sm object-cover"
+          />
+        )}
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="truncate text-[13px] font-medium text-ink transition-colors group-hover:text-primary">
+            {post.title}
+          </span>
+          {meta && <span className="font-mono text-[11px] text-ink-3">{meta}</span>}
+        </span>
+      </Link>
+    );
+  }
+
+  const cover = post.featured_image?.url ?? post.featured_image_thumb?.url;
+  const category = post.categories?.[0];
+  const excerpt = excerptText(post);
 
   return (
-    <Link
-      to={`/blog/${slug}`}
-      className="group block bg-surface-2 rounded-lg shadow-md hover:shadow-xl transition-shadow duration-300 overflow-hidden"
-    >
-      {/* Featured Image */}
-      {showImage && featured_image && (
-        <div className="relative h-48 overflow-hidden bg-surface-3">
+    <Card interactive className="overflow-hidden">
+      <Link to={`/blog/${post.slug}`} className="group flex h-full flex-col focus:outline-none">
+        {cover && (
           <img
-            src={featured_image.thumbnail?.url || featured_image.url}
-            alt={featured_image.title || title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            src={mediaUrl(cover)}
+            alt=""
+            aria-hidden="true"
+            width={800}
+            height={400}
+            className="aspect-[2/1] w-full object-cover"
           />
-          {primaryCategory && (
-            <span className="absolute top-4 left-4 px-3 py-1 bg-clay text-on-clay text-sm font-medium rounded-full shadow">
-              {primaryCategory.name}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Content */}
-      <div className={`p-${compact ? '4' : '6'}`}>
-        {/* Title */}
-        <h3
-          className={`${
-            compact ? 'text-lg' : 'text-2xl'
-          } font-bold text-ink mb-2 group-hover:text-primary transition-colors line-clamp-2`}
-        >
-          {title}
-        </h3>
-
-        {/* Excerpt */}
-        {!compact && excerpt && <p className="text-ink-3 mb-4 line-clamp-3">{excerpt}</p>}
-
-        {/* Metadata */}
-        <div className="flex items-center justify-between text-sm text-ink-3">
-          <div className="flex items-center gap-4">
-            {/* Author */}
-            {author && (
-              <span className="flex items-center">
-                <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    fillRule="evenodd"
-                    d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                {author.first_name} {author.last_name}
-              </span>
-            )}
-
-            {/* Date */}
-            {formattedDate && (
-              <span className="flex items-center">
-                <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    fillRule="evenodd"
-                    d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                {formattedDate}
-              </span>
-            )}
-          </div>
-
-          {/* View Count */}
-          {view_count > 0 && (
-            <span className="flex items-center text-ink-3">
-              <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                <path
-                  fillRule="evenodd"
-                  d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              {view_count.toLocaleString()}
-            </span>
-          )}
-        </div>
-
-        {/* Tags (compact mode only) */}
-        {compact && post.tags && post.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-3">
-            {post.tags.slice(0, 3).map((tag, index) => (
-              <span
-                key={index}
-                className="inline-block px-2 py-1 text-xs bg-surface-2 text-ink-3 rounded"
-              >
-                #{tag}
-              </span>
-            ))}
-          </div>
         )}
-      </div>
-    </Link>
+        <span className="flex flex-1 flex-col gap-2.5 p-5">
+          {category && (
+            <span className="self-start rounded-pill border border-line bg-surface-2/60 px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-2">
+              {category.name}
+            </span>
+          )}
+          <span className="text-[17px] font-semibold leading-snug text-ink transition-colors group-hover:text-primary">
+            {post.title}
+          </span>
+          {excerpt && (
+            <span className="line-clamp-2 text-[13.5px] leading-relaxed text-ink-2">{excerpt}</span>
+          )}
+          {meta && <span className="mt-auto pt-1 font-mono text-[11.5px] text-ink-3">{meta}</span>}
+        </span>
+      </Link>
+    </Card>
   );
 }
 
-// Export memoized component to prevent re-renders when props don't change
 export default memo(BlogCard);
