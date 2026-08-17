@@ -97,9 +97,11 @@ DEFAULTS = {
     # ForumProfile.last_seen UPDATE can fire per user (write-amplification
     # guard, api/presence.py). PRESENCE_ONLINE_WINDOW_SECONDS is the
     # freshness a `last_seen` must be within for ExpertsView to report
-    # `online: true`. The online window must stay >= the throttle interval,
-    # or a user touched right before the window closes could read as offline
-    # despite being seconds from their next touch.
+    # `online: true`. Read via `effective_online_window_seconds()`
+    # (api/presence.py), NOT this raw value directly — it is clamped up to
+    # at least the throttle interval there, so setting this narrower than
+    # PRESENCE_TOUCH_THROTTLE_SECONDS degrades safely instead of making a
+    # continuously-active user blink offline between touches.
     "PRESENCE_TOUCH_THROTTLE_SECONDS": 5 * 60,  # 5 minutes
     "PRESENCE_ONLINE_WINDOW_SECONDS": 15 * 60,  # 15 minutes
     # SearchView bounds (todo 290) — an anonymous many-term query recurses
