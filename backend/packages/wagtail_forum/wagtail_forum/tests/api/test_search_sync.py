@@ -164,6 +164,41 @@ def test_search_page_param_is_capped(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_search_many_term_query_returns_200_not_500():
+    # Todo 290: a ~500-space-separated-term query recursed Wagtail's
+    # search-query AND-tree construction (one nesting level per term) into a
+    # RecursionError/500 on this anonymous, public endpoint. Pins the exact
+    # failing shape found while testing todo 275 — would fail (500) if the
+    # SEARCH_MAX_TERMS cap in SearchView.get is removed.
+    resp = APIClient().get("/forum/search/?q=" + "tomato " * 500)
+    assert resp.status_code == 200
+    assert "topics" in resp.data and "posts" in resp.data
+
+
+@pytest.mark.django_db
+def test_search_term_count_is_bounded_before_reaching_backend(monkeypatch):
+    # Verifies the truncation itself, not just that 500 terms happens not to
+    # crash: a fake backend records the term count it actually received.
+    from wagtail_forum.api import views as forum_views
+
+    received = {}
+    real_search_backend = forum_views.get_search_backend()
+
+    class _RecordingBackend:
+        def search(self, query, queryset, **kwargs):
+            received["term_count"] = len(query.split())
+            return real_search_backend.search(query, queryset, **kwargs)
+
+    monkeypatch.setattr(forum_views, "get_search_backend", lambda: _RecordingBackend())
+    board = _board()
+    Topic.objects.create(board=board, title="Monstera", slug="m", live=True)
+
+    resp = APIClient().get("/forum/search/?q=" + "tomato " * 500)
+    assert resp.status_code == 200
+    assert received["term_count"] == 50  # SEARCH_MAX_TERMS default, not 500
+
+
+@pytest.mark.django_db
 def test_search_post_excerpts_are_plain_text_with_flat_queries():
     # Audit 2026-07-11 H24: the excerpt used body.render_as_block(), which
     # resolves the StreamValue and bulk-fetches image blocks PER POST (+1 query
