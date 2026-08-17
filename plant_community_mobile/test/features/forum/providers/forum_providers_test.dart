@@ -81,7 +81,9 @@ void main() {
         );
         addTearDown(container.dispose);
 
-        await container.read(topicPostsProvider(10).future); // build(): page1 only
+        await container.read(
+          topicPostsProvider(10).future,
+        ); // build(): page1 only
         await container
             .read(topicPostsProvider(10).notifier)
             .refreshAfterReply();
@@ -101,41 +103,130 @@ void main() {
       addTearDown(container.dispose);
 
       await container.read(topicPostsProvider(10).future);
-      await container
-          .read(topicPostsProvider(10).notifier)
-          .refreshAfterReply();
+      await container.read(topicPostsProvider(10).notifier).refreshAfterReply();
 
       final result = container.read(topicPostsProvider(10)).asData!.value;
       expect(result.items.map((p) => p.id), [1]);
       expect(result.hasMore, isFalse);
     });
 
-    test(
-      'a mid-walk failure restores the prior list and rethrows',
-      () async {
-        final page1 = CursorPage(
-          items: [post(id: 1)],
-          next: 'https://api/forum/topics/10/posts/?cursor=p2',
+    test('a mid-walk failure restores the prior list and rethrows', () async {
+      final page1 = CursorPage(
+        items: [post(id: 1)],
+        next: 'https://api/forum/topics/10/posts/?cursor=p2',
+      );
+      final api = FakeForumApi()..postPages = [page1];
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(topicPostsProvider(10).future); // 1 call so far
+      // Fail the 3rd fetchPosts call: build() is #1, refreshAfterReply's
+      // page-1 restart is #2, its page-2 continuation is #3.
+      api.throwOnFetchPostsCallNumber = 3;
+
+      await expectLater(
+        container.read(topicPostsProvider(10).notifier).refreshAfterReply(),
+        throwsA(isA<ApiException>()),
+      );
+
+      final result = container.read(topicPostsProvider(10)).asData!.value;
+      expect(result.items.map((p) => p.id), [1]); // prior list, not lost
+      expect(result.isLoadingMore, isFalse); // spinner flag cleared
+    });
+  });
+
+  group('TopicPosts.applyEditedPost (todo 292)', () {
+    test('splices the updated post into place without a refetch', () async {
+      final api = FakeForumApi()
+        ..posts = CursorPage(
+          items: [
+            post(id: 1, body: const [ParagraphBlock('original')]),
+          ],
         );
-        final api = FakeForumApi()..postPages = [page1];
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(topicPostsProvider(10).future);
+      final edited = post(id: 1, body: const [ParagraphBlock('edited')]);
+      container.read(topicPostsProvider(10).notifier).applyEditedPost(edited);
+
+      final items = container.read(topicPostsProvider(10)).asData!.value.items;
+      expect(items.single.body, [const ParagraphBlock('edited')]);
+      // No extra fetchPosts call — proves this is a local splice, not an
+      // invalidate-and-refetch (which would have called fetchPosts again).
+      expect(api.fetchPostsCalls, hasLength(1));
+    });
+
+    test('a post id not currently in state is a no-op', () async {
+      final api = FakeForumApi()..posts = CursorPage(items: [post(id: 1)]);
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(topicPostsProvider(10).future);
+      container
+          .read(topicPostsProvider(10).notifier)
+          .applyEditedPost(post(id: 999));
+
+      final items = container.read(topicPostsProvider(10)).asData!.value.items;
+      expect(items.map((p) => p.id), [1]);
+    });
+  });
+
+  group('TopicPosts.deletePost (todo 292)', () {
+    test('removes the post from state on success', () async {
+      final api = FakeForumApi()
+        ..posts = CursorPage(items: [post(id: 1), post(id: 2)]);
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(topicPostsProvider(10).future);
+      await container.read(topicPostsProvider(10).notifier).deletePost(2);
+
+      final items = container.read(topicPostsProvider(10)).asData!.value.items;
+      expect(items.map((p) => p.id), [1]);
+      expect(api.deletePostCalls, [2]);
+    });
+
+    test(
+      'rethrows on failure and leaves the post in state (todo 292 AC3)',
+      () async {
+        final api = FakeForumApi()
+          ..posts = CursorPage(items: [post(id: 1)])
+          ..failDeletePostWith = ApiException(
+            'Topic is closed or locked.',
+            statusCode: 409,
+          );
         final container = ProviderContainer(
           overrides: [forumApiProvider.overrideWithValue(api)],
         );
         addTearDown(container.dispose);
 
-        await container.read(topicPostsProvider(10).future); // 1 call so far
-        // Fail the 3rd fetchPosts call: build() is #1, refreshAfterReply's
-        // page-1 restart is #2, its page-2 continuation is #3.
-        api.throwOnFetchPostsCallNumber = 3;
-
+        await container.read(topicPostsProvider(10).future);
         await expectLater(
-          container.read(topicPostsProvider(10).notifier).refreshAfterReply(),
-          throwsA(isA<ApiException>()),
+          container.read(topicPostsProvider(10).notifier).deletePost(1),
+          throwsA(
+            isA<ApiException>().having(
+              (e) => e.message,
+              'message',
+              'Topic is closed or locked.',
+            ),
+          ),
         );
 
-        final result = container.read(topicPostsProvider(10)).asData!.value;
-        expect(result.items.map((p) => p.id), [1]); // prior list, not lost
-        expect(result.isLoadingMore, isFalse); // spinner flag cleared
+        final items = container
+            .read(topicPostsProvider(10))
+            .asData!
+            .value
+            .items;
+        expect(items.map((p) => p.id), [1]); // unchanged — delete never applied
       },
     );
   });

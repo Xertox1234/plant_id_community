@@ -87,4 +87,101 @@ void main() {
       expect(buildParagraphBody('   '), isEmpty);
     });
   });
+
+  group('isSingleEditableParagraph (todo 292)', () {
+    test('true for exactly one paragraph block', () {
+      expect(isSingleEditableParagraph(const [ParagraphBlock('hi')]), isTrue);
+    });
+
+    test('false for multiple blocks, even all paragraphs', () {
+      expect(
+        isSingleEditableParagraph(const [
+          ParagraphBlock('one'),
+          ParagraphBlock('two'),
+        ]),
+        isFalse,
+      );
+    });
+
+    test('false for a single non-paragraph block', () {
+      expect(isSingleEditableParagraph(const [HeadingBlock('h')]), isFalse);
+      expect(
+        isSingleEditableParagraph(const [
+          ForumImageBlock(id: 1, url: 'x', alt: ''),
+        ]),
+        isFalse,
+      );
+    });
+
+    test('false for an empty body', () {
+      expect(isSingleEditableParagraph(const []), isFalse);
+    });
+
+    test(
+      'true for mobile-composer-shaped HTML: escaped text plus a real <br> tag',
+      () {
+        // Exactly buildParagraphBody's own output shape.
+        expect(
+          isSingleEditableParagraph(const [
+            ParagraphBlock('a &lt; b &amp; c<br>line2'),
+          ]),
+          isTrue,
+        );
+        // A user who literally typed the text "<br>" gets it fully escaped
+        // to &lt;br&gt; (no raw angle brackets at all) — still safe, still
+        // true; plainTextFromParagraphHtml correctly reconstructs it as the
+        // literal text "<br>", not a newline.
+        expect(
+          isSingleEditableParagraph(const [
+            ParagraphBlock('a &lt; b &amp; c&lt;br&gt;line2'),
+          ]),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'false for a single paragraph carrying REAL markup — a web-authored '
+      'post using only inline marks (bold/italic/link) also collapses to '
+      'one paragraph block, but block SHAPE alone cannot tell it apart from '
+      'mobile-composer output (code review — a real, reproduced gap: '
+      'without this check the markup silently renders as literal escaped '
+      'tag text in the edit field with no warning, and saving burns it in)',
+      () {
+        expect(
+          isSingleEditableParagraph(const [
+            ParagraphBlock('Check out <strong>this</strong> plant'),
+          ]),
+          isFalse,
+        );
+        expect(
+          isSingleEditableParagraph(const [
+            ParagraphBlock('<a href="https://example.com">a link</a>'),
+          ]),
+          isFalse,
+        );
+      },
+    );
+  });
+
+  group('plainTextFromParagraphHtml (todo 292)', () {
+    test('round-trips through buildParagraphBody for plain text', () {
+      const original = 'line1\nline2 & <tag> "quoted" it\'s';
+      final html = buildParagraphBody(original).single['value'] as String;
+      expect(plainTextFromParagraphHtml(html), original);
+    });
+
+    test('reverses <br> back to newlines', () {
+      expect(plainTextFromParagraphHtml('a<br>b'), 'a\nb');
+    });
+
+    test('reverses entity escaping without double-unescaping &amp;', () {
+      // The literal text "&lt;" typed by a user becomes "&amp;lt;" on write
+      // (the `&` escapes to `&amp;`, and `_escapeHtml` never re-scans its
+      // own output). Reversing must yield the original "&lt;" back, not the
+      // wrong "<" a naive single-pass unescape (or resolving &amp; first)
+      // would produce.
+      expect(plainTextFromParagraphHtml('&amp;lt;'), '&lt;');
+    });
+  });
 }

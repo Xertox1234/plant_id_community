@@ -16,6 +16,8 @@ class PostCard extends StatelessWidget {
     required this.post,
     this.onReact,
     this.onOpenLink,
+    this.onEdit,
+    this.onDelete,
   });
 
   final ForumPost post;
@@ -23,6 +25,15 @@ class PostCard extends StatelessWidget {
   /// Non-null when the viewer may react (logged in). Called with the type.
   final void Function(String type)? onReact;
   final void Function(String href)? onOpenLink;
+
+  /// Called when Edit is chosen. The caller (not this widget) gates
+  /// visibility on `post.canEdit` — never re-derive ownership here (todo
+  /// 292 AC1); this widget only renders what its caller already decided.
+  final VoidCallback? onEdit;
+
+  /// Called when Delete is chosen, AFTER the caller's own confirmation —
+  /// this widget does not confirm destructive actions itself.
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -73,6 +84,7 @@ class PostCard extends StatelessWidget {
                     size: 16,
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
+                _PostMenu(post: post, onEdit: onEdit, onDelete: onDelete),
               ],
             ),
             if (post.isPending)
@@ -102,6 +114,37 @@ class PostCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Overflow menu with Edit/Delete, each gated on its own `can*` flag (todo
+/// 292 AC1) — never shown just because a callback exists. Absent entirely
+/// when neither applies, so a viewer with no capability sees no menu at all.
+class _PostMenu extends StatelessWidget {
+  const _PostMenu({required this.post, this.onEdit, this.onDelete});
+
+  final ForumPost post;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final showEdit = onEdit != null && post.canEdit;
+    final showDelete = onDelete != null && post.canDelete;
+    if (!showEdit && !showDelete) return const SizedBox.shrink();
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert, size: 20),
+      tooltip: 'Post options',
+      onSelected: (value) {
+        if (value == 'edit') onEdit?.call();
+        if (value == 'delete') onDelete?.call();
+      },
+      itemBuilder: (context) => [
+        if (showEdit) const PopupMenuItem(value: 'edit', child: Text('Edit')),
+        if (showDelete)
+          const PopupMenuItem(value: 'delete', child: Text('Delete')),
+      ],
     );
   }
 }

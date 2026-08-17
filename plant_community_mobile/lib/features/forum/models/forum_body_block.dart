@@ -150,3 +150,49 @@ String _escapeHtml(String input) {
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
 }
+
+/// True when [body] is exactly the shape the mobile composer itself can
+/// produce: one `paragraph` block WHOSE HTML CONTAINS NOTHING BUT
+/// [buildParagraphBody]'s own escaping (todo 292). The mobile composer is
+/// text-first (todo 294 tracks images/rich-text authoring) — a body outside
+/// this shape cannot be edited here without losing content, so callers must
+/// gate mobile editing on this rather than assuming every editable post
+/// round-trips through plain text.
+///
+/// Block SHAPE alone is not enough (code review — a real, reproduced gap):
+/// a web-authored post using only inline marks (bold/italic/links/lists, no
+/// image, no top-level blockquote) collapses to exactly ONE `paragraph`
+/// block too, but its HTML is real markup (e.g. `<strong>`, `<a href=...>`),
+/// not [buildParagraphBody]'s escaped-text-plus-`<br>` shape. Without this
+/// tag check, that markup would silently show as literal `&lt;strong&gt;`
+/// tag soup in the edit field with NO warning, and saving would burn it in
+/// permanently. `buildParagraphBody` only ever emits `<br>` as a literal
+/// tag — every other `<`/`>` in its output is escaped — so stripping every
+/// `<br>` and checking for a leftover `<` or `>` is an exact test for "this
+/// HTML could only have come from the mobile composer or plain re-escaped
+/// text", not merely "this is one paragraph block".
+bool isSingleEditableParagraph(List<ForumBodyBlock> body) {
+  if (body.length != 1) return false;
+  final block = body.first;
+  if (block is! ParagraphBlock) return false;
+  return !block.html.replaceAll('<br>', '').contains(RegExp('[<>]'));
+}
+
+/// Reverse of [buildParagraphBody]'s escaping, for pre-filling the edit
+/// composer's plain-text field from an existing single paragraph's HTML.
+/// Only meaningful when [isSingleEditableParagraph] is true for the body
+/// this came from — callers must check that first.
+String plainTextFromParagraphHtml(String html) {
+  // Mirror image of _escapeHtml's replacement order: <br> back to newlines,
+  // then unescape entities in the REVERSE of the order they were escaped in
+  // (quote/apostrophe/angle-brackets first, `&amp;` last) so a literal `&`
+  // in the original text — which became a lone `&amp;` — isn't corrupted by
+  // an earlier unescape step reinterpreting part of it.
+  return html
+      .replaceAll('<br>', '\n')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&quot;', '"')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&amp;', '&');
+}
