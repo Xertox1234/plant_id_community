@@ -299,7 +299,7 @@ final class TopicPostsProvider
   }
 }
 
-String _$topicPostsHash() => r'e111d1afcd16f16be12d9ea9321d22de1a83d524';
+String _$topicPostsHash() => r'512a6a121e564a3353bb16ccfe521a6036751331';
 
 /// Posts in a topic (oldest-first), cursor-paginated with [loadMore], plus a
 /// reaction toggle that updates the affected post in place.

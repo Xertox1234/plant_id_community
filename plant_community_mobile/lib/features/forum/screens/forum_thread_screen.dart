@@ -72,7 +72,24 @@ class ForumThreadScreen extends ConsumerWidget {
       extra: ForumComposeArgs.reply(topicId: topicId),
     );
     if (result == true) {
-      ref.invalidate(topicPostsProvider(topicId));
+      // A new reply is oldest-first-ordered onto the LAST cursor page, so a
+      // plain `invalidate` (page 1 only) would leave it invisible on a
+      // multi-page thread (todo 291) — walk every page instead.
+      try {
+        await ref
+            .read(topicPostsProvider(topicId).notifier)
+            .refreshAfterReply();
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Reply posted, but the thread could not be refreshed.',
+              ),
+            ),
+          );
+        }
+      }
       ref.invalidate(topicDetailProvider(topicId));
     }
   }

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p2
 issue_id: "291"
 tags: [forum, flutter, mobile, bug]
@@ -61,11 +61,11 @@ higher priority than its siblings: this is the only item in that list that is a
 
 ## Acceptance Criteria
 
-- [ ] After posting a reply to a thread with more than one page of posts, the
+- [x] After posting a reply to a thread with more than one page of posts, the
       new reply is visible without a manual refresh — widget test on a
       multi-page fixture
-- [ ] A single-page thread still behaves as before — test
-- [ ] `flutter test` passes; `flutter analyze` clean
+- [x] A single-page thread still behaves as before — test
+- [x] `flutter test` passes; `flutter analyze` clean
 
 ## Work Log
 
@@ -76,6 +76,58 @@ higher priority than its siblings: this is the only item in that list that is a
   only terminal state for a parking epic — re-deferring keeps it open forever.
   Its 9 deferred items were grouped into 5 todos by what ships together, not
   split 1:1.
+
+### 2026-08-17 - Started by completing-todos skill (run 2026-08-17-0246)
+
+- Picked up by automated workflow.
+- Note: `source_review` is a prose reference ("todo 279 (promoted 2026-07-31)"),
+  not a file path — archival Step 4's Finding Status check-off does not apply
+  (todo 279 is itself archived at `todos/archive/279-completed-*.md` with no
+  Finding Status section; verified before starting).
+
+### 2026-08-17 - Implemented and verified
+
+- Mirrored the web client's `collectAllPosts` (`ThreadDetailPage.tsx`): added
+  `TopicPosts.refreshAfterReply()` in `providers/forum_providers.dart` — walks
+  every cursor page from the start (bounded at 50 pages) since the reply-create
+  endpoint returns no cursor/position, only `{id, status}`. On a mid-walk
+  failure, restores the prior list and rethrows (same discipline as the
+  existing `loadMore`). Regenerated `forum_providers.g.dart`
+  (`flutter pub run build_runner build`).
+- `forum_thread_screen.dart`'s `_openReply` now calls `refreshAfterReply()`
+  instead of `ref.invalidate(topicPostsProvider(topicId))` (the bug: a plain
+  invalidate refetches page 1 only, and a new reply is oldest-first-ordered
+  onto the LAST page). Wrapped in try/catch with a SnackBar fallback on
+  failure. Kept `ref.invalidate(topicDetailProvider(topicId))` unchanged.
+  Reused the existing `ForumComposerController` idempotency-key pattern
+  unmodified — no second write path added.
+- Extended `FakeForumApi.fetchPosts` (`test/features/forum/support/`) with a
+  `postPages` cursor-keyed multi-page fixture (falls back to the existing
+  `posts` field for every pre-existing single-page test) plus a
+  `throwOnFetchPostsCallNumber` hook, since the prior fake always returned the
+  same page regardless of cursor and could not express a multi-page thread —
+  a test built on it would have passed even against the old page-1-only bug.
+- Tests: 3 provider-level (`forum_providers_test.dart` — multi-page walk,
+  single-page unaffected, mid-walk-failure restores+rethrows) plus the AC's
+  required widget-level test in `test/routing/app_router_test.dart` (FAB tap →
+  compose → post → assert the page-2-only reply is visible, no manual refresh
+  in the test). The widget test's setup needed a test-only fix: `container.read
+  (appRouterProvider)` alone doesn't keep the `autoDispose` provider alive
+  (production keeps it alive via `ref.watch` in main.dart), so a SECOND
+  navigation after several pump cycles threw `Cannot use the Ref of
+  appRouterProvider after it has been disposed` inside the redirect callback,
+  silently landing on the router's error screen — no pre-existing test in the
+  file navigates twice, so this was previously unexposed. Fixed with
+  `container.listen(appRouterProvider, (_, _) {})` right after the read.
+
+  ```
+  $ flutter test test/routing/app_router_test.dart test/features/forum/
+  +47: All tests passed!
+  $ flutter test
+  +237 ~3: All tests passed!   # 3 skipped, pre-existing, unrelated
+  $ flutter analyze
+  No issues found!
+  ```
 
 ## Notes
 
