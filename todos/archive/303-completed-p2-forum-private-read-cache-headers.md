@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p2
 issue_id: "303"
 tags: [forum, backend, security, caching]
@@ -105,3 +105,53 @@ review (fixed there); the review confirmed the same gap pre-exists on
 
 - `manage.py spectacular` schema generation: no new errors/warnings on any of
   the 6 changed views (checked by grepping the class names in the output).
+
+### 2026-08-17 - Code review + repair
+
+- Dispatched `/code-review medium` (forked, 8 finder angles + verification,
+  650s/233 tool calls). Result: 0 correctness bugs. Two speculative
+  cleanup/altitude candidates were investigated and REFUTED with primary
+  source evidence (host-layer coverage; bundling `permission_classes` into
+  the mixin would break heterogeneous-permission call sites). One low-severity
+  finding CONFIRMED and repaired:
+  - `test_read_cache_headers.py`: the new
+    `test_authenticated_only_reads_are_never_shared_cached` duplicated the
+    5-line cache-header assertion block verbatim from
+    `test_public_reads_are_private_when_authenticated`, and a third variant
+    (`test_side_effect_reads_are_never_shared_cached`) had already silently
+    drifted from both by omitting the `private` check — proving the
+    duplication was a real, not hypothetical, drift risk. Extracted a shared
+    `_assert_never_shared_cached(resp, path)` helper and switched all three
+    call sites to it, which also closes the `private`-check gap on the
+    side-effect-reads test (confirmed it now genuinely holds — see rerun
+    below, not just "doesn't error").
+- Independently (advisor review of the sweep's overall progress) verified the
+  host-mount propagation path directly rather than relying on reasoning
+  alone: read `apps/forum_host/api.py` — of the 6 fixed views, 3
+  (`MeProfileView`, `NotificationUnreadCountView`, `UserMentionSearchView`)
+  are re-wrapped by host `_throttled` subclasses. Each subclass body is
+  `pass`; `_throttled` applies `method_decorator(ratelimit(...), name=<verb>)`
+  to the HTTP-method function itself (e.g. `get`), not to `finalize_response`
+  — so the mixin's header-setting logic, which runs in `finalize_response`,
+  is untouched by the wrapper. Added
+  `test_host_mounted_private_reads_carry_no_store_cache_headers` to
+  `apps/forum_host/tests/test_api_mounted.py` (mirrors the existing M42
+  `test_host_mounted_reads_carry_m42_cache_headers` precedent for the public
+  case) to pin this through the real mount rather than leave it as reasoning
+  only. `NotificationListView` has no host subclass (mounted straight from
+  the package per the existing code comment) so needs no separate pin; the
+  two revision views aren't host-wrapped either.
+- Re-ran both files together after the repair:
+
+  ```
+  $ python -m pytest packages/wagtail_forum/wagtail_forum/tests/api/test_read_cache_headers.py apps/forum_host/tests/test_api_mounted.py -v
+  ... 11 passed, 1 warning in 16.55s
+  ```
+
+### 2026-08-17 - Completed by completing-todos skill (run 2026-08-17-0246)
+
+- Verification: all 3 acceptance criteria passed (7/7 → 11/11 after the
+  review repair added coverage; mutation-tested; full package+host suite
+  767 passed; clean schema check).
+- Review: 3 findings total (1 confirmed + repaired, 2 refuted with evidence
+  and left as-is). No unaddressed blocking findings.

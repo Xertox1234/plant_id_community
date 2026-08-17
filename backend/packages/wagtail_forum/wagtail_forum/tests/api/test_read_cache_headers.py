@@ -73,6 +73,19 @@ def _assert_varies_on_auth(resp, path):
     assert "Authorization" in vary, path
 
 
+def _assert_never_shared_cached(resp, path):
+    # Shared by every "must never reach a shared cache" test below (todo 303
+    # code review): the three call sites had drifted apart on this exact
+    # assertion set — one of them silently dropped the `private` check — so
+    # unify it here rather than re-inlining it a fourth time.
+    cache_control = resp["Cache-Control"]
+    assert "no-store" in cache_control, path
+    assert "private" in cache_control, path
+    assert "public" not in cache_control, path
+    assert "s-maxage" not in cache_control, path
+    _assert_varies_on_auth(resp, path)
+
+
 @pytest.mark.django_db
 def test_public_reads_are_shared_cacheable_when_anonymous():
     board, topic, _ = _board_topic_post()
@@ -96,12 +109,7 @@ def test_public_reads_are_private_when_authenticated():
     for path in _public_paths(board):
         resp = client.get(path)
         assert resp.status_code == 200, path
-        cache_control = resp["Cache-Control"]
-        assert "no-store" in cache_control, path
-        assert "private" in cache_control, path
-        assert "public" not in cache_control, path
-        assert "s-maxage" not in cache_control, path
-        _assert_varies_on_auth(resp, path)
+        _assert_never_shared_cached(resp, path)
 
 
 @pytest.mark.django_db
@@ -116,11 +124,7 @@ def test_side_effect_reads_are_never_shared_cached():
         for path in _private_paths(topic):
             resp = client.get(path)
             assert resp.status_code == 200, path
-            cache_control = resp["Cache-Control"]
-            assert "no-store" in cache_control, path
-            assert "public" not in cache_control, path
-            assert "s-maxage" not in cache_control, path
-            _assert_varies_on_auth(resp, path)
+            _assert_never_shared_cached(resp, path)
 
 
 @pytest.mark.django_db
@@ -197,9 +201,4 @@ def test_authenticated_only_reads_are_never_shared_cached():
     for path in _authenticated_only_paths(post):
         resp = client.get(path)
         assert resp.status_code == 200, path
-        cache_control = resp["Cache-Control"]
-        assert "no-store" in cache_control, path
-        assert "private" in cache_control, path
-        assert "public" not in cache_control, path
-        assert "s-maxage" not in cache_control, path
-        _assert_varies_on_auth(resp, path)
+        _assert_never_shared_cached(resp, path)
