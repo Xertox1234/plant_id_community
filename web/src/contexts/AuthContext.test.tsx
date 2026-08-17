@@ -668,4 +668,121 @@ describe('AuthContext', () => {
       removeItemSpy.mockRestore();
     });
   });
+
+  describe('Focus identity revalidation (todo 297)', () => {
+    // Live prod incident (2026-08-13): the cookie-jar identity switched in
+    // another tab (re-login as a different account); the header kept
+    // showing the stale user until a manual reload. These tests prove the
+    // context-level fix (a Vitest/jsdom proxy for the two-tab browser
+    // repro AC1 names — no browser session ran in this session; see the
+    // archived todo's Work Log).
+    const userA: User = { id: 1, username: 'user-a', email: 'a@example.com' };
+    const userB: User = { id: 2, username: 'user-b', email: 'b@example.com' };
+
+    it('updates the context when a window focus reveals a changed identity', async () => {
+      vi.mocked(authService.getStoredUser).mockReturnValue(userA);
+      vi.mocked(authService.getCurrentUser).mockResolvedValueOnce(userA);
+
+      const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+      await waitFor(() => expect(result.current.user).toEqual(userA));
+
+      // The cookie jar switched to user B in another tab; this tab's next
+      // focus-triggered revalidation must pick it up.
+      vi.mocked(authService.getCurrentUser).mockResolvedValueOnce(userB);
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+
+      await waitFor(() => expect(result.current.user).toEqual(userB));
+    });
+
+    it('updates the context on visibilitychange → visible, not just window focus', async () => {
+      vi.mocked(authService.getStoredUser).mockReturnValue(userA);
+      vi.mocked(authService.getCurrentUser).mockResolvedValueOnce(userA);
+
+      const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+      await waitFor(() => expect(result.current.user).toEqual(userA));
+
+      vi.mocked(authService.getCurrentUser).mockResolvedValueOnce(userB);
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+
+      await waitFor(() => expect(result.current.user).toEqual(userB));
+    });
+
+    it('does not revalidate on visibilitychange when the tab is hidden', async () => {
+      vi.mocked(authService.getStoredUser).mockReturnValue(userA);
+      vi.mocked(authService.getCurrentUser).mockResolvedValueOnce(userA);
+
+      const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+      await waitFor(() => expect(result.current.user).toEqual(userA));
+      vi.mocked(authService.getCurrentUser).mockClear();
+
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+
+      expect(authService.getCurrentUser).not.toHaveBeenCalled();
+    });
+
+    it('reflects a switch to logged-out (401) on focus, not just a different account', async () => {
+      vi.mocked(authService.getStoredUser).mockReturnValue(userA);
+      vi.mocked(authService.getCurrentUser).mockResolvedValueOnce(userA);
+
+      const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+      await waitFor(() => expect(result.current.user).toEqual(userA));
+
+      // getCurrentUser() already returns null for a 401 (authService's own
+      // contract) — the focus path must pass that through, not paper over it.
+      vi.mocked(authService.getCurrentUser).mockResolvedValueOnce(null);
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+
+      await waitFor(() => expect(result.current.user).toBeNull());
+      expect(result.current.isAuthenticated).toBe(false);
+    });
+
+    it('debounces a second focus event within 30s of the last revalidation', async () => {
+      vi.mocked(authService.getStoredUser).mockReturnValue(userA);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(userA);
+
+      renderHook(() => useAuth(), { wrapper: AuthProvider });
+      await waitFor(() => expect(authService.getCurrentUser).toHaveBeenCalledTimes(1)); // init
+
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+      await waitFor(() => expect(authService.getCurrentUser).toHaveBeenCalledTimes(2));
+
+      // Immediately-repeated focus (well within the 30s window) must not
+      // trigger a second network round-trip.
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+      expect(authService.getCurrentUser).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not re-render the user object when the revalidated identity is unchanged', async () => {
+      vi.mocked(authService.getStoredUser).mockReturnValue(userA);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(userA);
+
+      const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+      await waitFor(() => expect(result.current.user).toEqual(userA));
+      const userRefBefore = result.current.user;
+
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+
+      // Same username → the reconciliation returns the PREVIOUS object
+      // reference rather than the freshly-fetched one, so a memoized
+      // consumer (e.g. the context value's own useMemo) doesn't re-render
+      // on every alt-tab for no reason.
+      expect(result.current.user).toBe(userRefBefore);
+    });
+  });
 });

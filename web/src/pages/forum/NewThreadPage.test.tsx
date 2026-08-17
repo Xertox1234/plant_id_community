@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import * as ReactRouter from 'react-router-dom';
 import NewThreadPage from './NewThreadPage';
 import { AnnouncerProvider } from '../../contexts/AnnouncerContext';
+import { useAuth } from '../../contexts/AuthContext';
 import * as forumService from '../../services/forumService';
 import { draftKey, saveDraft, loadDraft } from '../../utils/forumDrafts';
 
@@ -14,6 +15,19 @@ vi.mock('react-router-dom', async () => {
 });
 
 vi.mock('../../services/forumService');
+
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
+
+// Defense-in-depth (todo 297): handleSubmit calls revalidateIdentity() after
+// every create (published or pending). Resolving to the SAME identity
+// `user` below means no drift is detected, preserving every existing
+// test's navigate-on-success assertions.
+const mockAuth = () =>
+  ({
+    user: { id: 1, username: 'test-user' },
+    isAuthenticated: true,
+    revalidateIdentity: vi.fn().mockResolvedValue({ id: 1, username: 'test-user' }),
+  }) as unknown as ReturnType<typeof useAuth>;
 
 // TipTap is heavy + jsdom-hostile — stub it to a textarea that emits paragraph HTML.
 // `content` rides through as defaultValue so a restored draft is observable (M3).
@@ -44,6 +58,7 @@ describe('NewThreadPage', () => {
     vi.clearAllMocks();
     sessionStorage.clear();
     mockNavigate = vi.fn();
+    vi.mocked(useAuth).mockReturnValue(mockAuth());
     vi.mocked(ReactRouter.useNavigate).mockReturnValue(
       mockNavigate as unknown as ReturnType<typeof ReactRouter.useNavigate>
     );
@@ -78,6 +93,65 @@ describe('NewThreadPage', () => {
     await waitFor(() =>
       expect(mockNavigate).toHaveBeenCalledWith('/forum/3-plant-care/12-my-topic')
     );
+  });
+
+  // Defense-in-depth (todo 297): the create already succeeded under whatever
+  // identity the cookie carried by the time it landed — this can't be
+  // prevented, only detected and disclosed instead of silently navigating
+  // as if the ORIGINAL user posted it.
+  it('shows an identity-drift notice instead of auto-navigating when the acting identity changed mid-submit', async () => {
+    vi.spyOn(forumService, 'createThread').mockResolvedValue({
+      id: '12',
+      slug: 'my-topic',
+      status: 'published',
+    });
+    vi.mocked(useAuth).mockReturnValue({
+      user: { id: 1, username: 'test-user' },
+      isAuthenticated: true,
+      revalidateIdentity: vi.fn().mockResolvedValue({ id: 2, username: 'someone-else' }),
+    } as unknown as ReturnType<typeof useAuth>);
+
+    renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+    await userEvent.type(screen.getByLabelText('body'), 'hello');
+    await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
+
+    await screen.findByRole('heading', { name: /session changed/i });
+    expect(screen.getByText(/posted as someone-else/i)).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getByRole('link', { name: /view the topic/i })).toHaveAttribute(
+      'href',
+      '/forum/3-plant-care/12-my-topic'
+    );
+  });
+
+  // A pending (untrusted-author) topic has no live URL yet — the drift
+  // notice must not link into it, and must say it's pending, not published.
+  it('shows an identity-drift notice with no live link when the drifted create was pending moderation', async () => {
+    vi.spyOn(forumService, 'createThread').mockResolvedValue({
+      id: '12',
+      slug: 'my-topic',
+      status: 'pending',
+    });
+    vi.mocked(useAuth).mockReturnValue({
+      user: { id: 1, username: 'test-user' },
+      isAuthenticated: true,
+      revalidateIdentity: vi.fn().mockResolvedValue({ id: 2, username: 'someone-else' }),
+    } as unknown as ReturnType<typeof useAuth>);
+
+    renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+    await userEvent.type(screen.getByLabelText('body'), 'hello');
+    await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
+
+    await screen.findByRole('heading', { name: /session changed/i });
+    expect(screen.getByText(/posted as someone-else/i)).toBeInTheDocument();
+    expect(screen.getByText(/awaiting moderation/i)).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getByRole('link', { name: /back to plant care/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /view the topic/i })).not.toBeInTheDocument();
   });
 
   it('pending topic → on-page moderation confirmation, no native alert, no navigation into it (M24)', async () => {

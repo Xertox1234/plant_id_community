@@ -59,9 +59,15 @@ function renderThreadDetailPage(categorySlug = 'plant-care', threadSlug = 'water
 }
 
 const mockAuth = (isAuthenticated: boolean) =>
-  ({ user: isAuthenticated ? { id: 1 } : null, isAuthenticated }) as unknown as ReturnType<
-    typeof useAuth
-  >;
+  ({
+    user: isAuthenticated ? { id: 1 } : null,
+    isAuthenticated,
+    // Defense-in-depth (todo 297): handleReply calls this after every reply
+    // (published or pending). Resolving to the SAME identity `user` above
+    // means no drift is detected, preserving every existing test's
+    // success-path assertions.
+    revalidateIdentity: vi.fn().mockResolvedValue(isAuthenticated ? { id: 1 } : null),
+  }) as unknown as ReturnType<typeof useAuth>;
 
 describe('ThreadDetailPage', () => {
   beforeEach(() => {
@@ -650,6 +656,61 @@ describe('ThreadDetailPage', () => {
     expect(fetchPostsSpy).toHaveBeenCalledTimes(2);
     // The composer remounts (key bump) so it visibly clears after posting.
     expect(screen.getByLabelText('Write a reply...')).toHaveValue('');
+  });
+
+  // Defense-in-depth (todo 297): the reply already posted under whatever
+  // identity the cookie carried by the time it landed — this cannot be
+  // prevented, only detected and disclosed instead of the normal silent
+  // "Reply posted." success announce (exactly how the live prod incident
+  // went unnoticed).
+  it('shows a distinct notice instead of the silent success announce when the acting identity changed mid-reply', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 0 }));
+    vi.spyOn(forumService, 'fetchPosts')
+      .mockResolvedValueOnce({ items: [], meta: { count: 0, next: null, previous: null } })
+      .mockResolvedValueOnce({
+        items: [createMockPost({ id: '99' })],
+        meta: { count: 0, next: null, previous: null },
+      });
+    vi.spyOn(forumService, 'createPost').mockResolvedValue({ id: '99', status: 'published' });
+    vi.mocked(useAuth).mockReturnValue({
+      isAuthenticated: true,
+      user: { id: 1, username: 'test-user' },
+      revalidateIdentity: vi.fn().mockResolvedValue({ id: 2, username: 'someone-else' }),
+    } as unknown as ReturnType<typeof useAuth>);
+
+    renderThreadDetailPage();
+
+    await screen.findByRole('button', { name: /Post Reply/i });
+    await userEvent.type(screen.getByLabelText('Write a reply...'), 'my reply');
+    await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+
+    await waitFor(() => expect(screen.getByText(/posted as someone-else/i)).toBeInTheDocument());
+    expect(document.querySelector('[data-announcer="polite"]')).not.toHaveTextContent(
+      'Reply posted.'
+    );
+  });
+
+  it('shows a combined identity-drift + moderation notice when the drifted reply was pending', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [],
+      meta: { count: 0 },
+    });
+    vi.spyOn(forumService, 'createPost').mockResolvedValue({ id: '99', status: 'pending' });
+    vi.mocked(useAuth).mockReturnValue({
+      isAuthenticated: true,
+      user: { id: 1, username: 'test-user' },
+      revalidateIdentity: vi.fn().mockResolvedValue({ id: 2, username: 'someone-else' }),
+    } as unknown as ReturnType<typeof useAuth>);
+
+    renderThreadDetailPage();
+
+    await screen.findByRole('button', { name: /Post Reply/i });
+    await userEvent.type(screen.getByLabelText('Write a reply...'), 'spammy');
+    await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+
+    await waitFor(() => expect(screen.getByText(/posted as someone-else/i)).toBeInTheDocument());
+    expect(screen.getByText(/awaiting moderation/i)).toBeInTheDocument();
   });
 
   it('a published reply on a multi-page thread loads through to the new reply', async () => {

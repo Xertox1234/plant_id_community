@@ -1,5 +1,14 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  ReactNode,
+} from 'react';
 import * as authService from '../services/authService';
 import { resetComposeAssistAvailability } from '../services/forumService';
 import { logger } from '../utils/logger';
@@ -10,6 +19,11 @@ import type { User, LoginCredentials, SignupData, AuthError } from '../types/aut
 // Token refresh interval: 10 minutes (before 15-minute expiry)
 // SECURITY: OWASP recommends 15-minute access tokens
 const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes in milliseconds
+
+// Minimum gap between focus-triggered identity revalidations (todo 297) — a
+// window switched back to repeatedly (alt-tabbing) must not spam
+// GET /api/v1/auth/user/ on every focus/visibilitychange event.
+const FOCUS_REVALIDATE_MIN_INTERVAL = 30 * 1000; // 30 seconds
 
 // Re-export all auth types for convenience (single import source)
 export type { User, LoginCredentials, SignupData, AuthError } from '../types/auth';
@@ -85,6 +99,8 @@ export interface AuthContextValue {
    * set by the backend redirect but context state has not yet caught up.
    */
   refreshUser: () => Promise<User | null>;
+  /** Rotation-free identity re-fetch (todo 297) — see the implementation's docstring. */
+  revalidateIdentity: () => Promise<User | null>;
   clearError: () => void;
 }
 
@@ -148,6 +164,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Use ref for refresh timer to avoid memory leaks and prevent re-renders
   const refreshTimerRef = useRef<number | null>(null);
+
+  // Timestamp of the last focus-triggered revalidation — useRef (gotcha 5),
+  // not useState, so the debounce check itself never causes a re-render.
+  const lastFocusRevalidateRef = useRef<number>(0);
 
   // Initialize auth state on mount
   useEffect(() => {
@@ -229,6 +249,68 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     };
   }, [user]); // Re-run when user changes (login/logout)
+
+  /**
+   * Re-fetch the server-side identity and reconcile local state ONLY on an
+   * actual change (todo 297) — compares by `id` (always present on `User`),
+   * not `username` (optional; a response missing it would otherwise make
+   * the drift check a silent no-op). Deliberately does NOT rotate the
+   * request ID like `refreshUser` below does: that's correct for a real
+   * session-start event (login/signup/OAuth) but would fragment the trace
+   * of routine activity here — a background focus poll (no rotation
+   * wanted on the common no-drift case) AND a write-defense check (rotating
+   * on every successful post, not just a detected drift, would be noise).
+   * Shared by the focus-revalidation effect below and the write-defense
+   * call sites in NewThreadPage/ThreadDetailPage.
+   */
+  const revalidateIdentity = useCallback(async (): Promise<User | null> => {
+    const currentUser = await authService.getCurrentUser();
+    setUser((prevUser) => {
+      const prevId = prevUser?.id ?? null;
+      const nextId = currentUser?.id ?? null;
+      // Reconcile only on an actual identity change — an unconditional
+      // setUser() here would re-render on every focus for no reason.
+      return prevId === nextId ? prevUser : currentUser;
+    });
+    return currentUser;
+  }, []);
+
+  // Revalidate identity on tab focus (todo 297). The cookie-jar identity can
+  // change in another tab of the same browser profile (re-login as a
+  // different account) — without this, the header keeps showing the stale
+  // user while the server attributes every write to the NEW cookie identity
+  // (live prod incident 2026-08-13: header showed one user, a forum reply
+  // was created as another). Mounted unconditionally (not gated on `user`)
+  // so both directions work: an already-logged-in tab picking up a switch to
+  // a different account, and a logged-out tab picking up a login elsewhere.
+  useEffect(() => {
+    const revalidate = () => {
+      const now = Date.now();
+      if (now - lastFocusRevalidateRef.current < FOCUS_REVALIDATE_MIN_INTERVAL) {
+        return; // debounced — too soon since the last check
+      }
+      // Set before the await: a focus event and the immediately-following
+      // visibilitychange event must collapse into one fetch, not two.
+      lastFocusRevalidateRef.current = now;
+
+      revalidateIdentity().catch((err) => {
+        logger.error('[AuthContext] Focus identity revalidation failed', { error: err });
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        revalidate();
+      }
+    };
+
+    window.addEventListener('focus', revalidate);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', revalidate);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [revalidateIdentity]);
 
   /**
    * Login user with email and password
@@ -337,9 +419,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       logout,
       signup,
       refreshUser,
+      revalidateIdentity,
       clearError,
     }),
-    [user, isLoading, error]
+    [user, isLoading, error, revalidateIdentity]
   );
 
   // React 19: Use AuthContext directly as provider
