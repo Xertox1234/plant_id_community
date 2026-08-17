@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "304"
 tags: [forum, backend, web]
@@ -130,14 +130,66 @@ topic); restored via direct Edit (not git stash — this file has no prior
 commit on the branch, the known stash-round-trip pitfall from todo 283)
 and confirmed green + restoration verified by grep.
 
-Verification:
+### 2026-08-17 - Code review
+
+Dispatched `code-review-orchestrator` (triage-only) → routed 3 domain
+reviewers (wagtail-reviewer, cross-cutting-reviewer, react-typescript-reviewer),
+dispatched all in parallel. 4 findings total; 3 accepted+fixed, 1 rejected
+with evidence.
+
+**Rebase note**: this branch was cut before PR #550 (todo 302) merged, so it
+initially lacked that PR's README fixes. Committed a checkpoint, rebased
+onto `origin/main` (clean, no conflicts), then re-verified — avoids the
+git-stash-on-uncommitted-work pitfall since the checkpoint was a real commit.
+
+1. **[medium, wagtail-reviewer, accepted]** `test_read_cache_headers.py`'s
+   `_public_paths()` — the shared regression pin for every
+   `PublicForumReadCacheMixin` view — wasn't swept to include `/forum/event/`,
+   despite the file's own comment documenting exactly this convention for
+   `topics/recent/`/`users/experts/`. Fixed: added the path; re-ran the file,
+   7/7 passed.
+2. **[low, wagtail-reviewer, accepted]** `EventHeroView`'s docstring said
+   "this must not leak either" — true of the origin re-check, overstated for
+   the CDN-cached path (a `PublicForumReadCacheMixin` response can serve a
+   just-unpublished topic for up to `PUBLIC_READ_CACHE_SECONDS`). Fixed:
+   softened the docstring to name the TTL-bounded tradeoff explicitly,
+   matching the README's own accepted-tradeoff framing.
+3. **[high, cross-cutting-reviewer, REJECTED]** Argued `EventHeroView`
+   should switch to `PrivateForumReadCacheMixin` (no-store) because a
+   moderated-away featured topic could linger in a CDN cache. Verified
+   against the codebase's own established precedent before rejecting:
+   `RecentTopicsView`, `ExpertsView`, `TopicListView`, and `BoardListView`
+   are ALL `PublicForumReadCacheMixin` and expose the byte-identical risk
+   (any topic in a public list/rail can be moderated away and linger in
+   cache) — this is the README's own documented, deliberate tradeoff
+   ("Tradeoff: a just-removed topic can linger in the anon-cached *list* for
+   up to this TTL"), not a bug specific to this endpoint. `TopicListView` in
+   particular is the strongest counter-evidence: it's literally the list of
+   topics that can be moderated away, and it's shipped public-cached.
+   Switching only `EventHeroView` to no-store would be an inconsistent,
+   unmotivated exception to an established pattern, would kill CDN offload
+   for the one endpoint that most wants it (landing-page hero), and the
+   underlying accuracy concern the finding raises is the same one
+   wagtail-reviewer's LOW finding caught and finding #2 above already fixed.
+   No mixin change made.
+4. **[low, react-typescript-reviewer, accepted]** `EventHeroTopic.board` and
+   `RecentTopic.board` both re-typed the same `{id, name, slug}` shape
+   inline. Fixed: extracted `BoardSummary` in `types/forum.ts`, both
+   interfaces now reference it.
+
+Also (self-caught, not from a reviewer): `_public_paths()`'s docstring
+comment updated to mention `event/` alongside the existing
+`topics/recent/`/`users/experts/` note, matching the convention it
+documents.
+
+Re-verified after all repairs:
 
 ```
-$ python -m pytest packages/wagtail_forum/wagtail_forum/tests/api/test_event_hero.py -v
-Pytest: 6 passed
+$ python -m pytest packages/wagtail_forum/wagtail_forum/tests/api/test_read_cache_headers.py -v
+Pytest: 7 passed
 $ python -m pytest packages/wagtail_forum/ apps/forum_host/
-Pytest: 800 passed
-$ python manage.py spectacular --file /tmp/schema-check.yaml
+Pytest: 801 passed
+$ python manage.py spectacular --file /tmp/schema-check3.yaml
 exit 0 (pre-existing warnings/errors in unrelated apps only; none reference EventHeroView)
 $ npx tsc --noEmit
 No errors found
@@ -147,3 +199,12 @@ Tests  897 passed (897)
 $ npm run lint
 0 errors (1 pre-existing warning in coverage/block-navigation.js, unrelated)
 ```
+
+### 2026-08-17 - Completed by completing-todos skill (run 2026-08-17-0246)
+
+- Verification: all 3 acceptance criteria passed (backend 801/801, web
+  897/897, tsc clean, lint clean, spectacular exit 0).
+- Review: 4 findings from 3 domain reviewers — 3 accepted+fixed (test
+  coverage gap, docstring accuracy, shared-type extraction), 1 rejected with
+  evidence (HIGH severity mixin-swap claim contradicted by 4 already-shipped
+  sibling endpoints sharing the identical, deliberately-accepted tradeoff).
