@@ -53,6 +53,22 @@ abstract class ForumApi {
     required String type,
     required String idempotencyKey,
   });
+
+  /// Subscribe/unsubscribe the authenticated user to a topic. Both are
+  /// idempotent server-side; returns the resulting `subscribed` state.
+  Future<bool> subscribeToTopic(int topicId);
+  Future<bool> unsubscribeFromTopic(int topicId);
+
+  /// First page (when [cursorUrl] is null) or a subsequent page (pass the
+  /// absolute `next` URL from a prior [CursorPage]) of the user's
+  /// notifications, newest first.
+  Future<CursorPage<ForumNotification>> fetchNotifications({String? cursorUrl});
+
+  Future<int> fetchUnreadNotificationCount();
+
+  /// Mark notifications read. Omitting [ids] marks ALL unread notifications
+  /// read; an empty list marks none. Returns the number of rows updated.
+  Future<int> markNotificationsRead({List<int>? ids});
 }
 
 /// The reaction types the backend accepts (`Reaction.REACTION_CHOICES`). MUST
@@ -179,6 +195,46 @@ class HttpForumApi implements ForumApi {
       options: _idempotent(idempotencyKey),
     );
     return ReactionToggleResult.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<bool> subscribeToTopic(int topicId) async {
+    final resp = await _api.post('/forum/topics/$topicId/subscription/');
+    return (resp.data as Map<String, dynamic>)['subscribed'] as bool? ?? true;
+  }
+
+  @override
+  Future<bool> unsubscribeFromTopic(int topicId) async {
+    final resp = await _api.delete('/forum/topics/$topicId/subscription/');
+    return (resp.data as Map<String, dynamic>)['subscribed'] as bool? ?? false;
+  }
+
+  @override
+  Future<CursorPage<ForumNotification>> fetchNotifications({
+    String? cursorUrl,
+  }) async {
+    final resp = cursorUrl != null
+        ? await _api.get(cursorUrl)
+        : await _api.get('/forum/notifications/');
+    return CursorPage.fromJson(
+      resp.data as Map<String, dynamic>,
+      ForumNotification.fromJson,
+    );
+  }
+
+  @override
+  Future<int> fetchUnreadNotificationCount() async {
+    final resp = await _api.get('/forum/notifications/unread-count/');
+    return (resp.data as Map<String, dynamic>)['count'] as int? ?? 0;
+  }
+
+  @override
+  Future<int> markNotificationsRead({List<int>? ids}) async {
+    final resp = await _api.post(
+      '/forum/notifications/mark-read/',
+      data: ids != null ? {'ids': ids} : null,
+    );
+    return (resp.data as Map<String, dynamic>)['updated'] as int? ?? 0;
   }
 }
 

@@ -120,6 +120,28 @@ class ForumTopicDetail {
 
   bool get isLocked => isClosed || locked;
 
+  /// Returns a copy with [isSubscribed] replaced (used after a
+  /// subscribe/unsubscribe call, whose response carries the fresh state).
+  ForumTopicDetail withSubscribed(bool isSubscribed) {
+    return ForumTopicDetail(
+      id: id,
+      title: title,
+      slug: slug,
+      board: board,
+      author: author,
+      isPinned: isPinned,
+      isClosed: isClosed,
+      locked: locked,
+      replyCount: replyCount,
+      viewCount: viewCount,
+      createdAt: createdAt,
+      lastPostAt: lastPostAt,
+      lastPostAuthor: lastPostAuthor,
+      openingPostId: openingPostId,
+      isSubscribed: isSubscribed,
+    );
+  }
+
   factory ForumTopicDetail.fromJson(Map<String, dynamic> json) {
     return ForumTopicDetail(
       id: json['id'] as int,

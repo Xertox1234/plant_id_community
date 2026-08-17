@@ -15,6 +15,7 @@ import '../../features/forum/forum_screen.dart';
 import '../../features/forum/screens/forum_topics_screen.dart';
 import '../../features/forum/screens/forum_thread_screen.dart';
 import '../../features/forum/screens/forum_composer_screen.dart';
+import '../../features/forum/screens/forum_notifications_screen.dart';
 import '../../features/collection/collection_screen.dart';
 import '../../models/plant.dart';
 import '../../services/auth_service.dart';
@@ -228,6 +229,15 @@ GoRouter appRouter(Ref ref) {
                 : ErrorScreen(error: Exception('Missing composer arguments')),
           );
         },
+      ),
+      GoRoute(
+        path: '/forum/notifications',
+        name: 'forumNotifications',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: const ForumNotificationsScreen(),
+        ),
       ),
       GoRoute(
         path: AppRoutes.collection,

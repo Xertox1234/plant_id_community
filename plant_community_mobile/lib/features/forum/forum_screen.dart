@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../services/auth_service.dart';
 import 'models/models.dart';
 import 'providers/forum_providers.dart';
 
@@ -15,9 +16,16 @@ class ForumScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final boardsAsync = ref.watch(boardsProvider);
     final recentAsync = ref.watch(recentTopicsProvider);
+    final isAuthenticated = ref.watch(
+      authServiceProvider.select((s) => s.isAuthenticated),
+    );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Community'), centerTitle: true),
+      appBar: AppBar(
+        title: const Text('Community'),
+        centerTitle: true,
+        actions: [if (isAuthenticated) const _NotificationsBellButton()],
+      ),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: () async {
@@ -77,6 +85,26 @@ class ForumScreen extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Bell icon with an unread-count badge, opening the notifications screen.
+class _NotificationsBellButton extends ConsumerWidget {
+  const _NotificationsBellButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unreadAsync = ref.watch(unreadNotificationCountProvider);
+    final unread = unreadAsync.asData?.value ?? 0;
+    return IconButton(
+      tooltip: 'Notifications',
+      onPressed: () => context.pushNamed('forumNotifications'),
+      icon: Badge(
+        isLabelVisible: unread > 0,
+        label: Text('$unread'),
+        child: const Icon(Icons.notifications_outlined),
       ),
     );
   }
