@@ -58,6 +58,15 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Pinned to match local dev (2026-08-17): an unpinned `channel:
+          # stable` silently jumped 3.41.9 -> 3.47.0 between 2026-07-31 (last
+          # green mobile-ci-gate) and 2026-08-17, which raised Flutter's
+          # minimum required Gradle to 8.14.0 -- above this project's pinned
+          # 8.12 wrapper -- and broke every PR touching mobile code
+          # (`mobile-ci-gate` is a required check on main). Bump this
+          # deliberately (with a matching Gradle/AGP review) rather than
+          # letting it float again.
+          flutter-version: '3.41.9'
           cache: true
 
       - name: Install dependencies
