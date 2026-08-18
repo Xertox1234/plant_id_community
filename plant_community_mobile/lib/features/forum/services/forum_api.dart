@@ -54,6 +54,20 @@ abstract class ForumApi {
     required String idempotencyKey,
   });
 
+  /// Edit a post the caller owns (or moderates). Server-enforced ownership —
+  /// callers must gate the affordance on `post.canEdit`, never re-derive it.
+  /// 409 on a closed/locked topic or a locked post (todo 292 AC3).
+  Future<EditPostResult> editPost({
+    required int postId,
+    required List<Map<String, dynamic>> body,
+    required String idempotencyKey,
+  });
+
+  /// Soft-delete a post the caller owns (or moderates). Not idempotency-key
+  /// protected server-side — a repeat DELETE of an already-deleted post 404s,
+  /// which is naturally idempotent enough for this action.
+  Future<void> deletePost({required int postId});
+
   /// Subscribe/unsubscribe the authenticated user to a topic. Both are
   /// idempotent server-side; returns the resulting `subscribed` state.
   Future<bool> subscribeToTopic(int topicId);
@@ -235,6 +249,25 @@ class HttpForumApi implements ForumApi {
       data: ids != null ? {'ids': ids} : null,
     );
     return (resp.data as Map<String, dynamic>)['updated'] as int? ?? 0;
+  }
+
+  @override
+  Future<EditPostResult> editPost({
+    required int postId,
+    required List<Map<String, dynamic>> body,
+    required String idempotencyKey,
+  }) async {
+    final resp = await _api.patch(
+      '/forum/posts/$postId/',
+      data: {'body': body},
+      options: _idempotent(idempotencyKey),
+    );
+    return EditPostResult.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<void> deletePost({required int postId}) async {
+    await _api.delete('/forum/posts/$postId/');
   }
 }
 

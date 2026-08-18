@@ -47,6 +47,19 @@ class FakeForumApi implements ForumApi {
   /// When true, [toggleReaction] throws instead of returning a result.
   bool failReactionToggle = false;
 
+  final List<String> editPostKeys = [];
+  ForumModerationStatus editStatus = ForumModerationStatus.published;
+
+  /// When set, [editPost] throws this instead of returning a result — set an
+  /// [ApiException] to test a specific status/message (e.g. a 409 frozen-
+  /// topic rejection, todo 292 AC3).
+  ApiException? failEditPostWith;
+
+  final List<int> deletePostCalls = [];
+
+  /// When set, [deletePost] throws this instead of succeeding.
+  ApiException? failDeletePostWith;
+
   /// [subscribeToTopic]/[unsubscribeFromTopic] call log and failure hook.
   final List<int> subscribeCalls = [];
   final List<int> unsubscribeCalls = [];
@@ -157,6 +170,33 @@ class FakeForumApi implements ForumApi {
   }
 
   @override
+  Future<EditPostResult> editPost({
+    required int postId,
+    required List<Map<String, dynamic>> body,
+    required String idempotencyKey,
+  }) async {
+    editPostKeys.add(idempotencyKey);
+    final fail = failEditPostWith;
+    if (fail != null) throw fail;
+    return EditPostResult(
+      post: post(
+        id: postId,
+        body: parseForumBody(body),
+        canEdit: true,
+        canDelete: true,
+      ),
+      status: editStatus,
+    );
+  }
+
+  @override
+  Future<void> deletePost({required int postId}) async {
+    deletePostCalls.add(postId);
+    final fail = failDeletePostWith;
+    if (fail != null) throw fail;
+  }
+
+  @override
   Future<bool> subscribeToTopic(int topicId) async {
     subscribeCalls.add(topicId);
     if (failSubscriptionWith != null) throw failSubscriptionWith!;
@@ -232,6 +272,8 @@ ForumPost post({
   bool isPending = false,
   Map<String, int> reactionCounts = const {},
   List<String> reacted = const [],
+  bool canEdit = false,
+  bool canDelete = false,
 }) {
   return ForumPost(
     id: id,
@@ -243,8 +285,8 @@ ForumPost post({
     isPending: isPending,
     reactionCounts: reactionCounts,
     reacted: reacted,
-    canEdit: false,
-    canDelete: false,
+    canEdit: canEdit,
+    canDelete: canDelete,
     canReport: false,
   );
 }

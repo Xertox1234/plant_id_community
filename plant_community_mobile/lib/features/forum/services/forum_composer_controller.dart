@@ -82,4 +82,19 @@ class ForumComposerController {
       idempotencyKey: _key,
     );
   }
+
+  /// Edit [postId] (todo 292). Same retry semantics as [submitReply]: the
+  /// same edited text retried keeps the key so the backend replays; changed
+  /// text rotates it to a fresh attempt.
+  Future<EditPostResult> submitEdit({
+    required int postId,
+    required String bodyText,
+  }) {
+    _refreshKeyForContent('edit|$postId|${bodyText.trim()}');
+    return _api.editPost(
+      postId: postId,
+      body: buildParagraphBody(bodyText),
+      idempotencyKey: _key,
+    );
+  }
 }

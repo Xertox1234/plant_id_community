@@ -1,3 +1,5 @@
+import 'forum_post.dart';
+
 /// Moderation outcome of a create/edit write. The create/reply/edit
 /// responses use `"published" | "pending"` (distinct from a Post's
 /// `"live" | "pending"` status).
@@ -44,6 +46,27 @@ class CreateReplyResult {
     return CreateReplyResult(
       id: json['id'] as int,
       status: ForumModerationStatus.fromString(json['status'] as String?),
+    );
+  }
+}
+
+/// Result of `PATCH /forum/posts/{id}/` — the full post shape (todo 292)
+/// plus `moderation_status`. When [status] is pending, [post]'s body is the
+/// SUBMITTED revision the caller just sent (see PostWriteView.patch), not
+/// what a fresh GET will return until the edit clears moderation — the
+/// same "shows what you sent" contract the web client's edit flow relies on.
+class EditPostResult {
+  const EditPostResult({required this.post, required this.status});
+
+  final ForumPost post;
+  final ForumModerationStatus status;
+
+  factory EditPostResult.fromJson(Map<String, dynamic> json) {
+    return EditPostResult(
+      post: ForumPost.fromJson(json),
+      status: ForumModerationStatus.fromString(
+        json['moderation_status'] as String?,
+      ),
     );
   }
 }

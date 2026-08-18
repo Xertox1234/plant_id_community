@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../services/api_service.dart';
 import '../../../services/auth_service.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
@@ -68,6 +69,8 @@ class ForumThreadScreen extends ConsumerWidget {
             onLoadMore: () =>
                 ref.read(topicPostsProvider(topicId).notifier).loadMore(),
             onOpenLink: (href) => _showLink(context, href),
+            onEdit: (post) => _openEdit(context, ref, post),
+            onDelete: (post) => _confirmDelete(context, ref, post),
           ),
         ),
       ),
@@ -123,6 +126,77 @@ class ForumThreadScreen extends ConsumerWidget {
     }
   }
 
+  /// Open the composer in edit mode (todo 292). Unlike [_openReply], a
+  /// successful publish pops the updated [ForumPost] itself (not a bare
+  /// `true`) — [TopicPosts.applyEditedPost] splices it into the already-
+  /// loaded page rather than invalidating and losing any pages the user had
+  /// loaded via `loadMore` on a long thread.
+  Future<void> _openEdit(
+    BuildContext context,
+    WidgetRef ref,
+    ForumPost post,
+  ) async {
+    final result = await context.pushNamed<ForumPost>(
+      'forumCompose',
+      extra: ForumComposeArgs.edit(post: post),
+    );
+    if (result != null) {
+      ref.read(topicPostsProvider(topicId).notifier).applyEditedPost(result);
+      // Same as _openReply below: refresh the single-object topic detail
+      // (reply metadata etc.) — cheap, and unrelated to the paged-state
+      // preservation applyEditedPost exists for (code review).
+      ref.invalidate(topicDetailProvider(topicId));
+    }
+  }
+
+  Future<void> _confirmDelete(
+    BuildContext context,
+    WidgetRef ref,
+    ForumPost post,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete post?'),
+        content: const Text('This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await ref.read(topicPostsProvider(topicId).notifier).deletePost(post.id);
+      // reply_count/last_post_at live on the topic detail, not the paged
+      // post list — refresh it so a deletion is reflected immediately
+      // rather than only on the next visit (code review).
+      ref.invalidate(topicDetailProvider(topicId));
+    } on ApiException catch (e) {
+      // The backend's 409 message is already specific and non-retry-implying
+      // ("Topic is closed or locked.", "Opening posts cannot be deleted via
+      // the API.") — surfaced verbatim, same reasoning as the edit composer's
+      // 409 handling (todo 292 AC3).
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not delete this post.')),
+        );
+      }
+    }
+  }
+
   void _showLink(BuildContext context, String href) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(href)));
   }
@@ -136,6 +210,8 @@ class _ThreadBody extends StatelessWidget {
     required this.onReact,
     required this.onLoadMore,
     required this.onOpenLink,
+    required this.onEdit,
+    required this.onDelete,
   });
 
   final int topicId;
@@ -144,6 +220,8 @@ class _ThreadBody extends StatelessWidget {
   final void Function(int postId, String type)? onReact;
   final Future<void> Function() onLoadMore;
   final void Function(String href) onOpenLink;
+  final void Function(ForumPost post) onEdit;
+  final void Function(ForumPost post) onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -171,6 +249,8 @@ class _ThreadBody extends StatelessWidget {
           post: post,
           onOpenLink: onOpenLink,
           onReact: onReact == null ? null : (type) => onReact!(post.id, type),
+          onEdit: () => onEdit(post),
+          onDelete: () => onDelete(post),
         );
       },
     );

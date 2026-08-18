@@ -137,6 +137,100 @@ void main() {
     });
   });
 
+  group('TopicPosts.applyEditedPost (todo 292)', () {
+    test('splices the updated post into place without a refetch', () async {
+      final api = FakeForumApi()
+        ..posts = CursorPage(
+          items: [
+            post(id: 1, body: const [ParagraphBlock('original')]),
+          ],
+        );
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(topicPostsProvider(10).future);
+      final edited = post(id: 1, body: const [ParagraphBlock('edited')]);
+      container.read(topicPostsProvider(10).notifier).applyEditedPost(edited);
+
+      final items = container.read(topicPostsProvider(10)).asData!.value.items;
+      expect(items.single.body, [const ParagraphBlock('edited')]);
+      // No extra fetchPosts call — proves this is a local splice, not an
+      // invalidate-and-refetch (which would have called fetchPosts again).
+      expect(api.fetchPostsCalls, hasLength(1));
+    });
+
+    test('a post id not currently in state is a no-op', () async {
+      final api = FakeForumApi()..posts = CursorPage(items: [post(id: 1)]);
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(topicPostsProvider(10).future);
+      container
+          .read(topicPostsProvider(10).notifier)
+          .applyEditedPost(post(id: 999));
+
+      final items = container.read(topicPostsProvider(10)).asData!.value.items;
+      expect(items.map((p) => p.id), [1]);
+    });
+  });
+
+  group('TopicPosts.deletePost (todo 292)', () {
+    test('removes the post from state on success', () async {
+      final api = FakeForumApi()
+        ..posts = CursorPage(items: [post(id: 1), post(id: 2)]);
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(topicPostsProvider(10).future);
+      await container.read(topicPostsProvider(10).notifier).deletePost(2);
+
+      final items = container.read(topicPostsProvider(10)).asData!.value.items;
+      expect(items.map((p) => p.id), [1]);
+      expect(api.deletePostCalls, [2]);
+    });
+
+    test(
+      'rethrows on failure and leaves the post in state (todo 292 AC3)',
+      () async {
+        final api = FakeForumApi()
+          ..posts = CursorPage(items: [post(id: 1)])
+          ..failDeletePostWith = ApiException(
+            'Topic is closed or locked.',
+            statusCode: 409,
+          );
+        final container = ProviderContainer(
+          overrides: [forumApiProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+
+        await container.read(topicPostsProvider(10).future);
+        await expectLater(
+          container.read(topicPostsProvider(10).notifier).deletePost(1),
+          throwsA(
+            isA<ApiException>().having(
+              (e) => e.message,
+              'message',
+              'Topic is closed or locked.',
+            ),
+          ),
+        );
+
+        final items = container
+            .read(topicPostsProvider(10))
+            .asData!
+            .value
+            .items;
+        expect(items.map((p) => p.id), [1]); // unchanged — delete never applied
+      },
+    );
+  });
+
   group('TopicDetail.toggleSubscription', () {
     test('subscribes when currently unsubscribed', () async {
       final api = FakeForumApi()..topicDetail = topicDetail(id: 10);

@@ -247,6 +247,45 @@ class TopicPosts extends _$TopicPosts {
       ),
     );
   }
+
+  /// Splice a successfully-edited post into place (todo 292). Deliberately
+  /// not a full [ref.invalidate]-and-refetch: `TopicPosts.build` always
+  /// fetches page 1 only, so invalidating would silently drop any pages the
+  /// user had already loaded via [loadMore] on a long thread. The edited
+  /// post is already on a currently-loaded page, so a local splice (same
+  /// idiom as [toggleReaction]) is both cheaper and preserves scroll depth.
+  void applyEditedPost(ForumPost updated) {
+    final current = state.asData?.value;
+    if (current == null) return;
+    final index = current.items.indexWhere((p) => p.id == updated.id);
+    if (index < 0) return;
+    final items = [...current.items];
+    items[index] = updated;
+    state = AsyncData(
+      PagedList(
+        items: items,
+        nextUrl: current.nextUrl,
+        isLoadingMore: current.isLoadingMore,
+      ),
+    );
+  }
+
+  /// Delete [postId] (todo 292). Rethrows on failure — unlike
+  /// [toggleReaction]'s fire-and-forget swallow, a delete is a deliberate,
+  /// confirmed user action and its failure (e.g. a 409 frozen-topic
+  /// rejection) must reach the caller to show, not disappear silently.
+  Future<void> deletePost(int postId) async {
+    await ref.read(forumApiProvider).deletePost(postId: postId);
+    final current = state.asData?.value;
+    if (current == null) return;
+    state = AsyncData(
+      PagedList(
+        items: current.items.where((p) => p.id != postId).toList(),
+        nextUrl: current.nextUrl,
+        isLoadingMore: current.isLoadingMore,
+      ),
+    );
+  }
 }
 
 /// Recent topics from the offline delta-sync mirror. On open it runs a delta

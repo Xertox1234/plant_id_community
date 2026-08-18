@@ -369,6 +369,141 @@ void main() {
       },
     );
 
+    testWidgets(
+      'editing a post updates it in place without a manual refresh (todo 292)',
+      (tester) async {
+        final api = FakeForumApi()
+          ..topicDetail = topicDetail()
+          ..posts = CursorPage(
+            items: [
+              post(
+                id: 1,
+                body: const [ParagraphBlock('Original body')],
+                canEdit: true,
+              ),
+            ],
+          );
+
+        final container = ProviderContainer(
+          overrides: [
+            authServiceProvider.overrideWith(
+              _MockAuthenticatedAuthNotifier.new,
+            ),
+            forumApiProvider.overrideWithValue(api),
+            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          ],
+        );
+        addTearDown(container.dispose);
+        // See the reply round-trip test above for why this listen is needed:
+        // appRouterProvider is autoDispose and this test navigates twice.
+        container.listen(appRouterProvider, (_, _) {});
+        final router = container.read(appRouterProvider);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+
+        router.go('/forum/topics/10', extra: 'A topic');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.textContaining('Original body'), findsOneWidget);
+
+        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        // Composer opened pre-filled from the existing body.
+        expect(find.text('Original body'), findsOneWidget);
+        await tester.enterText(find.byType(TextField), 'Edited body');
+        await tester.pump();
+        await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        // Back on the thread screen: the edit is visible with no manual
+        // refresh action from this test (TopicPosts.applyEditedPost).
+        expect(find.textContaining('Edited body'), findsOneWidget);
+        expect(find.textContaining('Original body'), findsNothing);
+        expect(api.editPostKeys, hasLength(1));
+
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
+
+    testWidgets(
+      'tapping Done on a pending edit does not throw (code review — '
+      'the edit route is pushed as <ForumPost>, not <bool> like reply/topic)',
+      (tester) async {
+        final api = FakeForumApi()
+          ..topicDetail = topicDetail()
+          ..posts = CursorPage(
+            items: [
+              post(
+                id: 1,
+                body: const [ParagraphBlock('Original body')],
+                canEdit: true,
+              ),
+            ],
+          )
+          ..editStatus = ForumModerationStatus.pending;
+
+        final container = ProviderContainer(
+          overrides: [
+            authServiceProvider.overrideWith(
+              _MockAuthenticatedAuthNotifier.new,
+            ),
+            forumApiProvider.overrideWithValue(api),
+            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.listen(appRouterProvider, (_, _) {});
+        final router = container.read(appRouterProvider);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+
+        router.go('/forum/topics/10', extra: 'A topic');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        await tester.tap(find.byIcon(Icons.more_vert));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        await tester.enterText(find.byType(TextField), 'Edited body');
+        await tester.pump();
+        await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('awaiting moderation'), findsOneWidget);
+
+        // The regression: popping this route used to always pop `false` (a
+        // bool), which throws when the route was pushed as <ForumPost>
+        // (edit) rather than <bool> (reply/topic). Must complete cleanly —
+        // no uncaught exception — and land back on the thread screen with
+        // the pre-edit body still showing (a pending edit never applies
+        // locally; only the moderation-approved version does).
+        await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.byType(ForumThreadScreen), findsOneWidget);
+        expect(find.textContaining('Original body'), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
+
     testWidgets('tapping the forum home bell opens notifications', (
       tester,
     ) async {
