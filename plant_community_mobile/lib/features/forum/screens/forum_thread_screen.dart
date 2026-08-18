@@ -32,9 +32,24 @@ class ForumThreadScreen extends ConsumerWidget {
 
     final title = detail.asData?.value.title ?? initialTitle ?? 'Topic';
     final isLocked = detail.asData?.value.isLocked ?? false;
+    final isSubscribed = detail.asData?.value.isSubscribed ?? false;
 
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(
+        title: Text(title),
+        actions: [
+          if (isAuthenticated && detail.hasValue)
+            IconButton(
+              tooltip: isSubscribed ? 'Unsubscribe' : 'Subscribe',
+              icon: Icon(
+                isSubscribed
+                    ? Icons.notifications_active
+                    : Icons.notifications_none,
+              ),
+              onPressed: () => _toggleSubscription(context, ref),
+            ),
+        ],
+      ),
       body: SafeArea(
         child: postsAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
@@ -94,6 +109,20 @@ class ForumThreadScreen extends ConsumerWidget {
         }
       }
       ref.invalidate(topicDetailProvider(topicId));
+    }
+  }
+
+  Future<void> _toggleSubscription(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref
+          .read(topicDetailProvider(topicId).notifier)
+          .toggleSubscription();
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not update subscription.')),
+        );
+      }
     }
   }
 

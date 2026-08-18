@@ -167,22 +167,15 @@ abstract class _$BoardTopics
   }
 }
 
-/// A single topic's detail.
+/// A single topic's detail, plus subscribe/unsubscribe (todo 293).
 
-@ProviderFor(topicDetail)
+@ProviderFor(TopicDetail)
 final topicDetailProvider = TopicDetailFamily._();
 
-/// A single topic's detail.
-
+/// A single topic's detail, plus subscribe/unsubscribe (todo 293).
 final class TopicDetailProvider
-    extends
-        $FunctionalProvider<
-          AsyncValue<ForumTopicDetail>,
-          ForumTopicDetail,
-          FutureOr<ForumTopicDetail>
-        >
-    with $FutureModifier<ForumTopicDetail>, $FutureProvider<ForumTopicDetail> {
-  /// A single topic's detail.
+    extends $AsyncNotifierProvider<TopicDetail, ForumTopicDetail> {
+  /// A single topic's detail, plus subscribe/unsubscribe (todo 293).
   TopicDetailProvider._({
     required TopicDetailFamily super.from,
     required int super.argument,
@@ -206,15 +199,7 @@ final class TopicDetailProvider
 
   @$internal
   @override
-  $FutureProviderElement<ForumTopicDetail> $createElement(
-    $ProviderPointer pointer,
-  ) => $FutureProviderElement(pointer);
-
-  @override
-  FutureOr<ForumTopicDetail> create(Ref ref) {
-    final argument = this.argument as int;
-    return topicDetail(ref, argument);
-  }
+  TopicDetail create() => TopicDetail();
 
   @override
   bool operator ==(Object other) {
@@ -227,12 +212,19 @@ final class TopicDetailProvider
   }
 }
 
-String _$topicDetailHash() => r'0ba0e16a8ddee4c8f50cdfe88e7f529cf78438ee';
+String _$topicDetailHash() => r'5fa285fd1947476cbbb4ae065e9d26026c89592e';
 
-/// A single topic's detail.
+/// A single topic's detail, plus subscribe/unsubscribe (todo 293).
 
 final class TopicDetailFamily extends $Family
-    with $FunctionalFamilyOverride<FutureOr<ForumTopicDetail>, int> {
+    with
+        $ClassFamilyOverride<
+          TopicDetail,
+          AsyncValue<ForumTopicDetail>,
+          ForumTopicDetail,
+          FutureOr<ForumTopicDetail>,
+          int
+        > {
   TopicDetailFamily._()
     : super(
         retry: null,
@@ -242,13 +234,37 @@ final class TopicDetailFamily extends $Family
         isAutoDispose: true,
       );
 
-  /// A single topic's detail.
+  /// A single topic's detail, plus subscribe/unsubscribe (todo 293).
 
   TopicDetailProvider call(int topicId) =>
       TopicDetailProvider._(argument: topicId, from: this);
 
   @override
   String toString() => r'topicDetailProvider';
+}
+
+/// A single topic's detail, plus subscribe/unsubscribe (todo 293).
+
+abstract class _$TopicDetail extends $AsyncNotifier<ForumTopicDetail> {
+  late final _$args = ref.$arg as int;
+  int get topicId => _$args;
+
+  FutureOr<ForumTopicDetail> build(int topicId);
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref =
+        this.ref as $Ref<AsyncValue<ForumTopicDetail>, ForumTopicDetail>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<AsyncValue<ForumTopicDetail>, ForumTopicDetail>,
+              AsyncValue<ForumTopicDetail>,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, () => build(_$args));
+  }
 }
 
 /// Posts in a topic (oldest-first), cursor-paginated with [loadMore], plus a
@@ -423,3 +439,105 @@ abstract class _$RecentTopics extends $AsyncNotifier<List<ForumTopicStub>> {
     element.handleCreate(ref, build);
   }
 }
+
+/// The user's notifications (cursor-paginated, newest first).
+
+@ProviderFor(NotificationsFeed)
+final notificationsFeedProvider = NotificationsFeedProvider._();
+
+/// The user's notifications (cursor-paginated, newest first).
+final class NotificationsFeedProvider
+    extends
+        $AsyncNotifierProvider<
+          NotificationsFeed,
+          PagedList<ForumNotification>
+        > {
+  /// The user's notifications (cursor-paginated, newest first).
+  NotificationsFeedProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'notificationsFeedProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$notificationsFeedHash();
+
+  @$internal
+  @override
+  NotificationsFeed create() => NotificationsFeed();
+}
+
+String _$notificationsFeedHash() => r'a5d19458edf41647f2c59a1851c4251a141e9160';
+
+/// The user's notifications (cursor-paginated, newest first).
+
+abstract class _$NotificationsFeed
+    extends $AsyncNotifier<PagedList<ForumNotification>> {
+  FutureOr<PagedList<ForumNotification>> build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref =
+        this.ref
+            as $Ref<
+              AsyncValue<PagedList<ForumNotification>>,
+              PagedList<ForumNotification>
+            >;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<
+                AsyncValue<PagedList<ForumNotification>>,
+                PagedList<ForumNotification>
+              >,
+              AsyncValue<PagedList<ForumNotification>>,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
+/// Unread notification count, for the bell badge.
+
+@ProviderFor(unreadNotificationCount)
+final unreadNotificationCountProvider = UnreadNotificationCountProvider._();
+
+/// Unread notification count, for the bell badge.
+
+final class UnreadNotificationCountProvider
+    extends $FunctionalProvider<AsyncValue<int>, int, FutureOr<int>>
+    with $FutureModifier<int>, $FutureProvider<int> {
+  /// Unread notification count, for the bell badge.
+  UnreadNotificationCountProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'unreadNotificationCountProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$unreadNotificationCountHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<int> $createElement($ProviderPointer pointer) =>
+      $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<int> create(Ref ref) {
+    return unreadNotificationCount(ref);
+  }
+}
+
+String _$unreadNotificationCountHash() =>
+    r'3784b4dd8f950ce5e47db8f36a1de116af0f98bc';

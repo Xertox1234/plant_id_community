@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/forum_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
+import 'package:plant_community_mobile/services/auth_service.dart';
 
 import 'support/forum_test_support.dart';
 
@@ -11,6 +12,7 @@ Widget _wrap(FakeForumApi api) => ProviderScope(
   overrides: [
     forumApiProvider.overrideWithValue(api),
     forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+    authServiceProvider.overrideWith(() => FakeAuthService(loggedIn: false)),
   ],
   child: const MaterialApp(home: ForumScreen()),
 );

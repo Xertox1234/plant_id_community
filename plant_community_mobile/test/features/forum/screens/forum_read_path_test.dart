@@ -42,6 +42,9 @@ void main() {
         overrides: [
           forumApiProvider.overrideWithValue(api),
           forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: false),
+          ),
         ],
         child: const MaterialApp(home: ForumScreen()),
       ),
@@ -50,6 +53,29 @@ void main() {
 
     expect(find.text('General'), findsOneWidget);
     expect(find.text('Recent one'), findsOneWidget);
+  });
+
+  testWidgets('forum home shows the unread notification count on the bell', (
+    tester,
+  ) async {
+    final api = FakeForumApi()..unreadCount = 3;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          forumApiProvider.overrideWithValue(api),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: true),
+          ),
+        ],
+        child: const MaterialApp(home: ForumScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.notifications_outlined), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
   });
 
   testWidgets('thread screen renders posts with rendered bodies', (
@@ -101,6 +127,38 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Awaiting moderation'), findsOneWidget);
+  });
+
+  testWidgets('subscribe toggle reflects isSubscribed and flips on tap', (
+    tester,
+  ) async {
+    final api = FakeForumApi()
+      ..topicDetail = topicDetail(id: 10)
+      ..posts = CursorPage(items: [post(id: 1)]);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          forumApiProvider.overrideWithValue(api),
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: true),
+          ),
+        ],
+        child: const MaterialApp(home: ForumThreadScreen(topicId: 10)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Starts unsubscribed (the topicDetail() fixture default).
+    expect(find.byIcon(Icons.notifications_none), findsOneWidget);
+    expect(find.byIcon(Icons.notifications_active), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.notifications_none));
+    await tester.pumpAndSettle();
+
+    expect(api.subscribeCalls, [10]);
+    expect(find.byIcon(Icons.notifications_active), findsOneWidget);
+    expect(find.byIcon(Icons.notifications_none), findsNothing);
   });
 
   testWidgets('composer shows the notify-and-return moderation notice', (
