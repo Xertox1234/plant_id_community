@@ -12,14 +12,12 @@ const RESULTS: PlantIdentificationResult = {
       plant_name: 'Swiss cheese plant',
       scientific_name: 'Monstera deliciosa',
       probability: 0.82,
-      confidence: 0.82,
       source: 'plant_id',
     },
     {
       plant_name: 'Heartleaf philodendron',
       scientific_name: 'Philodendron hederaceum',
       probability: 0.11,
-      confidence: 0.11,
       source: 'plant_id',
     },
   ],
@@ -98,14 +96,17 @@ describe('IdentificationResults', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders 0%, not NaN%, for a suggestion with neither probability nor confidence', () => {
-    const noConfidenceResults: PlantIdentificationResult = {
+  it('renders 0%, not NaN%, for a suggestion with a genuinely zero probability', () => {
+    // `PlantSuggestion.probability` is required (todo 316) — a suggestion
+    // missing it entirely is now a compile error, so the remaining edge
+    // case worth pinning is a real 0 rendering as "0%" rather than "NaN%".
+    const zeroProbabilityResults: PlantIdentificationResult = {
       plant_name: 'Monstera deliciosa',
       confidence: 0.99,
       source: 'plant_id',
-      suggestions: [{ plant_name: 'Monstera deliciosa', source: 'plant_id' }],
+      suggestions: [{ plant_name: 'Monstera deliciosa', probability: 0, source: 'plant_id' }],
     };
-    render(<IdentificationResults results={noConfidenceResults} loading={false} error={null} />);
+    render(<IdentificationResults results={zeroProbabilityResults} loading={false} error={null} />);
     expect(screen.getByText('0%')).toBeInTheDocument();
     expect(screen.queryByText(/nan/i)).not.toBeInTheDocument();
   });

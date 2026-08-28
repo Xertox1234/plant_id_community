@@ -9,7 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { getPlantKey } from '../utils/plantUtils';
 import Card from '../components/ui/Card';
 import Tile from '../components/ui/Tile';
-import type { PlantIdentificationResult } from '@/types';
+import type { PlantIdentificationResult, PlantSuggestion } from '@/types';
 
 /**
  * Mirrors the backend's WAGTAILFORUM_TOPIC_IDENTIFICATION_MAX_CANDIDATES
@@ -95,7 +95,7 @@ export default function IdentifyPage() {
       .filter((s) => !!s.plant_name)
       .slice(0, MAX_ATTACHED_CANDIDATES)
       .map((s) => {
-        const raw = s.probability ?? s.confidence ?? 0;
+        const raw = s.probability;
         return {
           name: s.plant_name,
           scientific_name: s.scientific_name ?? '',
@@ -134,7 +134,7 @@ export default function IdentifyPage() {
     setSaveError(null);
   };
 
-  const handleSavePlant = async (suggestion: PlantIdentificationResult) => {
+  const handleSavePlant = async (suggestion: PlantSuggestion) => {
     // Check authentication first
     if (!isAuthenticated) {
       navigate('/login', { state: { from: '/identify' } });
@@ -154,9 +154,9 @@ export default function IdentifyPage() {
       // Use the plantIdService to save to collection
       await plantIdService.saveToCollection({
         plant_name: suggestion.plant_name,
-        // Suggestion items only ever carry `probability`, never `confidence`
-        // (todo 313) — same fallback as handleAskCommunity above.
-        confidence: suggestion.probability ?? suggestion.confidence ?? 0,
+        // `PlantSuggestion.probability` is required (todo 316) — no
+        // fallback needed; see plantUtils.getPlantKey for the same change.
+        confidence: suggestion.probability,
         common_names: suggestion.common_names,
         description: suggestion.description,
         watering: suggestion.watering,

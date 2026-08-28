@@ -1,13 +1,13 @@
 import { Loader2, Check } from 'lucide-react';
 import Card from '../ui/Card';
 import { getPlantKey } from '../../utils/plantUtils';
-import type { PlantIdentificationResult } from '@/types';
+import type { PlantIdentificationResult, PlantSuggestion } from '@/types';
 
 interface IdentificationResultsProps {
   results: PlantIdentificationResult | null;
   loading: boolean;
   error: string | null;
-  onSavePlant?: (plant: PlantIdentificationResult) => void;
+  onSavePlant?: (plant: PlantSuggestion) => void;
   savedPlants?: Map<string, boolean>;
   savingPlant?: string | null;
 }
@@ -76,9 +76,9 @@ export default function IdentificationResults({
                   )}
                 </div>
                 <ConfidencePill
-                  // Same fallback as getPlantKey (todo 313) — a suggestion
-                  // with neither field would otherwise render "NaN%".
-                  value={suggestion.probability ?? suggestion.confidence ?? 0}
+                  // `PlantSuggestion.probability` is required (todo 316) —
+                  // no fallback needed; see plantUtils.getPlantKey.
+                  value={suggestion.probability}
                   tone={index === 0 ? 'text-primary' : 'text-ink-2'}
                   suffix="confidence"
                 />

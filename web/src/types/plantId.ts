@@ -3,15 +3,39 @@
  */
 
 /**
+ * A single plant candidate inside `suggestions[]`.
+ *
+ * Split out from `PlantIdentificationResult` (todo 316) so the todo-313
+ * crash class is closed structurally: suggestion items only ever carry
+ * `probability`, never `confidence` — folding both shapes into one
+ * interface let `suggestion.confidence.toFixed()` compile and then crash
+ * on every real identification. `confidence` doesn't exist here, so that
+ * mistake is a compile error again.
+ */
+export interface PlantSuggestion {
+  plant_name: string;
+  probability: number;
+  common_names?: string[];
+  description?: string;
+  watering?: string;
+  propagation_methods?: string;
+  care_instructions?: {
+    watering?: string;
+    propagation?: string;
+    [key: string]: unknown;
+  };
+  source: string;
+  image_url?: string;
+  scientific_name?: string;
+  similar_images?: Array<{ url: string }>;
+}
+
+/**
  * Plant identification result from API
  */
 export interface PlantIdentificationResult {
   plant_name: string;
-  // Optional (not "number"): the real API only sends this on the top-level
-  // result object. Items in `suggestions[]` only ever carry `probability`
-  // below — treating this as required let a `suggestion.confidence.toFixed()`
-  // call compile and then crash on every real identification (todo 313).
-  confidence?: number;
+  confidence: number;
   common_names?: string[];
   description?: string;
   watering?: string;
@@ -25,9 +49,7 @@ export interface PlantIdentificationResult {
   image_url?: string;
   // Properties for compatibility with IdentificationResults component
   scientific_name?: string;
-  probability?: number;
-  similar_images?: Array<{ url: string }>;
-  suggestions?: PlantIdentificationResult[];
+  suggestions?: PlantSuggestion[];
   disease_suggestions?: Array<{
     name: string;
     probability: number;
