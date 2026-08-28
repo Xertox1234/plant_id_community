@@ -1,7 +1,7 @@
 ---
 status: pending
 priority: p2
-issue_id: "311"
+issue_id: "318"
 tags: [web, api, plant-identification, bug]
 dependencies: []
 ---
