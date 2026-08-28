@@ -90,6 +90,12 @@ class CodeBlock extends ForumBodyBlock {
 }
 
 /// `image` with a live rendition.
+///
+/// Also doubles as the shape of `POST /forum/images/`'s upload response
+/// (`{id, url, alt, width, height}`, un-nested — [fromUploadResponse]) since
+/// the fields are identical; the read-body `value` object and the upload
+/// response are two different backend endpoints that happen to serialize the
+/// same way.
 class ForumImageBlock extends ForumBodyBlock {
   const ForumImageBlock({
     required this.id,
@@ -103,6 +109,16 @@ class ForumImageBlock extends ForumBodyBlock {
   final String alt;
   final int? width;
   final int? height;
+
+  factory ForumImageBlock.fromUploadResponse(Map<String, dynamic> json) {
+    return ForumImageBlock(
+      id: json['id'] as int? ?? 0,
+      url: json['url'] as String? ?? '',
+      alt: json['alt'] as String? ?? '',
+      width: json['width'] as int?,
+      height: json['height'] as int?,
+    );
+  }
 }
 
 /// `image` whose referenced image row was deleted (`value == null`).
@@ -140,6 +156,16 @@ List<Map<String, dynamic>> buildParagraphBody(String text) {
   return [
     {'type': 'paragraph', 'value': escaped},
   ];
+}
+
+/// Write-shape `image` block, referencing an already-uploaded image's id.
+///
+/// Per `api/sanitize.py::validate_forum_body`, the write VALUE is the bare
+/// integer PK — NOT the `{id, url, alt, width, height}` object the
+/// read/upload-response shape uses. Getting this wrong fails only server-side
+/// (a client-side fake would happily accept either shape).
+Map<String, dynamic> buildImageBlockBody(int imageId) {
+  return {'type': 'image', 'value': imageId};
 }
 
 String _escapeHtml(String input) {

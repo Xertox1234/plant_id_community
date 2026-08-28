@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -189,6 +191,201 @@ void main() {
     expect(find.textContaining('awaiting moderation'), findsOneWidget);
     expect(api.createReplyKeys, hasLength(1));
   });
+
+  testWidgets(
+    'picking a photo uploads it and includes it as an image block on submit (todo 294 AC1)',
+    (tester) async {
+      final api = FakeForumApi()
+        // Pending, not published: this screen is the ROOT route
+        // (`MaterialApp(home: ...)`), so a published-path `Navigator.pop`
+        // has nothing to pop back to. Staying on the pending view (like the
+        // "notify-and-return" test above) avoids that, and still lets this
+        // test assert the submitted body after the tap.
+        ..replyStatus = ForumModerationStatus.pending
+        ..uploadImageResult = const ForumImageBlock(
+          id: 42,
+          url: 'https://example.com/forum/images/42.jpg',
+          alt: '',
+          width: 800,
+          height: 600,
+        );
+      final picker = FakeForumImagePicker(nextPath: '/tmp/leaf.jpg');
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            forumApiProvider.overrideWithValue(api),
+            authServiceProvider.overrideWith(
+              () => FakeAuthService(loggedIn: true),
+            ),
+          ],
+          child: MaterialApp(
+            home: ForumComposerScreen(
+              args: ForumComposeArgs.reply(topicId: 10),
+              imagePicker: picker,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Add photo'));
+      // Bounded pumps, not pumpAndSettle: the attached thumbnail renders via
+      // CachedNetworkImage, whose placeholder spinner never resolves in the
+      // test harness's blocked-network environment (every HTTP request
+      // 400s) and would make pumpAndSettle hang.
+      await tester.pump();
+      await tester.pump();
+
+      // The upload happened and the thumbnail replaced the "Add photo" button.
+      expect(api.uploadImageFilePaths, ['/tmp/leaf.jpg']);
+      expect(find.widgetWithText(OutlinedButton, 'Add photo'), findsNothing);
+
+      await tester.enterText(find.byType(TextField), 'a leafy problem');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+      await tester.pumpAndSettle();
+
+      expect(api.createReplyBodies.single, [
+        {'type': 'paragraph', 'value': 'a leafy problem'},
+        {'type': 'image', 'value': 42},
+      ]);
+    },
+  );
+
+  testWidgets(
+    'a rejected image upload surfaces an error and leaves the drafted text intact (todo 294 AC2)',
+    (tester) async {
+      final api = FakeForumApi()
+        ..failUploadImageWith = ApiException(
+          'Image failed validation.',
+          statusCode: 422,
+        );
+      final picker = FakeForumImagePicker(nextPath: '/tmp/leaf.jpg');
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            forumApiProvider.overrideWithValue(api),
+            authServiceProvider.overrideWith(
+              () => FakeAuthService(loggedIn: true),
+            ),
+          ],
+          child: MaterialApp(
+            home: ForumComposerScreen(
+              args: ForumComposeArgs.reply(topicId: 10),
+              imagePicker: picker,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'my drafted reply');
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Add photo'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Image failed validation.'), findsOneWidget);
+      // The drafted text survives the failed upload untouched.
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.controller!.text, 'my drafted reply');
+      // "Add photo" is still offered — no image got attached.
+      expect(find.widgetWithText(OutlinedButton, 'Add photo'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'a picker-level failure (e.g. a denied permission) surfaces an error '
+    'the same way an upload rejection does (code review, todo 294)',
+    (tester) async {
+      final api = FakeForumApi();
+      final picker = FakeForumImagePicker(
+        throwOnPick: Exception('permission denied'),
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            forumApiProvider.overrideWithValue(api),
+            authServiceProvider.overrideWith(
+              () => FakeAuthService(loggedIn: true),
+            ),
+          ],
+          child: MaterialApp(
+            home: ForumComposerScreen(
+              args: ForumComposeArgs.reply(topicId: 10),
+              imagePicker: picker,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'my drafted reply');
+      await tester.pump();
+
+      // Must complete without throwing (a bare "throw" out of the picker
+      // call used to escape unhandled — code review).
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Add photo'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Could not upload that photo.'), findsOneWidget);
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.controller!.text, 'my drafted reply');
+      expect(api.uploadImageKeys, isEmpty); // never reached the API call
+    },
+  );
+
+  testWidgets(
+    'Post is disabled while an image upload is in flight (code review, '
+    'todo 294 — prevents silently dropping the attachment)',
+    (tester) async {
+      final gate = Completer<ForumImageBlock>();
+      final api = FakeForumApi()..uploadImageGate = gate;
+      final picker = FakeForumImagePicker(nextPath: '/tmp/leaf.jpg');
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            forumApiProvider.overrideWithValue(api),
+            authServiceProvider.overrideWith(
+              () => FakeAuthService(loggedIn: true),
+            ),
+          ],
+          child: MaterialApp(
+            home: ForumComposerScreen(
+              args: ForumComposeArgs.reply(topicId: 10),
+              imagePicker: picker,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'a leafy problem');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Add photo'));
+      await tester.pump(); // upload starts, still gated — _uploadingImage=true
+
+      var postButton = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Post'),
+      );
+      expect(postButton.onPressed, isNull);
+
+      gate.complete(
+        const ForumImageBlock(id: 9, url: 'https://x/i.jpg', alt: ''),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      postButton = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Post'),
+      );
+      expect(postButton.onPressed, isNotNull);
+    },
+  );
 
   testWidgets(
     'edit composer shows the notify-and-return moderation notice (todo 292 AC2)',
