@@ -1476,6 +1476,10 @@ ME_STATS_SCHEMA = {
         "posts": {"type": "integer"},
         "solutions_accepted": {"type": "integer"},
         "identifications_shared": {"type": "integer"},
+        "streak_days": {"type": "integer"},
+        "badge_name": {"type": "string"},
+        "badge_progress": {"type": "integer"},
+        "badge_target": {"type": "integer"},
     },
 }
 
@@ -1484,8 +1488,9 @@ class MeStatsView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView)
     """All-time forum stats for the requesting user ("Your season" cards).
 
     All-time by design (spec §9): no season windowing, and the client's card
-    sublabels must not claim one. Three cheap reads — the denormalized
-    profile.post_count plus two indexed COUNTs — no server-side caching, but
+    sublabels must not claim one. Cheap reads throughout — the denormalized
+    profile.post_count, two indexed COUNTs, and (todo 300) one bounded
+    ORDER BY ... LIMIT for the streak — no server-side caching, but
     `PrivateForumReadCacheMixin` still marks the response `no-store, private`
     (round-2 review) so a per-user payload can never be heuristically stored
     by an intermediary CDN/proxy that caches everything by default — same
@@ -1499,9 +1504,18 @@ class MeStatsView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView)
         description="All-time forum stats for the requesting user.",
     )
     def get(self, request):
-        from ..models import ForumIdentificationAttachment, ForumProfile
+        from ..conf import get_setting
+        from ..models import (
+            ForumActivityDate,
+            ForumIdentificationAttachment,
+            ForumProfile,
+        )
 
         profile = ForumProfile.for_user(request.user)
+        identifications_shared = ForumIdentificationAttachment.objects.filter(
+            topic__author=request.user, topic__live=True
+        ).count()
+        badge_target = get_setting("BADGE_BOTANIST_THRESHOLD")
         return Response(
             {
                 "posts": profile.post_count,
@@ -1510,9 +1524,15 @@ class MeStatsView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView)
                 ).count(),
                 # Topic-level attachments (OneToOne on Topic — spec corrected
                 # at plan time): attachments the user shared on their topics.
-                "identifications_shared": ForumIdentificationAttachment.objects.filter(
-                    topic__author=request.user, topic__live=True
-                ).count(),
+                "identifications_shared": identifications_shared,
+                "streak_days": ForumActivityDate.streak_for_user(request.user.id),
+                # Single badge for now (todo 300) — its metric is the same
+                # `identifications_shared` count above, capped at the
+                # target so a user past threshold reads as "complete", not
+                # an overflowing bar.
+                "badge_name": get_setting("BADGE_BOTANIST_NAME"),
+                "badge_progress": min(identifications_shared, badge_target),
+                "badge_target": badge_target,
             }
         )
 

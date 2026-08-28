@@ -1,3 +1,4 @@
+from .activity import ForumActivityDate
 from .boards import ForumBoard, ForumIndex
 from .bookmarks import TopicBookmark
 from .identifications import ForumIdentificationAttachment
@@ -13,6 +14,7 @@ from .topic_reads import TopicRead
 from .topics import Topic
 
 __all__ = [
+    "ForumActivityDate",
     "ForumBoard",
     "ForumIdentificationAttachment",
     "ForumIndex",

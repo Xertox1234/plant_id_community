@@ -112,6 +112,19 @@ DEFAULTS = {
     # (SIMILAR_QUERY_MAX_CHARS) and keeps a pasted-paragraph query usable.
     "SEARCH_MAX_TERMS": 50,
     "SEARCH_MAX_QUERY_CHARS": 500,
+    # "Your season" badge (todo 300) — a single badge for now (AC only
+    # requires one with visible progress); a multi-badge system is
+    # speculative until a second one is actually needed. Threshold is on
+    # `identifications_shared` (MeStatsView), an already-populated count —
+    # deliberately NOT on raw PlantIdentificationResult, which todo 273
+    # established has zero writers.
+    "BADGE_BOTANIST_NAME": "Botanist",
+    "BADGE_BOTANIST_THRESHOLD": 20,
+    # Bounds ForumActivityDate.streak_for_user's ORDER BY ... LIMIT scan.
+    # One row per active day, so this is already tiny for any real user
+    # (~13 months of daily activity) — pure defense against a pathological
+    # case, not a realistic limit.
+    "STREAK_LOOKBACK_ROWS": 400,
 }
 
 

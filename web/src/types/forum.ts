@@ -299,11 +299,15 @@ export interface ForumUserProfile {
   }[];
 }
 
-/** GET me/stats/ — all-time counts ("Your season" cards). */
+/** GET me/stats/ — all-time counts ("Your season" cards, todo 300). */
 export interface ForumMyStats {
   posts: number;
   solutions_accepted: number;
   identifications_shared: number;
+  streak_days: number;
+  badge_name: string;
+  badge_progress: number;
+  badge_target: number;
 }
 
 /** The minimal board identity carried on a topic-shaped API row. */

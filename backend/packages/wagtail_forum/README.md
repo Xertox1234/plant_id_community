@@ -273,6 +273,9 @@ Three consequences worth knowing before changing this:
 | `WAGTAILFORUM_TOPIC_IDENTIFICATION_MAX_CANDIDATES` | `3` | Max suggested species in a topic's identification snapshot. See [Identification attachment](#identification-attachment) — the snapshot is caller-supplied, so this bounds how much unverified text one create can park on a topic. |
 | `WAGTAILFORUM_TOPIC_IDENTIFICATION_NAME_MAX_LENGTH` | `200` | Max characters per candidate `name` / `scientific_name`. Inner whitespace is collapsed on write, so a "name" of 200 newlines can't pass the length check. |
 | `WAGTAILFORUM_TOPIC_IDENTIFICATION_PROVIDER_MAX_LENGTH` | `50` | Max characters for the snapshot's `provider` label. Must stay `<=` the model column's `max_length` (50). |
+| `WAGTAILFORUM_BADGE_BOTANIST_NAME` | `"Botanist"` | Display name for `GET me/stats/`'s single badge (the "Your season" landing card's progress bar). |
+| `WAGTAILFORUM_BADGE_BOTANIST_THRESHOLD` | `20` | Target count of `identifications_shared` (see [Reads, caching, and sync](#reads-caching-and-sync) `me/stats/`) to complete the Botanist badge. |
+| `WAGTAILFORUM_STREAK_LOOKBACK_ROWS` | `400` | Row cap on `ForumActivityDate.streak_for_user`'s scan (~13 months of daily activity) — defense against a pathological case, not a realistic per-user limit. |
 
 ## Identification attachment
 

@@ -262,8 +262,20 @@ export default function CategoryListPage() {
                   icon={<ScanSearch className="h-4 w-4" aria-hidden="true" />}
                   value={myStats.identifications_shared}
                   label="Identifications"
-                  sublabel="shared with the forum"
+                  // Badge progress (todo 300 AC2) lives on this card — its
+                  // value IS the badge's tracked metric, so no 5th slot is
+                  // needed in the fixed 4-card grid.
+                  sublabel={
+                    myStats.badge_progress >= myStats.badge_target
+                      ? `${myStats.badge_name} badge complete`
+                      : `${myStats.badge_target - myStats.badge_progress} to ${myStats.badge_name} badge`
+                  }
                   tone="sage"
+                  progress={{
+                    value: myStats.badge_progress,
+                    max: myStats.badge_target,
+                    label: `${myStats.badge_name} badge progress`,
+                  }}
                 />
                 <StatCard
                   icon={<MessagesSquare className="h-4 w-4" aria-hidden="true" />}
@@ -279,14 +291,17 @@ export default function CategoryListPage() {
                   sublabel="accepted answers"
                   tone="bloom"
                 />
-                {/* Zero-state (spec §9): no fabricated streak number. Wire via
-                  todo 300 (forum-day-streak-badges) — replace value/sublabel
-                  when real. */}
                 <StatCard
                   icon={<Flame className="h-4 w-4" aria-hidden="true" />}
-                  value="—"
+                  value={myStats.streak_days}
                   label="Day streak"
-                  sublabel="Coming soon"
+                  sublabel={
+                    myStats.streak_days === 0
+                      ? 'Post to start a streak'
+                      : myStats.streak_days === 1
+                        ? 'day in a row'
+                        : 'days in a row'
+                  }
                   tone="orchid"
                 />
               </div>
