@@ -1,4 +1,4 @@
-import type { PlantIdentificationResult } from '@/types';
+import type { PlantSuggestion } from '@/types';
 
 /**
  * Generate a unique key for a plant suggestion to track save status.
@@ -7,12 +7,12 @@ import type { PlantIdentificationResult } from '@/types';
  * @param suggestion - Plant identification suggestion
  * @returns Unique plant key for tracking
  */
-export function getPlantKey(suggestion: PlantIdentificationResult): string {
-  // Items in `suggestions[]` only ever carry `probability`, never
-  // `confidence` (that field is top-level-result-only) — fall back the same
-  // way IdentifyPage.handleAskCommunity does, rather than assume either is
-  // present (todo 313: this crashed unconditionally on every real result).
-  const raw = suggestion.probability ?? suggestion.confidence ?? 0;
-  const confidence = raw.toFixed(4); // 4 decimal places for precision
+export function getPlantKey(suggestion: PlantSuggestion): string {
+  // `PlantSuggestion.probability` is required (todo 316) — the old
+  // `?? suggestion.confidence ?? 0` fallback existed because a shared type
+  // let `confidence` compile here even though suggestion items never carry
+  // it (todo 313: crashed unconditionally on every real result). The split
+  // makes that mistake a compile error instead, so no fallback is needed.
+  const confidence = suggestion.probability.toFixed(4); // 4 decimal places for precision
   return `${suggestion.plant_name}-${confidence}`;
 }

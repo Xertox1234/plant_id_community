@@ -82,7 +82,7 @@ describe('IdentifyPage', () => {
    * failure lands on this page, not at composer submit.
    */
   describe('Ask the community', () => {
-    const RESULTS = {
+    const RESULTS: PlantIdentificationResult = {
       plant_name: 'Swiss cheese plant',
       confidence: 0.82,
       source: 'plant_id',
@@ -91,14 +91,12 @@ describe('IdentifyPage', () => {
           plant_name: 'Swiss cheese plant',
           scientific_name: 'Monstera deliciosa',
           probability: 0.82,
-          confidence: 0.82,
           source: 'plant_id',
         },
         {
           plant_name: 'Heartleaf philodendron',
           scientific_name: 'Philodendron hederaceum',
           probability: 0.11,
-          confidence: 0.11,
           source: 'plant_id',
         },
       ],
@@ -113,9 +111,7 @@ describe('IdentifyPage', () => {
 
     beforeEach(() => {
       authState.isAuthenticated = true;
-      vi.mocked(plantIdService.identifyPlant).mockResolvedValue(
-        RESULTS as unknown as PlantIdentificationResult
-      );
+      vi.mocked(plantIdService.identifyPlant).mockResolvedValue(RESULTS);
       vi.mocked(uploadPostImage).mockReset();
     });
 
@@ -197,7 +193,7 @@ describe('IdentifyPage', () => {
 
   /** todo 313: suggestion items only ever carry `probability`, never `confidence`. */
   describe('Save to collection', () => {
-    const REAL_SHAPE_RESULTS = {
+    const REAL_SHAPE_RESULTS: PlantIdentificationResult = {
       plant_name: 'Monstera deliciosa',
       confidence: 0.99,
       source: 'plant_id',
@@ -215,9 +211,7 @@ describe('IdentifyPage', () => {
 
     beforeEach(() => {
       authState.isAuthenticated = true;
-      vi.mocked(plantIdService.identifyPlant).mockResolvedValue(
-        REAL_SHAPE_RESULTS as unknown as PlantIdentificationResult
-      );
+      vi.mocked(plantIdService.identifyPlant).mockResolvedValue(REAL_SHAPE_RESULTS);
       vi.mocked(plantIdService.saveToCollection).mockReset();
     });
 

@@ -42,6 +42,7 @@ export type {
 // Plant Identification types
 export type {
   PlantIdentificationResult,
+  PlantSuggestion,
   Collection,
   UserPlant,
   IdentificationHistoryItem,

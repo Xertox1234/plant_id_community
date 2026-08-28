@@ -47,7 +47,6 @@ describe('plantIdService', () => {
     source: 'plant_id',
     image_url: 'https://example.com/rose.jpg',
     scientific_name: 'Rosa damascena',
-    probability: 0.97,
   };
 
   const mockCollection: Collection = {
