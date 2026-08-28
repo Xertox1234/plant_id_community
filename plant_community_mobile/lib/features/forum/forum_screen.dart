@@ -24,7 +24,14 @@ class ForumScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Community'),
         centerTitle: true,
-        actions: [if (isAuthenticated) const _NotificationsBellButton()],
+        actions: [
+          IconButton(
+            tooltip: 'Search',
+            onPressed: () => context.pushNamed('forumSearch'),
+            icon: const Icon(Icons.search),
+          ),
+          if (isAuthenticated) const _NotificationsBellButton(),
+        ],
       ),
       body: SafeArea(
         child: RefreshIndicator(

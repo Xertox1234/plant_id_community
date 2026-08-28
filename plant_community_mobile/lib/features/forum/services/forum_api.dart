@@ -92,6 +92,20 @@ abstract class ForumApi {
   /// Mark notifications read. Omitting [ids] marks ALL unread notifications
   /// read; an empty list marks none. Returns the number of rows updated.
   Future<int> markNotificationsRead({List<int>? ids});
+
+  /// Full-text search across topics and posts. Offset-paginated via [page]
+  /// (1-based) — NOT the cursor pattern the other list endpoints use, since
+  /// the response has no `results`/`next` URL, just two independently-
+  /// flagged sections sharing one page cursor. [semantic] opts into the
+  /// premium "related topics" section (`?semantic=1`); the response reports
+  /// [ForumSearchPage.semanticStatus] rather than erroring when it's
+  /// unavailable (feature-flagged off) or gated (non-premium caller).
+  Future<ForumSearchPage> search({
+    required String q,
+    String? board,
+    int page = 1,
+    bool semantic = false,
+  });
 }
 
 /// The reaction types the backend accepts (`Reaction.REACTION_CHOICES`). MUST
@@ -300,6 +314,20 @@ class HttpForumApi implements ForumApi {
     return ForumImageBlock.fromUploadResponse(
       resp.data as Map<String, dynamic>,
     );
+  }
+
+  @override
+  Future<ForumSearchPage> search({
+    required String q,
+    String? board,
+    int page = 1,
+    bool semantic = false,
+  }) async {
+    final qp = <String, dynamic>{'q': q, 'page': page};
+    if (board != null) qp['board'] = board;
+    if (semantic) qp['semantic'] = 1;
+    final resp = await _api.get('/forum/search/', queryParameters: qp);
+    return ForumSearchPage.fromJson(resp.data as Map<String, dynamic>);
   }
 }
 

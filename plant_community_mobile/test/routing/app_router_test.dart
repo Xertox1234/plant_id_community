@@ -6,6 +6,7 @@ import 'package:plant_community_mobile/core/routing/app_router.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_composer_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_notifications_screen.dart';
+import 'package:plant_community_mobile/features/forum/screens/forum_search_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_topics_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
@@ -534,6 +535,37 @@ void main() {
 
       expect(find.byType(ForumNotificationsScreen), findsOneWidget);
       await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('tapping the forum home search icon opens search (todo 295)', (
+      tester,
+    ) async {
+      final container = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(_MockAuthenticatedAuthNotifier.new),
+          forumApiProvider.overrideWithValue(FakeForumApi()),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      container.listen(appRouterProvider, (_, _) {});
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+
+      router.go(AppRoutes.forum);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(ForumSearchScreen), findsOneWidget);
     });
 
     testWidgets('forumNotifications route builds ForumNotificationsScreen', (

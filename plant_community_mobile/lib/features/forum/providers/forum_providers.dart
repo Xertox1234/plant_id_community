@@ -380,3 +380,154 @@ class NotificationsFeed extends _$NotificationsFeed {
 Future<int> unreadNotificationCount(Ref ref) {
   return ref.watch(forumApiProvider).fetchUnreadNotificationCount();
 }
+
+enum ForumSearchStatus { idle, loading, loadingMore, data, error }
+
+/// State for [ForumSearch]. Not [AsyncValue]-wrapped on purpose: search has
+/// its own idle/loading/loadingMore/data/error states (an idle "no query
+/// yet" screen, and a loadingMore that keeps existing results visible),
+/// which don't map cleanly onto AsyncValue's own loading/data/error triad.
+class ForumSearchResult {
+  const ForumSearchResult({
+    required this.status,
+    this.query = '',
+    this.board,
+    this.page = 1,
+    this.topics = const [],
+    this.posts = const [],
+    this.topicsHasMore = false,
+    this.postsHasMore = false,
+    this.semantic,
+    this.semanticStatus,
+    this.errorMessage,
+  });
+
+  final ForumSearchStatus status;
+  final String query;
+  final String? board;
+  final int page;
+  final List<ForumSearchTopicHit> topics;
+  final List<ForumSearchPostHit> posts;
+  final bool topicsHasMore;
+  final bool postsHasMore;
+  final List<ForumSearchTopicHit>? semantic;
+  final ForumSemanticStatus? semanticStatus;
+  final String? errorMessage;
+
+  bool get hasMore => topicsHasMore || postsHasMore;
+}
+
+/// Full-text forum search. Offset-paginated (see [ForumSearchPage]) — a
+/// "load more" fetches the next `page` and appends to both sections, since
+/// the two `*_has_more` flags share one page cursor.
+@riverpod
+class ForumSearch extends _$ForumSearch {
+  // Bumped at the start of every search()/loadMore() call (code review): a
+  // request only commits its result if it's still the most recent one when
+  // its await resolves. Without this, a double-tap Search (or a loadMore
+  // racing a fresh search) lets whichever request happens to resolve LAST
+  // win, regardless of which was issued last — a stale query's results
+  // could silently overwrite a newer query's state.
+  int _generation = 0;
+
+  @override
+  ForumSearchResult build() =>
+      const ForumSearchResult(status: ForumSearchStatus.idle);
+
+  Future<void> search({required String query, String? board}) async {
+    final trimmed = query.trim();
+    final generation = ++_generation;
+    if (trimmed.isEmpty) {
+      state = const ForumSearchResult(status: ForumSearchStatus.idle);
+      return;
+    }
+    state = ForumSearchResult(
+      status: ForumSearchStatus.loading,
+      query: trimmed,
+      board: board,
+    );
+    try {
+      final result = await ref
+          .read(forumApiProvider)
+          .search(q: trimmed, board: board, page: 1, semantic: true);
+      if (generation != _generation) return; // superseded — discard
+      state = ForumSearchResult(
+        status: ForumSearchStatus.data,
+        query: trimmed,
+        board: board,
+        page: result.page,
+        topics: result.topics,
+        posts: result.posts,
+        topicsHasMore: result.topicsHasMore,
+        postsHasMore: result.postsHasMore,
+        semantic: result.semantic,
+        semanticStatus: result.semanticStatus,
+      );
+    } catch (e) {
+      if (generation != _generation) return; // superseded — discard
+      state = ForumSearchResult(
+        status: ForumSearchStatus.error,
+        query: trimmed,
+        board: board,
+        errorMessage: e.toString(),
+      );
+    }
+  }
+
+  Future<void> loadMore() async {
+    final current = state;
+    if (current.status != ForumSearchStatus.data || !current.hasMore) return;
+    final generation = ++_generation;
+    state = ForumSearchResult(
+      status: ForumSearchStatus.loadingMore,
+      query: current.query,
+      board: current.board,
+      page: current.page,
+      topics: current.topics,
+      posts: current.posts,
+      topicsHasMore: current.topicsHasMore,
+      postsHasMore: current.postsHasMore,
+      semantic: current.semantic,
+      semanticStatus: current.semanticStatus,
+    );
+    try {
+      final result = await ref
+          .read(forumApiProvider)
+          .search(
+            q: current.query,
+            board: current.board,
+            page: current.page + 1,
+          );
+      if (generation != _generation) return; // superseded — discard
+      final latest = state;
+      state = ForumSearchResult(
+        status: ForumSearchStatus.data,
+        query: latest.query,
+        board: latest.board,
+        page: result.page,
+        topics: [...latest.topics, ...result.topics],
+        posts: [...latest.posts, ...result.posts],
+        topicsHasMore: result.topicsHasMore,
+        postsHasMore: result.postsHasMore,
+        semantic: latest.semantic,
+        semanticStatus: latest.semanticStatus,
+      );
+    } catch (_) {
+      if (generation != _generation) return; // superseded — discard
+      final latest = state;
+      state = ForumSearchResult(
+        status: ForumSearchStatus.data,
+        query: latest.query,
+        board: latest.board,
+        page: latest.page,
+        topics: latest.topics,
+        posts: latest.posts,
+        topicsHasMore: latest.topicsHasMore,
+        postsHasMore: latest.postsHasMore,
+        semantic: latest.semantic,
+        semanticStatus: latest.semanticStatus,
+      );
+      rethrow;
+    }
+  }
+}
