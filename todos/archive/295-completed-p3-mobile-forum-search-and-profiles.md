@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "295"
 tags: [forum, flutter, mobile]
@@ -207,6 +207,18 @@ both are backed by endpoints that already ship.
   $ flutter test
   00:08 +310 ~3: All tests passed!
   ```
+
+### 2026-08-28 - Completed by todo-sweep
+
+- Verification: all applicable acceptance criteria passed (AC2/AC3 split to
+  todo 317, not applicable here — see Notes). `flutter analyze` clean,
+  `flutter test` 310 passing.
+- Review: flutter-dart-reviewer found 3 findings — 1 HIGH + 1 MEDIUM fixed
+  with regression tests + mutation-testing, 1 LOW accepted as matching an
+  existing pattern (see Work Log above for detail on each).
+- Shipped as PR #566 (squash 7a63598), merged 2026-08-28.
+- `source_review` is a todo cross-reference ("todo 279"), not a
+  `docs/reviews/*.md` path — no Finding Status section to check off.
 
 ## Notes
 
