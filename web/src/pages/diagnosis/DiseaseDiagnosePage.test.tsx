@@ -55,7 +55,7 @@ describe('DiseaseDiagnosePage', () => {
     await userEvent.click(screen.getByRole('button', { name: /diagnose/i }));
 
     await waitFor(() => expect(screen.getByText('Black Spot')).toBeInTheDocument());
-    expect(screen.getByText(/88% confidence/)).toBeInTheDocument();
+    expect(screen.getByText('88%')).toBeInTheDocument();
   });
 
   it('shows an error when status is failed', async () => {

@@ -140,14 +140,14 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 }:
     <div className="w-full">
       {!preview ? (
         <div
-          className={`relative border-2 border-dashed rounded-xl p-12 transition-colors ${
+          className={`relative rounded-md border-2 border-dashed p-12 transition-colors ${
             dragActive
               ? 'border-primary bg-primary/10'
               : error
                 ? 'border-error/30 bg-error/10'
                 : isCompressing
                   ? 'border-sky/30 bg-sky/10'
-                  : 'border-line-2 hover:border-primary'
+                  : 'border-line bg-surface-2/40 hover:border-primary'
           }`}
           onDragEnter={handleDrag}
           onDragLeave={handleDrag}
@@ -207,7 +207,7 @@ export default function FileUpload({ onFileSelect, maxSize = 10 * 1024 * 1024 }:
                 ? `Plant preview (compressed from ${formatFileSize(compressionStats.originalSize)} to ${formatFileSize(compressionStats.compressedSize)})`
                 : 'Plant preview - ready for identification'
             }
-            className="w-full h-96 object-cover rounded-xl"
+            className="w-full h-96 object-cover rounded-md"
           />
           <button
             onClick={clearPreview}

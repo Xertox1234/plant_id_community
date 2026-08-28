@@ -218,6 +218,7 @@ todos/.completing-todos-run-*.json
 
 # Local coworking notes (not tracked)
 docs/cowork/
+backend/docs/cowork/
 
 # wrangler files
 .wrangler

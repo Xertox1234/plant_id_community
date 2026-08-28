@@ -5,11 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_composer_screen.dart';
+import 'package:plant_community_mobile/features/forum/screens/forum_notifications_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_topics_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
 import 'package:plant_community_mobile/models/plant.dart';
+import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 
 import '../features/forum/support/forum_test_support.dart';
@@ -497,6 +499,152 @@ void main() {
         expect(tester.takeException(), isNull);
         expect(find.byType(ForumThreadScreen), findsOneWidget);
         expect(find.textContaining('Original body'), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
+
+    testWidgets('tapping the forum home bell opens notifications', (
+      tester,
+    ) async {
+      final container = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(_MockAuthenticatedAuthNotifier.new),
+          forumApiProvider.overrideWithValue(FakeForumApi()),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      container.listen(appRouterProvider, (_, _) {});
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+
+      router.go(AppRoutes.forum);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      await tester.tap(find.byIcon(Icons.notifications_outlined));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(ForumNotificationsScreen), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('forumNotifications route builds ForumNotificationsScreen', (
+      tester,
+    ) async {
+      final container = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(_MockAuthenticatedAuthNotifier.new),
+          forumApiProvider.overrideWithValue(FakeForumApi()),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+
+      router.go('/forum/notifications');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(ForumNotificationsScreen), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets(
+      'tapping a notification marks it read and opens its topic (todo 293)',
+      (tester) async {
+        final api = FakeForumApi()
+          ..notifications = [notification(id: 1, topicId: 10)]
+          ..topicDetail = topicDetail(id: 10)
+          ..unreadCount = 1;
+        final container = ProviderContainer(
+          overrides: [
+            authServiceProvider.overrideWith(
+              _MockAuthenticatedAuthNotifier.new,
+            ),
+            forumApiProvider.overrideWithValue(api),
+            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          ],
+        );
+        addTearDown(container.dispose);
+        final router = container.read(appRouterProvider);
+        // See the "posting a reply" test above for why this listen is needed
+        // on any test that navigates more than once.
+        container.listen(appRouterProvider, (_, _) {});
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+
+        router.go('/forum/notifications');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        await tester.tap(find.byType(ListTile));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(find.byType(ForumThreadScreen), findsOneWidget);
+        expect(api.markReadCalls, [
+          [1],
+        ]);
+
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
+
+    testWidgets(
+      'a failed mark-read does not block opening the topic (todo 293)',
+      (tester) async {
+        final api = FakeForumApi()
+          ..notifications = [notification(id: 1, topicId: 10)]
+          ..topicDetail = topicDetail(id: 10)
+          ..failMarkReadWith = ApiException('network error', statusCode: 500);
+        final container = ProviderContainer(
+          overrides: [
+            authServiceProvider.overrideWith(
+              _MockAuthenticatedAuthNotifier.new,
+            ),
+            forumApiProvider.overrideWithValue(api),
+            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          ],
+        );
+        addTearDown(container.dispose);
+        final router = container.read(appRouterProvider);
+        container.listen(appRouterProvider, (_, _) {});
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+
+        router.go('/forum/notifications');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        await tester.tap(find.byType(ListTile));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        // The tap's primary action — opening the topic — must not be
+        // sacrificed to a failed best-effort mark-read.
+        expect(find.byType(ForumThreadScreen), findsOneWidget);
 
         await tester.pump(const Duration(seconds: 4));
       },

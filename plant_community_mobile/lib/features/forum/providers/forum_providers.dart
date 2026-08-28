@@ -81,10 +81,31 @@ class BoardTopics extends _$BoardTopics {
   }
 }
 
-/// A single topic's detail.
+/// A single topic's detail, plus subscribe/unsubscribe (todo 293).
 @riverpod
-Future<ForumTopicDetail> topicDetail(Ref ref, int topicId) {
-  return ref.watch(forumApiProvider).fetchTopicDetail(topicId);
+class TopicDetail extends _$TopicDetail {
+  @override
+  Future<ForumTopicDetail> build(int topicId) {
+    return ref.watch(forumApiProvider).fetchTopicDetail(topicId);
+  }
+
+  /// Subscribe if currently unsubscribed, else unsubscribe. Writes back the
+  /// server's returned `subscribed` state (like [TopicPosts.toggleReaction],
+  /// never just flips the local flag) so a partial failure can't leave the
+  /// toggle showing a state the backend disagrees with. Rethrows on failure
+  /// — unlike the fire-and-forget reaction toggle, an explicit
+  /// subscribe/unsubscribe tap should surface an error to the caller.
+  Future<void> toggleSubscription() async {
+    final current = state.asData?.value;
+    if (current == null) return;
+    final api = ref.read(forumApiProvider);
+    final subscribed = current.isSubscribed
+        ? await api.unsubscribeFromTopic(topicId)
+        : await api.subscribeToTopic(topicId);
+    // Re-read after the await so a concurrent refresh isn't lost.
+    final latest = state.asData?.value ?? current;
+    state = AsyncData(latest.withSubscribed(subscribed));
+  }
 }
 
 /// Safety bound on the page walk in [TopicPosts.refreshAfterReply] — mirrors
@@ -288,4 +309,74 @@ class RecentTopics extends _$RecentTopics {
       () => ref.read(forumSyncServiceProvider).sync(),
     );
   }
+}
+
+/// The user's notifications (cursor-paginated, newest first).
+@riverpod
+class NotificationsFeed extends _$NotificationsFeed {
+  @override
+  Future<PagedList<ForumNotification>> build() async {
+    final page = await ref.watch(forumApiProvider).fetchNotifications();
+    return PagedList(items: page.items, nextUrl: page.next);
+  }
+
+  Future<void> loadMore() async {
+    final current = state.asData?.value;
+    if (current == null || !current.hasMore || current.isLoadingMore) return;
+    state = AsyncData(
+      PagedList(
+        items: current.items,
+        nextUrl: current.nextUrl,
+        isLoadingMore: true,
+      ),
+    );
+    try {
+      final page = await ref
+          .read(forumApiProvider)
+          .fetchNotifications(cursorUrl: current.nextUrl);
+      // Re-read after the await so a concurrent mark-read isn't lost.
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(
+        PagedList(items: [...latest.items, ...page.items], nextUrl: page.next),
+      );
+    } catch (_) {
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(
+        PagedList(items: latest.items, nextUrl: latest.nextUrl),
+      );
+      rethrow;
+    }
+  }
+
+  /// Mark one notification read (splice locally + call the API), or every
+  /// unread notification when [id] is omitted. Refreshes the unread badge
+  /// via invalidation rather than a local decrement, so the badge stays
+  /// accurate even if another client already read some of them.
+  Future<void> markRead({int? id}) async {
+    await ref
+        .read(forumApiProvider)
+        .markNotificationsRead(ids: id == null ? null : [id]);
+    final latest = state.asData?.value;
+    if (latest != null) {
+      final now = DateTime.now();
+      final updated = latest.items.map((n) {
+        if (id != null && n.id != id) return n;
+        return n.readAt == null ? n.asRead(now) : n;
+      }).toList();
+      state = AsyncData(
+        PagedList(
+          items: updated,
+          nextUrl: latest.nextUrl,
+          isLoadingMore: latest.isLoadingMore,
+        ),
+      );
+    }
+    ref.invalidate(unreadNotificationCountProvider);
+  }
+}
+
+/// Unread notification count, for the bell badge.
+@riverpod
+Future<int> unreadNotificationCount(Ref ref) {
+  return ref.watch(forumApiProvider).fetchUnreadNotificationCount();
 }

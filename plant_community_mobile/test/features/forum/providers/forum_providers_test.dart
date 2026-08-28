@@ -230,4 +230,160 @@ void main() {
       },
     );
   });
+
+  group('TopicDetail.toggleSubscription', () {
+    test('subscribes when currently unsubscribed', () async {
+      final api = FakeForumApi()..topicDetail = topicDetail(id: 10);
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(topicDetailProvider(10).future);
+      await container
+          .read(topicDetailProvider(10).notifier)
+          .toggleSubscription();
+
+      expect(api.subscribeCalls, [10]);
+      expect(api.unsubscribeCalls, isEmpty);
+      expect(
+        container.read(topicDetailProvider(10)).asData!.value.isSubscribed,
+        isTrue,
+      );
+    });
+
+    test('unsubscribes when currently subscribed', () async {
+      final subscribed = topicDetail(id: 10).withSubscribed(true);
+      final api = FakeForumApi()..topicDetail = subscribed;
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(topicDetailProvider(10).future);
+      await container
+          .read(topicDetailProvider(10).notifier)
+          .toggleSubscription();
+
+      expect(api.unsubscribeCalls, [10]);
+      expect(api.subscribeCalls, isEmpty);
+      expect(
+        container.read(topicDetailProvider(10)).asData!.value.isSubscribed,
+        isFalse,
+      );
+    });
+
+    test('a failed toggle rethrows and leaves state unchanged', () async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail(id: 10)
+        ..failSubscriptionWith = ApiException('boom', statusCode: 500);
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(topicDetailProvider(10).future);
+      await expectLater(
+        container.read(topicDetailProvider(10).notifier).toggleSubscription(),
+        throwsA(isA<ApiException>()),
+      );
+
+      expect(
+        container.read(topicDetailProvider(10)).asData!.value.isSubscribed,
+        isFalse,
+      );
+    });
+  });
+
+  group('NotificationsFeed', () {
+    test(
+      'loadMore fetches the second page via the verbatim cursor URL',
+      () async {
+        final page1 = CursorPage(
+          items: [notification(id: 1)],
+          next: 'https://api/forum/notifications/?cursor=p2',
+        );
+        final page2 = CursorPage(items: [notification(id: 2)]);
+        final api = FakeForumApi()..notificationPages = [page1, page2];
+        final container = ProviderContainer(
+          overrides: [forumApiProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+
+        await container.read(notificationsFeedProvider.future);
+        await container.read(notificationsFeedProvider.notifier).loadMore();
+
+        final result = container.read(notificationsFeedProvider).asData!.value;
+        expect(result.items.map((n) => n.id), [1, 2]);
+        // DRF cursor `next`/`previous` are absolute URLs — must be fetched
+        // verbatim, never re-prefixed with the API base (docs/rules/api.md).
+        expect(api.fetchNotificationsCalls, [null, page1.next]);
+      },
+    );
+
+    test(
+      'markRead(id: ...) splices that row read and refreshes the badge',
+      () async {
+        final api = FakeForumApi()
+          ..notifications = [
+            notification(id: 1, readAt: null),
+            notification(id: 2, readAt: null),
+          ]
+          ..unreadCount = 2;
+        final container = ProviderContainer(
+          overrides: [forumApiProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+
+        await container.read(notificationsFeedProvider.future);
+        await container.read(unreadNotificationCountProvider.future);
+        await container
+            .read(notificationsFeedProvider.notifier)
+            .markRead(id: 1);
+
+        final items = container
+            .read(notificationsFeedProvider)
+            .asData!
+            .value
+            .items;
+        expect(items.firstWhere((n) => n.id == 1).isRead, isTrue);
+        expect(items.firstWhere((n) => n.id == 2).isRead, isFalse);
+        expect(api.markReadCalls, [
+          [1],
+        ]);
+        final unread = await container.read(
+          unreadNotificationCountProvider.future,
+        );
+        expect(unread, 1);
+      },
+    );
+
+    test('markRead() with no id marks every unread row read', () async {
+      final api = FakeForumApi()
+        ..notifications = [
+          notification(id: 1, readAt: null),
+          notification(id: 2, readAt: null),
+        ]
+        ..unreadCount = 2;
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(notificationsFeedProvider.future);
+      await container.read(notificationsFeedProvider.notifier).markRead();
+
+      final items = container
+          .read(notificationsFeedProvider)
+          .asData!
+          .value
+          .items;
+      expect(items.every((n) => n.isRead), isTrue);
+      expect(api.markReadCalls, [null]);
+      final unread = await container.read(
+        unreadNotificationCountProvider.future,
+      );
+      expect(unread, 0);
+    });
+  });
 }

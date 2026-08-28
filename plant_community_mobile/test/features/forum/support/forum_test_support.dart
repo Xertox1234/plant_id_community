@@ -83,6 +83,21 @@ class FakeForumApi implements ForumApi {
   /// (code review, todo 294: the Post button race).
   Completer<ForumImageBlock>? uploadImageGate;
 
+  /// [subscribeToTopic]/[unsubscribeFromTopic] call log and failure hook.
+  final List<int> subscribeCalls = [];
+  final List<int> unsubscribeCalls = [];
+  ApiException? failSubscriptionWith;
+
+  /// Notification fixtures. [notificationPages] mirrors [postPages]: page
+  /// N+1 is returned when [cursorUrl] equals page N's `next`; `null` always
+  /// returns the first page. Falls back to [notifications] when empty.
+  List<ForumNotification> notifications = const [];
+  List<CursorPage<ForumNotification>> notificationPages = const [];
+  final List<String?> fetchNotificationsCalls = [];
+  int unreadCount = 0;
+  final List<List<int>?> markReadCalls = [];
+  ApiException? failMarkReadWith;
+
   @override
   Future<List<ForumBoard>> fetchBoards() async => boards;
 
@@ -220,6 +235,49 @@ class FakeForumApi implements ForumApi {
     if (fail != null) throw fail;
     return uploadImageResult;
   }
+
+  @override
+  Future<bool> subscribeToTopic(int topicId) async {
+    subscribeCalls.add(topicId);
+    if (failSubscriptionWith != null) throw failSubscriptionWith!;
+    return true;
+  }
+
+  @override
+  Future<bool> unsubscribeFromTopic(int topicId) async {
+    unsubscribeCalls.add(topicId);
+    if (failSubscriptionWith != null) throw failSubscriptionWith!;
+    return false;
+  }
+
+  @override
+  Future<CursorPage<ForumNotification>> fetchNotifications({
+    String? cursorUrl,
+  }) async {
+    fetchNotificationsCalls.add(cursorUrl);
+    if (notificationPages.isEmpty) {
+      return CursorPage(items: notifications);
+    }
+    if (cursorUrl == null) return notificationPages.first;
+    for (var i = 1; i < notificationPages.length; i++) {
+      if (notificationPages[i - 1].next == cursorUrl) {
+        return notificationPages[i];
+      }
+    }
+    return notificationPages.last;
+  }
+
+  @override
+  Future<int> fetchUnreadNotificationCount() async => unreadCount;
+
+  @override
+  Future<int> markNotificationsRead({List<int>? ids}) async {
+    markReadCalls.add(ids);
+    if (failMarkReadWith != null) throw failMarkReadWith!;
+    final updated = ids?.length ?? unreadCount;
+    unreadCount = (unreadCount - updated).clamp(0, unreadCount);
+    return updated;
+  }
 }
 
 /// A test [AuthService] that returns a fixed [AuthState] without touching
@@ -309,6 +367,34 @@ ForumTopicDetail topicDetail({int id = 10, String title = 'Sample topic'}) {
     lastPostAuthor: author(),
     openingPostId: 1,
     isSubscribed: false,
+  );
+}
+
+/// Build a [ForumNotification] fixture.
+ForumNotification notification({
+  int id = 1,
+  String verb = 'reply',
+  int? topicId = 10,
+  String topicTitle = 'Sample topic',
+  int? postId,
+  DateTime? readAt,
+}) {
+  return ForumNotification(
+    id: id,
+    verb: verb,
+    actor: author(),
+    topic: topicId == null
+        ? null
+        : ForumNotificationTopicRef(
+            id: topicId,
+            slug: 'sample-topic',
+            title: topicTitle,
+            boardId: 1,
+            boardSlug: 'general',
+          ),
+    postId: postId,
+    createdAt: DateTime(2026, 1, 1),
+    readAt: readAt,
   );
 }
 

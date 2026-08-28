@@ -96,31 +96,31 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec)\.js/,
+      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
 
     {
       name: 'firefox',
       use: { ...devices['Desktop Firefox'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec)\.js/,
+      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
 
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec)\.js/,
+      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
 
     // Mobile viewports (unauthenticated)
     {
       name: 'Mobile Chrome',
       use: { ...devices['Pixel 5'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec)\.js/,
+      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 12'] },
-      testIgnore: /(auth\.setup|forum-authenticated\.spec)\.js/,
+      testIgnore: /(auth\.setup|forum-authenticated\.spec|canopy-areas-authenticated\.spec)\.js/,
     },
 
     // Authenticated tests (forum, protected routes)
@@ -131,7 +131,7 @@ export default defineConfig({
         storageState: '.auth/user.json',
       },
       dependencies: ['setup'],
-      testMatch: /(forum-authenticated|auth)\.spec\.js/,
+      testMatch: /(forum-authenticated|canopy-areas-authenticated|auth)\.spec\.js/,
     },
 
     {
@@ -141,7 +141,7 @@ export default defineConfig({
         storageState: '.auth/user.json',
       },
       dependencies: ['setup'],
-      testMatch: /(forum-authenticated|auth)\.spec\.js/,
+      testMatch: /(forum-authenticated|canopy-areas-authenticated|auth)\.spec\.js/,
     },
   ],
 });
