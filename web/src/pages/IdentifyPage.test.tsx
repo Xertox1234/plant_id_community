@@ -22,7 +22,7 @@ vi.mock('../contexts/AuthContext', () => ({
 }));
 
 vi.mock('../services/plantIdService', () => ({
-  plantIdService: { identifyPlant: vi.fn(), savePlantToCollection: vi.fn() },
+  plantIdService: { identifyPlant: vi.fn(), saveToCollection: vi.fn() },
 }));
 
 // "Ask the community" uploads the photo through the forum image endpoint.
@@ -192,6 +192,96 @@ describe('IdentifyPage', () => {
         )
       );
       expect(mockNavigate).not.toHaveBeenCalledWith('/forum/new-thread', expect.anything());
+    });
+  });
+
+  /** todo 313: suggestion items only ever carry `probability`, never `confidence`. */
+  describe('Save to collection', () => {
+    const REAL_SHAPE_RESULTS = {
+      plant_name: 'Monstera deliciosa',
+      confidence: 0.99,
+      source: 'plant_id',
+      suggestions: [
+        {
+          plant_name: 'Monstera deliciosa',
+          scientific_name: 'Monstera deliciosa',
+          probability: 0.99,
+          source: 'plant_id',
+          // Deliberately no `confidence` key — the real API never sends one
+          // on suggestion items.
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      authState.isAuthenticated = true;
+      vi.mocked(plantIdService.identifyPlant).mockResolvedValue(
+        REAL_SHAPE_RESULTS as unknown as PlantIdentificationResult
+      );
+      vi.mocked(plantIdService.saveToCollection).mockReset();
+    });
+
+    it('sends a numeric confidence, not undefined, for a probability-only suggestion', async () => {
+      vi.mocked(plantIdService.saveToCollection).mockResolvedValue(
+        {} as unknown as Awaited<ReturnType<typeof plantIdService.saveToCollection>>
+      );
+      render(
+        <MemoryRouter>
+          <IdentifyPage />
+        </MemoryRouter>
+      );
+
+      const file = new File(['x'], 'plant.jpg', { type: 'image/jpeg' });
+      await userEvent.upload(screen.getByLabelText('upload'), file);
+      await userEvent.click(screen.getByRole('button', { name: /identify plant/i }));
+      await userEvent.click(
+        await screen.findByRole('button', { name: /save monstera deliciosa to collection/i })
+      );
+
+      await waitFor(() =>
+        expect(plantIdService.saveToCollection).toHaveBeenCalledWith(
+          expect.objectContaining({ confidence: 0.99 })
+        )
+      );
+    });
+
+    it('surfaces a save failure in the live region', async () => {
+      vi.mocked(plantIdService.saveToCollection).mockRejectedValue(new Error('Save failed'));
+      const { container } = render(
+        <MemoryRouter>
+          <IdentifyPage />
+        </MemoryRouter>
+      );
+
+      const file = new File(['x'], 'plant.jpg', { type: 'image/jpeg' });
+      await userEvent.upload(screen.getByLabelText('upload'), file);
+      await userEvent.click(screen.getByRole('button', { name: /identify plant/i }));
+      await userEvent.click(
+        await screen.findByRole('button', { name: /save monstera deliciosa to collection/i })
+      );
+
+      await waitFor(() =>
+        expect(container.querySelector('[aria-live="assertive"]')).toHaveTextContent('Save failed')
+      );
+    });
+
+    it('sends a signed-out user to log in instead of saving', async () => {
+      authState.isAuthenticated = false;
+      render(
+        <MemoryRouter>
+          <IdentifyPage />
+        </MemoryRouter>
+      );
+
+      const file = new File(['x'], 'plant.jpg', { type: 'image/jpeg' });
+      await userEvent.upload(screen.getByLabelText('upload'), file);
+      await userEvent.click(screen.getByRole('button', { name: /identify plant/i }));
+      await userEvent.click(
+        await screen.findByRole('button', { name: /save monstera deliciosa to collection/i })
+      );
+
+      expect(mockNavigate).toHaveBeenCalledWith('/login', { state: { from: '/identify' } });
+      expect(plantIdService.saveToCollection).not.toHaveBeenCalled();
     });
   });
 });

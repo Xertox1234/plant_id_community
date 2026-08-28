@@ -34,12 +34,14 @@ test.describe('Identify', () => {
           plant_name: 'Swiss cheese plant',
           confidence: 0.82,
           source: 'plant_id',
+          // No `confidence` key on the suggestion item — the real API only
+          // ever sends `probability` here (todo 313: a suggestion fixture
+          // carrying both masked the getPlantKey() crash from every test).
           suggestions: [
             {
               plant_name: 'Swiss cheese plant',
               scientific_name: 'Monstera deliciosa',
               probability: 0.82,
-              confidence: 0.82,
               source: 'plant_id',
             },
           ],
