@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p1
 issue_id: "313"
 tags: [web, react, plant-identification, bug, crash]
@@ -270,6 +270,19 @@ caused by Canopy PR 4 — see Findings.
   Test Files  84 passed (84)
        Tests  932 passed (932)
   ```
+
+### 2026-08-28 - Completed
+
+- PR #564 merged (`0658bcc`). All 4 acceptance criteria verified with
+  quoted command output above: automated regression tests (mutation-tested)
+  cover the probability-only render path and the save-payload fallback; a
+  live smoke test against the real backend + Plant.id/PlantNet APIs
+  confirmed results render without the error boundary firing; `flutter`
+  n/a (web-only fix) — `tsc --noEmit` clean, 929 → 932 web tests passing.
+- Review: 4 findings total (1 medium accepted-not-fixed → split to todo
+  316; 3 fixed — an adjacent NaN%-render gap, a masking e2e fixture, and
+  missing error/unauthenticated-path test coverage), all addressed or
+  explicitly deferred with a filed follow-up, none silently dropped.
 
 ## Notes
 
