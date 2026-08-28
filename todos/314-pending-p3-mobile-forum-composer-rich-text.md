@@ -1,7 +1,7 @@
 ---
 status: pending
 priority: p3
-issue_id: "312"
+issue_id: "314"
 tags: [forum, flutter, mobile, composer, rich-text]
 dependencies: ["294"]
 source_review: "todo 294 (re-pointed 2026-08-17)"

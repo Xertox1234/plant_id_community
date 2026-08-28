@@ -65,12 +65,13 @@ photo from the composer is the sharper of the two gaps.
 - [x] A rejected upload surfaces the error and leaves the drafted text intact —
       test
 - [ ] Bold/italic/link/list/inline-code round-trip through compose → render —
-      test per mark → split to **todo 312** on 2026-08-17 (advisor consult:
+      test per mark → split to **todo 314** on 2026-08-17 (advisor consult:
       needs a new rich-text editing surface — no such widget exists in the
       app today — plus resolving a load-bearing interaction with todo 292's
       `isSingleEditableParagraph` gate, a materially different scope than
-      the image half above). Re-pointed, not done — see todo 312 for its
-      own AC.
+      the image half above). Re-pointed, not done — see todo 314 for its
+      own AC. (Renumbered from 312 on 2026-08-28: 312 collided with an
+      unrelated auth-e2e todo filed on main via #559 after this split.)
 - [x] `flutter test` passes; `flutter analyze` clean
 
 ## Work Log
@@ -89,7 +90,8 @@ photo from the composer is the sharper of the two gaps.
   flagged: the image half has a complete, tested backend contract and needs
   no new UI paradigm; rich text needs a genuinely new editing surface plus a
   load-bearing interaction with todo 292's `isSingleEditableParagraph` gate.
-  Split rich text to **todo 312**, re-pointed (not checked off) above.
+  Split rich text to **todo 314** (renumbered from 312 on 2026-08-28 — see
+  below), re-pointed (not checked off) above.
 - **Backend read (no backend changes)**: `PostImageUploadView`
   (`api/views.py`) — `POST /forum/images/`, multipart `image` file + optional
   `alt`, Idempotency-Key supported, returns `{id, url, alt, width, height}`.
@@ -194,8 +196,65 @@ photo from the composer is the sharper of the two gaps.
   00:20 +274 ~3: All tests passed!
   ```
 
+### 2026-08-28 - Rebased PR #557 onto current main, renumbered the 312 collision
+
+- PR #557 had gone stale (11 days, `mergeable: CONFLICTING`) against a main
+  that absorbed several more forum-touching PRs since this branch was cut
+  (todo 292 edit/delete #555, todo 293 subscriptions/notifications #556,
+  todo 283 bookmarks #549, todo 303 cache mixin #545, among others). Disarmed
+  the stale auto-merge first (`gh pr merge 557 --disable-auto`) before
+  touching anything, per standing "review diff before arming" policy.
+- Confirmed Canopy PR 4 (#558) — the largest intervening change — never
+  touched `plant_community_mobile/lib/features/forum/` at all, so this was a
+  genuine conflict-resolution, not a re-derive-from-scratch situation.
+- `git merge origin/main` produced exactly 2 conflicts, both purely additive
+  (this branch's `uploadImage`/image fixtures next to main's
+  `subscribeToTopic`/notification fixtures in the same interface/class):
+  `forum_api.dart` (interface section only — the `HttpForumApi`
+  implementation merged clean) and `forum_test_support.dart`
+  (`FakeForumApi` field block + method-implementation block). Merged both
+  sides in, nothing dropped.
+- **Caught during resolution**: the PostToolUse Dart formatter hook ran
+  against `forum_test_support.dart` while it still had unresolved
+  `<<<<<<<` markers (mid multi-block resolution), and its parse-failure
+  recovery path silently inserted the token `void` before two type names —
+  `class FakeAuthService extends void AuthService` and
+  `class FakeForumImagePicker implements void ForumImagePicker`. Neither
+  parent branch had this; `dart format --set-exit-if-changed` on the file
+  caught it immediately (`Expected a type name`). Fixed by hand, confirmed
+  a repo-wide `grep -rn "extends void \|implements void "` came back clean
+  afterward. Lesson: resolve every conflict block in a file in one edit —
+  don't leave a file with markers still present between edits, since an
+  auto-formatter can run on it mid-resolution.
+- Renumbered the split-out rich-text todo: **312 → 314**. It had collided
+  with an unrelated `312-pending-p3-auth-e2e-spec-two-stale-failures.md`
+  filed on main via #559 four days after this todo split rich text out to
+  312. `git mv` + `issue_id` frontmatter updated in the new file; both
+  re-point references above updated 312 → 314 (the AC3 line and the
+  2026-08-17 Work Log entry) so the pointer stays live, not falsified.
+- Verification after merge (full suite, not the forum subset — this touched
+  shared test-support fixtures used across the forum test tree):
+
+  ```
+  $ dart format --output=none --set-exit-if-changed lib/features/forum/services/forum_api.dart test/features/forum/support/forum_test_support.dart
+  Formatted 2 files (0 changed) in 0.01s
+
+  $ flutter test
+  00:07 +290 ~3: All tests passed!
+  ```
+
+  (290 vs. the 274 recorded 2026-08-17 — main brought in more tests via the
+  intervening PRs; nothing here removed coverage.)
+- Pushed `fa156f4`. PR #557 mergeable state flipped `CONFLICTING` →
+  `MERGEABLE`. Re-arming auto-merge pending a clean CI run (previous run
+  showed `Detect mobile changes`/`mobile-ci-gate`/npm-scan failures that are
+  very likely artifacts of GitHub being unable to materialize the merge ref
+  while `CONFLICTING` — re-verifying on the fresh push before concluding
+  that, per advisor guidance).
+
 ## Notes
 
 p3. Promoted from todo 279 on 2026-07-31. The image half is worth doing alone
 if the rich-text half slips — they are sequenced, not coupled. Image half
-shipped 2026-08-17; rich text split to todo 312.
+shipped 2026-08-17; rich text split to todo 314 (renumbered from 312 on
+2026-08-28 — see Work Log).
