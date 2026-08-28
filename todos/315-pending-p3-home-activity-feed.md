@@ -1,7 +1,7 @@
 ---
 status: pending
 priority: p3
-issue_id: "308"
+issue_id: "315"
 tags: [web, react, home]
 dependencies: []
 ---
