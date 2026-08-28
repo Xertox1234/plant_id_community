@@ -98,6 +98,26 @@ class FakeForumApi implements ForumApi {
   final List<List<int>?> markReadCalls = [];
   ApiException? failMarkReadWith;
 
+  /// [search] fixtures. [searchPages] maps a 1-based `page` number to the
+  /// page returned for it; falls back to [searchResult] when empty.
+  ForumSearchPage searchResult = const ForumSearchPage(
+    topics: [],
+    posts: [],
+    topicsHasMore: false,
+    postsHasMore: false,
+    page: 1,
+  );
+  Map<int, ForumSearchPage> searchPages = const {};
+  final List<Map<String, Object?>> searchCalls = [];
+  ApiException? failSearchWith;
+
+  /// When set, the Nth call to [search] (1-indexed, matching [searchCalls]'
+  /// length after that call is recorded) awaits `searchGates[N-1]` instead
+  /// of resolving immediately — lets a test hold two overlapping requests
+  /// "in flight" and resolve them out of order (code review, todo 295: the
+  /// stale-response race).
+  List<Completer<ForumSearchPage>>? searchGates;
+
   @override
   Future<List<ForumBoard>> fetchBoards() async => boards;
 
@@ -234,6 +254,28 @@ class FakeForumApi implements ForumApi {
     final fail = failUploadImageWith;
     if (fail != null) throw fail;
     return uploadImageResult;
+  }
+
+  @override
+  Future<ForumSearchPage> search({
+    required String q,
+    String? board,
+    int page = 1,
+    bool semantic = false,
+  }) async {
+    searchCalls.add({
+      'q': q,
+      'board': board,
+      'page': page,
+      'semantic': semantic,
+    });
+    final gates = searchGates;
+    if (gates != null && searchCalls.length <= gates.length) {
+      return gates[searchCalls.length - 1].future;
+    }
+    final fail = failSearchWith;
+    if (fail != null) throw fail;
+    return searchPages[page] ?? searchResult;
   }
 
   @override

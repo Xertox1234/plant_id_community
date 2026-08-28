@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
@@ -385,5 +387,269 @@ void main() {
       );
       expect(unread, 0);
     });
+  });
+
+  group('ForumSearch', () {
+    test('starts idle', () {
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(FakeForumApi())],
+      );
+      addTearDown(container.dispose);
+
+      expect(
+        container.read(forumSearchProvider).status,
+        ForumSearchStatus.idle,
+      );
+    });
+
+    test(
+      'an empty/whitespace query resets to idle without calling the API',
+      () async {
+        final api = FakeForumApi();
+        final container = ProviderContainer(
+          overrides: [forumApiProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+
+        await container.read(forumSearchProvider.notifier).search(query: '   ');
+
+        expect(
+          container.read(forumSearchProvider).status,
+          ForumSearchStatus.idle,
+        );
+        expect(api.searchCalls, isEmpty);
+      },
+    );
+
+    test('search() populates topics/posts and pagination flags', () async {
+      final api = FakeForumApi()
+        ..searchResult = const ForumSearchPage(
+          topics: [
+            ForumSearchTopicHit(
+              id: 1,
+              slug: 'monstera',
+              title: 'Monstera care',
+              replyCount: 3,
+              viewCount: 12,
+              isPinned: false,
+              isSolved: false,
+              boardId: 1,
+              boardSlug: 'general',
+            ),
+          ],
+          posts: [],
+          topicsHasMore: true,
+          postsHasMore: false,
+          page: 1,
+        );
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(forumSearchProvider.notifier)
+          .search(query: 'monstera');
+
+      final state = container.read(forumSearchProvider);
+      expect(state.status, ForumSearchStatus.data);
+      expect(state.topics, hasLength(1));
+      expect(state.topics.single.title, 'Monstera care');
+      expect(state.hasMore, isTrue);
+      expect(api.searchCalls.single['q'], 'monstera');
+      expect(api.searchCalls.single['semantic'], isTrue);
+    });
+
+    test('a search failure surfaces an error state', () async {
+      final api = FakeForumApi()
+        ..failSearchWith = ApiException('temporary failure', statusCode: 500);
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(forumSearchProvider.notifier).search(query: 'q');
+
+      expect(
+        container.read(forumSearchProvider).status,
+        ForumSearchStatus.error,
+      );
+    });
+
+    test(
+      'loadMore() appends to both sections and advances the shared page cursor',
+      () async {
+        final api = FakeForumApi()
+          ..searchPages = {
+            1: const ForumSearchPage(
+              topics: [
+                ForumSearchTopicHit(
+                  id: 1,
+                  slug: 't1',
+                  title: 'Topic 1',
+                  replyCount: 0,
+                  viewCount: 0,
+                  isPinned: false,
+                  isSolved: false,
+                  boardId: 1,
+                  boardSlug: 'general',
+                ),
+              ],
+              posts: [],
+              topicsHasMore: true,
+              postsHasMore: false,
+              page: 1,
+            ),
+            2: const ForumSearchPage(
+              topics: [
+                ForumSearchTopicHit(
+                  id: 2,
+                  slug: 't2',
+                  title: 'Topic 2',
+                  replyCount: 0,
+                  viewCount: 0,
+                  isPinned: false,
+                  isSolved: false,
+                  boardId: 1,
+                  boardSlug: 'general',
+                ),
+              ],
+              posts: [],
+              topicsHasMore: false,
+              postsHasMore: false,
+              page: 2,
+            ),
+          };
+        final container = ProviderContainer(
+          overrides: [forumApiProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+
+        await container
+            .read(forumSearchProvider.notifier)
+            .search(query: 'topic');
+        await container.read(forumSearchProvider.notifier).loadMore();
+
+        final state = container.read(forumSearchProvider);
+        expect(state.topics.map((t) => t.title), ['Topic 1', 'Topic 2']);
+        expect(state.hasMore, isFalse);
+        expect(state.page, 2);
+        expect(api.searchCalls.map((c) => c['page']), [1, 2]);
+      },
+    );
+
+    test('loadMore() is a no-op when there is nothing more to load', () async {
+      final api = FakeForumApi()
+        ..searchResult = const ForumSearchPage(
+          topics: [],
+          posts: [],
+          topicsHasMore: false,
+          postsHasMore: false,
+          page: 1,
+        );
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(forumSearchProvider.notifier).search(query: 'q');
+      await container.read(forumSearchProvider.notifier).loadMore();
+
+      expect(api.searchCalls, hasLength(1)); // only the initial search
+    });
+
+    test('a stale response from an earlier search does not overwrite a '
+        'newer search\'s result (code review: the double-tap race)', () async {
+      final firstGate = Completer<ForumSearchPage>();
+      final secondGate = Completer<ForumSearchPage>();
+      final api = FakeForumApi()..searchGates = [firstGate, secondGate];
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      // Two overlapping searches — neither has resolved yet.
+      final firstSearch = container
+          .read(forumSearchProvider.notifier)
+          .search(query: 'first');
+      final secondSearch = container
+          .read(forumSearchProvider.notifier)
+          .search(query: 'second');
+
+      // The FIRST (now-stale) request resolves LAST, after the second.
+      secondGate.complete(
+        const ForumSearchPage(
+          topics: [
+            ForumSearchTopicHit(
+              id: 2,
+              slug: 'second',
+              title: 'Second result',
+              replyCount: 0,
+              viewCount: 0,
+              isPinned: false,
+              isSolved: false,
+              boardId: 1,
+              boardSlug: 'general',
+            ),
+          ],
+          posts: [],
+          topicsHasMore: false,
+          postsHasMore: false,
+          page: 1,
+        ),
+      );
+      await secondSearch;
+      firstGate.complete(
+        const ForumSearchPage(
+          topics: [
+            ForumSearchTopicHit(
+              id: 1,
+              slug: 'first',
+              title: 'First result (stale)',
+              replyCount: 0,
+              viewCount: 0,
+              isPinned: false,
+              isSolved: false,
+              boardId: 1,
+              boardSlug: 'general',
+            ),
+          ],
+          posts: [],
+          topicsHasMore: false,
+          postsHasMore: false,
+          page: 1,
+        ),
+      );
+      await firstSearch;
+
+      final state = container.read(forumSearchProvider);
+      expect(state.query, 'second');
+      expect(state.topics.single.title, 'Second result');
+    });
+
+    test(
+      'semantic_status "unavailable" is surfaced as a state, not an error',
+      () async {
+        final api = FakeForumApi()
+          ..searchResult = const ForumSearchPage(
+            topics: [],
+            posts: [],
+            topicsHasMore: false,
+            postsHasMore: false,
+            page: 1,
+            semanticStatus: ForumSemanticStatus.unavailable,
+          );
+        final container = ProviderContainer(
+          overrides: [forumApiProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+
+        await container.read(forumSearchProvider.notifier).search(query: 'q');
+
+        final state = container.read(forumSearchProvider);
+        expect(state.status, ForumSearchStatus.data);
+        expect(state.semanticStatus, ForumSemanticStatus.unavailable);
+      },
+    );
   });
 }

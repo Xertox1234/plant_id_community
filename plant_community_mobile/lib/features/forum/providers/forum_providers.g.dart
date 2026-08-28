@@ -541,3 +541,69 @@ final class UnreadNotificationCountProvider
 
 String _$unreadNotificationCountHash() =>
     r'3784b4dd8f950ce5e47db8f36a1de116af0f98bc';
+
+/// Full-text forum search. Offset-paginated (see [ForumSearchPage]) — a
+/// "load more" fetches the next `page` and appends to both sections, since
+/// the two `*_has_more` flags share one page cursor.
+
+@ProviderFor(ForumSearch)
+final forumSearchProvider = ForumSearchProvider._();
+
+/// Full-text forum search. Offset-paginated (see [ForumSearchPage]) — a
+/// "load more" fetches the next `page` and appends to both sections, since
+/// the two `*_has_more` flags share one page cursor.
+final class ForumSearchProvider
+    extends $NotifierProvider<ForumSearch, ForumSearchResult> {
+  /// Full-text forum search. Offset-paginated (see [ForumSearchPage]) — a
+  /// "load more" fetches the next `page` and appends to both sections, since
+  /// the two `*_has_more` flags share one page cursor.
+  ForumSearchProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'forumSearchProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$forumSearchHash();
+
+  @$internal
+  @override
+  ForumSearch create() => ForumSearch();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(ForumSearchResult value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<ForumSearchResult>(value),
+    );
+  }
+}
+
+String _$forumSearchHash() => r'abf4cffe6695a7ddc636a79d111de98c4a551498';
+
+/// Full-text forum search. Offset-paginated (see [ForumSearchPage]) — a
+/// "load more" fetches the next `page` and appends to both sections, since
+/// the two `*_has_more` flags share one page cursor.
+
+abstract class _$ForumSearch extends $Notifier<ForumSearchResult> {
+  ForumSearchResult build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<ForumSearchResult, ForumSearchResult>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<ForumSearchResult, ForumSearchResult>,
+              ForumSearchResult,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}

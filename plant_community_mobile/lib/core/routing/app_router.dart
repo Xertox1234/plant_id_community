@@ -16,6 +16,7 @@ import '../../features/forum/screens/forum_topics_screen.dart';
 import '../../features/forum/screens/forum_thread_screen.dart';
 import '../../features/forum/screens/forum_composer_screen.dart';
 import '../../features/forum/screens/forum_notifications_screen.dart';
+import '../../features/forum/screens/forum_search_screen.dart';
 import '../../features/collection/collection_screen.dart';
 import '../../models/plant.dart';
 import '../../services/auth_service.dart';
@@ -237,6 +238,15 @@ GoRouter appRouter(Ref ref) {
           context: context,
           state: state,
           child: const ForumNotificationsScreen(),
+        ),
+      ),
+      GoRoute(
+        path: '/forum/search',
+        name: 'forumSearch',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: const ForumSearchScreen(),
         ),
       ),
       GoRoute(
