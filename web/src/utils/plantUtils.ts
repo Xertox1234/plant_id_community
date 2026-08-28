@@ -8,6 +8,11 @@ import type { PlantIdentificationResult } from '@/types';
  * @returns Unique plant key for tracking
  */
 export function getPlantKey(suggestion: PlantIdentificationResult): string {
-  const confidence = suggestion.confidence.toFixed(4); // 4 decimal places for precision
+  // Items in `suggestions[]` only ever carry `probability`, never
+  // `confidence` (that field is top-level-result-only) — fall back the same
+  // way IdentifyPage.handleAskCommunity does, rather than assume either is
+  // present (todo 313: this crashed unconditionally on every real result).
+  const raw = suggestion.probability ?? suggestion.confidence ?? 0;
+  const confidence = raw.toFixed(4); // 4 decimal places for precision
   return `${suggestion.plant_name}-${confidence}`;
 }

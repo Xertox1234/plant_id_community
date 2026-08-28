@@ -154,7 +154,9 @@ export default function IdentifyPage() {
       // Use the plantIdService to save to collection
       await plantIdService.saveToCollection({
         plant_name: suggestion.plant_name,
-        confidence: suggestion.confidence,
+        // Suggestion items only ever carry `probability`, never `confidence`
+        // (todo 313) — same fallback as handleAskCommunity above.
+        confidence: suggestion.probability ?? suggestion.confidence ?? 0,
         common_names: suggestion.common_names,
         description: suggestion.description,
         watering: suggestion.watering,

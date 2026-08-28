@@ -1,5 +1,5 @@
 ---
-status: pending
+status: in_progress
 priority: p1
 issue_id: "313"
 tags: [web, react, plant-identification, bug, crash]
@@ -143,14 +143,14 @@ caused by Canopy PR 4 — see Findings.
 
 ## Acceptance Criteria
 
-- [ ] A real (or realistically-shaped, `probability`-only) identification
+- [x] A real (or realistically-shaped, `probability`-only) identification
       result with `suggestions` renders in `IdentificationResults` without
       throwing
-- [ ] `getPlantKey()` has a regression test using a `probability`-only
+- [x] `getPlantKey()` has a regression test using a `probability`-only
       suggestion (no `confidence` key)
-- [ ] `IdentifyPage.tsx`'s save payload no longer sends
+- [x] `IdentifyPage.tsx`'s save payload no longer sends
       `confidence: undefined`
-- [ ] Manual smoke test: real login → real identify → results visible, no
+- [x] Manual smoke test: real login → real identify → results visible, no
       error boundary
 
 ## Work Log
@@ -162,6 +162,114 @@ caused by Canopy PR 4 — see Findings.
   Confirmed pre-existing via git history (unrelated to Canopy PR 4's
   changes) before filing at p1 given severity: this breaks the app's core
   feature for every user, on every successful identification.
+
+### 2026-08-28 - Fixed, tested, live-verified
+
+- **Fix** (per Recommended Action items 1-3):
+  - `plantUtils.ts::getPlantKey()` — `suggestion.probability ?? suggestion.confidence ?? 0`,
+    same fallback pattern already used by `IdentifyPage.handleAskCommunity`.
+  - `IdentifyPage.tsx:157` save payload — same fallback, so a saved plant's
+    `care_instructions_json.confidence` is never silently `undefined`.
+  - `PlantIdentificationResult.confidence` (`types/plantId.ts`) changed
+    `number` → `?number`, matching the real API (only the top-level result
+    object carries it; `suggestions[]` items never do). Grepped every other
+    `.confidence` read in `src/` first — all either already use a fallback
+    (`handleAskCommunity`), read a different, unaffected interface
+    (`SavePlantInput`, `IdentificationHistoryItem`, the locally-typed
+    `candidate` objects passed to the forum composer), or read the
+    already-optional `UserPlant.care_instructions_json.confidence`.
+- **Regression tests added** (Recommended Action items 4-5):
+  - `plantUtils.test.ts` (new) — 3 cases: probability-only (the real shape),
+    confidence-only fallback, neither-present fallback to 0.
+  - `IdentificationResults.test.tsx` — new case rendering a probability-only
+    suggestion with `onSavePlant` set (the exact prop combination that
+    crashed).
+  - `IdentifyPage.test.tsx` — new "Save to collection" describe block
+    asserting `plantIdService.saveToCollection` is called with a numeric
+    `confidence`, not `undefined`, for a probability-only suggestion. This
+    also fixed an unrelated latent bug in the file's own mock: it stubbed a
+    method named `savePlantToCollection`, which doesn't exist on the real
+    service (the real method is `saveToCollection`) — the mock had never
+    actually been exercised by any prior test, which is exactly why this
+    path had zero save-flow coverage before now.
+  - **Mutation-tested both fixes**: reverted `getPlantKey` to the buggy
+    `suggestion.confidence.toFixed(4)` — confirmed the new plantUtils and
+    IdentificationResults tests fail with the exact predicted
+    `TypeError: Cannot read properties of undefined (reading 'toFixed')`.
+    Reverted the `IdentifyPage.tsx:157` payload to plain
+    `suggestion.confidence` — confirmed the new "Save to collection" test
+    fails (assertion never satisfied, since `confidence` was `undefined`).
+    Restored both fixes, re-verified green in both cases.
+  - Full verification: `npm run type-check` (0 errors), `npx vitest run` —
+
+    ```
+    Test Files  84 passed (84)
+         Tests  929 passed (929)
+    ```
+
+- **Manual smoke test, live** (AC4): started the real backend
+  (`python manage.py runserver 8000`, real `PLANT_ID_API_KEY`/
+  `PLANTNET_API_KEY`, Redis running) and the real frontend
+  (`npm run dev`, port 5174). Logged in as `e2e_test_user` (real
+  `/api/v1/auth/` cookie-session login, not mocked). Uploaded a real image
+  file to `POST /api/v1/plant-identification/identify/` (live Plant.id +
+  PlantNet call, 200 OK). Result: **"Identification Results" rendered with
+  multiple suggestions ("Xylotheca kraussiana" 2%, "Capparis sepiaria" 2%,
+  ...) — no error boundary, no blank page, no console exception.** This is
+  the exact `onSavePlant`-present, low-confidence-suggestion render path
+  that crashed unconditionally before the fix. Clicking "Save to My
+  Collection" surfaced "Failed to fetch collections" — independently
+  reconfirmed this is todo 311 (the separately-tracked, pre-existing
+  `/api/v1/users/collections/` dead-route bug), not a regression from this
+  fix; out of scope here, left as-is. Stopped both dev servers and removed
+  the scratch test image afterward.
+
+### 2026-08-28 - Code review (react-typescript-reviewer + cross-cutting-reviewer)
+
+- **INFO finding, fixed**: `IdentificationResults.tsx:79`'s `ConfidencePill`
+  read `suggestion.probability` directly with no fallback — a suggestion
+  with neither field would render "NaN%" (a UI glitch, not a crash, but the
+  same unguarded-read pattern this todo exists to fix, one line away).
+  Fixed with the same `?? confidence ?? 0` fallback. Added a regression test
+  and mutation-tested it (reverted to the unguarded read, confirmed the new
+  test fails because `getByText('0%')` can't find it when "NaN%" renders
+  instead; restored the fix, re-verified green).
+- **MEDIUM finding, accepted — not fixed inline**: `PlantIdentificationResult`
+  is used recursively for both the top-level result and each `suggestions[]`
+  item, so nothing at the type level stops a future `suggestion.confidence`
+  read from compiling again — todo 313's fallbacks close the actual bug but
+  not the structural gap that let it happen. Filed as **todo 316**
+  (`PlantSuggestion` interface split) rather than fixed here: broader
+  call-site blast radius than a p1 crash-fix PR should carry, per surgical-
+  changes discipline.
+- Full re-verification after the ConfidencePill fix: `tsc --noEmit` clean,
+
+  ```
+  Test Files  84 passed (84)
+       Tests  930 passed (930)
+  ```
+
+- **HIGH finding, fixed**: `web/e2e/canopy-areas.spec.ts`'s Identify mock gave
+  the suggestion item both `probability: 0.82` AND `confidence: 0.82` — the
+  exact unrealistic shape that masked this bug from every other test before
+  todo 313. Mutation-verified the finding itself first: with the pre-fix
+  `getPlantKey()`, this e2e spec did NOT fail (proving the reviewer's claim).
+  Removed `confidence` from the fixture; re-ran
+  `npx playwright test e2e/canopy-areas.spec.ts --project=chromium` — passes
+  against the fix, and (mutation-tested) now correctly FAILS against the
+  reverted pre-fix code (`getByText('Swiss cheese plant')` times out because
+  the crash fires first). Restored the fix, re-verified green.
+- **MEDIUM finding, fixed**: the new "Save to collection" describe block
+  only covered the happy path — no error-path or unauthenticated-redirect
+  coverage, unlike the parallel "Ask the community" block in the same file.
+  Added both: a `saveToCollection` rejection asserting the live region shows
+  the failure, and an unauthenticated-user-redirects-instead-of-saving case.
+- Final re-verification: `tsc --noEmit` clean,
+
+  ```
+  Test Files  84 passed (84)
+       Tests  932 passed (932)
+  ```
 
 ## Notes
 

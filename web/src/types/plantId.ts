@@ -7,7 +7,11 @@
  */
 export interface PlantIdentificationResult {
   plant_name: string;
-  confidence: number;
+  // Optional (not "number"): the real API only sends this on the top-level
+  // result object. Items in `suggestions[]` only ever carry `probability`
+  // below — treating this as required let a `suggestion.confidence.toFixed()`
+  // call compile and then crash on every real identification (todo 313).
+  confidence?: number;
   common_names?: string[];
   description?: string;
   watering?: string;

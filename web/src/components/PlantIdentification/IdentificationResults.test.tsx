@@ -62,4 +62,51 @@ describe('IdentificationResults', () => {
     );
     expect(screen.getAllByRole('button', { name: /save .* to collection/i })).toHaveLength(2);
   });
+
+  it('renders without crashing for a probability-only suggestion — the real API shape (todo 313)', () => {
+    // Real `suggestions[]` items only ever carry `probability`, never
+    // `confidence`. The onSavePlant path (unconditionally invoked during
+    // render via getPlantKey) crashed on exactly this shape before the fix.
+    const realShapeResults: PlantIdentificationResult = {
+      plant_name: 'Monstera deliciosa',
+      confidence: 0.99,
+      source: 'plant_id',
+      suggestions: [
+        {
+          plant_name: 'Monstera deliciosa',
+          scientific_name: 'Monstera deliciosa',
+          probability: 0.99,
+          source: 'plant_id',
+        },
+      ],
+    };
+
+    expect(() =>
+      render(
+        <IdentificationResults
+          results={realShapeResults}
+          loading={false}
+          error={null}
+          onSavePlant={vi.fn()}
+          savedPlants={new Map()}
+          savingPlant={null}
+        />
+      )
+    ).not.toThrow();
+    expect(
+      screen.getByRole('button', { name: /save monstera deliciosa to collection/i })
+    ).toBeInTheDocument();
+  });
+
+  it('renders 0%, not NaN%, for a suggestion with neither probability nor confidence', () => {
+    const noConfidenceResults: PlantIdentificationResult = {
+      plant_name: 'Monstera deliciosa',
+      confidence: 0.99,
+      source: 'plant_id',
+      suggestions: [{ plant_name: 'Monstera deliciosa', source: 'plant_id' }],
+    };
+    render(<IdentificationResults results={noConfidenceResults} loading={false} error={null} />);
+    expect(screen.getByText('0%')).toBeInTheDocument();
+    expect(screen.queryByText(/nan/i)).not.toBeInTheDocument();
+  });
 });

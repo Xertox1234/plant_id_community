@@ -76,7 +76,9 @@ export default function IdentificationResults({
                   )}
                 </div>
                 <ConfidencePill
-                  value={suggestion.probability}
+                  // Same fallback as getPlantKey (todo 313) — a suggestion
+                  // with neither field would otherwise render "NaN%".
+                  value={suggestion.probability ?? suggestion.confidence ?? 0}
                   tone={index === 0 ? 'text-primary' : 'text-ink-2'}
                   suffix="confidence"
                 />
