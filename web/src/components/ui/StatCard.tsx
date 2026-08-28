@@ -9,7 +9,10 @@ interface StatCardProps {
   label: string;
   sublabel?: string;
   tone?: TileTone;
-  progress?: { value: number; max: number };
+  // `label` is used as the accessible name when a caller doesn't need to
+  // describe the bar more specifically than the card itself (e.g. a
+  // progress bar toward a differently-named badge threshold).
+  progress?: { value: number; max: number; label?: string };
 }
 
 export default function StatCard({
@@ -31,7 +34,12 @@ export default function StatCard({
         {sublabel && <div className="text-[11.5px] text-ink-3">{sublabel}</div>}
       </div>
       {progress && (
-        <ProgressBar value={progress.value} max={progress.max} tone={tone} label={label} />
+        <ProgressBar
+          value={progress.value}
+          max={progress.max}
+          tone={tone}
+          label={progress.label ?? label}
+        />
       )}
     </Card>
   );

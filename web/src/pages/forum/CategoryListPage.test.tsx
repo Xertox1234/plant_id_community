@@ -73,6 +73,10 @@ function makeMyStats(overrides: Partial<ForumMyStats> = {}): ForumMyStats {
     posts: 12,
     solutions_accepted: 3,
     identifications_shared: 7,
+    streak_days: 4,
+    badge_name: 'Botanist',
+    badge_progress: 7,
+    badge_target: 20,
     ...overrides,
   };
 }
@@ -557,12 +561,61 @@ describe('CategoryListPage', () => {
       // number and every label exist somewhere on the page.
       const statCard = (label: string) => screen.getByText(label).parentElement as HTMLElement;
       expect(within(statCard('Identifications')).getByText('7')).toBeInTheDocument();
+      expect(
+        within(statCard('Identifications')).getByText('13 to Botanist badge')
+      ).toBeInTheDocument();
+      // The progress bar is a sibling of (not nested inside) the value/label
+      // wrapper `statCard()` scopes to (StatCard.tsx) — asserted by its
+      // accessible name instead, which is unique on this page. A dedicated
+      // name ("Botanist badge progress") rather than reusing the card's own
+      // "Identifications" label — a screen reader announcing "progressbar,
+      // Identifications, 7 of 20" would misdescribe what's being measured
+      // (code review).
+      expect(
+        screen.getByRole('progressbar', { name: 'Botanist badge progress' })
+      ).toBeInTheDocument();
       expect(within(statCard('Posts')).getByText('12')).toBeInTheDocument();
       expect(within(statCard('Solutions')).getByText('3')).toBeInTheDocument();
-      expect(within(statCard('Day streak')).getByText('—')).toBeInTheDocument();
-      expect(within(statCard('Day streak')).getByText('Coming soon')).toBeInTheDocument();
+      expect(within(statCard('Day streak')).getByText('4')).toBeInTheDocument();
+      expect(within(statCard('Day streak')).getByText('days in a row')).toBeInTheDocument();
       // The trio is fully replaced, not shown alongside the four cards.
       expect(screen.queryByText('Threads')).not.toBeInTheDocument();
+    });
+
+    it('shows badge-complete sublabel and a singular-day streak sublabel at the edges', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+      vi.mocked(forumService.fetchMyStats).mockResolvedValue(
+        makeMyStats({ streak_days: 1, badge_progress: 20, badge_target: 20 })
+      );
+
+      renderCategoryListPage();
+
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Your season' })).toBeInTheDocument()
+      );
+      const statCard = (label: string) => screen.getByText(label).parentElement as HTMLElement;
+      expect(
+        within(statCard('Identifications')).getByText('Botanist badge complete')
+      ).toBeInTheDocument();
+      expect(within(statCard('Day streak')).getByText('day in a row')).toBeInTheDocument();
+    });
+
+    it('shows a start-streak sublabel at zero, not "0 days in a row"', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([]));
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+      vi.mocked(forumService.fetchMyStats).mockResolvedValue(makeMyStats({ streak_days: 0 }));
+
+      renderCategoryListPage();
+
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Your season' })).toBeInTheDocument()
+      );
+      const statCard = (label: string) => screen.getByText(label).parentElement as HTMLElement;
+      expect(
+        within(statCard('Day streak')).getByText('Post to start a streak')
+      ).toBeInTheDocument();
+      expect(within(statCard('Day streak')).queryByText(/days in a row/)).not.toBeInTheDocument();
     });
 
     it('shows the original trio and no "Your season" heading when anonymous', async () => {

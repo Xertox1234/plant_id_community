@@ -630,6 +630,12 @@ def test_edit_query_count_is_pinned():
     # 71 -> 72 (todo 301): the presence touch — one UPDATE on the caller's own
     # ForumProfile, throttled to once per ~5 min, paid by every authenticated
     # forum request (api/presence.py).
+    # UNCHANGED at 72 (todo 300): the `published` signal's Post branch now
+    # records day-streak activity, but ONLY on `_is_first_publish` (code
+    # review) — this test edits an ALREADY-LIVE reply (published during
+    # fixture setup), so the PATCH's re-publish is not the first and adds no
+    # query here. See test_delete_query_count_is_pinned below (also
+    # unchanged) for the parallel reasoning on takedowns.
     assert len(ctx.captured_queries) == 72, len(ctx.captured_queries)
 
 

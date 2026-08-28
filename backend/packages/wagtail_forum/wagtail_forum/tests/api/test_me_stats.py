@@ -77,6 +77,115 @@ def test_me_stats_fresh_user_all_zeros():
     assert resp.data["posts"] == 0
     assert resp.data["solutions_accepted"] == 0
     assert resp.data["identifications_shared"] == 0
+    # todo 300 — key PRESENCE asserted explicitly (memory:
+    # project_drf_skipfield_silent_omission), not just value, though these
+    # are plain dict fields (not annotation-fed) so there's no vanishing-
+    # field risk here — asserted anyway for the same discipline.
+    assert "streak_days" in resp.data
+    assert resp.data["streak_days"] == 0
+    assert "badge_name" in resp.data
+    assert resp.data["badge_progress"] == 0
+    assert resp.data["badge_target"] > 0
+
+
+@pytest.mark.django_db
+def test_me_stats_streak_increments_with_next_day_activity():
+    """Posting on consecutive days increments streak_days (todo 300 AC1)."""
+    from freezegun import freeze_time
+
+    board = _board()
+    user = User.objects.create_user(username="streaker")
+    ForumProfile.for_user(user)
+    topic = Topic.objects.create(
+        board=board, title="Streak topic", slug="streak-topic", author=user
+    )
+    client = APIClient()
+    client.force_authenticate(user)
+
+    with freeze_time("2026-08-19 10:00:00"):
+        opening = Post.objects.create(
+            topic=topic, author=user, is_opening_post=True, live=False
+        )
+        opening.save_revision().publish()
+
+    with freeze_time("2026-08-20 10:00:00"):
+        reply = Post.objects.create(
+            topic=topic, author=user, is_opening_post=False, live=False
+        )
+        reply.save_revision().publish()
+
+        resp = client.get("/forum/me/stats/")
+
+    assert resp.status_code == 200
+    assert resp.data["streak_days"] == 2
+
+
+@pytest.mark.django_db
+def test_me_stats_streak_resets_after_a_gap():
+    """A day skipped in between breaks the streak (todo 300 AC1)."""
+    from freezegun import freeze_time
+
+    board = _board()
+    user = User.objects.create_user(username="gapster")
+    ForumProfile.for_user(user)
+    topic = Topic.objects.create(
+        board=board, title="Gap topic", slug="gap-topic", author=user
+    )
+    client = APIClient()
+    client.force_authenticate(user)
+
+    with freeze_time("2026-08-15 10:00:00"):
+        opening = Post.objects.create(
+            topic=topic, author=user, is_opening_post=True, live=False
+        )
+        opening.save_revision().publish()
+
+    # Nothing posted on the 16th or 17th — gap.
+    with freeze_time("2026-08-18 10:00:00"):
+        reply = Post.objects.create(
+            topic=topic, author=user, is_opening_post=False, live=False
+        )
+        reply.save_revision().publish()
+
+        resp = client.get("/forum/me/stats/")
+
+    assert resp.status_code == 200
+    assert resp.data["streak_days"] == 1  # only the 18th — the 15th is stale
+
+
+@pytest.mark.django_db
+def test_me_stats_badge_progress_reflects_identifications_shared():
+    """badge_progress tracks identifications_shared, capped at the target."""
+    from wagtail_forum.conf import get_setting
+
+    board = _board()
+    user = User.objects.create_user(username="botanist")
+    ForumProfile.for_user(user)
+    threshold = get_setting("BADGE_BOTANIST_THRESHOLD")
+
+    for i in range(3):
+        topic = Topic.objects.create(
+            board=board, title=f"ID topic {i}", slug=f"id-topic-{i}", author=user
+        )
+        image = _forum_image(user)
+        ForumIdentificationAttachment.objects.create(
+            topic=topic,
+            image=image,
+            provider="plant_id",
+            candidates=[
+                {"name": "Ficus", "scientific_name": "Ficus", "confidence": 0.9}
+            ],
+        )
+
+    client = APIClient()
+    client.force_authenticate(user)
+    resp = client.get("/forum/me/stats/")
+
+    assert resp.status_code == 200
+    assert resp.data["identifications_shared"] == 3
+    assert resp.data["badge_progress"] == 3
+    assert resp.data["badge_target"] == threshold
+    assert resp.data["badge_progress"] < resp.data["badge_target"]
 
 
 @pytest.mark.django_db

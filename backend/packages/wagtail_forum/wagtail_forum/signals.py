@@ -230,7 +230,7 @@ def _refresh_topic_authors(topic_id):
 
 @receiver(published)
 def update_counters_on_publish(sender, instance, **kwargs):
-    from .models import Post, Topic
+    from .models import ForumActivityDate, Post, Topic
 
     if isinstance(instance, Topic):
         # The API flow publishes the topic AFTER its opening post, so the post's
@@ -252,6 +252,19 @@ def update_counters_on_publish(sender, instance, **kwargs):
     if _is_first_publish(post) and not post.is_opening_post:
         notify(reply_added, sender=Post, post=post, topic=post.topic)
     _refresh_for_post(post)
+    # Day-streak activity (todo 300) — HERE only, not in _refresh_for_post
+    # (which unpublish/delete also call): a takedown must never count as a
+    # day of activity, or a moderated-away post would fabricate a streak
+    # entry. Gated on _is_first_publish (code review, same helper as the
+    # reply_added notify() above) — NOT unconditional: an unconditional
+    # call would also fire on a later-day EDIT of already-live content
+    # (submit_edit_for_moderation -> revision.publish()), fabricating a
+    # streak day for a post that already existed. First-publish still
+    # covers a moderation-delayed publish landing on a different day than
+    # the post was drafted — that's still publish #1 for this object, just
+    # a late one.
+    if _is_first_publish(post) and post.author_id is not None:
+        ForumActivityDate.record(post.author_id)
 
 
 @receiver(unpublished)
