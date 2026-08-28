@@ -1,7 +1,7 @@
 ---
-status: pending
+status: completed
 priority: p2
-issue_id: "311"
+issue_id: "318"
 tags: [web, api, plant-identification, bug]
 dependencies: []
 ---
@@ -90,10 +90,10 @@ Identify → Garden save flow in production.
 
 ## Acceptance Criteria
 
-- [ ] `saveToCollection()` calls `/api/v1/auth/me/collections/`
-- [ ] A test (unit or e2e-via-UI) exercises the real save button and fails
+- [x] `saveToCollection()` calls `/api/v1/auth/me/collections/`
+- [x] A test (unit or e2e-via-UI) exercises the real save button and fails
       before the fix, passes after
-- [ ] Manual smoke test: identify → Save to My Collection → plant appears
+- [x] Manual smoke test: identify → Save to My Collection → plant appears
       on `/my-plants`
 
 ## Work Log
@@ -105,6 +105,59 @@ Identify → Garden save flow in production.
   final-review agent) but left unfixed as out of scope for a style-only
   branch. Recommended as a follow-up in the PR body; filing the actual
   todo was deferred past the merge and is done now.
+
+### 2026-08-28 - Renumbered 311 → 318
+
+- Collided with `311-pending-p3-mobile-forum-push-tap-routing.md` (filed
+  earlier the same day, todo 293's split). This todo, filed later, was the
+  one renumbered — see `todos/archive/...` for the collision-fix PR.
+
+### 2026-08-28 - Implemented
+
+- One-line fix: `web/src/services/plantIdService.ts:109` now calls
+  `/api/v1/auth/me/collections/` instead of the dead `/users/collections/`
+  path, confirmed against `backend/apps/users/urls.py` and the URL mount
+  chain in `plant_community_backend/urls.py` (`path("auth/",
+  include("apps.users.urls"))`).
+- **The existing `saveToCollection` unit test suite in
+  `plantIdService.test.ts` had NOT caught this** — its "should save plant
+  to default collection" test asserted
+  `expect.stringContaining('/api/v1/users/collections/')`, i.e. it pinned
+  the dead route as correct rather than catching the regression. Fixed the
+  assertion to the real route.
+- **Mutation-tested**: reverted the code fix (URL back to
+  `/users/collections/`), ran the updated test — failed with the exact
+  predicted diff (`- StringContaining "/api/v1/auth/me/collections/"` vs
+  `+ "http://localhost:8000/api/v1/users/collections/"`), confirming the
+  test now actually catches this class of regression. Restored the fix,
+  re-verified green (26/26 in the file, 932/932 full suite).
+- Updated `web/e2e/canopy-areas-authenticated.spec.js`'s doc comment,
+  which had documented this exact bug as a workaround — the "pre-existing
+  bug, out of scope" framing is now stale since the app code is fixed;
+  trimmed to just the still-relevant CSRF-header deviation.
+- **Manual smoke test (AC3)**: started real `manage.py runserver` +
+  `npm run dev`, logged in as `e2e_test_user` via Chrome browser
+  automation, uploaded a real plant photo, ran a live Plant.id
+  identification (returned "Quercus petraea", 49%), clicked "Save to My
+  Collection". First attempt surfaced "No collection found. Please create
+  a collection first." — this is itself confirmation the fix works: it's
+  a real business-logic response from the actual `user_collections` view,
+  not the old routing failure. Created a collection via the same
+  authenticated session (mirroring the e2e fixture's own technique), then
+  saved successfully ("✓ Saved to Collection"), navigated to `/my-plants`,
+  and confirmed "Quercus petraea" (49%, Saved 8/28/2026) rendered there —
+  the exact flow this AC describes. Cleaned up: closed the tab, stopped
+  both dev servers, deleted the scratch test image.
+- Verification:
+
+  ```
+  $ npx tsc --noEmit
+  (clean)
+
+  $ npx vitest run
+  Test Files  84 passed (84)
+       Tests  932 passed (932)
+  ```
 
 ## Notes
 

@@ -14,20 +14,10 @@ import { test, expect } from '@playwright/test';
  * matching card so an unstamped field (the 90% confidence pill, shared by
  * every leftover fixture row) can't turn into a strict-mode multi-match.
  *
- * Two deviations from a literal reading of the frontend services this spec
- * exercises, both confirmed against real source before writing this file:
+ * One deviation from a literal reading of the frontend services this spec
+ * exercises, confirmed against real source before writing this file:
  *
- * 1. The collections endpoint is `/api/v1/auth/me/collections/`, not
- *    `/api/v1/users/collections/`. `apps/users/urls.py` (user_collections
- *    view) is mounted at `auth/` in plant_community_backend/urls.py — there
- *    is no `/api/v1/users/` mount at all. `plantIdService.saveToCollection()`
- *    calls the wrong (`/users/collections/`) path, which resolves to
- *    Wagtail's page-serving catch-all, not the collections view — verified
- *    with Django's URL resolver. That's a pre-existing bug in application
- *    code, out of scope here (no backend/app changes); this fixture uses the
- *    real, working route.
- *
- * 2. Both POSTs below carry an explicit `X-CSRFToken` header. Cookie-based
+ * 1. Both POSTs below carry an explicit `X-CSRFToken` header. Cookie-based
  *    auth enforces CSRF on mutations (CookieJWTAuthentication.enforce_csrf,
  *    apps/users/authentication.py) — the app's own fetch layer adds this
  *    header automatically (utils/csrf.ts), but Playwright's bare `request`
