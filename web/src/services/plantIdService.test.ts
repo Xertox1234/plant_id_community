@@ -373,10 +373,12 @@ describe('plantIdService', () => {
       expect(result).toEqual(mockUserPlant);
       expect(fetchMock).toHaveBeenCalledTimes(2);
 
-      // Verify collections fetch
+      // Verify collections fetch — todo 318: this used to assert the dead
+      // `/api/v1/users/collections/` route (there is no `users/` URL mount
+      // at all), so the test just pinned the bug instead of catching it.
       expect(fetchMock).toHaveBeenNthCalledWith(
         1,
-        expect.stringContaining('/api/v1/users/collections/'),
+        expect.stringContaining('/api/v1/auth/me/collections/'),
         expect.any(Object)
       );
 

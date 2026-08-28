@@ -105,8 +105,12 @@ async function saveToCollection(plantData: SavePlantInput): Promise<UserPlant> {
 
   try {
     // First, get user's collections to find the default one
+    // NOTE: `auth/me/collections/`, not `users/collections/` — there is no
+    // `users/` URL mount at all (todo 318: this 404'd via Wagtail's
+    // catch-all page-serving view, silently breaking every "Save to My
+    // Collection" click).
     const collectionsResponse = await fetch(
-      `${API_BASE_URL}/api/${API_VERSION}/users/collections/`,
+      `${API_BASE_URL}/api/${API_VERSION}/auth/me/collections/`,
       {
         credentials: 'include', // Send HttpOnly cookies
         headers: {
