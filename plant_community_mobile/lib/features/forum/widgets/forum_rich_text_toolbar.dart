@@ -32,6 +32,11 @@ TextEditingValue wrapInlineMarker(
         baseOffset: placeholderStart,
         extentOffset: placeholderStart + placeholder.length,
       ),
+      // A pre-mutation composing range (e.g. Gboard's IME composing region)
+      // can point past the end of the restructured text, tripping
+      // TextEditingController's isComposingRangeValid assert and
+      // misdirecting the next IME commit — todo 314 final review.
+      composing: TextRange.empty,
     );
   }
 
@@ -48,6 +53,7 @@ TextEditingValue wrapInlineMarker(
       baseOffset: newStart,
       extentOffset: newStart + selected.length,
     ),
+    composing: TextRange.empty,
   );
 }
 
@@ -75,12 +81,21 @@ TextEditingValue insertLink(
       ? selected
       : (override != null && override.isNotEmpty ? override : url);
 
-  final markup = '[$linkText]($url)';
+  // Percent-encode a literal ')' in the href so it can't be mistaken for the
+  // closing paren of the `[text](url)` marker syntax — e.g. a Wikipedia
+  // disambiguation link like `.../Ficus_(Moraceae)` would otherwise
+  // truncate the generator's non-greedy link regex at the embedded `)`,
+  // corrupting the href (todo 314 final review). An unencoded '(' is not
+  // ambiguous for that regex (it only searches for the next ')'), so it is
+  // left as-is.
+  final encodedUrl = url.replaceAll(')', '%29');
+  final markup = '[$linkText]($encodedUrl)';
   final newText = text.replaceRange(selection.start, selection.end, markup);
   final newOffset = selection.start + markup.length;
   return value.copyWith(
     text: newText,
     selection: TextSelection.collapsed(offset: newOffset),
+    composing: TextRange.empty,
   );
 }
 
@@ -123,6 +138,7 @@ TextEditingValue toggleListPrefix(TextEditingValue value) {
         baseOffset: lineStart,
         extentOffset: lineStart + newTouched.length,
       ),
+      composing: TextRange.empty,
     );
   }
 
@@ -155,7 +171,24 @@ TextEditingValue toggleListPrefix(TextEditingValue value) {
   return value.copyWith(
     text: newText,
     selection: TextSelection.collapsed(offset: newOffset),
+    composing: TextRange.empty,
   );
+}
+
+/// Normalizes an invalid selection (e.g. [TextEditingValue.empty]'s
+/// `TextSelection.collapsed(offset: -1)`, which a fresh, never-focused
+/// [TextEditingController] starts with) to a collapsed caret at the end of
+/// the text, so the toolbar's transform functions above always receive a
+/// valid selection to act on instead of defensively no-op'ing (todo 314
+/// final review — otherwise the first tap on any toolbar button before the
+/// body field has been focused silently does nothing).
+TextEditingValue _withValidSelection(TextEditingValue value) {
+  return value.selection.isValid
+      ? value
+      : value.copyWith(
+          selection: TextSelection.collapsed(offset: value.text.length),
+          composing: TextRange.empty,
+        );
 }
 
 /// The composer's rich-text toolbar (todo 314): five buttons — bold,
@@ -173,7 +206,7 @@ class ForumRichTextToolbar extends StatelessWidget {
 
   void _wrap(String marker, {String placeholder = ''}) {
     controller.value = wrapInlineMarker(
-      controller.value,
+      _withValidSelection(controller.value),
       marker,
       placeholder: placeholder,
     );
@@ -241,7 +274,10 @@ class ForumRichTextToolbar extends StatelessWidget {
         },
       );
       if (url == null) return;
-      controller.value = insertLink(controller.value, url: url);
+      controller.value = insertLink(
+        _withValidSelection(controller.value),
+        url: url,
+      );
     } finally {
       urlController.dispose();
     }
@@ -276,7 +312,9 @@ class ForumRichTextToolbar extends StatelessWidget {
           icon: const Icon(Icons.format_list_bulleted),
           tooltip: 'Bulleted list',
           onPressed: () {
-            controller.value = toggleListPrefix(controller.value);
+            controller.value = toggleListPrefix(
+              _withValidSelection(controller.value),
+            );
           },
         ),
       ],

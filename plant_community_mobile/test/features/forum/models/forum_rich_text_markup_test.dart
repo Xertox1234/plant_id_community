@@ -236,6 +236,19 @@ void main() {
         'rejected', () {
       expect(parseForumRichHtmlToMarkup('<code>a`b</code>'), isNull);
     });
+
+    test('an <a href> containing a literal ) is unrepresentable in the '
+        '[text](url) grammar (the generator\'s non-greedy link regex would '
+        'truncate at it) and is rejected rather than silently corrupted — '
+        'mirrors the literal-backtick-in-<code> rejection above (todo 314 '
+        'final review)', () {
+      expect(
+        parseForumRichHtmlToMarkup(
+          '<a href="https://en.wikipedia.org/wiki/Ficus_(Moraceae)">Ficus</a>',
+        ),
+        isNull,
+      );
+    });
   });
 
   group('escapeMarkerChars', () {

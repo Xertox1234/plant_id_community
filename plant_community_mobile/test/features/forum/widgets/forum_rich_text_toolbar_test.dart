@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plant_community_mobile/features/forum/models/forum_rich_text_markup.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_rich_text_toolbar.dart';
 
 void main() {
@@ -92,6 +93,41 @@ void main() {
       final result = insertLink(value, url: 'javascript:alert(1)');
       expect(result, same(value));
     });
+
+    test('a literal ) in the URL is percent-encoded so it round-trips '
+        'through the generator\'s non-greedy link regex instead of '
+        'truncating the href — e.g. a Wikipedia disambiguation link '
+        '(todo 314 final review)', () {
+      final value = const TextEditingValue(
+        text: '',
+        selection: TextSelection.collapsed(offset: 0),
+      );
+      final result = insertLink(
+        value,
+        url: 'https://en.wikipedia.org/wiki/Ficus_(Moraceae)',
+      );
+      expect(
+        result.text,
+        '[https://en.wikipedia.org/wiki/Ficus_(Moraceae)]'
+        '(https://en.wikipedia.org/wiki/Ficus_(Moraceae%29)',
+      );
+      // The generated HTML must carry the FULL href, not truncate at the
+      // embedded ')' and leave a stray ')' as trailing literal text.
+      final html = generateForumRichHtml(result.text);
+      expect(
+        html,
+        '<a href="https://en.wikipedia.org/wiki/Ficus_(Moraceae%29">'
+        'https://en.wikipedia.org/wiki/Ficus_(Moraceae)</a>',
+      );
+      // The parser's new literal-')' guard (forum_rich_text_markup.dart)
+      // must NOT fire on the toolbar's own encoded output — otherwise a
+      // post this feature just created could never be re-opened for
+      // editing. Full round trip: parse this HTML back to marker text, then
+      // regenerate — must reproduce the same HTML.
+      final reparsed = parseForumRichHtmlToMarkup(html);
+      expect(reparsed, isNotNull);
+      expect(generateForumRichHtml(reparsed!), html);
+    });
   });
 
   group('toggleListPrefix', () {
@@ -176,6 +212,21 @@ void main() {
       );
       expect(toggleListPrefix(value), same(value));
     });
+
+    test('a stale composing range left over from the pre-mutation text is '
+        'cleared, not carried through — a composing range valid for the '
+        'OLD (longer) text can point past the end of the NEW (shortened) '
+        'text and trip TextEditingController\'s isComposingRangeValid '
+        'assert (todo 314 final review)', () {
+      final value = const TextEditingValue(
+        text: '- hello',
+        selection: TextSelection.collapsed(offset: 7),
+        composing: TextRange(start: 2, end: 7), // valid for '- hello'
+      );
+      final result = toggleListPrefix(value);
+      expect(result.text, 'hello');
+      expect(result.composing, TextRange.empty);
+    });
   });
 
   group('ForumRichTextToolbar widget', () {
@@ -231,6 +282,36 @@ void main() {
       await tester.pump();
 
       expect(controller.text, 'hello **world**');
+    });
+
+    testWidgets('tapping a toolbar button before the body field has ever '
+        'been focused still mutates the text, instead of silently no-op\'ing '
+        'against the fresh controller\'s invalid TextEditingValue.empty '
+        'selection (todo 314 final review)', (tester) async {
+      // A fresh TextEditingController — never assigned a selection, never
+      // focused — starts at TextEditingValue.empty, whose selection is
+      // collapsed(offset: -1) and therefore invalid.
+      final controller = TextEditingController();
+      expect(controller.value.selection.isValid, isFalse);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                ForumRichTextToolbar(controller: controller),
+                TextField(controller: controller),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byIcon(Icons.format_bold));
+      await tester.pump();
+
+      expect(controller.text, isNot(isEmpty));
+      expect(controller.text, '****');
     });
   });
 }

@@ -257,7 +257,19 @@ String? _renderLineMarkup(List<dom.Node> nodes) {
         final text = _plainTextOnly(node);
         if (text == null || text.isEmpty) return null;
         final href = node.attributes['href'];
-        if (href == null || !isAllowedForumLinkHref(href)) return null;
+        // A literal ')' in the href is unrepresentable in the
+        // `[text](url)` grammar — the generator's non-greedy link regex
+        // would close at the first ')' it finds, truncating the href
+        // (todo 314 final review; mirrors the literal-backtick-in-`<code>`
+        // rejection above). Declining to round-trip is the safe choice: an
+        // old stored post with this problem falls back to the existing
+        // plain-text/warning-banner path rather than being silently
+        // corrupted.
+        if (href == null ||
+            !isAllowedForumLinkHref(href) ||
+            href.contains(')')) {
+          return null;
+        }
         buffer.write('[${escapeMarkerChars(text)}]($href)');
       default:
         return null;
