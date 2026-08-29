@@ -15,6 +15,12 @@
             "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && bash .claude/hooks/guard-worktree-isolation.sh",
             "timeout": 10,
             "statusMessage": "Checking worktree isolation..."
+          },
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && bash .claude/hooks/guard-main-branch-edit.sh",
+            "timeout": 10,
+            "statusMessage": "Checking branch..."
           }
         ]
       },
