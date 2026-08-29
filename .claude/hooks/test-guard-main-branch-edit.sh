@@ -64,6 +64,12 @@ assert_allow "on main: absolute path outside the repo is allowed" \
 assert_allow "on main: absolute path resolving into a different repo is allowed" \
   "{\"cwd\":\"$MAIN_REPO\",\"tool_input\":{\"file_path\":\"$FEATURE_REPO/backend/manage.py\"}}"
 
+assert_allow "on main: relative path with .. that escapes the repo is allowed" \
+  "{\"cwd\":\"$MAIN_REPO\",\"tool_input\":{\"file_path\":\"../outside.txt\"}}"
+
+assert_deny "on main: relative path with .. that stays inside the repo is denied" \
+  "{\"cwd\":\"$MAIN_REPO/backend\",\"tool_input\":{\"file_path\":\"../README.md\"}}"
+
 BYPASS_OUT=$(SKIP_MAIN_BRANCH_GUARD=1 bash "$HOOK" <<< "{\"cwd\":\"$MAIN_REPO\",\"tool_input\":{\"file_path\":\"$MAIN_REPO/backend/manage.py\"}}" 2>/dev/null)
 if [ -z "$BYPASS_OUT" ]; then
   echo "PASS: SKIP_MAIN_BRANCH_GUARD=1 bypasses the guard"; PASS=$((PASS+1))

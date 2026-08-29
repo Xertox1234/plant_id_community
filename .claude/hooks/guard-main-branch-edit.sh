@@ -28,26 +28,30 @@ BRANCH=$(git branch --show-current 2>/dev/null)
 CWD_TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 [ -n "$CWD_TOPLEVEL" ] || exit 0
 
-# Relative file_path resolves against $CWD, already confirmed inside this
-# repo on main — always in scope.
+# Resolve FILE_PATH to absolute (a relative path resolves against $CWD) so
+# both cases go through the same toplevel check below — a relative path
+# with ".." segments that actually escapes the repo must not be treated as
+# automatically in-scope.
 case "$FILE_PATH" in
-  /*)
-    # Compare git-resolved toplevels on both sides (not string prefixes):
-    # git internally canonicalizes symlinks (e.g. macOS /tmp -> /private/tmp)
-    # when locating a repo, so two `--show-toplevel` calls stay consistent
-    # with each other even when the raw path strings wouldn't line up.
-    DIR=$(dirname -- "$FILE_PATH")
-    # Walk up to the nearest existing ancestor — a Write into a not-yet-created
-    # nested directory has no `dirname` to `cd` into yet.
-    while [ ! -d "$DIR" ] && [ "$DIR" != "/" ]; do
-      DIR=$(dirname -- "$DIR")
-    done
-    [ -d "$DIR" ] || exit 0
-    FILE_TOPLEVEL=$(cd "$DIR" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)
-    [ "$FILE_TOPLEVEL" = "$CWD_TOPLEVEL" ] || exit 0
-    ;;
-  *) ;;
+  /*) ABS_FILE_PATH="$FILE_PATH" ;;
+  *) ABS_FILE_PATH="$CWD/$FILE_PATH" ;;
 esac
+
+# Compare git-resolved toplevels on both sides (not string prefixes): git
+# internally canonicalizes symlinks (e.g. macOS /tmp -> /private/tmp) when
+# locating a repo, so two `--show-toplevel` calls stay consistent with each
+# other even when the raw path strings wouldn't line up. `cd` itself walks
+# ".." components via real filesystem lookups, so this also correctly
+# resolves a path that escapes the repo through "..".
+DIR=$(dirname -- "$ABS_FILE_PATH")
+# Walk up to the nearest existing ancestor — a Write into a not-yet-created
+# nested directory has no `dirname` to `cd` into yet.
+while [ ! -d "$DIR" ] && [ "$DIR" != "/" ]; do
+  DIR=$(dirname -- "$DIR")
+done
+[ -d "$DIR" ] || exit 0
+FILE_TOPLEVEL=$(cd "$DIR" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)
+[ "$FILE_TOPLEVEL" = "$CWD_TOPLEVEL" ] || exit 0
 
 REASON="You're on main. Create a feature branch first (git checkout -b <name>) — this repo requires feature branches + PRs, never direct edits on main. (Bypass: SKIP_MAIN_BRANCH_GUARD=1)"
 

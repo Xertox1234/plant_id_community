@@ -6,9 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && bash .claude/hooks/inject-patterns.sh",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && bash .claude/hooks/guard-main-branch-edit.sh",
             "timeout": 10,
-            "statusMessage": "Loading binding rules for this file..."
+            "statusMessage": "Checking branch..."
           },
           {
             "type": "command",
@@ -18,9 +18,9 @@
           },
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && bash .claude/hooks/guard-main-branch-edit.sh",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo '.')\" && bash .claude/hooks/inject-patterns.sh",
             "timeout": 10,
-            "statusMessage": "Checking branch..."
+            "statusMessage": "Loading binding rules for this file..."
           }
         ]
       },
