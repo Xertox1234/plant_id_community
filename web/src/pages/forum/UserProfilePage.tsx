@@ -61,10 +61,15 @@ export default function UserProfilePage() {
     };
   }, [username]);
 
-  // Optimistic — same shape as ThreadDetailPage's handleToggleSubscription:
-  // flip the UI instantly, roll back + surface an error on failure. Single,
-  // non-list-fan-out action (unlike PostCard, blocking here affects only
-  // this one profile view), so optimistic update is safe.
+  // Optimistic flag flip for instant feedback, THEN a refetch on success —
+  // unlike a plain toggle (e.g. subscription), is_blocked and
+  // recent_topics/recent_posts are coupled server-side: PublicProfileView
+  // skips those queries entirely and returns [] once blocked. A local flip
+  // can't predict either direction's real list (blocking must clear them;
+  // unblocking must restore real content the client never received while
+  // blocked), so the refetch is required for correctness, not just polish.
+  // Rollback on failure only touches the flag — the lists were never
+  // optimistically touched, so there's nothing to restore there.
   const handleToggleBlock = async () => {
     if (!profile) return;
     const requestUsername = username;
@@ -77,6 +82,10 @@ export default function UserProfilePage() {
         await unblockUser(requestUsername);
       } else {
         await blockUser(requestUsername);
+      }
+      const fresh = await fetchUserProfile(requestUsername);
+      if (currentUsernameRef.current === requestUsername) {
+        setProfile(fresh);
       }
     } catch (err) {
       logger.error('Error toggling user block', {
@@ -185,7 +194,7 @@ export default function UserProfilePage() {
 
       {profile.is_blocked && (
         <p className="mb-6 text-sm text-ink-3">
-          You've blocked this member — their recent activity is still shown below.
+          You've blocked this member — their recent activity is hidden.
         </p>
       )}
 

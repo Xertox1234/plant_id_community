@@ -147,8 +147,10 @@ Deliberately NOT applied to `answer_accepted`/`moderation_decided` — both
 notify the recipient about their *own* content's outcome, never a blocked
 stranger's activity.
 
-**Two bugs an advisor pass caught before merge** (worth recording — neither
-showed up in the first 871-test-green backend run):
+**Three bugs an advisor pass caught before merge** (worth recording — none
+showed up in the first 871-test-green backend run or the first 957-test-green
+web run; all three were data/query-shape correctness issues invisible to
+happy-path tests whose fixtures didn't match the real contract):
 
 1. `_annotate_author_blocked` originally SKIPPED annotating for moderators
    (relying on the caller's early-out). This caused a genuine per-post N+1
@@ -175,6 +177,19 @@ showed up in the first 871-test-green backend run):
    entry per distinct block combination touching a thread — a real spend
    regression, not a free filter — and a summary is an LLM paraphrase, not
    the blocked author's verbatim text.
+3. `UserProfilePage`'s block toggle originally only flipped `is_blocked`
+   locally and left the pre-block `recent_topics`/`recent_posts` in state —
+   but `PublicProfileView` skips those queries entirely and returns `[]`
+   once blocked, so the shipped copy ("their recent activity is still shown
+   below") was actively false the moment a real block happened, and
+   unblocking couldn't restore real data the client never received while
+   blocked. Every web test's `mockProfile` fixture carried non-empty
+   activity regardless of `is_blocked`, so nothing caught it. Fixed by
+   refetching the whole profile on block/unblock success (optimistic flag
+   flip only, no optimistic list mutation) and rewriting the copy to say
+   "hidden" rather than "shown below"; both directions are now
+   regression-tested against the real `[]`-on-block, real-data-on-unblock
+   server shape.
 
 **Query-count pins**: `_should_filter_blocks`'s `has_perm()` gate costs a
 one-time (not per-row) 2-query cache-warm on the first request-scoped call
