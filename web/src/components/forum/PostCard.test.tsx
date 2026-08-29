@@ -514,6 +514,128 @@ describe('PostCard', () => {
     expect(screen.getByTitle('Report post')).toBeInTheDocument();
   });
 
+  it('shows the block control when can_block is true and onBlock is provided', () => {
+    const post = createMockPost({ can_block: true });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onBlock={vi.fn()} />
+      </BrowserRouter>
+    );
+
+    expect(screen.getByTitle('Block user')).toBeInTheDocument();
+  });
+
+  it('hides the block control when can_block is false', () => {
+    const post = createMockPost({ can_block: false });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onBlock={vi.fn()} />
+      </BrowserRouter>
+    );
+
+    expect(screen.queryByTitle('Block user')).not.toBeInTheDocument();
+  });
+
+  it('hides the block control when no onBlock/onUnblock handler is provided even if capable', () => {
+    const post = createMockPost({ can_block: true });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} />
+      </BrowserRouter>
+    );
+
+    expect(screen.queryByTitle('Block user')).not.toBeInTheDocument();
+  });
+
+  it('calls onBlock with the author username when Block is clicked', async () => {
+    const onBlock = vi.fn().mockResolvedValue(undefined);
+    const post = createMockPost({
+      can_block: true,
+      author: { username: 'noisy-neighbor', display_name: 'Noisy', avatar: null, trust_level: 1 },
+    });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onBlock={onBlock} />
+      </BrowserRouter>
+    );
+
+    await userEvent.click(screen.getByTitle('Block user'));
+
+    expect(onBlock).toHaveBeenCalledWith('noisy-neighbor');
+  });
+
+  it('shows Unblock (not Block) when is_blocked is true and the post is revealed', async () => {
+    const onUnblock = vi.fn().mockResolvedValue(undefined);
+    const post = createMockPost({
+      can_block: true,
+      is_blocked: true,
+      author: { username: 'blocked-author', display_name: 'Blocked', avatar: null, trust_level: 1 },
+    });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onUnblock={onUnblock} />
+      </BrowserRouter>
+    );
+
+    // Collapsed by default — reveal first (COLLAPSE, not HIDE: todo 284/M9).
+    await userEvent.click(screen.getByText('Show anyway'));
+
+    await userEvent.click(screen.getByTitle('Unblock user'));
+    expect(onUnblock).toHaveBeenCalledWith('blocked-author');
+    expect(screen.queryByTitle('Block user')).not.toBeInTheDocument();
+  });
+
+  it('collapses a blocked author post behind a placeholder and reveals on demand', () => {
+    const post = createMockPost({
+      is_blocked: true,
+      content_raw: 'this should not be visible until revealed',
+      author: {
+        username: 'blocked-author',
+        display_name: 'Blocked Author',
+        avatar: null,
+        trust_level: 1,
+      },
+    });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} />
+      </BrowserRouter>
+    );
+
+    expect(screen.getByText(/you've blocked/i)).toBeInTheDocument();
+    expect(screen.getByText('Blocked Author')).toBeInTheDocument();
+    expect(screen.getByText('Show anyway')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Show anyway'));
+
+    // Revealed — the real post content now renders (server never redacted it).
+    expect(screen.queryByText('Show anyway')).not.toBeInTheDocument();
+    expect(screen.getByText('Blocked Author')).toBeInTheDocument();
+  });
+
+  it('offers an inline Unblock action on the collapsed placeholder itself', async () => {
+    const onUnblock = vi.fn().mockResolvedValue(undefined);
+    const post = createMockPost({
+      is_blocked: true,
+      author: { username: 'blocked-author', display_name: 'Blocked', avatar: null, trust_level: 1 },
+    });
+
+    render(
+      <BrowserRouter>
+        <PostCard post={post} onUnblock={onUnblock} />
+      </BrowserRouter>
+    );
+
+    await userEvent.click(screen.getByText('Unblock'));
+    expect(onUnblock).toHaveBeenCalledWith('blocked-author');
+  });
+
   it('copies a permalink to the clipboard', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });

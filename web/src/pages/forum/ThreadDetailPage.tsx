@@ -21,6 +21,8 @@ import {
   deletePost,
   toggleReaction,
   reportPost,
+  blockUser,
+  unblockUser,
   subscribeToTopic,
   unsubscribeFromTopic,
   bookmarkTopic,
@@ -568,6 +570,39 @@ export default function ThreadDetailPage() {
     }
   }, []);
 
+  // Block/unblock an author (todo 284/M9). A block can affect several posts
+  // by the same author on this page, so a single-post local update (like
+  // handleToggleSolution's setThread) isn't enough — reuse the same
+  // full-refetch retry mechanism as the ForumErrorState onRetry below to
+  // bring every post's is_blocked flag back in line from the server.
+  const handleBlockAuthor = useCallback(async (username: string) => {
+    try {
+      await blockUser(username);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      logger.error('Error blocking user', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { username },
+      });
+      setNotice(err instanceof Error ? err.message : 'Failed to block user');
+    }
+  }, []);
+
+  const handleUnblockAuthor = useCallback(async (username: string) => {
+    try {
+      await unblockUser(username);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      logger.error('Error unblocking user', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { username },
+      });
+      setNotice(err instanceof Error ? err.message : 'Failed to unblock user');
+    }
+  }, []);
+
   // Open the styled delete confirmation (M24 — replaces window.confirm).
   const handleDelete = useCallback((post: Post) => {
     setPendingDelete(post);
@@ -908,6 +943,8 @@ export default function ThreadDetailPage() {
                 onDelete={handleDelete}
                 onReact={isAuthenticated ? handleReact : undefined}
                 onReport={isAuthenticated ? handleReport : undefined}
+                onBlock={isAuthenticated ? handleBlockAuthor : undefined}
+                onUnblock={isAuthenticated ? handleUnblockAuthor : undefined}
                 isSolution={isSolution}
                 // Offered only to a viewer the backend says may mark, and never
                 // on the opening post — a question is not its own answer, and

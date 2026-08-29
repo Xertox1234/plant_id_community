@@ -43,6 +43,7 @@ import type {
   RecentTopic,
   ForumExpert,
   EventHero,
+  BlockedUser,
 } from '../types/forum';
 import { slugifyTitle } from '../utils/forumUrls';
 import { htmlToBodyBlocks } from '../utils/forumBody';
@@ -304,6 +305,29 @@ export async function fetchUserProfile(username: string): Promise<ForumUserProfi
   return authenticatedFetch<ForumUserProfile>(
     `${FORUM_BASE}/users/${encodeURIComponent(username)}/`
   );
+}
+
+/** Block a member — hides their forum content and stops their reply/mention
+ * notifications reaching you (todo 284/M9). Idempotent. */
+export async function blockUser(username: string): Promise<void> {
+  await authenticatedFetch<{ blocked: boolean }>(
+    `${FORUM_BASE}/users/${encodeURIComponent(username)}/block/`,
+    { method: 'POST' }
+  );
+}
+
+/** Unblock a member. Idempotent. */
+export async function unblockUser(username: string): Promise<void> {
+  await authenticatedFetch<{ blocked: boolean }>(
+    `${FORUM_BASE}/users/${encodeURIComponent(username)}/block/`,
+    { method: 'DELETE' }
+  );
+}
+
+/** Fetch the caller's blocked members, most recently blocked first. Flat,
+ * unpaginated — matches the backend's low-cardinality contract (todo 284/M9). */
+export async function fetchBlockedUsers(): Promise<BlockedUser[]> {
+  return authenticatedFetch<BlockedUser[]>(`${FORUM_BASE}/me/blocks/`);
 }
 
 // ---------------------------------------------------------------------------

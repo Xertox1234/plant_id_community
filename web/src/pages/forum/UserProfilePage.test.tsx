@@ -1,11 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import UserProfilePage from './UserProfilePage';
 import * as forumService from '../../services/forumService';
+import { useAuth } from '../../contexts/AuthContext';
 import type { ForumUserProfile } from '../../types/forum';
 
 vi.mock('../../services/forumService');
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
+
+const mockAuth = (isAuthenticated: boolean) =>
+  ({ isAuthenticated }) as unknown as ReturnType<typeof useAuth>;
 
 function renderProfile(username = 'ada') {
   return render(
@@ -51,7 +57,12 @@ const mockProfile: ForumUserProfile = {
 };
 
 describe('UserProfilePage', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default to authenticated so the block button renders; individual tests
+    // override where the logged-out/own-profile case matters.
+    vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+  });
 
   it('renders identity, trust badge, bio, and recent-activity links', async () => {
     vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue(mockProfile);
@@ -84,5 +95,83 @@ describe('UserProfilePage', () => {
 
     expect(await screen.findByText('Profile not found')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /back to the forum/i })).toBeInTheDocument();
+  });
+
+  it('hides the block button when can_block is false (own profile, backend authority)', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
+      ...mockProfile,
+      can_block: false,
+    });
+
+    renderProfile('ada');
+
+    await screen.findByRole('heading', { name: 'Ada L.' });
+    expect(screen.queryByRole('button', { name: /block/i })).not.toBeInTheDocument();
+  });
+
+  it('hides the block button for an anonymous viewer even when can_block is true', async () => {
+    vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
+      ...mockProfile,
+      can_block: true,
+    });
+
+    renderProfile('ada');
+
+    await screen.findByRole('heading', { name: 'Ada L.' });
+    expect(screen.queryByRole('button', { name: /block/i })).not.toBeInTheDocument();
+  });
+
+  it('blocks a user optimistically and calls the service', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
+      ...mockProfile,
+      can_block: true,
+      is_blocked: false,
+    });
+    vi.spyOn(forumService, 'blockUser').mockResolvedValue(undefined);
+
+    renderProfile('ada');
+
+    const blockBtn = await screen.findByRole('button', { name: /^block$/i });
+    await userEvent.click(blockBtn);
+
+    // Optimistic — flips to "Unblock" before the request resolves.
+    expect(await screen.findByRole('button', { name: /^unblock$/i })).toBeInTheDocument();
+    expect(forumService.blockUser).toHaveBeenCalledWith('ada');
+  });
+
+  it('rolls back and shows an error when blocking fails', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
+      ...mockProfile,
+      can_block: true,
+      is_blocked: false,
+    });
+    vi.spyOn(forumService, 'blockUser').mockRejectedValue(new Error('Failed to block user'));
+
+    renderProfile('ada');
+
+    const blockBtn = await screen.findByRole('button', { name: /^block$/i });
+    await userEvent.click(blockBtn);
+
+    // Rolled back to "Block" and the failure is surfaced.
+    expect(await screen.findByText('Failed to block user')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^block$/i })).toBeInTheDocument();
+  });
+
+  it('unblocks a user optimistically and calls the service', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile').mockResolvedValue({
+      ...mockProfile,
+      can_block: true,
+      is_blocked: true,
+    });
+    vi.spyOn(forumService, 'unblockUser').mockResolvedValue(undefined);
+
+    renderProfile('ada');
+
+    const unblockBtn = await screen.findByRole('button', { name: /^unblock$/i });
+    await userEvent.click(unblockBtn);
+
+    expect(await screen.findByRole('button', { name: /^block$/i })).toBeInTheDocument();
+    expect(forumService.unblockUser).toHaveBeenCalledWith('ada');
   });
 });
