@@ -235,25 +235,45 @@ class _ThreadBody extends StatefulWidget {
   State<_ThreadBody> createState() => _ThreadBodyState();
 }
 
-/// Stateful only for [_postKeys] and the one-shot highlight scroll —
+/// Stateful only for [_highlightKey] and the one-shot highlight scroll —
 /// everything else about a topic's post list is still driven top-down from
 /// [ForumThreadScreen]'s providers.
 class _ThreadBodyState extends State<_ThreadBody> {
-  final Map<int, GlobalKey> _postKeys = {};
+  /// Only the single highlighted post (if any) ever needs a key — attached
+  /// in `itemBuilder` only when `post.id == widget.highlightPostId`. A
+  /// per-post `Map<int, GlobalKey>` was tried first and dropped (code
+  /// review): it minted a key for every rendered post that nothing else
+  /// used, leaked entries for posts that scrolled out or were deleted, and
+  /// — if a duplicate post id ever slipped past pagination with no dedup
+  /// upstream — two simultaneously-mounted widgets sharing one `GlobalKey`
+  /// would be a hard Flutter crash. A single field sidesteps all three.
+  final _highlightKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
     final targetId = widget.highlightPostId;
     if (targetId == null) return;
-    // Exactly one attempt, post-frame so this frame's build() has already
-    // populated `_postKeys`. Silent no-op if the post isn't in `_postKeys`
-    // — not yet loaded, or on a page "Load More" hasn't reached yet. No
-    // visual highlight flash and no cross-page chasing — both explicitly
-    // out of scope (todo 311).
+    // Exactly one best-effort attempt, post-frame so this frame's build()
+    // has already run.
+    //
+    // KNOWN LIMITATION (todo 311 follow-up): `ListView.separated` builds
+    // lazily — `itemBuilder` only runs for items within the viewport plus
+    // its ~250px cache extent, so `_highlightKey` only gets attached (and
+    // `currentContext` below is only non-null) when the highlighted post's
+    // widget has actually been built on this first frame. There is no
+    // search for, or scroll toward, a not-yet-built (off-screen) post —
+    // that would need index-based/ScrollController-driven scrolling, which
+    // is real new work deliberately left out of this fix. Posts in this
+    // thread are oldest-first and a `reply_added` push always targets the
+    // newest post, so on any thread longer than a screenful the target is
+    // very likely off-screen on first frame, and the scroll below silently
+    // no-ops — a known, deliberate limitation, not a bug. No visual
+    // highlight flash and no cross-page "Load More" chasing either, both
+    // also out of scope.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final postContext = _postKeys[targetId]?.currentContext;
+      final postContext = _highlightKey.currentContext;
       if (postContext == null) return;
       Scrollable.ensureVisible(
         postContext,
@@ -285,7 +305,7 @@ class _ThreadBodyState extends State<_ThreadBody> {
         }
         final post = widget.paged.items[index];
         return PostCard(
-          key: _postKeys.putIfAbsent(post.id, () => GlobalKey()),
+          key: post.id == widget.highlightPostId ? _highlightKey : null,
           post: post,
           onOpenLink: widget.onOpenLink,
           onReact: widget.onReact == null

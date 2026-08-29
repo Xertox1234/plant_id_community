@@ -46,18 +46,25 @@ Future<void> pushBackgroundMessageHandler(RemoteMessage message) async {
 ///
 /// ### The splash-screen race (cold start only — real bug, fixed here)
 /// `SplashScreen` unconditionally calls `context.go(AppRoutes.home)` ~1.8s
-/// after mount (a progress timer, then a settle delay). A cold-start push
-/// that resolves before that timer fires would otherwise get silently wiped
-/// out when splash reroutes to `/home` out from under it. The fix: on cold
-/// start ONLY, this service calls `router.go(AppRoutes.home)` immediately
-/// before `router.pushNamed('forumTopic', ...)`. That either pre-empts
-/// splash's own `go(home)` (splash's `dispose()` runs, and its timer
-/// callback's existing `if (!mounted) { timer.cancel(); return; }` guard
-/// makes the now-orphaned timer a no-op on its next tick), or is a harmless
-/// no-op if splash's timer already fired first. This step is deliberately
-/// **not** applied on warm resume — the user could be anywhere in the app,
-/// and forcing a detour through home would discard whatever screen they
-/// were on.
+/// after mount: a periodic progress timer ticks up to 100, cancels itself,
+/// then chains a further `Future.delayed(300ms, () { if (mounted)
+/// context.go(AppRoutes.home); })`. A cold-start push that resolves before
+/// that delayed callback fires would otherwise get silently wiped out when
+/// splash reroutes to `/home` out from under it. The fix: on cold start
+/// ONLY, this service calls `router.go(AppRoutes.home)` immediately before
+/// `router.pushNamed('forumTopic', ...)`. That either pre-empts splash's own
+/// `go(home)` — splash's `dispose()` runs before its chained
+/// `Future.delayed` callback fires, so that callback's own `if (mounted)`
+/// guard (not the periodic timer's separate `if (!mounted) { timer.cancel();
+/// return; }` guard, which only ever gates the timer's tick loop) makes the
+/// call a no-op — or is a harmless no-op here if splash's `go(home)` already
+/// ran first. Splash also stays mounted briefly after its own `go(home)`
+/// runs (exit transition), so a residual race window remains: a
+/// pathologically slow cold-start resolution could still lose to it. That's
+/// a known, accepted risk, not something this fix eliminates. This step is
+/// deliberately **not** applied on warm resume — the user could be anywhere
+/// in the app, and forcing a detour through home would discard whatever
+/// screen they were on.
 class PushMessageRouterService {
   PushMessageRouterService(this.routerAccessor) {
     _openedAppSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
