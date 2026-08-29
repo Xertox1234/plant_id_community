@@ -97,6 +97,8 @@ export interface BackendPost {
   can_edit: boolean;
   can_delete: boolean;
   can_report: boolean;
+  is_blocked?: boolean;
+  can_block?: boolean;
 }
 
 /**
@@ -256,6 +258,8 @@ export function mapPostToPost(p: BackendPost, threadId: string): Post {
     can_edit: p.can_edit,
     can_delete: p.can_delete,
     can_report: p.can_report,
+    is_blocked: p.is_blocked ?? false,
+    can_block: p.can_block ?? false,
   };
 }
 
@@ -294,6 +298,8 @@ export function mapSearchPostToPost(p: BackendSearchPost): Post {
     can_edit: false,
     can_delete: false,
     can_report: false,
+    is_blocked: false,
+    can_block: false,
     topic_title: p.topic_title,
     topic_slug: p.topic_slug,
     board_id: p.board_id,

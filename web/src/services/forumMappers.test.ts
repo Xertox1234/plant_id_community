@@ -354,6 +354,50 @@ describe('forumMappers (wagtail_forum contract)', () => {
     expect(p.reacted).toEqual([]); // absent in payload → defaults to []
   });
 
+  it('mapPostToPost carries is_blocked/can_block (todo 284/M9)', () => {
+    const p = mapPostToPost(
+      {
+        id: 53,
+        topic_id: 12,
+        author: { username: 'u', display_name: 'U', avatar: null, trust_level: null },
+        body: [],
+        created_at: '2026-01-01T00:00:00Z',
+        is_opening_post: false,
+        status: 'live',
+        reaction_counts: {},
+        can_edit: false,
+        can_delete: false,
+        can_report: false,
+        is_blocked: true,
+        can_block: true,
+      },
+      '12'
+    );
+    expect(p.is_blocked).toBe(true);
+    expect(p.can_block).toBe(true);
+  });
+
+  it('mapPostToPost defaults is_blocked/can_block to false when absent', () => {
+    const p = mapPostToPost(
+      {
+        id: 54,
+        topic_id: 12,
+        author: { username: 'u', display_name: 'U', avatar: null, trust_level: null },
+        body: [],
+        created_at: '2026-01-01T00:00:00Z',
+        is_opening_post: false,
+        status: 'live',
+        reaction_counts: {},
+        can_edit: false,
+        can_delete: false,
+        can_report: false,
+      },
+      '12'
+    );
+    expect(p.is_blocked).toBe(false);
+    expect(p.can_block).toBe(false);
+  });
+
   // -------------------------------------------------------------------------
   // Search mappers
   // -------------------------------------------------------------------------
@@ -384,6 +428,10 @@ describe('forumMappers (wagtail_forum contract)', () => {
       excerpt: 'Some excerpt',
     });
     expect(p).toMatchObject({ id: '99', thread: '7', content_raw: 'Some excerpt' });
+    // Search results never carry these (todo 284/M9) — honest false sentinel,
+    // not an omission (matches this file's can_edit/can_delete/can_report rule).
+    expect(p.is_blocked).toBe(false);
+    expect(p.can_block).toBe(false);
   });
 
   const backendSearchTopic = {

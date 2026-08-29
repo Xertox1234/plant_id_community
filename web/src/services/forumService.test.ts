@@ -14,6 +14,9 @@ import {
   markSolution,
   clearSolution,
   unsubscribeFromTopic,
+  blockUser,
+  unblockUser,
+  fetchBlockedUsers,
   uploadPostImage,
   searchForum,
   searchForumUsers,
@@ -489,6 +492,42 @@ describe('forumService (wagtail_forum API contract)', () => {
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toContain('/topics/12/subscription/');
     expect(opts.method).toBe('DELETE');
+  });
+
+  it('blockUser POSTs to /users/{username}/block/ (todo 284/M9)', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ blocked: true }));
+    await blockUser('noisy-neighbor');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/users/noisy-neighbor/block/');
+    expect(opts.method).toBe('POST');
+  });
+
+  it('unblockUser DELETEs /users/{username}/block/', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ blocked: false }));
+    await unblockUser('noisy-neighbor');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/users/noisy-neighbor/block/');
+    expect(opts.method).toBe('DELETE');
+  });
+
+  it('fetchBlockedUsers GETs /me/blocks/', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson([
+        {
+          username: 'noisy-neighbor',
+          display_name: 'Noisy Neighbor',
+          avatar: null,
+          trust_level: 1,
+          title: '',
+          blocked_at: '2026-08-01T00:00:00Z',
+        },
+      ])
+    );
+    const result = await fetchBlockedUsers();
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain('/me/blocks/');
+    expect(result).toHaveLength(1);
+    expect(result[0].username).toBe('noisy-neighbor');
   });
 
   it('markSolution POSTs the post id to /topics/{id}/solution/', async () => {

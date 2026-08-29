@@ -1,6 +1,6 @@
 import { memo, useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Flag, Link2, Pencil, Trash2 } from 'lucide-react';
+import { Check, Flag, Link2, Pencil, Trash2, UserCheck, UserX } from 'lucide-react';
 import StreamFieldRenderer from '../StreamFieldRenderer';
 import EditHistoryDialog from './EditHistoryDialog';
 import Timestamp from '../ui/Timestamp';
@@ -18,6 +18,10 @@ interface PostCardProps {
   onDelete?: (post: Post) => void;
   onReact?: (postId: string, reactionType: string) => void;
   onReport?: (postId: string, reason: string) => Promise<void>;
+  /** Block/unblock this post's author (todo 284/M9). Same triple-gate
+   * discipline as onReport: visibility is `post.can_block && handler`. */
+  onBlock?: (username: string) => Promise<void>;
+  onUnblock?: (username: string) => Promise<void>;
   /** Whether this post is the topic's accepted answer (audit H6). */
   isSolution?: boolean;
   /**
@@ -62,19 +66,31 @@ function PostCard({
   onDelete,
   onReact,
   onReport,
+  onBlock,
+  onUnblock,
   isSolution = false,
   onToggleSolution,
 }: PostCardProps) {
-  // Edit/delete/report visibility is driven by the backend capability flags
-  // (PostSerializer.can_edit/can_delete/can_report) — the only authority on
-  // author-or-mod (edit/delete) and not-the-author (report).
+  // Edit/delete/report/block visibility is driven by the backend capability
+  // flags (PostSerializer.can_edit/can_delete/can_report/can_block) — the
+  // only authority on author-or-mod (edit/delete) and not-the-author
+  // (report/block).
   const showEdit = !!post.can_edit && !!onEdit;
   const showDelete = !!post.can_delete && !!onDelete;
   const showReport = !!post.can_report && !!onReport;
+  const showBlockAction = !!post.can_block && !!(onBlock || onUnblock);
   const [isReporting, setIsReporting] = useState(false);
   const [reportReason, setReportReason] = useState<string>(REPORT_REASONS[0].value);
   const [hasReported, setHasReported] = useState(false);
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  const [isBlockActionPending, setIsBlockActionPending] = useState(false);
+  // Local-only: reveals a collapsed (is_blocked) post without a refetch — the
+  // real author/body are already in the payload (server doesn't redact).
+  // Deliberately NOT tracking a local "just blocked/unblocked" flag: blocking
+  // an author can affect every OTHER post by them on the page too, so the
+  // handler is called as-is and the parent's refetch is the only source of
+  // truth for post.is_blocked (todo 284/M9).
+  const [revealed, setRevealed] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   // Stable identity: EditHistoryDialog's focus effect depends on [open,
@@ -91,6 +107,68 @@ function PostCard({
   // deleted author ([deleted] sentinel) has no profile, so render plain.
   const authorHref =
     post.author.username === DELETED_AUTHOR_USERNAME ? null : userProfilePath(post.author.username);
+
+  // Same non-optimistic contract as submitReport: call the handler and let
+  // the parent's refetch update post.is_blocked. Guards against a double
+  // click while the request is in flight; does not fabricate success.
+  const handleBlock = async () => {
+    if (!onBlock) return;
+    setIsBlockActionPending(true);
+    try {
+      await onBlock(post.author.username);
+    } finally {
+      setIsBlockActionPending(false);
+    }
+  };
+
+  const handleUnblock = async () => {
+    if (!onUnblock) return;
+    setIsBlockActionPending(true);
+    try {
+      await onUnblock(post.author.username);
+    } finally {
+      setIsBlockActionPending(false);
+    }
+  };
+
+  // Collapsed placeholder for a blocked author's post (todo 284/M9) — COLLAPSE,
+  // not HIDE: removing a reply mid-thread would break numbering/reply-count
+  // continuity. The real content is already in `post` (server doesn't
+  // redact); "Show anyway" is a local, no-refetch reveal.
+  if (post.is_blocked && !revealed) {
+    return (
+      <Card className="p-5 sm:p-6">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-sm text-ink-3">
+            You've blocked{' '}
+            <span className="font-medium text-ink">
+              {post.author.display_name || post.author.username}
+            </span>
+            .
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setRevealed(true)}
+              className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-3 rounded-pill"
+            >
+              Show anyway
+            </button>
+            {onUnblock && (
+              <button
+                type="button"
+                onClick={handleUnblock}
+                disabled={isBlockActionPending}
+                className="min-h-11 px-3 py-1 text-sm text-primary hover:bg-primary/10 rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <UserCheck className="h-3.5 w-3.5" aria-hidden="true" /> Unblock
+              </button>
+            )}
+          </div>
+        </div>
+      </Card>
+    );
+  }
 
   const handleCopyLink = async () => {
     const url = `${window.location.origin}${window.location.pathname}#post-${post.id}`;
@@ -340,56 +418,82 @@ function PostCard({
         </div>
       )}
 
-      {/* Report — never shown to the post's own author (can_report is the
-          backend authority; mirrors can_edit/can_delete). */}
-      {showReport && (
-        <div className="flex justify-end pt-3 border-t border-line">
-          {hasReported ? (
-            <span className="gt-label italic">Reported</span>
-          ) : isReporting ? (
-            <div className="flex items-center gap-2">
-              <label htmlFor={`report-reason-${post.id}`} className="sr-only">
-                Report reason
-              </label>
-              <select
-                id={`report-reason-${post.id}`}
-                value={reportReason}
-                onChange={(e) => setReportReason(e.target.value)}
-                className="text-sm border border-line rounded-sm px-2 py-1 bg-surface"
-              >
-                {REPORT_REASONS.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
+      {/* Trust & safety row — Block/Unblock and Report never show for the
+          post's own author (can_block/can_report are the backend authority;
+          mirrors can_edit/can_delete). */}
+      {(showBlockAction || showReport) && (
+        <div className="flex justify-end items-center gap-2 pt-3 border-t border-line">
+          {showBlockAction &&
+            (post.is_blocked
+              ? onUnblock && (
+                  <button
+                    type="button"
+                    onClick={handleUnblock}
+                    disabled={isBlockActionPending}
+                    className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-3 rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50"
+                    title="Unblock user"
+                  >
+                    <UserCheck className="h-3.5 w-3.5" aria-hidden="true" /> Unblock
+                  </button>
+                )
+              : onBlock && (
+                  <button
+                    type="button"
+                    onClick={handleBlock}
+                    disabled={isBlockActionPending}
+                    className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:text-error hover:bg-error/10 rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50"
+                    title="Block user"
+                  >
+                    <UserX className="h-3.5 w-3.5" aria-hidden="true" /> Block
+                  </button>
                 ))}
-              </select>
+          {showReport &&
+            (hasReported ? (
+              <span className="gt-label italic">Reported</span>
+            ) : isReporting ? (
+              <div className="flex items-center gap-2">
+                <label htmlFor={`report-reason-${post.id}`} className="sr-only">
+                  Report reason
+                </label>
+                <select
+                  id={`report-reason-${post.id}`}
+                  value={reportReason}
+                  onChange={(e) => setReportReason(e.target.value)}
+                  className="text-sm border border-line rounded-sm px-2 py-1 bg-surface"
+                >
+                  {REPORT_REASONS.map((r) => (
+                    <option key={r.value} value={r.value}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={submitReport}
+                  disabled={isSubmittingReport}
+                  className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded-pill disabled:opacity-50"
+                >
+                  Submit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsReporting(false)}
+                  disabled={isSubmittingReport}
+                  className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-2 rounded-pill disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
               <button
                 type="button"
-                onClick={submitReport}
-                disabled={isSubmittingReport}
-                className="min-h-11 px-3 py-1 text-sm text-error hover:bg-error/10 rounded-pill disabled:opacity-50"
+                onClick={() => setIsReporting(true)}
+                className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:text-error hover:bg-error/10 rounded-pill inline-flex items-center gap-1.5"
+                title="Report post"
               >
-                Submit
+                <Flag className="h-3.5 w-3.5" aria-hidden="true" /> Report
               </button>
-              <button
-                type="button"
-                onClick={() => setIsReporting(false)}
-                disabled={isSubmittingReport}
-                className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-2 rounded-pill disabled:opacity-50"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsReporting(true)}
-              className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:text-error hover:bg-error/10 rounded-pill inline-flex items-center gap-1.5"
-              title="Report post"
-            >
-              <Flag className="h-3.5 w-3.5" aria-hidden="true" /> Report
-            </button>
-          )}
+            ))}
         </div>
       )}
 

@@ -947,6 +947,58 @@ describe('ThreadDetailPage', () => {
     expect(screen.queryByText('Reported')).not.toBeInTheDocument();
   });
 
+  it('blocks a post author and refetches the thread (todo 284/M9)', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [createMockPost({ id: '5', can_block: true })],
+      meta: { count: 0, next: null, previous: null },
+    });
+    vi.spyOn(forumService, 'blockUser').mockResolvedValue(undefined);
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByTitle('Block user'));
+
+    expect(forumService.blockUser).toHaveBeenCalledWith('testuser');
+    // setReloadKey triggers a full refetch — the initial mount call plus one more.
+    await waitFor(() => expect(forumService.fetchPosts).toHaveBeenCalledTimes(2));
+  });
+
+  it('shows an error notice when blocking fails and does not refetch', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [createMockPost({ id: '5', can_block: true })],
+      meta: { count: 0, next: null, previous: null },
+    });
+    vi.spyOn(forumService, 'blockUser').mockRejectedValue(new Error('Failed to block user'));
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByTitle('Block user'));
+
+    await screen.findByText('Failed to block user');
+    expect(forumService.fetchPosts).toHaveBeenCalledTimes(1);
+  });
+
+  it('unblocks a post author and refetches the thread', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [createMockPost({ id: '5', can_block: true, is_blocked: true })],
+      meta: { count: 0, next: null, previous: null },
+    });
+    vi.spyOn(forumService, 'unblockUser').mockResolvedValue(undefined);
+
+    renderThreadDetailPage();
+
+    // Collapsed by default (is_blocked) — the inline placeholder Unblock works
+    // without revealing first (a convenience, distinct from the header-row
+    // Unblock which requires reveal).
+    await userEvent.click(await screen.findByText('Unblock'));
+
+    expect(forumService.unblockUser).toHaveBeenCalledWith('testuser');
+    await waitFor(() => expect(forumService.fetchPosts).toHaveBeenCalledTimes(2));
+  });
+
   it('edits a post and shows the new body', async () => {
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread());
     vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({

@@ -162,6 +162,13 @@ export interface Post {
   can_edit?: boolean;
   can_delete?: boolean;
   can_report?: boolean;
+  /** Whether the viewer has blocked this post's author (todo 284/M9). The
+   * row is delivered in full (server doesn't redact) — PostCard collapses
+   * it client-side with a local reveal toggle. */
+  is_blocked?: boolean;
+  /** Whether the viewer may block this post's author — false for their own
+   * posts and for anonymous viewers. */
+  can_block?: boolean;
 }
 
 /**
@@ -297,6 +304,23 @@ export interface ForumUserProfile {
     board_slug: string;
     created_at: string;
   }[];
+  /** Whether the viewer has blocked this profile's user (todo 284/M9).
+   * recent_topics/recent_posts are still returned in full when true — the
+   * page renders its own blocked notice, not a server-side redaction. */
+  is_blocked?: boolean;
+  /** Whether the viewer may block this user — false for their own profile
+   * and for anonymous viewers. */
+  can_block?: boolean;
+}
+
+/** GET me/blocks/ row (todo 284/M9) — a member the viewer has blocked. */
+export interface BlockedUser {
+  username: string;
+  display_name: string;
+  avatar: string | null;
+  trust_level: number | null;
+  title: string;
+  blocked_at: string;
 }
 
 /** GET me/stats/ — all-time counts ("Your season" cards, todo 300). */
