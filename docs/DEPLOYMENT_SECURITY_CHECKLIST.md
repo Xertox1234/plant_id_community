@@ -632,19 +632,37 @@ service firebase.storage {
   await dotenv.load(fileName: ".env");
   ```
 
-- [ ] **iOS APNs entitlement switched to `production`** (blocks App Store submission)
+- [ ] **iOS APNs provisioning complete** (blocks App Store submission)
 
-  `ios/Runner/Runner.entitlements` ships `aps-environment` = `development`, and
-  `CODE_SIGN_ENTITLEMENTS` wires that one file into **all three** build configs
-  (Debug, Profile, Release — `Runner.xcodeproj/project.pbxproj`). A
-  Distribution-signed archive therefore carries a development APNs entitlement,
-  which App Store Connect validation rejects. Do this together with real APNs
-  provisioning — either flip the value, or split per-config entitlements files
-  so the dev loop keeps working. Tracked as todo 286.
+  The entitlements half is **done** (todo 286): per-config files now exist —
+  Release resolves `ios/Runner/RunnerRelease.entitlements` (`aps-environment` =
+  `production`), while Debug and Profile stay on `ios/Runner/Runner.entitlements`
+  (`development`) so the on-device dev push loop keeps working. Verify per
+  config:
 
   ```bash
-  grep -A1 aps-environment plant_community_mobile/ios/Runner/Runner.entitlements
+  cd plant_community_mobile/ios
+  for c in Debug Profile Release; do
+    xcodebuild -workspace Runner.xcworkspace -scheme Runner \
+      -configuration $c -showBuildSettings | grep CODE_SIGN_ENTITLEMENTS
+  done
   ```
+
+  **Still outstanding** — tick this box only once all three hold:
+
+  1. APNs authentication key created in the Apple Developer account and
+     uploaded to the Firebase console (iOS app → Cloud Messaging → APNs
+     Authentication Key).
+  2. A Distribution-signed archive confirms the embedded value (reading the
+     source file is not sufficient — it must match the signing certificate):
+
+     ```bash
+     flutter build ipa --release
+     codesign -d --entitlements :- \
+       build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app
+     ```
+
+  3. A device push received end-to-end from a TestFlight build.
 
 - [ ] **Production build** tested
 

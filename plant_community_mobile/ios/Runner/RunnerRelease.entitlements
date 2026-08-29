@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+	Release-configuration entitlements (todo 286). Wired into the Release build
+	config only, via CODE_SIGN_ENTITLEMENTS in Runner.xcodeproj/project.pbxproj;
+	Debug and Profile stay on Runner.entitlements with `development`, which keeps
+	the on-device dev push loop (`flutter run`) working.
+
+	`production` is what a Distribution-signed archive must carry — App Store
+	Connect validation rejects a `development` APNs entitlement. Keep any future
+	entitlement added to Runner.entitlements mirrored here.
+
+	Still outstanding before the first TestFlight/App Store archive: the APNs
+	authentication key must exist in the Apple Developer account and be uploaded
+	to the Firebase console (iOS app -> Cloud Messaging -> APNs Authentication
+	Key). The entitlement value only matters once it matches real provisioning.
+	See docs/DEPLOYMENT_SECURITY_CHECKLIST.md -> Mobile (Flutter).
+-->
+<dict>
+	<key>aps-environment</key>
+	<string>production</string>
+</dict>
+</plist>
