@@ -78,3 +78,14 @@ Compact checklist auto-injected before edits. Long-form:
   no-ops. This is not a deep-link mechanism for anything below the fold;
   reaching an off-screen item needs index/`ScrollController`-based
   scrolling instead.
+- **After editing ANY `@riverpod`-annotated function's BODY** — not just
+  when adding a new provider — re-run `build_runner` and `git diff
+  --exit-code` the specific `.g.dart` file(s) whose source changed, even if
+  a regen already ran earlier in the same session for an unrelated
+  addition. The embedded content hash changes on any body edit; a stale
+  hash is invisible to local `flutter test`/`flutter analyze` and to a
+  read-only code review (which cannot run the mutating regen+diff check
+  itself) — only a fresh-checkout CI regen catches it, after push. Treat
+  `flutter pub run build_runner build --delete-conflicting-outputs && git
+  diff --exit-code -- lib test` as its own explicit pre-push step, not
+  something "run flutter test" already covers.

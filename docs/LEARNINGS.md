@@ -3287,3 +3287,51 @@ be corrected so it doesn't misread as one.
 before writing the plan, not after an implementer hits the wall. If
 genuine cross-file reuse is wanted, the fix belongs in a follow-up
 (extract to a shared widgets file), not in the plan's confident wording.
+
+## 2026-08-29 — A stale `.g.dart` hash shipped through implementation, task review, AND final review — CI's fresh regen was the only thing that caught it (todo 317)
+
+**What happened:** todo 317 added a new `GoRoute` to `appRouter()`'s route
+list in `app_router.dart` — a body edit, not a signature change. This
+project's own documented Riverpod gotcha (`CLAUDE.md`,
+`docs/rules/flutter.md`) is explicit that the generated hash constant
+changes on ANY body edit, "even deleting an unrelated method." A
+`build_runner` regen was run for the task (to generate the new
+`ForumUserProfile` provider), but `app_router.g.dart`'s hash was not
+re-verified against the ALSO-edited `app_router.dart` — and nothing in the
+task's own review chain caught it: not the implementer's self-review, not
+the task-level reviewer, not the final whole-branch reviewer. The PR's
+fresh-checkout CI (`git diff --exit-code -- lib test` after a real
+`build_runner build`) failed with a one-line hash mismatch — the exact
+mechanism this project's CI gate exists for.
+
+**Why three review passes missed it:** local `flutter test`/`flutter
+analyze` never regenerate codegen, so a stale hash is invisible to both —
+this is explicitly called out in `docs/rules/flutter.md` already. But the
+deeper gap here is process: every reviewer in the SDD loop (task review,
+final review, scoped re-review) was deliberately kept READ-ONLY on the
+worktree ("do not run any Bash command that writes/mutates") precisely to
+avoid mutating a checkout under concurrent review — which also means none
+of them could run a fresh `build_runner build` themselves to check for
+exactly this class of staleness. The check that would have caught it
+(regen + diff) is inherently a MUTATING one, structurally excluded from
+every review stage by design, and the one place it does run
+(fresh-checkout CI) runs only after push.
+
+**Resolution:** ran `flutter pub run build_runner build
+--delete-conflicting-outputs` fresh in the worktree post-push, confirmed
+only the hash constant changed (no other drift), re-ran `flutter
+test`/`flutter analyze` (still green), committed and pushed the fix.
+
+**Rule:** when a `@riverpod`-annotated function's BODY changes for any
+reason — not just when a NEW provider is added — re-run `build_runner`
+and diff the specific `.g.dart` file(s) whose source changed, even if a
+regen already ran earlier in the same task for an unrelated addition. A
+regen's output is a snapshot of everything at the moment it ran; a later
+edit to a different already-`@riverpod`-annotated file needs its own
+check, not a re-use of an earlier regen's clean result. **Process
+corollary:** since every review stage in this workflow is deliberately
+read-only and cannot run this mutating check itself, `git diff
+--exit-code -- lib test` after a genuine `build_runner build` belongs in
+the IMPLEMENTER's own pre-commit verification checklist as an explicit,
+separate step — not folded into "run flutter test" — since it is the one
+class of staleness no read-only review pass can ever catch.
