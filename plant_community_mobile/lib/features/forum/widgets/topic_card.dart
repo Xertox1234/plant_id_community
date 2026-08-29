@@ -3,14 +3,25 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../forum_format.dart';
 import '../models/models.dart';
+import 'author_identity.dart';
 
 /// A topic row in a board listing: title, author, reply/view stats, and
 /// pinned/locked/unread markers.
 class TopicCard extends StatelessWidget {
-  const TopicCard({super.key, required this.topic, this.onTap});
+  const TopicCard({
+    super.key,
+    required this.topic,
+    this.onTap,
+    this.onAuthorTap,
+  });
 
   final ForumTopicListItem topic;
   final VoidCallback? onTap;
+
+  /// Called when the author identity is tapped — the caller navigates to
+  /// the author's public profile. `null` (or a deleted author) renders no
+  /// tap affordance at all (see [AuthorIdentity]).
+  final VoidCallback? onAuthorTap;
 
   @override
   Widget build(BuildContext context) {
@@ -64,10 +75,11 @@ class TopicCard extends StatelessWidget {
               Row(
                 children: [
                   Flexible(
-                    child: Text(
-                      topic.author.name,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
+                    child: AuthorIdentity(
+                      author: topic.author,
+                      onTap: onAuthorTap,
+                      avatarRadius: 12,
+                      nameStyle: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),

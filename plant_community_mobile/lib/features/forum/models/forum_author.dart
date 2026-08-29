@@ -12,6 +12,7 @@ class ForumAuthor {
     required this.displayName,
     this.avatar,
     this.trustLevel,
+    this.title = '',
   });
 
   final String username;
@@ -23,6 +24,10 @@ class ForumAuthor {
   /// Integer trust level (0-4) or `null` when the user has no forum profile.
   /// See [trustLevelLabel] for the human label.
   final int? trustLevel;
+
+  /// Optional user-set forum title (e.g. "Plant Whisperer"), or `''` when
+  /// unset. The `[deleted]` sentinel also sends `''`.
+  final String title;
 
   /// Sentinel username the backend uses for a deleted author.
   static const String deletedUsername = '[deleted]';
@@ -38,6 +43,7 @@ class ForumAuthor {
           deletedUsername,
       avatar: json['avatar'] as String?,
       trustLevel: json['trust_level'] as int?,
+      title: json['title'] as String? ?? '',
     );
   }
 

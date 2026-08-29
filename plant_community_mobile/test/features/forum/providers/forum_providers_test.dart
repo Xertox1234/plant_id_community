@@ -297,6 +297,31 @@ void main() {
     });
   });
 
+  group('ForumUserProfile (todo 317)', () {
+    test('fetches the profile for the given username', () async {
+      final fixture = profile(username: 'alice', bio: 'I grow monsteras.');
+      final api = FakeForumApi()..profile = fixture;
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+
+      final result = await container.read(
+        forumUserProfileProvider('alice').future,
+      );
+
+      expect(result.author.username, 'alice');
+      expect(result.bio, 'I grow monsteras.');
+    });
+
+    // The "no fixture" 404 path is covered at the screen level
+    // (forum_user_profile_screen_test.dart) via testWidgets/pumpAndSettle,
+    // not here: Riverpod's build()-failure handling schedules real-clock
+    // retry bookkeeping that a bare test()/ProviderContainer (no Flutter
+    // test binding, no fake clock) cannot settle deterministically —
+    // pumpAndSettle's fake clock does.
+  });
+
   group('NotificationsFeed', () {
     test(
       'loadMore fetches the second page via the verbatim cursor URL',

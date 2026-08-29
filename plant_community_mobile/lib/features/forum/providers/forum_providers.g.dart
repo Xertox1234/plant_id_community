@@ -267,6 +267,105 @@ abstract class _$TopicDetail extends $AsyncNotifier<ForumTopicDetail> {
   }
 }
 
+/// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+
+@ProviderFor(ForumUserProfile)
+final forumUserProfileProvider = ForumUserProfileFamily._();
+
+/// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+final class ForumUserProfileProvider
+    extends $AsyncNotifierProvider<ForumUserProfile, ForumProfile> {
+  /// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+  ForumUserProfileProvider._({
+    required ForumUserProfileFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'forumUserProfileProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$forumUserProfileHash();
+
+  @override
+  String toString() {
+    return r'forumUserProfileProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  ForumUserProfile create() => ForumUserProfile();
+
+  @override
+  bool operator ==(Object other) {
+    return other is ForumUserProfileProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$forumUserProfileHash() => r'abbc9e46e10cfc9bf81fbd2c773ec938812ef251';
+
+/// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+
+final class ForumUserProfileFamily extends $Family
+    with
+        $ClassFamilyOverride<
+          ForumUserProfile,
+          AsyncValue<ForumProfile>,
+          ForumProfile,
+          FutureOr<ForumProfile>,
+          String
+        > {
+  ForumUserProfileFamily._()
+    : super(
+        retry: null,
+        name: r'forumUserProfileProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+
+  ForumUserProfileProvider call(String username) =>
+      ForumUserProfileProvider._(argument: username, from: this);
+
+  @override
+  String toString() => r'forumUserProfileProvider';
+}
+
+/// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+
+abstract class _$ForumUserProfile extends $AsyncNotifier<ForumProfile> {
+  late final _$args = ref.$arg as String;
+  String get username => _$args;
+
+  FutureOr<ForumProfile> build(String username);
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<AsyncValue<ForumProfile>, ForumProfile>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<AsyncValue<ForumProfile>, ForumProfile>,
+              AsyncValue<ForumProfile>,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, () => build(_$args));
+  }
+}
+
 /// Posts in a topic (oldest-first), cursor-paginated with [loadMore], plus a
 /// reaction toggle that updates the affected post in place.
 
