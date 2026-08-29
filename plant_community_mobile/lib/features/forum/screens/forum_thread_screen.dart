@@ -17,10 +17,15 @@ class ForumThreadScreen extends ConsumerWidget {
     super.key,
     required this.topicId,
     this.initialTitle,
+    this.highlightPostId,
   });
 
   final int topicId;
   final String? initialTitle;
+
+  /// Deep-link target from a push tap (todo 311) or a notification-list
+  /// open — scrolled into view once, best-effort, by [_ThreadBody].
+  final int? highlightPostId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -71,6 +76,7 @@ class ForumThreadScreen extends ConsumerWidget {
             onOpenLink: (href) => _showLink(context, href),
             onEdit: (post) => _openEdit(context, ref, post),
             onDelete: (post) => _confirmDelete(context, ref, post),
+            highlightPostId: highlightPostId,
           ),
         ),
       ),
@@ -202,7 +208,7 @@ class ForumThreadScreen extends ConsumerWidget {
   }
 }
 
-class _ThreadBody extends StatelessWidget {
+class _ThreadBody extends StatefulWidget {
   const _ThreadBody({
     required this.topicId,
     required this.paged,
@@ -212,6 +218,7 @@ class _ThreadBody extends StatelessWidget {
     required this.onOpenLink,
     required this.onEdit,
     required this.onDelete,
+    this.highlightPostId,
   });
 
   final int topicId;
@@ -222,10 +229,42 @@ class _ThreadBody extends StatelessWidget {
   final void Function(String href) onOpenLink;
   final void Function(ForumPost post) onEdit;
   final void Function(ForumPost post) onDelete;
+  final int? highlightPostId;
+
+  @override
+  State<_ThreadBody> createState() => _ThreadBodyState();
+}
+
+/// Stateful only for [_postKeys] and the one-shot highlight scroll —
+/// everything else about a topic's post list is still driven top-down from
+/// [ForumThreadScreen]'s providers.
+class _ThreadBodyState extends State<_ThreadBody> {
+  final Map<int, GlobalKey> _postKeys = {};
+
+  @override
+  void initState() {
+    super.initState();
+    final targetId = widget.highlightPostId;
+    if (targetId == null) return;
+    // Exactly one attempt, post-frame so this frame's build() has already
+    // populated `_postKeys`. Silent no-op if the post isn't in `_postKeys`
+    // — not yet loaded, or on a page "Load More" hasn't reached yet. No
+    // visual highlight flash and no cross-page chasing — both explicitly
+    // out of scope (todo 311).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final postContext = _postKeys[targetId]?.currentContext;
+      if (postContext == null) return;
+      Scrollable.ensureVisible(
+        postContext,
+        duration: const Duration(milliseconds: 300),
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (paged.items.isEmpty) {
+    if (widget.paged.items.isEmpty) {
       return const Center(child: Text('No posts yet.'));
     }
     return ListView.separated(
@@ -235,22 +274,25 @@ class _ThreadBody extends StatelessWidget {
         AppSpacing.md,
         AppSpacing.xl3,
       ),
-      itemCount: paged.items.length + (paged.hasMore ? 1 : 0),
+      itemCount: widget.paged.items.length + (widget.paged.hasMore ? 1 : 0),
       separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {
-        if (index >= paged.items.length) {
+        if (index >= widget.paged.items.length) {
           return _LoadMoreButton(
-            isLoading: paged.isLoadingMore,
-            onLoadMore: onLoadMore,
+            isLoading: widget.paged.isLoadingMore,
+            onLoadMore: widget.onLoadMore,
           );
         }
-        final post = paged.items[index];
+        final post = widget.paged.items[index];
         return PostCard(
+          key: _postKeys.putIfAbsent(post.id, () => GlobalKey()),
           post: post,
-          onOpenLink: onOpenLink,
-          onReact: onReact == null ? null : (type) => onReact!(post.id, type),
-          onEdit: () => onEdit(post),
-          onDelete: () => onDelete(post),
+          onOpenLink: widget.onOpenLink,
+          onReact: widget.onReact == null
+              ? null
+              : (type) => widget.onReact!(post.id, type),
+          onEdit: () => widget.onEdit(post),
+          onDelete: () => widget.onDelete(post),
         );
       },
     );

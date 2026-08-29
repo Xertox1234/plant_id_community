@@ -214,6 +214,9 @@ GoRouter appRouter(Ref ref) {
           child: ForumThreadScreen(
             topicId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
             initialTitle: state.extra is String ? state.extra as String : null,
+            highlightPostId: int.tryParse(
+              state.uri.queryParameters['postId'] ?? '',
+            ),
           ),
         ),
       ),
