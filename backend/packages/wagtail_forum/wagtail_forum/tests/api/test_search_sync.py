@@ -470,3 +470,37 @@ def test_search_board_filter_narrows_topics_and_posts():
     post_entry = resp.data["posts"][0]
     assert post_entry["topic_slug"] == "fern-a"
     assert post_entry["board_id"] == board_a.id
+
+
+@pytest.mark.django_db
+def test_search_hides_topics_and_posts_by_blocked_author():
+    """HIDE (todo 284/M9): a discovery surface, no thread-structure cost —
+    applied before the query reaches the search backend."""
+    from wagtail_forum.models import UserBlock
+
+    board = _board()
+    blocked_author = User.objects.create_user(username="search-blocked-author")
+    viewer = User.objects.create_user(username="search-viewer")
+    UserBlock.block(viewer, blocked_author)
+    topic = Topic.objects.create(
+        board=board,
+        title="Monstera propagation tips",
+        slug="search-blocked-t",
+        author=blocked_author,
+        live=True,
+    )
+    Post.objects.create(
+        topic=topic,
+        author=blocked_author,
+        is_opening_post=True,
+        live=True,
+        body=[{"type": "paragraph", "value": "<p>propagation tips</p>"}],
+    )
+
+    client = APIClient()
+    client.force_authenticate(viewer)
+    resp = client.get("/forum/search/?q=Monstera")
+
+    assert resp.status_code == 200
+    assert resp.data["topics"] == []
+    assert resp.data["posts"] == []

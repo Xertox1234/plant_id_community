@@ -110,6 +110,9 @@ class Topic(
         # SearchView filters by visible board (`board__in`); without this a
         # real search backend raises FilterFieldError.
         index.FilterField("board_id"),
+        # SearchView excludes blocked authors' topics (todo 284/M9) via
+        # author_id__in=Subquery(...); same FilterFieldError without this.
+        index.FilterField("author_id"),
     ]
 
     panels = [

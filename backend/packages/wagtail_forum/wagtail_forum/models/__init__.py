@@ -12,6 +12,7 @@ from .subscriptions import TopicSubscription
 from .tombstones import TopicDeletedLog
 from .topic_reads import TopicRead
 from .topics import Topic
+from .user_blocks import UserBlock
 
 __all__ = [
     "ForumActivityDate",
@@ -31,4 +32,5 @@ __all__ = [
     "TopicRead",
     "TopicSubscription",
     "TrustLevel",
+    "UserBlock",
 ]

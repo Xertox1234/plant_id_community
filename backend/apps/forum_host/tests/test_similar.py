@@ -319,6 +319,46 @@ def test_similar_topics_excludes_restricted_board():
 
 @override_settings(FORUM_VECTOR_SEARCH_ENABLED=True, OPENAI_API_KEY=_FAKE_OPENAI_KEY)
 @pytest.mark.django_db
+def test_user_param_excludes_a_blocked_authors_topic():
+    # todo 284/M9: user= is opt-in — the compose-time SimilarTopicsView never
+    # passes it (shared, unkeyed-by-user result cache), but the helper itself
+    # must filter correctly when a caller (semantic_search.py) does.
+    from wagtail_forum.models import UserBlock
+
+    public = _topic("Tomato blight", "tomato blight", suffix="pub")
+    blocked_topic = _topic("Tomato secrets", "tomato blight advice", suffix="blk")
+    viewer = User.objects.create_user(username="similar-viewer")
+    UserBlock.block(viewer, blocked_topic.author)
+
+    with patch.object(LLMService, "embedding", _fake_embedding):
+        SimilarTopics().build()
+        results = find_similar_topics("tomato blight", user=viewer)
+
+    ids = {t.id for t in results}
+    assert public.id in ids
+    assert blocked_topic.id not in ids
+
+
+@override_settings(FORUM_VECTOR_SEARCH_ENABLED=True, OPENAI_API_KEY=_FAKE_OPENAI_KEY)
+@pytest.mark.django_db
+def test_default_user_none_does_not_filter_by_block():
+    # The default (no user=) must stay unfiltered — SimilarTopicsView relies
+    # on this for its shared cross-user result cache.
+    from wagtail_forum.models import UserBlock
+
+    topic = _topic("Tomato blight", "tomato blight", suffix="nou")
+    someone = User.objects.create_user(username="similar-blocker")
+    UserBlock.block(someone, topic.author)
+
+    with patch.object(LLMService, "embedding", _fake_embedding):
+        SimilarTopics().build()
+        results = find_similar_topics("tomato blight")
+
+    assert topic.id in {t.id for t in results}
+
+
+@override_settings(FORUM_VECTOR_SEARCH_ENABLED=True, OPENAI_API_KEY=_FAKE_OPENAI_KEY)
+@pytest.mark.django_db
 def test_board_filter_narrows_results_to_that_board():
     board_a = _board(suffix="a")
     board_b = _board(suffix="b")

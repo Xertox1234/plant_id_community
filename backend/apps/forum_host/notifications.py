@@ -3,6 +3,35 @@ import logging
 logger = logging.getLogger("forum_host.notifications")
 
 
+def _drop_blocked_pairs(users, actor):
+    """A mention/reply notification (bell + push + email) must never fire
+    between a blocked pair, either direction (todo 284/M9).
+
+    Read-time filtering (wagtail_forum.api.notifications._visible_notifications)
+    only hides an EXISTING bell row for a recipient's own list — it does
+    nothing to stop the notification from being CREATED and its push/email
+    enqueued in the first place. This is the fan-out-time counterpart: called
+    before create_notifications() so a blocked pair produces no row and no
+    delivery at all, not just a hidden one.
+    """
+    if actor is None or not users:
+        return users
+    from wagtail_forum.models import UserBlock
+
+    ids = [u.pk for u in users]
+    blocked = set(
+        UserBlock.objects.filter(blocker=actor, blocked_id__in=ids).values_list(
+            "blocked_id", flat=True
+        )
+    )
+    blocked |= set(
+        UserBlock.objects.filter(blocked=actor, blocker_id__in=ids).values_list(
+            "blocker_id", flat=True
+        )
+    )
+    return [u for u in users if u.pk not in blocked]
+
+
 def dispatch(event, **kwargs):
     """Route a forum signal event to FCM/email via background Celery tasks.
 
@@ -173,9 +202,14 @@ def dispatch(event, **kwargs):
                         post_author, topic_id, when=post.first_published_at
                     )
 
-                mentioned = resolve_mentioned_users(
-                    post,
-                    exclude_pks=({post_author.pk} if post_author is not None else ()),
+                mentioned = _drop_blocked_pairs(
+                    resolve_mentioned_users(
+                        post,
+                        exclude_pks=(
+                            {post_author.pk} if post_author is not None else ()
+                        ),
+                    ),
+                    post_author,
                 )
                 mentioned_pks = {user.pk for user in mentioned}
 
@@ -190,7 +224,13 @@ def dispatch(event, **kwargs):
                 # unique constraint doesn't collapse across different verbs,
                 # so without this exclude() they'd get two bell entries.
                 subs = subs.exclude(user_id__in=mentioned_pks)
-                reply_recipients = [sub.user for sub in subs]
+                # todo 284/M9: a blocked pair gets no reply notification —
+                # subscribers aren't a mention case, so this is the only
+                # place that path can be fixed (unlike mentioned above,
+                # which resolve_mentioned_users already produces separately).
+                reply_recipients = _drop_blocked_pairs(
+                    [sub.user for sub in subs], post_author
+                )
 
                 create_notifications(
                     recipients=reply_recipients,
@@ -357,12 +397,15 @@ def dispatch(event, **kwargs):
                 # only ever sees replies, so a mention in a new topic's very
                 # first post needs its own handling here. `post` is None for
                 # an admin-created topic with no opening post.
-                mentioned = (
-                    resolve_mentioned_users(
-                        post, exclude_pks={author.pk} if author is not None else ()
-                    )
-                    if post is not None
-                    else []
+                mentioned = _drop_blocked_pairs(
+                    (
+                        resolve_mentioned_users(
+                            post, exclude_pks={author.pk} if author is not None else ()
+                        )
+                        if post is not None
+                        else []
+                    ),
+                    author,
                 )
                 create_notifications(
                     recipients=mentioned,

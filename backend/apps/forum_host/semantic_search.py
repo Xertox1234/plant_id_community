@@ -154,7 +154,13 @@ class SemanticSearchMixin:
         # if that contract is ever broken upstream, keyword search must not start
         # 500ing for premium users only.
         try:
-            topics = find_similar_topics(query, board_slug=board_slug)
+            # user= is safe here (todo 284/M9): this response is always
+            # private, no-store for the authenticated premium caller (see
+            # module docstring), never CDN/cross-user cached — unlike
+            # similar.py, which deliberately omits user= for that reason.
+            topics = find_similar_topics(
+                query, board_slug=board_slug, user=request.user
+            )
             results = [_serialize(t) for t in topics]
         except Exception:
             logger.exception("[ERROR] semantic search section failed; degrading")

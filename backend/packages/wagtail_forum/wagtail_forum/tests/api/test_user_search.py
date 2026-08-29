@@ -106,3 +106,37 @@ def test_search_caps_results():
 
     assert resp.status_code == 200
     assert len(resp.data) == 10
+
+
+@pytest.mark.django_db
+def test_search_excludes_a_user_the_requester_has_blocked():
+    from wagtail_forum.models import UserBlock
+
+    requester = User.objects.create_user(username="requester7")
+    blocked = User.objects.create_user(username="gina-blocked")
+    UserBlock.block(requester, blocked)
+
+    client = APIClient()
+    client.force_authenticate(requester)
+    resp = client.get("/forum/users/search/?q=gina")
+
+    assert resp.status_code == 200
+    assert resp.data == []
+
+
+@pytest.mark.django_db
+def test_search_excludes_a_user_who_has_blocked_the_requester():
+    """HIDE, bidirectional (todo 284/M9): neither side of a block should be
+    able to @-mention the other."""
+    from wagtail_forum.models import UserBlock
+
+    requester = User.objects.create_user(username="requester8")
+    blocker = User.objects.create_user(username="harry-blocker")
+    UserBlock.block(blocker, requester)
+
+    client = APIClient()
+    client.force_authenticate(requester)
+    resp = client.get("/forum/users/search/?q=harry")
+
+    assert resp.status_code == 200
+    assert resp.data == []

@@ -34,6 +34,28 @@ def test_read_views_appear_in_openapi_schema_with_documented_200():
 
 
 @pytest.mark.django_db
+def test_block_endpoints_appear_in_openapi_schema():
+    """todo 284/M9: block/unblock/list are documented like every other
+    endpoint here — mirrors test_read_views_appear_in_openapi_schema_with_documented_200
+    for the new surface."""
+    from drf_spectacular.generators import SchemaGenerator
+
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    paths = schema["paths"]
+
+    block = paths["/forum/users/{username}/block/"]
+    for method in ("post", "delete"):
+        assert block[method]["responses"]["200"]["content"]["application/json"][
+            "schema"
+        ]
+        assert block[method].get("description")
+
+    my_blocks = paths["/forum/me/blocks/"]["get"]
+    assert my_blocks["responses"]["200"]["content"]["application/json"]["schema"]
+    assert my_blocks.get("description")
+
+
+@pytest.mark.django_db
 def test_read_serializer_method_fields_are_typed_not_default_string():
     """@extend_schema_field gives the read serializers' SerializerMethodFields real
     types instead of drf-spectacular's `string` fallback (todo 231 review)."""

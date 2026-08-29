@@ -194,4 +194,66 @@ def test_public_profile_query_count_is_bounded():
     # recent_topics (1, board__in subquery inline), recent_posts (1, topic__board
     # subquery inline) = 4. FLAT under N activity (15 topics + 30 posts here still
     # 4 — bounded by RECENT_LIMIT, no N+1); explain any change here.
+    # Unaffected by todo 284/M9: this request is anonymous, and is_blocked's
+    # `request.user.is_authenticated and ...` short-circuits before any
+    # query; can_block is pure Python (no DB hit).
     assert len(ctx.captured_queries) == 4
+
+
+@pytest.mark.django_db
+def test_public_profile_flags_blocked_but_still_viewable():
+    """The profile stays viewable (so the Block/Unblock control has
+    somewhere to live) but activity is empty when blocked (todo 284/M9)."""
+    from wagtail_forum.models import UserBlock
+
+    board = _board()
+    blocked = User.objects.create_user(username="blocked-profile")
+    viewer = User.objects.create_user(username="profile-viewer")
+    UserBlock.block(viewer, blocked)
+    topic = Topic.objects.create(
+        board=board, title="T", slug="blocked-profile-t", author=blocked, live=True
+    )
+    Post.objects.create(topic=topic, author=blocked, is_opening_post=True, live=True)
+
+    client = APIClient()
+    client.force_authenticate(viewer)
+    resp = client.get(f"/forum/users/{blocked.username}/")
+
+    assert resp.status_code == 200
+    assert resp.data["is_blocked"] is True
+    assert resp.data["recent_topics"] == []
+    assert resp.data["recent_posts"] == []
+
+
+@pytest.mark.django_db
+def test_public_profile_can_block_true_when_not_blocked():
+    board = _board()
+    target = User.objects.create_user(username="unblocked-profile")
+    viewer = User.objects.create_user(username="profile-viewer2")
+    Topic.objects.create(
+        board=board, title="T", slug="unblocked-profile-t", author=target, live=True
+    )
+
+    client = APIClient()
+    client.force_authenticate(viewer)
+    resp = client.get(f"/forum/users/{target.username}/")
+
+    assert resp.status_code == 200
+    assert resp.data["is_blocked"] is False
+    assert resp.data["can_block"] is True
+    assert len(resp.data["recent_topics"]) == 1
+
+
+@pytest.mark.django_db
+def test_public_profile_can_block_false_for_own_profile():
+    board = _board()
+    user = User.objects.create_user(username="own-profile")
+    Topic.objects.create(board=board, title="T", slug="own-t", author=user, live=True)
+
+    client = APIClient()
+    client.force_authenticate(user)
+    resp = client.get(f"/forum/users/{user.username}/")
+
+    assert resp.status_code == 200
+    assert resp.data["can_block"] is False
+    assert resp.data["is_blocked"] is False

@@ -24,7 +24,7 @@ from ..models import Notification
 from .pagination import ForumCursorPagination
 from .serializers import NotificationSerializer
 from .versioning import UnversionedForumAPIMixin
-from .views import PrivateForumReadCacheMixin, _visible_boards
+from .views import PrivateForumReadCacheMixin, _exclude_blocked_authors, _visible_boards
 
 UNREAD_COUNT_SCHEMA = {
     "type": "object",
@@ -52,9 +52,17 @@ def _visible_notifications(user):
     now reaches subscriber recipients beyond the topic's own author, who
     don't have slice 1's "I'm always allowed to see my own topic" standing.
     """
-    return Notification.objects.filter(recipient=user).filter(
+    qs = Notification.objects.filter(recipient=user).filter(
         Q(topic__isnull=True) | Q(topic__live=True, topic__board__in=_visible_boards())
     )
+    # HIDE (todo 284/M9): read-time filtering only — this hides an EXISTING
+    # bell row. It does not stop the notification from being created/pushed
+    # in the first place; that's handled separately at fan-out time
+    # (apps/forum_host/notifications.py's _drop_blocked_pairs). `actor` is
+    # nullable (a future non-actor-scoped verb) — _exclude_blocked_authors
+    # uses a NULL-safe EXISTS, not Subquery+__in, so a NULL-actor system
+    # notification is never silently dropped.
+    return _exclude_blocked_authors(qs, user, author_field="actor_id")
 
 
 @extend_schema(

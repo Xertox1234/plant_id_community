@@ -85,6 +85,11 @@ class SimilarTopicsView(UnversionedForumAPIMixin, APIView):
         if cached is not None:
             return Response({"results": cached})
 
+        # Deliberately NOT block-filtered (todo 284/M9): this view is AllowAny
+        # (no reliable caller identity) and caches its serialized `results` by
+        # (query, board_slug) alone, shared across every caller — passing
+        # user= to find_similar_topics would leak one user's blocklist into
+        # another user's cached response. See find_similar_topics' docstring.
         topics = find_similar_topics(query, board_slug=board_slug)
         results = [_serialize(t) for t in topics]
         try:

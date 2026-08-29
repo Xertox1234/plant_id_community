@@ -636,7 +636,12 @@ def test_edit_query_count_is_pinned():
     # fixture setup), so the PATCH's re-publish is not the first and adds no
     # query here. See test_delete_query_count_is_pinned below (also
     # unchanged) for the parallel reasoning on takedowns.
-    assert len(ctx.captured_queries) == 72, len(ctx.captured_queries)
+    # 72 -> 73 (todo 284/M9): same shape as the 70->71 reacted fallback above
+    # — this single-post edit response has no queryset annotation
+    # (author_is_blocked only exists on a get_queryset()-built list/detail
+    # response), so PostSerializer.get_is_blocked falls back to ONE .exists()
+    # check. get_can_block adds no query (pure Python, no DB hit).
+    assert len(ctx.captured_queries) == 73, len(ctx.captured_queries)
 
 
 def test_patch_retry_with_idempotency_key_writes_one_revision():

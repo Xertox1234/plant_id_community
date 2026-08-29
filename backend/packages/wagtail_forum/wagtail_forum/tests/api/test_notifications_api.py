@@ -107,7 +107,12 @@ def test_notification_list_query_count_pinned():
     # to account for. Plus ONE for the todo 301 presence touch (an UPDATE on
     # the caller's own ForumProfile, throttled — every authenticated forum
     # request pays this once). If this changes, explain the new count here.
-    assert len(ctx.captured_queries) == 3
+    # Plus TWO (todo 284/M9): _exclude_blocked_authors's _should_filter_blocks
+    # gate calls user.has_perm(...) — always exactly 2 queries (user + group
+    # permission JOINs), confirmed via direct probe; not warmable by anything
+    # else on this endpoint. Per-REQUEST, not per-row — the exclusion itself
+    # is a correlated EXISTS used directly in .exclude(), zero added queries.
+    assert len(ctx.captured_queries) == 5
 
 
 @pytest.mark.django_db
@@ -407,4 +412,57 @@ def test_notification_list_actor_profiles_add_no_per_row_queries():
     # lookup + the todo 301 presence touch (UPDATE on the caller's own
     # ForumProfile). actor + actor profile + topic + board all select_related,
     # so 5 distinct actors add no per-row queries.
-    assert len(ctx.captured_queries) == 3
+    # Plus TWO (todo 284/M9): the has_perm moderator check — see the sibling
+    # pin test above. Still no per-row cost across the 5 distinct actors —
+    # the block exclusion is a correlated EXISTS in the same query.
+    assert len(ctx.captured_queries) == 5
+
+
+@pytest.mark.django_db
+def test_notification_list_hides_a_blocked_actor():
+    """HIDE (todo 284/M9): read-time only — this hides an EXISTING bell row.
+    Fan-out suppression (not enqueuing the push/email at all) is separate,
+    covered in apps/forum_host tests."""
+    from wagtail_forum.models import UserBlock
+
+    board = _board("gen-blocked-actor")
+    recipient = User.objects.create_user(username="recipient-blocks")
+    blocked_actor = User.objects.create_user(username="actor-blocked")
+    UserBlock.block(recipient, blocked_actor)
+    topic, post = _topic_and_post(board, recipient, blocked_actor)
+    _notify(recipient, blocked_actor, topic, post)
+
+    client = APIClient()
+    client.force_authenticate(recipient)
+    resp = client.get("/forum/notifications/")
+
+    assert resp.status_code == 200
+    assert resp.data["results"] == []
+
+
+@pytest.mark.django_db
+def test_notification_list_null_actor_survives_recipient_having_blocks():
+    """Regression pin for the exact NULL-IN-list trap this feature avoids via
+    Exists() — a system notification with actor=None, viewed by a user who
+    has an UNRELATED block, must still appear (todo 284/M9)."""
+    from wagtail_forum.models import UserBlock
+
+    board = _board("gen-null-actor")
+    recipient = User.objects.create_user(username="recipient-null-actor")
+    unrelated = User.objects.create_user(username="unrelated-blocked")
+    UserBlock.block(recipient, unrelated)
+    topic, post = _topic_and_post(board, recipient)
+    Notification.objects.create(
+        recipient=recipient,
+        actor=None,
+        verb=NotificationVerb.REPLY,
+        topic=topic,
+        post=post,
+    )
+
+    client = APIClient()
+    client.force_authenticate(recipient)
+    resp = client.get("/forum/notifications/")
+
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 1

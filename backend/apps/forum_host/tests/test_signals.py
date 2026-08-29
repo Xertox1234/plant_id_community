@@ -94,6 +94,84 @@ def test_reply_added_enqueues_push_for_topic_author(django_capture_on_commit_cal
 
 
 @pytest.mark.django_db
+def test_reply_added_does_not_notify_a_recipient_who_blocked_the_replier(
+    django_capture_on_commit_callbacks,
+):
+    """Fan-out suppression (todo 284/M9), not just read-time hiding: a
+    subscriber who has blocked the replier gets no bell row AND no
+    push/email enqueued at all — proves _drop_blocked_pairs is wired into
+    reply_added's reply_recipients, not just the read-time notification
+    list."""
+    from wagtail_forum.models import UserBlock
+
+    topic_author = User.objects.create_user(username="topicowner-blocks")
+    replier = User.objects.create_user(username="replier-blocked")
+    UserBlock.block(topic_author, replier)
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum3", slug="forum3"))
+    board = index.add_child(instance=ForumBoard(title="General3", slug="general3"))
+    topic = Topic.objects.create(
+        board=board, title="T3", slug="t3", author=topic_author
+    )
+    TopicSubscription.subscribe(topic_author, topic)
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay") as mock_push,
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay") as mock_email,
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(topic=topic, author=replier)
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    mock_push.assert_not_called()
+    mock_email.assert_not_called()
+    assert not Notification.objects.filter(recipient=topic_author, post=post).exists()
+
+
+@pytest.mark.django_db
+def test_reply_added_does_not_notify_a_mentioned_user_who_blocked_the_replier(
+    django_capture_on_commit_callbacks,
+):
+    """Same suppression for the MENTION verb, not just REPLY (todo 284/M9)."""
+    from wagtail_forum.models import UserBlock
+
+    topic_author = User.objects.create_user(username="topicowner-mention")
+    replier = User.objects.create_user(username="replier-mentioner")
+    mentioned = User.objects.create_user(username="mentioned-blocker")
+    UserBlock.block(mentioned, replier)
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum4", slug="forum4"))
+    board = index.add_child(instance=ForumBoard(title="General4", slug="general4"))
+    topic = Topic.objects.create(
+        board=board, title="T4", slug="t4", author=topic_author
+    )
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay") as mock_push_batch,
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(
+            topic=topic,
+            author=replier,
+            body=[{"type": "paragraph", "value": f"<p>hi @{mentioned.username}</p>"}],
+        )
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    # No reply subscribers here (topic_author never subscribed) and the
+    # mentioned user is suppressed by the block — so the batched push
+    # enqueue never fires for either branch.
+    mock_push_batch.assert_not_called()
+    assert not Notification.objects.filter(recipient=mentioned, post=post).exists()
+
+
+@pytest.mark.django_db
 def test_reply_added_enqueues_email_for_topic_author(
     django_capture_on_commit_callbacks,
 ):

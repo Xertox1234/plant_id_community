@@ -96,6 +96,27 @@ def test_mention_user_search_is_throttled_with_429_and_retry_after():
     assert r["Retry-After"] == "60"  # derived from the 2/m window
 
 
+@override_settings(FORUM_RATELIMITS={"block_create": "2/m"})
+@pytest.mark.django_db
+def test_block_create_is_throttled_with_429_and_retry_after():
+    """Proves block_create isn't dead config (todo 284/M9) — mirrors
+    test_mention_user_search_is_throttled_with_429_and_retry_after's shape."""
+    blocker = User.objects.create_user(username="blocker-throttle")
+    client = APIClient()
+    client.force_authenticate(blocker)
+
+    with freeze_time("2026-06-10 12:00:00"):
+        for i in range(2):
+            target = User.objects.create_user(username=f"target-{i}")
+            resp = client.post(f"/api/v1/forum/users/{target.username}/block/")
+            assert resp.status_code == 200
+        target3 = User.objects.create_user(username="target-3")
+        r = client.post(f"/api/v1/forum/users/{target3.username}/block/")
+
+    assert r.status_code == 429  # NOT 403 — Ratelimited subclasses PermissionDenied
+    assert r["Retry-After"] == "60"  # derived from the 2/m window
+
+
 @override_settings(FORUM_RATELIMITS={"topic_create": "2/h"})
 @pytest.mark.django_db
 def test_topic_create_is_throttled_per_user():
@@ -147,6 +168,7 @@ def test_wrapped_routes_use_the_throttled_views():
         "sync": throttled.SyncView,
         "topic-subscription": throttled.TopicSubscriptionView,
         "topic-bookmark": throttled.TopicBookmarkView,
+        "user-block": throttled.UserBlockView,
     }
     by_name = {p.name: p.callback.view_class for p in host.urlpatterns}
     for name, view_class in wrapped.items():
@@ -174,6 +196,7 @@ def test_every_unsafe_handler_is_throttled():
         throttled.SyncView,
         throttled.TopicSubscriptionView,
         throttled.TopicBookmarkView,
+        throttled.UserBlockView,
     ]
     for view in wrappers:
         marked = getattr(view, "_forum_throttled_methods", set())

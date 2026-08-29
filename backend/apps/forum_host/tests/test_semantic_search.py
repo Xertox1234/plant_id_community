@@ -209,6 +209,20 @@ def test_board_filter_is_forwarded_to_the_semantic_search():
 
 @override_settings(FORUM_VECTOR_SEARCH_ENABLED=True)
 @pytest.mark.django_db
+def test_requesting_user_is_forwarded_for_block_filtering():
+    # todo 284/M9: this response is always private/no-store for the
+    # authenticated premium caller, so passing user= here (unlike similar.py's
+    # shared-cache endpoint) is safe — see find_similar_topics' docstring.
+    user = User.objects.create_user(username="premiumblocker", is_premium=True)
+    client = APIClient()
+    client.force_authenticate(user)
+    with patch(FIND, return_value=[]) as mock_find:
+        client.get(SEARCH_URL, {"q": "tomato", "semantic": "1"})
+    assert mock_find.call_args.kwargs.get("user") == user
+
+
+@override_settings(FORUM_VECTOR_SEARCH_ENABLED=True)
+@pytest.mark.django_db
 def test_long_query_is_forwarded_for_the_helper_to_cap():
     """The length cap lives in `find_similar_topics`, not here (todo 275 review) —
     one place, so a future caller cannot forget it and silently invalidate
