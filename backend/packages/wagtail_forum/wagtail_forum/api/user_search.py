@@ -7,12 +7,14 @@ autocomplete UI needs and nothing else.
 """
 
 from django.contrib.auth import get_user_model
+from django.db.models import Exists, OuterRef
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from ..models import UserBlock
 from .versioning import UnversionedForumAPIMixin
-from .views import PrivateForumReadCacheMixin, extend_schema
+from .views import PrivateForumReadCacheMixin, _should_filter_blocks, extend_schema
 
 MAX_RESULTS = 10
 
@@ -58,9 +60,33 @@ class UserMentionSearchView(
         # convention predates this Django behavior and is stale for this
         # lookup type; do not copy it here.
         User = get_user_model()
-        users = User.objects.filter(
-            is_active=True, username__istartswith=query
-        ).order_by("username")[:MAX_RESULTS]
+        users = User.objects.filter(is_active=True, username__istartswith=query)
+        # HIDE, bidirectional (todo 284/M9): neither side of a block should
+        # be able to @-mention the other. Chained before [:MAX_RESULTS] —
+        # excluding after a slice raises AssertionError. `pk` is never NULL
+        # (it's the row's own primary key), so Exists() here needs none of
+        # the Subquery-vs-Exists reasoning that applies to the nullable
+        # Topic/Post author FKs elsewhere (this isn't passed to Wagtail's
+        # search backend either, so no FilterFieldError risk).
+        # _should_filter_blocks (not the narrower per-row helpers — this
+        # isn't an author-FK filter) gates BOTH directions off for a
+        # moderator: the AC requires a moderator's view be unaffected by
+        # ANOTHER user's blocks too, not just their own.
+        if _should_filter_blocks(request.user):
+            users = users.exclude(
+                Exists(
+                    UserBlock.objects.filter(
+                        blocker=request.user, blocked=OuterRef("pk")
+                    )
+                )
+            ).exclude(
+                Exists(
+                    UserBlock.objects.filter(
+                        blocker=OuterRef("pk"), blocked=request.user
+                    )
+                )
+            )
+        users = users.order_by("username")[:MAX_RESULTS]
         # get_full_name()/get_username() — not a `.display_name` property,
         # which is specific to THIS host's User model and breaks the
         # package's host-agnostic contract (mirrors serialize_forum_author's

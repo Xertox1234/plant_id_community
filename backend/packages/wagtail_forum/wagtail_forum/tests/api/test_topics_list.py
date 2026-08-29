@@ -7,7 +7,14 @@ from django.test.utils import CaptureQueriesContext, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Topic, TopicRead
+from wagtail_forum.models import (
+    ForumBoard,
+    ForumIndex,
+    ForumProfile,
+    Topic,
+    TopicRead,
+    UserBlock,
+)
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
@@ -385,7 +392,26 @@ def test_topics_list_authenticated_query_count_is_still_pinned_at_3():
     # (3 + the todo-276 tags prefetch); if this changes, explain the new number here.
     # Plus 1 (todo 301): the presence touch, paid by every authenticated
     # forum request (never by the anonymous pin above — see docs/rules/caching.md).
-    assert len(ctx.captured_queries) == 5
+    # Plus 2 (todo 284/M9): _exclude_blocked_authors's _should_filter_blocks
+    # gate calls user.has_perm(...) to check moderator status — this ALWAYS
+    # costs exactly 2 queries (one JOIN for direct user permissions, one for
+    # group permissions), confirmed via a direct probe; it is not warmable
+    # by prior ContentType lookups elsewhere in the process. Both queries are
+    # per-REQUEST, not per-row — the block exclusion itself adds zero queries
+    # (a correlated EXISTS folded into the topics-page SELECT, same as
+    # is_unread above).
+    #
+    # NOTE for anyone re-deriving this pin locally: the presence-touch UPDATE
+    # above is throttled via a REAL Redis key (`forum:presence:{user.pk}`,
+    # PRESENCE_TOUCH_THROTTLE_SECONDS default 300s) that this project's dev
+    # Redis instance persists ACROSS separate test-process invocations, not
+    # just within one. Re-running this exact test within 5 minutes of a prior
+    # run (same deterministic pk, since the test DB is recreated fresh each
+    # invocation) sees the throttle already consumed and silently drops to 6
+    # — a pre-existing test-isolation gap, unrelated to this change. Run
+    # `redis-cli -n 1 flushdb` (or wait out the TTL) before trusting a
+    # standalone re-run of this test.
+    assert len(ctx.captured_queries) == 7
 
 
 @pytest.mark.django_db
@@ -609,3 +635,93 @@ def test_is_unread_fails_loud_on_malformed_launch_setting():
     resp = client.get(f"/forum/boards/{board.slug}/topics/")
 
     assert resp.status_code == 500
+
+
+@pytest.mark.django_db
+def test_topic_list_hides_topics_by_blocked_author():
+    """HIDE, not collapse — a topic is freestanding, unlike a reply within a
+    thread (todo 284/M9)."""
+    board = _board()
+    blocked_author = User.objects.create_user(username="blocked-author")
+    other_author = User.objects.create_user(username="visible-author")
+    viewer = User.objects.create_user(username="blocking-viewer")
+    UserBlock.block(viewer, blocked_author)
+    Topic.objects.create(
+        board=board, title="Hidden", slug="hidden-t", author=blocked_author, live=True
+    )
+    Topic.objects.create(
+        board=board, title="Visible", slug="visible-t", author=other_author, live=True
+    )
+
+    client = APIClient()
+    client.force_authenticate(viewer)
+    resp = client.get(f"/forum/boards/{board.slug}/topics/")
+
+    assert resp.status_code == 200
+    slugs = {t["slug"] for t in resp.data["results"]}
+    assert slugs == {"visible-t"}
+
+
+@pytest.mark.django_db
+def test_topic_list_query_count_unaffected_by_blocks():
+    """Several UserBlock rows for the viewer must not move the pin beyond
+    the one-time has_perm cost already accounted for above — the exclusion
+    itself is a correlated EXISTS folded into the same SELECT, zero added
+    per-row queries (todo 284/M9). See the presence-touch/Redis caveat on
+    test_topics_list_authenticated_query_count_is_still_pinned_at_3 above if
+    this flakes on a standalone re-run within 5 minutes of a prior run."""
+    board = _board()
+    author = User.objects.create_user(username="ada-blocks")
+    viewer = User.objects.create_user(username="viewer-blocks")
+    for i in range(25):
+        Topic.objects.create(
+            board=board,
+            title=f"T{i}",
+            slug=f"blocks-t{i}",
+            author=author,
+            live=True,
+            last_post_at=timezone.now() - datetime.timedelta(minutes=i),
+        )
+    for i in range(5):
+        blocked = User.objects.create_user(username=f"blocked-{i}")
+        UserBlock.block(viewer, blocked)
+
+    client = APIClient()
+    client.force_authenticate(viewer)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get(f"/forum/boards/{board.slug}/topics/")
+
+    assert resp.status_code == 200
+    assert len(ctx.captured_queries) == 7  # same pin as the 0-blocks case above
+
+
+@pytest.mark.django_db
+def test_moderator_sees_topics_by_a_user_they_have_personally_blocked():
+    """A moderator's own blocks are inert everywhere — the AC only requires
+    that ANOTHER user's blocks not affect a moderator's view; this is the
+    stronger, deliberately uniform version (todo 284/M9)."""
+    from django.contrib.auth.models import Permission
+
+    board = _board()
+    blocked_author = User.objects.create_user(username="mod-blocked-author")
+    moderator = User.objects.create_user(username="mod-who-blocks")
+    moderator.user_permissions.add(
+        Permission.objects.get(
+            codename="change_post", content_type__app_label="wagtail_forum"
+        )
+    )
+    UserBlock.block(moderator, blocked_author)
+    Topic.objects.create(
+        board=board,
+        title="Still visible",
+        slug="mod-t",
+        author=blocked_author,
+        live=True,
+    )
+
+    client = APIClient()
+    client.force_authenticate(moderator)
+    resp = client.get(f"/forum/boards/{board.slug}/topics/")
+
+    assert resp.status_code == 200
+    assert {t["slug"] for t in resp.data["results"]} == {"mod-t"}

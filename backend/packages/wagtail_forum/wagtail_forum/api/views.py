@@ -8,6 +8,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import (
     BooleanField,
     DateTimeField,
+    Exists,
     F,
     OuterRef,
     Q,
@@ -69,6 +70,7 @@ from ..models import (
     Report,
     Topic,
     TopicRead,
+    UserBlock,
 )
 from ..models.posts import BLOCK_FORBIDDEN
 from ..workflow import submit_edit_for_moderation, submit_for_moderation
@@ -204,6 +206,77 @@ def _annotate_topic_unread(qs, user):
             Value(launch_at, output_field=DateTimeField()),
         ),
     ).annotate(is_unread=Q(last_post_at__gt=F("_read_baseline")))
+
+
+def _should_filter_blocks(user):
+    """Whether block filtering applies to this viewer at all (todo 284/M9).
+
+    A moderator's own blocks are made uniformly inert everywhere, not just
+    for "duty" surfaces — the AC only requires that ANOTHER user's blocks
+    never affect a moderator's view; making a moderator's own blocklist
+    inert too is a deliberate simplification over a duty-vs-preference split.
+    """
+    return user is not None and user.is_authenticated and not _is_forum_moderator(user)
+
+
+def _annotate_author_blocked(qs, user, *, author_field="author_id"):
+    """Annotate `author_is_blocked` on `qs` — a zero-added-query, per-row flag
+    for COLLAPSE/ANNOTATE surfaces (the row stays, the client decides what to
+    render). ALWAYS annotates, even for anonymous viewers and moderators —
+    those get a constant `False` rather than a skipped annotation. This
+    matters for moderators specifically: `PostSerializer.get_is_blocked`
+    falls back to a per-object `.exists()` query when the attribute is
+    missing, which would (a) cost one extra query per row — an N+1 across a
+    page of posts — and (b) return `True` for a moderator's OWN blocks,
+    inverting the uniform-inert-for-moderators guarantee every other HIDE
+    surface upholds (see test_block_filtering_moderator_bypass.py). A
+    constant-`False` annotation keeps both the query count and the value
+    correct in one no-op case.
+
+    Uses a correlated EXISTS subquery — the simplest way to get a genuine
+    boolean column (Subquery(...).values_list() would need an extra Case/
+    When wrap for the same result). Safe to use here as an ANNOTATION; see
+    _exclude_blocked_authors for why the EXCLUDE path can't use the same
+    construct.
+    """
+    if not _should_filter_blocks(user):
+        return qs.annotate(author_is_blocked=Value(False, output_field=BooleanField()))
+    return qs.annotate(
+        author_is_blocked=Exists(
+            UserBlock.objects.filter(
+                blocker_id=user.pk, blocked_id=OuterRef(author_field)
+            )
+        )
+    )
+
+
+def _exclude_blocked_authors(qs, user, *, author_field="author_id"):
+    """HIDE-style filter: excludes rows whose `author_field` FK is blocked by
+    `user`.
+
+    Uses Subquery(...).values_list()+__in, NOT .exclude(Exists(...)) —
+    despite Exists() working fine for the ANNOTATE path above, it can't be
+    used here: SearchView passes its querysets straight into Wagtail's
+    modelsearch DB backend, whose query-compiler walks the WHERE clause
+    introspecting each node for `.target.attname` (declared-field
+    validation) and raises AttributeError on an Exists() node it doesn't
+    recognize (confirmed via a live 500 in this file's SearchView.get before
+    this fix). Subquery()+__in compiles to a plain `IN (subquery)` lookup,
+    which the search backend already knows how to walk.
+
+    NULL-safe despite Topic.author/Post.author being nullable (SET_NULL on
+    account deletion): confirmed directly against this project's Django
+    6.0.7 — `.exclude(nullable_field__in=...)` compiles to
+    `NOT (field IN (...) AND field IS NOT NULL)`, so a NULL-author row is
+    never matched by the IN and is correctly KEPT, not silently dropped by
+    three-valued NULL-IN-list logic (the classic trap this construct would
+    otherwise be vulnerable to — Django handles it automatically here,
+    confirmed for both a concrete list and a Subquery).
+    """
+    if not _should_filter_blocks(user):
+        return qs
+    blocked_ids = UserBlock.objects.filter(blocker_id=user.pk).values("blocked_id")
+    return qs.exclude(**{f"{author_field}__in": Subquery(blocked_ids)})
 
 
 def _replay_or_none(cache_key, payload_fingerprint):
@@ -463,6 +536,10 @@ class TopicListView(
         if tag:
             qs = qs.filter(tags__name__iexact=" ".join(tag.split())).distinct()
         qs = _annotate_topic_unread(qs, self.request.user)
+        # HIDE, not collapse — a topic is freestanding (no thread-structure
+        # continuity cost from removing it), unlike a reply within a thread
+        # (todo 284/M9).
+        qs = _exclude_blocked_authors(qs, self.request.user)
         # Kept in sync with TopicCursorPagination.ordering — the paginator
         # re-applies its own ordering, so this is what unpaginated callers see.
         return qs.order_by("-is_pinned", "-last_post_at", "-id")
@@ -669,7 +746,7 @@ class TopicDetailView(
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return Topic.objects.none()
-        return (
+        qs = (
             Topic.objects.filter(live=True, board__in=_visible_boards())
             .select_related(
                 "board",
@@ -683,6 +760,12 @@ class TopicDetailView(
             )
             .prefetch_related("tags")  # TopicDetailSerializer.get_tags (audit M5)
         )
+        # ANNOTATE only, not HIDE (todo 284/M9): ThreadDetailPage fetches the
+        # topic and its posts together, so 404ing here would fail the whole
+        # page for anyone revisiting a thread whose OP they blocked (via
+        # bookmark, permalink, or their own reply). The client decides what
+        # to render from is_blocked, same as the posts within the thread.
+        return _annotate_author_blocked(qs, self.request.user)
 
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)
@@ -801,9 +884,14 @@ class PostListView(
         # select_related("topic") so PostSerializer.can_edit/can_delete
         # (Post.edit_block reads obj.topic) adds no per-post query — flat, no N+1
         # for authenticated listers (todo 252).
-        return topic.posts.filter(live=True).select_related(
+        qs = topic.posts.filter(live=True).select_related(
             "author__wagtail_forum_profile__avatar", "topic"
         )
+        # COLLAPSE, not HIDE (todo 284/M9): removing a reply mid-thread would
+        # break numbering/reply-count continuity. The row stays; the client
+        # (PostCard) renders the "blocked — show anyway" affordance over the
+        # real, un-redacted payload from is_blocked.
+        return _annotate_author_blocked(qs, self.request.user)
 
     def list(self, request, *args, **kwargs):
         # Build the page's image map ONCE (one batched query) and feed it to the
@@ -1579,6 +1667,8 @@ PUBLIC_PROFILE_SCHEMA = {
                 },
             },
         },
+        "is_blocked": {"type": "boolean"},
+        "can_block": {"type": "boolean"},
     },
 }
 
@@ -1617,44 +1707,60 @@ class PublicProfileView(UnversionedForumAPIMixin, APIView):
         )
         profile = getattr(user, "wagtail_forum_profile", None)
         boards = _visible_boards()
-        recent_topics = [
-            {
-                "id": t.id,
-                "slug": t.slug,
-                "title": t.title,
-                "board_id": t.board_id,
-                "board_slug": t.board.slug,
-                "reply_count": t.reply_count,
-                "created_at": t.created_at,
-            }
-            for t in (
-                Topic.objects.filter(author=user, live=True, board__in=boards)
-                .select_related("board")
-                .order_by("-created_at")[: self.RECENT_LIMIT]
-            )
-        ]
-        recent_posts = [
-            {
-                "id": p.id,
-                "topic_id": p.topic_id,
-                "topic_slug": p.topic.slug,
-                "topic_title": p.topic.title,
-                "board_id": p.topic.board_id,
-                "board_slug": p.topic.board.slug,
-                "created_at": p.created_at,
-            }
-            for p in (
-                Post.objects.filter(
-                    author=user,
-                    live=True,
-                    is_opening_post=False,
-                    topic__live=True,
-                    topic__board__in=boards,
+        # todo 284/M9: a single .exists() check, not list-pinned (this is a
+        # one-off profile-page load, not a paginated endpoint) — never
+        # exposes whether the TARGET has blocked the viewer, only the
+        # viewer's own block of the target.
+        is_blocked = (
+            request.user.is_authenticated
+            and UserBlock.objects.filter(blocker=request.user, blocked=user).exists()
+        )
+        can_block = UserBlock.can_block(request.user, user)
+        if is_blocked:
+            # Skip both activity queries entirely when blocked — the
+            # viewer's own preference collapsing their view of this
+            # profile's activity, consistent with every other surface.
+            recent_topics = []
+            recent_posts = []
+        else:
+            recent_topics = [
+                {
+                    "id": t.id,
+                    "slug": t.slug,
+                    "title": t.title,
+                    "board_id": t.board_id,
+                    "board_slug": t.board.slug,
+                    "reply_count": t.reply_count,
+                    "created_at": t.created_at,
+                }
+                for t in (
+                    Topic.objects.filter(author=user, live=True, board__in=boards)
+                    .select_related("board")
+                    .order_by("-created_at")[: self.RECENT_LIMIT]
                 )
-                .select_related("topic", "topic__board")
-                .order_by("-created_at")[: self.RECENT_LIMIT]
-            )
-        ]
+            ]
+            recent_posts = [
+                {
+                    "id": p.id,
+                    "topic_id": p.topic_id,
+                    "topic_slug": p.topic.slug,
+                    "topic_title": p.topic.title,
+                    "board_id": p.topic.board_id,
+                    "board_slug": p.topic.board.slug,
+                    "created_at": p.created_at,
+                }
+                for p in (
+                    Post.objects.filter(
+                        author=user,
+                        live=True,
+                        is_opening_post=False,
+                        topic__live=True,
+                        topic__board__in=boards,
+                    )
+                    .select_related("topic", "topic__board")
+                    .order_by("-created_at")[: self.RECENT_LIMIT]
+                )
+            ]
         return Response(
             {
                 # Single-sourced identity — same absolute-URL avatar as posts.
@@ -1665,6 +1771,8 @@ class PublicProfileView(UnversionedForumAPIMixin, APIView):
                 "joined_at": profile.joined_at if profile else None,
                 "recent_topics": recent_topics,
                 "recent_posts": recent_posts,
+                "is_blocked": is_blocked,
+                "can_block": can_block,
             }
         )
 
@@ -1885,16 +1993,19 @@ class ExpertsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
     def get(self, request):
         from ..models import ForumProfile
 
-        profiles = (
-            ForumProfile.objects.filter(
-                trust_level__gte=get_setting("EXPERTS_MIN_TRUST_LEVEL"),
-                user__is_active=True,
-            )
-            .select_related("user", "avatar")
-            .order_by("-trust_level", "-post_count", "-id")[
-                : get_setting("EXPERTS_LIMIT")
-            ]
+        profiles = ForumProfile.objects.filter(
+            trust_level__gte=get_setting("EXPERTS_MIN_TRUST_LEVEL"),
+            user__is_active=True,
+        ).select_related("user", "avatar")
+        # HIDE (todo 284/M9): directly lists users. Must be chained BEFORE
+        # the [:LIMIT] slice below — .exclude() after a slice raises
+        # AssertionError.
+        profiles = _exclude_blocked_authors(
+            profiles, request.user, author_field="user_id"
         )
+        profiles = profiles.order_by("-trust_level", "-post_count", "-id")[
+            : get_setting("EXPERTS_LIMIT")
+        ]
         # last_seen is already loaded on `profiles` (ForumProfile is the
         # queryset itself) — no extra query per row, so this stays the same
         # single profile_queries hit test_experts.py pins.
@@ -2048,6 +2159,11 @@ class SearchView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
             post_qs = Post.objects.filter(
                 live=True, topic__live=True, topic__board__in=boards
             )
+            # HIDE (todo 284/M9): a discovery surface, no thread-structure
+            # continuity cost. Applied before board_slug/backend.search()
+            # so the search backend never sees a blocked author's rows.
+            topic_qs = _exclude_blocked_authors(topic_qs, request.user)
+            post_qs = _exclude_blocked_authors(post_qs, request.user)
             if board_slug:
                 # Filter on board_id (declared in search_fields), not
                 # board__slug — the modelsearch DB backend raises

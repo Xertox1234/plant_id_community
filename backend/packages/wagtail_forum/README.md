@@ -173,7 +173,8 @@ urlpatterns = [
 Routes: boards, topics (list/detail/create), posts (list/create/edit/delete),
 reactions, reports, image upload, profiles (`me` + public), search, delta `sync`,
 user mention search, notifications (list/unread-count/mark-read), recent topics,
-community experts, and the landing-page event hero.
+community experts, block/unblock + blocked-user list, and the landing-page event
+hero.
 
 The package ships **no authentication and no throttling** by design — see
 [Rate limiting](#rate-limiting).

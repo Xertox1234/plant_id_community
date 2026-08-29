@@ -14,6 +14,7 @@ from wagtail_forum.api import bookmarks as forum_bookmark_views
 from wagtail_forum.api import notifications as forum_notification_views
 from wagtail_forum.api import solutions as forum_solution_views
 from wagtail_forum.api import subscriptions as forum_subscription_views
+from wagtail_forum.api import user_blocks as forum_user_block_views
 from wagtail_forum.api import user_search as forum_user_search_views
 from wagtail_forum.api import views as forum_views
 
@@ -137,6 +138,17 @@ class TopicBookmarkView(forum_bookmark_views.TopicBookmarkView):
 # TopicBookmarkListView has no wrapper here — GET (list) is a page load, not a
 # polling target, same treatment as NotificationListView above — mounted
 # straight from the package in api_urls.py.
+
+
+@_throttled("block_create", "POST")
+@_throttled("block_delete", "DELETE")
+class UserBlockView(forum_user_block_views.UserBlockView):
+    pass
+
+
+# MyBlocksView has no wrapper here — GET (list) is a page load, not a polling
+# target, same treatment as TopicBookmarkListView above — mounted straight
+# from the package in api_urls.py.
 
 
 @_throttled("solution_mark", "POST")

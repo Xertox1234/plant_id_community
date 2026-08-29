@@ -8,6 +8,7 @@ from .notifications import (
 )
 from .solutions import TopicSolutionView
 from .subscriptions import TopicSubscriptionView
+from .user_blocks import MyBlocksView, UserBlockView
 from .user_search import UserMentionSearchView
 from .views import (
     BoardListView,
@@ -80,6 +81,7 @@ urlpatterns = [
     path("me/profile/", MeProfileView.as_view(), name="me-profile"),
     path("me/stats/", MeStatsView.as_view(), name="me-stats"),
     path("me/bookmarks/", TopicBookmarkListView.as_view(), name="me-bookmarks"),
+    path("me/blocks/", MyBlocksView.as_view(), name="me-blocks"),
     path("event/", EventHeroView.as_view(), name="event-hero"),
     path("search/", SearchView.as_view(), name="search"),
     path("sync/", SyncView.as_view(), name="sync"),
@@ -92,6 +94,11 @@ urlpatterns = [
         "users/<str:username>/",
         PublicProfileView.as_view(),
         name="user-profile",
+    ),
+    path(
+        "users/<str:username>/block/",
+        UserBlockView.as_view(),
+        name="user-block",
     ),
     path("notifications/", NotificationListView.as_view(), name="notification-list"),
     path(

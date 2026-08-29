@@ -18,6 +18,7 @@ from ..models import (
     Topic,
     TopicBookmark,
     TopicSubscription,
+    UserBlock,
 )
 from .sanitize import validate_forum_body
 
@@ -343,6 +344,10 @@ class TopicDetailSerializer(serializers.ModelSerializer):
     # nowhere else, so the topic list and both search hit-builders stay
     # untouched. See get_identification.
     identification = serializers.SerializerMethodField()
+    # ANNOTATE, not HIDE (todo 284/M9) — same discipline as is_subscribed/
+    # is_bookmarked above. See get_is_blocked/get_can_block.
+    is_blocked = serializers.SerializerMethodField()
+    can_block = serializers.SerializerMethodField()
 
     class Meta:
         model = Topic
@@ -369,7 +374,31 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             "solved_at",
             "can_mark_solution",
             "identification",
+            "is_blocked",
+            "can_block",
         ]
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_is_blocked(self, obj):
+        # Read the queryset annotation when present (zero extra query,
+        # correlated EXISTS via _annotate_author_blocked) — falls back to a
+        # direct .exists() only for a single-object response that bypassed
+        # get_queryset's annotation (mirrors get_reacted's map-vs-fallback
+        # shape, api/views.py PostListView.list comment).
+        annotated = getattr(obj, "author_is_blocked", None)
+        if annotated is not None:
+            return annotated
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated or obj.author_id is None:
+            return False
+        return UserBlock.objects.filter(blocker=user, blocked_id=obj.author_id).exists()
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_can_block(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        return UserBlock.can_block(user, obj.author)
 
     @extend_schema_field(TAGS_SCHEMA)
     def get_tags(self, obj):
@@ -558,6 +587,9 @@ class PostSerializer(serializers.ModelSerializer):
     can_edit = serializers.SerializerMethodField()
     can_delete = serializers.SerializerMethodField()
     can_report = serializers.SerializerMethodField()
+    # COLLAPSE, not HIDE (todo 284/M9) — see get_is_blocked/get_can_block.
+    is_blocked = serializers.SerializerMethodField()
+    can_block = serializers.SerializerMethodField()
 
     class Meta:
         model = Post
@@ -576,6 +608,8 @@ class PostSerializer(serializers.ModelSerializer):
             "can_edit",
             "can_delete",
             "can_report",
+            "is_blocked",
+            "can_block",
         ]
 
     @extend_schema_field(AUTHOR_SCHEMA)
@@ -653,6 +687,25 @@ class PostSerializer(serializers.ModelSerializer):
     def get_can_report(self, obj):
         # False for the post's own author and for anonymous viewers.
         return obj.can_be_reported_by(self._request_user())
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_is_blocked(self, obj):
+        # Read the queryset annotation when present (zero extra query,
+        # correlated EXISTS via _annotate_author_blocked) — falls back to a
+        # direct .exists() only for a single-object response that bypassed
+        # get_queryset's annotation (mirrors get_reacted's map-vs-fallback
+        # shape).
+        annotated = getattr(obj, "author_is_blocked", None)
+        if annotated is not None:
+            return annotated
+        user = self._request_user()
+        if user is None or not user.is_authenticated or obj.author_id is None:
+            return False
+        return UserBlock.objects.filter(blocker=user, blocked_id=obj.author_id).exists()
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_can_block(self, obj):
+        return UserBlock.can_block(self._request_user(), obj.author)
 
 
 NOTIFICATION_TOPIC_SCHEMA = {

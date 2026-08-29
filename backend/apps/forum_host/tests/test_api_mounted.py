@@ -13,6 +13,29 @@ def test_forum_boards_endpoint_is_mounted():
 
 
 @pytest.mark.django_db
+def test_block_endpoint_is_mounted_and_throttled():
+    """todo 284/M9: one round-trip through the REAL host mount, not just the
+    package test urlconf — docs/rules/forum.md requires host throttling
+    behavior be proven through the real mount."""
+    blocker = User.objects.create_user(username="mounted-blocker")
+    target = User.objects.create_user(username="mounted-target")
+    client = APIClient()
+    client.force_authenticate(blocker)
+
+    resp = client.post(f"/api/v1/forum/users/{target.username}/block/")
+    assert resp.status_code == 200
+    assert resp.data == {"blocked": True}
+
+    resp = client.get("/api/v1/forum/me/blocks/")
+    assert resp.status_code == 200
+    assert [row["username"] for row in resp.data] == [target.username]
+
+    resp = client.delete(f"/api/v1/forum/users/{target.username}/block/")
+    assert resp.status_code == 200
+    assert resp.data == {"blocked": False}
+
+
+@pytest.mark.django_db
 def test_search_many_term_query_is_bounded_not_500():
     # Todo 290: an anonymous many-term query recursed Wagtail's search-query
     # AND-tree construction (one nesting level per term) into a

@@ -79,6 +79,9 @@ class Post(
         # Any real-backend search over live posts filters on this; without it
         # Elasticsearch raises FilterFieldError (Topic declares it; Post must too).
         index.FilterField("live"),
+        # SearchView excludes blocked authors' posts (todo 284/M9) via
+        # author_id__in=Subquery(...); same FilterFieldError without this.
+        index.FilterField("author_id"),
         # Required so the DB search backend can filter on topic__live and
         # topic__board_id (visibility constraints in SearchView). Without this
         # declaration the backend raises FilterFieldError. No migration or

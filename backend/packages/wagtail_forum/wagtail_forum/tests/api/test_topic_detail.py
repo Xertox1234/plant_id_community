@@ -523,3 +523,53 @@ def test_ac5_end_to_end_open_detail_then_list_reflects_read(
 
     list_after_reply = client.get(f"/forum/boards/{board.slug}/topics/")
     assert list_after_reply.data["results"][0]["is_unread"] is True
+
+
+@pytest.mark.django_db
+def test_topic_detail_flags_but_does_not_hide_blocked_author():
+    """ANNOTATE only, not HIDE (todo 284/M9): the topic stays reachable —
+    ThreadDetailPage fetches topic+posts together, so 404ing here would fail
+    the whole page for anyone revisiting a thread whose OP they blocked."""
+    from wagtail_forum.models import UserBlock
+
+    board = _board()
+    blocked_author = User.objects.create_user(username="blocked-op")
+    viewer = User.objects.create_user(username="viewer-topic-detail")
+    UserBlock.block(viewer, blocked_author)
+    topic = Topic.objects.create(
+        board=board, title="T", slug="blocked-op-t", author=blocked_author, live=True
+    )
+    Post.objects.create(
+        topic=topic, author=blocked_author, is_opening_post=True, live=True
+    )
+
+    client = APIClient()
+    client.force_authenticate(viewer)
+    resp = client.get(f"/forum/topics/{topic.id}/")
+
+    assert resp.status_code == 200
+    assert resp.data["is_blocked"] is True
+    # can_block is a capability flag (not-self, authenticated), independent
+    # of current block state — block/unblock is idempotent either way, so
+    # this stays True even when already blocked (mirrors can_report, which
+    # is also unconditional once the self/anon guard passes).
+    assert resp.data["can_block"] is True
+
+
+@pytest.mark.django_db
+def test_topic_detail_is_blocked_false_when_not_blocked():
+    board = _board()
+    author = User.objects.create_user(username="unblocked-op")
+    viewer = User.objects.create_user(username="viewer-topic-detail2")
+    topic = Topic.objects.create(
+        board=board, title="T", slug="unblocked-op-t", author=author, live=True
+    )
+    Post.objects.create(topic=topic, author=author, is_opening_post=True, live=True)
+
+    client = APIClient()
+    client.force_authenticate(viewer)
+    resp = client.get(f"/forum/topics/{topic.id}/")
+
+    assert resp.status_code == 200
+    assert resp.data["is_blocked"] is False
+    assert resp.data["can_block"] is True

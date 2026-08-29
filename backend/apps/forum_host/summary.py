@@ -45,6 +45,17 @@ def build_summary_source(topic) -> tuple[str, int]:
     ``Post.body`` is a StreamField; ``plain_text_excerpt`` extracts clean text
     via ``raw_data`` without the per-post image bulk-fetch that iterating the
     resolved StreamValue would trigger.
+
+    Deliberately NOT block-filtered (todo 284/M9): ``AICacheService`` keys
+    purely on this content string, shared across every reader of the thread —
+    the whole point of a content-hash cache is one LLM call serving every
+    subsequent viewer. Excluding a blocked author's posts per-viewer would
+    make the content (and so the cache key) vary by the *requesting user's*
+    personal block list, fragmenting one shared, cost-governed LLM cache
+    into one entry per distinct block combination touching this thread — a
+    real spend regression, not a free filter, unlike every other surface in
+    this feature. A summary is also an LLM paraphrase, not the blocked
+    author's verbatim text. Recorded as a considered no-op, not an oversight.
     """
     posts = list(Post.objects.filter(topic=topic, live=True).order_by("created_at"))
     parts = [f"v{constants.SUMMARY_PROMPT_VERSION}", f"title: {topic.title}"]

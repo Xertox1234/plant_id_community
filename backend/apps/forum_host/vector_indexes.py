@@ -33,7 +33,11 @@ from django_ai_core.contrib.index import (
 from django_ai_core.contrib.index.embedding_cache import CachedEmbeddingTransformer
 from django_ai_core.contrib.index.storage.pgvector.provider import PgVectorProvider
 from django_ai_core.llm import LLMService
-from wagtail_forum.api.views import _visible_boards, plain_text_excerpt
+from wagtail_forum.api.views import (
+    _exclude_blocked_authors,
+    _visible_boards,
+    plain_text_excerpt,
+)
 from wagtail_forum.models import Topic
 
 from . import constants
@@ -113,7 +117,7 @@ def _search_cache_key(query: str, limit: int) -> str:
 
 
 def find_similar_topics(
-    query: str, board_slug: str | None = None, limit: int | None = None
+    query: str, board_slug: str | None = None, limit: int | None = None, user=None
 ):
     """Return live, visible topics semantically similar to ``query``.
 
@@ -130,6 +134,18 @@ def find_similar_topics(
     ``SimilarTopics().search_documents()`` directly, and must not re-implement the
     length cap — it lives here precisely so a new caller cannot forget it and
     silently invalidate ``EMBED_BUDGET_LIMIT``'s cost math.
+
+    ``user`` (todo 284/M9): when given, blocked-author topics are excluded in
+    the same refetch that already re-runs per-request for board privacy — so
+    this is safe cache-wise too, since only the pk list (query+limit-keyed,
+    author-independent) is cached; the block filter is applied fresh every
+    call, never baked into a shared cache entry. **Pass this only from a
+    caller whose OWN response is never cross-user cached** — semantic_search.py
+    qualifies (always ``private, no-store`` for the authenticated premium
+    caller). ``similar.py``'s ``SimilarTopicsView`` deliberately does NOT pass
+    it: that endpoint is ``AllowAny`` and caches its serialized `results` by
+    (query, board_slug) alone with no user in the key — filtering there would
+    leak one user's blocklist into another user's cached response.
     """
     if not getattr(settings, "FORUM_VECTOR_SEARCH_ENABLED", False):
         return []
@@ -210,6 +226,7 @@ def find_similar_topics(
     qs = Topic.objects.filter(
         pk__in=ordered_pks, live=True, board__in=_visible_boards()
     ).select_related("board")
+    qs = _exclude_blocked_authors(qs, user)
     if board_slug:
         # Resolve the slug to visible board ids (Wagtail slugs are unique only
         # among siblings, so two boards can share one) and filter on board_id —

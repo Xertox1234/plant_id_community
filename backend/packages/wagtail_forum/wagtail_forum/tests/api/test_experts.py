@@ -322,3 +322,24 @@ def test_experts_online_window_is_clamped_to_the_throttle():
 
     assert resp.status_code == 200
     assert resp.data["results"][0]["online"] is True
+
+
+@pytest.mark.django_db
+def test_experts_hides_a_user_the_viewer_has_blocked():
+    """HIDE (todo 284/M9): directly lists users, chained before [:LIMIT]."""
+    from wagtail_forum.models import UserBlock
+
+    _board()
+    blocked_expert = User.objects.create_user(username="blocked-expert")
+    profile = ForumProfile.for_user(blocked_expert)
+    profile.trust_level = 3
+    profile.save()
+    viewer = User.objects.create_user(username="experts-viewer")
+    UserBlock.block(viewer, blocked_expert)
+
+    client = APIClient()
+    client.force_authenticate(viewer)
+    resp = client.get("/forum/users/experts/")
+
+    assert resp.status_code == 200
+    assert resp.data["results"] == []

@@ -270,7 +270,15 @@ def test_post_list_affordances_add_no_per_post_queries():
     # still no has_perm here (the author owns every post → owner short-circuit).
     # Q5 (todo 301): the presence touch — one UPDATE on the caller's own
     # ForumProfile, throttled, paid by every authenticated forum request.
-    assert len(ctx.captured_queries) == 5
+    # Q6+Q7 (todo 284/M9): _annotate_author_blocked's _should_filter_blocks
+    # gate calls user.has_perm(...) unconditionally — unlike the
+    # can_edit/can_delete predicate above, it has no owner short-circuit
+    # (whether the viewer blocks someone is independent of whether they
+    # authored the posts), so this is the first has_perm call in this
+    # scenario and always costs exactly 2 queries (user + group permission
+    # JOINs). Per-REQUEST, not per-row — the annotation itself is a
+    # correlated EXISTS folded into the posts-page SELECT.
+    assert len(ctx.captured_queries) == 7
 
 
 @pytest.mark.django_db
@@ -452,3 +460,62 @@ def test_reacted_single_object_fallback_is_correct():
     request.user = me
     data = PostSerializer(post, context={"request": request}).data  # no reacted map
     assert data["reacted"] == ["love"]
+
+
+@pytest.mark.django_db
+def test_post_list_flags_blocked_author_posts_without_hiding():
+    """COLLAPSE, not HIDE (todo 284/M9): the row stays, with the real
+    author/body still delivered (server doesn't redact) — the client
+    (PostCard) renders the collapse affordance from is_blocked."""
+    from wagtail_forum.models import UserBlock
+
+    topic = _topic_with_posts(1)
+    post = topic.posts.filter(live=True).first()
+    blocked_author = post.author
+    viewer = User.objects.create_user(username="post-list-viewer")
+    UserBlock.block(viewer, blocked_author)
+
+    client = APIClient()
+    client.force_authenticate(viewer)
+    resp = client.get(f"/forum/topics/{topic.id}/posts/")
+
+    assert resp.status_code == 200
+    row = resp.data["results"][0]
+    assert row["is_blocked"] is True
+    # Not redacted server-side — real author/body still present so the
+    # client's local "show anyway" reveal needs no refetch.
+    assert row["author"]["username"] == blocked_author.username
+    assert row["body"]
+
+
+@pytest.mark.django_db
+def test_post_list_moderator_own_blocks_add_no_per_post_queries():
+    from wagtail_forum.models import UserBlock
+
+    # Advisor-caught regression: _annotate_author_blocked used to SKIP the
+    # annotation entirely for moderators (relying on _should_filter_blocks'
+    # early-out), which left obj.author_is_blocked unset and made
+    # get_is_blocked fall back to a per-object UserBlock.exists() query — an
+    # N+1 across the page, PLUS it returned True for the moderator's own
+    # blocks (inverting the uniform-inert-for-moderators guarantee every
+    # other HIDE surface upholds, see test_block_filtering_moderator_bypass.py).
+    # Fixed by always annotating (constant False when not filtering).
+    topic = _topic_with_posts(20)  # authored by "ada", one full page
+    author = User.objects.get(username="ada")
+    mod = _moderator("mod-post-list")
+    UserBlock.block(mod, author)  # the moderator's OWN block — must stay inert
+
+    client = APIClient()
+    client.force_authenticate(mod)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get(f"/forum/topics/{topic.id}/posts/")
+
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 20
+    assert all(row["is_blocked"] is False for row in resp.data["results"])
+    # Same total as test_post_list_affordances_add_no_per_post_queries (7):
+    # edit_block's existing has_perm("wagtail_forum.change_post") check (the
+    # moderator doesn't own these posts, so no owner short-circuit) pays the
+    # one-time 2-query has_perm cost first; the block-check's has_perm call
+    # then hits the warm per-request cache, adding nothing further.
+    assert len(ctx.captured_queries) == 7
