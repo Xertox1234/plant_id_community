@@ -17,6 +17,10 @@
 /// Unknown block types are preserved as [UnknownBlock] and rendered as a
 /// graceful fallback, mirroring the web renderer's `default:` case, rather
 /// than crashing the whole body.
+library;
+
+import 'forum_rich_text_markup.dart';
+
 sealed class ForumBodyBlock {
   const ForumBodyBlock();
 
@@ -143,18 +147,18 @@ List<ForumBodyBlock> parseForumBody(dynamic raw) {
       .toList(growable: false);
 }
 
-/// Build the write-shape `body` payload for a plain-text composer input.
-///
-/// The mobile composer is text-first: the whole input becomes a single
-/// `paragraph` block whose value is HTML-escaped text with newlines mapped to
-/// `<br>`. The server sanitizes it (nh3 allowlist) on write. Returns an empty
-/// list for blank input.
+/// Build the write-shape `body` payload for a composer input that may
+/// contain the five marker-syntax marks (bold/italic/link/inline-code/list —
+/// todo 314). The whole input becomes a single `paragraph` block whose value
+/// is [generateForumRichHtml]'s HTML (plain text with no markers produces
+/// the same HTML-escaped-text-plus-`<br>` shape this function always
+/// produced). The server sanitizes it (nh3 allowlist) on write. Returns an
+/// empty list for blank input.
 List<Map<String, dynamic>> buildParagraphBody(String text) {
   final trimmed = text.trim();
   if (trimmed.isEmpty) return const [];
-  final escaped = _escapeHtml(trimmed).replaceAll('\n', '<br>');
   return [
-    {'type': 'paragraph', 'value': escaped},
+    {'type': 'paragraph', 'value': generateForumRichHtml(trimmed)},
   ];
 }
 
@@ -166,15 +170,6 @@ List<Map<String, dynamic>> buildParagraphBody(String text) {
 /// (a client-side fake would happily accept either shape).
 Map<String, dynamic> buildImageBlockBody(int imageId) {
   return {'type': 'image', 'value': imageId};
-}
-
-String _escapeHtml(String input) {
-  return input
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
 }
 
 /// True when [body] is exactly the shape the mobile composer itself can
@@ -208,17 +203,23 @@ bool isSingleEditableParagraph(List<ForumBodyBlock> body) {
 /// composer's plain-text field from an existing single paragraph's HTML.
 /// Only meaningful when [isSingleEditableParagraph] is true for the body
 /// this came from — callers must check that first.
+///
+/// The final [escapeMarkerChars] step (todo 314) backslash-escapes any of
+/// the marker grammar's delimiter characters that happen to already be
+/// present in the plain text, so re-running [generateForumRichHtml] on the
+/// reconstructed text can never misread them as real markers.
 String plainTextFromParagraphHtml(String html) {
-  // Mirror image of _escapeHtml's replacement order: <br> back to newlines,
-  // then unescape entities in the REVERSE of the order they were escaped in
-  // (quote/apostrophe/angle-brackets first, `&amp;` last) so a literal `&`
-  // in the original text — which became a lone `&amp;` — isn't corrupted by
-  // an earlier unescape step reinterpreting part of it.
-  return html
+  // Mirror image of the old escaping's replacement order: <br> back to
+  // newlines, then unescape entities in the REVERSE of the order they were
+  // escaped in (quote/apostrophe/angle-brackets first, `&amp;` last) so a
+  // literal `&` in the original text — which became a lone `&amp;` — isn't
+  // corrupted by an earlier unescape step reinterpreting part of it.
+  final unescaped = html
       .replaceAll('<br>', '\n')
       .replaceAll('&#39;', "'")
       .replaceAll('&quot;', '"')
       .replaceAll('&gt;', '>')
       .replaceAll('&lt;', '<')
       .replaceAll('&amp;', '&');
+  return escapeMarkerChars(unescaped);
 }

@@ -1,0 +1,237 @@
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+
+import '../models/forum_rich_text_markup.dart';
+
+/// Wraps [value]'s selection in [marker] on both sides (e.g. `**bold**`,
+/// `_italic_`, `` `code` ``). A non-collapsed selection is wrapped in place
+/// and stays selected, so a re-tap or typing over it replaces it. A
+/// collapsed selection gets an empty marker pair inserted with the cursor
+/// — or, if [placeholder] is given, the placeholder text — selected between
+/// them, so typing immediately overwrites it.
+TextEditingValue wrapInlineMarker(
+  TextEditingValue value,
+  String marker, {
+  String placeholder = '',
+}) {
+  final selection = value.selection;
+  if (!selection.isValid) return value;
+  final text = value.text;
+
+  if (selection.isCollapsed) {
+    final insertion = '$marker$placeholder$marker';
+    final newText = text.replaceRange(
+      selection.start,
+      selection.start,
+      insertion,
+    );
+    final placeholderStart = selection.start + marker.length;
+    return value.copyWith(
+      text: newText,
+      selection: TextSelection(
+        baseOffset: placeholderStart,
+        extentOffset: placeholderStart + placeholder.length,
+      ),
+    );
+  }
+
+  final selected = text.substring(selection.start, selection.end);
+  final newText = text.replaceRange(
+    selection.start,
+    selection.end,
+    '$marker$selected$marker',
+  );
+  final newStart = selection.start + marker.length;
+  return value.copyWith(
+    text: newText,
+    selection: TextSelection(
+      baseOffset: newStart,
+      extentOffset: newStart + selected.length,
+    ),
+  );
+}
+
+/// Inserts a `[text](url)` link at [value]'s selection. [url] must already
+/// be validated by the caller via [isAllowedForumLinkHref] (the toolbar's
+/// link dialog does this before calling); an invalid [url] is still a
+/// defensive no-op here rather than inserting a broken link. Link text is
+/// the current non-empty selection, else [linkTextOverride], else [url]
+/// itself.
+TextEditingValue insertLink(
+  TextEditingValue value, {
+  required String url,
+  String? linkTextOverride,
+}) {
+  if (!isAllowedForumLinkHref(url)) return value;
+  final selection = value.selection;
+  if (!selection.isValid) return value;
+  final text = value.text;
+
+  final selected = selection.isCollapsed
+      ? ''
+      : text.substring(selection.start, selection.end);
+  final override = linkTextOverride;
+  final linkText = selected.isNotEmpty
+      ? selected
+      : (override != null && override.isNotEmpty ? override : url);
+
+  final markup = '[$linkText]($url)';
+  final newText = text.replaceRange(selection.start, selection.end, markup);
+  final newOffset = selection.start + markup.length;
+  return value.copyWith(
+    text: newText,
+    selection: TextSelection.collapsed(offset: newOffset),
+  );
+}
+
+/// Toggles a `- ` bullet prefix on every line the current selection touches
+/// (found via `lastIndexOf`/`indexOf('\n', ...)` from the selection bounds,
+/// matching [toggleListPrefix]'s own contract). Toggles OFF only when
+/// *every* touched line already has the prefix; otherwise toggles ON for
+/// every touched line that lacks it (an already-prefixed touched line is
+/// left as-is). The toggled range is left selected.
+TextEditingValue toggleListPrefix(TextEditingValue value) {
+  final selection = value.selection;
+  if (!selection.isValid) return value;
+  final text = value.text;
+
+  final selStart = selection.start;
+  final selEnd = selection.end;
+  final lineStart = selStart == 0
+      ? 0
+      : text.lastIndexOf('\n', selStart - 1) + 1;
+  final foundLineEnd = text.indexOf('\n', selEnd);
+  final lineEnd = foundLineEnd == -1 ? text.length : foundLineEnd;
+
+  final touched = text.substring(lineStart, lineEnd);
+  final lines = touched.split('\n');
+  final allPrefixed = lines.every((l) => l.startsWith('- '));
+
+  final newLines = allPrefixed
+      ? lines.map((l) => l.substring(2)).toList()
+      : lines.map((l) => l.startsWith('- ') ? l : '- $l').toList();
+
+  final newTouched = newLines.join('\n');
+  final newText = text.replaceRange(lineStart, lineEnd, newTouched);
+
+  return value.copyWith(
+    text: newText,
+    selection: TextSelection(
+      baseOffset: lineStart,
+      extentOffset: lineStart + newTouched.length,
+    ),
+  );
+}
+
+/// The composer's rich-text toolbar (todo 314): five buttons — bold,
+/// italic, inline code, link, bulleted list — each wired to a pure
+/// transform function above, mutating [controller]'s value directly.
+///
+/// Deliberately does not use a Material [TextField] for its own link-entry
+/// dialog (a [CupertinoTextField] instead) — a `TextField` nested here would
+/// make `find.byType(TextField)` ambiguous in composer-screen widget tests
+/// whenever the dialog happens to be open.
+class ForumRichTextToolbar extends StatelessWidget {
+  const ForumRichTextToolbar({super.key, required this.controller});
+
+  final TextEditingController controller;
+
+  void _wrap(String marker, {String placeholder = ''}) {
+    controller.value = wrapInlineMarker(
+      controller.value,
+      marker,
+      placeholder: placeholder,
+    );
+  }
+
+  Future<void> _showLinkDialog(BuildContext context) async {
+    final urlController = TextEditingController();
+    final url = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        String? error;
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Insert link'),
+              content: CupertinoTextField(
+                controller: urlController,
+                placeholder: 'https://example.com',
+                autofocus: true,
+                keyboardType: TextInputType.url,
+              ),
+              actions: [
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    final candidate = urlController.text.trim();
+                    if (!isAllowedForumLinkHref(candidate)) {
+                      setState(() {
+                        error =
+                            'Enter a valid http(s), mailto:, or /relative link.';
+                      });
+                      return;
+                    }
+                    Navigator.of(dialogContext).pop(candidate);
+                  },
+                  child: const Text('Insert'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (url == null) return;
+    controller.value = insertLink(controller.value, url: url);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.format_bold),
+          tooltip: 'Bold',
+          onPressed: () => _wrap('**'),
+        ),
+        IconButton(
+          icon: const Icon(Icons.format_italic),
+          tooltip: 'Italic',
+          onPressed: () => _wrap('_'),
+        ),
+        IconButton(
+          icon: const Icon(Icons.code),
+          tooltip: 'Inline code',
+          onPressed: () => _wrap('`'),
+        ),
+        IconButton(
+          icon: const Icon(Icons.link),
+          tooltip: 'Insert link',
+          onPressed: () => _showLinkDialog(context),
+        ),
+        IconButton(
+          icon: const Icon(Icons.format_list_bulleted),
+          tooltip: 'Bulleted list',
+          onPressed: () {
+            controller.value = toggleListPrefix(controller.value);
+          },
+        ),
+      ],
+    );
+  }
+}
