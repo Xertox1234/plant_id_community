@@ -79,6 +79,7 @@ class TopicCard extends StatelessWidget {
                       author: topic.author,
                       onTap: onAuthorTap,
                       avatarRadius: 12,
+                      showTrustBadge: false,
                       nameStyle: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),

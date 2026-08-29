@@ -23,12 +23,21 @@ class AuthorIdentity extends StatelessWidget {
     this.onTap,
     this.avatarRadius = 16,
     this.nameStyle,
+    this.showTrustBadge = true,
   });
 
   final ForumAuthor author;
   final VoidCallback? onTap;
   final double avatarRadius;
   final TextStyle? nameStyle;
+
+  /// Whether to render the [TrustBadge] after the name. Defaults to `true`
+  /// (matches `PostCard`'s original behavior). `TopicCard` passes `false` —
+  /// its stat row only budgets half its available slack for this widget (the
+  /// other half goes to a trailing `Spacer()`), and the badge's ~56px of
+  /// fixed, non-shrinkable width was never part of `TopicCard`'s original
+  /// design (final whole-branch review, todo 317).
+  final bool showTrustBadge;
 
   @override
   Widget build(BuildContext context) {
@@ -53,8 +62,10 @@ class AuthorIdentity extends StatelessWidget {
                 ),
           ),
         ),
-        const SizedBox(width: AppSpacing.xs),
-        TrustBadge(author.trustLevel),
+        if (showTrustBadge) ...[
+          const SizedBox(width: AppSpacing.xs),
+          TrustBadge(author.trustLevel),
+        ],
       ],
     );
 

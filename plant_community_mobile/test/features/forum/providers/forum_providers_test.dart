@@ -310,7 +310,12 @@ void main() {
         forumUserProfileProvider('alice').future,
       );
 
-      expect(result.author.username, 'alice');
+      // Asserts against the fake's recorded call, not just the fixture's own
+      // content — the fixture is returned unconditionally regardless of the
+      // `username` argument, so asserting only `result.author.username` would
+      // pass even if a different username reached the API layer (final
+      // whole-branch review, todo 317).
+      expect(api.fetchProfileCalls, ['alice']);
       expect(result.bio, 'I grow monsteras.');
     });
 

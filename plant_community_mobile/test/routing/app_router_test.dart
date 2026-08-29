@@ -9,6 +9,7 @@ import 'package:plant_community_mobile/features/forum/screens/forum_notification
 import 'package:plant_community_mobile/features/forum/screens/forum_search_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_topics_screen.dart';
+import 'package:plant_community_mobile/features/forum/screens/forum_user_profile_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
 import 'package:plant_community_mobile/models/plant.dart';
@@ -832,6 +833,63 @@ void main() {
         // The tap's primary action — opening the topic — must not be
         // sacrificed to a failed best-effort mark-read.
         expect(find.byType(ForumThreadScreen), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
+
+    testWidgets(
+      'tapping a post author opens their public profile (todo 317)',
+      (tester) async {
+        // Closes the AC #2 verification gap: unit-level tests prove
+        // onAuthorTap fires, and screen-level tests prove
+        // ForumUserProfileScreen renders given a username, but nothing taps
+        // a real author through a real GoRouter and confirms it actually
+        // lands on the profile screen. A typo in any of the 3 duplicated
+        // 'forumUserProfile' route-name string literals (this route's
+        // registration in app_router.dart, or either pushNamed call site in
+        // forum_thread_screen.dart/forum_topics_screen.dart) would crash
+        // this test.
+        final api = FakeForumApi()
+          ..topicDetail = topicDetail()
+          ..posts = CursorPage(
+            items: [post(authorOverride: author(username: 'alice'))],
+          )
+          ..profile = profile(username: 'alice');
+        final container = ProviderContainer(
+          overrides: [
+            authServiceProvider.overrideWith(
+              _MockUnauthenticatedAuthNotifier.new,
+            ),
+            forumApiProvider.overrideWithValue(api),
+            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          ],
+        );
+        addTearDown(container.dispose);
+        final router = container.read(appRouterProvider);
+        // See the "posting a reply" test above for why this listen is
+        // needed: appRouterProvider is autoDispose and this test navigates
+        // twice.
+        container.listen(appRouterProvider, (_, _) {});
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+
+        router.go('/forum/topics/10', extra: 'A topic');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        await tester.tap(find.text('alice'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(find.byType(ForumUserProfileScreen), findsOneWidget);
+        // Proves the actual argument (not just A username) reached the API
+        // layer for the profile that was actually opened.
+        expect(api.fetchProfileCalls, ['alice']);
 
         await tester.pump(const Duration(seconds: 4));
       },

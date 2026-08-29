@@ -101,6 +101,7 @@ class FakeForumApi implements ForumApi {
   /// Public-profile fixture for [fetchProfile]. A single fixture that
   /// ignores the `username` argument — mirrors [topicDetail]'s convention.
   ForumProfile? profile;
+  final List<String> fetchProfileCalls = [];
 
   /// [search] fixtures. [searchPages] maps a 1-based `page` number to the
   /// page returned for it; falls back to [searchResult] when empty.
@@ -143,6 +144,7 @@ class FakeForumApi implements ForumApi {
 
   @override
   Future<ForumProfile> fetchProfile(String username) async {
+    fetchProfileCalls.add(username);
     final fixture = profile;
     if (fixture == null) {
       throw ApiException('no fixture', statusCode: 404);

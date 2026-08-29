@@ -73,5 +73,51 @@ void main() {
         expect(cardTapped, isTrue);
       },
     );
+
+    testWidgets(
+      'does not overflow at a 375pt-wide viewport with a long author name '
+      'and real stats (final review, todo 317)',
+      (tester) async {
+        // 375x800 @ 1.0 mirrors an iPhone SE/mini logical viewport — Flutter's
+        // default test surface (800x600) never exercises this width and
+        // would pass even with the pre-fix regression present.
+        final originalPhysicalSize = tester.view.physicalSize;
+        final originalDevicePixelRatio = tester.view.devicePixelRatio;
+        tester.view.physicalSize = const Size(375, 800);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.physicalSize = originalPhysicalSize;
+          tester.view.devicePixelRatio = originalDevicePixelRatio;
+        });
+
+        await pump(
+          tester,
+          TopicCard(
+            topic: ForumTopicListItem(
+              id: 10,
+              title: 'A sample topic title',
+              slug: 'sample-topic',
+              author: author(
+                username: 'alexandra',
+                displayName: 'Alexandra Greenthumbington',
+              ),
+              isPinned: false,
+              isClosed: false,
+              locked: false,
+              replyCount: 128,
+              viewCount: 45231,
+              // Well beyond forumRelativeTime's 7-day cutoff, so it renders
+              // as a full "YYYY-MM-DD" date — the widest form of the
+              // trailing time label — rather than "just now"/"Nd".
+              lastPostAt: DateTime(2020, 1, 2),
+              lastPostAuthor: author(),
+              isUnread: false,
+            ),
+          ),
+        );
+
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }
