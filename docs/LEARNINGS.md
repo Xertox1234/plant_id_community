@@ -3156,3 +3156,134 @@ end-to-end call" gate exists to catch, and exactly why deferring that gate
 past a merge (as happened here) lets a production-breaking crash on the
 app's core feature ship silently — see spec §6.4 in the Canopy PR 4 memory
 file for the original gate this session finally ran.
+
+## 2026-08-28 — Widget consolidation quietly changed a layout budget, not just rendering (todo 317, forum author identity)
+
+**What happened:** consolidating `PostCard`'s and `TopicCard`'s duplicated
+inline author rendering into one shared `AuthorIdentity` widget gave
+`TopicCard` a `TrustBadge` it never showed before — a seemingly-harmless
+side effect of reuse. But `TopicCard`'s stat row placed the author cell in
+a `Flexible` next to a `Spacer()`, which unconditionally claims half the
+row's slack regardless of what the `Flexible` child needs. The new
+fixed-width chrome (avatar + gaps + badge, ~92px) landed inside that
+half-share cell and computed to sit at the `RenderFlex` overflow threshold
+on a 375pt-wide screen (iPhone SE/mini), becoming a hard overflow at
+larger text scales.
+
+**Why no test caught it:** the full 340+-test suite was green throughout.
+Flutter's default test viewport is 800×600 — nothing in the suite
+constrained width below that, so this class of regression is invisible by
+construction regardless of coverage elsewhere. A task-scoped review
+correctly noticed the badge as a "second visual surprise beyond the
+explicitly-blessed avatar addition" but under-weighted it as cosmetic; only
+a broader whole-branch review, tracing the actual pixel budget by hand,
+surfaced its true severity as a real, computed overflow risk.
+
+**Resolution:** added a `showTrustBadge` param to the shared widget
+(default `true`, so `PostCard` is unaffected); `TopicCard` passes `false`,
+reverting its own visual change to exactly the avatar-only addition
+originally scoped. Added a dedicated 375pt-viewport regression test with a
+long author name + real stats + a full-date timestamp — the combination
+that maximizes the fixed-chrome budget — asserting no overflow exception,
+and confirmed it genuinely discriminates by reverting the fix and
+reproducing a real `FlutterError: A RenderFlex overflowed by 77 pixels`.
+
+**Rule** (added to `docs/rules/flutter.md` +
+`plant_community_mobile/docs/patterns/flutter-patterns.md` → Shared-Widget
+Consolidation): moving fixed-width chrome into a `Flexible`/`Expanded` cell
+that sits beside a `Spacer()` is a layout change, not a rendering change —
+budget it in pixels, and give it a narrow-viewport test. **Review-process
+corollary** (added to `.claude/agents/flutter-dart-reviewer.md`): a
+widget-consolidation diff that adds chrome to a shared widget needs its
+call sites checked against their actual layout context, not just their
+isolated appearance — a green 800×600 test suite is not evidence against a
+narrow-viewport overflow.
+
+## 2026-08-28 — `GlobalKey`/`Scrollable.ensureVisible` cannot reach a not-yet-built list item (todo 311, FCM push-tap routing)
+
+**What happened:** implementing "tap a push notification, scroll to the
+target post" used a `GlobalKey` assigned per-post in `ListView.separated`'s
+`itemBuilder`, then `Scrollable.ensureVisible(key.currentContext)` in a
+post-frame callback. This works only for a post the list has already
+built. `ListView`'s lazy builders only construct items inside the viewport
+plus a small cache extent (~250px default) — a post further down the list
+never gets a `GlobalKey` attached at all, so `key.currentContext` is `null`
+and the scroll attempt silently no-ops. Combined with the data shape (posts
+oldest-first, a `reply_added` push always targeting the newest post), this
+made the feature a no-op for the common case: any thread longer than a
+screenful.
+
+**Why it wasn't obvious in review:** the mechanism worked correctly in
+every test, because the test fixtures (6 posts in an 800×600 test
+viewport) all happened to fall inside the viewport + cache extent — the
+target was always already built. The test proved "scroll to an
+already-visible post," not "scroll to an off-screen post," and nothing
+distinguished the two until a broader review deliberately constructed a
+25-post fixture with the target far enough down to guarantee it wasn't
+pre-built.
+
+**Resolution:** scoped as a documented, deliberate limitation rather than
+a mechanism rewrite (the original plan had already authorized "best
+effort... silent no-op if the post isn't on the loaded page" — the gap was
+in how consequential that trade-off turned out to be, not a spec
+violation). Added an explicit doc comment naming the limitation and a test
+that proves it (a 25-post fixture, target post `findsNothing` after the
+tap) rather than leaving it silently unproven.
+
+**Rule** (added to `docs/rules/flutter.md`): `GlobalKey.currentContext` +
+`Scrollable.ensureVisible` only reaches a child a lazy list has already
+built — it is not a deep-link mechanism for anything below the fold.
+Reaching an off-screen item needs index/`ScrollController`-based scrolling
+instead, and any list-scroll test must include a fixture large enough that
+the target is provably NOT pre-built, not just one within the default test
+viewport's reach.
+
+## 2026-08-28 — A stale IME composing range survived a hand-rolled `TextEditingValue` mutation (todo 314, mobile composer rich text)
+
+**What happened:** a rich-text composer toolbar mutated
+`TextEditingController.value` directly via `copyWith(text: ..., selection:
+...)` to insert/wrap marker syntax around the current selection.
+`copyWith` carries every field it isn't given through unchanged — including
+`composing`, the IME's in-progress-word range. A mutation that shortens the
+text (e.g. stripping a `-` list prefix) can leave a pre-mutation
+composing range pointing past the new, shorter text's end.
+`TextEditingController.value`'s own setter asserts
+`!newValue.composing.isValid || newValue.isComposingRangeValid` — so this
+trips a debug/profile-build assert during perfectly ordinary typing
+(Gboard and similar IMEs keep a composing region on the word being typed),
+and in release builds the stale range silently misdirects the next IME
+commit.
+
+**Why it wasn't caught sooner:** every hand-built `TextEditingValue` in the
+existing test suite used the default `TextRange.empty` for `composing` —
+none exercised a non-empty composing range, so the bug had no test surface
+until a broader review specifically constructed one.
+
+**Resolution:** every `copyWith` call in the toolbar's transform functions
+now explicitly sets `composing: TextRange.empty` — there is no case where
+preserving a pre-mutation composing range across a structural text
+mutation is correct.
+
+**Rule** (added to `docs/rules/flutter.md`): any code that assigns
+`TextEditingController.value` directly (a hand-rolled toolbar/transform,
+not IME input) must reset `composing: TextRange.empty` on the result.
+Flutter's own docs bury this invariant in a constructor comment that
+explicitly says it is *not* checked at construction — it only surfaces
+later, at the controller's setter, on real IME input.
+
+## 2026-08-28 — A plan directed reusing private Dart classes across files (todo 317)
+
+**What happened:** the implementation plan for todo 317 directed reusing
+`_SectionHeader`/`_EmptyLine` from `forum_screen.dart` in a new file,
+`forum_user_profile_screen.dart`. Both are private (leading underscore) —
+impossible to import across files in Dart; a leading underscore is a hard
+file-scope boundary, not a naming convention. The implementer correctly
+duplicated them instead (the only available option) and flagged the
+discrepancy in the report; a broader review confirmed this was a plan
+defect, not an implementation departure, and recommended the plan record
+be corrected so it doesn't misread as one.
+
+**Rule:** when a plan says "reuse X from file Y," verify X isn't private
+before writing the plan, not after an implementer hits the wall. If
+genuine cross-file reuse is wanted, the fix belongs in a follow-up
+(extract to a shared widgets file), not in the plan's confident wording.

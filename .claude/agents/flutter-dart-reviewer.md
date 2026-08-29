@@ -46,6 +46,13 @@ Review only the files passed to you. Do not read the full repo.
 - [ ] Dark mode: all screens must check `Theme.of(context).brightness == Brightness.dark` and adapt
 - [ ] Minimum tap target: 48x48px (Material 3 spec)
 
+**Widget Consolidation & Layout**
+
+- [ ] A shared widget that gains new always-on chrome (avatar, badge, icon) must be checked against EVERY call site's actual layout context, not just its own isolated appearance — a `Flexible`/`Expanded` cell sitting beside a `Spacer()` gives the shared widget only half the row's slack, and new fixed-width chrome eating into that budget can overflow at narrow widths even though nothing about the widget's own rendering looks wrong (todo 317, `docs/LEARNINGS.md` 2026-08-28)
+- [ ] Any row/layout diff like the above needs at least one narrow-viewport (≤375pt) test — a green suite at Flutter's default 800×600 test viewport is not evidence against this class of regression
+- [ ] `GlobalKey`/`Scrollable.ensureVisible` targeting a `ListView.builder`/`.separated` item only works if that item is already built (viewport + cache extent, ~250px default) — a "scroll to item N" test must include enough items that the target is provably NOT pre-built, not just one that fits in the default test viewport's reach (todo 311, `docs/LEARNINGS.md` 2026-08-28)
+- [ ] A `TextEditingValue` built via `copyWith` after a hand-rolled mutation (not real IME input) must explicitly set `composing: TextRange.empty` — a carried-through stale composing range trips the controller's own assert during ordinary IME typing (todo 314, `docs/LEARNINGS.md` 2026-08-28)
+
 **Null Safety**
 
 - [ ] No `!` null-force-unwrap on values that could legitimately be null — use `?.` or explicit null checks
