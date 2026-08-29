@@ -642,6 +642,23 @@
     "severity": "warn"
   },
   {
+    "id": "forum-host-query-missing-block-filter-decision",
+    "domains": [
+      "forum",
+      "security"
+    ],
+    "path_glob": [
+      "backend/apps/forum_host/*.py"
+    ],
+    "content_present": "(Topic|Post)\\.objects\\.(filter|get)\\(",
+    "content_absent": "_exclude_blocked_authors|_should_filter_blocks|_annotate_author_blocked|user=request\\.user|Deliberately NOT block-filtered",
+    "message": "Host-side forum view/task querying Topic/Post must make an explicit per-user BLOCK-visibility decision, not just board visibility: apply _exclude_blocked_authors/_should_filter_blocks (or thread user= through to a package helper that already does — see find_similar_topics), OR record why not with a 'Deliberately NOT block-filtered' comment (e.g. no authenticated viewer exists, or the surface has a shared cross-user/cross-reader cache that per-viewer filtering would poison or fragment). apps/forum_host/ is invisible to filtering added only inside the wagtail_forum package — this exact blind spot has already bitten twice (todo 255 H14 for board visibility, then todo 284 M9 for block visibility on semantic_search.py/similar.py/summary.py).",
+    "pattern_ref": "docs/rules/forum.md",
+    "source": "codify: todo 284 (advisor-caught, 2nd occurrence of the H14 package-only-filtering blind spot)",
+    "added": "2026-08-29",
+    "severity": "warn"
+  },
+  {
     "id": "forum-reverse-hardcoded-namespace",
     "domains": [
       "api",

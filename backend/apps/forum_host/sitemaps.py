@@ -56,6 +56,9 @@ class ForumTopicSitemap(_FrontendSitemap):
     priority = 0.5
 
     def items(self):
+        # Deliberately NOT block-filtered (todo 284/M9): a sitemap is served
+        # to crawlers, not an authenticated viewer — no blocklist exists to
+        # filter against. Same reasoning as feeds.py.
         return (
             Topic.objects.filter(live=True, board__in=_visible_boards())
             .select_related("board")

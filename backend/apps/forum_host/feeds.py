@@ -31,6 +31,10 @@ class ForumTopicsFeed(Feed):
         return f"{_site_url()}/forum"
 
     def items(self):
+        # Deliberately NOT block-filtered (todo 284/M9): an RSS feed has no
+        # authenticated viewer and no per-user blocklist to filter against —
+        # unpersonalized by design, same reasoning as similar.py's
+        # compose-time endpoint.
         return (
             Topic.objects.filter(live=True, board__in=_visible_boards())
             .select_related("board")
