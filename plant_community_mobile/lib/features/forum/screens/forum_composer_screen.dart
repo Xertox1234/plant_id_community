@@ -5,11 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../services/api_service.dart';
 import '../../../services/auth_service.dart';
+import '../models/forum_rich_text_markup.dart';
 import '../models/models.dart';
 import '../services/forum_api.dart';
 import '../services/forum_composer_controller.dart';
 import '../services/forum_image_picker.dart';
 import '../widgets/forum_notice_banner.dart';
+import '../widgets/forum_rich_text_toolbar.dart';
 
 /// Which kind of content the composer creates.
 enum ForumComposeMode { topic, reply, edit }
@@ -31,17 +33,37 @@ class ForumComposeArgs {
       initialBodyText = '',
       hasNonTextContent = false;
 
-  /// Edit an existing post (todo 292). The mobile composer is text-first
-  /// (todo 294 tracks rich-text/image authoring), so a body that isn't
-  /// exactly one paragraph block cannot be pre-filled without losing
-  /// content: [initialBodyText] is left empty and [hasNonTextContent] is
-  /// true, so the screen can warn rather than silently discard it on submit.
+  /// Edit an existing post (todo 292). [parseForumRichHtmlToMarkup] is tried
+  /// first (todo 314): when the body is a single paragraph block whose HTML
+  /// is within the five-mark grammar it emits, [initialBodyText] is the
+  /// reconstructed marker text and the post opens fully rich-editable — a
+  /// deliberate side effect is that a web-authored post using only those
+  /// five marks becomes editable here too (nothing new is trusted: the
+  /// server re-sanitizes on every save regardless of origin). Anything
+  /// outside that grammar falls back to the existing plain-text logic,
+  /// unchanged: a body that isn't exactly one plain-text paragraph block
+  /// cannot be pre-filled without losing content, so [initialBodyText] is
+  /// left empty and [hasNonTextContent] is true, so the screen can warn
+  /// rather than silently discard it on submit.
   factory ForumComposeArgs.edit({required ForumPost post}) {
-    final singleParagraph = isSingleEditableParagraph(post.body);
+    final body = post.body;
+    if (body.length == 1 && body.first is ParagraphBlock) {
+      final markup = parseForumRichHtmlToMarkup(
+        (body.first as ParagraphBlock).html,
+      );
+      if (markup != null) {
+        return ForumComposeArgs._edit(
+          postId: post.id,
+          initialBodyText: markup,
+          hasNonTextContent: false,
+        );
+      }
+    }
+    final singleParagraph = isSingleEditableParagraph(body);
     return ForumComposeArgs._edit(
       postId: post.id,
       initialBodyText: singleParagraph
-          ? plainTextFromParagraphHtml((post.body.first as ParagraphBlock).html)
+          ? plainTextFromParagraphHtml((body.first as ParagraphBlock).html)
           : '',
       hasNonTextContent: !singleParagraph,
     );
@@ -112,10 +134,21 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     super.initState();
     _controller = ForumComposerController(api: ref.read(forumApiProvider));
     if (_isEdit) _bodyController.text = widget.args.initialBodyText;
+    // A listener (not just the body TextField's `onChanged`) so `_canSubmit`
+    // re-evaluates when the rich-text toolbar mutates `controller.value`
+    // programmatically (todo 314) — `TextField.onChanged` only fires for
+    // user-driven edits through the IME, never for a direct `.value =`
+    // assignment, so a toolbar-only edit (e.g. tapping bold with nothing
+    // else typed) would otherwise leave the Post button's enabled state
+    // stale.
+    _bodyController.addListener(_onBodyChanged);
   }
+
+  void _onBodyChanged() => setState(() {});
 
   @override
   void dispose() {
+    _bodyController.removeListener(_onBodyChanged);
     _titleController.dispose();
     _bodyController.dispose();
     super.dispose();
@@ -336,6 +369,10 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
         ],
+        Align(
+          alignment: Alignment.centerLeft,
+          child: ForumRichTextToolbar(controller: _bodyController),
+        ),
         TextField(
           controller: _bodyController,
           decoration: InputDecoration(
@@ -347,7 +384,9 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
           ),
           minLines: 5,
           maxLines: 12,
-          onChanged: (_) => setState(() {}),
+          // No onChanged here — the `_bodyController` listener registered in
+          // initState covers both user-driven edits AND the rich-text
+          // toolbar's programmatic `.value =` assignments (todo 314).
         ),
         if (_supportsImage) ...[
           const SizedBox(height: AppSpacing.sm),
