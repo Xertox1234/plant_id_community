@@ -3335,3 +3335,90 @@ read-only and cannot run this mutating check itself, `git diff
 the IMPLEMENTER's own pre-commit verification checklist as an explicit,
 separate step — not folded into "run flutter test" — since it is the one
 class of staleness no read-only review pass can ever catch.
+
+## 2026-08-29 — A new PreToolUse hook's `--show-toplevel` comparison and relative-path handling both had real bugs, caught in two separate passes (PR #576, guard-main-branch-edit.sh)
+
+**What happened:** a new hook (blocking Edit/Write while checked out on
+`main`) was first written comparing `git rev-parse --show-toplevel` (run
+at the session `cwd`) against the raw `file_path` string via `case`
+prefix-matching. `--show-toplevel` resolves symlinks internally when
+locating a repository (e.g. macOS `/tmp` → `/private/tmp`); the raw
+`file_path` string never does. A test built with `mktemp -d` (which lands
+under `/tmp` on macOS) caught the desync immediately — the hook silently
+failed to deny an edit it should have. The fix (advisor-caught, pre-merge)
+was to compare two independently-resolved `--show-toplevel` calls — one
+for `$CWD`, one for `dirname "$FILE_PATH"` — instead of one resolved value
+against one raw string.
+
+A second bug survived that first fix and reached `/code-review`: a
+relative `file_path` was trusted as automatically in-scope (skipping the
+toplevel check entirely) on the assumption that Edit/Write/MultiEdit tool
+contracts always pass absolute paths in practice. A relative path
+containing `..` that actually escapes the repo would still have been
+denied on `main` — the opposite of a security bug, but still a
+false-positive latent in the code, confirmed by running the hook directly
+against a crafted `../outside.txt` case. Fix: resolve every `file_path` to
+absolute (prepending `$CWD` when relative) before the toplevel comparison,
+so both branches go through identical logic — `cd` resolves `..` via real
+filesystem lookups, so this is correct even through symlinks.
+
+**Why two separate passes were needed:** the first bug was a "does the
+happy path even work" defect, caught by writing tests against realistic
+environment conditions (a real `mktemp -d`, not a hand-picked path).
+The second was a "what does the code do on paths the tests didn't
+construct" defect — the kind `feedback_untested_path_different_semantics`-style
+review catches and straight-line testing doesn't, because the original
+test suite's relative-path case never contained `..`.
+
+**Rule:** any new hook (or other script) that determines "is this path
+inside the repo" by comparing paths must resolve **both** sides through
+the same mechanism before comparing — either both through
+`git rev-parse --show-toplevel` (symlink-safe) or neither, never one
+resolved and one raw. And a "relative paths are always in-scope" shortcut
+is only safe if every real caller is verified to never pass a
+path-escaping relative value — treat that as an assumption to verify, not
+free of code paths that need the real check.
+
+## 2026-08-29 — `EnterWorktree`/`ExitWorktree` mechanics for a session pinned to a worktree at launch (harness process note, not app code)
+
+**What happened:** a session launched pinned to
+`.claude/worktrees/todo-317-author-profile` needed to commit unrelated
+harness changes (this PR) on their own branch without polluting that
+todo's diff. Three harness behaviors weren't discoverable from the tool
+descriptions alone and had to be found empirically:
+
+1. Any `git -C <other-worktree>` or bare `cd <other-worktree>` from the
+   pinned session is refused outright — even as a single, non-compound
+   command, not just a `cd X && git Y` chain. Plain filesystem ops (`cp`,
+   `mkdir`, `chmod`) and `git worktree add <new-path>` are NOT blocked —
+   only commands whose effective working directory becomes another
+   worktree while git state could be mutated there.
+2. `EnterWorktree(path=...)` — the documented way to switch a pinned
+   session into an existing worktree — only accepts targets already under
+   `.claude/worktrees/` of the repo. This repo also has a separate,
+   older `.worktrees/` (no `.claude/` prefix) convention already in use
+   (e.g. `feat-canopy-areas`); a worktree created there is invisible to
+   `EnterWorktree` and errors "is not under .../.claude/worktrees".
+3. `ExitWorktree(action: "keep")`, called from a session pinned to a
+   worktree at launch (one that never itself called `EnterWorktree` to
+   reach that original worktree), does not restore the original pinned
+   worktree — it drops the session into the shared main checkout instead.
+   The tool's own description promises it restores "the working directory
+   ... to where it was before EnterWorktree," but that "before" state is
+   whatever the session's most recent `EnterWorktree(path=...)` switched
+   *away from* — not the original launch pin, two hops back.
+
+**Resolution:** the working recipe — `git worktree add -b <branch>
+.claude/worktrees/<name> origin/main` (plain command, works from the
+pinned session) → copy files in via `cp` → `EnterWorktree(path=...)` to
+switch in → do the git/gh work there → `ExitWorktree(keep)` → immediately
+check `pwd`/`git branch --show-current`, and if it's the main checkout
+rather than the original task worktree, `EnterWorktree(path=<original>)`
+again before doing anything else.
+
+**Rule:** when a worktree-pinned session needs to produce unrelated,
+separately-mergeable output, create the scratch worktree directly under
+`.claude/worktrees/` (never the repo's own `.worktrees/` convention) so
+`EnterWorktree`/`ExitWorktree` can manage it, and always re-verify
+location after `ExitWorktree` rather than assuming it returned to the
+original pin.

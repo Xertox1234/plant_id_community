@@ -73,6 +73,37 @@ the exact line/character where the symbol is defined. Always get position from
 count characters from the start of the line for `character`, or pass `documentSymbol`
 results through directly).
 
+## Working Conventions
+
+Short discipline rules the harness doesn't already enforce mechanically.
+
+**Review loop budget.** Interactive review→fix→review cycles (bundled
+`/code-review`, the orchestrators) get two rounds, not open-ended: round 1 is a
+full review with fixes for BLOCKING findings only; round 2 verifies those
+specific fixes. Anything non-blocking that surfaces in either round becomes a
+follow-up todo file instead of a third round — Review Doc Tracking (below)
+is a different, narrower convention for `docs/reviews/*.md` findings
+specifically, not for interactive review rounds. `kimi-review`'s commit-time
+gate is separate and unaffected — this budget is for the human-in-the-loop
+review tools.
+
+**No destructive commands.** Never run `rm -rf`, `git reset --hard`,
+`git clean -fd`, or a force-push without asking first and stating exactly what
+will be lost. Prefer `git revert`, moving files aside, or (per the shared-stash
+caveat in this environment) `git stash push -u -m "<tag>"` over a bare stash.
+
+**Long-running local processes.** Start dev servers detached —
+`nohup <cmd> > /tmp/<name>.log 2>&1 & disown` — so Django (:8000), Vite
+(:5174), or anything else doesn't die with the shell or a tool timeout.
+Verification scripts should use absolute paths rather than relying on a `cd`
+persisting across Bash calls.
+
+**Evidence before claims.** Before stating a fix is applied repo-wide, grep
+for all occurrences and report the count found vs. the count actually changed.
+Label an inferred-but-unreproduced root cause explicitly as "hypothesis, not
+verified." See the `verification-before-completion` skill for the full
+discipline.
+
 ## Pattern Library
 
 The pattern library is the primary reference for implementation decisions. Read the relevant pattern doc before writing new code in that area.
@@ -228,6 +259,10 @@ reach only **new** worktrees; existing worktrees keep their setup until rebased.
   surfaced as context. Bypass with `SKIP_KIMI_REVIEW=1`.
 - **`guard-worktree-isolation.sh`** — blocks a worktree session from editing
   files in the main checkout.
+- **`guard-main-branch-edit.sh`** — blocks Edit/Write/MultiEdit while checked
+  out on `main`, forcing a feature branch first (see Working Conventions
+  above and the `using-git-worktrees` skill). Bypass with
+  `SKIP_MAIN_BRANCH_GUARD=1`.
 - Each hook has a `test-*.sh` next to it — run them after editing a hook.
 
 ### `docs/rules/` — binding rules

@@ -973,5 +973,17 @@
     "source": "codify: feat/canopy-forum-content",
     "added": "2026-08-15",
     "severity": "warn"
+  },
+  {
+    "id": "hook-toplevel-symlink-mismatch",
+    "path_glob": [
+      ".claude/hooks/*.sh"
+    ],
+    "content_present": "show-toplevel",
+    "message": "A hook comparing a git-resolved path (git rev-parse --show-toplevel) against a raw path string risks symlink desync (e.g. macOS /tmp -> /private/tmp resolves one side but not the other). Resolve BOTH sides the same way (two --show-toplevel calls) before comparing — never one resolved value against one raw string. See docs/LEARNINGS.md 2026-08-29 (guard-main-branch-edit.sh, PR #576).",
+    "pattern_ref": "docs/LEARNINGS.md",
+    "source": "codify: harness/report-insights",
+    "added": "2026-08-29",
+    "severity": "warn"
   }
 ]
