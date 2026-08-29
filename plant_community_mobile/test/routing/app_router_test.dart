@@ -261,6 +261,55 @@ void main() {
       await tester.pump(const Duration(seconds: 4));
     });
 
+    testWidgets(
+      'a ?postId= query param scrolls the highlighted post into view '
+      '(todo 311)',
+      (tester) async {
+        // Enough posts that post 6 starts off past the bottom of the
+        // viewport — asserting both that post 1 scrolled OUT of view and
+        // that post 6 scrolled IN is stronger evidence of an actual scroll
+        // than just checking post 6 is present (which could otherwise be
+        // vacuously true if it happened to already be on screen).
+        final posts = [
+          for (var i = 1; i <= 6; i++)
+            post(id: i, body: [ParagraphBlock('Post $i body')]),
+        ];
+        final container = ProviderContainer(
+          overrides: [
+            authServiceProvider.overrideWith(
+              _MockUnauthenticatedAuthNotifier.new,
+            ),
+            forumApiProvider.overrideWithValue(
+              FakeForumApi()
+                ..topicDetail = topicDetail()
+                ..posts = CursorPage(items: posts),
+            ),
+            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          ],
+        );
+        addTearDown(container.dispose);
+        final router = container.read(appRouterProvider);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+
+        router.go('/forum/topics/10?postId=6', extra: 'A topic');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        // Post-frame callback: one more pump for it to run and the scroll
+        // animation to settle.
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('Post 6 body'), findsOneWidget);
+        expect(find.textContaining('Post 1 body'), findsNothing);
+
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
+
     testWidgets('forumCompose route builds ForumComposerScreen with args', (
       tester,
     ) async {
@@ -635,6 +684,53 @@ void main() {
         expect(api.markReadCalls, [
           [1],
         ]);
+
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
+
+    testWidgets(
+      'tapping a notification with a post_id passes it through as '
+      'highlightPostId (todo 311)',
+      (tester) async {
+        final api = FakeForumApi()
+          ..notifications = [notification(id: 1, topicId: 10, postId: 2)]
+          ..topicDetail = topicDetail(id: 10)
+          ..unreadCount = 1;
+        final container = ProviderContainer(
+          overrides: [
+            authServiceProvider.overrideWith(
+              _MockAuthenticatedAuthNotifier.new,
+            ),
+            forumApiProvider.overrideWithValue(api),
+            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          ],
+        );
+        addTearDown(container.dispose);
+        final router = container.read(appRouterProvider);
+        container.listen(appRouterProvider, (_, _) {});
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+
+        router.go('/forum/notifications');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        await tester.tap(find.byType(ListTile));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(find.byType(ForumThreadScreen), findsOneWidget);
+        expect(
+          tester.widget<ForumThreadScreen>(
+            find.byType(ForumThreadScreen),
+          ).highlightPostId,
+          2,
+        );
 
         await tester.pump(const Duration(seconds: 4));
       },
