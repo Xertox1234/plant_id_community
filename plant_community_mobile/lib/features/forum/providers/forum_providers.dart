@@ -108,6 +108,15 @@ class TopicDetail extends _$TopicDetail {
   }
 }
 
+/// A public forum profile, keyed by username (`GET /forum/users/{username}/`).
+@riverpod
+class ForumUserProfile extends _$ForumUserProfile {
+  @override
+  Future<ForumProfile> build(String username) {
+    return ref.watch(forumApiProvider).fetchProfile(username);
+  }
+}
+
 /// Safety bound on the page walk in [TopicPosts.refreshAfterReply] — mirrors
 /// the web client's MAX_REFRESH_PAGES (ThreadDetailPage.tsx) for a
 /// pathologically long thread.

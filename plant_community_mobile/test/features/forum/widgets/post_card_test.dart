@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plant_community_mobile/features/forum/models/models.dart';
+import 'package:plant_community_mobile/features/forum/widgets/author_identity.dart';
 import 'package:plant_community_mobile/features/forum/widgets/post_card.dart';
 
 import '../support/forum_test_support.dart';
@@ -81,6 +83,48 @@ void main() {
         );
 
         expect(find.byIcon(Icons.more_vert), findsNothing);
+      },
+    );
+  });
+
+  group('PostCard author (todo 317)', () {
+    testWidgets('uses AuthorIdentity and wires onAuthorTap', (tester) async {
+      var tapped = false;
+      await pump(
+        tester,
+        PostCard(
+          post: post(authorOverride: author(username: 'alice')),
+          onAuthorTap: () => tapped = true,
+        ),
+      );
+
+      expect(find.byType(AuthorIdentity), findsOneWidget);
+      expect(find.byType(InkWell), findsWidgets);
+
+      await tester.tap(find.byType(InkWell).first);
+      await tester.pump();
+      expect(tapped, isTrue);
+    });
+
+    testWidgets(
+      'a deleted author renders no InkWell affordance even with onAuthorTap wired',
+      (tester) async {
+        var tapped = false;
+        await pump(
+          tester,
+          PostCard(
+            post: post(
+              authorOverride: author(
+                username: ForumAuthor.deletedUsername,
+                trustLevel: null,
+              ),
+            ),
+            onAuthorTap: () => tapped = true,
+          ),
+        );
+
+        expect(find.byType(InkWell), findsNothing);
+        expect(tapped, isFalse);
       },
     );
   });

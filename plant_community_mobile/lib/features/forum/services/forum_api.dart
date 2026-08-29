@@ -22,6 +22,11 @@ abstract class ForumApi {
 
   Future<ForumTopicDetail> fetchTopicDetail(int topicId);
 
+  /// Public forum profile for [username] (`GET /forum/users/{username}/`,
+  /// `AllowAny` server-side). 404s (as an [ApiException]) for a missing or
+  /// inactive user.
+  Future<ForumProfile> fetchProfile(String username);
+
   Future<CursorPage<ForumPost>> fetchPosts({
     required int topicId,
     String? cursorUrl,
@@ -157,6 +162,12 @@ class HttpForumApi implements ForumApi {
   Future<ForumTopicDetail> fetchTopicDetail(int topicId) async {
     final resp = await _api.get('/forum/topics/$topicId/');
     return ForumTopicDetail.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<ForumProfile> fetchProfile(String username) async {
+    final resp = await _api.get('/forum/users/$username/');
+    return ForumProfile.fromJson(resp.data as Map<String, dynamic>);
   }
 
   @override

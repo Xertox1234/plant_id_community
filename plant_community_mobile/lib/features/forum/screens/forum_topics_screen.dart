@@ -113,7 +113,14 @@ class _TopicsList extends StatelessWidget {
           );
         }
         final topic = paged.items[index];
-        return TopicCard(topic: topic, onTap: () => onOpenTopic(topic));
+        return TopicCard(
+          topic: topic,
+          onTap: () => onOpenTopic(topic),
+          onAuthorTap: () => context.pushNamed(
+            'forumUserProfile',
+            pathParameters: {'username': topic.author.username},
+          ),
+        );
       },
     );
   }

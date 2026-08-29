@@ -313,6 +313,10 @@ class _ThreadBodyState extends State<_ThreadBody> {
               : (type) => widget.onReact!(post.id, type),
           onEdit: () => widget.onEdit(post),
           onDelete: () => widget.onDelete(post),
+          onAuthorTap: () => context.pushNamed(
+            'forumUserProfile',
+            pathParameters: {'username': post.author.username},
+          ),
         );
       },
     );

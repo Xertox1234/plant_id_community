@@ -185,3 +185,62 @@ Rules that fell out of the confirmed bugs:
 
 Reference: `lib/services/push_registration_service.dart` (+ its unit tests:
 epoch-parked-sync, listener-survives-failed-PATCH, detach-clears-marker).
+
+## Shared-Widget Consolidation: Fixed Chrome vs. Flex-Constrained Cells
+
+**Context** (todo 317, forum author identity): consolidating `PostCard`'s
+and `TopicCard`'s duplicated inline author rendering into one shared
+`AuthorIdentity` widget gave `TopicCard` a `TrustBadge` it had never shown
+before — a natural side effect of reuse. `TopicCard`'s stat row placed the
+author cell in a `Flexible` next to a `Spacer()`:
+
+```dart
+Row(children: [
+  Flexible(child: AuthorIdentity(author: topic.author)),  // gets HALF the slack
+  const SizedBox(width: AppSpacing.sm),
+  _Stat(...), const SizedBox(width: AppSpacing.xs), _Stat(...),
+  const Spacer(),                                          // claims the OTHER half
+  Text(time),
+]);
+```
+
+`Spacer()` is `Expanded(flex: 1)` — it unconditionally claims half the
+row's free space regardless of what the `Flexible` sibling actually needs.
+That was harmless when the cell held a bare ellipsizable `Text`. It stopped
+being harmless the moment the shared widget added ~92px of FIXED,
+non-shrinkable chrome (avatar + gaps + badge) into that half-share cell —
+on a 375pt-wide screen (iPhone SE/mini) this computed to sit at the
+`RenderFlex` overflow threshold, and became a hard overflow at larger text
+scales.
+
+**Why no test caught it:** the full suite stayed green throughout. Flutter's
+default test viewport is 800×600 — nothing constrained width below that, so
+this class of regression is invisible by construction no matter how much
+coverage exists elsewhere. A task-scoped review noticed the badge as a
+"visual surprise" but under-weighted it as cosmetic; only a broader review
+that traced the actual pixel budget by hand caught its true severity.
+
+**The rule:** moving fixed-width chrome into a flex-constrained slot is a
+LAYOUT change, not a rendering change — budget it in pixels. When a shared
+widget grows new always-on chrome, check every call site's actual layout
+context (what else is in the row, is there a `Spacer()` claiming slack the
+new chrome now needs), not just the widget's own isolated appearance. Add
+at least one narrow-viewport (≤375pt) test for any row containing it:
+
+```dart
+addTearDown(tester.view.reset);
+tester.view.physicalSize = const Size(375, 800);
+tester.view.devicePixelRatio = 1.0;
+// pump with a long name + real stats + a full-date timestamp — the
+// combination that maximizes the fixed-chrome budget
+expect(tester.takeException(), isNull);
+```
+
+If the new chrome isn't wanted at every call site, parameterize it
+(`showTrustBadge: false`) rather than accepting the overflow — the shared
+widget's default should match its most permissive existing call site, and
+narrower call sites opt out explicitly.
+
+Reference: `lib/features/forum/widgets/author_identity.dart`,
+`lib/features/forum/widgets/topic_card.dart`,
+`test/features/forum/widgets/topic_card_test.dart`.

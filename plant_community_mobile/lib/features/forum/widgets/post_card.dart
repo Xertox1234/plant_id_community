@@ -1,12 +1,11 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../forum_format.dart';
 import '../models/models.dart';
+import 'author_identity.dart';
 import 'forum_body_renderer.dart';
 import 'reaction_pills.dart';
-import 'trust_badge.dart';
 
 /// A single forum post: author identity, moderation/edited markers, the
 /// rendered StreamField body, and reactions.
@@ -18,6 +17,7 @@ class PostCard extends StatelessWidget {
     this.onOpenLink,
     this.onEdit,
     this.onDelete,
+    this.onAuthorTap,
   });
 
   final ForumPost post;
@@ -35,6 +35,11 @@ class PostCard extends StatelessWidget {
   /// this widget does not confirm destructive actions itself.
   final VoidCallback? onDelete;
 
+  /// Called when the author identity is tapped — the caller navigates to
+  /// the author's public profile. `null` (or a deleted author) renders no
+  /// tap affordance at all (see [AuthorIdentity]).
+  final VoidCallback? onAuthorTap;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -47,27 +52,11 @@ class PostCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                _Avatar(author: author),
-                const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              author.name,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: AppSpacing.xs),
-                          TrustBadge(author.trustLevel),
-                        ],
-                      ),
+                      AuthorIdentity(author: author, onTap: onAuthorTap),
                       if (forumRelativeTime(post.createdAt).isNotEmpty)
                         Text(
                           forumRelativeTime(post.createdAt),
@@ -145,37 +134,6 @@ class _PostMenu extends StatelessWidget {
         if (showDelete)
           const PopupMenuItem(value: 'delete', child: Text('Delete')),
       ],
-    );
-  }
-}
-
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.author});
-  final ForumAuthor author;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final avatar = author.avatar;
-    if (avatar != null && avatar.isNotEmpty) {
-      return CircleAvatar(
-        radius: 16,
-        backgroundImage: CachedNetworkImageProvider(avatar),
-      );
-    }
-    final initial = author.name.isNotEmpty
-        ? author.name.characters.first.toUpperCase()
-        : '?';
-    return CircleAvatar(
-      radius: 16,
-      backgroundColor: theme.colorScheme.primaryContainer,
-      child: Text(
-        initial,
-        style: TextStyle(
-          color: theme.colorScheme.onPrimaryContainer,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
     );
   }
 }

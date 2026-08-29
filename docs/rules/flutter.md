@@ -55,3 +55,37 @@ Compact checklist auto-injected before edits. Long-form:
   server replays; regenerate it when the composed content changes, or an
   edit-then-retry wedges a permanent `422` ("used with a different payload").
   See `plant_community_mobile/docs/patterns/riverpod.md` → Idempotent Write Actions.
+- **Moving fixed-width chrome (avatar, badge, icon) into a `Flexible`/`Expanded`
+  cell that sits beside a `Spacer()` is a LAYOUT change, not a rendering
+  change.** `Spacer()` claims half the row's slack regardless of what the
+  flex child needs, so adding chrome to a shared widget can silently overflow
+  every call site that already had one. Budget it in pixels and add a
+  narrow-viewport (≤375pt) test — the default 800×600 test surface will not
+  catch this. See `plant_community_mobile/docs/patterns/flutter-patterns.md`
+  → Shared-Widget Consolidation.
+- **When assigning `TextEditingController.value` directly** (a hand-rolled
+  toolbar/transform, not IME input), always set `composing: TextRange.empty`
+  on the result. `copyWith` carries a stale composing range through
+  unchanged; a structural mutation that shortens the text can leave it
+  pointing past the new text's end, tripping the controller's own assert
+  during ordinary IME typing (Gboard keeps a composing region on the
+  in-progress word).
+- **`GlobalKey`/`Scrollable.ensureVisible` only reaches a child a lazy list
+  has already built.** `ListView.builder`/`.separated` only build the
+  viewport + cache extent (~250px default) — a `GlobalKey` assigned in
+  `itemBuilder` for a not-yet-built item is never attached, so
+  `key.currentContext` is `null` and any scroll-to-it attempt silently
+  no-ops. This is not a deep-link mechanism for anything below the fold;
+  reaching an off-screen item needs index/`ScrollController`-based
+  scrolling instead.
+- **After editing ANY `@riverpod`-annotated function's BODY** — not just
+  when adding a new provider — re-run `build_runner` and `git diff
+  --exit-code` the specific `.g.dart` file(s) whose source changed, even if
+  a regen already ran earlier in the same session for an unrelated
+  addition. The embedded content hash changes on any body edit; a stale
+  hash is invisible to local `flutter test`/`flutter analyze` and to a
+  read-only code review (which cannot run the mutating regen+diff check
+  itself) — only a fresh-checkout CI regen catches it, after push. Treat
+  `flutter pub run build_runner build --delete-conflicting-outputs && git
+  diff --exit-code -- lib test` as its own explicit pre-push step, not
+  something "run flutter test" already covers.

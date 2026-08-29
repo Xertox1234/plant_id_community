@@ -17,7 +17,9 @@ import '../../features/forum/screens/forum_thread_screen.dart';
 import '../../features/forum/screens/forum_composer_screen.dart';
 import '../../features/forum/screens/forum_notifications_screen.dart';
 import '../../features/forum/screens/forum_search_screen.dart';
+import '../../features/forum/screens/forum_user_profile_screen.dart';
 import '../../features/collection/collection_screen.dart';
+
 import '../../models/plant.dart';
 import '../../services/auth_service.dart';
 import 'error_screen.dart';
@@ -250,6 +252,19 @@ GoRouter appRouter(Ref ref) {
           context: context,
           state: state,
           child: const ForumSearchScreen(),
+        ),
+      ),
+      // Deliberately NOT in protectedRoutes: the backend's PublicProfileView
+      // is AllowAny, so an unauthenticated viewer can see a public profile.
+      GoRoute(
+        path: '/forum/users/:username',
+        name: 'forumUserProfile',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: ForumUserProfileScreen(
+            username: state.pathParameters['username'] ?? '',
+          ),
         ),
       ),
       GoRoute(

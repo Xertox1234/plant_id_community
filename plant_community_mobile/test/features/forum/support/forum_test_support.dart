@@ -98,6 +98,11 @@ class FakeForumApi implements ForumApi {
   final List<List<int>?> markReadCalls = [];
   ApiException? failMarkReadWith;
 
+  /// Public-profile fixture for [fetchProfile]. A single fixture that
+  /// ignores the `username` argument — mirrors [topicDetail]'s convention.
+  ForumProfile? profile;
+  final List<String> fetchProfileCalls = [];
+
   /// [search] fixtures. [searchPages] maps a 1-based `page` number to the
   /// page returned for it; falls back to [searchResult] when empty.
   ForumSearchPage searchResult = const ForumSearchPage(
@@ -136,6 +141,16 @@ class FakeForumApi implements ForumApi {
     String? sort,
     String? cursorUrl,
   }) async => topics;
+
+  @override
+  Future<ForumProfile> fetchProfile(String username) async {
+    fetchProfileCalls.add(username);
+    final fixture = profile;
+    if (fixture == null) {
+      throw ApiException('no fixture', statusCode: 404);
+    }
+    return fixture;
+  }
 
   @override
   Future<CursorPage<ForumPost>> fetchPosts({
@@ -338,18 +353,24 @@ ForumAuthor author({
   String username = 'alice',
   String? displayName,
   int? trustLevel = 2,
+  String title = '',
 }) {
   return ForumAuthor(
     username: username,
     displayName: displayName ?? username,
     trustLevel: trustLevel,
+    title: title,
   );
 }
 
-/// Build a [ForumPost] fixture.
+/// Build a [ForumPost] fixture. [authorOverride] (NOT `author` — that name
+/// would shadow the top-level [author] builder referenced in its own default
+/// expression) lets a test swap in e.g. a deleted-author fixture:
+/// `post(authorOverride: author(username: ForumAuthor.deletedUsername, trustLevel: null))`.
 ForumPost post({
   int id = 1,
   int topicId = 10,
+  ForumAuthor? authorOverride,
   List<ForumBodyBlock> body = const [ParagraphBlock('Hello')],
   bool isPending = false,
   Map<String, int> reactionCounts = const {},
@@ -360,7 +381,7 @@ ForumPost post({
   return ForumPost(
     id: id,
     topicId: topicId,
-    author: author(),
+    author: authorOverride ?? author(),
     body: body,
     createdAt: DateTime(2026, 1, 1),
     isOpeningPost: id == 1,
@@ -373,13 +394,18 @@ ForumPost post({
   );
 }
 
-/// Build a [ForumTopicListItem] fixture.
-ForumTopicListItem topic({int id = 10, String title = 'Sample topic'}) {
+/// Build a [ForumTopicListItem] fixture. See [post] for why the param is
+/// [authorOverride], not `author`.
+ForumTopicListItem topic({
+  int id = 10,
+  String title = 'Sample topic',
+  ForumAuthor? authorOverride,
+}) {
   return ForumTopicListItem(
     id: id,
     title: title,
     slug: 'sample-topic',
-    author: author(),
+    author: authorOverride ?? author(),
     isPinned: false,
     isClosed: false,
     locked: false,
@@ -448,6 +474,83 @@ ForumTopicStub stub({int id = 1, String title = 'Stub', DateTime? updatedAt}) {
     title: title,
     updatedAt: updatedAt ?? DateTime.utc(2026, 1, 1),
   );
+}
+
+/// Raw map for one `recent_topics[]` entry, shaped like
+/// `PublicProfileView`'s response — for [profile]'s `recentTopics` param.
+Map<String, dynamic> profileTopicRefJson({
+  int id = 1,
+  String slug = 'sample-topic',
+  String title = 'Sample topic',
+  int boardId = 1,
+  String boardSlug = 'general',
+  int replyCount = 0,
+  DateTime? createdAt,
+}) {
+  return {
+    'id': id,
+    'slug': slug,
+    'title': title,
+    'board_id': boardId,
+    'board_slug': boardSlug,
+    'reply_count': replyCount,
+    'created_at': (createdAt ?? DateTime.utc(2026, 1, 1)).toIso8601String(),
+  };
+}
+
+/// Raw map for one `recent_posts[]` entry, shaped like
+/// `PublicProfileView`'s response — for [profile]'s `recentPosts` param.
+Map<String, dynamic> profilePostRefJson({
+  int id = 1,
+  int topicId = 1,
+  String topicSlug = 'sample-topic',
+  String topicTitle = 'Sample topic',
+  int boardId = 1,
+  String boardSlug = 'general',
+  DateTime? createdAt,
+}) {
+  return {
+    'id': id,
+    'topic_id': topicId,
+    'topic_slug': topicSlug,
+    'topic_title': topicTitle,
+    'board_id': boardId,
+    'board_slug': boardSlug,
+    'created_at': (createdAt ?? DateTime.utc(2026, 1, 1)).toIso8601String(),
+  };
+}
+
+/// Build a [ForumProfile] fixture. Builds a raw `Map<String, dynamic>`
+/// shaped like `PUBLIC_PROFILE_SCHEMA` and routes it through
+/// [ForumProfile.fromJson] — NOT a hand-built typed object — so tests
+/// exercise the real parse path. `avatar` is always `null`; never set a
+/// non-empty avatar URL in a fixture (CachedNetworkImage hangs
+/// `pumpAndSettle` in widget tests).
+ForumProfile profile({
+  String username = 'alice',
+  String? displayName,
+  int? trustLevel = 2,
+  String title = '',
+  String bio = '',
+  String signature = '',
+  int postCount = 0,
+  DateTime? joinedAt,
+  List<Map<String, dynamic>> recentTopics = const [],
+  List<Map<String, dynamic>> recentPosts = const [],
+}) {
+  return ForumProfile.fromJson({
+    'username': username,
+    'display_name': displayName ?? username,
+    'avatar': null,
+    'trust_level': trustLevel,
+    'title': title,
+    'bio': bio,
+    'signature': signature,
+    'post_count': postCount,
+    'joined_at': joinedAt?.toIso8601String(),
+    'recent_topics': recentTopics,
+    'recent_posts': recentPosts,
+  });
 }
 
 /// A test [ForumImagePicker] that returns a fixed path (or `null` for a
