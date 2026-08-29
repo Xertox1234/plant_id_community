@@ -134,10 +134,21 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     super.initState();
     _controller = ForumComposerController(api: ref.read(forumApiProvider));
     if (_isEdit) _bodyController.text = widget.args.initialBodyText;
+    // A listener (not just the body TextField's `onChanged`) so `_canSubmit`
+    // re-evaluates when the rich-text toolbar mutates `controller.value`
+    // programmatically (todo 314) — `TextField.onChanged` only fires for
+    // user-driven edits through the IME, never for a direct `.value =`
+    // assignment, so a toolbar-only edit (e.g. tapping bold with nothing
+    // else typed) would otherwise leave the Post button's enabled state
+    // stale.
+    _bodyController.addListener(_onBodyChanged);
   }
+
+  void _onBodyChanged() => setState(() {});
 
   @override
   void dispose() {
+    _bodyController.removeListener(_onBodyChanged);
     _titleController.dispose();
     _bodyController.dispose();
     super.dispose();
@@ -373,7 +384,9 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
           ),
           minLines: 5,
           maxLines: 12,
-          onChanged: (_) => setState(() {}),
+          // No onChanged here — the `_bodyController` listener registered in
+          // initState covers both user-driven edits AND the rich-text
+          // toolbar's programmatic `.value =` assignments (todo 314).
         ),
         if (_supportsImage) ...[
           const SizedBox(height: AppSpacing.sm),

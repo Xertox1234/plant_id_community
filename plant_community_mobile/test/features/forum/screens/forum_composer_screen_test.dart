@@ -4,6 +4,7 @@
 // or text presence) — plus the ForumComposeArgs.edit / parseForumRichHtmlToMarkup
 // interaction. Split out of forum_read_path_test.dart (already 600+ lines)
 // rather than growing that file further.
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -270,6 +271,77 @@ void main() {
         expect(find.textContaining("can't show here yet"), findsOneWidget);
         final field = tester.widget<TextField>(find.byType(TextField));
         expect(field.controller!.text, isEmpty);
+      },
+    );
+  });
+
+  group('rich-text toolbar <-> composer reactivity (todo 314)', () {
+    testWidgets('tapping a toolbar button (without typing through the IME) '
+        're-evaluates the Post button\'s enabled state — controller.value '
+        'assignment does not fire TextField.onChanged', (tester) async {
+      await _pumpComposer(tester, FakeForumApi());
+
+      // Empty body: Post starts disabled.
+      var postButton = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Post'),
+      );
+      expect(postButton.onPressed, isNull);
+
+      // Focus the (empty) field first so it has a real, valid selection —
+      // then tap the bulleted-list button, which mutates the controller
+      // programmatically, exactly as every toolbar button does.
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.format_list_bulleted));
+      await tester.pump();
+
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.controller!.text, isNotEmpty);
+
+      postButton = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Post'),
+      );
+      expect(postButton.onPressed, isNotNull);
+    });
+
+    testWidgets(
+      'the link dialog rejects a disallowed URL with an error message, '
+      'and inserts valid markup on retry',
+      (tester) async {
+        await _pumpComposer(tester, FakeForumApi());
+
+        // Focus the body field first so it has a real, valid selection —
+        // `insertLink` is a defensive no-op against an invalid one (e.g.
+        // the untouched default TextEditingValue's collapsed(-1)).
+        await tester.tap(find.byType(TextField));
+        await tester.pump();
+
+        await tester.tap(find.byIcon(Icons.link));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byType(CupertinoTextField),
+          'javascript:alert(1)',
+        );
+        await tester.tap(find.widgetWithText(TextButton, 'Insert'));
+        await tester.pump();
+
+        expect(find.textContaining('Enter a valid http(s)'), findsOneWidget);
+        // The dialog is still open — no markup was inserted.
+        expect(find.byType(CupertinoTextField), findsOneWidget);
+
+        await tester.enterText(
+          find.byType(CupertinoTextField),
+          'https://example.com',
+        );
+        await tester.tap(find.widgetWithText(TextButton, 'Insert'));
+        await tester.pumpAndSettle();
+
+        final field = tester.widget<TextField>(find.byType(TextField));
+        expect(
+          field.controller!.text,
+          '[https://example.com](https://example.com)',
+        );
       },
     );
   });

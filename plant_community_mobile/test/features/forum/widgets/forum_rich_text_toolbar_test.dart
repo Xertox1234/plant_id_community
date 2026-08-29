@@ -102,6 +102,21 @@ void main() {
       );
       final result = toggleListPrefix(value);
       expect(result.text, '- buy soil');
+      // A collapsed caret must stay collapsed, shifted by the inserted
+      // prefix's length — NOT span-selecting the whole line (which would
+      // mean the user's next keystroke replaces it, todo 314 fix).
+      expect(result.selection, const TextSelection.collapsed(offset: 5));
+    });
+
+    test('toggling OFF with a collapsed selection also keeps a collapsed '
+        'caret, shifted back by the removed prefix\'s length', () {
+      final value = const TextEditingValue(
+        text: '- one',
+        selection: TextSelection.collapsed(offset: 4), // "- on|e"
+      );
+      final result = toggleListPrefix(value);
+      expect(result.text, 'one');
+      expect(result.selection, const TextSelection.collapsed(offset: 2));
     });
 
     test('toggles ON for every line a multi-line selection touches', () {
@@ -112,16 +127,26 @@ void main() {
       );
       final result = toggleListPrefix(value);
       expect(result.text, '- line1\n- line2\nline3');
+      // A real (non-collapsed) selection stays selected, spanning the
+      // toggled region.
+      expect(
+        result.selection,
+        const TextSelection(baseOffset: 0, extentOffset: 15),
+      );
     });
 
     test('only the lines the selection touches are affected — lines '
         'before/after the touched range are untouched', () {
       final value = const TextEditingValue(
         text: 'before\nmiddle\nafter',
-        selection: TextSelection.collapsed(offset: 10), // inside "middle"
+        selection: TextSelection.collapsed(offset: 10), // "mid|dle"
       );
       final result = toggleListPrefix(value);
       expect(result.text, 'before\n- middle\nafter');
+      // The collapsed caret's relative position within "middle" ("mid|dle")
+      // is preserved after the 2-char prefix shifts it — not stuck at the
+      // start of the newly-touched region.
+      expect(result.selection, const TextSelection.collapsed(offset: 12));
     });
 
     test('toggles OFF only when EVERY touched line already has the prefix', () {

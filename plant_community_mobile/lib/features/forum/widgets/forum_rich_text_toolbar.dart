@@ -114,12 +114,47 @@ TextEditingValue toggleListPrefix(TextEditingValue value) {
   final newTouched = newLines.join('\n');
   final newText = text.replaceRange(lineStart, lineEnd, newTouched);
 
+  if (!selection.isCollapsed) {
+    // A real selection stays selected, spanning the toggled region — lets
+    // the user see exactly what changed.
+    return value.copyWith(
+      text: newText,
+      selection: TextSelection(
+        baseOffset: lineStart,
+        extentOffset: lineStart + newTouched.length,
+      ),
+    );
+  }
+
+  // A collapsed caret must stay collapsed — selecting the whole line here
+  // would mean the user's very next keystroke replaces it. Shift the caret
+  // by the delta of only the single line it's actually on, not the whole
+  // touched span (a multi-line touch only ever has one line to be
+  // collapsed within).
+  var oldLineStart = lineStart;
+  var newLineStart = lineStart;
+  var newOffset = lineStart;
+  for (var i = 0; i < lines.length; i++) {
+    final oldLine = lines[i];
+    final newLine = newLines[i];
+    final oldLineEnd = oldLineStart + oldLine.length;
+    final isLast = i == lines.length - 1;
+    if (selStart <= oldLineEnd || isLast) {
+      final within = (selStart - oldLineStart).clamp(0, oldLine.length);
+      final delta = newLine.length - oldLine.length;
+      final adjusted = delta > 0
+          ? within + delta
+          : (within + delta).clamp(0, newLine.length);
+      newOffset = newLineStart + adjusted;
+      break;
+    }
+    oldLineStart = oldLineEnd + 1;
+    newLineStart += newLine.length + 1;
+  }
+
   return value.copyWith(
     text: newText,
-    selection: TextSelection(
-      baseOffset: lineStart,
-      extentOffset: lineStart + newTouched.length,
-    ),
+    selection: TextSelection.collapsed(offset: newOffset),
   );
 }
 
@@ -146,57 +181,70 @@ class ForumRichTextToolbar extends StatelessWidget {
 
   Future<void> _showLinkDialog(BuildContext context) async {
     final urlController = TextEditingController();
-    final url = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        String? error;
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: const Text('Insert link'),
-              content: CupertinoTextField(
-                controller: urlController,
-                placeholder: 'https://example.com',
-                autofocus: true,
-                keyboardType: TextInputType.url,
-              ),
-              actions: [
-                if (error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Text(
-                      error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+    try {
+      final url = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          String? error;
+          return StatefulBuilder(
+            builder: (context, setState) {
+              return AlertDialog(
+                title: const Text('Insert link'),
+                // The error lives in `content`, not `actions`: an
+                // `AlertDialog`'s actions lay out in a single row alongside
+                // Cancel/Insert, and this message is long enough to overflow
+                // there on a narrow phone.
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CupertinoTextField(
+                      controller: urlController,
+                      placeholder: 'https://example.com',
+                      autofocus: true,
+                      keyboardType: TextInputType.url,
                     ),
+                    if (error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Cancel'),
                   ),
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    final candidate = urlController.text.trim();
-                    if (!isAllowedForumLinkHref(candidate)) {
-                      setState(() {
-                        error =
-                            'Enter a valid http(s), mailto:, or /relative link.';
-                      });
-                      return;
-                    }
-                    Navigator.of(dialogContext).pop(candidate);
-                  },
-                  child: const Text('Insert'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-    if (url == null) return;
-    controller.value = insertLink(controller.value, url: url);
+                  TextButton(
+                    onPressed: () {
+                      final candidate = urlController.text.trim();
+                      if (!isAllowedForumLinkHref(candidate)) {
+                        setState(() {
+                          error =
+                              'Enter a valid http(s), mailto:, or /relative link.';
+                        });
+                        return;
+                      }
+                      Navigator.of(dialogContext).pop(candidate);
+                    },
+                    child: const Text('Insert'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+      if (url == null) return;
+      controller.value = insertLink(controller.value, url: url);
+    } finally {
+      urlController.dispose();
+    }
   }
 
   @override
