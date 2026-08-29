@@ -396,6 +396,9 @@ def generate_topic_summary(self, topic_id: int) -> None:
         logger.info("[CELERY] topic %s missing/unpublished; skipping summary", topic_id)
         return
 
+    # Deliberately NOT block-filtered (todo 284/M9): build_summary_source's
+    # own docstring in summary.py records why (shared, content-hash-keyed
+    # LLM cache — per-viewer filtering would fragment a cost-governed cache).
     content, post_count = build_summary_source(topic)
     if post_count < constants.SUMMARY_MIN_POSTS:
         return
