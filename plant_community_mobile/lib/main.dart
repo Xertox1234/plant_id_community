@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
 import 'core/theme/app_theme.dart';
 import 'config/theme_provider.dart';
 import 'config/palette_notifier.dart';
 import 'core/routing/app_router.dart';
 import 'services/auth_service.dart';
+import 'services/push_message_router_service.dart';
 
 final _rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
@@ -18,6 +20,7 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+    FirebaseMessaging.onBackgroundMessage(pushBackgroundMessageHandler);
   } catch (error) {
     runApp(ConfigurationErrorApp(error: error));
     return;
@@ -72,6 +75,7 @@ class MyApp extends ConsumerWidget {
     final settings = ref.watch(paletteProvider);
     final router = ref.watch(appRouterProvider);
     ref.watch(authServiceProvider);
+    ref.watch(pushMessageRouterServiceProvider);
     ref.listen<AuthState>(authServiceProvider, (previous, next) {
       final error = next.error;
       if (error == null || error == previous?.error) {

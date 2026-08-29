@@ -79,9 +79,11 @@ class ForumNotificationsScreen extends ConsumerWidget {
     }
     final topic = notification.topic;
     if (topic == null || !context.mounted) return;
+    final postId = notification.postId;
     context.pushNamed(
       'forumTopic',
       pathParameters: {'id': '${topic.id}'},
+      queryParameters: postId == null ? {} : {'postId': '$postId'},
       extra: topic.title,
     );
   }

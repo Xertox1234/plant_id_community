@@ -102,6 +102,12 @@ dev_dependencies:
   flutter_dotenv: ^6.0.0  # Legacy tests/docs only; runtime config uses --dart-define
   fake_cloud_firestore: ^4.1.1
 
+  # Test seam for push_message_router_service_test.dart: drives
+  # FirebaseMessagingPlatform.onMessageOpenedApp directly (todo 311). Already
+  # a transitive dependency at this resolved version; listed explicitly to
+  # satisfy depend_on_referenced_packages now a test file imports it.
+  firebase_messaging_platform_interface: ^4.9.0
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
