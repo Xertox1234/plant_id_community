@@ -3422,3 +3422,74 @@ separately-mergeable output, create the scratch worktree directly under
 `EnterWorktree`/`ExitWorktree` can manage it, and always re-verify
 location after `ExitWorktree` rather than assuming it returned to the
 original pin.
+
+## 2026-08-30 — Stale-archival drift is a recurring pattern, not a one-off (todos 293/311/317, 3rd occurrence)
+
+**What happened:** asked to "resolve todo 293," found it still `in_progress`
+with unchecked ACs — but `git log --all` showed its implementing PR (#556)
+already merged, and its split-out sibling (todo 311, PR #573) had *also*
+merged, both weeks earlier. A third todo (317, PR #575) had the identical
+symptom, discovered only because its AC4 had been re-pointed there. All
+three were archived this session (PRs #583, #586). This is the same failure
+mode already fixed once for todos 294/314 (PR #582, 2026-08-29) — the
+*third* time in two days this repo hit "a PR merged cleanly, but its todo
+file was never reconciled," not counting how many still-open todo files may
+carry the same silent gap undetected.
+
+**Root cause:** the working checkout's local `main` had drifted 25+ commits
+behind `origin/main` across several intervening sessions. Nothing about that
+drift is visible from inside a todo file — `git log --oneline | grep NNN` on
+a stale local `main` correctly finds nothing, so a session reading the todo
+file at face value has no signal that the real world has moved on. The
+archival step (`git mv` to `todos/archive/`, flip `status: completed`) is a
+separate, easy-to-forget follow-up from the implementation PR — nothing
+enforces it runs, and once a PR is "merged and done," there's no natural
+prompt to go back and check.
+
+**Fix applied each time:** `git fetch origin && git checkout -b
+docs/archive-todo-NNN origin/main` (never local `main`), re-verify every AC
+against the CURRENT working tree (not the old commit message), re-run
+`flutter test`/`flutter analyze` fresh, then archive.
+
+**Generalisable — before treating any todo as unstarted or in-progress:**
+check whether its own issue number (or a todo it's re-pointed to/from)
+appears in `git log --oneline origin/main` — not local `main`. A green
+`in_progress`/`pending` status in the file is not proof the work hasn't
+already shipped; it's only proof the *archival bookkeeping* hasn't run. This
+is exactly what `completing-todos`' Step 3 verification gate exists to catch
+when driving a todo forward, but there's no equivalent gate that runs
+*backward* — nothing periodically sweeps `todos/*.md` against `origin/main`
+to catch a todo that shipped without ever going through that skill. A cheap
+mitigation: `git log --oneline origin/main | grep -oE 'todo [0-9]+'` cross-
+referenced against `ls todos/*.md` (excluding `archive/`) surfaces any
+non-archived todo number that already appears in a merged commit message.
+
+## 2026-08-30 — A docs-only PR's `--auto --squash` merge can fire before you finish reviewing your own diff (todos 293/311/317 archival)
+
+**What happened:** armed `gh pr merge --auto --squash --delete-branch` on a
+docs-only archival PR (#583), then — following this project's own "review
+diff before arming" convention — kept reading the diff and, via an
+`advisor()` call, caught a factual error already in the armed PR (a wrong
+PR-merge date). By the time the fix was ready to push, PR #583 had already
+auto-merged: docs-only changes skip most of the CI matrix, so the "review
+diff first, then arm" ordering that works for code PRs left no real window
+here. The remote branch was already deleted (`--delete-branch`), so the fix
+had to land as a brand-new follow-up PR (#584) rather than an amend. It
+nearly repeated on a second archival PR (#586) — caught in time only because
+the second `advisor()` review call happened to land before that PR's faster
+CI finished.
+
+**Root cause:** "review the diff, then arm auto-merge" implicitly assumes
+arming happens after review is truly finished. For a docs-only diff, CI
+finishes in the ~1-2 minutes it can take to read an `advisor()` response, so
+that assumption silently inverts: arming effectively means "this merges
+imminently," not "this merges once someone finishes looking at it."
+
+**Rule:** for a docs-only or otherwise CI-fast PR, do the FULL review
+(including any `advisor()`/self-review pass) *before* calling `gh pr merge
+--auto`, not interleaved with it — treat arming auto-merge as the last step,
+not a mid-review action. If a mistake is caught after arming and the PR
+might already be merged, check `gh pr view <N> --json state,mergedAt`
+before attempting to amend — a merged PR's branch is typically already
+deleted (`--delete-branch`), so the fix must be a new commit/PR from
+`origin/main`, not an amend-and-force-push.

@@ -78,6 +78,15 @@ Compact checklist auto-injected before edits. Long-form:
   no-ops. This is not a deep-link mechanism for anything below the fold;
   reaching an off-screen item needs index/`ScrollController`-based
   scrolling instead.
+- **Before "fixing" a client convention gap (a missing header, a skipped
+  step) to match sibling code, verify the SERVER actually consumes it.** A
+  header the backend never reads is a silent no-op — adding it "for
+  consistency" documents an intent that doesn't exist. Check the consumer
+  (e.g. grep the backend for the header/decorator call site) first; if the
+  omission is genuinely correct (naturally idempotent, nothing to
+  duplicate), document why instead of reflexively matching the pattern.
+  See `plant_community_mobile/lib/features/forum/services/forum_api.dart`'s
+  `markNotificationsRead` doc comment for a worked example.
 - **After editing ANY `@riverpod`-annotated function's BODY** — not just
   when adding a new provider — re-run `build_runner` and `git diff
   --exit-code` the specific `.g.dart` file(s) whose source changed, even if
