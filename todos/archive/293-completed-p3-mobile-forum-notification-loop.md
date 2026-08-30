@@ -253,6 +253,8 @@ shows and the tap opens — so they are grouped rather than shipped separately.
 
 p3. Promoted from todo 279 on 2026-07-31. Subscriptions + notifications list
 shipped 2026-08-17 (PR #556); push-tap routing split to todo 311
-(advisor-scoped, real todo-286 blocker), shipped 2026-08-17 (PR #573). Both
-confirmed merged and archived 2026-08-30. Related: todo 286 (iOS APNs
-entitlement — blocks push actually arriving on a distributed iOS build).
+(advisor-scoped, real todo-286 blocker), shipped 2026-08-29 (PR #573 merged
+2026-08-29T02:38:23Z — implemented well after the split, not on the split
+date itself). Both confirmed merged and archived 2026-08-30. Related: todo
+286 (iOS APNs entitlement — blocks push actually arriving on a distributed
+iOS build).
