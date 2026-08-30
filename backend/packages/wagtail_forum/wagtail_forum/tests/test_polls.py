@@ -134,3 +134,23 @@ def test_one_poll_per_topic():
 
     with pytest.raises(IntegrityError):
         Poll.objects.create(topic=poll.topic, question="Second?")
+
+
+@pytest.mark.django_db
+def test_poll_vote_clean_rejects_option_from_another_poll():
+    """todo 320 #8: PollVoteView already filters `option` to `poll.options`
+    before creating, so this invariant is never violated through the API —
+    but nothing enforced it for any OTHER writer until now. Deliberately not
+    wired into `save()` (see PollVote.clean's own comment on why); a future
+    writer that wants this protection must call `clean()`/`full_clean()`
+    itself, which this test proves actually rejects the mismatch."""
+    poll_a = _poll("pm11a")
+    poll_b = _poll("pm11b")
+    user = User.objects.create_user(username="pm11-user")
+
+    from django.core.exceptions import ValidationError
+
+    vote = PollVote(poll=poll_a, option=poll_b.options.first(), user=user)
+
+    with pytest.raises(ValidationError):
+        vote.clean()

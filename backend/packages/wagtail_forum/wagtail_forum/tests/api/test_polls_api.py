@@ -394,8 +394,10 @@ def test_vote_on_a_topic_without_a_poll_404s():
 
 @pytest.mark.django_db
 def test_vote_response_matches_topic_detail_poll_shape():
-    """PollVoteView._poll_payload rebuilds what TopicDetailSerializer.get_poll
-    returns (it is bound to a Poll, not a Topic). This fails if they drift."""
+    """PollVoteView and TopicDetailSerializer.get_poll both return
+    Poll.serialize()'s shape (todo 320 #3) — full field-by-field equality,
+    not just key-set plus two scalars, since a shared implementation can
+    still be called with the wrong argument at one of the two call sites."""
     board = _board("pv10")
     author = User.objects.create_user(username="pv10-author")
     voter = User.objects.create_user(username="pv10-voter")
@@ -410,12 +412,7 @@ def test_vote_response_matches_topic_detail_poll_shape():
     )
     detail_resp = client.get(f"/forum/topics/{topic.id}/")
 
-    assert set(vote_resp.data.keys()) == set(detail_resp.data["poll"].keys())
-    assert vote_resp.data["total_votes"] == detail_resp.data["poll"]["total_votes"]
-    assert (
-        vote_resp.data["my_vote_option_id"]
-        == detail_resp.data["poll"]["my_vote_option_id"]
-    )
+    assert vote_resp.data == detail_resp.data["poll"]
 
 
 # --------------------------------------------------------------------------
@@ -578,3 +575,18 @@ def test_deleting_a_topic_removes_its_poll_and_votes():
     assert not Poll.objects.exists()
     assert not PollOption.objects.exists()
     assert not PollVote.objects.exists()
+
+
+def test_poll_option_bounds_defaults_match_the_web_composer_constants():
+    """todo 320 #5: NewThreadPage.tsx hardcodes MIN_POLL_OPTIONS/
+    MAX_POLL_OPTIONS as literals mirroring these defaults rather than
+    fetching them, so nothing else catches the two silently diverging. Pin
+    both here so a future change to either default fails loudly."""
+    from wagtail_forum.conf import get_setting
+
+    ts_constants = (
+        "web/src/pages/forum/NewThreadPage.tsx "
+        "(MIN_POLL_OPTIONS, MAX_POLL_OPTIONS) must be updated to match"
+    )
+    assert get_setting("POLL_MIN_OPTIONS") == 2, ts_constants
+    assert get_setting("POLL_MAX_OPTIONS") == 10, ts_constants

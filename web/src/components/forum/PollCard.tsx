@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import Button from '../ui/Button';
 import { ForumApiError } from '../../services/forumService';
 import type { ThreadPoll } from '@/types';
@@ -40,6 +40,27 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
   // restore) still shows my_vote_option_id as null. Without this, the
   // controls stay clickable and every retry 409s again with no way out.
   const [staleVote, setStaleVote] = useState(false);
+
+  // Resync when the `poll` PROP changes identity (a parent refetch — e.g.
+  // ThreadDetailPage bumping `reloadKey` after a block/unblock action).
+  // `key={thread.poll.id}` only remounts this component on cross-thread
+  // navigation, not a same-thread refetch where `poll.id` is unchanged, so
+  // without this a stale local `current` would keep showing pre-refetch
+  // counts (todo 320 #2). Tracks the prop via a ref rather than depending on
+  // `current` itself — including `current` in the deps would re-fire this
+  // effect every time `handleVote` below sets it, immediately overwriting a
+  // just-applied vote result with the (still pre-vote) `poll` prop. Skipped
+  // entirely while a vote is in flight so a mid-request refetch can't race
+  // the response that's about to replace `current` anyway.
+  const pollRef = useRef(poll);
+  useEffect(() => {
+    if (poll !== pollRef.current) {
+      pollRef.current = poll;
+      if (pendingOptionId === null) {
+        setCurrent(poll);
+      }
+    }
+  }, [poll, pendingOptionId]);
 
   const hasVoted = current.my_vote_option_id !== null;
   // A second vote is rejected server-side (409), never replaced — so once the

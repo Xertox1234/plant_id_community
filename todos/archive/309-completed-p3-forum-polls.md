@@ -238,11 +238,75 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `web` = `w
   975 passed (85 files)
   ```
 
+### 2026-08-30 - Second review pass on the pushed PR, then a fix wave on user request
+
+- PR #589 opened; before merge, `/code-review medium PR #589` ran against
+  the pushed branch and surfaced 6 MORE findings (payload-shape
+  duplication with a weak drift test, an avoidable extra query in the vote
+  response, client/server poll-option-count constants that could silently
+  drift, a third hand-copied bounded-list serializer field, no `closes_at`
+  UI input, and the poll/option consistency invariant enforced only in one
+  view). Verified each was genuinely dormant, not a live bug, before
+  deciding not to block merge on them: config defaults matched (10/2 both
+  sides), no `admin.py` exposed the poll models, `closes_at` UI was never
+  an actual todo 309 AC. Folded all 6 into todo 320 alongside the 2
+  findings already deferred pre-merge (`ac0c86f`).
+- User then asked to apply the fixes, codify, and merge. Fixed 7 of the
+  now-8 tracked findings directly on this branch (see todo 320's Work Log
+  for full per-finding detail — shared `Poll.serialize()`, `PollCard`
+  resync via a `useRef`-guarded effect, the `_BoundedListField` DRY
+  refactor, a `closes_at` composer input using `datetime-local`, a
+  `PollVote.clean()` invariant check deliberately not wired into `save()`,
+  and a pinned client/server option-bounds test). Only the raw
+  DRF-error-envelope finding (#1, cross-cutting, needs a wider audit than
+  this PR) stays deferred in todo 320.
+- Hit the documented "import added in a prior edit, not the same edit as
+  first use" formatter-strip gotcha twice during this pass (`ValidationError`
+  in both `models/polls.py` and `test_polls.py`) — caught immediately by
+  the resulting `NameError` on the next test run, fixed by re-adding the
+  import in the same edit as its usage.
+- `advisor` consulted twice this pass: once before implementing (confirmed
+  the plan for 6 of 7 items, corrected the `PollVote.clean()`/`save()`
+  design — Django 6's `full_clean()` calls `validate_constraints()`, which
+  would have turned the 409-producing `IntegrityError` on a double-vote
+  into an uncaught pre-save `ValidationError`/500 — and specified
+  `datetime-local` over `type="date"` for `closes_at`); once beforehand on
+  the `staleVote` review-fix itself (see the first Work Log entry above),
+  which caught a real bug (switching to a fabricated-zero-count results
+  view on a 409, instead of just disabling the buttons) before it reached
+  this file's first archival pass.
+- Final verification, full suite (matches CI scope, not the forum subset):
+
+  ```
+  $ pytest apps packages
+  1705 passed, 0 failed, 8 skipped
+
+  $ python manage.py check
+  System check identified no issues (0 silenced).
+
+  $ python manage.py makemigrations --check --dry-run
+  No changes detected
+
+  $ npx vitest run
+  979 passed (up from 975)
+
+  $ npx tsc --noEmit
+  No errors found
+
+  $ npx eslint src/components/forum/PollCard.tsx src/components/forum/PollCard.test.tsx \
+      src/pages/forum/NewThreadPage.tsx src/pages/forum/NewThreadPage.test.tsx
+  No issues found
+  ```
+
 ## Notes
 
 p3. Does not block a user, no safety/accessibility defect — an engagement
 feature. Roughly 3-4x the size of M2/bookmarks per 283's original estimate
 (full `Poll`/`PollOption`/`PollVote` model trio + composer + results UI).
 Shipped 2026-08-30, resurrected from a 4-week-old unmerged commit and
-reconciled against the intervening churn — see Work Log. Two low-severity
-review findings deferred to todo 320 rather than fixed here.
+reconciled against the intervening churn — see Work Log. Two review
+passes (pre-merge and post-push) surfaced 8 findings total; 7 were fixed
+in this same PR on user request. One (the raw DRF error-envelope leak,
+finding #1 in todo 320) stays deferred — it is a pre-existing,
+cross-cutting infra issue shared by every DRF endpoint, not scoped to
+polls, and needs a wider audit than this PR's surgical scope.

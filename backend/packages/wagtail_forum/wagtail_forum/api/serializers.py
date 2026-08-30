@@ -101,20 +101,30 @@ def normalize_topic_tags(value):
     return list(seen)
 
 
-class _BoundedTagListField(serializers.ListField):
+class _BoundedListField(serializers.ListField):
     """A ListField that rejects an oversized list BEFORE per-item validation.
 
     ``ListField(max_length=...)`` is enforced by a validator that DRF runs
     *after* ``to_internal_value`` has already run child validation on every
     element, so it cannot bound the work a caller triggers. Check the raw length
     first — the same "bound it before you parse it" shape as the body limits in
-    api/sanitize.py (MAX_BODY_BLOCKS).
+    api/sanitize.py (MAX_BODY_BLOCKS). Subclasses set `max_items` and
+    `too_many_message`; this used to be three hand-copied classes differing
+    only in those two values (todo 320 #6).
     """
 
+    max_items: int
+    too_many_message = _("Too many items.")
+
     def to_internal_value(self, data):
-        if isinstance(data, list) and len(data) > MAX_TAG_LIST_ITEMS:
-            raise serializers.ValidationError(_("Too many tags."))
+        if isinstance(data, list) and len(data) > self.max_items:
+            raise serializers.ValidationError(self.too_many_message)
         return super().to_internal_value(data)
+
+
+class _BoundedTagListField(_BoundedListField):
+    max_items = MAX_TAG_LIST_ITEMS
+    too_many_message = _("Too many tags.")
 
 
 # Inline OpenAPI schemas so drf-spectacular types PostSerializer's
@@ -511,27 +521,19 @@ class TopicDetailSerializer(serializers.ModelSerializer):
         poll = getattr(obj, "poll", None)
         if poll is None:
             return None
-        results = poll.results()
         request = self.context.get("request")
         user = getattr(request, "user", None)
         my_vote = None
         if user is not None and user.is_authenticated:
+            # Anonymous stays None — never leak anyone else's choice. The
+            # authenticated lookup stays here (not in Poll.serialize) since
+            # only THIS caller knows who "the viewer" is.
             my_vote = (
                 PollVote.objects.filter(poll=poll, user=user)
                 .values_list("option_id", flat=True)
                 .first()
             )
-        return {
-            "id": poll.id,
-            "question": poll.question,
-            "closes_at": poll.closes_at,
-            "is_closed": poll.is_closed,
-            "options": results["options"],
-            "total_votes": results["total_votes"],
-            # The option this viewer picked, or null. Null for anonymous —
-            # never a leak of anyone else's choice.
-            "my_vote_option_id": my_vote,
-        }
+        return poll.serialize(my_vote)
 
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_is_subscribed(self, obj):
@@ -861,18 +863,9 @@ class _ForumBodyContract(serializers.Serializer):
         return ids
 
 
-class _BoundedCandidateListField(serializers.ListField):
-    """Reject an oversized candidate list BEFORE per-item validation.
-
-    Same reason as _BoundedTagListField: DRF's ListField(max_length=…) runs as a
-    validator AFTER every child has already been validated, so it bounds the
-    stored result but not the work a caller can trigger.
-    """
-
-    def to_internal_value(self, data):
-        if isinstance(data, list) and len(data) > MAX_CANDIDATE_LIST_ITEMS:
-            raise serializers.ValidationError(_("Too many identification candidates."))
-        return super().to_internal_value(data)
+class _BoundedCandidateListField(_BoundedListField):
+    max_items = MAX_CANDIDATE_LIST_ITEMS
+    too_many_message = _("Too many identification candidates.")
 
 
 class IdentificationCandidateSerializer(serializers.Serializer):
@@ -985,18 +978,9 @@ class TopicIdentificationSerializer(serializers.Serializer):
         return value
 
 
-class _BoundedOptionListField(serializers.ListField):
-    """Reject an oversized option list BEFORE per-item validation.
-
-    Same "bound it before you parse it" shape as _BoundedTagListField above —
-    DRF's own ListField(max_length=) runs as a validator AFTER every child has
-    been validated, so it cannot cap the work a caller triggers.
-    """
-
-    def to_internal_value(self, data):
-        if isinstance(data, list) and len(data) > MAX_POLL_OPTION_LIST_ITEMS:
-            raise serializers.ValidationError(_("Too many poll options."))
-        return super().to_internal_value(data)
+class _BoundedOptionListField(_BoundedListField):
+    max_items = MAX_POLL_OPTION_LIST_ITEMS
+    too_many_message = _("Too many poll options.")
 
 
 class TopicPollSerializer(serializers.Serializer):

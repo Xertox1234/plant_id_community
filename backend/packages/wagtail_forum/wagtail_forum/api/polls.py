@@ -94,29 +94,9 @@ class PollVoteView(UnversionedForumAPIMixin, APIView):
                 % {"id": existing}
             )
 
-        return Response(self._poll_payload(poll, request.user))
-
-    @staticmethod
-    def _poll_payload(poll, user):
-        """The same shape TopicDetailSerializer.get_poll returns.
-
-        Rebuilt here rather than reusing that serializer because it is bound to
-        a Topic, not a Poll. Any change to the poll payload must land in both
-        places — `test_vote_response_matches_topic_detail_poll_shape` fails if
-        they drift.
-        """
-        results = poll.results()
-        my_vote = (
-            PollVote.objects.filter(poll=poll, user=user)
-            .values_list("option_id", flat=True)
-            .first()
-        )
-        return {
-            "id": poll.id,
-            "question": poll.question,
-            "closes_at": poll.closes_at,
-            "is_closed": poll.is_closed,
-            "options": results["options"],
-            "total_votes": results["total_votes"],
-            "my_vote_option_id": my_vote,
-        }
+        # `option.id` IS the just-recorded vote — Poll.serialize takes it
+        # straight rather than re-querying PollVote for what this request
+        # already knows (todo 320 #3/#4; was also hand-duplicating
+        # TopicDetailSerializer.get_poll's shape here before the shared
+        # `Poll.serialize` method existed).
+        return Response(poll.serialize(option.id))

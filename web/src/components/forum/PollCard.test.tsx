@@ -194,4 +194,69 @@ describe('PollCard', () => {
     expect(onVote).toHaveBeenCalledTimes(1);
     resolveVote(makePoll({ my_vote_option_id: 10, total_votes: 1 }));
   });
+
+  it('resyncs to an updated poll prop on a same-thread refresh (todo 320 #2)', () => {
+    // Simulates ThreadDetailPage refetching `thread` (e.g. after a block/
+    // unblock bumps reloadKey) with the SAME poll id but someone else's
+    // vote now counted — `key={poll.id}` does not remount for this case,
+    // so only the resync effect can pick it up.
+    const initialPoll = makePoll({
+      my_vote_option_id: 10,
+      total_votes: 3,
+      options: [
+        { id: 10, text: 'Peat', order: 0, vote_count: 2 },
+        { id: 11, text: 'Coir', order: 1, vote_count: 1 },
+      ],
+    });
+    const { rerender } = render(<PollCard poll={initialPoll} onVote={vi.fn()} canVote />);
+    expect(screen.getByText('2 (67%)')).toBeInTheDocument();
+
+    const refetchedPoll = makePoll({
+      my_vote_option_id: 10,
+      total_votes: 4,
+      options: [
+        { id: 10, text: 'Peat', order: 0, vote_count: 3 },
+        { id: 11, text: 'Coir', order: 1, vote_count: 1 },
+      ],
+    });
+    rerender(<PollCard poll={refetchedPoll} onVote={vi.fn()} canVote />);
+
+    expect(screen.getByText('3 (75%)')).toBeInTheDocument();
+    expect(screen.getByText(/4 votes/i)).toBeInTheDocument();
+  });
+
+  it('a same-thread refresh after a successful vote reflects the vote it fetched, not a stale one', async () => {
+    // The trap the resync effect must avoid: after `handleVote` sets
+    // `current` from the server's response, an UNRELATED refetch (new
+    // `poll` prop, e.g. block/unblock) arrives. It's safe to resync to that
+    // new prop only because the refetch itself now includes this viewer's
+    // vote — asserted here, not assumed.
+    const votedPoll = makePoll({
+      my_vote_option_id: 10,
+      total_votes: 1,
+      options: [
+        { id: 10, text: 'Peat', order: 0, vote_count: 1 },
+        { id: 11, text: 'Coir', order: 1, vote_count: 0 },
+      ],
+    });
+    const onVote = vi.fn().mockResolvedValue(votedPoll);
+    const { rerender } = render(<PollCard poll={makePoll()} onVote={onVote} canVote />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Peat' }));
+    expect(await screen.findByText('✓ your vote')).toBeInTheDocument();
+
+    // The refetch reflects the same vote, plus someone else's in the interim.
+    const refetchedPoll = makePoll({
+      my_vote_option_id: 10,
+      total_votes: 2,
+      options: [
+        { id: 10, text: 'Peat', order: 0, vote_count: 1 },
+        { id: 11, text: 'Coir', order: 1, vote_count: 1 },
+      ],
+    });
+    rerender(<PollCard poll={refetchedPoll} onVote={onVote} canVote />);
+
+    expect(screen.getByText('✓ your vote')).toBeInTheDocument();
+    expect(screen.getByText(/2 votes/i)).toBeInTheDocument();
+  });
 });

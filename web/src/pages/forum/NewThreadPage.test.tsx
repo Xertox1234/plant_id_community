@@ -273,6 +273,61 @@ describe('NewThreadPage', () => {
 
       expect(screen.queryByLabelText(/poll question/i)).not.toBeInTheDocument();
     });
+
+    it('converts a filled-in close time from local wall time to an ISO UTC string (todo 320 #7)', async () => {
+      vi.spyOn(forumService, 'createThread').mockResolvedValue({
+        id: '12',
+        slug: 'my-topic',
+        status: 'published',
+      });
+      renderPage();
+      await screen.findByText('Plant Care');
+      await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+      await userEvent.type(screen.getByLabelText('body'), 'hello');
+      await userEvent.click(screen.getByRole('checkbox', { name: /add a poll/i }));
+      await userEvent.type(screen.getByLabelText(/poll question/i), 'Best soil?');
+      await userEvent.type(screen.getByLabelText('Poll option 1'), 'Peat');
+      await userEvent.type(screen.getByLabelText('Poll option 2'), 'Coir');
+      const localValue = '2027-06-15T10:30';
+      await userEvent.type(screen.getByLabelText(/closes/i), localValue);
+      await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
+
+      await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
+      expect(forumService.createThread).toHaveBeenCalledWith(
+        expect.objectContaining({
+          poll: expect.objectContaining({
+            // Not the raw local-time string: `datetime-local` carries no
+            // timezone, so it must go through Date() before the server
+            // (which stores/compares in UTC) sees it.
+            closes_at: new Date(localValue).toISOString(),
+          }),
+        })
+      );
+    });
+
+    it('omits closes_at entirely when the close-time field is left blank', async () => {
+      vi.spyOn(forumService, 'createThread').mockResolvedValue({
+        id: '12',
+        slug: 'my-topic',
+        status: 'published',
+      });
+      renderPage();
+      await screen.findByText('Plant Care');
+      await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+      await userEvent.type(screen.getByLabelText('body'), 'hello');
+      await userEvent.click(screen.getByRole('checkbox', { name: /add a poll/i }));
+      await userEvent.type(screen.getByLabelText(/poll question/i), 'Best soil?');
+      await userEvent.type(screen.getByLabelText('Poll option 1'), 'Peat');
+      await userEvent.type(screen.getByLabelText('Poll option 2'), 'Coir');
+      await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
+
+      await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
+      expect(forumService.createThread).toHaveBeenCalledWith(
+        expect.objectContaining({
+          poll: { question: 'Best soil?', options: ['Peat', 'Coir'] },
+        })
+      );
+    });
   });
 
   it('offers a board picker when no ?category= is supplied, and lets you pick one (L4)', async () => {

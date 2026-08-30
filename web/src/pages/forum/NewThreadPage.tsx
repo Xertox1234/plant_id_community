@@ -33,6 +33,18 @@ function isBlankHtml(html: string): boolean {
 }
 
 /**
+ * `now`, formatted for a `datetime-local` input's `min` attribute
+ * (`YYYY-MM-DDTHH:mm`, LOCAL wall time — `datetime-local` has no timezone).
+ * A soft nudge only: the server's own future-only check
+ * (`validate_closes_at`) is what actually enforces this.
+ */
+function minPollCloseDateTime(): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const now = new Date();
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
+/**
  * The handoff the identify page pushes through router state (audit M6). The
  * photo is ALREADY uploaded by then — only JSON travels — so a failed upload
  * surfaces on the page where the user pressed the button, and this state stays
@@ -132,6 +144,14 @@ export default function NewThreadPage() {
   const [pollQuestion, setPollQuestion] = useState<string>('');
   // Starts at the minimum viable poll — two empty rows to fill in.
   const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
+  // Optional close time. Empty means "never closes" (omitted from the
+  // payload). `datetime-local`'s value has no timezone — it is LOCAL wall
+  // time — so it must go through `new Date(...).toISOString()` before it
+  // reaches the server, which stores and compares in UTC (todo 320 #7: a
+  // plain `type="date"` input would submit local midnight, which can already
+  // be in the past by the time it reaches validate_closes_at's future-only
+  // check).
+  const [pollClosesAt, setPollClosesAt] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -221,7 +241,18 @@ export default function NewThreadPage() {
           // filtered here — the server drops them and owns the min/max/unique
           // rules, so the composer has exactly one authority to agree with
           // instead of a second copy that can drift out of step.
-          ...(pollEnabled ? { poll: { question: pollQuestion, options: pollOptions } } : {}),
+          ...(pollEnabled
+            ? {
+                poll: {
+                  question: pollQuestion,
+                  options: pollOptions,
+                  // Omitted (not sent as '') when blank — CreatePollInput
+                  // treats absence as "never closes", and an empty string
+                  // is not a valid ISO datetime for the server to parse.
+                  ...(pollClosesAt ? { closes_at: new Date(pollClosesAt).toISOString() } : {}),
+                },
+              }
+            : {}),
         });
         clearDraft(newThreadDraftKey);
 
@@ -272,6 +303,7 @@ export default function NewThreadPage() {
       pollEnabled,
       pollQuestion,
       pollOptions,
+      pollClosesAt,
       pollValid,
       navigate,
       newThreadDraftKey,
@@ -538,6 +570,24 @@ export default function NewThreadPage() {
                   get one vote each and cannot change it.
                 </p>
               </fieldset>
+
+              <div>
+                <label
+                  htmlFor="poll-closes-at"
+                  className="block text-sm font-medium text-ink-2 mb-1"
+                >
+                  Closes <span className="font-normal text-ink-3">(optional)</span>
+                </label>
+                <input
+                  id="poll-closes-at"
+                  type="datetime-local"
+                  value={pollClosesAt}
+                  onChange={(e) => setPollClosesAt(e.target.value)}
+                  min={minPollCloseDateTime()}
+                  className="w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                />
+                <p className="mt-1 text-xs text-ink-3">Leave blank for a poll that never closes.</p>
+              </div>
             </div>
           )}
         </div>

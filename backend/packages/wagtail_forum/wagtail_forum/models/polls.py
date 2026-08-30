@@ -13,8 +13,10 @@ summarizes, and it is the thing a client would try to write.
 """
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 
 class Poll(models.Model):
@@ -67,6 +69,30 @@ class Poll(models.Model):
             # once because UniqueConstraint(poll, user) makes double-voting
             # impossible at the DB level.
             "total_votes": sum(option.vote_count for option in options),
+        }
+
+    def serialize(self, my_vote_option_id):
+        """The one read shape shared by every poll-returning endpoint.
+
+        `TopicDetailSerializer.get_poll` and `PollVoteView` both return this
+        exact dict — it used to be hand-duplicated in both places (todo 320
+        #3), which let them silently drift with only a 2-of-6-field test
+        catching it. The caller resolves `my_vote_option_id` and passes it in
+        rather than this method querying for it: `get_poll` looks it up for
+        the viewer (None for anonymous — never leak anyone else's choice),
+        while `PollVoteView` already has it from the row it just wrote and
+        would otherwise pay a redundant query for information it has in hand
+        (todo 320 #4).
+        """
+        results = self.results()
+        return {
+            "id": self.id,
+            "question": self.question,
+            "closes_at": self.closes_at,
+            "is_closed": self.is_closed,
+            "options": results["options"],
+            "total_votes": results["total_votes"],
+            "my_vote_option_id": my_vote_option_id,
         }
 
 
@@ -124,6 +150,26 @@ class PollVote(models.Model):
             # Results aggregate by option; the per-poll read is the hot path.
             models.Index(fields=["poll"]),
         ]
+
+    def clean(self):
+        # PollVoteView already filters `option` to `poll.options` before
+        # creating (polls.py) — this documents and machine-checks the same
+        # invariant for any OTHER writer (Django admin, a data migration, a
+        # future second view) that doesn't go through that view. Deliberately
+        # NOT wired into `save()`: Django's `full_clean()` also runs
+        # `validate_constraints()`, which would pre-check `uniq_poll_vote`
+        # against the DB and turn a double-vote into a `ValidationError`
+        # raised before `save()` — but `PollVoteView.post` specifically
+        # relies on catching the *DB's own* `IntegrityError` from that
+        # constraint to return 409 (see the savepoint comment there). Calling
+        # `save()` here would change that to an uncaught 500. Any writer that
+        # wants this check must call `full_clean()` (or just `clean()`)
+        # itself — see test_poll_vote_clean_rejects_option_from_another_poll.
+        super().clean()
+        if self.option_id and self.poll_id and self.option.poll_id != self.poll_id:
+            raise ValidationError(
+                {"option": _("This option does not belong to the poll being voted in.")}
+            )
 
     def __str__(self):
         return f"PollVote(poll={self.poll_id}, user={self.user_id})"
