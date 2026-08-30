@@ -1,11 +1,14 @@
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from django.test import override_settings
 from wagtail.models import Page
 from wagtail_forum.models import (
+    Conversation,
     ForumBoard,
     ForumIndex,
     ForumProfile,
+    Message,
     Post,
     Report,
     Topic,
@@ -20,6 +23,11 @@ def _post(author):
     board = index.add_child(instance=ForumBoard(title="General", slug="general"))
     topic = Topic.objects.create(board=board, title="T", slug="t", author=author)
     return Post.objects.create(topic=topic, author=author, is_opening_post=True)
+
+
+def _message(sender, recipient):
+    conversation = Conversation.between(sender, recipient)
+    return Message.objects.create(conversation=conversation, sender=sender, body="hi")
 
 
 @pytest.mark.django_db
@@ -126,3 +134,89 @@ def test_reporting_an_already_unpublished_post_does_not_retrigger_unhide_logic()
     report = Report.file(post, reporter, Report.SPAM)
 
     assert report.status == Report.OPEN  # never evaluated for auto-hide
+
+
+@pytest.mark.django_db
+def test_a_report_must_target_exactly_one_of_post_or_message():
+    reporter = User.objects.create_user(username="xor-reporter")
+    with pytest.raises(IntegrityError):
+        Report.objects.create(reporter=reporter, reason=Report.SPAM)
+
+
+@pytest.mark.django_db
+def test_file_for_message_creates_a_report():
+    sender = User.objects.create_user(username="dm-sender")
+    reporter = User.objects.create_user(username="dm-reporter")
+    message = _message(sender, reporter)
+
+    report = Report.file_for_message(message, reporter, Report.SPAM, detail="dm spam")
+
+    assert report is not None
+    assert report.message_id == message.pk
+    assert report.post_id is None
+    assert report.reporter_id == reporter.pk
+    assert report.status == Report.OPEN
+
+
+@pytest.mark.django_db
+def test_duplicate_message_report_from_same_user_is_idempotent_no_op():
+    sender = User.objects.create_user(username="dm-sender2")
+    reporter = User.objects.create_user(username="dm-reporter2")
+    message = _message(sender, reporter)
+
+    first = Report.file_for_message(message, reporter, Report.SPAM)
+    second = Report.file_for_message(message, reporter, Report.ABUSE)
+
+    assert first is not None
+    assert second is None
+    assert Report.objects.filter(message=message, reporter=reporter).count() == 1
+
+
+@pytest.mark.django_db
+def test_file_for_message_increments_senders_flags_received():
+    """A DM-only sender has NO ForumProfile row yet — Message creation fires
+    no profile-seeding signal, unlike the post/topic publish signal. Do NOT
+    pre-create the profile here (that would hide the exact bug this test
+    exists to catch: a bare .filter().update() silently matching zero rows)."""
+    sender = User.objects.create_user(username="dm-sender3")
+    reporter = User.objects.create_user(username="dm-reporter3")
+    message = _message(sender, reporter)
+    assert not ForumProfile.objects.filter(user=sender).exists()
+
+    Report.file_for_message(message, reporter, Report.SPAM)
+
+    profile = ForumProfile.objects.get(user=sender)
+    assert profile.flags_received == 1
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_REPORT_AUTO_HIDE_THRESHOLD=2)
+def test_reaching_threshold_marks_message_reports_auto_hidden():
+    """Unlike the Post path, there is no content-redaction side effect to
+    verify — only the bookkeeping status flip (todo 319's Work Log)."""
+    sender = User.objects.create_user(username="dm-sender4")
+    reporters = [User.objects.create_user(username=f"dm-r{i}") for i in range(2)]
+    message = _message(sender, reporters[0])
+
+    for reporter in reporters:
+        Report.file_for_message(message, reporter, Report.SPAM)
+
+    statuses = set(
+        Report.objects.filter(message=message).values_list("status", flat=True)
+    )
+    assert statuses == {Report.AUTO_HIDDEN}
+
+
+@pytest.mark.django_db
+def test_a_post_report_and_a_message_report_by_the_same_user_can_coexist():
+    """The two conditioned unique constraints are independent — a NULL post
+    on one row and a NULL message on the other must not collide."""
+    author = User.objects.create_user(username="both-author")
+    reporter = User.objects.create_user(username="both-reporter")
+    post = _post(author)
+    message = _message(author, reporter)
+
+    Report.file(post, reporter, Report.SPAM)
+    Report.file_for_message(message, reporter, Report.SPAM)
+
+    assert Report.objects.filter(reporter=reporter).count() == 2

@@ -51,6 +51,23 @@ class PostCursorPagination(ForumCursorPagination):
     ordering = ("created_at", "id")
 
 
+class MessageCursorPagination(ForumCursorPagination):
+    # Messages within a conversation read oldest-first, same shape as
+    # PostCursorPagination (Message.Meta.ordering = ["created_at", "id"]).
+    ordering = ("created_at", "id")
+
+
+class ConversationCursorPagination(ForumCursorPagination):
+    # Most-recently-created conversation first, matching
+    # Conversation.Meta.ordering = ["-created_at"]. CursorPagination always
+    # re-applies its OWN `ordering` via queryset.order_by(*ordering) — the
+    # base ForumCursorPagination's "-id" ordering would be coincidentally
+    # correct today (BigAutoField + auto_now_add stay monotonically aligned
+    # for a single-writer DB) but wouldn't self-enforce the documented intent
+    # the way every other sibling pagination class does (review finding).
+    ordering = ("-created_at", "-id")
+
+
 class BookmarkCursorPagination(ForumCursorPagination):
     # Most-recently-bookmarked-first (todo 283 / M2) — "come back to this",
     # not the topic's own activity, so this deliberately does NOT reuse

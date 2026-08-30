@@ -43,6 +43,49 @@ def test_report_snippet_list_is_reachable_in_admin(client):
 
 
 @pytest.mark.django_db
+def test_report_snippet_list_renders_with_a_message_report_present(client):
+    # todo 319/M10: ReportViewSet.list_display gained "message_summary"
+    # (a @property) alongside the pre-existing "post" column. Pin that the
+    # index view still renders 200 — and shows something readable — with a
+    # message report in the queryset, not just the post-report-only case
+    # test_report_snippet_list_is_reachable_in_admin already covers.
+    from wagtail.models import Page
+    from wagtail_forum.models import (
+        Conversation,
+        ForumBoard,
+        ForumIndex,
+        Message,
+        Post,
+        Report,
+        Topic,
+    )
+
+    admin = User.objects.create_superuser(username="root", email="r@x.io")
+    sender = User.objects.create_user(username="sender", email="s@x.io")
+    recipient = User.objects.create_user(username="recipient", email="rc@x.io")
+    conversation = Conversation.between(sender, recipient)
+    message = Message.objects.create(
+        conversation=conversation, sender=sender, body="reported dm body"
+    )
+    Report.objects.create(message=message, reporter=recipient, reason=Report.SPAM)
+
+    # A post report too, so both columns are exercised in the same listing —
+    # mirrors test_reports.py's `_post()` helper.
+    root = Page.objects.get(id=1)
+    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
+    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    topic = Topic.objects.create(board=board, title="T", slug="t", author=sender)
+    post = Post.objects.create(topic=topic, author=sender, is_opening_post=True)
+    Report.objects.create(post=post, reporter=recipient, reason=Report.ABUSE)
+
+    client.force_login(admin)
+    resp = client.get("/cms/snippets/wagtail_forum/report/")
+
+    assert resp.status_code == 200
+    assert "sender: reported dm body" in resp.content.decode()
+
+
+@pytest.mark.django_db
 def test_moderation_summary_item_counts_spam_rejected_post(client):
     # The homepage panel's signal is NEEDS_CHANGES content (spam the workflow
     # rejected, left as a draft) — drive a real post through submit_for_moderation

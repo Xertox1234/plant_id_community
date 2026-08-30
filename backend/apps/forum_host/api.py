@@ -11,6 +11,7 @@ from apps.core.ratelimit import client_ip_key, ratelimit
 from django.conf import settings
 from django.utils.decorators import method_decorator
 from wagtail_forum.api import bookmarks as forum_bookmark_views
+from wagtail_forum.api import direct_messages as forum_direct_message_views
 from wagtail_forum.api import notifications as forum_notification_views
 from wagtail_forum.api import solutions as forum_solution_views
 from wagtail_forum.api import subscriptions as forum_subscription_views
@@ -160,3 +161,19 @@ class TopicSolutionView(forum_solution_views.TopicSolutionView):
 @_throttled("mention_user_search", "GET", key="user")
 class UserMentionSearchView(forum_user_search_views.UserMentionSearchView):
     pass
+
+
+@_throttled("message_send", "POST")
+class MessageSendView(forum_direct_message_views.MessageSendView):
+    pass
+
+
+@_throttled("report_create", "POST")
+class MessageReportView(forum_direct_message_views.MessageReportView):
+    pass
+
+
+# ConversationListView/ConversationMessagesView have no wrapper here — GET
+# (list) is a page load, not a polling target, same treatment as
+# NotificationListView/TopicBookmarkListView/MyBlocksView above — mounted
+# straight from the package in api_urls.py.

@@ -169,6 +169,8 @@ def test_wrapped_routes_use_the_throttled_views():
         "topic-subscription": throttled.TopicSubscriptionView,
         "topic-bookmark": throttled.TopicBookmarkView,
         "user-block": throttled.UserBlockView,
+        "user-message-send": throttled.MessageSendView,
+        "message-report": throttled.MessageReportView,
     }
     by_name = {p.name: p.callback.view_class for p in host.urlpatterns}
     for name, view_class in wrapped.items():
@@ -197,6 +199,8 @@ def test_every_unsafe_handler_is_throttled():
         throttled.TopicSubscriptionView,
         throttled.TopicBookmarkView,
         throttled.UserBlockView,
+        throttled.MessageSendView,
+        throttled.MessageReportView,
     ]
     for view in wrappers:
         marked = getattr(view, "_forum_throttled_methods", set())
@@ -439,3 +443,60 @@ def test_bookmark_delete_is_throttled_per_user():
     assert first.status_code == 200
     assert blocked.status_code == 429  # NOT 403 — Ratelimited subclasses it
     assert "Retry-After" in blocked
+
+
+@override_settings(FORUM_RATELIMITS={"message_send": "2/m"})
+@pytest.mark.django_db
+def test_message_send_is_throttled_with_429_and_retry_after():
+    """Proves message_send isn't dead config (todo 319/M10) — mirrors
+    test_block_create_is_throttled_with_429_and_retry_after's shape."""
+    sender = User.objects.create_user(username="dm-throttle-sender")
+    client = APIClient()
+    client.force_authenticate(sender)
+
+    with freeze_time("2026-06-10 12:00:00"):
+        for i in range(2):
+            recipient = User.objects.create_user(username=f"dm-throttle-target-{i}")
+            resp = client.post(
+                f"/api/v1/forum/users/{recipient.username}/messages/", {"body": "hi"}
+            )
+            assert resp.status_code == 201
+        recipient3 = User.objects.create_user(username="dm-throttle-target-3")
+        r = client.post(
+            f"/api/v1/forum/users/{recipient3.username}/messages/", {"body": "hi"}
+        )
+
+    assert r.status_code == 429  # NOT 403 — Ratelimited subclasses PermissionDenied
+    assert r["Retry-After"] == "60"  # derived from the 2/m window
+
+
+@override_settings(FORUM_RATELIMITS={"report_create": "2/h"})
+@pytest.mark.django_db
+def test_message_report_is_throttled_with_429_and_retry_after():
+    """message_report reuses the report_create rate name (Report.file_for_message
+    shares the Report model/flow, todo 319/M10) — proves it isn't dead config
+    on THIS view too, not just PostReportView."""
+    from wagtail_forum.models import Conversation, Message
+
+    sender = User.objects.create_user(username="dm-report-sender")
+    reporter = User.objects.create_user(username="dm-report-reporter")
+    conversation = Conversation.between(sender, reporter)
+    messages = [
+        Message.objects.create(conversation=conversation, sender=sender, body=f"m{i}")
+        for i in range(3)
+    ]
+    client = APIClient()
+    client.force_authenticate(reporter)
+
+    with freeze_time("2026-06-10 12:00:00"):
+        for message in messages[:2]:
+            resp = client.post(
+                f"/api/v1/forum/messages/{message.pk}/report/", {"reason": "spam"}
+            )
+            assert resp.status_code == 200
+        r = client.post(
+            f"/api/v1/forum/messages/{messages[2].pk}/report/", {"reason": "spam"}
+        )
+
+    assert r.status_code == 429  # NOT 403 — Ratelimited subclasses PermissionDenied
+    assert r["Retry-After"] == "3600"  # derived from the 2/h window

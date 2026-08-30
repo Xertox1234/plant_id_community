@@ -76,6 +76,12 @@ def test_read_serializer_method_fields_are_typed_not_default_string():
     assert topic["board"]["type"] == "object"
     assert topic["opening_post_id"]["type"] == "integer"
 
+    conversation = components["Conversation"]["properties"]
+    assert conversation["other_participant"]["type"] == "object"
+
+    message = components["Message"]["properties"]
+    assert message["sender"]["type"] == "object"
+
 
 @pytest.mark.django_db
 def test_me_profile_capabilities_typed_as_object():
