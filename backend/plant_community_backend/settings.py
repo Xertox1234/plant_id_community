@@ -1414,21 +1414,39 @@ def validate_environment():
                 "Set CORS_ALLOWED_ORIGINS=https://yourdomain.com in environment."
             )
 
-        # Required: R2_* credentials when object storage is enabled (todo 305)
-        if USE_R2:
+    # ========================================
+    # R2_* credentials when object storage is enabled (todo 305)
+    # ========================================
+    # Checked in EVERY environment, not just `if not DEBUG:` above — the
+    # STORAGES block that builds S3Storage's OPTIONS (this file, ~line 435)
+    # has no DEBUG guard either, so USE_R2=True with blank vars would
+    # otherwise construct S3Storage with empty credentials and boot clean,
+    # failing later with an opaque low-level boto3 error far from the real
+    # misconfiguration (e.g. a dev/scratch server with USE_R2 flipped on by
+    # accident). Only production treats it as fatal; DEBUG surfaces it as a
+    # visible warning instead, matching this function's usual warn-vs-error split.
+    if USE_R2:
+        missing_r2_vars = [
+            r2_var
             for r2_var in (
                 "R2_BUCKET_NAME",
                 "R2_ACCESS_KEY_ID",
                 "R2_SECRET_ACCESS_KEY",
                 "R2_ENDPOINT_URL",
                 "R2_CUSTOM_DOMAIN",
-            ):
-                if not config(r2_var, default=""):
-                    critical_errors.append(
-                        f"{r2_var} is required in production when USE_R2 is enabled. "
-                        "Also set it on the forum-prune-cron Railway service — it "
-                        "imports these same settings."
-                    )
+            )
+            if not config(r2_var, default="")
+        ]
+        for r2_var in missing_r2_vars:
+            message = (
+                f"{r2_var} is required when USE_R2 is enabled. Also set it on "
+                "the forum-prune-cron Railway service — it imports these same "
+                "settings."
+            )
+            if not DEBUG:
+                critical_errors.append(message)
+            else:
+                warnings.append(message)
 
     # ========================================
     # API Key Format Validation (Issue #156)

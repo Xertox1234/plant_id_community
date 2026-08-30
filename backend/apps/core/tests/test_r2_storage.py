@@ -34,6 +34,14 @@ BASE_ENV = {
 def _run_check(**env_overrides):
     """Run `manage.py check` in a fresh interpreter with the given env."""
     env = {**os.environ, **BASE_ENV}
+    # Explicitly blank these — NOT pop(). decouple.Config.get() checks
+    # os.environ first, but for a key merely ABSENT from it falls through
+    # to backend/.env on disk (verified against decouple's source) rather
+    # than the default="" this test relies on. This project's own R2
+    # rotation runbook (secret-management.md) has an operator write real
+    # R2_* values into backend/.env — on that machine, popping the key
+    # would silently leak the real value in here. An explicit "" stays
+    # present-but-falsy, which is what validate_environment() itself checks.
     for key in (
         "USE_R2",
         "R2_BUCKET_NAME",
@@ -42,7 +50,7 @@ def _run_check(**env_overrides):
         "R2_ENDPOINT_URL",
         "R2_CUSTOM_DOMAIN",
     ):
-        env.pop(key, None)
+        env[key] = ""
     env.update(env_overrides)
     return subprocess.run(
         [sys.executable, "manage.py", "check"],
@@ -173,3 +181,13 @@ class ValidateEnvironmentR2Tests(SimpleTestCase):
             REDIS_URL="redis://localhost:6379/1",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_r2_vars_warns_but_does_not_crash_in_debug(self):
+        # The STORAGES block that builds S3Storage's OPTIONS has no DEBUG
+        # guard, so a dev/scratch server with USE_R2=True and blank vars
+        # would otherwise boot clean and fail later with an opaque boto3
+        # error far from the real cause. This must be visible at startup
+        # even though it isn't fatal outside production.
+        result = _run_check(DEBUG="True", USE_R2="True")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("R2_BUCKET_NAME is required", result.stdout + result.stderr)
