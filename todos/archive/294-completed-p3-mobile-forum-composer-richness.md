@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "294"
 tags: [forum, flutter, mobile, composer]
@@ -64,14 +64,15 @@ photo from the composer is the sharper of the two gaps.
       block in the composed body — test with a fake API
 - [x] A rejected upload surfaces the error and leaves the drafted text intact —
       test
-- [ ] Bold/italic/link/list/inline-code round-trip through compose → render —
+- [x] Bold/italic/link/list/inline-code round-trip through compose → render —
       test per mark → split to **todo 314** on 2026-08-17 (advisor consult:
       needs a new rich-text editing surface — no such widget exists in the
       app today — plus resolving a load-bearing interaction with todo 292's
       `isSingleEditableParagraph` gate, a materially different scope than
-      the image half above). Re-pointed, not done — see todo 314 for its
-      own AC. (Renumbered from 312 on 2026-08-28: 312 collided with an
-      unrelated auth-e2e todo filed on main via #559 after this split.)
+      the image half above). (Renumbered from 312 on 2026-08-28: 312
+      collided with an unrelated auth-e2e todo filed on main via #559 after
+      this split.) Resolved via todo 314 — PR #574 merged 2026-08-29,
+      `ff91c9c`; see todo 314's archived file for its own AC evidence.
 - [x] `flutter test` passes; `flutter analyze` clean
 
 ## Work Log
@@ -252,9 +253,48 @@ photo from the composer is the sharper of the two gaps.
   while `CONFLICTING` — re-verifying on the fresh push before concluding
   that, per advisor guidance).
 
+### 2026-08-29 - Reconciled and closed out
+
+- Both halves of this todo's scope confirmed merged and CI-green on
+  `origin/main`, with nothing left to implement:
+  - **Image half (this todo's own scope)**: PR #557, commit `a2c5938`, all
+    17 CI checks SUCCESS.
+  - **Rich-text half (split to todo 314)**: PR #574, commit
+    `ff91c9c89aabc4c79a23caf2baff531f3601d452`, merged
+    2026-08-29T03:49:02Z, all 17 CI checks SUCCESS including `Flutter
+    analyze, test, and debug build`.
+- Neither todo file had been archived because local `main` in this checkout
+  had drifted ~40 commits behind `origin/main` across several intervening
+  sessions/worktrees — the merges themselves went through cleanly (each PR
+  had its own full review cycle, documented above and in todo 314's own Work
+  Log), but the archival bookkeeping step was never run against the synced
+  state. `git fetch origin main` + branching directly off `origin/main`
+  surfaced both merges; no new application code changes were needed here.
+  Todo 314's own file was updated and archived in the same pass (it had only
+  a "split out" entry despite its implementation branch,
+  `worktree-todo-314-composer-rich-text`, already being the exact source of
+  the merged PR #574).
+- Checked off AC3 above now that its re-pointed destination (todo 314) has
+  itself reached `completed` — per CLAUDE.md's Review Doc Tracking
+  convention, a re-pointed item stays unchecked only while its destination
+  is still open; once the destination ships, the source reference is
+  checked off with a completion date, same as `- [x] #42 (completed
+  YYYY-MM-DD)`.
+- Re-ran verification fresh on the reconciliation branch (both PRs present):
+
+  ```
+  $ flutter test
+  00:24 +420: All tests passed!
+
+  $ flutter analyze lib/ test/
+  Analyzing 2 items...
+  No issues found! (ran in 2.3s)
+  ```
+
 ## Notes
 
 p3. Promoted from todo 279 on 2026-07-31. The image half is worth doing alone
 if the rich-text half slips — they are sequenced, not coupled. Image half
-shipped 2026-08-17; rich text split to todo 314 (renumbered from 312 on
-2026-08-28 — see Work Log).
+shipped 2026-08-17 (PR #557); rich text split to todo 314 (renumbered from
+312 on 2026-08-28 — see Work Log), shipped 2026-08-29 (PR #574). Both halves
+confirmed merged and archived 2026-08-29.
