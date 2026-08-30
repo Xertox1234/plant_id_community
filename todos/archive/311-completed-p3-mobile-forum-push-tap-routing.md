@@ -154,6 +154,7 @@ p3. Split out of todo 293 on 2026-08-17 per advisor guidance — todo 293's own
 Recommended Action already ordered this last ("Push-tap routing last, since
 it reuses the list's navigation target"), and the real todo-286 iOS blocker
 makes it a materially different verification story than the other two
-slices. Shipped 2026-08-17 (PR #573, `5a6a6d2`); confirmed merged and
-archived 2026-08-30. Related: todo 286 (iOS APNs entitlement, gated/skipped
-that session, since resolved via PR #529).
+slices. Implemented and shipped 2026-08-29 (PR #573 merged
+2026-08-29T02:38:23Z, `5a6a6d2`) — well after the 2026-08-17 split date, not
+on it; confirmed merged and archived 2026-08-30. Related: todo 286 (iOS
+APNs entitlement, gated/skipped that session, since resolved via PR #529).
