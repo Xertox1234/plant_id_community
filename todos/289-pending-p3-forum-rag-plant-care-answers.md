@@ -68,7 +68,7 @@ citation validation → provenance UX → report affordance.
 
 ## Acceptance Criteria
 
-- [ ] All four enablement gates confirmed and recorded in the Work Log (or the
+- [x] All four enablement gates confirmed and recorded in the Work Log (or the
       todo is re-deferred with the failing gate named)
 - [ ] `BlogChunks` index shipped with block-boundary chunking + anchor metadata,
       rebuilt on `page_published`
@@ -91,6 +91,51 @@ citation validation → provenance UX → report affordance.
   explicitly descoped; this todo carries the execution.
 - p3 (not p2): gated on a corpus that does not exist yet. Raise to p2 once gates
   1–2 hold.
+
+### 2026-08-29 - Gate-check: 2 of 4 gates fail objectively, todo re-deferred
+
+Ran the four enablement gates against live prod state rather than starting
+implementation. AC1 satisfied via its alternate clause ("or the todo is
+re-deferred with the failing gate named").
+
+- **Gate 1 — FAIL.** `FORUM_VECTOR_SEARCH_ENABLED` is **absent** from the prod
+  `plant_id_community` service's variable list (Railway `get-service-config`,
+  checked 2026-08-29) — not present, not merely set to `False` — so it
+  resolves to the coded default `False`
+  (`backend/plant_community_backend/settings.py:806-808`). No `SimilarTopics`
+  index has been built and no M12 real-traffic evidence exists: the audit
+  doc's own M13 re-pointer note already says "H15 still dormant in prod",
+  and no LEARNINGS/Work Log entry records a `rebuild_indexes SimilarTopics`
+  run.
+- **Gate 2 — FAIL.** Live prod counts pulled directly on 2026-08-29:
+  `GET /api/v1/forum/boards/` → **16 topics** across 5 boards (need ≥200 —
+  ~8% of threshold); `GET /api/v2/blog-posts/?limit=1` →
+  `meta.total_count: 0` (need ≥50 chunked articles); `GET
+  /api/v2/care-guides/?limit=1` → `total_count: 0`. Even the repo's own seed
+  catalogues (`apps/forum_host/seed_content.py`, `apps/blog/seed_content.py`)
+  only define 16 topics / 6 posts if fully applied — nowhere near threshold
+  either way. The DEBUG-gated `seed_demo_content --confirm` /
+  `seed_demo_blog --confirm` prod session referenced in
+  `docs/superpowers/plans/2026-08-16-canopy-blog.md` appears never to have
+  run, consistent with 0 live blog posts observed.
+- **Gate 3 — left open/unassessed.** No review-queue mechanism exists yet for
+  anyone to own (guardrail 5 is unbuilt), and per this repo's own precedent
+  (todo 280's operator-decision entries, todo 254's L21 "roadmap-owner
+  decision" note) naming an owner is deliberately left to the user, not
+  forced by an automated pass.
+- **Gate 4 — SIGNED OFF 2026-08-29 by the user.** The blocked-class list from
+  the design doc (Guardrails layer 2): human/animal ingestion (edibility,
+  toxicity, medicinal use) and pesticide/chemical dosing — never answered
+  from community content, classified before retrieval, routed to a static
+  referral. Approved as written.
+- User was asked whether to flip `FORUM_VECTOR_SEARCH_ENABLED` in Railway
+  now and/or spin out a separate ops-enablement todo for it, mirroring todo
+  280's pattern for the spam backend. **Decision: leave it off, no new
+  todo** — gate 2 blocks independently either way, so enabling it wouldn't
+  unblock this todo.
+- Priority stays p3: raise to p2 once gates 1–2 hold. Measured gap so a
+  future pass doesn't need to re-run this recon: topics 16/200 (~8%), blog
+  articles 0/50 (0%).
 
 ## Notes
 
