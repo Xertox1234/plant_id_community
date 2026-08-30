@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "317"
 tags: [forum, flutter, mobile, widgets]
@@ -106,15 +106,15 @@ signal).
 
 ## Acceptance Criteria
 
-- [ ] A new shared author-identity widget exists (avatar + name + trust
+- [x] A new shared author-identity widget exists (avatar + name + trust
       badge), used by both `PostCard` and `TopicCard`
-- [ ] Tapping a real author opens their profile screen; tapping a
+- [x] Tapping a real author opens their profile screen; tapping a
       `[deleted]` author does nothing — test asserting both
-- [ ] Profile screen renders header + recent_topics + recent_posts from a
+- [x] Profile screen renders header + recent_topics + recent_posts from a
       real fixture shaped like `PUBLIC_PROFILE_SCHEMA`
-- [ ] `ForumAuthor.title` is parsed (currently dropped) and rendered on the
+- [x] `ForumAuthor.title` is parsed (currently dropped) and rendered on the
       profile screen
-- [ ] `flutter test` (full suite, not just forum/) passes; `flutter
+- [x] `flutter test` (full suite, not just forum/) passes; `flutter
       analyze` clean
 
 ## Work Log
@@ -129,9 +129,82 @@ signal).
   screen." Split rather than bundled, per the same re-point-not-check-off
   convention used earlier this session for todos 293/294.
 
+### 2026-08-30 - Implemented, merged, and reconciled
+
+- This file was never updated with implementation evidence despite the work
+  already shipping — discovered while sweeping the mobile forum todos for
+  the same stale-archival pattern already found and fixed for todos
+  293/311 (PR #583) and 294/314 (PR #582): local checkouts drift behind
+  `origin/main`, a PR merges cleanly, and the todo file is never
+  reconciled/archived against the synced state.
+- **Merged as PR #575, commit `02403ef`, 2026-08-29T13:05:52Z** — "feat
+  (mobile-forum): shared tappable author identity + public profile screen
+  (todo 317)". Confirmed present and intact on `origin/main` (this
+  reconciliation branch is cut directly from it), not just that commit.
+- Verified all 5 ACs directly against the current code, not the commit
+  title:
+  - **AC1** (shared widget, both cards): `lib/features/forum/widgets/author_identity.dart`
+    — `AuthorIdentity` (avatar + name + `TrustBadge`, `showTrustBadge`
+    param since `TopicCard`'s stat row can't afford the badge's fixed
+    width). `post_card.dart:59` and `topic_card.dart:78-80` both replaced
+    their old private inline rendering with it. Widget-level coverage:
+    `test/features/forum/widgets/author_identity_test.dart` (name+badge
+    render, tappable InkWell fires onTap, no InkWell when onTap is null);
+    `post_card_test.dart` + `topic_card_test.dart` each have a "todo 317"
+    group confirming `AuthorIdentity` is wired with `onAuthorTap` and that
+    a deleted author renders no tap affordance.
+  - **AC2** (tap → profile / deleted → no-op): `AuthorIdentity`'s own
+    `canTap = onTap != null && !author.isDeleted` (renders with **no**
+    `InkWell` at all when either is false, not an attached no-op handler —
+    more directly testable). Test:
+    `author_identity_test.dart`'s `'renders with no InkWell at all for a
+    deleted author, even with onTap set'`. Navigation wiring:
+    `forum_topics_screen.dart:119` and `forum_thread_screen.dart:316` both
+    call `context.pushNamed(...)` on `onAuthorTap`. Full-router regression:
+    `test/routing/app_router_test.dart`'s `'tapping a post author opens
+    their public profile (todo 317)'`.
+  - **AC3** (profile screen renders header + recent_topics + recent_posts):
+    `lib/features/forum/models/forum_profile.dart::ForumProfile` — a flat
+    merge of `ForumAuthor.fromJson(json)` (same top-level map, not nested)
+    plus `bio`/`signature`/`postCount`/`joinedAt`/`recentTopics`/
+    `recentPosts`, matching `PUBLIC_PROFILE_SCHEMA` field-for-field.
+    `forum_user_profile_screen.dart` + `ForumApi.fetchProfile(username)`
+    (`GET /forum/users/{username}/`). Tests in
+    `forum_user_profile_screen_test.dart`: `'renders header identity,
+    title, bio, and post count'`, `'renders recent topics and recent posts
+    from the fixture'`, plus empty-state and load-failure-retry cases;
+    `forum_profile_test.dart` covers `fromJson` against the real shape.
+  - **AC4** (`ForumAuthor.title` parsed + rendered): `forum_author.dart` —
+    `title` field added, `fromJson` reads `json['title']`. Rendered on the
+    profile header per AC3's screen test above.
+  - **AC5** (full suite + analyze): re-run fresh below, not trusted from
+    the old PR description.
+- Fresh verification on this reconciliation branch (`origin/main` + the
+  293/311/584/585 doc-only merges already on it — no application code
+  changes here):
+
+  ```
+  $ flutter test
+  00:20 +420 ~3: All tests passed!
+
+  $ flutter analyze lib/ test/
+  Analyzing 2 items...
+  No issues found! (ran in 2.1s)
+  ```
+
+- Not touched: todo 295's own archived file. Its AC3 still reads "split to
+  todo 317 ... not done — see todo 317 for its own AC" — per this
+  project's convention, an already-archived todo file is a frozen
+  snapshot and is never retroactively edited; only a still-live tracking
+  document (an audit's `## Finding Status`) gets updated as a downstream
+  todo ships. No such live document references todo 295 or 317 (checked:
+  `grep -rn "todo 317\|todo 295" docs/audits/ docs/reviews/` — no hits).
+
 ## Notes
 
 p3. Split out of todo 295 on 2026-08-28 (advisor-flagged split, confirmed
 by research). Depends on the same backend contract todo 295 verified
 (`serialize_forum_author`/`_deleted_author`, `PublicProfileView`) — no new
-backend work needed, this is client-only.
+backend work needed, this is client-only. Shipped 2026-08-29 (PR #575
+merged 2026-08-29T13:05:52Z, `02403ef`); confirmed merged and archived
+2026-08-30.
