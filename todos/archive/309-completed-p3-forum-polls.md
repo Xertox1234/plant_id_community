@@ -297,6 +297,27 @@ Path shorthand: `W` = `backend/packages/wagtail_forum/wagtail_forum`, `web` = `w
       src/pages/forum/NewThreadPage.tsx src/pages/forum/NewThreadPage.test.tsx
   No issues found
   ```
+- `/codify` run on the full branch diff. `kimi-review` returned one
+  WARNING (`PollVoteView.post` checks `poll.is_closed` outside the
+  transaction, then votes inside a savepoint — a "concurrent request that
+  closes the poll" could in theory land between the two). Verified against
+  the code before acting: `closes_at` is written exactly ONCE, at topic
+  creation (`views.py`'s `TopicCreateSerializer`), and there is no
+  update/admin path that ever changes it afterward — so the specific
+  mechanism the finding describes ("a concurrent request that closes the
+  poll") does not exist in this codebase, and its suggested fix
+  (`select_for_update()`) would not address the real, much narrower race
+  that DOES exist (the few milliseconds between the Python-level
+  `timezone.now()` check and the vote's commit) — locking the row doesn't
+  slow down the clock. Not fixed: the real race is negligible in practice
+  (a vote landing a few ms after the nominal close time, on a community
+  poll) and `select_for_update()` wouldn't fix it anyway. A genuinely new
+  finding DID come out of the same review pass and IS codified —
+  `PollVote.clean()`'s deliberate non-wiring into `save()` (Django 6's
+  `full_clean()`/`validate_constraints()` interaction with the
+  `IntegrityError`-savepoint 409 pattern) — added as a rule bullet to
+  `docs/rules/database.md` rather than left as tribal knowledge in this
+  file alone.
 
 ## Notes
 
