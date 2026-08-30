@@ -20,6 +20,7 @@ from ..models import (
     TopicSubscription,
     UserBlock,
 )
+from ..models.messages import MESSAGE_BODY_MAX_CHARS
 from .sanitize import validate_forum_body
 
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
@@ -937,6 +938,50 @@ class ReactionSerializer(serializers.Serializer):
 class ReportSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(choices=Report.REASON_CHOICES)
     detail = serializers.CharField(max_length=280, required=False, default="")
+
+
+class ConversationSerializer(serializers.Serializer):
+    """A 1:1 DM conversation from the requesting user's point of view — the
+    OTHER participant, not both (todo 319/M10)."""
+
+    id = serializers.IntegerField()
+    other_participant = serializers.SerializerMethodField()
+    created_at = serializers.DateTimeField()
+
+    @extend_schema_field(AUTHOR_SCHEMA)
+    def get_other_participant(self, conversation):
+        request = self.context.get("request")
+        other_id = conversation.other_participant_id(request.user)
+        other_user = (
+            conversation.participant_a
+            if other_id == conversation.participant_a_id
+            else conversation.participant_b
+        )
+        return serialize_forum_author(other_user, request)
+
+
+class MessageSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    conversation_id = serializers.IntegerField()
+    sender = serializers.SerializerMethodField()
+    body = serializers.CharField()
+    created_at = serializers.DateTimeField()
+
+    @extend_schema_field(AUTHOR_SCHEMA)
+    def get_sender(self, message):
+        return serialize_forum_author(message.sender, self.context.get("request"))
+
+
+class MessageSendSerializer(serializers.Serializer):
+    body = serializers.CharField(
+        max_length=MESSAGE_BODY_MAX_CHARS, trim_whitespace=True
+    )
+
+    def validate_body(self, value):
+        stripped = value.strip()
+        if not stripped:
+            raise serializers.ValidationError(_("Message cannot be empty."))
+        return stripped
 
 
 class MeProfileSerializer(serializers.ModelSerializer):

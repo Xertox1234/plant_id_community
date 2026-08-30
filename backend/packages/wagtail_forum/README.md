@@ -173,8 +173,8 @@ urlpatterns = [
 Routes: boards, topics (list/detail/create), posts (list/create/edit/delete),
 reactions, reports, image upload, profiles (`me` + public), search, delta `sync`,
 user mention search, notifications (list/unread-count/mark-read), recent topics,
-community experts, block/unblock + blocked-user list, and the landing-page event
-hero.
+community experts, block/unblock + blocked-user list, private messaging
+(conversations, send, report), and the landing-page event hero.
 
 The package ships **no authentication and no throttling** by design — see
 [Rate limiting](#rate-limiting).
@@ -488,11 +488,12 @@ core envelope plus an optional `request_id` and a 429 branch for its rate limite
 
 ## Idempotency
 
-Every unsafe write (`topic`/`reply`/`image` create, `post` edit, `reaction`
-toggle, `report`) honours an `Idempotency-Key` request header: a retry with the
-same key replays the original response (original status code) instead of
-repeating the side effect; reuse with a different body returns `422`; a same-key
-twin still in-flight returns `409`. Keys are scoped per (endpoint, user) and
+Every unsafe write (`topic`/`reply`/`image`/`message` create, `post` edit,
+`reaction` toggle, `report`) honours an `Idempotency-Key` request header: a
+retry with the same key replays the original response (original status code)
+instead of repeating the side effect; reuse with a different body returns
+`422`; a same-key twin still in-flight returns `409`. Keys are scoped per
+(endpoint, user) and
 cached for 24h. See `api/idempotency.py`.
 
 ## Rate limiting

@@ -11,6 +11,13 @@ from django.urls import path
 # Same treatment as NotificationListView — a page load, not a polling target.
 from wagtail_forum.api.bookmarks import TopicBookmarkListView
 
+# GET-only, page-load views — no throttle wrapper, same treatment as
+# NotificationListView/TopicBookmarkListView/MyBlocksView (todo 319/M10).
+from wagtail_forum.api.direct_messages import (
+    ConversationListView,
+    ConversationMessagesView,
+)
+
 # The notification list is auth-gated but not a polling target — mounted
 # straight from the package like BoardListView/TopicDetailView above.
 from wagtail_forum.api.notifications import NotificationListView
@@ -34,6 +41,8 @@ from wagtail_forum.api.views import (
 
 from .api import (
     MeProfileView,
+    MessageReportView,
+    MessageSendView,
     NotificationMarkReadView,
     NotificationUnreadCountView,
     PostImageUploadView,
@@ -139,6 +148,24 @@ urlpatterns = [
     path("users/experts/", ExpertsView.as_view(), name="users-experts"),
     path("users/<str:username>/", PublicProfileView.as_view(), name="user-profile"),
     path("users/<str:username>/block/", UserBlockView.as_view(), name="user-block"),
+    path(
+        "users/<str:username>/messages/",
+        MessageSendView.as_view(),
+        name="user-message-send",
+    ),
+    # Private messaging (todo 319/M10). List views are GET-only page loads —
+    # mounted straight from the package, same treatment as MyBlocksView above.
+    path("conversations/", ConversationListView.as_view(), name="conversation-list"),
+    path(
+        "conversations/<int:conversation_id>/messages/",
+        ConversationMessagesView.as_view(),
+        name="conversation-messages",
+    ),
+    path(
+        "messages/<int:message_id>/report/",
+        MessageReportView.as_view(),
+        name="message-report",
+    ),
     path("notifications/", NotificationListView.as_view(), name="notification-list"),
     path(
         "notifications/unread-count/",

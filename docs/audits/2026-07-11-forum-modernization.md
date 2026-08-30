@@ -336,8 +336,10 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #M9 block-mute → todo 284 (completed 2026-08-29; `UserBlock` model +
       block/unblock/list endpoints + block-aware filtering on every content
       read path, backend PR #577 + web UI PR #578, both merged)
-- [ ] #M10 private-messaging → todo 319 (re-pointed 2026-08-29; promoted out of
-      284, M9 now shipped — see 284's Work Log for the gate rationale)
+- [x] #M10 private-messaging → todo 319 (completed 2026-08-30; Conversation/
+      Message models, send/report/list endpoints, bidirectional block
+      enforcement on both write and read paths, spam screening, Report model
+      reuse for message reports — no web/mobile UI in this slice)
 - [x] #M11 post-permalinks → todo 276 (completed 2026-07-30; Wave 1 shipped the chase + copy-link, verified here)
 - [x] #M12 semantic-search-upgrade → todo 275 (completed 2026-07-29; premium
       `semantic` section on `/forum/search/`, own array so FTS paging is intact)

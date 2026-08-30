@@ -1,6 +1,12 @@
 from django.urls import path
 
 from .bookmarks import TopicBookmarkListView, TopicBookmarkView
+from .direct_messages import (
+    ConversationListView,
+    ConversationMessagesView,
+    MessageReportView,
+    MessageSendView,
+)
 from .notifications import (
     NotificationListView,
     NotificationMarkReadView,
@@ -99,6 +105,23 @@ urlpatterns = [
         "users/<str:username>/block/",
         UserBlockView.as_view(),
         name="user-block",
+    ),
+    path(
+        "users/<str:username>/messages/",
+        MessageSendView.as_view(),
+        name="user-message-send",
+    ),
+    # Private messaging (todo 319/M10).
+    path("conversations/", ConversationListView.as_view(), name="conversation-list"),
+    path(
+        "conversations/<int:conversation_id>/messages/",
+        ConversationMessagesView.as_view(),
+        name="conversation-messages",
+    ),
+    path(
+        "messages/<int:message_id>/report/",
+        MessageReportView.as_view(),
+        name="message-report",
     ),
     path("notifications/", NotificationListView.as_view(), name="notification-list"),
     path(

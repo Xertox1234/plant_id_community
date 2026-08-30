@@ -2,6 +2,7 @@ from .activity import ForumActivityDate
 from .boards import ForumBoard, ForumIndex
 from .bookmarks import TopicBookmark
 from .identifications import ForumIdentificationAttachment
+from .messages import Conversation, Message
 from .moderation import SpamCheckTask
 from .notifications import Notification, NotificationVerb
 from .posts import Post
@@ -15,11 +16,13 @@ from .topics import Topic
 from .user_blocks import UserBlock
 
 __all__ = [
+    "Conversation",
     "ForumActivityDate",
     "ForumBoard",
     "ForumIdentificationAttachment",
     "ForumIndex",
     "ForumProfile",
+    "Message",
     "Notification",
     "NotificationVerb",
     "Post",

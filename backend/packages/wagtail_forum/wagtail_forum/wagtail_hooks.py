@@ -70,14 +70,31 @@ class ReportViewSet(SnippetViewSet):
     model = Report
     icon = "warning"
     menu_label = _("Reports")
-    list_display = ["post", "reporter", "reason", "status", "created_at"]
+    # "post" is unchanged from before todo 319/M10 (blank for a message
+    # report, same as always). "message_summary" is additive — a report has
+    # exactly one of post/message set (forum_report_exactly_one_target), so
+    # exactly one of the two columns is populated per row.
+    list_display = [
+        "post",
+        "message_summary",
+        "reporter",
+        "reason",
+        "status",
+        "created_at",
+    ]
     list_filter = ["status", "reason"]
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         if qs is None:
             qs = self.model.objects.all()
-        return qs.select_related("post", "reporter", "resolved_by")
+        return qs.select_related(
+            "post",
+            "message__sender",
+            "message__conversation",
+            "reporter",
+            "resolved_by",
+        )
 
 
 class ForumViewSetGroup(SnippetViewSetGroup):

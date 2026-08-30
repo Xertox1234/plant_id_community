@@ -36,6 +36,40 @@ def test_block_endpoint_is_mounted_and_throttled():
 
 
 @pytest.mark.django_db
+def test_dm_endpoints_are_mounted_and_throttled():
+    """todo 319/M10: one round-trip through the REAL host mount, mirroring
+    test_block_endpoint_is_mounted_and_throttled."""
+    from wagtail_forum.models import Report
+
+    sender = get_user_model().objects.create_user(username="mounted-dm-sender")
+    recipient = get_user_model().objects.create_user(username="mounted-dm-recipient")
+    client = APIClient()
+    client.force_authenticate(sender)
+
+    resp = client.post(
+        f"/api/v1/forum/users/{recipient.username}/messages/", {"body": "hi"}
+    )
+    assert resp.status_code == 201
+
+    resp = client.get("/api/v1/forum/conversations/")
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 1
+    conversation_id = resp.data["results"][0]["id"]
+
+    resp = client.get(f"/api/v1/forum/conversations/{conversation_id}/messages/")
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 1
+    message_id = resp.data["results"][0]["id"]
+
+    client.force_authenticate(recipient)
+    resp = client.post(
+        f"/api/v1/forum/messages/{message_id}/report/", {"reason": "spam"}
+    )
+    assert resp.status_code == 200
+    assert Report.objects.filter(message_id=message_id).exists()
+
+
+@pytest.mark.django_db
 def test_search_many_term_query_is_bounded_not_500():
     # Todo 290: an anonymous many-term query recursed Wagtail's search-query
     # AND-tree construction (one nesting level per term) into a

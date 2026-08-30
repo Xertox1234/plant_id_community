@@ -43,6 +43,12 @@ DEFAULT_FORUM_RATELIMITS = {
     # idempotent, low-stakes toggle.
     "block_create": "60/m",
     "block_delete": "60/m",
+    # Same tier as reply_create (todo 319 / M10) — a per-user interactive
+    # write. MessageReportView reuses the report_create rate NAME (below) —
+    # same value, but its own independent bucket (django-ratelimit keys the
+    # counter by the decorated view, not the rate name), since it's a
+    # different endpoint from PostReportView.
+    "message_send": "30/h",
     # Accepting/clearing an answer (audit H6). Tighter than the reaction tier:
     # only a topic's author or a moderator can call it, and a human marks one
     # answer per thread — a burst is either a UI bug or someone flapping the
