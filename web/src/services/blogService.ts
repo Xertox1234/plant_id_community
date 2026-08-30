@@ -23,23 +23,28 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 /**
  * Resolve a media path against the API origin.
  *
- * Media always lives on the API host, not the SPA host — a relative
- * `/media/...` src breaks whenever the two are on different origins (prod,
- * and locally without a dev-server proxy). The API also emits ABSOLUTE
- * `/media/` URLs whose host isn't trustworthy: `related_posts[].featured_image`
- * is built from Wagtail's static Site record (`get_full_url`), which is
- * uncurated and resolves to the wrong host in every environment where it
- * hasn't been hand-configured (live-probed: `http://localhost/media/...` —
- * port 80, not the API's actual port). Rendition payloads separately carry
- * a `full_url` field with the same Site-record problem, which is why it's
- * deliberately not modeled on `BlogPostImage` either. So: re-base ANY
- * `/media/` PATH — relative or absolute — onto `API_URL`, ignoring
- * whatever host the API sent. A non-`/media/` absolute URL (e.g. a CDN
- * asset) passes through unchanged. Matched against the path only (not a
- * substring anywhere in the URL), so a host like
- * `cdn.example.com/social-media/cover.webp` — where `/media/` merely
- * appears inside an unrelated segment — isn't mistaken for Django's media
- * path and rebased.
+ * When media is served locally (Django's default, and dev), it lives on the
+ * API host, not the SPA host — a relative `/media/...` src breaks whenever
+ * the two are on different origins (prod, and locally without a dev-server
+ * proxy). The API also emits ABSOLUTE `/media/` URLs whose host isn't
+ * trustworthy: `related_posts[].featured_image` is built from Wagtail's
+ * static Site record (`get_full_url`), which is uncurated and resolves to
+ * the wrong host in every environment where it hasn't been hand-configured
+ * (live-probed: `http://localhost/media/...` — port 80, not the API's
+ * actual port). Rendition payloads separately carry a `full_url` field with
+ * the same Site-record problem, which is why it's deliberately not modeled
+ * on `BlogPostImage` either. So: re-base ANY `/media/` PATH — relative or
+ * absolute — onto `API_URL`, ignoring whatever host the API sent.
+ *
+ * When the backend's USE_R2 flag is on (todo 305), media instead lives on
+ * an R2/CDN custom domain, and those URLs never contain a `/media/` path
+ * segment (django-storages's S3Storage.url() builds
+ * `https://<custom_domain>/<key>` — `/media/` only ever comes from Django's
+ * local-storage MEDIA_URL). Such a URL falls through to the pass-through
+ * branch below unchanged, by design, not by accident of matching only the
+ * path: a host like `cdn.example.com/social-media/cover.webp` — where
+ * `/media/` merely appears inside an unrelated segment — also isn't
+ * mistaken for Django's media path and rebased.
  */
 export function mediaUrl(url: string): string {
   if (url.startsWith('/media/')) {
