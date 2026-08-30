@@ -225,6 +225,29 @@ describe('NewThreadPage', () => {
       );
     });
 
+    it('disables Post when the poll toggle is on but the poll is left blank, so an otherwise-valid topic cannot 400 on an empty poll', async () => {
+      vi.spyOn(forumService, 'createThread');
+      renderPage();
+      await screen.findByText('Plant Care');
+      await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+      await userEvent.type(screen.getByLabelText('body'), 'hello');
+      await userEvent.click(screen.getByRole('checkbox', { name: /add a poll/i }));
+
+      // Title + body are valid and the poll is untouched (its default two
+      // blank option rows) — without folding poll validity into canSubmit,
+      // this was clickable and took the WHOLE topic down with a 400.
+      expect(screen.getByRole('button', { name: /post|create|submit/i })).toBeDisabled();
+      await userEvent.type(screen.getByLabelText(/poll question/i), 'Best soil?');
+      await userEvent.type(screen.getByLabelText('Poll option 1'), 'Peat');
+      // Question filled but still fewer than two non-blank options — still
+      // an invalid poll, still disabled.
+      expect(screen.getByRole('button', { name: /post|create|submit/i })).toBeDisabled();
+
+      await userEvent.type(screen.getByLabelText('Poll option 2'), 'Coir');
+      expect(screen.getByRole('button', { name: /post|create|submit/i })).not.toBeDisabled();
+      expect(forumService.createThread).not.toHaveBeenCalled();
+    });
+
     it('adds an option row on demand, up to the server maximum', async () => {
       renderPage();
       await screen.findByText('Plant Care');

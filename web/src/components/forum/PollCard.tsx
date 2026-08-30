@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import Button from '../ui/Button';
+import { ForumApiError } from '../../services/forumService';
 import type { ThreadPoll } from '@/types';
 
 interface PollCardProps {
@@ -34,12 +35,22 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
   const [current, setCurrent] = useState<ThreadPoll>(poll);
   const [pendingOptionId, setPendingOptionId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Set on a 409: the server says this viewer already voted, but `current`
+  // (seeded from a possibly-stale `poll` prop — another tab, a bfcache
+  // restore) still shows my_vote_option_id as null. Without this, the
+  // controls stay clickable and every retry 409s again with no way out.
+  const [staleVote, setStaleVote] = useState(false);
 
   const hasVoted = current.my_vote_option_id !== null;
   // A second vote is rejected server-side (409), never replaced — so once the
-  // viewer has voted the controls are done, not merely busy.
+  // viewer has voted the controls are done, not merely busy. `staleVote`
+  // does NOT feed this: `current` still shows 0 (or pre-vote) counts, and
+  // switching to the results view would render those stale numbers as if
+  // they were authoritative. Keep the buttons in place, just disabled — the
+  // alert explains why — rather than fabricating a results panel from data
+  // that was never refetched.
   const showResults = hasVoted || current.is_closed;
-  const votingDisabled = !canVote || hasVoted || current.is_closed;
+  const votingDisabled = !canVote || hasVoted || current.is_closed || staleVote;
 
   const handleVote = useCallback(
     async (optionId: number) => {
@@ -53,7 +64,17 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
         // a count that then has to be walked back is worse than a brief wait.
         setCurrent(await onVote(optionId));
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to record your vote');
+        if (err instanceof ForumApiError && err.status === 409) {
+          // Branch on the STATUS, never the message text (see
+          // EditHistoryDialog's identical discipline) — a stale local
+          // my_vote_option_id can't be corrected without a refetch this
+          // component doesn't have, so stop offering a retry that can only
+          // ever 409 again.
+          setStaleVote(true);
+          setError("You've already voted in this poll — refresh to see your choice.");
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to record your vote');
+        }
       } finally {
         setPendingOptionId(null);
       }
@@ -68,7 +89,7 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
     >
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h2 id={`poll-question-${current.id}`} className="text-lg font-semibold text-ink">
-          📊 {current.question}
+          <span aria-hidden="true">📊</span> {current.question}
         </h2>
         {current.is_closed && (
           <span className="rounded bg-surface-3 px-2 py-1 text-xs font-semibold text-ink-2">

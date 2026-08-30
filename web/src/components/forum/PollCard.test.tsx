@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PollCard from './PollCard';
+import { ForumApiError } from '../../services/forumService';
 import type { ThreadPoll } from '@/types';
 
 function makePoll(overrides: Partial<ThreadPoll> = {}): ThreadPoll {
@@ -112,6 +113,28 @@ describe('PollCard', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Peat' })).not.toBeDisabled();
     });
+  });
+
+  it('a 409 (already voted elsewhere) permanently disables voting without switching to results, unlike a transient failure', async () => {
+    // Simulates a stale local my_vote_option_id: another tab already
+    // recorded this viewer's vote, so the server rejects it as a duplicate
+    // even though `current` here still shows null (0 votes). Branching on
+    // status, not message text, per this codebase's established discipline
+    // (EditHistoryDialog's identical 403 check).
+    const onVote = vi.fn().mockRejectedValue(new ForumApiError('Conflict', 409));
+    render(<PollCard poll={makePoll({ total_votes: 0 })} onVote={onVote} canVote />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Peat' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/already voted/i);
+    // Unlike the transient-failure case below, the controls must NOT stay
+    // clickable — a retry here can only ever 409 again. But they also must
+    // NOT switch to the results view: `current` was never refetched, so a
+    // results panel here would show a fabricated "0 votes" instead of the
+    // real tally.
+    expect(screen.getByRole('button', { name: 'Peat' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Coir' })).toBeDisabled();
+    expect(screen.queryByText(/0 \(0%\)/)).not.toBeInTheDocument();
   });
 
   it('mounts the error region empty rather than creating it on failure', () => {

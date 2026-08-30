@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("wagtail_forum", "0020_topicbookmark"),
+        ("wagtail_forum", "0025_conversation_message_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

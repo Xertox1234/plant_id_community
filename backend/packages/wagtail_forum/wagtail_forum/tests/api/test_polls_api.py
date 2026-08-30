@@ -466,7 +466,11 @@ def test_a_poll_less_topic_detail_query_count_is_unchanged_by_the_poll_field():
 
     Pinned EXACTLY (docs/rules/testing.md) against the SAME counts
     test_topic_detail.py asserts without any poll in the picture: 5 anonymous,
-    8 for an authenticated non-author. If either moves, the select_related has
+    10 for an authenticated non-author (the base 5 + a subscription check + a
+    bookmark check + the two can_mark_solution permission-table reads, per
+    that file's own breakdown — todo 283/293 landed after this test was
+    first written and raised the authenticated count from 8 to 10; the poll
+    field itself adds none of it). If either moves, the select_related has
     been replaced by a prefetch (which runs its query for every request) and
     the change must be explained in both places.
     """
@@ -485,7 +489,7 @@ def test_a_poll_less_topic_detail_query_count_is_unchanged_by_the_poll_field():
     with CaptureQueriesContext(connection) as auth_ctx:
         auth = client.get(f"/forum/topics/{topic.id}/")
     assert auth.data["poll"] is None
-    assert len(auth_ctx.captured_queries) == 8
+    assert len(auth_ctx.captured_queries) == 10
 
 
 @pytest.mark.django_db

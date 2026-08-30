@@ -16,11 +16,16 @@ import { logger } from '../../utils/logger';
 import type { Category, CreateIdentificationInput } from '@/types';
 
 /**
- * Mirrors the backend's `WAGTAILFORUM_POLL_MAX_OPTIONS` default. The server is
- * the authority — it rejects an over-long list with a 400 — so this only stops
- * the composer offering a row that would be refused on submit.
+ * Mirrors the backend's `WAGTAILFORUM_POLL_MAX_OPTIONS`/`_MIN_OPTIONS`
+ * defaults. The server is the authority — it rejects a too-long or
+ * too-short list with a 400 — so these only stop the composer offering a
+ * row that would be refused on submit, and gate Post so a poll enabled but
+ * left blank/underfilled can't reach the server at all (todo 309 review:
+ * without this, ticking "Add a poll" and leaving it blank failed the WHOLE
+ * thread submission with a raw validation-error dict, not just the poll).
  */
 const MAX_POLL_OPTIONS = 10;
+const MIN_POLL_OPTIONS = 2;
 
 /** Strip tags + whitespace to detect an effectively-empty rich-text body. */
 function isBlankHtml(html: string): boolean {
@@ -183,12 +188,21 @@ export default function NewThreadPage() {
     saveDraft(newThreadDraftKey, isEmpty ? '' : JSON.stringify({ title, body, tags: tagsInput }));
   }, [title, body, tagsInput, newThreadDraftKey]);
 
-  const canSubmit = !!category && title.trim() !== '' && !isBlankHtml(body);
+  // A poll left blank/underfilled is not a smaller poll — the server drops
+  // blank rows and then rejects fewer than MIN_POLL_OPTIONS, so "enabled but
+  // empty" is a guaranteed 400 that would otherwise take the whole topic
+  // down with it. Vacuously valid when the toggle is off.
+  const pollValid =
+    !pollEnabled ||
+    (pollQuestion.trim() !== '' &&
+      pollOptions.filter((option) => option.trim() !== '').length >= MIN_POLL_OPTIONS);
+
+  const canSubmit = !!category && title.trim() !== '' && !isBlankHtml(body) && pollValid;
 
   const handleSubmit = useCallback(
     async (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      if (!category || !title.trim() || isBlankHtml(body)) return;
+      if (!category || !title.trim() || isBlankHtml(body) || !pollValid) return;
       try {
         setSubmitting(true);
         setError(null);
@@ -258,6 +272,7 @@ export default function NewThreadPage() {
       pollEnabled,
       pollQuestion,
       pollOptions,
+      pollValid,
       navigate,
       newThreadDraftKey,
       announce,
