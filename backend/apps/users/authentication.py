@@ -29,10 +29,12 @@ def _jwt_cookie_flags() -> Tuple[Optional[str], bool]:
     """
     Return the (samesite, secure) pair for the JWT cookies.
 
-    Mirrors the session cookie: the split-domain prod deploy (Cloudflare
-    frontend calling the Railway API) sets SESSION_COOKIE_SAMESITE=None in the
-    environment, and SameSite=None is the only value browsers send cross-site.
-    Browsers also require Secure alongside SameSite=None.
+    Mirrors the session cookie via SESSION_COOKIE_SAMESITE. Prod now serves
+    the API same-site (api.houseplant-md.com, a subdomain of the frontend's
+    own registrable domain) with SESSION_COOKIE_SAMESITE=Lax — Secure stays
+    required regardless, since these cookies only ever travel over HTTPS in
+    prod. Lax (not Strict) because the Google OAuth callback returns via a
+    cross-site top-level GET redirect, which only Lax/None cookies survive.
     """
     samesite = settings.SESSION_COOKIE_SAMESITE
     secure = not settings.DEBUG or str(samesite).lower() == "none"

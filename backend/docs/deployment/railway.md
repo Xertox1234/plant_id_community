@@ -2,8 +2,11 @@
 
 The Django backend runs on [Railway](https://railway.app); the React frontend is on
 Cloudflare Workers (`wrangler.jsonc` at repo root), served at
-[houseplant-md.com](https://houseplant-md.com). They live on different domains,
-so cross-site cookie auth must be configured (see env vars below).
+[houseplant-md.com](https://houseplant-md.com). Prod also routes the API through a
+Railway custom domain, `api.houseplant-md.com` — a subdomain of the frontend's own
+registrable domain, so cookies are same-site. CORS/CSRF trusted-origin config is
+still required regardless (see env vars below); only the cookie `SameSite` policy
+depends on whether API and frontend share a registrable domain.
 
 ## One-time setup
 
@@ -13,7 +16,12 @@ so cross-site cookie auth must be configured (see env vars below).
 3. **Add PostgreSQL** and **Add Redis** (New → Database). Railway exposes
    `DATABASE_URL` and `REDIS_URL` — reference them from the web service (see below).
 4. Set the **environment variables** (Settings → Variables).
-5. Deploy. The Docker build bakes `collectstatic`; `preDeployCommand` runs
+5. **Custom domain** (Settings → Networking → Custom Domain): add
+   `api.houseplant-md.com`, note the CNAME target Railway returns, then in
+   Cloudflare DNS add a CNAME record pointing at it — **DNS-only (grey cloud)**,
+   not proxied (proxying can interfere with Railway's cert issuance and adds a
+   Cloudflare hop that desyncs `RATELIMIT_TRUSTED_PROXY_COUNT`).
+6. Deploy. The Docker build bakes `collectstatic`; `preDeployCommand` runs
    migrations + the forum seed; the start command is gunicorn-only (see below).
 
 ## How a deploy works (DOCKERFILE builder — todo 241)
@@ -69,11 +77,11 @@ show:
 | `DEBUG` | `False` |
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (Railway reference) |
 | `REDIS_URL` | `${{Redis.REDIS_URL}}` (Railway reference) |
-| `ALLOWED_HOSTS` | your Railway domain, e.g. `plantidcommunity-backend.up.railway.app` |
+| `ALLOWED_HOSTS` | your Railway domain, e.g. `plantidcommunity-backend.up.railway.app`, plus any custom domain routed here (e.g. `api.houseplant-md.com`) |
 | `CORS_ALLOWED_ORIGINS` | the frontend URL(s), comma-separated, e.g. `https://houseplant-md.com,https://www.houseplant-md.com,https://plantidcommunity.william-tower.workers.dev` |
 | `CSRF_TRUSTED_ORIGINS` | same frontend URL(s) |
-| `SESSION_COOKIE_SAMESITE` | `None` (required for cross-domain login) |
-| `CSRF_COOKIE_SAMESITE` | `None` (required for cross-domain CSRF) |
+| `SESSION_COOKIE_SAMESITE` | `Lax` if the API is served same-site with the frontend (a subdomain of its registrable domain, e.g. `api.houseplant-md.com` alongside `houseplant-md.com`); `None` only if API and frontend are genuinely cross-site |
+| `CSRF_COOKIE_SAMESITE` | same rule as `SESSION_COOKIE_SAMESITE` above |
 | `TRUST_PROXY_SSL_HEADER` | `True` — **required**, or `SECURE_SSL_REDIRECT` infinite-loops behind Railway's TLS proxy |
 | `PLANT_ID_API_KEY` | from `backend/.env` |
 | `PLANTNET_API_KEY` | from `backend/.env` |
@@ -87,8 +95,12 @@ directly-reachable host can't be tricked into thinking plain HTTP is secure).
 
 - Create an admin user: in the service shell, `python manage.py createsuperuser`.
   Wagtail admin is at `/cms/` (not `/admin/`).
-- Set `VITE_API_URL` on the Cloudflare Workers Builds triggers to the Railway URL,
-  then rebuild the frontend.
+- Set `VITE_API_URL` on the Cloudflare Workers Builds triggers to the same-site
+  custom domain (`https://api.houseplant-md.com`) — NOT the bare
+  `*.up.railway.app` host, which would make the frontend/API pair cross-site
+  again and silently break login under `SESSION_COOKIE_SAMESITE=Lax` — then
+  rebuild the frontend. Workers Builds has no manual "rebuild" button; add a
+  Deploy Hook (Settings → Builds → Deploy Hooks) and `curl -X POST` its URL.
 
 ## Background jobs & scheduling — current topology (forum ops, todo 261 / H21)
 

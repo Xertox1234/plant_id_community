@@ -3493,3 +3493,38 @@ might already be merged, check `gh pr view <N> --json state,mergedAt`
 before attempting to amend — a merged PR's branch is typically already
 deleted (`--delete-branch`), so the fix must be a new commit/PR from
 `origin/main`, not an amend-and-force-push.
+
+## 2026-08-30 — API moved same-site; the 2026-06-27 OAuth state-cookie entry above is now historical (todo 296)
+
+**What happened:** the "Cross-site OAuth state ride a session cookie blocked
+by SameSite=Strict" entry above (2026-06-27, todo 242) documented a real
+prod bug and closed with `SESSION_COOKIE_SAMESITE=None` plus a caveat that
+Safari ITP / Chrome's third-party-cookie phaseout could still break the
+same handshake, recommending a durable fix of carrying `state` in a signed
+query param instead of a cookie. That prediction came true — filed as todo
+296 from a live Safari/Chrome-incognito repro — and was fixed differently:
+instead of moving `state` off the session cookie, the API was moved onto
+`api.houseplant-md.com`, a subdomain of the frontend's own registrable
+domain. Same-site status is a same-origin-*policy* concept (compared by
+registrable domain, i.e. eTLD+1) that has nothing to do with a cookie's
+`SameSite` attribute — a subdomain-to-subdomain request is same-site
+regardless of what `SameSite` value the cookie carries. So the session
+cookie is no longer third-party at all, third-party-cookie blocking no
+longer applies, and `SESSION_COOKIE_SAMESITE` was tightened to `Lax`
+(Strict would break the OAuth callback's cross-site top-level GET redirect
+from Google; `None` is unnecessarily permissive once same-site).
+
+**Root cause of the stale doc, not the bug:** LEARNINGS.md is append-only
+by convention (see the file header) — the June entry correctly describes
+what was true and correct at the time, but a reader who only skims that
+entry today would implement the wrong fix (the signed-query-param rework)
+for a problem that no longer exists in that form.
+
+**Rule:** when a later fix supersedes an earlier LEARNINGS.md entry's
+stated root cause or recommended fix, don't edit the old entry — append a
+new dated entry (like this one) that says so explicitly and explains why,
+so a reader hits the current guidance without the old entry being
+falsified. The equivalent code comment (`_jwt_cookie_flags()` docstring in
+`backend/apps/users/authentication.py`) and the deploy runbook
+(`backend/docs/deployment/railway.md`) were updated in the same change, since
+those aren't append-only and should just state the current topology.

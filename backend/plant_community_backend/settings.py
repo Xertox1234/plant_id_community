@@ -1089,11 +1089,15 @@ CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = True  # ✅ Secure - prevents XSS attacks from stealing CSRF tokens (JavaScript reads from meta tag instead)
 # SameSite policy - stricter in production if workflows allow.
-# Cross-site cookie auth (SPA frontend on a different registrable domain than
-# this API — e.g. a Cloudflare-hosted frontend calling a Railway-hosted backend)
-# requires "None", which the browser only honors alongside Secure=True (set
-# above). Same-origin deploys keep the strict defaults; split-domain deploys set
-# SESSION_COOKIE_SAMESITE=None and CSRF_COOKIE_SAMESITE=None in the environment.
+# Prod serves the API same-site with the frontend (api.houseplant-md.com is a
+# subdomain of the frontend's own registrable domain, houseplant-md.com), so
+# SESSION_COOKIE_SAMESITE=Lax and CSRF_COOKIE_SAMESITE=Lax are set in the
+# environment — Lax, not Strict, because the Google OAuth callback returns via
+# a cross-site top-level GET redirect, which only Lax/None cookies survive.
+# A genuinely cross-site deploy (frontend and API on different registrable
+# domains) would need "None" instead, which the browser only honors alongside
+# Secure=True (set above) — and is still refused as a third-party cookie by
+# Safari ITP / Chrome incognito regardless (see docs/LEARNINGS.md, todo 296).
 SESSION_COOKIE_SAMESITE = config(
     "SESSION_COOKIE_SAMESITE", default="Strict" if not DEBUG else "Lax"
 )
