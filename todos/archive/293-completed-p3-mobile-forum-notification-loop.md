@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "293"
 tags: [forum, flutter, mobile, notifications]
@@ -71,13 +71,14 @@ shows and the tap opens — so they are grouped rather than shipped separately.
 - [x] Notifications screen lists notifications and pages correctly through an
       ABSOLUTE cursor URL — test asserting the second page is fetched verbatim
 - [x] Unread badge clears on mark-read — test
-- [ ] Push-tap routing (cold start `getInitialMessage` + warm resume
+- [x] Push-tap routing (cold start `getInitialMessage` + warm resume
       `onMessageOpenedApp`, one test per entry point) → split to
       **todo 311** on 2026-08-17 (advisor consult: the real todo-286 iOS
       APNs blocker makes this a materially different verification story than
-      the other two slices above, which have no such blocker). Re-pointed,
-      not done — see todo 311 for its own AC.
-- [ ] `flutter test` passes; `flutter analyze` clean
+      the other two slices above, which have no such blocker). Resolved via
+      todo 311 — PR #573 merged, `5a6a6d2`; see todo 311's archived file for
+      its own AC evidence.
+- [x] `flutter test` passes; `flutter analyze` clean
 
 ## Work Log
 
@@ -198,9 +199,60 @@ shows and the tap opens — so they are grouped rather than shipped separately.
   00:09 +253 ~3: All tests passed!
   ```
 
+### 2026-08-30 - Reconciled and closed out
+
+- Local `main` in this checkout had drifted 25 commits behind `origin/main`
+  across several intervening sessions — the 2026-08-17 work above merged
+  cleanly (PR #556, `ad2ad98`) and stayed merged, but the todo file itself
+  was never reconciled/archived against the synced state.
+- Re-verified AC1–3 directly against the current working tree (not just the
+  original commit) via three parallel Explore agents:
+  - **AC1** (subscribe toggle): `forum_thread_screen.dart:40,46-55` +
+    `forum_providers.dart::TopicDetail.toggleSubscription()` (lines 98-108)
+    — writes back the server's `subscribed` flag, rethrows on failure.
+    Covered by `forum_read_path_test.dart:134` (unsubscribed→subscribed,
+    widget layer) and `forum_providers_test.dart:236-298` (both directions
+    + failure-rethrow, provider layer).
+  - **AC2** (absolute-cursor pagination): `forum_api.dart:261-271`'s
+    `fetchNotifications({cursorUrl})` passes the cursor straight to `get()`,
+    never re-prefixed. Two independent tests
+    (`forum_notifications_screen_test.dart:59-82`,
+    `forum_providers_test.dart:331-354`) assert this against a
+    `https://api/forum/notifications/?cursor=p2` absolute fixture URL, with
+    `FakeForumApi` recording the raw arg so a re-prefixing regression would
+    genuinely fail the assertion.
+  - **AC3** (unread badge clears): `NotificationsFeed.markRead()`
+    (`forum_providers.dart:360-391`) invalidates
+    `unreadNotificationCountProvider` after splicing rows read. The
+    count-provider behavior itself is tested
+    (`forum_providers_test.dart:356-419`, both single-id and mark-all
+    paths); no widget test directly pumps the bell `Badge` to assert its
+    rendered label, a one-line low-risk gap left as-is.
+  - Confirmed no later commit (`5a6a6d2` todo 311, `02403ef` todo 317) has
+    touched the subscribe-toggle or mark-read-on-tap logic — both are
+    additive elsewhere in the same files.
+- **AC4 checked off**, not left re-pointed: todo 311 (its destination) has
+  itself reached `completed` (PR #573, `5a6a6d2`, verified present and
+  intact in the current working tree — see its own archived file for
+  evidence). Per `CLAUDE.md`'s Review Doc Tracking convention, a re-pointed
+  item stays unchecked only while its destination is still open; once the
+  destination ships, the source reference is checked off citing it.
+- Fresh verification on this reconciliation branch (`origin/main` +
+  nothing else — no application code changes):
+
+  ```
+  $ flutter test
+  00:58 +420 ~3: All tests passed!
+
+  $ flutter analyze lib/ test/
+  Analyzing 2 items...
+  No issues found! (ran in 1.9s)
+  ```
+
 ## Notes
 
 p3. Promoted from todo 279 on 2026-07-31. Subscriptions + notifications list
-shipped 2026-08-17; push-tap routing split to todo 311 (advisor-scoped, real
-todo-286 blocker). Related: todo 286 (iOS APNs entitlement — blocks push
-actually arriving on a distributed iOS build).
+shipped 2026-08-17 (PR #556); push-tap routing split to todo 311
+(advisor-scoped, real todo-286 blocker), shipped 2026-08-17 (PR #573). Both
+confirmed merged and archived 2026-08-30. Related: todo 286 (iOS APNs
+entitlement — blocks push actually arriving on a distributed iOS build).

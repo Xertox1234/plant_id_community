@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "311"
 tags: [forum, flutter, mobile, notifications, firebase]
@@ -80,7 +80,7 @@ cannot satisfy (see Findings).
 
 ## Acceptance Criteria
 
-- [ ] Tapping a push routes to the topic (and to the post when `post_id` is
+- [x] Tapping a push routes to the topic (and to the post when `post_id` is
       present), from BOTH a cold start (`getInitialMessage`) and a warm
       resume (`onMessageOpenedApp`) — a test per entry point, using a faked
       `FirebaseMessaging` (stated explicitly as a transport-layer proxy, not
@@ -88,7 +88,65 @@ cannot satisfy (see Findings).
       todo 286 unblocks a distributed iOS build; Android can be spot-checked
       manually on a dev build if desired, but that is not a substitute for
       an automated AC)
-- [ ] `flutter test` passes; `flutter analyze` clean
+- [x] `flutter test` passes; `flutter analyze` clean
+
+## Work Log
+
+### 2026-08-30 - Implemented, merged, and reconciled
+
+- This file was never updated with implementation evidence despite the work
+  already shipping — discovered while closing out todo 293, whose own local
+  checkout had drifted 25 commits behind `origin/main`. Reconciling both
+  files together in one pass, mirroring the identical situation resolved for
+  todos 294 + 314 (PR #582).
+- **Merged as PR #573, commit `5a6a6d2`** — "feat(mobile): FCM push-tap
+  routing (todo 311)". Confirmed present and intact in the current working
+  tree (not just that commit): `git merge-base --is-ancestor 5a6a6d2 HEAD`
+  is true, working tree clean.
+- **Production wiring**: `lib/services/push_message_router_service.dart` —
+  `PushMessageRouterService` subscribes to
+  `FirebaseMessaging.onMessageOpenedApp` (warm resume, constructor) and
+  calls `_checkInitialMessage()` → `getInitialMessage()` (cold start).
+  `_route()` parses `topic_id`/`post_id` from `message.data` and navigates
+  via `router.pushNamed('forumTopic', pathParameters: {'id': '$topicId'},
+  queryParameters: postId == null ? {} : {'postId': '$postId'})` — the same
+  pattern `forum_notifications_screen.dart::_openNotification` already used
+  for in-app taps, per the Recommended Action's "mirror" instruction. On
+  cold start it also pre-empts a real splash-screen race by calling
+  `router.go(AppRoutes.home)` first before routing to the target. Wired into
+  `lib/main.dart` (`FirebaseMessaging.onBackgroundMessage(...)` +
+  `ref.watch(pushMessageRouterServiceProvider)` in `MyApp.build`). Route
+  target confirmed in `lib/core/routing/app_router.dart` — the `forumTopic`
+  route parses `queryParameters['postId']` into `highlightPostId`.
+- **Tests** (`test/services/push_message_router_service_test.dart`), both
+  driving a hand-rolled `_FakeMessaging implements FirebaseMessaging`:
+  - Warm resume: `'a warm-resume tap (onMessageOpenedApp) routes to the
+    topic and post'` — drives `FirebaseMessagingPlatform.onMessageOpenedApp`,
+    asserts `ForumThreadScreen` renders with the right `topicId`/
+    `highlightPostId`.
+  - Cold start: `'a cold-start tap (getInitialMessage) routes to the topic
+    and post, and survives splash screen's own timer-driven redirect to
+    home'` — asserts routing survives past splash's ~1.8s timer, the exact
+    race the cold-start pre-empt above exists to fix.
+  - Plus payload edge-case tests (no `post_id` key → no query param;
+    unparseable `topic_id` → silent no-op) and a background-handler smoke
+    test.
+  - The file's own header comment states explicitly: "These tests drive the
+    FCM tap entry points at the transport layer ... NOT a physical-device
+    notification-tray tap. A real on-device repro is blocked on todo 286
+    ... this is the closest coverage available until that lands." — matches
+    this todo's own AC wording verbatim in spirit.
+- Fresh verification on the reconciliation branch (`origin/main`, no
+  application code changes):
+
+  ```
+  $ flutter test
+  00:58 +420 ~3: All tests passed!
+
+  $ flutter analyze lib/ test/
+  Analyzing 2 items...
+  No issues found! (ran in 1.9s)
+  ```
 
 ## Notes
 
@@ -96,4 +154,6 @@ p3. Split out of todo 293 on 2026-08-17 per advisor guidance — todo 293's own
 Recommended Action already ordered this last ("Push-tap routing last, since
 it reuses the list's navigation target"), and the real todo-286 iOS blocker
 makes it a materially different verification story than the other two
-slices. Related: todo 286 (iOS APNs entitlement, gated/skipped this session).
+slices. Shipped 2026-08-17 (PR #573, `5a6a6d2`); confirmed merged and
+archived 2026-08-30. Related: todo 286 (iOS APNs entitlement, gated/skipped
+that session, since resolved via PR #529).
