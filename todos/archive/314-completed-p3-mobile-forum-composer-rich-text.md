@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "314"
 tags: [forum, flutter, mobile, composer, rich-text]
@@ -87,14 +87,25 @@ on mobile. Split out per an advisor consult on 2026-08-17.
 
 ## Acceptance Criteria
 
-- [ ] Bold/italic/link/list/inline-code round-trip through compose → render
+- [x] Bold/italic/link/list/inline-code round-trip through compose → render
       — test per mark, asserting the rendered output, not just controller
-      state
-- [ ] The `isSingleEditableParagraph` interaction (Findings) is resolved
+      state — 77+ new tests in `forum_rich_text_markup_test.dart` (marker
+      generation/parsing per mark) and `forum_rich_text_toolbar_test.dart`
+      (toolbar transforms + composer round-trips asserting rendered
+      `fontWeight`/`fontStyle`/tap-triggers-`onOpenLink`, not just text
+      presence), shipped in PR #574
+- [x] The `isSingleEditableParagraph` interaction (Findings) is resolved
       explicitly, with a test proving the resolved behavior on both a
       mobile-rich-text-authored post and a web-authored post with
-      unrelated markup
-- [ ] `flutter test` passes; `flutter analyze` clean
+      unrelated markup — resolved by NOT touching the gate: PR #574 adds a
+      separate constrained HTML→marker-text parser that lets the edit
+      composer open a rich-text-authored (or grammar-compatible
+      web-authored) post in rich-edit mode, falling back untouched to the
+      existing plain-text path for anything outside its grammar.
+      `isSingleEditableParagraph` and its existing test suite from todo 292
+      are confirmed untouched by the diff
+- [x] `flutter test` passes; `flutter analyze` clean — re-verified fresh on
+      `origin/main` post-merge (see Work Log)
 
 ## Work Log
 
@@ -105,6 +116,58 @@ on mobile. Split out per an advisor consult on 2026-08-17.
   (`ForumApi.uploadImage`, `ForumComposerController.uploadImage`, the
   composer screen's "Add photo" flow); this todo carries the rich-text half
   forward, re-pointed rather than checked off in 294's AC3.
+
+### 2026-08-29 - Implemented, reviewed, merged (PR #574) — todo file reconciled
+
+- Implementation happened on `worktree-todo-314-composer-rich-text` (3
+  commits: implementation, a self-caught toolbar-seam/list-toggle fix round,
+  a final-review fix round) via a full subagent-driven-development loop, but
+  the todo file itself was never updated as part of that work — this entry
+  reconciles it after the fact, discovered while closing out todo 294 (local
+  `main` had drifted ~40 commits behind `origin/main`).
+- **Design decision**: hand-rolled marker-grammar toolbar over the existing
+  `TextField`, not `flutter_quill` — confirmed with the user before
+  implementation, no new dependency. A small markdown-style grammar
+  (`**bold**`, `_italic_`, `` `code` ``, `[text](url)`, `- item`) is typed
+  into the same field; toolbar buttons insert/wrap markers around the
+  current selection; a generator converts marker text to the exact
+  `<strong>`/`<em>`/`<a>`/`<ul><li>`/`<code>` tags the web app's TipTap
+  FORUM allowlist already produces and `ForumHtmlText` already renders.
+  `<ol>` (numbered lists) deliberately unsupported — the renderer treats
+  `<ul>`/`<ol>` identically today, so there's nothing to gain until it grows
+  numbered rendering.
+- **New files**: `forum_rich_text_markup.dart` (generator + a constrained
+  HTML→marker-text parser, with a marker-character
+  escaping/sentinel-substitution scheme preventing silent corruption when a
+  web-authored post containing a literal `_`/`*`/backtick is reopened and
+  resaved on mobile), `forum_rich_text_toolbar.dart`. Both existing
+  `forum_body_block.dart` and `forum_composer_screen.dart` were extended,
+  not restructured.
+- **Final whole-branch review (opus) found 3 real Important bugs**, all
+  confined to the two new files, one fix wave addressed all three, verified
+  via stash-based mutation checks (revert → exactly the new tests fail) and
+  independently re-confirmed by a scoped re-review:
+  - a stale IME `composing` range that could trip a Flutter assert during
+    ordinary Android typing
+  - a link href containing `)` silently truncated — reachable through the
+    link dialog's own primary path (plausible on a plant forum, e.g.
+    parenthesized species-disambiguation URLs)
+  - toolbar buttons dead on the very first tap, before the field had ever
+    been focused
+- Merged as PR #574, commit `ff91c9c89aabc4c79a23caf2baff531f3601d452`,
+  2026-08-29T03:49:02Z. All 17 CI checks green, including `Flutter analyze,
+  test, and debug build`.
+- **Re-verified fresh** on this reconciliation branch (`origin/main` at the
+  merge, both this PR and todo 294's #557 present):
+
+  ```
+  $ flutter test
+  00:24 +420: All tests passed!
+
+  $ flutter analyze lib/ test/
+  Analyzing 2 items...
+  No issues found! (ran in 2.3s)
+  ```
 
 ## Notes
 
