@@ -96,6 +96,14 @@ abstract class ForumApi {
 
   /// Mark notifications read. Omitting [ids] marks ALL unread notifications
   /// read; an empty list marks none. Returns the number of rows updated.
+  ///
+  /// No `Idempotency-Key`: like subscribe/unsubscribe, this is naturally
+  /// idempotent server-side (a retry just finds fewer/no unread rows left to
+  /// update) and creates nothing that could duplicate. A retry's `updated`
+  /// count may differ from the original call's, but callers discard it —
+  /// `NotificationsFeed.markRead` re-derives read state from the caller's
+  /// own `ids` and refreshes the badge via `unreadNotificationCountProvider`
+  /// invalidation, not from this return value.
   Future<int> markNotificationsRead({List<int>? ids});
 
   /// Full-text search across topics and posts. Offset-paginated via [page]
@@ -119,7 +127,9 @@ abstract class ForumApi {
 const List<String> forumReactionTypes = ['like', 'love', 'helpful', 'thanks'];
 
 /// dio-backed [ForumApi]. All read GETs are public; writes attach the
-/// `Idempotency-Key` header so a mobile retry cannot create a duplicate.
+/// `Idempotency-Key` header so a mobile retry cannot create a duplicate —
+/// except the naturally-idempotent ones (see [subscribeToTopic]/
+/// [unsubscribeFromTopic]/[markNotificationsRead]'s own docs).
 class HttpForumApi implements ForumApi {
   HttpForumApi(this._api);
 
