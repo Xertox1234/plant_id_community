@@ -13,6 +13,7 @@ from django.utils.decorators import method_decorator
 from wagtail_forum.api import bookmarks as forum_bookmark_views
 from wagtail_forum.api import direct_messages as forum_direct_message_views
 from wagtail_forum.api import notifications as forum_notification_views
+from wagtail_forum.api import polls as forum_poll_views
 from wagtail_forum.api import solutions as forum_solution_views
 from wagtail_forum.api import subscriptions as forum_subscription_views
 from wagtail_forum.api import user_blocks as forum_user_block_views
@@ -150,6 +151,11 @@ class UserBlockView(forum_user_block_views.UserBlockView):
 # MyBlocksView has no wrapper here — GET (list) is a page load, not a polling
 # target, same treatment as TopicBookmarkListView above — mounted straight
 # from the package in api_urls.py.
+
+
+@_throttled("poll_vote", "POST")
+class PollVoteView(forum_poll_views.PollVoteView):
+    pass
 
 
 @_throttled("solution_mark", "POST")

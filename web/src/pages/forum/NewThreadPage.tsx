@@ -15,6 +15,13 @@ import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
 import type { Category, CreateIdentificationInput } from '@/types';
 
+/**
+ * Mirrors the backend's `WAGTAILFORUM_POLL_MAX_OPTIONS` default. The server is
+ * the authority — it rejects an over-long list with a 400 — so this only stops
+ * the composer offering a row that would be refused on submit.
+ */
+const MAX_POLL_OPTIONS = 10;
+
 /** Strip tags + whitespace to detect an effectively-empty rich-text body. */
 function isBlankHtml(html: string): boolean {
   return html.replace(/<[^>]*>/g, '').trim() === '';
@@ -113,6 +120,13 @@ export default function NewThreadPage() {
   // state (and in the draft) so a half-typed tag isn't destroyed mid-keystroke;
   // it is split/trimmed only at submit. The server normalizes and bounds it.
   const [tagsInput, setTagsInput] = useState<string>(() => initialDraft.tags || '');
+  // Optional poll (audit M8). Deliberately NOT part of the autosaved draft:
+  // the draft is a plain string blob keyed on title/body/tags, and widening it
+  // would invalidate every draft already in a member's browser.
+  const [pollEnabled, setPollEnabled] = useState<boolean>(false);
+  const [pollQuestion, setPollQuestion] = useState<string>('');
+  // Starts at the minimum viable poll — two empty rows to fill in.
+  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -189,6 +203,11 @@ export default function NewThreadPage() {
           // Omitted entirely on the common no-attachment compose, so the
           // ordinary payload is unchanged by this feature.
           ...(identification ? { identification } : {}),
+          // Same rule for the poll. Blank rows are sent as-is rather than
+          // filtered here — the server drops them and owns the min/max/unique
+          // rules, so the composer has exactly one authority to agree with
+          // instead of a second copy that can drift out of step.
+          ...(pollEnabled ? { poll: { question: pollQuestion, options: pollOptions } } : {}),
         });
         clearDraft(newThreadDraftKey);
 
@@ -236,6 +255,9 @@ export default function NewThreadPage() {
       body,
       tagsInput,
       identification,
+      pollEnabled,
+      pollQuestion,
+      pollOptions,
       navigate,
       newThreadDraftKey,
       announce,
@@ -427,6 +449,82 @@ export default function NewThreadPage() {
           <p id="thread-tags-hint" className="mt-1 text-xs text-ink-3">
             Comma-separated. Up to 5 tags, e.g. species, genus, or symptom.
           </p>
+        </div>
+
+        {/* Optional poll (audit M8). Collapsed behind a toggle so the ordinary
+            compose is visually unchanged — most threads carry no poll. Polls
+            can only be attached HERE: they are not editable afterwards, since
+            changing a question once votes exist rewrites what they meant. */}
+        <div>
+          <label className="flex items-center gap-2 text-sm font-medium text-ink-2">
+            <input
+              type="checkbox"
+              checked={pollEnabled}
+              onChange={(e) => setPollEnabled(e.target.checked)}
+              className="h-4 w-4"
+            />
+            Add a poll <span className="font-normal text-ink-3">(optional)</span>
+          </label>
+
+          {pollEnabled && (
+            <div className="mt-3 space-y-3 rounded-lg border border-line bg-surface-2 p-4">
+              <div>
+                <label
+                  htmlFor="poll-question"
+                  className="block text-sm font-medium text-ink-2 mb-1"
+                >
+                  Poll question
+                </label>
+                <input
+                  id="poll-question"
+                  type="text"
+                  value={pollQuestion}
+                  onChange={(e) => setPollQuestion(e.target.value)}
+                  maxLength={300}
+                  placeholder="Best soil mix for aroids?"
+                  className="w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                />
+              </div>
+
+              <fieldset>
+                <legend className="block text-sm font-medium text-ink-2 mb-1">Options</legend>
+                <div className="space-y-2">
+                  {pollOptions.map((option, index) => (
+                    <input
+                      // Index keys are correct here and only here: these inputs
+                      // are a fixed positional list with no reordering or
+                      // removal, so an index IS each row's stable identity.
+                      key={index}
+                      type="text"
+                      value={option}
+                      onChange={(e) =>
+                        setPollOptions((prev) =>
+                          prev.map((value, i) => (i === index ? e.target.value : value))
+                        )
+                      }
+                      maxLength={200}
+                      aria-label={`Poll option ${index + 1}`}
+                      placeholder={`Option ${index + 1}`}
+                      className="w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                    />
+                  ))}
+                </div>
+                {pollOptions.length < MAX_POLL_OPTIONS && (
+                  <button
+                    type="button"
+                    onClick={() => setPollOptions((prev) => [...prev, ''])}
+                    className="mt-2 min-h-11 rounded px-3 text-sm font-medium text-primary hover:bg-surface-3"
+                  >
+                    + Add option
+                  </button>
+                )}
+                <p className="mt-1 text-xs text-ink-3">
+                  Two options minimum, {MAX_POLL_OPTIONS} maximum. Blank rows are ignored. Members
+                  get one vote each and cannot change it.
+                </p>
+              </fieldset>
+            </div>
+          )}
         </div>
 
         <div>

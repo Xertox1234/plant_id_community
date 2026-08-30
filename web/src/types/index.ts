@@ -25,6 +25,9 @@ export type {
   ForumExpert,
   EventHero,
   EventHeroTopic,
+  ThreadPoll,
+  ThreadPollOption,
+  CreatePollInput,
 } from './forum';
 
 // Blog types

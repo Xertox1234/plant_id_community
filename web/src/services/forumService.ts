@@ -44,6 +44,7 @@ import type {
   ForumExpert,
   EventHero,
   BlockedUser,
+  ThreadPoll,
 } from '../types/forum';
 import { slugifyTitle } from '../utils/forumUrls';
 import { htmlToBodyBlocks } from '../utils/forumBody';
@@ -201,7 +202,7 @@ export async function fetchThread(topicId: number): Promise<Thread> {
 }
 
 export async function createThread(data: CreateTopicInput): Promise<CreateTopicResult> {
-  const { boardSlug, title, content, tags, identification } = data;
+  const { boardSlug, title, content, tags, identification, poll } = data;
   const res = await authenticatedFetch<{
     id: number;
     slug: string;
@@ -219,6 +220,8 @@ export async function createThread(data: CreateTopicInput): Promise<CreateTopicR
       // Same omit-when-absent rule as tags: the common compose has no
       // attachment, and the server treats an absent key as "none".
       ...(identification ? { identification } : {}),
+      // Same omit-when-absent rule again: most threads carry no poll.
+      ...(poll ? { poll } : {}),
     }),
   });
   return { id: String(res.id), slug: res.slug, status: res.status };
@@ -256,6 +259,24 @@ export async function bookmarkTopic(topicId: number): Promise<void> {
 export async function unbookmarkTopic(topicId: number): Promise<void> {
   await authenticatedFetch<{ bookmarked: boolean }>(`${FORUM_BASE}/topics/${topicId}/bookmark/`, {
     method: 'DELETE',
+  });
+}
+
+/**
+ * Cast this user's vote in a thread's poll (audit M8).
+ *
+ * Returns the poll with freshly aggregated results — the server is the only
+ * thing that counts votes, so the caller replaces its poll state with this
+ * rather than incrementing anything locally.
+ *
+ * One vote per user per poll. A second vote is REJECTED with 409, not
+ * replaced; callers should branch on `err.status === 409` rather than on the
+ * message text (the backend's wording is not a contract).
+ */
+export async function votePoll(topicId: number, optionId: number): Promise<ThreadPoll> {
+  return authenticatedFetch<ThreadPoll>(`${FORUM_BASE}/topics/${topicId}/poll/vote/`, {
+    method: 'POST',
+    body: JSON.stringify({ option_id: optionId }),
   });
 }
 

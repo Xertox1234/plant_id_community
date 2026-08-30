@@ -277,6 +277,44 @@ Three consequences worth knowing before changing this:
 | `WAGTAILFORUM_BADGE_BOTANIST_NAME` | `"Botanist"` | Display name for `GET me/stats/`'s single badge (the "Your season" landing card's progress bar). |
 | `WAGTAILFORUM_BADGE_BOTANIST_THRESHOLD` | `20` | Target count of `identifications_shared` (see [Reads, caching, and sync](#reads-caching-and-sync) `me/stats/`) to complete the Botanist badge. |
 | `WAGTAILFORUM_STREAK_LOOKBACK_ROWS` | `400` | Row cap on `ForumActivityDate.streak_for_user`'s scan (~13 months of daily activity) — defense against a pathological case, not a realistic per-user limit. |
+| `WAGTAILFORUM_POLL_MIN_OPTIONS` | `2` | Fewest options a poll may have. Blank options are dropped before this check, so a composer sending empty inputs for untouched rows is a normal submission — but one that fills in nothing is rejected. |
+| `WAGTAILFORUM_POLL_MAX_OPTIONS` | `10` | Most options a poll may have. A separate, non-configurable ceiling (`MAX_POLL_OPTION_LIST_ITEMS = 100`) rejects an oversized raw list *before* per-item validation, so raising this setting cannot be used to amplify parse cost. |
+| `WAGTAILFORUM_POLL_QUESTION_MAX_LENGTH` | `300` | Max characters for a poll question. Inner whitespace is collapsed on write. Must stay `<=` the model column's `max_length` (300). |
+| `WAGTAILFORUM_POLL_OPTION_MAX_LENGTH` | `200` | Max characters per poll option. Must stay `<=` the model column's `max_length` (200). |
+
+## Polls
+
+A topic may carry **one** `Poll`, attached at compose time via the topic-create
+payload and never edited afterwards — editing a question or an option once
+votes exist silently rewrites what those votes meant.
+
+```jsonc
+// POST /forum/boards/{slug}/topics/
+{
+  "title": "…", "slug": "…", "body": [ … ],
+  "poll": {
+    "question": "Best soil for aroids?",
+    "options": ["Peat", "Coir", "Bark"],   // 2–10, blanks dropped, unique
+    "closes_at": "2026-08-07T00:00:00Z"    // optional; null = never closes
+  }
+}
+```
+
+**Vote counts are never stored.** `PollOption` has no counter column; results
+are aggregated from `PollVote` rows on every read (`Poll.results()`), which is
+one query for the whole poll. There is no writable count anywhere in the API —
+a client sending `vote_count` or `total_votes` has those keys ignored.
+
+`POST /forum/topics/{id}/poll/vote/` with `{"option_id": N}` casts a vote and
+returns the poll with fresh results. **One vote per user per poll, enforced by
+`UniqueConstraint(poll, user)`**: a second vote is rejected with **409** (the
+message names the existing choice), *not* silently replaced. That is a product
+decision — see todo 283's Work Log for the reasoning and the revisit trigger.
+Voting on a closed poll is also 409; an option belonging to a different poll is
+400; a hidden or restricted topic is 404, like every other forum read.
+
+`my_vote_option_id` on the poll payload is the **requesting** viewer's own
+choice, or null — individual votes are never exposed, only the aggregate.
 
 ## Identification attachment
 

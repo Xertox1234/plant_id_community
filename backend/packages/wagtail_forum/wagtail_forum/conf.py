@@ -125,6 +125,15 @@ DEFAULTS = {
     # (~13 months of daily activity) — pure defense against a pathological
     # case, not a realistic limit.
     "STREAK_LOOKBACK_ROWS": 400,
+    # Poll (audit M8) — write bounds on the poll a topic may carry. A poll is
+    # created once, at compose time, and never edited, so these bound the whole
+    # feature's write surface.
+    "POLL_MAX_OPTIONS": 10,
+    # A poll needs a real choice; one option is a statement, not a question.
+    "POLL_MIN_OPTIONS": 2,
+    # <= the matching column max_lengths in models/polls.py.
+    "POLL_QUESTION_MAX_LENGTH": 300,
+    "POLL_OPTION_MAX_LENGTH": 200,
 }
 
 

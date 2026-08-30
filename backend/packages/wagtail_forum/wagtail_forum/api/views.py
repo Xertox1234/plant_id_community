@@ -65,6 +65,8 @@ from ..models import (
     ForumIdentificationAttachment,
     ForumIndex,
     ForumProfile,
+    Poll,
+    PollOption,
     Post,
     Reaction,
     Report,
@@ -723,6 +725,23 @@ class TopicListView(
                                 "identification_result_id", ""
                             ),
                         )
+                    poll_data = validated.get("poll")
+                    if poll_data:
+                        poll = Poll.objects.create(
+                            topic=topic,
+                            question=poll_data["question"],
+                            closes_at=poll_data.get("closes_at"),
+                        )
+                        # bulk_create so a 10-option poll costs ONE insert, not
+                        # ten, inside the topic-create transaction. `order` is
+                        # the submitted position — the composer's list order is
+                        # the author's intended display order.
+                        PollOption.objects.bulk_create(
+                            [
+                                PollOption(poll=poll, text=text, order=index)
+                                for index, text in enumerate(poll_data["options"])
+                            ]
+                        )
                 return topic, opening
             except IntegrityError:
                 continue
@@ -757,6 +776,12 @@ class TopicDetailView(
                 # rendition lookup behind serialize_image_for_api is separate and
                 # only happens when a photo is actually attached.
                 "identification__image",
+                # Reverse OneToOne, so a topic with NO poll costs no extra
+                # query to discover that (audit M8). Its options are fetched
+                # lazily inside get_poll only when a poll exists — a
+                # prefetch_related here would run for every request, poll or
+                # not, and move the pins below.
+                "poll",
             )
             .prefetch_related("tags")  # TopicDetailSerializer.get_tags (audit M5)
         )
