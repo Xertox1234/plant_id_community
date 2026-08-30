@@ -29,6 +29,7 @@ import {
   unbookmarkTopic,
   markSolution,
   clearSolution,
+  votePoll,
 } from '../../services/forumService';
 import { parseLeadingId, userProfilePath, threadPath } from '../../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME } from '../../utils/forumAuthor';
@@ -37,6 +38,7 @@ import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDra
 import { specimenAvatar } from '../../utils/forumAvatars';
 import PostCard from '../../components/forum/PostCard';
 import IdentificationCard from '../../components/forum/IdentificationCard';
+import PollCard from '../../components/forum/PollCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -899,6 +901,24 @@ export default function ThreadDetailPage() {
         <IdentificationCard
           identification={thread.identification}
           solvedPostId={thread.solved_post_id}
+        />
+      )}
+
+      {/* The topic's poll (audit M8). Above the posts for the same reason the
+          ID card is: it belongs to the TOPIC, not to a post, so it must not
+          paginate away. Keyed on the poll id so navigating between two poll
+          threads remounts it rather than carrying the previous poll's local
+          vote state across. */}
+      {thread?.poll && topicId != null && (
+        <PollCard
+          key={thread.poll.id}
+          poll={thread.poll}
+          canVote={isAuthenticated}
+          // topicId (parsed from the URL), NOT Number(thread.id): `id` is the
+          // display-shaped string every mapper produces, and every other call
+          // on this page — fetchThread, the subscribe/bookmark toggles —
+          // already uses topicId as the canonical numeric id.
+          onVote={(optionId) => votePoll(topicId, optionId)}
         />
       )}
 

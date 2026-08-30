@@ -15,9 +15,33 @@ import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
 import type { Category, CreateIdentificationInput } from '@/types';
 
+/**
+ * Mirrors the backend's `WAGTAILFORUM_POLL_MAX_OPTIONS`/`_MIN_OPTIONS`
+ * defaults. The server is the authority — it rejects a too-long or
+ * too-short list with a 400 — so these only stop the composer offering a
+ * row that would be refused on submit, and gate Post so a poll enabled but
+ * left blank/underfilled can't reach the server at all (todo 309 review:
+ * without this, ticking "Add a poll" and leaving it blank failed the WHOLE
+ * thread submission with a raw validation-error dict, not just the poll).
+ */
+const MAX_POLL_OPTIONS = 10;
+const MIN_POLL_OPTIONS = 2;
+
 /** Strip tags + whitespace to detect an effectively-empty rich-text body. */
 function isBlankHtml(html: string): boolean {
   return html.replace(/<[^>]*>/g, '').trim() === '';
+}
+
+/**
+ * `now`, formatted for a `datetime-local` input's `min` attribute
+ * (`YYYY-MM-DDTHH:mm`, LOCAL wall time — `datetime-local` has no timezone).
+ * A soft nudge only: the server's own future-only check
+ * (`validate_closes_at`) is what actually enforces this.
+ */
+function minPollCloseDateTime(): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const now = new Date();
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
 }
 
 /**
@@ -113,6 +137,21 @@ export default function NewThreadPage() {
   // state (and in the draft) so a half-typed tag isn't destroyed mid-keystroke;
   // it is split/trimmed only at submit. The server normalizes and bounds it.
   const [tagsInput, setTagsInput] = useState<string>(() => initialDraft.tags || '');
+  // Optional poll (audit M8). Deliberately NOT part of the autosaved draft:
+  // the draft is a plain string blob keyed on title/body/tags, and widening it
+  // would invalidate every draft already in a member's browser.
+  const [pollEnabled, setPollEnabled] = useState<boolean>(false);
+  const [pollQuestion, setPollQuestion] = useState<string>('');
+  // Starts at the minimum viable poll — two empty rows to fill in.
+  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
+  // Optional close time. Empty means "never closes" (omitted from the
+  // payload). `datetime-local`'s value has no timezone — it is LOCAL wall
+  // time — so it must go through `new Date(...).toISOString()` before it
+  // reaches the server, which stores and compares in UTC (todo 320 #7: a
+  // plain `type="date"` input would submit local midnight, which can already
+  // be in the past by the time it reaches validate_closes_at's future-only
+  // check).
+  const [pollClosesAt, setPollClosesAt] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -169,12 +208,21 @@ export default function NewThreadPage() {
     saveDraft(newThreadDraftKey, isEmpty ? '' : JSON.stringify({ title, body, tags: tagsInput }));
   }, [title, body, tagsInput, newThreadDraftKey]);
 
-  const canSubmit = !!category && title.trim() !== '' && !isBlankHtml(body);
+  // A poll left blank/underfilled is not a smaller poll — the server drops
+  // blank rows and then rejects fewer than MIN_POLL_OPTIONS, so "enabled but
+  // empty" is a guaranteed 400 that would otherwise take the whole topic
+  // down with it. Vacuously valid when the toggle is off.
+  const pollValid =
+    !pollEnabled ||
+    (pollQuestion.trim() !== '' &&
+      pollOptions.filter((option) => option.trim() !== '').length >= MIN_POLL_OPTIONS);
+
+  const canSubmit = !!category && title.trim() !== '' && !isBlankHtml(body) && pollValid;
 
   const handleSubmit = useCallback(
     async (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      if (!category || !title.trim() || isBlankHtml(body)) return;
+      if (!category || !title.trim() || isBlankHtml(body) || !pollValid) return;
       try {
         setSubmitting(true);
         setError(null);
@@ -189,6 +237,22 @@ export default function NewThreadPage() {
           // Omitted entirely on the common no-attachment compose, so the
           // ordinary payload is unchanged by this feature.
           ...(identification ? { identification } : {}),
+          // Same rule for the poll. Blank rows are sent as-is rather than
+          // filtered here — the server drops them and owns the min/max/unique
+          // rules, so the composer has exactly one authority to agree with
+          // instead of a second copy that can drift out of step.
+          ...(pollEnabled
+            ? {
+                poll: {
+                  question: pollQuestion,
+                  options: pollOptions,
+                  // Omitted (not sent as '') when blank — CreatePollInput
+                  // treats absence as "never closes", and an empty string
+                  // is not a valid ISO datetime for the server to parse.
+                  ...(pollClosesAt ? { closes_at: new Date(pollClosesAt).toISOString() } : {}),
+                },
+              }
+            : {}),
         });
         clearDraft(newThreadDraftKey);
 
@@ -236,6 +300,11 @@ export default function NewThreadPage() {
       body,
       tagsInput,
       identification,
+      pollEnabled,
+      pollQuestion,
+      pollOptions,
+      pollClosesAt,
+      pollValid,
       navigate,
       newThreadDraftKey,
       announce,
@@ -427,6 +496,100 @@ export default function NewThreadPage() {
           <p id="thread-tags-hint" className="mt-1 text-xs text-ink-3">
             Comma-separated. Up to 5 tags, e.g. species, genus, or symptom.
           </p>
+        </div>
+
+        {/* Optional poll (audit M8). Collapsed behind a toggle so the ordinary
+            compose is visually unchanged — most threads carry no poll. Polls
+            can only be attached HERE: they are not editable afterwards, since
+            changing a question once votes exist rewrites what they meant. */}
+        <div>
+          <label className="flex items-center gap-2 text-sm font-medium text-ink-2">
+            <input
+              type="checkbox"
+              checked={pollEnabled}
+              onChange={(e) => setPollEnabled(e.target.checked)}
+              className="h-4 w-4"
+            />
+            Add a poll <span className="font-normal text-ink-3">(optional)</span>
+          </label>
+
+          {pollEnabled && (
+            <div className="mt-3 space-y-3 rounded-lg border border-line bg-surface-2 p-4">
+              <div>
+                <label
+                  htmlFor="poll-question"
+                  className="block text-sm font-medium text-ink-2 mb-1"
+                >
+                  Poll question
+                </label>
+                <input
+                  id="poll-question"
+                  type="text"
+                  value={pollQuestion}
+                  onChange={(e) => setPollQuestion(e.target.value)}
+                  maxLength={300}
+                  placeholder="Best soil mix for aroids?"
+                  className="w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                />
+              </div>
+
+              <fieldset>
+                <legend className="block text-sm font-medium text-ink-2 mb-1">Options</legend>
+                <div className="space-y-2">
+                  {pollOptions.map((option, index) => (
+                    <input
+                      // Index keys are correct here and only here: these inputs
+                      // are a fixed positional list with no reordering or
+                      // removal, so an index IS each row's stable identity.
+                      key={index}
+                      type="text"
+                      value={option}
+                      onChange={(e) =>
+                        setPollOptions((prev) =>
+                          prev.map((value, i) => (i === index ? e.target.value : value))
+                        )
+                      }
+                      maxLength={200}
+                      aria-label={`Poll option ${index + 1}`}
+                      placeholder={`Option ${index + 1}`}
+                      className="w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                    />
+                  ))}
+                </div>
+                {pollOptions.length < MAX_POLL_OPTIONS && (
+                  <button
+                    type="button"
+                    onClick={() => setPollOptions((prev) => [...prev, ''])}
+                    className="mt-2 min-h-11 rounded px-3 text-sm font-medium text-primary hover:bg-surface-3"
+                  >
+                    + Add option
+                  </button>
+                )}
+                <p className="mt-1 text-xs text-ink-3">
+                  Two options minimum, {MAX_POLL_OPTIONS} maximum. Blank rows are ignored. Members
+                  get one vote each and cannot change it.
+                </p>
+              </fieldset>
+
+              <div>
+                <label
+                  htmlFor="poll-closes-at"
+                  className="block text-sm font-medium text-ink-2 mb-1"
+                >
+                  Closes <span className="font-normal text-ink-3">(optional)</span>
+                </label>
+                <input
+                  id="poll-closes-at"
+                  type="datetime-local"
+                  value={pollClosesAt}
+                  onChange={(e) => setPollClosesAt(e.target.value)}
+                  min={minPollCloseDateTime()}
+                  className="w-full px-4 py-2 border border-line-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                />
+                <p className="mt-1 text-xs text-ink-3">Leave blank for a poll that never closes.</p>
+              </div>
+            </div>
+          )}
         </div>
 
         <div>

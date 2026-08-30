@@ -1,5 +1,12 @@
 import type { StreamFieldBlock } from '../types/blog';
-import type { Category, Thread, Post, ForumAuthor, ThreadIdentification } from '../types/forum';
+import type {
+  Category,
+  Thread,
+  Post,
+  ForumAuthor,
+  ThreadIdentification,
+  ThreadPoll,
+} from '../types/forum';
 import { DELETED_AUTHOR_USERNAME } from '../utils/forumAuthor';
 
 // ---------------------------------------------------------------------------
@@ -67,6 +74,11 @@ export interface BackendTopicDetail {
    * pre-M6 backend; explicitly null when the topic carries no snapshot.
    */
   identification?: ThreadIdentification | null;
+  /**
+   * The topic's poll (audit M8). Detail-only, like `identification`. Absent
+   * (undefined) on a pre-M8 backend; explicitly null when the topic has none.
+   */
+  poll?: ThreadPoll | null;
 }
 
 // StreamFieldBlock re-exported for consumers that import backend shapes from this module.
@@ -236,6 +248,9 @@ export function mapTopicDetailToThread(t: BackendTopicDetail): Thread {
     // `?? null` collapses "pre-M6 backend, field absent" and "no snapshot on
     // this topic" into the one state the card cares about: nothing to render.
     identification: t.identification ?? null,
+    // Same collapse as identification above: "pre-M8 backend" and "this topic
+    // has no poll" are one state to the renderer — nothing to draw.
+    poll: t.poll ?? null,
   };
 }
 

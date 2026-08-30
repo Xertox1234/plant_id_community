@@ -1002,5 +1002,20 @@
     "source": "codify: harness/report-insights",
     "added": "2026-08-29",
     "severity": "warn"
+  },
+  {
+    "id": "full-clean-in-save-vs-integrityerror-savepoint",
+    "domains": [
+      "database"
+    ],
+    "path_glob": [
+      "backend/*.py"
+    ],
+    "content_present": "self\\.full_clean\\(",
+    "message": "Wiring full_clean() into a model's save() also runs validate_constraints() (Django 4.1+): a UniqueConstraint violation becomes a pre-save ValidationError instead of the IntegrityError an existing 'except IntegrityError:' savepoint handler (e.g. for a 409) expects — check docs/rules/database.md before wiring this into save().",
+    "pattern_ref": "docs/rules/database.md",
+    "source": "codify: todo/309-forum-polls",
+    "added": "2026-08-30",
+    "severity": "warn"
   }
 ]

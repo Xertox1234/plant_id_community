@@ -130,3 +130,19 @@ Compact checklist auto-injected before edits. Long-form:
   between requests (arbitrary Postgres order) and the cached anon copy can
   disagree with an authed response. Bit twice in one PR: `topics/recent/`
   (caught at build, Ruling 4) and `users/experts/` (caught only at review).
+- **Never wire `full_clean()` into `save()` on a model whose uniqueness is
+  handled by catching `IntegrityError` from a `UniqueConstraint`** (the
+  savepoint pattern above). Since Django 4.1, `full_clean()` also runs
+  `validate_constraints()`, which pre-checks the constraint against the DB
+  and raises a `ValidationError` BEFORE the INSERT — the caller's
+  `except IntegrityError:` (returning a deliberate 409, say) never fires,
+  and the `ValidationError` escapes uncaught as a 500 instead. A model
+  `clean()` method that checks something ELSE (e.g. "does this FK actually
+  belong to that other FK") is fine and should stay unwired from `save()`
+  for the same reason — any writer that wants the check calls `clean()` (or
+  `full_clean()`) itself; the one hot path that relies on the DB-level
+  `IntegrityError` stays untouched. Verified against Django 6.0.7
+  (`wagtail_forum.PollVote`, todo 320 #8) — caught by `advisor` before
+  shipping, not by a failing test, so don't assume a passing suite proves
+  this interaction is absent; trace it deliberately whenever `full_clean()`
+  and an `except IntegrityError:` savepoint coexist for the same model.

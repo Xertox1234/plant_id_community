@@ -5,6 +5,7 @@ from .identifications import ForumIdentificationAttachment
 from .messages import Conversation, Message
 from .moderation import SpamCheckTask
 from .notifications import Notification, NotificationVerb
+from .polls import Poll, PollOption, PollVote
 from .posts import Post
 from .profiles import ForumProfile, TrustLevel
 from .reactions import Reaction
@@ -25,6 +26,9 @@ __all__ = [
     "Message",
     "Notification",
     "NotificationVerb",
+    "Poll",
+    "PollOption",
+    "PollVote",
     "Post",
     "Reaction",
     "Report",

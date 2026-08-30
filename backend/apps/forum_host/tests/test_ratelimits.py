@@ -171,6 +171,7 @@ def test_wrapped_routes_use_the_throttled_views():
         "user-block": throttled.UserBlockView,
         "user-message-send": throttled.MessageSendView,
         "message-report": throttled.MessageReportView,
+        "topic-poll-vote": throttled.PollVoteView,
     }
     by_name = {p.name: p.callback.view_class for p in host.urlpatterns}
     for name, view_class in wrapped.items():
@@ -201,6 +202,7 @@ def test_every_unsafe_handler_is_throttled():
         throttled.UserBlockView,
         throttled.MessageSendView,
         throttled.MessageReportView,
+        throttled.PollVoteView,
     ]
     for view in wrappers:
         marked = getattr(view, "_forum_throttled_methods", set())

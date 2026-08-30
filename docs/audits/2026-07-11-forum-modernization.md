@@ -296,9 +296,11 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
 - [x] #H6 solved-accepted-answer → todo 273 (completed 2026-07-31, Wave 2 slice 2;
       re-pointed 2026-07-23 when the roadmap moved solved answers to Wave 2 / not 256).
       Todo 273 closed 2026-07-31 once slice 3 (#M6) landed. The
-      all-findings-resolved rename still must NOT fire on this doc — #M2, #M8,
-      #M9, #M10 and #M13 remain open against other todos (#M7 closed
-      2026-07-31 via todo 281).
+      all-findings-resolved rename still must NOT fire on this doc — #M13
+      remains open against another todo (#M7 closed 2026-07-31 via todo 281;
+      #M2 closed 2026-07-31 via todo 283, M8 later split out of 283 and
+      closed 2026-08-30 via todo 309; #M9/#M10 closed 2026-08-29/30 via
+      todos 284/319 — see their own Finding Status lines below).
 - [x] #H7 public-user-identity → todo 257 (completed 2026-07-24, PR #492)
 - [x] #H8 search-discoverability-filters → todo 256 (completed 2026-07-23)
 - [x] #H9 seo-surface → todo 256 (completed 2026-07-23)
@@ -330,9 +332,10 @@ Deferred findings converted to todos (Review Doc Tracking convention — the
       nothing, so there is no server-side record to reference — see the todo's
       Work Log.
 - [x] #M7 image-authoring-alt-text → todo 281 (completed 2026-07-31)
-- [ ] #M8 polls → todo 309 (re-pointed 2026-08-17; split out of todo 283 per
-      that todo's own Notes — "ship M2 and re-defer M8 rather than starting
-      both" — 283 is now M2-only)
+- [x] #M8 polls → todo 309 (completed 2026-08-30; split out of todo 283 on
+      2026-08-17 per that todo's own Notes — "ship M2 and re-defer M8 rather
+      than starting both" — 283 shipped M2-only. Poll/PollOption/PollVote
+      model trio + composer + results UI)
 - [x] #M9 block-mute → todo 284 (completed 2026-08-29; `UserBlock` model +
       block/unblock/list endpoints + block-aware filtering on every content
       read path, backend PR #577 + web UI PR #578, both merged)

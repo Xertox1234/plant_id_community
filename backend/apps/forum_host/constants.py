@@ -10,6 +10,11 @@ DEFAULT_FORUM_RATELIMITS = {
     "post_update": "30/h",
     "post_delete": "20/h",
     "reaction_toggle": "60/m",
+    # Tighter than the toggles above: a poll vote is a ONE-SHOT write per user
+    # per poll (a second is 409'd), so a legitimate client has no reason to
+    # send these in volume. Anything near this cap is a bug or an attempt to
+    # find one.
+    "poll_vote": "30/h",
     "report_create": "10/h",
     # SHARED SCOPE — accepted, monitor-only (todo 272 item 2, 2026-07-29).
     # `PATCH /forum/me/profile/` (MeProfileView) is the single writer endpoint

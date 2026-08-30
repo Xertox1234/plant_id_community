@@ -70,6 +70,52 @@ def test_dm_endpoints_are_mounted_and_throttled():
 
 
 @pytest.mark.django_db
+def test_poll_vote_endpoint_is_mounted_and_throttled():
+    """todo 309/M8: one round-trip through the REAL host mount, mirroring
+    test_block_endpoint_is_mounted_and_throttled. The 4-week-old commit this
+    feature was cherry-picked from shipped without this — every sibling
+    write endpoint added in the same window (block, DM) has it."""
+    from wagtail.models import Page
+    from wagtail_forum.models import (
+        ForumBoard,
+        ForumIndex,
+        Poll,
+        PollOption,
+        Post,
+        Topic,
+    )
+
+    root = Page.objects.get(id=1)
+    index = root.add_child(
+        instance=ForumIndex(title="Forum", slug="forum-mounted-poll")
+    )
+    board = index.add_child(instance=ForumBoard(title="General", slug="mounted-poll"))
+    author = User.objects.create_user(username="mounted-poll-author")
+    voter = User.objects.create_user(username="mounted-poll-voter")
+    topic = Topic.objects.create(
+        board=board, title="T", slug="mounted-poll-t", live=True, author=author
+    )
+    Post.objects.create(topic=topic, author=author, is_opening_post=True, live=True)
+    poll = Poll.objects.create(topic=topic, question="Best soil?")
+    peat = PollOption.objects.create(poll=poll, text="Peat", order=0)
+
+    client = APIClient()
+    client.force_authenticate(voter)
+    resp = client.post(
+        f"/api/v1/forum/topics/{topic.id}/poll/vote/", {"option_id": peat.id}
+    )
+    assert resp.status_code == 200
+    assert resp.data["my_vote_option_id"] == peat.id
+
+    # A second vote is rejected, not replaced (todo 309's own product
+    # decision, see the package README's Polls section).
+    resp = client.post(
+        f"/api/v1/forum/topics/{topic.id}/poll/vote/", {"option_id": peat.id}
+    )
+    assert resp.status_code == 409
+
+
+@pytest.mark.django_db
 def test_search_many_term_query_is_bounded_not_500():
     # Todo 290: an anonymous many-term query recursed Wagtail's search-query
     # AND-tree construction (one nesting level per term) into a

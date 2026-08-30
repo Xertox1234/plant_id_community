@@ -457,6 +457,56 @@ describe('ThreadDetailPage', () => {
     expect(screen.getByRole('button', { name: /^bookmark$/i })).toBeInTheDocument();
   });
 
+  it('renders the thread poll and votes through the topic id', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({
+        poll: {
+          id: 5,
+          question: 'Best soil?',
+          closes_at: null,
+          is_closed: false,
+          options: [
+            { id: 10, text: 'Peat', order: 0, vote_count: 0 },
+            { id: 11, text: 'Coir', order: 1, vote_count: 0 },
+          ],
+          total_votes: 0,
+          my_vote_option_id: null,
+        },
+      })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    const voteSpy = vi.spyOn(forumService, 'votePoll').mockResolvedValue({
+      id: 5,
+      question: 'Best soil?',
+      closes_at: null,
+      is_closed: false,
+      options: [
+        { id: 10, text: 'Peat', order: 0, vote_count: 1 },
+        { id: 11, text: 'Coir', order: 1, vote_count: 0 },
+      ],
+      total_votes: 1,
+      my_vote_option_id: 10,
+    });
+
+    renderThreadDetailPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Peat' }));
+
+    // Voted with the TOPIC id (12 from useParams), not the poll id.
+    expect(voteSpy).toHaveBeenCalledWith(12, 10);
+    expect(await screen.findByText('1 (100%)')).toBeInTheDocument();
+  });
+
+  it('renders no poll section when the thread has none', async () => {
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ poll: null }));
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+
+    renderThreadDetailPage();
+
+    await screen.findByRole('heading', { level: 1 });
+    expect(screen.queryByRole('button', { name: 'Peat' })).not.toBeInTheDocument();
+  });
+
   it('rolls back the optimistic Follow toggle and shows a notice when the request fails', async () => {
     vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
       createMockThread({ is_subscribed: false })
