@@ -881,7 +881,12 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
             # Index on publish_date (local field) - migration 0007
             models.Index(fields=["-publish_date"], name="blog_post_publish_date_idx"),
         ]
-        # NOTE: Cannot add indexes on inherited fields (first_published_at) in Meta class
+        # NOTE: Cannot add indexes on inherited fields (first_published_at,
+        # title) in Meta class — both live on wagtailcore_page, not
+        # blog_blogpostpage (multi-table inheritance; Django system check
+        # models.E016). The title GIN trigram index (todo 323, for
+        # search_suggestions' title__icontains) is created via RunSQL in
+        # migration 0014 instead.
         # Composite index on categories junction table created via RunSQL (see migration 0007)
 
 

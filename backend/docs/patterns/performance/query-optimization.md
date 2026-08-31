@@ -1454,3 +1454,38 @@ Three load-bearing details:
 - **Guard the map read with `is not None`, NEVER truthiness.** An authenticated user with zero rows produces an empty dict `{}` — falsy but not `None`. `if reacted_map:` routes *every* row to the per-object fallback and silently reintroduces the N+1. Pin an authed test where the user has NO rows (empty map) and assert the count is the batched number, not `base + N` (in the forum this is the owner-affordance pin at 4, not 3+20).
 - **`post__in=objects` does not re-run the page query** as long as `objects` is the already-materialized page list (DRF `paginate_queryset` returns `list(qs[:page_size])`). Passing a *lazy* queryset there would make it a correlated subquery — use the paginated list.
 - **The single-object fallback is correct but load-bearing**: it keeps edit/reply-create responses (no batched map) accurate so a replace-the-post client update can't clobber the field. BUT any NEW `many=True` caller that forgets to seed the context map silently hits the per-row fallback — document the "seed the map" contract on the field (like this section). Authed list pins move (e.g. +1 for the batched query, +2 for `has_perm` cache-fill on non-author viewers); explain each shift in-comment. Lives in `wagtail_forum/api/{serializers,views}.py` (`forum_reacted_map`, todo 257 slice C / M23).
+
+## Pattern 32: A GIN trigram index on `icontains` must be built on `UPPER(column)`, not the bare column
+
+**Problem**: `Model.objects.filter(title__icontains=query)` on PostgreSQL does NOT compile to `title ILIKE %s`. Django's PostgreSQL backend wraps the lookup in `UPPER(...)`: `UPPER("table"."title"::text) LIKE UPPER(%s)`. A `GIN` trigram index built on the bare column (`USING gin (title gin_trgm_ops)`) targets a *different expression* than what the WHERE clause filters on — Postgres only uses an expression index when the query's expression matches it structurally, so the index is silently never chosen. `EXPLAIN (ANALYZE)` with `enable_seqscan = off` against a bare-column index still forces a `Seq Scan` (`Disabled: true` in the plan) — proof the planner has no usable index, not just that it prefers a different one.
+
+**Verify what Django actually generates before trusting a migration's index expression** — don't assume `icontains` == `ILIKE`:
+
+```python
+print(str(Model.objects.filter(title__icontains="x").query))
+# WHERE UPPER("table"."title"::text) LIKE UPPER(%s)
+```
+
+**Fix**: index the exact expression Django filters on:
+
+```sql
+-- Wrong — never matches title__icontains, silently seq-scans forever:
+CREATE INDEX ... ON my_table USING gin (title gin_trgm_ops);
+
+-- Right — matches Django's UPPER(...) LIKE UPPER(...) compilation:
+CREATE INDEX ... ON my_table USING gin (UPPER(title) gin_trgm_ops);
+```
+
+`UPPER(title)` (no explicit `::text` cast needed) is sufficient — Postgres normalizes the cast Django emits (`UPPER(title::text)`) to the same expression internally; confirmed via `pg_indexes.indexdef`, which stores it as `upper((title)::text)` either way.
+
+**A test asserting only `pg_indexes.indexname` exists cannot catch this** — a wrong-expression (or wrong-type) index under the same name stays green while the query it exists to accelerate keeps sequential-scanning. Assert on `indexdef` instead:
+
+```python
+cursor.execute("SELECT indexdef FROM pg_indexes WHERE indexname = %s", [index_name])
+indexdef = cursor.fetchone()[0].lower()
+assert "using gin" in indexdef
+assert "gin_trgm_ops" in indexdef
+assert "upper(" in indexdef  # catches the exact bug this pattern describes
+```
+
+Found via code review (not the initial implementation) in todo 323 — the first version of the migration passed `makemigrations`, applied cleanly, and had a green existence-only test, while doing nothing for the query it was written to fix. See also `docs/rules/database.md`'s GIN-index rule and `docs/LEARNINGS.md` 2026-08-31.
