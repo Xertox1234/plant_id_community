@@ -9,7 +9,13 @@ from unittest.mock import patch
 
 import pytest
 from apps.blog.management.commands.seed_demo_blog import Command as SeedDemoBlogCommand
-from apps.blog.models import BlogCategory, BlogIndexPage, BlogPostPage
+from apps.blog.models import (
+    BlogAuthorPage,
+    BlogCategory,
+    BlogCategoryPage,
+    BlogIndexPage,
+    BlogPostPage,
+)
 from apps.blog.seed_content import AUTHOR_NAMES, CATEGORIES, POSTS
 from apps.forum_host.seed_content import DEMO_EMAIL_DOMAIN, USERS
 from django.contrib.auth import get_user_model
@@ -31,6 +37,8 @@ def _world_counts():
         BlogCategory.objects.count(),
         BlogPostPage.objects.count(),
         get_image_model().objects.count(),
+        BlogAuthorPage.objects.count(),
+        BlogCategoryPage.objects.count(),
     )
 
 
@@ -146,6 +154,21 @@ def test_world_shape():
     assert BlogPostPage.objects.count() == len(POSTS)
     assert BlogCategory.objects.count() == len(CATEGORIES)
 
+    # todo 324: the *page* variants the /api/v2/blog-authors/ and
+    # /api/v2/blog-categories/ endpoints actually serve, distinct from the
+    # plain User/BlogCategory rows asserted above.
+    assert BlogAuthorPage.objects.count() == len(AUTHOR_NAMES)
+    assert BlogCategoryPage.objects.count() == len(CATEGORIES)
+    for username in AUTHOR_NAMES:
+        page = BlogAuthorPage.objects.get(author__username=username)
+        assert page.slug == username.replace("_", "-")
+        assert page.bio  # non-empty; RichTextField has no blank=True
+        assert page.get_url() is not None
+    for spec in CATEGORIES:
+        page = BlogCategoryPage.objects.get(category__slug=spec["slug"])
+        assert page.slug == spec["slug"]
+        assert page.get_url() is not None
+
     # Routable tree (audit H1 analogue): the index must live under the Site's
     # root_page or every post URL is None and nothing is ever served.
     site_root = Site.objects.get(is_default_site=True).root_page
@@ -245,6 +268,11 @@ def test_seed_is_atomic_a_mid_loop_failure_rolls_back_everything():
     assert BlogCategory.objects.count() == 0
     assert BlogIndexPage.objects.count() == 0
     assert User.objects.count() == 0
+    # todo 324: author/category PAGES are created earlier in the same
+    # atomic block, before the posts loop where this failure is injected —
+    # must roll back together with everything else, not survive.
+    assert BlogAuthorPage.objects.count() == 0
+    assert BlogCategoryPage.objects.count() == 0
 
 
 @pytest.mark.django_db

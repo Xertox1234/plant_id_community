@@ -47,6 +47,32 @@ AUTHOR_NAMES = {
     if u["username"] in _BLOG_AUTHOR_USERNAMES
 }
 
+# username -> bio HTML, for each seeded author's BlogAuthorPage (todo 324).
+# Reflects what they've actually written in POSTS below, not invented
+# credentials.
+AUTHOR_BIOS = {
+    "june_park": (
+        "<p>Writes about the everyday habits that keep houseplants alive — "
+        "and the ones that quietly kill them. Spends more time looking at "
+        "the undersides of leaves than most people would consider normal.</p>"
+    ),
+    "iris_delgado": (
+        "<p>Covers propagation: cuttings, divisions, and the genetics behind "
+        "why a variegated leaf looks the way it does. Believes every plant "
+        "collection should be growing its own replacements.</p>"
+    ),
+    "sam_whitaker": (
+        "<p>Writes on care and design — reading a stressed plant's real "
+        "signals, and fitting a genuine collection into a space that "
+        "wasn't built for one.</p>"
+    ),
+    "theo_brandt": (
+        "<p>An arborist's case for cutting deeper than feels safe. Writes "
+        "about pruning and shaping plants with more confidence than most "
+        "houseplant owners start with.</p>"
+    ),
+}
+
 POSTS = [
     {
         # The hero's "This month" feature (spec §4 #1) — newest post,

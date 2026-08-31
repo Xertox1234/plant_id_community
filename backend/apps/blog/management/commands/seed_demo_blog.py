@@ -1,8 +1,14 @@
 from datetime import timedelta
 from pathlib import Path
 
-from apps.blog.models import BlogCategory, BlogIndexPage, BlogPostPage
-from apps.blog.seed_content import AUTHOR_NAMES, CATEGORIES, POSTS
+from apps.blog.models import (
+    BlogAuthorPage,
+    BlogCategory,
+    BlogCategoryPage,
+    BlogIndexPage,
+    BlogPostPage,
+)
+from apps.blog.seed_content import AUTHOR_BIOS, AUTHOR_NAMES, CATEGORIES, POSTS
 from apps.forum_host.seed_content import USERS, ensure_demo_user, real_users_queryset
 from django.core.files.images import ImageFile
 from django.core.management import call_command
@@ -18,7 +24,8 @@ IMAGE_COLLECTION_NAME = "Blog images"
 
 class Command(BaseCommand):
     help = (
-        "Idempotently seed the Canopy demo blog: BlogIndexPage, 4 categories, "
+        "Idempotently seed the Canopy demo blog: BlogIndexPage, 4 categories "
+        "(+ their BlogCategoryPage), 4 authors (+ their BlogAuthorPage), "
         "6 posts with committed cover images. Skip-not-overwrite: existing "
         "rows are never modified. Safe to re-run."
     )
@@ -69,6 +76,8 @@ class Command(BaseCommand):
             index = self._ensure_index()
             categories = self._seed_categories()
             authors = self._ensure_authors()
+            author_pages = self._ensure_author_pages(index, authors)
+            category_pages = self._ensure_category_pages(index, categories)
             created = [
                 spec
                 for spec in POSTS
@@ -77,7 +86,9 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"Blog seed complete: {len(created)} post(s) created, "
-                f"{len(POSTS) - len(created)} already present."
+                f"{len(POSTS) - len(created)} already present. "
+                f"{len(author_pages)} author page(s), "
+                f"{len(category_pages)} category page(s) confirmed."
             )
         )
         if created:
@@ -153,6 +164,48 @@ class Command(BaseCommand):
                     user.save(update_fields=["first_name", "last_name"])
                 authors[username] = user
         return authors
+
+    def _ensure_author_pages(self, index, authors):
+        """Create a BlogAuthorPage per seeded author (todo 324) — the page
+        the /api/v2/blog-authors/ endpoint serves, distinct from the plain
+        User account _ensure_authors() creates. Page-granular idempotency:
+        skip if a page already exists for that author."""
+        pages = {}
+        for username, user in authors.items():
+            page = BlogAuthorPage.objects.filter(author=user).first()
+            if page is None:
+                page = index.add_child(
+                    instance=BlogAuthorPage(
+                        title=user.get_full_name() or username,
+                        slug=username.replace("_", "-"),
+                        author=user,
+                        bio=AUTHOR_BIOS[username],
+                    )
+                )
+                page.save_revision().publish()
+                self.stdout.write(f"Created author page {username}.")
+            pages[username] = page
+        return pages
+
+    def _ensure_category_pages(self, index, categories):
+        """Create a BlogCategoryPage per seeded category (todo 324) — the
+        page the /api/v2/blog-categories/ endpoint serves, distinct from
+        the BlogCategory snippet _seed_categories() creates."""
+        pages = {}
+        for slug, category in categories.items():
+            page = BlogCategoryPage.objects.filter(category=category).first()
+            if page is None:
+                page = index.add_child(
+                    instance=BlogCategoryPage(
+                        title=category.name,
+                        slug=slug,
+                        category=category,
+                    )
+                )
+                page.save_revision().publish()
+                self.stdout.write(f"Created category page {slug}.")
+            pages[slug] = page
+        return pages
 
     # -- posts ---------------------------------------------------------------
 
