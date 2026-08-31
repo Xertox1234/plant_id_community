@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 priority: p3
 issue_id: "325"
 tags: [backend, wagtail, api, plant_identification]
@@ -79,11 +79,12 @@ any live URL because the whole `plants/` subtree 404s.
 ## Acceptance Criteria
 
 - [x] Both viewsets set `versioning_class = None`.
-- [ ] A live probe of both endpoints (post-deploy) returns 200, not 404.
-      **Not checked** — needs the actual Railway deploy to ship this fix
-      first; same situation as todo 308's AC #1 and todo 324's AC #2 (see
-      Work Log). Verified locally instead via the real Django test client
-      hitting the real URLconf.
+- [x] A live probe of both endpoints (post-deploy) returns 200, not 404.
+      Deployed to production (deployment `6f4cf794`, commit `43f1c31`,
+      `SUCCESS`, 2026-08-31 19:27 UTC). Live-probed post-deploy:
+      `curl -o /dev/null -w '%{http_code}' https://api.houseplant-md.com/api/v2/plants/`
+      → `200`; same for `.../api/v2/plant-index/` → `200`. Both were `404`
+      before this fix (see Findings).
 - [x] A smoke test per endpoint pins the 200 status so this can't silently
       regress again.
       `apps/plant_identification/tests/test_page_viewsets_versioning_and_wiring.py`
@@ -178,3 +179,15 @@ any live URL because the whole `plants/` subtree 404s.
   `versioning_class`, directly re-checked here and confirmed present at
   `endpoints.py:297` (see todo 326's Work Log for the full detail —
   reviewer misread diff hunk-header line offsets). Nothing to repair.
+
+### 2026-08-31 - Merged, deployed, live-probed, completed
+
+- Merged via PR #599. Railway auto-deployed on push to `main`
+  (deployment `6f4cf794`, commit `43f1c31`, `SUCCESS`, includes this PR's
+  merge commit `b438ea2`).
+- Post-deploy live probe (see AC above): `/api/v2/plants/` and
+  `/api/v2/plant-index/` both return `200`, confirming the fix. Also spot
+  checked `/api/v2/plant-index/` returns valid (empty — zero
+  `PlantCategoryIndexPage` content in prod today, unrelated to this fix)
+  JSON rather than an error.
+- All acceptance criteria satisfied. Archived.
