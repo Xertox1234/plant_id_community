@@ -174,3 +174,14 @@ Compact checklist auto-injected before edits. Long-form:
   `ViewSetMixin.as_view()`. Verify by live-probing the actual endpoint
   response, not by re-reading the branch — see `docs/LEARNINGS.md`
   2026-08-16 and todo 306.
+- **`WagtailAPIRouter`/`BaseAPIViewSet.get_urlpatterns()` does NOT auto-mount
+  `@action`-decorated methods** — it only ever wires the three fixed base
+  routes (`listing_view`/`detail_view`/`find_view`), unlike DRF's own
+  `SimpleRouter`. Every custom `@action` needs an explicit `path()` entry in
+  the project urlconf or it's dead code — importable, even unit-testable via
+  `as_view({"get": "..."})(request)` direct dispatch, but 404 over any real
+  URL. Generate the routes from `get_extra_actions()` (see
+  `backend/docs/patterns/domain/wagtail.md`) instead of hand-writing one
+  `path()` per action — hand-writing is exactly how 6 of 7 actions on
+  `BlogPostPageViewSet` shipped unroutable for months. See
+  `docs/LEARNINGS.md` 2026-08-31 and todo 307.

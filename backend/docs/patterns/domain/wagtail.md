@@ -135,6 +135,77 @@ consumers).
 
 ---
 
+## `@action`-Decorated Methods on a Wagtail Viewset Need Manual Routing
+
+**Rule**: `WagtailAPIRouter`/`BaseAPIViewSet.get_urlpatterns()` only ever
+wires the three fixed base routes (`listing_view`/`detail_view`/`find_view`)
+— it never inspects `get_extra_actions()` the way DRF's own `SimpleRouter`
+does. Every `@action`-decorated method on a Wagtail-based viewset needs its
+own explicit `path()` entry in the project urlconf, or it's unreachable —
+defined, importable, even unit-testable via `ViewSet.as_view({"get": "..."})
+(request)` direct dispatch, but 404 over any real URL.
+
+`BlogPostPageViewSet` shipped 7 such actions; only one (`popular`) ever got
+a manual `path()` entry. The other 6 sat unroutable for months, discovered
+by accident while investigating an unrelated bug (todo 306) — see
+`docs/LEARNINGS.md` 2026-08-31 (todo 307).
+
+**Generate the routes instead of hand-writing them** — a hand-written
+`path()` per action is exactly how this happened: nothing forces every new
+`@action` to get a matching entry. `get_extra_actions()` (the same registry
+DRF's `SimpleRouter` builds from) makes it structurally automatic instead:
+
+```python
+def extra_action_urlpatterns(viewset_cls, base_url, name_prefix):
+    """Generate a path() entry for every @action on viewset_cls."""
+    patterns = []
+    for action_func in viewset_cls.get_extra_actions():
+        if action_func.detail:
+            route = f"{base_url}<int:pk>/{action_func.url_path}/"
+        else:
+            route = f"{base_url}{action_func.url_path}/"
+        patterns.append(
+            path(
+                route,
+                viewset_cls.as_view(dict(action_func.mapping)),
+                name=f"{name_prefix}-{action_func.url_name}",
+            )
+        )
+    return patterns
+
+# urls.py
+urlpatterns = [
+    path("api/v2/", api_router.urls),
+    *extra_action_urlpatterns(
+        BlogPostPageViewSet, "api/v2/blog-posts/", "blog-posts"
+    ),
+    ...
+]
+```
+
+`action_func.url_path` defaults to the method name with underscores kept
+(e.g. `by_category`); `action_func.url_name` defaults to the method name
+with underscores replaced by dashes (`by-category`) — use `url_name` for
+the route's `name=` to match the convention DRF's own router would use.
+`action_func.mapping` is already the `{"get": "method_name"}` dict
+`as_view()` expects — no need to rebuild it by hand.
+
+**A regression test that only checks the path STRING exists is not
+enough** — it would still pass if a copy-paste error wired the right path
+text to the wrong action. Also assert the resolved `URLPattern`'s
+`callback.cls` is the expected viewset and `callback.actions["get"]` is the
+expected action name; see
+`apps/blog/tests/test_blog_viewset_routing.py::test_all_extra_actions_are_routed`.
+
+**Making previously-unroutable code reachable can surface latent bugs
+nothing could ever exercise.** Once routed, two of these six actions turned
+out to slice an unordered queryset (`featured()`/`recent()` had no
+`.order_by()` at all — invisible while the code was dead, live-breaking
+once real traffic could hit it). Treat "route a dormant `@action`" as
+touching its whole body for review purposes, not just adding a URL.
+
+---
+
 ## `.specific()` Is Incompatible with `Prefetch(to_attr=…)`
 
 **Rule**: Never add `.specific()` to a queryset used as the inner queryset of a `Prefetch`.

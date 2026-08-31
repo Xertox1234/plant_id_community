@@ -10,10 +10,26 @@ from the current branch's implementation work. **Never skip steps.**
 
 ## Step 1 — Assess the branch diff
 
+**First, check whether local `main` is stale** — in this repo's worktree
+convention, local `main` is frequently checked out in a *different*
+worktree and can sit behind `origin/main` for many merged PRs. `git diff
+main...HEAD` against a stale local `main` silently includes every
+already-merged change since the branch point, not just this branch's own
+work (verified: an 8-file, ~700-line diff appeared as 60+ files and
+~5000 lines this way). Check first:
+
+```bash
+git rev-parse main origin/main
+```
+
+If they differ, use `origin/main` as the diff base for every command in
+this skill instead of `main` (do not `git checkout main` to "fix" it —
+that checkout can be blocked entirely if another worktree holds `main`).
+
 Run:
 
 ```bash
-git diff main...HEAD --stat
+git diff <main-or-origin/main>...HEAD --stat
 ```
 
 Derive the changed-file domains from the single source of truth
@@ -22,7 +38,7 @@ Derive the changed-file domains from the single source of truth
 path→domain table here:
 
 ```bash
-git diff main...HEAD --name-only | python3 scripts/inject/route_domains.py
+git diff <main-or-origin/main>...HEAD --name-only | python3 scripts/inject/route_domains.py
 ```
 
 This prints the comma-separated domain labels (deduped, e.g. `api,security,database`),
@@ -31,10 +47,16 @@ changed files), output "Nothing to codify — no changes on this branch." and st
 
 ## Step 2 — Run kimi-review on the branch diff
 
-The domain labels from Step 1 double as `docs/rules/` names. Run:
+The domain labels from Step 1 double as `docs/rules/` names. Use the same
+diff base (`main` or `origin/main`) determined in Step 1. `kimi-review` may
+not be on `PATH` — the vendored, canonical copy is `scripts/kimi-review`
+(run it as `python3 scripts/kimi-review`, with the `openai` package
+available — e.g. via `backend/venv`). A large diff can take several
+minutes; don't assume a timeout means failure, retry with a longer one
+before concluding the tool is broken.
 
 ```bash
-git diff main...HEAD | kimi-review --scope "session: $(git branch --show-current)" --profile plant_id --rules <comma-separated-domains>
+git diff <main-or-origin/main>...HEAD | python3 scripts/kimi-review --scope "session: $(git branch --show-current)" --profile plant_id --rules <comma-separated-domains>
 ```
 
 **Store the full output in working context as `review_output`** — shell variables

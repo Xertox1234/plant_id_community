@@ -135,6 +135,29 @@ You review: `apps/blog/`, Wagtail page models, StreamField blocks, signals, Wagt
   are exercised by at least one admin render test (explorer listing for
   listing-button hooks) so a rename fails as `NoReverseMatch` in CI.
 
+### Blog viewset routing additions (2026-08-31)
+
+- Every `@action`-decorated method on a Wagtail-based viewset (`PagesAPIViewSet`
+  subclass or similar) — is it actually mounted with a `path()` entry in the
+  urlconf? `WagtailAPIRouter`/`get_urlpatterns()` does NOT auto-mount `@action`
+  methods the way DRF's `SimpleRouter` does; a new action with no route is
+  silently dead code (todo 307 — 6 of 7 actions shipped this way). Prefer a
+  route generated from `get_extra_actions()` (see
+  `backend/docs/patterns/domain/wagtail.md`) over one more hand-written
+  `path()` — flag a hand-written entry added next to an existing generator as
+  a missed opportunity, not just "fine."
+- A diff that ROUTES a previously-unroutable `@action` for the first time:
+  review its whole method body, not just the new `path()` line — dead code's
+  bugs (missing `.order_by()`, missing tie-break, unguarded input) are
+  invisible until something can finally reach them, and "it already existed"
+  is not evidence it's correct if nothing could ever call it.
+- A `@action(detail=True)` using `self.get_object()`: does `get_queryset()`
+  apply any query-string filtering (via `filter_backends` OR read directly
+  off `request.GET` inside the method)? If so, a caller-supplied filter
+  unrelated to the target object can spuriously 404 the detail lookup — not
+  automatically a bug, but confirm it's understood/intentional rather than
+  an accidental side effect of reusing `get_queryset()`.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

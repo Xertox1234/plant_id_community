@@ -38,7 +38,6 @@ The Wagtail Blog API provides headless CMS functionality for consuming blog cont
 - **Redis Caching**: <50ms cached responses, 24h TTL
 - **Query Optimization**: Target <15 queries for lists, <10 queries for details (actual may vary with prefetching)
 - **Search Integration**: Full-text search with Wagtail Query tracking
-- **RSS/Atom Feeds**: Standard feed formats
 
 ---
 
@@ -68,6 +67,7 @@ All list endpoints support pagination:
 | `offset` | integer | 0 | Number of results to skip |
 
 **Example**:
+
 ```http
 GET /api/v2/blog-posts/?limit=10&offset=20
 ```
@@ -81,6 +81,7 @@ Limit response fields for better performance:
 | `fields` | string (comma-separated) | Fields to include in response |
 
 **Example**:
+
 ```http
 GET /api/v2/blog-posts/?fields=title,slug,publish_date,author
 ```
@@ -94,12 +95,14 @@ Sort results by field:
 | `order` | string | Field name (prefix with `-` for descending) |
 
 **Built-in Aliases**:
+
 - `newest` → `-first_published_at`
 - `oldest` → `first_published_at`
 - `title` → `title`
 - `popular` → `-views_count` (if enabled)
 
 **Example**:
+
 ```http
 GET /api/v2/blog-posts/?order=newest
 GET /api/v2/blog-posts/?order=-publish_date
@@ -114,6 +117,7 @@ Full-text search across titles and content:
 | `search` | string | Search query |
 
 **Example**:
+
 ```http
 GET /api/v2/blog-posts/?search=orchid+care
 ```
@@ -148,6 +152,7 @@ GET /api/v2/blog-posts/
 | `plant_species` | integer | Posts related to plant species ID | `?plant_species=42` |
 
 **Response**:
+
 ```json
 {
   "meta": {
@@ -187,6 +192,7 @@ GET /api/v2/blog-posts/
 ```
 
 **Performance**:
+
 - Cached: <50ms
 - Cold: ~300ms (5-8 queries)
 - Cache TTL: 24 hours
@@ -200,9 +206,11 @@ GET /api/v2/blog-posts/{id}/
 ```
 
 **Path Parameters**:
+
 - `id` (integer, required): Blog post ID
 
 **Response**:
+
 ```json
 {
   "id": 10,
@@ -287,6 +295,7 @@ GET /api/v2/blog-posts/{id}/
 ```
 
 **Performance**:
+
 - Cached: <30ms
 - Cold: ~400ms (19 queries)
 - Cache TTL: 24 hours
@@ -312,6 +321,7 @@ GET /api/v2/blog-posts/recent/
 ```
 
 **Query Parameters**:
+
 - `limit` (integer, default: 10): Number of posts to return
 
 **Response**: Same format as list endpoint
@@ -327,6 +337,7 @@ GET /api/v2/blog-posts/by_category/
 Returns featured categories with their recent posts.
 
 **Response**:
+
 ```json
 [
   {
@@ -357,9 +368,11 @@ GET /api/v2/blog-posts/search_suggestions/
 ```
 
 **Query Parameters**:
+
 - `q` (string, required, min length: 2): Search query
 
 **Response**:
+
 ```json
 [
   {
@@ -388,6 +401,7 @@ GET /api/v2/blog-posts/{id}/related/
 ```
 
 **Path Parameters**:
+
 - `id` (integer, required): Blog post ID
 
 Returns up to 6 related posts based on shared categories and tags.
@@ -407,6 +421,7 @@ GET /api/v2/blog-index/
 Returns blog index pages (usually just one).
 
 **Response**:
+
 ```json
 {
   "meta": {
@@ -452,6 +467,7 @@ GET /api/v2/blog-categories/
 ```
 
 **Response**:
+
 ```json
 {
   "meta": {
@@ -491,10 +507,12 @@ GET /api/v2/blog-authors/
 ```
 
 **Query Parameters**:
+
 - `username` (string): Filter by username
 - `expertise` (string): Filter by expertise area
 
 **Response**:
+
 ```json
 {
   "meta": {
@@ -539,6 +557,7 @@ GET /api/v2/images/{id}/
 ```
 
 **Response includes renditions**:
+
 ```json
 {
   "id": 42,
@@ -563,6 +582,7 @@ GET /api/v2/images/{id}/
 ```
 
 **Common Renditions**:
+
 - `fill-300x200`: Thumbnail (list view)
 - `fill-400x300`: Medium thumbnail
 - `fill-800x600`: Hero image (detail view)
@@ -573,27 +593,11 @@ GET /api/v2/images/{id}/
 
 ### Feeds
 
-#### RSS Feed
-
-```http
-GET /api/v2/blog-feeds/?format=rss
-```
-
-Returns 20 most recent posts in RSS format.
-
-**Response**: Standard RSS XML
-
----
-
-#### Atom Feed
-
-```http
-GET /api/v2/blog-feeds/?format=atom
-```
-
-Returns 20 most recent posts in Atom format.
-
-**Response**: Standard Atom XML
+There is no RSS/Atom feed endpoint currently. `/api/v2/blog-feeds/` and its
+`rss`/`atom` actions were removed (todo 307, 2026-08) — they were never
+real feeds, only JSON-shaped stubs. A real feed built on Django's
+`django.contrib.syndication.views.Feed` (the pattern already used for the
+forum at `/forum/rss/`) is tracked as a follow-up: todo 322.
 
 ---
 
@@ -606,6 +610,7 @@ GET /api/v2/page_preview/
 ```
 
 **Query Parameters**:
+
 - `content_type` (string, required): Content type ID
 - `token` (string, required): Preview token from Wagtail admin
 
@@ -614,6 +619,7 @@ GET /api/v2/page_preview/
 **Authentication**: Requires Wagtail session authentication
 
 **Preview URLs**:
+
 - Web: `http://localhost:5173/blog/preview/{content_type}/{token}/`
 - Mobile: `plantid://blog/preview?content_type={content_type}&token={token}`
 
@@ -694,27 +700,32 @@ All responses follow Wagtail API v2 format:
 ### Caching Strategy
 
 **Redis Configuration**:
+
 - Cache backend: `django-redis`
 - TTL: 24 hours
 - Key prefix: `blog:`
 
 **Cache Keys**:
+
 - Blog list: `blog:list:{page}:{limit}:{filters_hash}` (16-char SHA-256 hash)
 - Blog post: `blog:post:{slug}`
 
 **Cache Invalidation**:
+
 - Automatic on publish/unpublish/delete (Wagtail signals)
 - Manual: `BlogCacheService.invalidate_blog_post(slug)`
 
 ### Query Optimization
 
 **Techniques**:
+
 - `select_related()`: Author, series (ForeignKey)
 - `prefetch_related()`: Categories, tags, related plants (ManyToMany)
 - `prefetch_renditions()`: Image optimization
 - Conditional prefetching: List vs detail views
 
 **Performance Targets**:
+
 - List queries: <20 (actual: 8-15)
 - Detail queries: <25 (actual: 19)
 - Cache hit response: <50ms
@@ -767,6 +778,7 @@ curl "http://localhost:8000/api/v2/blog-posts/?difficulty=easy&limit=20"
 **Current**: No rate limiting (to be implemented)
 
 **Future**:
+
 - Anonymous: 100 requests/hour
 - Authenticated: 1000 requests/hour
 
@@ -775,10 +787,12 @@ curl "http://localhost:8000/api/v2/blog-posts/?difficulty=easy&limit=20"
 ## CORS
 
 Cross-Origin Resource Sharing is enabled for:
+
 - `http://localhost:5173` (React dev server)
 - Production domain (to be configured)
 
 **Headers**:
+
 ```
 Access-Control-Allow-Origin: http://localhost:5173
 Access-Control-Allow-Credentials: true

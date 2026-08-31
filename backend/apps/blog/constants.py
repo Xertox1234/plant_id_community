@@ -86,6 +86,10 @@ RECENT_POSTS_DEFAULT_LIMIT = (
 )
 RECENT_POSTS_MAX_LIMIT = 50  # Cap to prevent abuse / expensive slices
 
+# Featured/related posts API constants
+FEATURED_POSTS_LIMIT = 6  # Number of posts returned by the featured action
+RELATED_POSTS_LIMIT = 6  # Number of posts returned by the related action
+
 # Analytics dashboard constants
 ANALYTICS_MIN_VIEWS_FOR_BADGE = 100  # Minimum views to show "popular" badge
 ANALYTICS_MIN_VIEWS_FOR_VIRAL_BADGE = 1000  # Minimum views to show "viral" badge

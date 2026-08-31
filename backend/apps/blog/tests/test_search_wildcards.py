@@ -183,7 +183,8 @@ class BlogPublicSearchWildcardTests(TestCase):
 class SearchSuggestionsActionWildcardTests(TestCase):
     """BlogPostPageViewSet.search_suggestions — title__icontains.
 
-    Not URL-routed; exercised via a direct action call as instructed.
+    Exercised via a direct action call; routing itself is covered by
+    test_blog_viewset_routing.py.
     """
 
     def setUp(self):

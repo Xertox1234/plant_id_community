@@ -331,6 +331,27 @@ class TestRealIndexFiresOnKnownBugs(unittest.TestCase):
                         "    @action(detail=True)\n    def f(self): ...\n")
         self.assertNotIn("drf-action-no-ratelimit", self.fires(tn, ti))
 
+    def test_new_action_on_wagtail_viewset_fires_unrouted_warning(self):
+        # todo 307: 6 of 7 @action methods on BlogPostPageViewSet shipped
+        # with no path() entry — unreachable, 404, no error anywhere.
+        tn, ti = write(
+            "backend/apps/blog/api/viewsets.py",
+            "class BlogPostPageViewSet(PagesAPIViewSet):\n"
+            "    @action(detail=False, methods=['get'])\n"
+            "    def featured(self, request): ...\n",
+        )
+        self.assertIn("wagtail-action-unrouted", self.fires(tn, ti))
+
+    def test_new_action_on_non_wagtail_viewset_silent(self):
+        # A plain DRF viewset (not under apps/*/api/) mounted via
+        # SimpleRouter auto-mounts @action methods — the Wagtail-specific
+        # warning would be a false positive here.
+        tn, ti = write(
+            "backend/apps/forum_integration/api_views.py",
+            "class V:\n    @action(detail=True)\n    def f(self): ...\n",
+        )
+        self.assertNotIn("wagtail-action-unrouted", self.fires(tn, ti))
+
     def test_bare_strip_tags_fires(self):
         # todo 275: strip_tags substitutes nothing for a tag, so adjacent blocks fuse.
         tn, ti = write(
