@@ -3584,3 +3584,63 @@ something can finally hit it. And don't assume an already-documented rule
 protects new code just because a reviewer cited it once elsewhere in the
 same session — re-run the review pass on the FINAL diff before merging,
 not only on each incremental patch.
+
+## 2026-08-31 — A GIN trigram index shipped, passed its own test, and did nothing (todo 323)
+
+Direct follow-up to todo 307's `kimi-review` finding above: `search_suggestions`
+does `BlogPostPage.objects.filter(title__icontains=query)` with no supporting
+index. The first implementation — a `RunSQL` migration creating
+`USING gin (title gin_trgm_ops)` plus a test asserting `pg_indexes.indexname`
+existed — passed `makemigrations`, applied cleanly, and had a green test. It
+also did not accelerate the query it existed for, because it never got a
+chance to run: PostgreSQL only uses an expression index when the query's
+expression matches it structurally, and Django's PostgreSQL backend does NOT
+compile `icontains` to `title ILIKE %s`. It compiles to
+`UPPER("table"."title"::text) LIKE UPPER(%s)` — confirmed by printing
+`.query` on the actual queryset, not assumed from docs. `EXPLAIN (ANALYZE)`
+with `enable_seqscan = off` against the bare-`title` index still forced a
+`Seq Scan` (`Disabled: true` in the plan output — proof no usable index
+existed, not merely that the planner preferred something else). The fix was
+to index `UPPER(title)` instead; `EXPLAIN` on the same query then showed
+`Bitmap Index Scan` against the new index.
+
+This was caught by code review (two independent reviewer agents, both citing
+the identical root cause), not by the implementation, `makemigrations`, or the
+test — a name-only index-existence test cannot distinguish a working index
+from a decorative one under the same name. Two more structural findings
+surfaced in the same review pass, both also shipped in the first version:
+(1) a plain `CREATE INDEX` (no `CONCURRENTLY`) on `wagtailcore_page` — a table
+shared by every Wagtail Page subclass in the install, not blog-scoped — would
+lock reads/writes site-wide during a live `preDeployCommand` migrate; and
+(2) using Django's built-in `TrigramExtension()` operation for `pg_trgm`,
+whose `database_backwards` unconditionally runs `DROP EXTENSION` with no
+dependent-object check — since `plant_identification/migrations/0013`
+already has trigram indexes depending on the same shared, database-scoped
+extension, reversing this migration would fail with a Postgres dependency
+error the moment anyone rolled it back.
+
+All three were independently, empirically re-verified after the fix — not
+just re-read — by rolling the migration back to its parent and forward again
+against a real Postgres 18 instance (index correctly dropped/recreated,
+`pg_trgm` extension survived the rollback via `pg_extension`), and by two
+reviewer agents separately re-querying `pg_indexes.indexdef`,
+`django_migrations`, and `pg_extension` directly rather than trusting the
+diff description. Kimi-review's automated `/codify` scan on the finished
+branch separately raised a fourth, CRITICAL-labeled claim — that
+`CREATE INDEX CONCURRENTLY` cannot combine with `IF NOT EXISTS` — which was
+**false**: that combination has been valid PostgreSQL syntax since 9.5, and
+the exact statement had already been run successfully multiple times against
+the live DB in this same session. Treated as a cheap-worker false positive
+and not acted on, per the standing "review output is never final" policy —
+but only because primary-source evidence (an actual successful run) existed
+to check it against, not because the claim was implausible on its face.
+
+**Rule:** never trust that `icontains`/`istartswith`/etc. compile to
+`ILIKE` on PostgreSQL — print `.query` on the real queryset and match the
+index expression to what's actually there (see
+`docs/patterns/performance/query-optimization.md` Pattern 32). An
+index-existence test that checks only `indexname` is not a test of the
+index's usefulness; assert on `indexdef`. And a migration touching a
+framework-shared table (`wagtailcore_page`, `auth_user`, etc.) needs the
+same `CONCURRENTLY` + `atomic=False` treatment as a large single-app table —
+arguably more, since its blast radius crosses every app.

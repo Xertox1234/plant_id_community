@@ -1034,5 +1034,37 @@
     "source": "codify: todo-307-blog-viewset-routing",
     "added": "2026-08-30",
     "severity": "warn"
+  },
+  {
+    "id": "gin-trigram-index-bare-column-icontains",
+    "domains": [
+      "database",
+      "performance"
+    ],
+    "path_glob": [
+      "**/migrations/*.py"
+    ],
+    "content_present": "(?i)using\\s+gin\\s*\\(\\s*\\w+\\s+gin_trgm_ops",
+    "content_absent": "(?i)using\\s+gin\\s*\\(\\s*upper\\(",
+    "message": "GIN trigram index on a bare column may never be used: Django compiles icontains to UPPER(col) LIKE UPPER(%s) on PostgreSQL, not ILIKE — index UPPER(col), not the raw column, or verify via Model.objects.filter(x__icontains=...).query first.",
+    "pattern_ref": "backend/docs/patterns/performance/query-optimization.md",
+    "source": "codify: feat/blog-title-gin-index-todo-323",
+    "added": "2026-08-31",
+    "severity": "warn"
+  },
+  {
+    "id": "trigram-extension-shared-reverse-drop",
+    "domains": [
+      "database"
+    ],
+    "path_glob": [
+      "**/migrations/*.py"
+    ],
+    "content_present": "TrigramExtension\\(\\)",
+    "message": "TrigramExtension() reverse unconditionally runs DROP EXTENSION with no dependent-object check — fails to roll back once another app has trigram indexes depending on the same shared extension. Use RunPython: CREATE EXTENSION IF NOT EXISTS forward, migrations.RunPython.noop reverse.",
+    "pattern_ref": "docs/rules/database.md",
+    "source": "codify: feat/blog-title-gin-index-todo-323",
+    "added": "2026-08-31",
+    "severity": "warn"
   }
 ]

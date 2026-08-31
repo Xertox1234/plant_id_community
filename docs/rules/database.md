@@ -9,7 +9,13 @@ Compact checklist auto-injected before edits. Long-form:
   `prefetch_related()` (M2M/reverse FK) on querysets that feed serializers.
 - **Pin query counts in tests** with `assertNumQueries(...)` — exact, not `<=`.
 - **Add GIN indexes** for `__icontains` / full-text search columns; plain B-tree
-  indexes do not accelerate substring search.
+  indexes do not accelerate substring search. **On PostgreSQL, `icontains` compiles
+  to `UPPER(col) LIKE UPPER(%s)`, not `ILIKE`** — a `gin_trgm_ops` index must be
+  built on `UPPER(col)`, not the bare column, or Postgres never picks it and the
+  index does nothing. Verify with `Model.objects.filter(x__icontains=...).query`
+  before trusting a migration's index expression, and assert the test on
+  `pg_indexes.indexdef`, not just `indexname`. See
+  `docs/patterns/performance/query-optimization.md` Pattern 32.
 - **Migrations must be reversible** where practical; data migrations get an
   explicit reverse or `migrations.RunPython.noop`.
 - After changing a migration, rebuild the test DB with `--noinput` — a stale test
@@ -130,6 +136,20 @@ Compact checklist auto-injected before edits. Long-form:
   between requests (arbitrary Postgres order) and the cached anon copy can
   disagree with an authed response. Bit twice in one PR: `topics/recent/`
   (caught at build, Ruling 4) and `users/experts/` (caught only at review).
+- **Never use `django.contrib.postgres.operations.TrigramExtension()` (or any
+  `CreateExtension` subclass) when the extension is already shared by another
+  app's migrations.** Its `database_backwards` unconditionally runs
+  `DROP EXTENSION IF EXISTS <name>` with no dependent-object check — reversing
+  the migration fails once any other app's index still depends on that
+  extension (Postgres refuses the DROP). Use a `RunPython` pair instead:
+  `CREATE EXTENSION IF NOT EXISTS <name>;` forward, `migrations.RunPython.noop`
+  reverse — pg_trgm and similar extensions are a shared, database-scoped
+  resource that no single migration should tear down on its own rollback.
+- **On a hot, shared table, pair `CREATE INDEX CONCURRENTLY` with
+  `atomic = False`** on the `Migration` class — `CONCURRENTLY` cannot run
+  inside a transaction block. `wagtailcore_page` (shared by every Wagtail Page
+  subclass) is the canonical case: a plain `CREATE INDEX` there locks
+  reads/writes site-wide, not just one app, for the build's duration.
 - **Never wire `full_clean()` into `save()` on a model whose uniqueness is
   handled by catching `IntegrityError` from a `UniqueConstraint`** (the
   savepoint pattern above). Since Django 4.1, `full_clean()` also runs
