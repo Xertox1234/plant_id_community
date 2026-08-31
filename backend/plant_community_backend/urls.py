@@ -47,6 +47,43 @@ from wagtail.documents import urls as wagtaildocs_urls
 from wagtail.documents.api.v2.views import DocumentsAPIViewSet
 from wagtail.images.api.v2.views import ImagesAPIViewSet
 
+
+def extra_action_urlpatterns(viewset_cls, base_url, name_prefix):
+    """Generate a path() entry for every @action on viewset_cls.
+
+    Wagtail's API router (WagtailAPIRouter/register_endpoint) only mounts
+    listing_view/detail_view/find_view — it does not auto-mount DRF
+    @action-decorated methods the way DRF's own SimpleRouter does. Every
+    custom action used to need a hand-written path() entry here, which is
+    exactly how 6 of BlogPostPageViewSet's 7 actions shipped unroutable and
+    unreachable (todo 307). Generating routes from get_extra_actions()
+    instead makes that class of bug structurally impossible — a new @action
+    is routed automatically, no urls.py edit required.
+
+    `base_url` must end with a trailing slash, e.g. "api/v2/blog-posts/".
+    `name_prefix` names the generated routes (e.g. "blog-posts" produces
+    "blog-posts-popular", "blog-posts-featured", ...) — taken as an explicit
+    argument rather than derived from `base_url`, since deriving it from an
+    arbitrary URL prefix is ambiguous (e.g. "api/v2/blog-posts/" naively
+    yields "api-v2-blog-posts", not the "blog-posts" the endpoint's other
+    routes use).
+    """
+    patterns = []
+    for action_func in viewset_cls.get_extra_actions():
+        if action_func.detail:
+            route = f"{base_url}<int:pk>/{action_func.url_path}/"
+        else:
+            route = f"{base_url}{action_func.url_path}/"
+        patterns.append(
+            path(
+                route,
+                viewset_cls.as_view(dict(action_func.mapping)),
+                name=f"{name_prefix}-{action_func.url_name}",
+            )
+        )
+    return patterns
+
+
 # Create the Wagtail API router
 api_router = WagtailAPIRouter("wagtailapi")
 
@@ -107,37 +144,10 @@ urlpatterns = [
     path("accounts/", include("allauth.urls")),
     # Wagtail CMS API (v2)
     path("api/v2/", api_router.urls),
-    # Custom blog endpoints (DRF @action decorators not supported by Wagtail router)
-    path(
-        "api/v2/blog-posts/popular/",
-        BlogPostPageViewSet.as_view({"get": "popular"}),
-        name="blog-posts-popular",
-    ),
-    path(
-        "api/v2/blog-posts/featured/",
-        BlogPostPageViewSet.as_view({"get": "featured"}),
-        name="blog-posts-featured",
-    ),
-    path(
-        "api/v2/blog-posts/recent/",
-        BlogPostPageViewSet.as_view({"get": "recent"}),
-        name="blog-posts-recent",
-    ),
-    path(
-        "api/v2/blog-posts/by_category/",
-        BlogPostPageViewSet.as_view({"get": "by_category"}),
-        name="blog-posts-by-category",
-    ),
-    path(
-        "api/v2/blog-posts/search_suggestions/",
-        BlogPostPageViewSet.as_view({"get": "search_suggestions"}),
-        name="blog-posts-search-suggestions",
-    ),
-    path(
-        "api/v2/blog-posts/<int:pk>/related/",
-        BlogPostPageViewSet.as_view({"get": "related"}),
-        name="blog-posts-related",
-    ),
+    # Custom blog endpoints (DRF @action decorators not supported by Wagtail
+    # router) — generated from get_extra_actions() so a new @action can't
+    # ship unroutable again (todo 307 review finding).
+    *extra_action_urlpatterns(BlogPostPageViewSet, "api/v2/blog-posts/", "blog-posts"),
     # Django REST Framework API - Versioned (v1)
     path(
         "api/v1/",
