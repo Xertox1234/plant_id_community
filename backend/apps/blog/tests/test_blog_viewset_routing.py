@@ -88,7 +88,6 @@ class BlogPostPageViewSetRoutedActionsHTTPTestCase(TestCase):
         self.user = User.objects.create_user(
             username="routingauthor",
             email="routing@example.com",
-            password="pass",  # pragma: allowlist secret
         )
         root = Page.objects.get(id=1)
         self.blog_index = BlogIndexPage(title="Routing Blog", slug="routing-blog")
@@ -157,6 +156,11 @@ class BlogPostPageViewSetRoutedActionsHTTPTestCase(TestCase):
         titles = {row["text"] for row in response.json() if row["type"] == "title"}
         self.assertIn("featured-post", titles)
 
+    def test_search_suggestions_returns_empty_for_query_too_short(self):
+        response = self.client.get("/api/v2/blog-posts/search_suggestions/", {"q": "f"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
+
     def test_related_action_is_routed_and_returns_category_matches(self):
         related_post = self._make_post("related-post")
         self._attach_category(related_post, self.category)
@@ -166,6 +170,13 @@ class BlogPostPageViewSetRoutedActionsHTTPTestCase(TestCase):
         slugs = {post["slug"] for post in response.json()}
         self.assertIn("related-post", slugs)
         self.assertNotIn("plain-post", slugs)  # self excluded
+
+    def test_related_returns_empty_for_post_with_no_categories_or_tags(self):
+        lonely_post = self._make_post("lonely-post")  # no category/tag attached
+
+        response = self.client.get(f"/api/v2/blog-posts/{lonely_post.id}/related/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
 
 
 class BlogPostPageViewSetOrderingTestCase(TestCase):
@@ -181,7 +192,6 @@ class BlogPostPageViewSetOrderingTestCase(TestCase):
         self.user = User.objects.create_user(
             username="orderingauthor",
             email="ordering@example.com",
-            password="pass",  # pragma: allowlist secret
         )
         root = Page.objects.get(id=1)
         self.blog_index = BlogIndexPage(title="Ordering Blog", slug="ordering-blog")
@@ -228,3 +238,30 @@ class BlogPostPageViewSetOrderingTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         slugs = [post["slug"] for post in response.json()]
         self.assertEqual(slugs, ["newest-post", "middle-post", "oldest-post"])
+
+    def test_recent_tie_breaks_equal_first_published_at_by_id_descending(self):
+        # Two posts with the identical first_published_at — without a
+        # deterministic tie-break (docs/rules/database.md), their relative
+        # order is undefined and can flicker between requests. Assert the
+        # higher-id (more recently created) post sorts first, per
+        # .order_by("-first_published_at", "-id").
+        tied_time = timezone.now() - timedelta(days=1)
+        first = self._make_post("tied-recent-a", tied_time)
+        second = self._make_post("tied-recent-b", tied_time)
+        self.assertGreater(second.pk, first.pk)
+
+        response = self.client.get("/api/v2/blog-posts/recent/")
+        self.assertEqual(response.status_code, 200)
+        slugs = [post["slug"] for post in response.json()]
+        self.assertLess(slugs.index("tied-recent-b"), slugs.index("tied-recent-a"))
+
+    def test_featured_tie_breaks_equal_first_published_at_by_id_descending(self):
+        tied_time = timezone.now() - timedelta(days=1)
+        first = self._make_post("tied-featured-a", tied_time)
+        second = self._make_post("tied-featured-b", tied_time)
+        self.assertGreater(second.pk, first.pk)
+
+        response = self.client.get("/api/v2/blog-posts/featured/")
+        self.assertEqual(response.status_code, 200)
+        slugs = [post["slug"] for post in response.json()]
+        self.assertLess(slugs.index("tied-featured-b"), slugs.index("tied-featured-a"))

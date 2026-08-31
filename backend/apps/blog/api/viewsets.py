@@ -29,11 +29,13 @@ except ImportError:
     Query = None
 
 from ..constants import (
+    FEATURED_POSTS_LIMIT,
     POPULAR_POSTS_DEFAULT_DAYS,
     POPULAR_POSTS_DEFAULT_LIMIT,
     POPULAR_POSTS_MAX_LIMIT,
     RECENT_POSTS_DEFAULT_LIMIT,
     RECENT_POSTS_MAX_LIMIT,
+    RELATED_POSTS_LIMIT,
 )
 from ..models import (
     BlogAuthorPage,
@@ -309,7 +311,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         featured_posts = (
             self.get_queryset()
             .filter(is_featured=True)
-            .order_by("-first_published_at")[:6]
+            .order_by("-first_published_at", "-id")[:FEATURED_POSTS_LIMIT]
         )
 
         serializer = BlogPostPageListSerializer(
@@ -329,7 +331,9 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             return Response({"error": "limit must be an integer"}, status=400)
         if limit <= 0:
             return Response({"error": "limit must be a positive integer"}, status=400)
-        recent_posts = self.get_queryset().order_by("-first_published_at")[:limit]
+        recent_posts = self.get_queryset().order_by("-first_published_at", "-id")[
+            :limit
+        ]
 
         serializer = BlogPostPageListSerializer(
             recent_posts, many=True, context={"request": request}
@@ -460,7 +464,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             .annotate(
                 _comment_count=Count("comments", filter=Q(comments__is_approved=True))
             )
-            .order_by("-first_published_at")
+            .order_by("-first_published_at", "-id")
         )
         categories = BlogCategory.objects.filter(is_featured=True).prefetch_related(
             Prefetch("blogpostpage_set", queryset=posts_qs, to_attr="_prefetched_posts")
@@ -555,7 +559,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
                 _comment_count=Count("comments", filter=Q(comments__is_approved=True))
             )
             .distinct()
-            .order_by("-first_published_at")[:6]
+            .order_by("-first_published_at", "-id")[:RELATED_POSTS_LIMIT]
         )
 
         serializer = BlogPostPageListSerializer(
