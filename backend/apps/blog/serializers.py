@@ -21,6 +21,28 @@ from .models import (
 User = get_user_model()
 
 
+def _absolute_page_url(request, page):
+    """A page's absolute URL, derived from the request's own host (todo 326).
+
+    Mirrors `apps/blog/api/serializers.py`'s helper of the same name: this
+    legacy module's `get_url` methods used to call
+    `request.build_absolute_uri(obj.get_url())` directly, which is exactly
+    the todo-308 landmine — `Page.get_url()` returns an already-absolute,
+    Site-rooted URL once more than one Wagtail `Site` row exists, and
+    `build_absolute_uri()` passes an already-absolute string through
+    unchanged. `get_url_parts()` instead always returns the page's path
+    relative to its own site root, so building the absolute URL from
+    `request` here reflects the actual incoming host regardless of `Site`
+    row count. Returns None if the page isn't routable, or the bare
+    relative path if called with no request.
+    """
+    url_parts = page.get_url_parts(request=request)
+    page_path = url_parts[2] if url_parts else None
+    if not page_path:
+        return None
+    return request.build_absolute_uri(page_path) if request else page_path
+
+
 class BlogCategorySerializer(serializers.ModelSerializer):
     """Serializer for blog categories."""
 
@@ -209,11 +231,8 @@ class BlogPostPageSerializer(TaggitSerializer, serializers.ModelSerializer):
         ]
 
     def get_url(self, obj):
-        """Get the full URL to the blog post."""
-        request = self.context.get("request")
-        if request:
-            return request.build_absolute_uri(obj.get_url())
-        return obj.get_url()
+        """Get the full URL to the blog post (todo 326)."""
+        return _absolute_page_url(self.context.get("request"), obj)
 
     def get_excerpt(self, obj):
         """Get excerpt from introduction or content."""
@@ -267,11 +286,8 @@ class BlogPostListSerializer(serializers.ModelSerializer):
         ]
 
     def get_url(self, obj):
-        """Get the full URL to the blog post."""
-        request = self.context.get("request")
-        if request:
-            return request.build_absolute_uri(obj.get_url())
-        return obj.get_url()
+        """Get the full URL to the blog post (todo 326)."""
+        return _absolute_page_url(self.context.get("request"), obj)
 
     def get_excerpt(self, obj):
         """Get excerpt from introduction."""

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "326"
 tags: [backend, wagtail, api, blog]
@@ -93,14 +93,24 @@ Decide the bigger question first, since it changes the fix entirely:
 
 ## Acceptance Criteria
 
-- [ ] A decision is made and recorded: keep-and-fix, or delete.
-- [ ] If kept: `get_url` no longer calls `build_absolute_uri()` on
+- [x] A decision is made and recorded: keep-and-fix, or delete. **Decision:
+      keep-and-fix** (see Work Log) — `apps/blog/admin_views.py` has a
+      genuine, load-bearing import of `BlogPostPageSerializer`/
+      `BlogCommentSerializer` from this module (a dependency this todo's
+      own Findings section missed), so a clean deletion is a much bigger
+      change than this todo's p3 scope justifies.
+- [x] If kept: `get_url` no longer calls `build_absolute_uri()` on
       `obj.get_url()`'s raw output; a regression test is added.
-- [ ] If deleted: the dead router mount, viewset, and serializer file are
-      removed; confirm no other backend code imports from
-      `apps.blog.serializers` first (`apps/blog/admin_views.py` does —
-      check what it needs before deleting).
-- [ ] No regression in `apps.blog` test suite either way.
+      `apps/blog/serializers.py` now uses a local `_absolute_page_url()`
+      helper (mirrors todo 308's fix) in both `BlogPostPageSerializer.get_url`
+      and `BlogPostListSerializer.get_url`. New test file
+      `apps/blog/tests/test_legacy_serializers_url.py` (2 tests, previously
+      zero coverage on this module) — `python manage.py test
+      apps.blog.tests.test_legacy_serializers_url --keepdb` → `Ran 2 tests
+      ... OK`.
+- [ ] ~~If deleted...~~ N/A — kept, not deleted.
+- [x] No regression in `apps.blog` test suite either way. `python manage.py
+      test apps --noinput` → `Ran 829 tests ... OK (skipped=8)`.
 
 ## Work Log
 
@@ -111,3 +121,60 @@ Decide the bigger question first, since it changes the fix entirely:
   `get_full_url(`, which this file never called). Verified live-routed via
   `urls.py`/`views.py` read; verified zero consumers via repo-wide grep
   across web/mobile/backend. Out of scope for todo 308 — filed separately.
+
+### 2026-08-31 - Started by completing-todos skill (run 2026-08-31-1849)
+
+- Picked up by automated workflow (batched with 324/325/327).
+
+### 2026-08-31 - Findings correction: the live mount points aren't `/blog/posts/`
+
+- This todo's own Findings section claimed the router is "mounted at
+  `path("blog/", include("apps.blog.urls"))`" — reading
+  `plant_community_backend/urls.py` directly shows that path does NOT
+  exist. The actual live mount points are `api/v1/blog/` (current) and
+  `api/` (deprecated, pre-versioning legacy) — i.e. the real routes are
+  `/api/v1/blog/posts/` and `/api/blog/posts/`, not `/blog/posts/`.
+  Corrected in this todo's own tests and evidence below; the underlying
+  "zero consumers, zero test coverage" conclusion is unaffected, just the
+  specific URL was wrong.
+- Re-ran the Railway traffic check against the CORRECT paths (7-day window,
+  `mcp__claude_ai_Railway__http-requests`, tool verified functioning via a
+  positive control against a known-hit path in the same session): zero
+  requests to `/api/v1/blog/` or `/api/blog/` in the full retention window.
+  This corroborates "zero consumers" but is NOT the deciding factor for
+  keep-vs-delete (see next entry) — the `admin_views.py` dependency is.
+
+### 2026-08-31 - Decision: keep and fix, not delete
+
+- `apps/blog/admin_views.py:16` imports `BlogCommentSerializer` and
+  `BlogPostPageSerializer` from `.serializers` (this module) and uses both
+  directly (`admin_views.py:391,400`) — a genuine, load-bearing dependency
+  this todo's own Findings section didn't identify (it only checked
+  `apps.blog.serializers` imports from OUTSIDE the app, missing this
+  same-app import). Deleting this module would require also reworking
+  `admin_views.py` (the staff blog admin dashboard, mounted at
+  `blog-admin/`) — a materially bigger and riskier change than this todo's
+  p3 "fix a landmine" scope. Chose Option 2 (keep-and-fix) accordingly.
+- Fix: added a local `_absolute_page_url()` helper to
+  `apps/blog/serializers.py`, mirroring `apps/blog/api/serializers.py`'s
+  helper of the same name (todo 308's established pattern), and rewrote
+  both `BlogPostPageSerializer.get_url` and `BlogPostListSerializer.get_url`
+  to use it instead of `request.build_absolute_uri(obj.get_url())` directly.
+- Added regression coverage (none existed before, per this todo's own
+  Findings) proving the fix with a real multi-Site HTTP request against the
+  corrected real routes (`/api/v1/blog/posts/`), matching the pattern in
+  `apps/blog/tests/test_n_plus_1.py::test_full_url_is_request_derived_not_settings_based`.
+
+### 2026-08-31 - Completed by completing-todos skill (run 2026-08-31-1849)
+
+- Verification: all Acceptance Criteria evidence quoted above.
+- Review: `code-review-orchestrator` ran on the full batch diff (todos
+  324/325/326/327 as one diff) — 0 critical, 0 high, 1 medium, 1 low, 1
+  info. All three checked against source and found to be false positives
+  (the reviewer misread diff hunk-header line offsets, which it separately
+  flagged as confusing on its own "info" finding): (1) claimed
+  `PlantSpeciesPageViewSet` was still missing `versioning_class` — verified
+  present at `endpoints.py:297`; (2) claimed a stale "pattern above"
+  comment reference — the cited line number doesn't contain that comment
+  at all; the actual comment's "above" reference is correct (`BlogAuthorPageSerializer`
+  precedes `BlogCategoryPageSerializer` in the file). Nothing to repair.
